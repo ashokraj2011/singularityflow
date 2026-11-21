@@ -1755,7 +1755,7 @@ const PAGES = Object.freeze({
       'Report and fix continues through the current sf-code owner. All good is collected from the live human surface.',
       'Images stay local; missing evidence on another laptop is disclosed. Application acceptance does not approve a phase.',
       'Static web preview and retained backend test reports are supported; external-service attestation and EXR remain unsupported.',
-      'runtime-check runs the step\'s published version by its kind of software (web, backend, cli, library), with no model, and keeps what it saw for the review; what cannot run here is named, never a hold.'],
+      'runtime-check runs the step\'s published version by its kind of software (web, backend, cli, library, a job run twice on its sample input, a mobile app launched in a simulator or emulator here), with no model, and keeps what it saw for the review; what cannot run here is named, never a hold.'],
     options: [['--work-id ID', 'The existing Story.'], ['--phase PHASE', 'The code-bearing phase, regardless of its name.'],
       ['--json', 'Return the verified review state.'], ['--action-id ID', 'Retry the same host action without duplicate effects.'],
       ['--revision NUMBER', 'Compare against the reviewed session revision.'], ['--input FILE', 'A bounded observation or repair input; never human acceptance.'],

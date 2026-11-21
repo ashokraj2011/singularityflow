@@ -6,9 +6,11 @@
  *   backend  start the service, then call each changed endpoint (runtime-check-backend.mjs); the API contract against
  *            the base is compared even when it cannot start;
  *   cli      run each declared command with --help and a bad argument (runtime-check-cli.mjs);
- *   library  compare its public API with the base (runtime-check-library.mjs).
- * Job, mobile and artifact say what is missing to run them. The check is on while the Story's applicationReview is
- * optional or required; Stage 2's profiles set that by kind later.
+ *   library  compare its public API with the base (runtime-check-library.mjs);
+ *   job      run its start entry twice on the repository's sample input in a temporary copy (runtime-check-job.mjs);
+ *   mobile   launch its build in an iOS Simulator or Android emulator on this laptop (runtime-check-mobile.mjs).
+ * An artifact says what is missing to run it. The check is on while the Story's applicationReview is optional or
+ * required; Stage 2's profiles set that by kind later.
  *
  * It is SFlow's own work: no model, the same on every host. It never blocks for its own environment: what cannot run
  * on this laptop (no start entry, a secret, no browser) is named in `missing`, with the command that provides it, and
@@ -207,9 +209,83 @@ async function libraryCheck(root, project, { base, paths, tracked }) {
     ...(name ? { tryIt: { kind: 'library', snippet: `import * as library from '${name}';\nconsole.log(Object.keys(library));` } } : {}) };
 }
 
+/** A shell line a person can paste: each word quoted when it needs it. */
+const shellLine = (argv) => argv.map((word) => (/^[\w@%+=:,./-]+$/u.test(word) ? word : `'${String(word).replace(/'/gu, "'\\''")}'`)).join(' ');
+
+/**
+ * A batch job: its start entry (a command, or the one its typed run configuration names) run twice on the repository's
+ * sample or fixture input, in a temporary copy of the project (runtime-check-job.mjs). A crash, a non-zero exit or
+ * different output on the second run is a breaks-use finding; what this laptop lacks to run it is `missing`.
+ */
+async function jobCheck(root, project, { policy, deadline, tracked }) {
+  const notAvailable = (missing) => ({ status: 'not-available', ran: [], findings: [], missing });
+  let context;
+  try { context = await (await import('./capability-application-context.mjs')).resolveCapabilityApplication(root, { subjectPath: project.root || '' }); }
+  catch (error) { return notAvailable([{ what: 'this checkout\'s application', why: String(error?.message ?? error).split('\n')[0], command: 'singularity-flow app plan --json' }]); }
+  const entry = projectEntry(context, project, policy);
+  if (!entry) return notAvailable([{ what: 'a saved start entry', why: 'SFlow runs the job the way its start entry does, and it has none.', command: 'singularity-flow app suggest --json', copilotCommand: '/sf-run-app suggest' }]);
+  const [job, { resolveStartCommand, runConfigurationPaths }, { resolvePlatformProcess }, { terminateProcessTree, withoutHostSurfaceVariables }, os, fs] = await Promise.all([
+    import('./runtime-check-job.mjs'), import('./run-configurations.mjs'), import('./platform-process.mjs'), import('./quality-command-runner.mjs'), import('node:os'), import('node:fs/promises')]);
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'sflow-runtime-job-'));
+  try {
+    const [copy, own, temporary] = ['project', 'private', 'tmp'].map((name) => path.join(scratch, name));
+    for (const folder of [copy, own, temporary]) await fs.mkdir(folder, { recursive: true });
+    const command = resolveStartCommand(entry, null, { paths: runConfigurationPaths(own, entry.id) });
+    for (const file of command.files ?? []) { await fs.mkdir(path.dirname(file.path), { recursive: true }); await fs.writeFile(file.path, file.content, { mode: 0o600 }); }
+    const copied = await job.copyProject(root, tracked, { folder: project.root ?? '', workingDirectory: entry.workingDirectory, argv: command.argv, target: copy });
+    if (copied.tooLarge) {
+      return notAvailable([{ what: 'a copy of the project to run the job in', why: `The project is too large to copy into a temporary folder (${copied.tooLarge}). Run it twice on its sample input yourself and compare the output and exit status.` }]);
+    }
+    const within = (folder) => path.join(copy, folder === '.' ? '' : folder);
+    const cwd = within(entry.workingDirectory);
+    await fs.mkdir(cwd, { recursive: true });
+    const env = { ...withoutHostSurfaceVariables(process.env), ...command.env, TMPDIR: temporary, TMP: temporary, TEMP: temporary, CI: '1', NO_COLOR: '1' };
+    delete env.NODE_TEST_CONTEXT;
+    for (const [name, value] of Object.entries(command.appendEnv ?? {})) env[name] = String(env[name] ?? '').trim() ? `${env[name]} ${value}` : value;
+    const launch = (argv, folder) => { const resolved = resolvePlatformProcess(argv[0], argv.slice(1), { environment: env, cwd: folder }); return [resolved.executable, ...resolved.arguments]; };
+    const terminate = (pid) => terminateProcessTree(pid, 'SIGKILL');
+    const remaining = () => deadline - Date.now();
+    for (const [index, step] of (command.beforeLaunch ?? []).entries()) {
+      const folder = within(step.workingDirectory);
+      const result = await job.runJobOnce(launch(step.argv, folder), { cwd: folder, env, timeoutMs: Math.min(step.timeoutMs, Math.max(1_000, remaining())), terminate });
+      if (result.timedOut || result.code !== 0) {
+        return notAvailable([{ what: `the job's before-launch step ${index + 1} (${shellLine(step.argv)})`, why: result.timedOut ? 'It did not finish in time.' : `It exited ${result.code ?? result.signal ?? result.error}.`,
+          command: `singularity-flow app start ${entry.id}`, ...(result.stderr.trim() ? { log: result.stderr.trim().split('\n').slice(-12).join('\n') } : {}) }]);
+      }
+    }
+    const input = job.sampleInputs(tracked, project.root ?? '')[0] ?? null;
+    const perRun = Math.max(2_000, Math.min(120_000, Math.floor(remaining() / 2)));
+    const once = () => job.runJobOnce(launch(command.argv, cwd), { cwd, env, stdinFile: input ? path.join(copy, input) : null, timeoutMs: perRun, terminate });
+    const late = (which) => notAvailable([{ what: `the job (start entry ${entry.id}) finishing in time`, why: `Its ${which} run did not finish within ${Math.round(perRun / 1000)} seconds${input ? ` on ${input}` : ''}, so it was stopped. Run it twice yourself and compare the output and exit status.`,
+      command: `singularity-flow app start ${entry.id}` }]);
+    const first = await once();
+    if (first.timedOut) return late('first');
+    const firstOutputs = await job.folderOutputs(copy);
+    const firstFailed = Boolean(first.error || first.signal || first.code !== 0);
+    const second = firstFailed ? null : await once();
+    if (second?.timedOut) return late('second');
+    const secondOutputs = second ? await job.folderOutputs(copy) : firstOutputs;
+    const findings = job.jobFindings(entry.id, first, second ?? first, { firstOutputs, secondOutputs, folder: copy, input });
+    const from = entry.workingDirectory === '.' ? '' : entry.workingDirectory;
+    const line = `${from ? `cd ${shellLine([from])} && ` : ''}${shellLine(command.argv)}${input ? ` < ${shellLine([path.posix.relative(from || '.', input)])}` : ''}`;
+    return { status: 'ran', missing: [], findings,
+      ran: [`ran start entry ${entry.id} ${second ? 'twice' : 'once (it failed, so not again)'} ${input ? `on ${input}` : 'with no input (the repository has no sample or fixture input)'} in a temporary copy of the project`],
+      observed: { entry: entry.id, input, runs: [first, ...(second ? [second] : [])].map(({ code, signal }) => ({ code, signal })) },
+      tryIt: { kind: 'job', commands: [line] } };
+  } finally {
+    await (await import('./runtime-check-job.mjs')).removeCopy(scratch);
+  }
+}
+
+/** A mobile app: its own build launched in an iOS Simulator or Android emulator on this laptop (runtime-check-mobile.mjs). */
+async function mobileCheck(root, project, { deadline, tracked, mobileLauncher }) {
+  const mobile = await import('./runtime-check-mobile.mjs');
+  const folder = project.root ?? '';
+  const texts = await filesAt(root, 'HEAD', mobile.mobileTextFiles(tracked, folder));
+  return mobile.checkMobileApp(root, { tracked, folder, texts, deadline, ...(mobileLauncher ? { launcher: mobileLauncher, home: mobileLauncher.home ?? null } : {}) });
+}
+
 const NOT_BUILT = Object.freeze({
-  job: 'Run it twice on the repository\'s sample input in a temporary folder and compare the output and exit status.',
-  mobile: 'Launch it in a simulator or emulator and walk its main flow, in portrait and landscape.',
   artifact: 'Validate or dry-run it (terraform validate and plan, kubectl apply --dry-run=server, or the migration tool\'s dry run).'
 });
 
@@ -225,9 +301,9 @@ function numbered(checks) {
 /**
  * Run the check for `phaseId`'s published version and keep its capture, or return the one already kept for what this
  * version delivered (`again` runs it anew). Returns `{ status: 'off' }` while the Story does not adopt it. Never throws for what
- * the laptop lacks: that is the capture's `missing`. `launchBrowser` and `deadlineMs` are for tests.
+ * the laptop lacks: that is the capture's `missing`. `launchBrowser`, `mobileLauncher` and `deadlineMs` are for tests.
  */
-export async function runRuntimeCheck(root, config, workflow, phaseId, { again = false, launchBrowser = null, deadlineMs = null } = {}) {
+export async function runRuntimeCheck(root, config, workflow, phaseId, { again = false, launchBrowser = null, mobileLauncher = null, deadlineMs = null } = {}) {
   const phase = workflow?.phases?.[phaseId];
   if (!runtimeCheckAdopted(workflow)) return { status: 'off', words: 'This Story does not run the runtime check: its applicationReview is off.' };
   const { phaseRequiresCodeDelivery } = await import('./code-delivery-policy.mjs');
@@ -258,7 +334,9 @@ export async function runRuntimeCheck(root, config, workflow, phaseId, { again =
         : project.kind === 'backend' ? await backendCheck(root, project, { policy, deadline, base, paths, tracked })
           : project.kind === 'cli' ? await cliCheck(root, project, { deadline })
             : project.kind === 'library' ? await libraryCheck(root, project, { base, paths, tracked })
-              : { status: 'not-available', ran: [], findings: [], missing: [{ what: `SFlow's ${project.kind} check`, why: `SFlow does not run a ${project.kind} yet. ${NOT_BUILT[project.kind]}` }] };
+              : project.kind === 'job' ? await jobCheck(root, project, { policy, deadline, tracked })
+                : project.kind === 'mobile' ? await mobileCheck(root, project, { deadline, tracked, mobileLauncher })
+                  : { status: 'not-available', ran: [], findings: [], missing: [{ what: `SFlow's ${project.kind} check`, why: `SFlow does not run ${project.kind === 'artifact' ? 'infrastructure files' : `a ${project.kind}`} yet. ${NOT_BUILT[project.kind] ?? ''}`.trim() }] };
       checks.push({ ...common, ...run });
     } catch (error) {
       // The check's own failure is reported, never the step's: it says what went wrong and blocks nothing.
@@ -323,7 +401,7 @@ export async function runtimeTryItView(root, workflow, phaseId) {
   const first = ways[0];
   const line = first?.kind === 'web' ? `Optional: try it at ${first.url} (start it with ${first.start.copilotCommand}).`
     : first?.kind === 'backend' ? `Optional: try it with ${first.requests.length} ready request${first.requests.length === 1 ? '' : 's'} against ${first.baseUrl} (start it with ${first.start.copilotCommand}).`
-      : first?.kind === 'cli' ? `Optional: try it with ${first.commands[0]}.` : first?.kind === 'library' ? 'Optional: try it with the usage snippet in tryIt.' : null;
+      : first?.commands?.length ? `Optional: try it with ${first.commands[0]}.` : first?.kind === 'library' ? 'Optional: try it with the usage snippet in tryIt.' : null;
   return { optional: true, recordsAcceptance: false, phase: phaseId, generation: capture.generation, current: capture.current,
     words: runtimeCheckWords(capture), ways, ...(line ? { line } : {}),
     ...(capture.kinds?.question ? { kindQuestion: capture.kinds.question, kindRoute: { command: 'singularity-flow capability kind --json' } } : {}) };

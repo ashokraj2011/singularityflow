@@ -17,6 +17,7 @@ import { approvalBlockingCommits, approvalBlockingCommitsHtml, approvalHoldsHtml
   navigationTarget, nonce, page, type EvidenceConsistencyPresentation } from './webview.ts';
 import { approvalHolds } from './approvals-model.ts';
 import { APPROVAL_STATE_PILL, guardCardText, type ApprovalStanding, type GuardCardRead } from './sf-guard-model.ts';
+import { TRY_IT_STYLE, tryItCopyText, tryItHtml, tryItOpenUrl, type TryItView } from './try-it.ts';
 
 export const APPROVAL_DECISIONS = ['satisfied', 'exception', 'not-applicable'] as const;
 export type ApprovalChecklistDecision = {
@@ -120,6 +121,11 @@ export interface ApprovalReviewRequest {
    * `details.disputes`): the approver decides with it in view, and may still send the step back [owner, 2026-11-20].
    */
   disputes?: Array<{ finding: string; words: string }> | null;
+  /**
+   * A code step's ready ways to try this version, from SFlow's runtime check of it (`tryIt` of `review --format json`,
+   * step intents spec §12.5): a URL, requests, commands or a snippet. Optional: it records and holds nothing.
+   */
+  tryIt?: TryItView | null;
 }
 
 /** "Approve Requirements v1", the one choice that approves; the question is the same words with a question mark. */
@@ -540,6 +546,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
     <button type="button" class="secondary" data-test-summary>Open test summary</button>
     <span class="muted">Every test case of this step's run, opened beside this review.</span>
   </section>` : '';
+  const tryIt = tryItHtml(request.tryIt, (action, way, entry) => `data-try="${action}" data-try-way="${way}" data-try-entry="${entry}"`);
   return `<form class="approval-form" data-expected="${escape(request.expected)}">
     <div class="approval-review-content" tabindex="0" aria-label="Approval review details"><header>
       <h1>${escape(approvalChoice(request))}?</h1>
@@ -547,7 +554,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
     </header>
     <div class="review-binding approval-binding">${binding}</div>
     ${approvalCoversHtml(request.covers)}${approvalDisputesHtml(request.disputes)}
-    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${carried}${tests}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
+    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${carried}${tests}${tryIt}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${decideHere}${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>${escape(approvalChoice(request))}?</h2>
@@ -598,7 +605,7 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .form-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:0; padding:.6rem 0; border-top:var(--sf-border); background:var(--vscode-editor-background); }
 .approval-progress { flex-basis:100%; margin:0; font-size:.85rem; }
 .sfg-card { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; margin:.4rem 0; padding:.6rem .75rem; border:var(--sf-border); border-radius:var(--sf-radius); }
-`;
+${TRY_IT_STYLE}`;
 
 export const REVIEW_SCRIPT = `
 (function () {
@@ -747,6 +754,13 @@ export const REVIEW_SCRIPT = `
   if (decide) decide.addEventListener('click', function () { window.__sfVscode.postMessage({ type: 'approval.decide' }); });
   const tests = form.querySelector('[data-test-summary]');
   if (tests) tests.addEventListener('click', function () { window.__sfVscode.postMessage({ type: 'approval.testSummary' }); });
+  // Try it: only which way and which entry; the panel looks the address or the text up in what it loaded.
+  Array.from(form.querySelectorAll('[data-try]')).forEach(function (button) {
+    button.addEventListener('click', function () {
+      window.__sfVscode.postMessage({ type: 'approval.tryIt', action: button.dataset.try,
+        way: Number(button.dataset.tryWay), entry: Number(button.dataset.tryEntry) });
+    });
+  });
   form.addEventListener('submit', function (event) {
     event.preventDefault();
     sync();
@@ -811,6 +825,18 @@ export function collectApprovalReview(
       'approval.testSummary': () => {
         if (!request.testRun) return;
         void vscode.commands.executeCommand('singularityFlow.testSummary', { workId: request.workId, phase: request.phaseId, beside: true });
+      },
+      // Optional, and never a reason to stop: it opens or copies what the panel loaded, and records nothing.
+      'approval.tryIt': (message) => {
+        const way = typeof message.way === 'number' && Number.isInteger(message.way) ? message.way : null;
+        const entry = typeof message.entry === 'number' && Number.isInteger(message.entry) ? message.entry : null;
+        if (message.action === 'open') {
+          const url = tryItOpenUrl(request.tryIt, way);
+          if (url) void vscode.env.openExternal(vscode.Uri.parse(url));
+          return;
+        }
+        const copied = message.action === 'copy' ? tryItCopyText(request.tryIt, way, entry) : null;
+        if (copied) void vscode.env.clipboard.writeText(copied).then(() => vscode.window.setStatusBarMessage('$(clippy) Copied. Paste it in a terminal to try the change.', 4_000));
       },
       'approval.submit': (message) => {
         const checked = validateApprovalReviewSubmission(request, message);

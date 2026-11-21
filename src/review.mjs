@@ -162,10 +162,14 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   const identityKey = actor => actor?.login ?? actor?.email ?? actor?.name ?? null;
   const reviewerSelfApproval = Boolean(identityKey(phase.generatedBy))
     && identityKey(phase.generatedBy) === identityKey(reviewer);
+  // A code step's ready ways to try this version, from SFlow's runtime check of it (step intents §12.5), for the
+  // approval page: optional, never a hold, absent when the version has no check kept on this checkout.
+  const tryIt = (await import('./code-delivery-policy.mjs')).phaseRequiresCodeDelivery(phase)
+    ? await (await import('./runtime-check.mjs')).runtimeTryItView(root, workflow, phase.id).catch(() => null) : null;
 
   return {
     schemaVersion: 1, generatedAt: new Date().toISOString(), workItem: workflow.workItem, branch: branch(root), workflowStatus: workflow.status,
-    specificationQuality, witnessReview, markers, priorExceptions, reviewerSelfApproval,
+    specificationQuality, witnessReview, markers, priorExceptions, reviewerSelfApproval, ...(tryIt ? { tryIt } : {}),
     evidenceConsistency: await (await import('./evidence-consistency-read.mjs')).readEvidenceConsistency(
       root, config, workflow, phase, { documents: artifact ? [artifact] : [] }),
     /**

@@ -126,6 +126,7 @@ async function approvalPage() {
   const exports = {};
   const approvalsModel = await import('../apps/vscode/src/views/approvals-model.ts');
   const sfGuardModel = await import('../apps/vscode/src/views/sf-guard-model.ts');
+  const tryIt = await import('../apps/vscode/src/views/try-it.ts');
   const context = vm.createContext({ exports, Date, require(name) {
     if (name === 'vscode') return {};
     if (name === './messages.ts') return messages;
@@ -133,6 +134,7 @@ async function approvalPage() {
     if (name === './navigate.ts') return { navigateTo() {} };
     if (name === './approvals-model.ts') return approvalsModel;
     if (name === './sf-guard-model.ts') return sfGuardModel;
+    if (name === './try-it.ts') return tryIt;
     throw new Error(`Unexpected dependency: ${name}`);
   } });
   vm.runInContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, context);

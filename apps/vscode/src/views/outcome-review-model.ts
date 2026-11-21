@@ -2,6 +2,8 @@
  * The outcome review as the panel reads it: `singularity-flow outcome --json`, checked before it is
  * shown. No process or repository operation lives here.
  */
+import { tryItOf, type TryItView } from './try-it.ts';
+
 export interface OutcomeTest { test: string | null; file: string | null; outcome: string | null; status: string | null }
 export interface OutcomeCheck {
   slot: string; method: string; role: string | null; status: string | null; reference: string | null;
@@ -32,6 +34,8 @@ export interface OutcomeView {
   repairCopilot?: string | null;
   applicationReview?: { required: boolean; sessionId: string | null };
   validation?: DeliveryValidation;
+  /** The ready ways to try this version, from SFlow's runtime check of it (step intents §12.5). Optional. */
+  tryIt?: TryItView | null;
 }
 
 const text = (value: unknown): value is string => typeof value === 'string';
@@ -76,6 +80,7 @@ export function outcomeView(raw: unknown): OutcomeView | null {
       scopeItems: Array.isArray(open.scopeItems) ? open.scopeItems.filter((item: OutcomeScopeItem) => item && text(item.id) && text(item.command)) : [],
       blocking: Array.isArray(open.blocking) ? open.blocking.filter((finding: { code: string; message: string }) => finding && text(finding.message)) : []
     },
+    ...(tryItOf(data.tryIt) ? { tryIt: tryItOf(data.tryIt) } : {}),
     ...(data.applicationReview ? { applicationReview: { required: data.applicationReview.required === true, sessionId: text(data.applicationReview.sessionId) ? data.applicationReview.sessionId : null } } : {}),
     testsCommand: text(data.routes?.tests?.command) ? data.routes.tests.command : null,
     testsPhase: text(data.validation?.tests?.phase) ? data.validation.tests.phase : null,

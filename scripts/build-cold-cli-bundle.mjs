@@ -55,7 +55,13 @@ const FAMILIES = Object.freeze([
   // phase review caused every nextsteps call to load document, receipt and lifecycle writers.
   ['narrow-reads', ['commands/nextsteps.mjs', 'commands/status-details.mjs', 'commands/session-current.mjs',
     'accepted-story-execution.mjs', 'story-workflow-read.mjs',
-    'commands/review-source.mjs', 'source-review-agent-context.mjs', 'story-publication-pending.mjs']],
+    'commands/review-source.mjs', 'source-review-agent-context.mjs', 'story-publication-pending.mjs',
+    // Step intents' derivation, which configuration (in this chunk) imports for a workflow.yml that opts in
+    // (config.mjs loadStepIntentSettings). Since the shipped workflow.yml says what each step is for (Stage 4) nearly
+    // every repository opts in: in the catalogs chunk, every command that loads configuration (nextsteps, phase show)
+    // also loaded its 733 KB, about 29 ms against 5 ms for the derivation alone, measured 2026-11-21. Here it adds
+    // about 31 KB to the chunk configuration is in, and no file.
+    'step-intent-settings.mjs']],
   ['light', ['commands/about.mjs', 'commands/ui.mjs', 'commands/update.mjs', 'commands/pause.mjs', 'commands/workspace.mjs', 'commands/capability.mjs',
     // Optional exact context/provenance reads must not fall through to compatibility. Keep their
     // dynamic ownership out of every hook/output helper's static closure and its existing ceiling.
@@ -76,10 +82,9 @@ const FAMILIES = Object.freeze([
     'accounting-projection.mjs',
     'commands/skill.mjs', 'commands/skill-master.mjs', 'commands/instruction.mjs', 'asset-catalog.mjs',
     'configuration-drafts.mjs', 'logging.mjs', 'harness-events.mjs',
-    // Step intents: the derivation configuration imports only for a workflow.yml that opts in (config.mjs
-    // loadStepIntentSettings), the inference and `workflow check --settings`. Unclaimed, the opt-in import would load
-    // the compatibility chunk; here a workflow without intents never loads them.
-    'step-intent-settings.mjs', 'step-intents.mjs', 'workflow-step-settings.mjs']],
+    // Step intents: the inference and `workflow check --settings` (the derivation they read comes with configuration,
+    // in narrow-reads). Unclaimed, they would load the compatibility chunk.
+    'step-intents.mjs', 'workflow-step-settings.mjs']],
   // Preserve existing read-family ownership before claiming the focused mutation closure.
   // One additional coarse file avoids loading the legacy generation/model engine on first writes.
   // The ordinary product requirement verdict must not import the entire phase/installer family.

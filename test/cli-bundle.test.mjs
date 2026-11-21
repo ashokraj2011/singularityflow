@@ -612,6 +612,11 @@ export async function load(url, context, next) {
     if (args[0] === '--version') assert.ok(bundled.modules.length <= 8, 'version only loads core');
     if (['snapshot', 'nextsteps', 'home', 'inbox'].includes(args[0])) assert.ok(!bundled.modules.some(url => url.endsWith('/cold-compatibility.mjs')),
       `${args[0]} must not load the general compatibility handler`);
+    // The fixture's workflow.yml says what each step is for, as every new repository's does: the derivation comes with
+    // configuration's own chunk, never with the catalogs (Stage 4).
+    if (['nextsteps', 'status'].includes(args[0])) {
+      assert.ok(!bundled.modules.some(url => url.endsWith('/cold-catalogs.mjs')), `${args[0]} must not load the catalogs for the derivation`);
+    }
     if (['agents', 'workflow', 'skill', 'instruction'].includes(args[0]) && ['list', 'mappings', 'status'].includes(args[1])) {
       for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs']) {
         assert.ok(!bundled.modules.some(url => url.endsWith('/' + name)), `${args.join(' ')} must not load ${name}`);

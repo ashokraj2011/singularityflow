@@ -513,7 +513,11 @@ export async function releaseDraftTemplate(t, { verdict = 'matched' } = {}) {
   const todoRow = (clause) => `| \`${clause}\` | TODO: exact source/test evidence | TODO: matched/partial/missing/deviated/unplanned |`;
   const filled = (clause) => `| \`${clause}\` | \`test/value.test.mjs\`, the run reused on this source tree | ${verdict} |`;
   let text = await readFile(report, 'utf8');
+  // SFlow writes the report from its records (record-documents.mjs); this author states `verdict` of every clause
+  // over its rows, which makes the report theirs.
+  const sflowRow = (clause) => new RegExp(`^\\| \`${clause}\` \\|.*$`, 'mu');
   if (story.clauses.every((clause) => text.includes(todoRow(clause)))) for (const clause of story.clauses) text = text.replace(todoRow(clause), filled(clause));
+  else if (story.clauses.every((clause) => sflowRow(clause).test(text))) for (const clause of story.clauses) text = text.replace(sflowRow(clause), filled(clause));
   else text = text.replace(sample, story.clauses.map(filled).join('\n'));
   await writeFile(report, text
     .replace(/TODO:[^\n]*/gu, `Compared ${story.clauses.join(' and ')} against the recorded run.`).replace(/\bTODO\b/gu, 'none'));

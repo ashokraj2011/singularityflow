@@ -2672,6 +2672,10 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         bytes: Buffer.byteLength(authored)
       };
     }
+    // A record document SFlow writes from its own records, its template already the authoring baseline [owner, 2026-11-21].
+    if (!binaryArtifact && !artifactExistedBeforePreparation && phase.generationPolicy?.producer !== 'deterministic') {
+      await (await import('./record-documents.mjs')).writeRecordDocument(root, config, workflow, phase, { stage: 'prepare', artifactPath: target });
+    }
     if (phase.kind === 'skill'
         || (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length)) {
       const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
@@ -3848,6 +3852,10 @@ export async function publishGeneration(root, config, workflow, {
   // The convergence body is a byte-for-byte kernel projection and may legitimately quote text such
   // as "TODO remains" from evidence. Its exact projection check above supersedes human-template
   // placeholder heuristics; asking a user to edit those bytes would itself violate the contract.
+  // A record document SFlow wrote is written again from the records now, while nobody edited it [owner, 2026-11-21].
+  const recordDocument = deterministicConvergence ? null : await import('./record-documents.mjs');
+  const recordDocumentPath = path.join(root, requiredRepoPath(config, workflow, phase));
+  if (recordDocument) await recordDocument.writeRecordDocument(root, config, workflow, phase, { stage: 'publish', artifactPath: recordDocumentPath });
   const contentFindings = deterministicConvergence
     ? []
     : await inspectPhaseAuthoredReviewContent(root, config, workflow, phase,
@@ -3917,6 +3925,8 @@ export async function publishGeneration(root, config, workflow, {
   let dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
   // A non-code step runs or reuses the repository's tests here, so its document can cite its own run [CQF:REQ-012].
   const repositoryRuns = deliveryPreflight ? null : await (await import('./verification/repository-tests.mjs')).preflightRepositoryTests(root, config, workflow, phase, localTestRunKernel);
+  // The record document cites the runs this publication made or reused, as SFlow wrote it before them.
+  if (repositoryRuns && recordDocument) await recordDocument.writeRecordDocument(root, config, workflow, phase, { stage: 'publish', artifactPath: recordDocumentPath, ownRuns: repositoryRuns });
   // Execute the exact structured test command before consuming the generation intent. Submission
   // reuses this run while nothing it depends on moved [TCE:REQ-080], and command inference, test discovery, and
   // result-adapter incompatibility must be found while the current generation is still editable.

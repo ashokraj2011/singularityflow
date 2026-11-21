@@ -177,7 +177,8 @@ test('workflow help distinguishes linked copy from independent duplication', () 
 
 test('workflow help shows the check that explains a workflow and says what does not make sense', () => {
   const page = renderCommandHelp('workflow');
-  assert.match(page, /workflow check \[WORKFLOW\] \[--change-set FILE\|-\] \[--json\]/);
+  assert.match(page, /workflow check \[WORKFLOW\] \[--change-set FILE\|-\] \[--settings\] \[--json\]/);
+  assert.match(page, /workflow build intents --build ID \[--intent STEP=INTENT\]\.\.\. \[--rule WAY\] \[--confirm CODE\]/);
   assert.match(page, /explain each workflow in plain words and list what does not make sense/);
   assert.match(page, /workflow build start \[--change ID \| --from-workflow ID\] \[--folder DIR\]\.\.\. \[--file FILE\]\.\.\. \[--notes FILE\|-\]\.\.\./);
   assert.match(page, /workflow build add --build ID/);

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { SingularityFlowError, commandLineFile, optionBoolean, optionString, optionStrings } from '../util.mjs';
 
 const OPTIONS = {
-  start: new Set(['change', 'from-workflow', 'folder', 'file', 'notes', 'describe', 'name', 'simplify', 'assess', 'json']),
+  start: new Set(['change', 'from-workflow', 'folder', 'file', 'notes', 'describe', 'name', 'simplify', 'assess', 'intents', 'json']),
   add: new Set(['build', 'folder', 'file', 'notes', 'json']),
   status: new Set(['build', 'json']),
   propose: new Set(['build', 'proposal', 'by', 'accept', 'json']),
@@ -17,6 +17,7 @@ const OPTIONS = {
   decide: new Set(['build', 'proposal', 'accept', 'decline', 'reason', 'all', 'json']),
   answer: new Set(['build', 'question', 'choice', 'json']),
   check: new Set(['build', 'include', 'json']),
+  intents: new Set(['build', 'intent', 'rule', 'confirm', 'json']),
   verify: new Set(['build', 'json']),
   finish: new Set(['build', 'propose', 'out', 'accept-problem', 'json']),
   export: new Set(['build', 'out', 'json']),
@@ -169,6 +170,27 @@ function printChanges(changes) {
   for (const decision of changes.decisions.removed) console.log(`  removed  decision after ${decision.after}: ${decision.label}`);
 }
 
+/** What each step is for (step intents §6.4): every row with its badge and consequences, the facts, and the next command. */
+function printIntents(table, { heading = true } = {}) {
+  if (heading) console.log(`What each step of ${table.workflow} is for:`);
+  for (const row of table.rows) {
+    console.log(`  ${row.label}: ${row.intent} (${row.intentLabel.toLowerCase()})  [${row.badgeText}]  ${row.consequences.join(' · ')}`);
+    console.log(`      Why: ${row.why}`);
+    if (!row.question) continue;
+    console.log(`      ${row.question.question}`);
+    for (const choice of row.question.choices) console.log(`        ${choice.text}: ${choice.command}`);
+  }
+  for (const line of table.facts.lines) console.log(`  ${line}`);
+  for (const question of table.questions) {
+    console.log(`  ${question.question}`);
+    for (const choice of question.choices) console.log(`    ${choice.label}: ${choice.command}`);
+  }
+  for (const problem of table.problems) console.log(`  problem  ${problem.message} ${problem.fix}`);
+  if (table.confirmed) console.log('  Confirmed: every step says what it is for.');
+  else if (table.confirmCommand) console.log(`  Confirm this table (code ${table.code}): ${table.confirmCommand}`);
+  else if (table.open) console.log(`  ${table.open} ${table.open === 1 ? 'answer is' : 'answers are'} needed above before you confirm.`);
+}
+
 function printCheck(result) {
   console.log(`${result.draft.workflow.label} (${result.build.workflow}): ${result.explanation?.summary ?? `${result.draft.workflow.phases.length} steps so far.`}`);
   const changeImpact = result.preview?.workflows?.[0]?.changeImpact;
@@ -184,6 +206,9 @@ function printCheck(result) {
     console.log(`     ${parts.join(' · ')}. ${step.signOff}`);
   }
   printChanges(result.changes);
+  if (result.intents?.required && !result.intents.confirmed) {
+    console.log(`  What each step is for: ${result.intents.open ? `${result.intents.open} ${result.intents.open === 1 ? 'row needs' : 'rows need'} your answer, then confirm` : 'confirm the table'}: ${result.intents.show}`);
+  }
   for (const problem of result.plan.problems) console.log(`  problem  ${problem.message}`);
   for (const finding of result.findings) {
     console.log(`  ${SEVERITY[finding.severity].padEnd(8)} ${finding.title}${finding.location ? `  (${finding.location.file}${finding.location.line ? `:${finding.location.line}` : ''})` : ''}`);
@@ -201,7 +226,8 @@ function printCheck(result) {
   if ((result.simplify || result.assess) && result.ready) return console.log(`No problem in the check. Before finishing, verify it: ${(result.simplify ?? result.assess).verify}`);
   console.log(result.ready ? 'Ready to finish: singularity-flow workflow build finish --build ' + result.build.id + ' --propose'
     : result.unchanged ? 'Not ready to finish: nothing is changed yet.'
-      : `Not ready to finish: ${result.counts.problem} problem${result.counts.problem === 1 ? '' : 's'}${result.questions.some((question) => question.blocking) ? ', questions waiting for an answer' : ''}.`);
+      : result.counts.problem === 0 && result.intents?.required && !result.intents.confirmed ? `Not ready to finish: confirm what each step is for first: ${result.intents.show}`
+        : `Not ready to finish: ${result.counts.problem} problem${result.counts.problem === 1 ? '' : 's'}${result.questions.some((question) => question.blocking) ? ', questions waiting for an answer' : ''}.`);
 }
 
 async function engineAction(action, { options, root, json, buildId, api, labels }) {
@@ -211,6 +237,22 @@ async function engineAction(action, { options, root, json, buildId, api, labels 
     const result = await engine.checkBuild(id, { root, include: optionString(options, 'include') ?? null });
     if (json) return console.log(JSON.stringify({ ...result, proposalPath: await issueProposalPath(id, root) }, null, 2));
     return printCheck(result);
+  }
+  if (action === 'intents') {
+    const set = optionStrings(options, 'intent').map((value) => {
+      const match = /^([a-z0-9]+(?:-[a-z0-9]+)*)=([a-z]+)$/u.exec(value);
+      if (!match) refuse(`--intent takes STEP=INTENT, such as --intent run-checks=test; '${value}' is not that.`);
+      return { step: match[1], intent: match[2] };
+    });
+    const rule = optionString(options, 'rule') ?? null;
+    const confirm = optionString(options, 'confirm') ?? null;
+    if (set.length || rule != null || confirm != null) await engine.settleBuildIntents(id, { set, rule, confirm, root });
+    const result = await engine.checkBuild(id, { root });
+    if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'workflow-build-intents', build: result.build, intents: result.intents ?? null, ready: result.ready }, null, 2));
+    if (!result.intents) return console.log(`Build ${id} has no steps yet; accept a proposal that adds them first: singularity-flow workflow build check --build ${id}`);
+    printIntents(result.intents);
+    if (result.intents.confirmed) console.log(result.ready ? `Ready to finish: singularity-flow workflow build finish --build ${id} --propose` : `Next: singularity-flow workflow build check --build ${id}`);
+    return;
   }
   if (action === 'source') {
     const from = optionString(options, 'from');
@@ -304,7 +346,7 @@ export async function run(argv, { positionals, options }) {
     return;
   }
   const buildId = () => optionString(options, 'build') ?? refuse(`Name the build: workflow build ${action} --build <ID>.`);
-  if (['propose', 'decide', 'answer', 'check', 'verify', 'finish', 'source'].includes(action)) return engineAction(action, { options, root, json, buildId, api, labels });
+  if (['propose', 'decide', 'answer', 'check', 'intents', 'verify', 'finish', 'source'].includes(action)) return engineAction(action, { options, root, json, buildId, api, labels });
   if (action === 'export') {
     // One file to go on with the build on another computer: its record and screened copies.
     const id = buildId();
@@ -328,8 +370,11 @@ export async function run(argv, { positionals, options }) {
     // --assess ID: that workflow changed in place with the assessment's suggestions (src/workflow-assess/offer.mjs).
     const assess = options.assess === undefined ? null : optionString(options, 'assess') ?? refuse('Name the workflow to assess: --assess <ID>.');
     if (assess && (simplify || options['from-workflow'] !== undefined || options.change !== undefined)) refuse('--assess ID changes that workflow itself; leave out --simplify, --from-workflow and --change.');
-    record = await api.startWorkflowBuild({ root, fromWorkflow: simplify ?? optionString(options, 'from-workflow') ?? null, change: assess ?? optionString(options, 'change') ?? null, ...(await material()),
-      describe: optionString(options, 'describe') ?? null, name: optionString(options, 'name') ?? null, simplify: Boolean(simplify), assess: Boolean(assess) });
+    // --intents ID: what each step of that workflow is for, on one screen, written in place (step intents §6.4).
+    const intents = options.intents === undefined ? null : optionString(options, 'intents') ?? refuse('Name the workflow whose steps to settle: --intents <ID>.');
+    if (intents && (simplify || assess || options['from-workflow'] !== undefined || options.change !== undefined)) refuse('--intents ID settles that workflow itself; leave out --simplify, --assess, --from-workflow and --change.');
+    record = await api.startWorkflowBuild({ root, fromWorkflow: simplify ?? optionString(options, 'from-workflow') ?? null, change: intents ?? assess ?? optionString(options, 'change') ?? null, ...(await material()),
+      describe: optionString(options, 'describe') ?? null, name: optionString(options, 'name') ?? null, simplify: Boolean(simplify), assess: Boolean(assess), intents: Boolean(intents) });
   } else if (action === 'add') {
     const id = optionString(options, 'build');
     if (!id) refuse('Name the build: workflow build add --build <ID> --folder <DIR>.');

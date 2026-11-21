@@ -61,7 +61,7 @@ const FIRST = {
     { move: 'step.add', id: 'requirements', after: 'intake' },
     { move: 'step.add', id: 'pay-build', label: 'Build', after: 'requirements', agent: 'pay-captain', output: 'code', reads: ['requirements'],
       signOff: { groups: ['engineering-reviewers'], minimum: 1 }, purpose: 'Makes the change and runs the payment tests.' },
-    { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'pay-build', agent: 'architect', output: 'document', reads: ['pay-build'],
+    { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'pay-build', agent: 'architect', intent: 'document', reads: ['pay-build'],
       signOff: { groups: ['payments-security'], minimum: 1 }, purpose: 'Nothing ships without a PCI check signed off by security.' }
   ],
   evidence: [{ path: '.github/agents/release-captain.agent.md', startLine: 6, endLine: 9 }],
@@ -78,7 +78,7 @@ test('a proposal is checked move by move, each finding located, and nothing is r
   const bad = await refused({ title: 'Bad', why: 'Shows every mistake at once.', moves: [
     { move: 'step.dance', id: 'x' },
     { move: 'step.add', id: 'Pay Build', label: 'Build' },
-    { move: 'step.add', id: 'pay-new', label: 'New', agent: 'nobody', signOff: { groups: ['no-such-group'] } },
+    { move: 'step.add', id: 'pay-new', label: 'New', agent: 'nobody', intent: 'document', signOff: { groups: ['no-such-group'] } },
     { move: 'step.add', id: 'intake', label: 'Renamed intake' },
     { move: 'agent.add', id: 'developer', label: 'Developer', description: 'Exists already.' },
     { move: 'step.change', id: 'missing-step', label: 'x' }
@@ -92,7 +92,7 @@ test('a proposal is checked move by move, each finding located, and nothing is r
   const moves = (await refused({ title: 'Bad moves', why: 'Every move mistake.', moves: [
     { move: 'step.dance', id: 'x' },
     { move: 'step.add', id: 'Pay Build', label: 'Build' },
-    { move: 'step.add', id: 'pay-new', label: 'New', agent: 'nobody', signOff: { groups: ['no-such-group'] } },
+    { move: 'step.add', id: 'pay-new', label: 'New', agent: 'nobody', intent: 'document', signOff: { groups: ['no-such-group'] } },
     { move: 'step.add', id: 'intake', label: 'Renamed intake' },
     { move: 'agent.add', id: 'developer', label: 'Developer', description: 'Exists already.' },
     { move: 'step.change', id: 'missing-step', label: 'x' }
@@ -117,7 +117,7 @@ test('a proposal is checked move by move, each finding located, and nothing is r
   const { movesGuide } = await import('../src/workflow-build/moves.mjs');
   const guide = movesGuide();
   assert.match(guide.proposal.evidence, /^\[\{ path, startLine, endLine \}\]/u, 'the proposal shape is in the guide, not only in refusals');
-  for (const rule of [/^Moves apply in order/u, /^A step that writes code \(output code, or changesCode true\) needs a step that defines the requirements/u, /^action\.add runs an integration target the repository has registered/u]) {
+  for (const rule of [/^Moves apply in order/u, /^Every new step says what it does with intent/u, /^A code step needs a step before it that plans it/u, /^action\.add runs an integration target the repository has registered/u]) {
     assert.ok(guide.rules.some((entry) => rule.test(entry)), String(rule));
   }
   const { readWorkflowBuild } = await import('../src/workflow-build/store.mjs');
@@ -125,7 +125,7 @@ test('a proposal is checked move by move, each finding located, and nothing is r
   // A group the same proposal adds further down can sign off a step above it (Copilot's second try was refused for the order alone).
   const ordered = await refused({ title: 'Group last', why: 'The group is listed after the step it signs off.', moves: [
     { move: 'step.add', id: 'intake' },
-    { move: 'step.add', id: 'pay-review', label: 'Review', after: 'intake', agent: 'architect', output: 'document', signOff: { groups: ['pay-late-group'], minimum: 1 } },
+    { move: 'step.add', id: 'pay-review', label: 'Review', after: 'intake', agent: 'architect', intent: 'document', signOff: { groups: ['pay-late-group'], minimum: 1 } },
     { move: 'group.add', id: 'pay-late-group', label: 'Late group' }
   ] });
   assert.equal(ordered, null, `refused: ${ordered?.message}`);
@@ -181,7 +181,11 @@ test('propose, accept, answer and check: the workflow as the accepted moves leav
   const emptyGroups = result.findings.find((entry) => entry.code === 'BUILD_GROUPS_EMPTY');
   assert.deepEqual([emptyGroups.severity, emptyGroups.title], ['warning', 'The approval group Payments security has nobody in it yet']);
   assert.match(emptyGroups.detail, /whoever starts a Story is enrolled and can sign off the steps it approves/u);
-  assert.equal(result.ready, true);
+  // Ready once the person confirms what each step is for (step intents): its new steps say what they do.
+  assert.deepEqual([result.ready, result.intents.required, result.intents.open], [false, true, 0]);
+  const settled = json(root, ['workflow', 'build', 'intents', '--build', build.id, '--confirm', result.intents.code]);
+  assert.equal(settled.intents.confirmed, true, JSON.stringify(settled.intents.problems));
+  assert.equal(settled.ready, true);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, '', 'checking a build writes nothing in the repository');
 
   const text = flow(root, ['workflow', 'build', 'check', '--build', build.id]).stdout;
@@ -312,7 +316,7 @@ test('work that goes different ways by channel becomes one branch whose ways com
   const build = json(root, ['workflow', 'build', 'start', '--change', 'repo-feature', '--folder', folder]).build;
   const branch = build.items.find((entry) => entry.kind === 'branch');
   assert.deepEqual([branch.name, branch.subject, branch.values, branch.otherwise, branch.evidence[0].startLine], ['channel: web, mobile, otherwise', 'channel', ['web', 'mobile'], true, 5]);
-  const test = (id, label, after) => ({ move: 'step.add', id, label, after, agent: 'qa', output: 'document', reads: ['implementation'],
+  const test = (id, label, after) => ({ move: 'step.add', id, label, after, agent: 'qa', intent: 'test', reads: ['implementation'],
     signOff: { groups: ['quality-reviewers'], minimum: 1 }, purpose: `${label} for this channel.` });
   const byChannel = { move: 'branch.add', after: 'implementation', name: 'channel', item: branch.id, join: 'verification',
     arms: [{ when: 'web', steps: ['web-test'] }, { when: 'mobile', steps: ['mobile-test'] }], otherwise: { steps: ['manual-test'] } };
@@ -473,7 +477,7 @@ test('a reused step keeps its send-back targets; the check names the one move th
   const { proposeToBuild } = await import('../src/workflow-build/engine.mjs');
   const refused = async (moves) => (await proposeToBuild(build.id, { title: 'Send back', why: 'Wrong targets.', moves }, { root, ...engineEnv })
     .then(() => assert.fail('recorded'), (error) => error)).details.findings.map((entry) => [entry.at, entry.code]);
-  const gate = { move: 'step.add', id: 'pay-gate', label: 'Payment gate', after: 'implementation', agent: 'architect', output: 'document',
+  const gate = { move: 'step.add', id: 'pay-gate', label: 'Payment gate', after: 'implementation', agent: 'architect', intent: 'document',
     signOff: { groups: ['quality-reviewers'], minimum: 1, sendBackTo: ['implementation', 'pay-gate'] } };
   const repoint = (sendBackTo, extra = {}) => ({ ...fix, signOff: { ...fix.signOff, sendBackTo, ...extra } });
   assert.deepEqual(await refused([{ ...repoint(['release']), id: 'requirements' }]), [['moves[0].signOff.sendBackTo', 'BUILD_MOVE_SEND_BACK']]);
@@ -613,7 +617,7 @@ test('starting from a workflow copies it; finishing writes a bundle that imports
   assert.deepEqual(start.changeSet.changes.map((change) => [change.op, change.copyOf ?? null]), [['workflow.create', 'chore']], 'a copy of the workflow it starts from');
   const steps = start.draft.workflow.phases;
   json(seed, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'], { input: JSON.stringify({ title: 'Release notes at the end', why: 'The team writes release notes after every chore.',
-    moves: [{ move: 'step.add', id: 'chore-notes', label: 'Release notes', after: steps.at(-1), agent: 'product-owner', output: 'document', reads: [steps.at(-1)],
+    moves: [{ move: 'step.add', id: 'chore-notes', label: 'Release notes', after: steps.at(-1), agent: 'product-owner', intent: 'document', reads: [steps.at(-1)],
       signOff: { groups: ['product-approvers'] }, purpose: 'Tells users what changed.' }] }) });
   json(seed, ['workflow', 'build', 'decide', '--build', build.id, '--proposal', 'p-1', '--accept']);
 

@@ -223,7 +223,7 @@ test('builds are listed, refused clearly, and removed 14 days after their last c
   assert.equal(existsSync(path.join(state, 'builds', described.id)), false);
 
   const { resolveOperation } = await import('../src/command-registry.mjs');
-  for (const action of ['start', 'add', 'status', 'propose', 'decide', 'answer', 'check', 'finish']) {
+  for (const action of ['start', 'add', 'status', 'propose', 'decide', 'answer', 'check', 'intents', 'finish']) {
     const operation = resolveOperation({ requestedCommand: 'workflow', positionals: ['workflow', 'build', action], options: {} });
     assert.deepEqual([operation.id, operation.classification, operation.modelPolicy], [`workflow.build.${action}`, action === 'finish' ? 'mutation' : 'read', 'never']);
   }

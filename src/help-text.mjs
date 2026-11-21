@@ -517,6 +517,8 @@ Usage:
   singularity-flow workflow build start --assess ID [--json]
                                                         change that workflow in place with workflow assess's suggestions: each one checked
                                                         on the result first and offered for you to accept or decline
+  singularity-flow workflow build start --intents ID [--json]
+                                                        say what each step of that workflow is for, settled on one screen and written in place
   singularity-flow workflow build add --build ID [--folder DIR]... [--file FILE]... [--notes FILE|-]... [--json]
   singularity-flow workflow build status [--build ID] [--json]
   singularity-flow workflow build source --build ID --path FILE [--from LINE] [--json]
@@ -527,6 +529,9 @@ Usage:
   singularity-flow workflow build answer --build ID --question Q --choice TEXT [--json]
   singularity-flow workflow build check --build ID [--include P] [--json]
                                                         the workflow as the accepted proposals leave it: explained and checked
+  singularity-flow workflow build intents --build ID [--intent STEP=INTENT]... [--rule WAY] [--confirm CODE] [--json]
+                                                        what each step is for, on one screen: how sure SFlow is, what each intent means
+                                                        here, the answers it needs; --confirm writes every intent (help step-intents)
   singularity-flow workflow build verify --build ID [--json]
                                                         workflow validate (and workflow walk where present) on what the build would propose;
                                                         exits 1 while a problem or stop remains

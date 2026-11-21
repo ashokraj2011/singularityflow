@@ -6,7 +6,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { librarySkillPath, parseLibrarySkill } from './skill-library.mjs';
 import { instructionPath } from './instruction-library.mjs';
-import { PACKAGED_STEP_INTENTS } from './step-intents.mjs';
+import { PACKAGED_STEP_INTENTS } from './packaged-step-intents.mjs';
 
 const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;

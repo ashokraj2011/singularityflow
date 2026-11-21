@@ -19,6 +19,7 @@
  * can run the same inference (spec §6.4).
  */
 import { BECAUSE_SETTINGS, STEP_INTENTS } from './phase-roles.mjs';
+import { PACKAGED_STEP_INTENTS } from './packaged-step-intents.mjs';
 // The profiles and the workflow rules live with the derivation configuration reads (step-intent-settings.mjs), so only
 // they load whenever a workflow resolves; the inference below loads only where it is used (workflow check, the tests).
 import {
@@ -38,27 +39,9 @@ const deepFreeze = (value) => {
   return value;
 };
 
-/**
- * The intent of each step SFlow ships (templates/workflow.yml), by step ID: spec §4.3 and Appendix B. A step that is
- * an exact shipped revision (packaged-workflow-history.mjs) has this intent for certain.
- */
-export const PACKAGED_STEP_INTENTS = deepFreeze({
-  intake: 'intake', requirements: 'requirements', design: 'design', 'implementation-spec': 'plan', implementation: 'code',
-  verification: 'test', conformance: 'review',
-  reproduction: 'design', 'fix-design': 'design', 'fix-spec': 'plan',
-  'findings-intake': 'requirements', 'remediation-plan': 'plan',
-  'design-intake': 'intake', 'design-inventory': 'design', 'component-mapping': 'design', 'mobile-spec': 'plan', 'visual-verification': 'test',
-  implement: 'code', verify: 'test',
-  'careful-change': 'code', 'test-run': 'test', testing: 'test', specification: 'requirements',
-  'document-intake': 'intake', 'scenario-check': 'test', 'scenario-repair': 'code', 'scenario-retest': 'test',
-  'demo-web-intake': 'intake', 'demo-web-check': 'test', 'demo-web-repair': 'code', 'demo-web-retest': 'test',
-  'demo-intake': 'intake', 'demo-check': 'test', 'demo-repair': 'code', 'demo-close': 'report',
-  'demo-instruction-intake': 'intake', 'demo-instruction-test': 'test', 'demo-instruction-repair': 'code', 'demo-instruction-close': 'report',
-  'poc-lite-plan': 'plan', 'poc-lite-act': 'code', 'poc-lite-verify': 'test', 'poc-lite-finalize': 'release',
-  'poc-intake': 'intake', 'poc-impact-analysis': 'design', 'poc-ui-exploration': 'design', 'poc-test-generation': 'code',
-  'poc-validation': 'test', 'poc-publication-review': 'release',
-  planning: 'plan', convergence: 'review', release: 'review'
-});
+// The intent of each step SFlow ships, in an import-free module of its own so seeded-workflow protection can read it
+// without loading the profiles (packaged-step-intents.mjs).
+export { PACKAGED_STEP_INTENTS };
 
 // ---------------------------------------------------------------------------------------------
 // Inference (spec §6.1)

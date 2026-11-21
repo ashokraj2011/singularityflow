@@ -173,7 +173,9 @@ function reconcile(items, previous) {
 }
 
 /** Start a build; see the module comment. */
-export async function startWorkflowBuild({ root = null, fromWorkflow = null, change = null, folders = [], files = [], notes = [], describe = null, name = null, simplify = false, assess = false } = {}, { env = process.env } = {}) {
+export async function startWorkflowBuild({ root = null, fromWorkflow = null, change = null, folders = [], files = [], notes = [], describe = null, name = null, simplify = false, assess = false, intents = false } = {}, { env = process.env } = {}) {
+  // --intents ID: what each step of that workflow is for, settled on one screen and written in place (step intents §6.4).
+  if (intents && (!change || fromWorkflow || simplify || assess)) fail('WORKFLOW_BUILD_USAGE', `--intents says what each step of a workflow the repository has is for, in place: singularity-flow workflow build start --intents ${change ?? fromWorkflow ?? 'ID'}.`);
   if (fromWorkflow && change) fail('WORKFLOW_BUILD_USAGE', 'Copy a workflow with --from-workflow ID, or change one in place with --change ID; not both.');
   // A simpler workflow is always a new one: the workflow it starts from is never changed in place.
   if (simplify && (!fromWorkflow || change)) fail('WORKFLOW_BUILD_USAGE', `--simplify makes a new, simpler workflow from one the repository has: singularity-flow workflow build start --simplify ${fromWorkflow ?? change ?? 'ID'}. It never changes a workflow in place.`);
@@ -206,7 +208,7 @@ export async function startWorkflowBuild({ root = null, fromWorkflow = null, cha
     repository: root ? { root, label: path.basename(root) } : null,
     // A change build makes no new workflow: it changes the one it names, in place.
     goal: { label: label.slice(0, 120), startedFrom, ...(change ? { workflow: change, change: true } : {}), ...(simplify ? { simplify: { from: fromWorkflow } } : {}),
-      ...(assess ? { assess: { workflow: change } } : {}) },
+      ...(assess ? { assess: { workflow: change } } : {}), ...(intents ? { intents: true } : {}) },
     sources: { folders: resolvedFolders, uploads },
     capture,
     items: [...(base?.items ?? []), ...items],

@@ -16,8 +16,15 @@ import { STUDIO_ID as ID } from '../agent-document-parser.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { normalizeClarificationPolicy } from '../clarifications.mjs';
 import { TEXT_MOVES, applyTextMove, lowerTextEdits, textMoveChecker } from './text-moves.mjs';
+import { BECAUSE_SETTINGS, STEP_INTENTS } from '../phase-roles.mjs';
+import { STEP_INTENT_CHOICES, stepIntentChoice } from '../step-outputs.mjs';
+import { inferStepIntents } from '../step-intents.mjs';
+import { intentsForKind } from '../step-intent-settings.mjs';
 
 const OUTPUTS = ['document', 'analysis', 'code', 'none'];
+// What step.reset gives back to a step's intent (workflow-assess/checks.mjs RESETTABLE_SETTINGS).
+const RESET_SETTINGS = Object.freeze(['writeScope', 'sourceBoundary', 'artifact.kind', 'clarification.mode', 'approval.automatic',
+  'approval.rejectTo', 'repositoryTests', 'testEvidenceFrom', 'testRuns', 'repairBudget']);
 const TRIGGERS = ['submitted', 'approved', 'rejected'];
 const SIGN_OFF_FIELDS = ['groups', 'minimum', 'sendBackTo'];
 // What every route of a workflow must hold unless it says why not (src/evidence/obligation-compiler.mjs).
@@ -29,10 +36,16 @@ const INPUT_NAME = /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/u;
 const kebab = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 60);
 
 export const MOVES = Object.freeze({
+  // intent: what the step does (step intents); a new step starts from it, so it is required on a new step with no `from`.
+  // because: { setting: reason } for a setting the step sets itself rather than taking from its intent.
   // changesCode false: the step writes only its own document, never the repository's files (a testing step that only reports).
-  'step.add': { required: ['id'], optional: ['label', 'after', 'from', 'agent', 'output', 'changesCode', 'reads', 'signOff', 'purpose'] },
+  'step.add': { required: ['id'], optional: ['label', 'after', 'from', 'agent', 'intent', 'output', 'changesCode', 'reads', 'signOff', 'purpose', 'because'] },
   // edit: { old, new } changes the step's template as this workflow runs it (src/workflow-build/text-moves.mjs).
-  'step.change': { required: ['id'], optional: ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff', 'edit'] },
+  'step.change': { required: ['id'], optional: ['label', 'purpose', 'agent', 'intent', 'output', 'changesCode', 'reads', 'signOff', 'edit', 'because'] },
+  // What a step does, on its own: Copilot's proposal for a step SFlow is not sure of, or the person's answer.
+  'step.intent': { required: ['id', 'intent'], optional: [] },
+  // A framework setting a step writes itself, given back to its intent (workflow assess's fix for a setting that needs no override).
+  'step.reset': { required: ['id', 'settings'], optional: [] },
   'step.remove': { required: ['id'], optional: [] },
   'step.move': { required: ['id'], optional: ['after'] },
   // command, category, directory and a test command's completed record are filled in from the found
@@ -67,10 +80,13 @@ export function movesGuide() {
     // Text edits are made by `workflow assess` (its suggestion.moves), so the guide that fits one answer leaves them out.
     moves: Object.fromEntries(Object.entries(MOVES).filter(([name]) => !TEXT_MOVES[name]).map(([name, fields]) => [name, name === 'step.change'
       ? { ...fields, optional: fields.optional.filter((field) => field !== 'edit') } : fields])),
-    values: { output: OUTPUTS, on: TRIGGERS, as: ITEM_AS, requirement: ['required', 'advisory'], responsibility: [...RESPONSIBILITIES], signOff: "'none' or { groups: [group IDs], minimum, sendBackTo: [step IDs] }" },
+    values: { intent: Object.fromEntries(STEP_INTENT_CHOICES.map((entry) => [entry.id, entry.label])), output: OUTPUTS, on: TRIGGERS, as: ITEM_AS,
+      requirement: ['required', 'advisory'], responsibility: [...RESPONSIBILITIES], signOff: "'none' or { groups: [group IDs], minimum, sendBackTo: [step IDs] }",
+      because: `{ setting: reason of 20 to 1000 characters }, setting one of ${BECAUSE_SETTINGS.join(', ')}` },
     examples: [
-      { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'pay-build', agent: 'pay-reviewer', output: 'document',
+      { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'pay-build', agent: 'pay-reviewer', intent: 'review',
         reads: ['pay-build'], signOff: { groups: ['payments-security'], minimum: 1 }, purpose: 'Checks the change against the PCI rules before release.' },
+      { move: 'step.intent', id: 'validate', intent: 'test' },
       { move: 'agent.add', id: 'pay-reviewer', label: 'Payments reviewer', description: 'Reviews payment changes against PCI rules.', from: 'architect' },
       { move: 'skill.add', id: 'pci-check', description: 'Checks a change against the PCI rules.', procedure: 'Check card data never reaches logs.' },
       { move: 'skill.attach', skill: 'pci-check', agent: 'pay-reviewer', steps: ['pay-pci-review'] },
@@ -95,8 +111,10 @@ export function movesGuide() {
       'A step that other workflows use keeps its name, output, agent and purpose; add a copy with step.add and `from` to change those.',
       'Moves apply in order: step.add places the step after `after`, or last. A group, agent, skill or instruction the proposal adds can be used by any of its moves.',
       'Steps the person names up front (intake, testing, a test report) are the first piece, in that order.',
-      'A step that writes code (output code, or changesCode true) needs a step that defines the requirements at or before the step just before it: reuse one the repository has (such as requirements or implementation-spec), as it is or copied with `from`. Such a workflow never leaves out requirements, a plan or the change itself.',
-      "A workflow that writes no code has no such step: copy one that may change code (changesCode in the catalog) with `from` and changesCode false, or use test-run. The check then names what it leaves out; its fix gives the workflow.omit moves, or the choice of a first step that defines the acceptance criteria as clauses. A person's review is never left out.",
+      'Every new step says what it does with intent (values.intent): it starts from that intent, which gives its settings (who approves it, its questions, its tests, its template). `from` copies a step for its text and agent, not for its settings. output and changesCode follow from intent; leave them out.',
+      'A code step needs a step before it that plans it (intent plan, else design) and one that writes the requirements (intake, requirements or plan); when nothing does, the check asks which of two ways.',
+      "A workflow that writes no code has no code step and usually ends with a report: the check names what it leaves out; its fix gives the workflow.omit moves, or the choice of a first step that defines the acceptance criteria as clauses. A person's review is never left out.",
+      "The check's intents table says what each step does and how sure SFlow is. For each row that is not certain, propose step.intent with why; never propose one against a certain row.",
       "Propose a finding's fix.moves as they are; of fix.choices, take the one the person chose, else ask.",
       'action.add runs an integration target the repository has registered; a command found in the material is never invented as a target.',
       "When the work goes different ways by one value (a branch item, or text like 'when channel is web … if mobile … otherwise …'), use branch.add: the person submitting the step after which it is known chooses the value; every way comes back to join. Put the steps in order first (after, each arm's steps, otherwise's steps, join), each way's steps its own; the last step of each way needs a sign-off to skip the other ways.",
@@ -112,6 +130,41 @@ export function movesGuide() {
 }
 
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const intentWords = () => STEP_INTENT_CHOICES.map((entry) => `${entry.id} (${entry.label.toLowerCase()})`).join(', ');
+
+/**
+ * The intents a repository step may have from its structure, with why, or null when its structure leaves it open (step
+ * intents §6.1, §7.5): its declared intent; a code task; an output kind the engine reads as a role; citing a code step's
+ * test results or running the repository's tests. A proposal against them is refused (§6.2).
+ */
+function structuralIntents(phase) {
+  if (!phase) return null;
+  if (STEP_INTENTS.includes(phase.intent)) return { intents: [phase.intent], why: 'it says so in workflow.yml' };
+  if (phase.task === 'code' || phase.output === 'code') return { intents: ['code'], why: 'it delivers code changes' };
+  const forKind = phase.kind ? intentsForKind(phase.kind) : null;
+  if (forKind) return { intents: forKind, why: `its output kind is ${phase.kind}` };
+  if (phase.testEvidenceFrom || phase.repositoryTests === 'run') return { intents: ['test'], why: 'it runs tests' };
+  return null;
+}
+
+/**
+ * The likeliest intent of a new step from its name, purpose, place and agent, and how sure (§6.1): what a refusal of a
+ * new step without an intent suggests.
+ */
+function suggestedIntent(draft, model, stepId, move) {
+  const phaseOf = (id) => model.phases.find((phase) => phase.id === id) ?? null;
+  const steps = draft.workflow.phases.map((id) => {
+    const own = draft.steps[id];
+    const phase = phaseOf(id);
+    if (id === stepId) return { id, label: move.label ?? id, description: move.purpose ?? null, agent: move.agent ?? null };
+    const intent = own?.intent ?? draft.overrides[id]?.intent ?? phase?.intent ?? null;
+    return { id, label: own?.label ?? phase?.label ?? id, description: own?.purpose ?? phase?.description ?? null, agent: own?.agent ?? null,
+      declared: intent, kind: phase?.kind ?? null, task: own?.output === 'code' || intent === 'code' ? 'code' : phase?.task ?? null,
+      writeScope: phase?.changesCode ? 'source-and-artifact' : 'artifact-only' };
+  });
+  return inferStepIntents(steps).find((row) => row.step === stepId) ?? null;
+}
+
 /** A step.clarify move's policy: the fields it gives, as workflow.yml holds them. */
 const clarificationOf = (move) => Object.fromEntries(['mode', 'maxQuestions', 'topics', 'markers'].filter((key) => move[key] !== undefined).map((key) => [key, move[key]]));
 const text = (value, max) => typeof value === 'string' && value.trim() && value.length <= max;
@@ -134,6 +187,8 @@ export function validateMoves(moves, { model, draft }) {
     target: (id) => (model.integrations?.targets ?? []).some((target) => target.id === id)
   };
   const added = { step: new Set(), agent: new Set(), skill: new Set(), instruction: new Set(), group: new Set() };
+  // Steps this proposal makes (new, or copies): their intent is theirs to give; a reused step keeps its structure.
+  const fresh = new Set();
   // Groups, agents, skills and instructions become their own Studio changes ahead of every step
   // (lowerDraft), so a move may use one the same proposal adds further down. Steps keep their order.
   const declared = { agent: new Set(), skill: new Set(), instruction: new Set(), group: new Set() };
@@ -193,6 +248,36 @@ export function validateMoves(moves, { model, draft }) {
       if (typeof entry.changesCode !== 'boolean') add(`${where}.changesCode`, 'BUILD_MOVE_SHAPE', 'changesCode is true or false.');
       else if (entry.changesCode === false && entry.output === 'code') add(`${where}.changesCode`, 'BUILD_MOVE_SHAPE', 'A step whose output is code changes code; give it another output, or leave changesCode out.');
     };
+    // What the step does: one of the ten intents, agreeing with its output and with what its structure says for certain.
+    const intentField = (entry, where, phase) => {
+      if (entry.intent == null) return;
+      if (!STEP_INTENTS.includes(entry.intent)) { add(`${where}.intent`, 'BUILD_MOVE_SHAPE', `intent is one of ${intentWords()}.`); return; }
+      const code = entry.intent === 'code';
+      if ((code && ((entry.output != null && entry.output !== 'code') || entry.changesCode === false)) || (!code && entry.output === 'code')) {
+        add(`${where}.intent`, 'BUILD_MOVE_INTENT_CONTRADICTION', code
+          ? `A code step delivers code changes: leave out output and changesCode, or give ${entry.id} another intent if it changes no code.`
+          : `A ${entry.intent} step does not deliver code changes: leave out output, or give ${entry.id} intent code if it changes the code.`);
+        return;
+      }
+      const known = structuralIntents(phase);
+      if (known && !known.intents.includes(entry.intent)) {
+        add(`${where}.intent`, 'BUILD_MOVE_INTENT_CERTAIN', `${phase.label ?? entry.id} is a ${known.intents.join(' or ')} step for certain (${known.why}), so it cannot be ${entry.intent}. `
+          + `Propose intent ${known.intents[0]}, or add a copy with step.add, from: '${entry.id}' and intent ${entry.intent}.`);
+        return;
+      }
+      const users = (phase?.usedBy ?? []).filter((workflow) => workflow !== draft.workflow.id && workflow !== draft.workflow.copyOf);
+      if (phase && users.length && STEP_INTENTS.includes(phase.intent) && phase.intent !== entry.intent) {
+        add(`${where}.id`, 'BUILD_MOVE_SHARED_STEP', `Step '${entry.id}' is a ${phase.intent} step in ${users.join(', ')} too, and a step means one thing in every workflow. Add a copy with step.add and from: '${entry.id}' instead.`);
+      }
+    };
+    const becauseField = (entry, where) => {
+      if (entry.because == null) return;
+      if (!plain(entry.because) || !Object.keys(entry.because).length) { add(`${where}.because`, 'BUILD_MOVE_SHAPE', `because is { setting: reason }, setting one of ${BECAUSE_SETTINGS.join(', ')}.`); return; }
+      for (const [setting, reason] of Object.entries(entry.because)) {
+        if (!BECAUSE_SETTINGS.includes(setting)) add(`${where}.because.${setting}`, 'BUILD_MOVE_SHAPE', `'${setting}' is not a setting a step's intent gives; because names one of ${BECAUSE_SETTINGS.join(', ')}.`);
+        else if (typeof reason !== 'string' || reason.trim().length < 20 || reason.trim().length > 1000) add(`${where}.because.${setting}`, 'BUILD_MOVE_SHAPE', 'A reason says why in 20 to 1000 characters, in plain words.');
+      }
+    };
     const stepList = (field) => {
       if (move[field] == null) return;
       if (!Array.isArray(move[field]) || move[field].some((value) => typeof value !== 'string')) { add(`${at}.${field}`, 'BUILD_MOVE_SHAPE', `${field} is a list of step IDs.`); return; }
@@ -209,17 +294,28 @@ export function validateMoves(moves, { model, draft }) {
         const reused = stepId && has.step(stepId) && move.from == null;
         if (!reused && move.from == null && move.agent == null) add(`${at}.agent`, 'BUILD_MOVE_FIELD_MISSING', 'A new step needs the agent that drafts it.');
         if (!reused && move.label == null) add(`${at}.label`, 'BUILD_MOVE_FIELD_MISSING', 'A new step needs a name.');
-        if (reused && ['label', 'agent', 'output', 'changesCode', 'reads', 'signOff', 'purpose'].some((field) => move[field] != null)) {
+        if (!reused && move.from == null && move.intent == null && move.output !== 'code' && stepId) {
+          // A new step starts from what it does; SFlow names its likeliest intent, never picks one silently. A step
+          // whose output is code is a code step for certain, so SFlow fills that in itself.
+          const guess = after ? suggestedIntent(after, model, stepId, move) : null;
+          const choice = guess ? stepIntentChoice(guess.intent) : null;
+          add(`${at}.intent`, 'BUILD_MOVE_FIELD_MISSING', `A new step says what it does: give ${move.label ?? stepId} intent, one of ${STEP_INTENTS.join(', ')} (guide.values.intent says what each does).`
+            + (choice && guess.source !== 'none' ? ` It looks like ${guess.intent} (${choice.label.toLowerCase()}): ${guess.why}.` : ''));
+        }
+        if (reused && ['label', 'agent', 'intent', 'output', 'changesCode', 'reads', 'signOff', 'purpose', 'because'].some((field) => move[field] != null)) {
           add(`${at}.id`, 'BUILD_MOVE_REUSE', `Step '${stepId}' exists and is added as it is; change it with step.change, or add a copy with from: '${stepId}' and a new ID.`);
         }
         if (move.agent != null) { id('agent', 'agent'); known('agent', 'agent'); }
         if (move.after != null && !steps.has(move.after) && !added.step.has(move.after)) add(`${at}.after`, 'BUILD_MOVE_REFERENCE', `Step '${move.after}' is not in this workflow.`);
         if (move.output != null && !OUTPUTS.includes(move.output)) add(`${at}.output`, 'BUILD_MOVE_SHAPE', `output is one of ${OUTPUTS.join(', ')}.`);
         changesCodeField(move, at);
+        intentField(move, at, null);
+        becauseField(move, at);
         if (move.label != null && !text(move.label, 120)) add(`${at}.label`, 'BUILD_MOVE_SHAPE', 'label is a name of 1 to 120 characters.');
         if (move.purpose != null && !text(move.purpose, 600)) add(`${at}.purpose`, 'BUILD_MOVE_SHAPE', 'purpose is one paragraph of at most 600 characters.');
         stepList('reads'); signOff('signOff');
         if (stepId) added.step.add(stepId);
+        if (stepId && !reused) fresh.add(stepId);
         break;
       }
       case 'step.change':
@@ -231,9 +327,22 @@ export function validateMoves(moves, { model, draft }) {
         if (move.agent != null) known('agent', 'agent');
         if (move.output != null && !OUTPUTS.includes(move.output)) add(`${at}.output`, 'BUILD_MOVE_SHAPE', `output is one of ${OUTPUTS.join(', ')}.`);
         changesCodeField(move, at);
+        if (move.intent != null) intentField(move, at, draft.steps[move.id]?.new || fresh.has(move.id) ? null : model.phases.find((phase) => phase.id === move.id) ?? null);
+        becauseField(move, at);
         if (move.purpose != null && typeof move.purpose === 'string' && move.purpose.length > 600) add(`${at}.purpose`, 'BUILD_MOVE_SHAPE', 'purpose is at most 600 characters.');
         stepList('reads'); signOff('signOff');
         if (move.edit != null && move.id && steps.has(move.id)) checkText(move, at);
+        break;
+      case 'step.intent':
+        if (move.id && !steps.has(move.id) && !added.step.has(move.id)) { add(`${at}.id`, 'BUILD_MOVE_REFERENCE', `Step '${move.id}' is not in this workflow.`); break; }
+        intentField(move, at, draft.steps[move.id]?.new || fresh.has(move.id) ? null : model.phases.find((phase) => phase.id === move.id) ?? null);
+        break;
+      case 'step.reset':
+        if (move.id && !steps.has(move.id) && !added.step.has(move.id)) { add(`${at}.id`, 'BUILD_MOVE_REFERENCE', `Step '${move.id}' is not in this workflow.`); break; }
+        if (draft.steps[move.id]?.new || fresh.has(move.id)) add(`${at}.id`, 'BUILD_MOVE_SHAPE', `${move.id} is new in this build and starts from its intent: leave the setting out of its step.add instead.`);
+        if (!Array.isArray(move.settings) || !move.settings.length || move.settings.some((setting) => !RESET_SETTINGS.includes(setting))) {
+          add(`${at}.settings`, 'BUILD_MOVE_SHAPE', `settings lists what to give back to the step's intent, from: ${RESET_SETTINGS.join(', ')}.`);
+        }
         break;
       case 'step.remove':
       case 'step.move':
@@ -353,7 +462,10 @@ export function validateMoves(moves, { model, draft }) {
         if (typeof move.reason !== 'string' || move.reason.trim().length < 20 || move.reason.length > 400) add(`${at}.reason`, 'BUILD_MOVE_SHAPE', 'reason says in 20 to 400 characters why this workflow does not need it.');
         if (move.authority != null && (typeof move.authority !== 'string' || !ID.test(move.authority))) add(`${at}.authority`, 'BUILD_MOVE_ID', `authority '${move.authority}' must be a group ID.`);
         else known('authority', 'group');
-        const coding = CODE_NEEDS.has(move.responsibility) && after ? codeSteps(after, model) : [];
+        // The one case a code step goes without them (step intents §5): nothing before it plans it, or nothing before it
+        // writes the requirements; the person chose to let it plan its own change, or work without requirement IDs.
+        const own = after && ['scope', 'plan'].includes(move.responsibility) ? plansItself(after, model) : null;
+        const coding = CODE_NEEDS.has(move.responsibility) && after && !own?.includes(move.responsibility) ? codeSteps(after, model) : [];
         if (coding.length) {
           add(`${at}.responsibility`, 'BUILD_OMIT_CODE_STEP', `${coding.join(', ')} may change code, so this workflow needs requirements, a plan and the change itself; it cannot leave out ${move.responsibility}. `
             + `If ${coding.length === 1 ? 'it only tests' : 'they only test'}, checks or reports, copy ${coding.length === 1 ? 'it' : 'each'} with from and changesCode false first.`);
@@ -412,6 +524,9 @@ export function applyMoves(draft, moves) {
         next.workflow.phases = insertAfter(next.workflow.phases, move.id, after);
         if (move.from != null || move.agent != null || move.label != null) {
           next.steps[move.id] = { new: true, label: move.label, from: move.from ?? null, agent: move.agent ?? null, output: move.output ?? null,
+            // A new step whose output is code is a code step for certain: SFlow fills in what it is for.
+            ...(move.intent != null ? { intent: move.intent } : move.from == null && move.output === 'code' ? { intent: 'code' } : {}),
+            ...(move.because != null ? { because: structuredClone(move.because) } : {}),
             ...(move.changesCode != null ? { changesCode: move.changesCode } : {}), reads: move.reads ?? null, signOff: move.signOff ?? null, purpose: move.purpose ?? null };
         }
         break;
@@ -420,10 +535,21 @@ export function applyMoves(draft, moves) {
         const own = next.steps[move.id];
         const target = own?.new ? own : (next.overrides[move.id] ??= {});
         const earlier = target.signOff;
-        for (const field of ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff']) if (move[field] !== undefined) target[field] = move[field];
+        for (const field of ['label', 'purpose', 'agent', 'intent', 'output', 'changesCode', 'reads', 'signOff']) if (move[field] !== undefined) target[field] = move[field];
+        if (plain(move.because)) target.because = { ...(target.because ?? {}), ...structuredClone(move.because) };
         // A sign-off that does not name send-back targets keeps the ones an earlier move gave it, as Studio does.
         if (plain(move.signOff) && move.signOff.sendBackTo == null && plain(earlier) && earlier.sendBackTo) target.signOff = { ...move.signOff, sendBackTo: earlier.sendBackTo };
         if (move.edit) applyTextMove(next, move);
+        break;
+      }
+      case 'step.intent': {
+        const own = next.steps[move.id];
+        (own?.new ? own : (next.overrides[move.id] ??= {})).intent = move.intent;
+        break;
+      }
+      case 'step.reset': {
+        const target = (next.overrides[move.id] ??= {});
+        target.reset = [...new Set([...(target.reset ?? []), ...move.settings])];
         break;
       }
       case 'step.remove':
@@ -500,8 +626,10 @@ export function applyMoves(draft, moves) {
 export function codeSteps(draft, model) {
   const repository = (id) => model.phases.find((phase) => phase.id === id) ?? null;
   const changes = (setting, base) => {
-    if (setting.output === 'code') return true;
+    if (setting.output === 'code' || setting.intent === 'code') return true;
     if (setting.changesCode != null) return setting.changesCode;
+    // A new step, or a copy, that says what it does starts from that intent: only a code step changes code.
+    if (setting.new && setting.intent != null) return false;
     if (setting.output != null && base?.output === 'code') return false;
     return Boolean(base?.changesCode ?? base?.output === 'code');
   };
@@ -510,6 +638,25 @@ export function codeSteps(draft, model) {
     if (own?.new) return changes(own, own.from ? repository(own.from) : { output: 'document', changesCode: false });
     return changes(draft.overrides[id] ?? {}, repository(id));
   }).map((id) => draft.steps[id]?.label ?? repository(id)?.label ?? id);
+}
+
+/**
+ * What a draft's first code step goes without because nothing before it holds it (step intents §5): scope and plan when
+ * nothing comes before it; scope when no step before it writes the requirements (intent intake, requirements or plan,
+ * or a step that defines clauses). Empty when the draft has no code step.
+ */
+function plansItself(draft, model) {
+  const labels = new Set(codeSteps(draft, model));
+  const phaseOf = (id) => model.phases.find((phase) => phase.id === id) ?? null;
+  const labelOf = (id) => draft.steps[id]?.label ?? phaseOf(id)?.label ?? id;
+  const first = draft.workflow.phases.findIndex((id) => labels.has(labelOf(id)));
+  if (first < 0) return [];
+  if (first === 0) return ['scope', 'plan'];
+  const writes = draft.workflow.phases.slice(0, first).some((id) => {
+    const intent = draft.steps[id]?.intent ?? draft.overrides[id]?.intent ?? phaseOf(id)?.intent ?? null;
+    return ['intake', 'requirements', 'plan'].includes(intent) || (intent == null && Boolean(phaseOf(id)?.definesClauses));
+  });
+  return writes ? [] : ['scope'];
 }
 
 const approvalChange = (signOff) => (signOff === 'none' ? 'none'
@@ -542,13 +689,18 @@ export function lowerDraft(draft, model) {
   for (const id of draft.workflow.phases) {
     const step = draft.steps[id];
     if (!step?.new) continue;
+    // A step that says what it does starts from its intent: what it reads and who signs it off come from the intent
+    // unless the move says (a step with no sign-off was approval none, which no check lets through).
+    const fromIntent = step.intent != null;
     changes.push({ op: 'phase.create', id, label: step.label ?? id,
       // A copy of a step the source workflow runs keeps that workflow's settings for it.
       ...(step.from ? { copyOf: step.from, ...(model.workflows.find((workflow) => workflow.id === draft.workflow.copyOf)?.phases.includes(step.from) ? { copyFromWorkflow: draft.workflow.copyOf } : {}) } : {}),
-      ...(step.output || !step.from ? { output: step.output ?? 'document' } : {}),
+      ...(fromIntent ? { intent: step.intent } : {}),
+      ...(step.output || (!step.from && !fromIntent) ? { output: step.output ?? 'document' } : {}),
       ...(step.changesCode != null ? { changesCode: step.changesCode } : {}),
-      ...(step.reads ? { inputs: [...step.reads] } : step.from ? {} : { inputs: [] }),
-      ...(step.signOff ? { approval: approvalChange(step.signOff) } : step.from ? {} : { approval: 'none' }),
+      ...(step.reads ? { inputs: [...step.reads] } : step.from || fromIntent ? {} : { inputs: [] }),
+      ...(step.signOff ? { approval: approvalChange(step.signOff) } : step.from || fromIntent ? {} : { approval: 'none' }),
+      ...(step.because ? { because: structuredClone(step.because) } : {}),
       ...(step.agent ? { agent: step.agent } : {}),
       ...(step.purpose ? { description: step.purpose } : {}),
       ...(draft.actions[id] ? { afterStep: draft.actions[id].map((action, index) => ({ id: `${id}-action-${index + 1}`, on: action.on, target: action.target })) } : {}) });
@@ -580,11 +732,15 @@ export function lowerDraft(draft, model) {
     if (change.purpose != null) shared.description = change.purpose;
     if (change.output != null) shared.output = change.output;
     if (change.changesCode != null) shared.changesCode = change.changesCode;
+    // What a step does lives on the step itself: a step means one thing in every workflow.
+    if (change.intent != null) shared.intent = change.intent;
     if (Object.keys(shared).length) changes.push({ op: 'phase.update', id, ...shared });
     if (change.agent != null) changes.push({ op: 'phase.agent', phase: id, agent: change.agent });
     const scoped = {};
     if (change.reads != null) scoped.inputs = [...change.reads];
     if (change.signOff != null) scoped.approval = approvalChange(change.signOff);
+    if (change.because != null) scoped.because = structuredClone(change.because);
+    if (change.reset?.length) scoped.reset = [...change.reset];
     if (draft.actions[id] && !draft.steps[id]?.new) scoped.afterStep = draft.actions[id].map((action, index) => ({ id: `${id}-action-${index + 1}`, on: action.on, target: action.target }));
     if (Object.keys(scoped).length) changes.push({ op: 'phase.update', id, workflow: workflowId, ...scoped });
   }
@@ -613,6 +769,8 @@ export function lowerDraft(draft, model) {
     changes.push({ op: 'skill.attach', skill: attachment.skill, ...(attachment.agent ? { agent: attachment.agent } : { workflow: workflowId }),
       phases: attachment.steps.filter((step) => draft.workflow.phases.includes(step)), use: attachment.use ?? '' });
   }
+  // What each step is for, as the person confirmed it on one screen: every step's intent, and version 4.
+  if (draft.workflow.intents) changes.push({ op: 'workflow.intents', id: workflowId, steps: structuredClone(draft.workflow.intents) });
   return { schema: 'sflow-studio-change-set@1', base: model.base, changes };
 }
 

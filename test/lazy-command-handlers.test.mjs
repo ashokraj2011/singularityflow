@@ -72,7 +72,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 473: spec–code sync M1's two import-free leaves (conformance-differences.mjs, departure-acceptance.mjs), which the
     // conformance gap decisions read so approval and the gates decide deviated and unplanned rows without loading the
     // report reader or the departure model [SCS:REQ-010, REQ-013].
-    assert.ok(closure.files.size <= 473, `${file} loads ${closure.files.size} local files (budget 473; retired graph 597)`);
+    // 474 (measured for submit.mjs, 2026-11-21, intents-stage2): step-intent-settings.mjs, the profiles, workflow rules and
+    // derivation resolveWorkType runs for a workflow of step intents (config.mjs); it imports only the import-free
+    // phase-roles.mjs and phase-overrides.mjs. The inference stays lazy (step-intents.mjs).
+    assert.ok(closure.files.size <= 474, `${file} loads ${closure.files.size} local files (budget 474; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -899,7 +902,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // workflow setting (source-review-policy.mjs). No new eager file.
     // 9,821,123 (measured for submit.mjs, +65, 2026-11-21, timeout-retry): a SUBPROCESS_TIMEOUT names its program and limit
     // (util.mjs run), so a wait's retry says which program and how long [owner, 2026-11-21]. No new eager file.
-    assert.ok(closure.bytes <= 9_821_123, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,884,294 (measured for submit.mjs, +63,171, 2026-11-21, intents-stage2): step intents Stage 2. A workflow of step
+    // intents in a version 4 workflow.yml derives its settings when it resolves, so the profiles, the workflow rules and
+    // the derivation load wherever configuration does (one new eager file, step-intent-settings.mjs, 50,823 bytes of it), with
+    // version 4, intentProfiles and the contradiction checks in config.mjs (+10,477). The inference, the kind-of-software
+    // report and `workflow check --settings` stay lazy (step-intents.mjs, software-kinds.mjs, workflow-step-settings.mjs).
+    assert.ok(closure.bytes <= 9_884_294, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1046,7 +1054,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // round, is a boolean option the parser knows (util.mjs). No new eager file.
   // 873,782 (measured 873,782, +65, 2026-11-21, timeout-retry): a SUBPROCESS_TIMEOUT names its program and limit (util.mjs
   // run), so a wait's retry says which program and how long. No new eager file.
-  assert.ok(root.bytes <= 873_782, `root dispatch loads ${root.bytes} source bytes`);
+  // 873,794 (measured 873,794, +12, 2026-11-21, intents-stage2): `workflow check --settings`, each step's settings and where
+  // each came from, is a boolean option the parser knows (util.mjs). No new eager file.
+  assert.ok(root.bytes <= 873_794, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1065,7 +1075,8 @@ test('the common session projection does not import attach, state stores or publ
     assert.equal(current.files.has(path.join(sourceRoot, file)), false, `session current eagerly loads ${file}`);
   }
   // 221: confirm-code.mjs, which builds the short code a confirmation route carries [owner, 2026-11-12].
-  assert.ok(current.files.size <= 221, `session current reaches ${current.files.size} files; old session handler reached 429`);
+  // 222: step-intent-settings.mjs, what a workflow of step intents derives when configuration resolves it (intents-stage2).
+  assert.ok(current.files.size <= 222, `session current reaches ${current.files.size} files; old session handler reached 429`);
   // 3,905,000: main cf33907d measures 3,898,542; plan corrections as the plan approver's own terminal step and an
   // upstream issue raised from /sf-decide add 1,906 for 3,900,448 (copilot-mutation-guard.mjs, command-skills.mjs).
   // 3,910,000: main 80f74694 measures 3,901,751; who decides for a step with no approval group (approval-fallback.mjs,
@@ -1397,7 +1408,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,322,851 (measured on landing-12, 2026-11-21): step intents stages 0-1 and the coverage fix together. No new eager file.
   // 4,322,916 (measured, +65, 2026-11-21, timeout-retry): a SUBPROCESS_TIMEOUT names its program and limit (util.mjs run).
   // No new eager file.
-  assert.ok(current.bytes <= 4_322_916, `session current loads ${current.bytes} source bytes`);
+  // 4,385,270 (measured, +62,354, 2026-11-21, intents-stage2): step intents Stage 2's derivation, which resolving any
+  // configuration may run (step-intent-settings.mjs, the one new eager file, and config.mjs). The inference stays lazy.
+  assert.ok(current.bytes <= 4_385_270, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

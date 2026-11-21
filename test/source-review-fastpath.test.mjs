@@ -64,7 +64,9 @@ test('review readers cannot statically pull in phase authoring or lifecycle publ
   // contract; phase-inspection-generation.mjs and submit-route.mjs, which they replace, leave. The writers above stay out.
   // 281 (landing-7; main 698adbc95 measures 280): review-dispute-words.mjs, an import-free leaf that only words a person's
   // dispute of a reviewer's finding, joins through the review reads that show it [owner, 2026-11-20]. The writers above stay out.
-  assert.ok(visited.size < 282, `review read closure grew to ${visited.size} local modules`);
+  // 282 (intents-stage2, 2026-11-21; measured 282): step-intent-settings.mjs, the pure derivation configuration runs for a
+  // workflow of step intents (on phase-roles.mjs and phase-overrides.mjs only), joins through config.mjs. The writers above stay out.
+  assert.ok(visited.size < 283, `review read closure grew to ${visited.size} local modules`);
 });
 
 test('only exact read forms share a review command scope; writers and override flags never do', () => {

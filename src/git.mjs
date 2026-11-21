@@ -1890,6 +1890,59 @@ export async function withIsolatedGitObjectRepository({
   }
 }
 
+/**
+ * Another repository's files at one exact commit, read only (a marketplace's catalog, marketplace-repository.mjs).
+ * Unless `commit` pins it already, `ref` (a branch or a tag; the remote's default branch when null) is resolved once
+ * with ls-remote. That commit alone is fetched, depth 1, into a transient isolated object repository, and
+ * `callback({ root, commit })` reads its files there with exactFileAtObject and exactTreePathsAtObject. Nothing is
+ * checked out, so no hook, filter or attribute of the other repository runs, and the remote goes through the same
+ * credential-free, frozen transport as every remote read here. `remote` is a URL or an absolute local path.
+ */
+export async function withRemoteCommitSnapshot({ remote, ref = null, commit = null, maximumBytes = 64 * 1024 * 1024 }, callback) {
+  invariant(ref === null || isGitRefName(ref), 'Invalid remote branch or tag name.');
+  invariant(commit === null || EXACT_LOCAL_OBJECT_ID.test(commit), 'Invalid exact remote commit.');
+  const unavailable = (message, stage, result = null) => new SingularityFlowError(message, {
+    code: 'GIT_REMOTE_SNAPSHOT_UNAVAILABLE',
+    details: { stage, ...(result ? { status: result.status ?? null, stderr: String(result.stderr ?? '').trim().split(/\r?\n/u).slice(-2).join(' ').slice(0, 300) } : {}) }
+  });
+  return withIsolatedGitObjectRepository({ remote, expectedCommit: null, maximumBytes }, async (scratch, controls) => {
+    const transport = frozenRemoteTransport(remote);
+    let pinned = commit?.toLowerCase() ?? null;
+    if (!pinned) {
+      const wanted = ref ? [`refs/heads/${ref}`, `refs/tags/${ref}`] : ['HEAD'];
+      const listed = await runRemoteGitAsync(['-c', `core.hooksPath=${gitDisabledHooksPath()}`, 'ls-remote', '--', transport.remote, ...wanted],
+        { cwd: scratch, env: transport.env, operation: 'remote-probe', maxBuffer: 1024 * 1024 });
+      if (!processResultCompleted(listed)) controls.retainTemporaryTree();
+      if (!processResultSucceeded(listed)) throw unavailable('The repository could not be read.', 'resolve', listed);
+      const advertised = new Map(String(listed.stdout ?? '').split(/\r?\n/u).map((line) => line.match(/^([0-9a-f]{40}(?:[0-9a-f]{24})?)\t(\S+)$/iu))
+        .filter(Boolean).map((match) => [match[2], match[1].toLowerCase()]));
+      const branch = ref ? advertised.get(`refs/heads/${ref}`) : advertised.get('HEAD');
+      // An annotated tag names its commit on the peeled line.
+      const tag = ref ? advertised.get(`refs/tags/${ref}^{}`) ?? advertised.get(`refs/tags/${ref}`) : null;
+      if (branch && tag && branch !== tag) throw unavailable(`'${ref}' is both a branch and a tag there.`, 'ambiguous');
+      pinned = branch ?? tag ?? null;
+      if (!pinned) throw unavailable(ref ? `The repository has no branch or tag '${ref}'.` : 'The repository has no default branch.', 'missing');
+    }
+    const fetched = await runRemoteGitAsync([
+      '-c', `core.hooksPath=${gitDisabledHooksPath()}`, '-c', 'fetch.unpackLimit=1',
+      'fetch', '--no-tags', '--no-write-fetch-head', '--depth=1', '--', transport.remote, pinned
+    ], { cwd: scratch, env: transport.env, operation: 'remote-configuration', maxBuffer: 1024 * 1024 });
+    if (!processResultCompleted(fetched)) controls.retainTemporaryTree();
+    if (!processResultSucceeded(fetched)) throw unavailable(`Commit ${pinned.slice(0, 12)} could not be fetched.`, 'fetch', fetched);
+    let total = 0;
+    const measure = async (directory) => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const file = path.join(directory, entry.name);
+        if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) throw unavailable('The fetched repository holds an unsafe entry.', 'size');
+        if (entry.isDirectory()) await measure(file); else total += (await lstat(file)).size;
+        if (total > maximumBytes) throw unavailable(`The repository at ${pinned.slice(0, 12)} is larger than ${Math.round(maximumBytes / 1024 / 1024)} MiB.`, 'size');
+      }
+    };
+    await measure(scratch);
+    return callback({ root: scratch, commit: pinned });
+  });
+}
+
 function isolatedObjectWriterEnvironment() {
   return {
     ...immutableLocalGitEnvironment(),

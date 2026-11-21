@@ -40,14 +40,49 @@ function text(value, label, max) {
   return result;
 }
 
-/** The `marketplaces:` configuration: id → { label, index, allowedOrigins }. */
+const COMMIT = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
+const REF = /^(?![./-])(?!.*(?:\.\.|@\{|[~^:?*\\[]))(?!.*\/\.)(?!.*[/.]$)[^\s\u0000-\u001f\u007f]{1,200}$/u;
+
+/**
+ * A marketplace's Git repository as configuration holds it: an https or ssh URL, `user@host:path`, or an absolute
+ * local path, with no password in it. The full transport check runs when it is read (git.mjs withRemoteCommitSnapshot).
+ */
+export function marketplaceRepositoryValue(value, label) {
+  const remote = String(value ?? '').trim();
+  const usable = remote.length > 0 && remote.length <= 1000 && !/[\s\u0000-\u001f\u007f]/u.test(remote) && !remote.startsWith('-')
+    && (/^https:\/\/[^/@:\s]+(?::\d+)?\/\S+$/u.test(remote) || /^ssh:\/\/(?:[^/@:\s]+@)?[^/@:\s]+(?::\d+)?\/\S+$/u.test(remote)
+      || /^[^/@:\s]+@[^/:\s]+:\S+$/u.test(remote) || /^\/\S*[^/]$/u.test(remote) || /^[A-Za-z]:[\\/]\S+$/u.test(remote));
+  if (!usable) throw fail(`${label} must be an https or ssh Git URL, user@host:path, or an absolute folder path, with no password in it.`);
+  return remote;
+}
+
+function repositoryMarketplace(id, entry) {
+  for (const key of Object.keys(entry)) {
+    if (!['label', 'repository', 'ref', 'commit'].includes(key)) throw fail(`Marketplace '${id}' contains unknown field '${key}'${key === 'index' ? ': a marketplace is a Git repository or an index, not both' : ''}.`);
+  }
+  const repository = marketplaceRepositoryValue(entry.repository, `Marketplace '${id}' repository`);
+  const ref = entry.ref == null ? null : String(entry.ref);
+  if (ref != null && !REF.test(ref)) throw fail(`Marketplace '${id}' ref must be a branch or tag name.`);
+  const commit = String(entry.commit ?? '').toLowerCase();
+  if (!COMMIT.test(commit)) throw fail(`Marketplace '${id}' must pin the commit it is read at (commit: the full commit ID).`);
+  return Object.freeze({
+    id, label: text(entry.label, `Marketplace '${id}' label`, 120) ?? id, repository, ref, commit, allowedOrigins: Object.freeze([])
+  });
+}
+
+/**
+ * The `marketplaces:` configuration: id → { label, index, allowedOrigins } for a compiled index, or
+ * { label, repository, ref, commit } for a Git repository with an APM manifest at its root (marketplace-repository.mjs),
+ * read at that pinned commit. A repository marketplace has no allowed origins: nothing is fetched from outside it.
+ */
 export function normalizeMarketplaces(value = {}) {
   if (value == null) return {};
-  if (typeof value !== 'object' || Array.isArray(value)) throw fail('marketplaces must be an object of marketplace ID to its index.');
+  if (typeof value !== 'object' || Array.isArray(value)) throw fail('marketplaces must be an object of marketplace ID to its index or repository.');
   const normalized = {};
   for (const [id, entry] of Object.entries(value)) {
     if (!ID.test(id)) throw fail(`Marketplace '${id}' must use lower-case kebab-case.`);
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw fail(`Marketplace '${id}' must be an object.`);
+    if (Object.hasOwn(entry, 'repository')) { normalized[id] = repositoryMarketplace(id, entry); continue; }
     for (const key of Object.keys(entry)) {
       if (!['label', 'index', 'allowedOrigins'].includes(key)) throw fail(`Marketplace '${id}' contains unknown field '${key}'.`);
     }
@@ -157,6 +192,12 @@ export function parseMarketplaceIndex(bytes, marketplace) {
 }
 
 export async function fetchMarketplaceIndex(marketplace, { fetchImpl = globalThis.fetch } = {}) {
+  if (marketplace.repository) {
+    // A Git repository marketplace has no index of files to import one by one: its agents become workflows.
+    throw fail(`Marketplace '${marketplace.id}' is a Git repository, which has no index of files to import one by one. `
+      + `See what it has with singularity-flow marketplace browse ${marketplace.id}: it lists the command that turns each of its agents into a workflow.`,
+    'MARKETPLACE_REPOSITORY_NOT_INDEX', { marketplace: marketplace.id, nextAction: `singularity-flow marketplace browse ${marketplace.id}` });
+  }
   const fetched = await fetchRemoteBytes(marketplace.index, {
     maxBytes: INDEX_MAX_BYTES, fetchImpl, label: `Marketplace '${marketplace.id}' index`, accept: 'application/json'
   });

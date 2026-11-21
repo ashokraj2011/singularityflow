@@ -1,0 +1,94 @@
+/**
+ * `marketplace add <ID> --repo <URL|FOLDER> [--ref BRANCH|TAG]` and `marketplace browse <ID>` for a marketplace that
+ * is a Git repository with an APM manifest at its root (src/marketplace-repository.mjs). Adding reads the repository
+ * once, at `--ref` (else its default branch), to check it is a marketplace and to pin the commit it is read at; the
+ * pin is a reviewed configuration change, made exactly as `marketplace add --index` makes one. Browsing reads it at
+ * that pinned commit and lists its agents and skills.
+ */
+import path from 'node:path';
+import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+
+/** A `--repo` value as configuration holds it: a URL as given, a folder as its absolute path. */
+export function repositoryArgument(value, base = process.cwd()) {
+  const raw = String(value ?? '').trim();
+  if (!raw) throw new SingularityFlowError('--repo needs the marketplace\'s Git repository: an https or ssh URL, or a folder that holds a clone.', { code: 'MARKETPLACE_ADD_USAGE' });
+  if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(raw) || /^[^/@:\s]+@[^/:\s]+:/u.test(raw) || /^[A-Za-z]:[\\/]/u.test(raw)) return raw;
+  return path.resolve(base, raw).replace(/[\\/]+$/u, '');
+}
+
+const counted = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+
+/** Add: read the repository at `--ref`, then trust it at that commit through the reviewed configuration change. */
+export async function addRepositoryMarketplace(root, id, options, { applyImportChangeSet, emitImportMutation }) {
+  for (const key of ['index', 'allowed-origin']) {
+    if (options[key] !== undefined) throw new SingularityFlowError(`A marketplace is a Git repository (--repo) or an index (--index), not both: leave out --${key}.`, { code: 'MARKETPLACE_ADD_USAGE' });
+  }
+  const [{ marketplaceRepositoryValue }, { readMarketplaceRepository }] = await Promise.all([import('../marketplace.mjs'), import('../marketplace-repository.mjs')]);
+  const repository = marketplaceRepositoryValue(repositoryArgument(optionString(options, 'repo')), '--repo');
+  const ref = optionString(options, 'ref') ?? null;
+  const catalog = await readMarketplaceRepository({ id, repository, ref });
+  // The same repository again moves its pin to the commit read now: trusting a newer commit is this same command.
+  const { configuredMarketplaces } = await import('../marketplace.mjs');
+  const { withApprovedConfigurationRead } = await import('../approved-configuration-reader.mjs');
+  const current = (await withApprovedConfigurationRead(root, () => configuredMarketplaces(root), { preferAuthority: true }))[id] ?? null;
+  const repin = current?.repository === repository;
+  if (repin && current.commit === catalog.commit) {
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'marketplace-unchanged', marketplace: current }, null, 2));
+    return console.log(`Marketplace ${id} is already read at ${catalog.commit.slice(0, 12)}, the commit ${ref ?? 'its default branch'} is at now. Nothing changed.`);
+  }
+  const change = { op: 'marketplace.add', id, label: optionString(options, 'label') ?? current?.label ?? catalog.name ?? undefined, repository, ...(ref ? { ref } : {}),
+    commit: catalog.commit, ...(repin ? { repin: true } : {}) };
+  const { STUDIO_CHANGE_SET_SCHEMA } = await import('../workflow-studio.mjs');
+  const result = await applyImportChangeSet(root, { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [change] }, options, {
+    subject: /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(id) ? id : 'marketplace',
+    message: `[configuration] trust marketplace ${id} (${repository} at ${catalog.commit.slice(0, 12)})`
+  });
+  const agents = catalog.packages.filter((entry) => entry.kind === 'agent').length;
+  const skills = catalog.packages.filter((entry) => entry.kind === 'skill').length;
+  if (!optionBoolean(options, 'json')) {
+    console.log(`${catalog.name ?? id} at ${ref ?? 'its default branch'} (commit ${catalog.commit.slice(0, 12)}): ${counted(agents, 'agent')}, ${counted(skills, 'skill')}`
+      + `${catalog.packages.length - agents - skills ? `, ${counted(catalog.packages.length - agents - skills, 'other package')}` : ''}.`);
+    for (const problem of catalog.problems.slice(0, 10)) console.log(`  Note: ${problem}`);
+  }
+  return emitImportMutation(root, { ...result, marketplace: { id, repository, ref, commit: catalog.commit, agents, skills } }, options, {
+    operation: 'marketplace.add', messageId: 'marketplace.added', slots: { id }
+  });
+}
+
+/** Browse: the agents and skills at the pinned commit, with what each one's own apm.yml says. */
+export async function browseRepositoryMarketplace(marketplace, options) {
+  const { marketplaceRepositoryView, readMarketplaceRepository } = await import('../marketplace-repository.mjs');
+  const kind = optionString(options, 'kind') ?? null;
+  if (kind && !['agent', 'skill', 'prompt', 'instructions', 'hybrid', 'other', 'unknown'].includes(kind)) {
+    throw new SingularityFlowError(`--kind is agent or skill (or prompt, instructions, hybrid): '${kind}'.`, { code: 'MARKETPLACE_BROWSE_USAGE' });
+  }
+  const catalog = await readMarketplaceRepository(marketplace);
+  // Each entry also as an index entry reads (id, label, importable), so Workflow Studio's list shows it as it is.
+  const entries = marketplaceRepositoryView(catalog, { kind, search: optionString(options, 'search') }).map((entry) => ({
+    ...entry, id: entry.name, label: entry.name, importable: false,
+    ...(entry.kind === 'agent' ? { workflowCommand: `singularity-flow workflow from-agent ${marketplace.id}/${entry.name}` } : {})
+  }));
+  if (optionBoolean(options, 'json')) {
+    return console.log(JSON.stringify({
+      schemaVersion: 1, resultType: 'marketplace-entries',
+      marketplace: { ...marketplace, name: catalog.name, description: catalog.description, owner: catalog.owner, commit: catalog.commit },
+      entries, problems: catalog.problems
+    }, null, 2));
+  }
+  console.log(`${catalog.name ?? marketplace.label}${catalog.owner ? ` by ${catalog.owner}` : ''} (${marketplace.repository} at ${catalog.commit.slice(0, 12)}): `
+    + `${counted(entries.length, 'entry', 'entries')}.`);
+  for (const entry of entries) {
+    console.log(`  ${entry.kind.padEnd(6)} ${entry.name}${entry.version ? `@${entry.version}` : ''}${entry.lifecycleState ? ` [${entry.lifecycleState}]` : ''}`);
+    if (entry.description) console.log(`         ${entry.description}`);
+    const facts = [
+      entry.type && entry.type !== entry.kind ? `type ${entry.type}` : null,
+      entry.pdlcPhases.length ? `phases ${entry.pdlcPhases.join(', ')}` : null,
+      entry.pdlcTasks.length ? `tasks ${entry.pdlcTasks.join(', ')}` : null,
+      entry.tags.length ? `tags ${entry.tags.join(', ')}` : null,
+      entry.skills.length ? `skills ${entry.skills.join(', ')}` : null
+    ].filter(Boolean);
+    if (facts.length) console.log(`         ${facts.join(' · ')}`);
+    if (entry.workflowCommand) console.log(`         As a workflow: ${entry.workflowCommand}`);
+  }
+  for (const problem of catalog.problems.slice(0, 10)) console.log(`Note: ${problem}`);
+}

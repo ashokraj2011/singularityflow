@@ -4081,13 +4081,17 @@ async function marketplaceCommand(positionals, options) {
     if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'marketplaces', marketplaces }, null, 2));
     if (!marketplaces.length) return console.log('This repository trusts no marketplaces. Add one with: singularity-flow marketplace add <ID> --index <HTTPS-URL> --propose');
     for (const marketplace of marketplaces) {
-      console.log(`${marketplace.id}: ${marketplace.label} — ${marketplace.index}${marketplace.allowedOrigins.length ? ` (also ${marketplace.allowedOrigins.join(', ')})` : ''}`);
+      console.log(marketplace.repository
+        ? `${marketplace.id}: ${marketplace.label} — ${marketplace.repository}${marketplace.ref ? ` (${marketplace.ref})` : ''} at ${marketplace.commit.slice(0, 12)}`
+        : `${marketplace.id}: ${marketplace.label} — ${marketplace.index}${marketplace.allowedOrigins.length ? ` (also ${marketplace.allowedOrigins.join(', ')})` : ''}`);
     }
     return;
   }
   if (action === 'browse') {
     const id = requirePositional(positionals, 2, 'marketplace ID');
     const marketplace = requireMarketplace(await withApprovedConfigurationRead(root, () => configuredMarketplaces(root), { preferAuthority: true }), id);
+    // A Git repository marketplace: its agents and skills, read from each package's own apm.yml at the pinned commit.
+    if (marketplace.repository) return (await import('./commands/marketplace-repository.mjs')).browseRepositoryMarketplace(marketplace, options);
     const index = await fetchMarketplaceIndex(marketplace);
     const entries = marketplaceEntriesView(index, { kind: optionString(options, 'kind'), search: optionString(options, 'search') });
     if (json) {
@@ -4106,6 +4110,9 @@ async function marketplaceCommand(positionals, options) {
   }
   if (action === 'add' || action === 'remove') {
     const id = requirePositional(positionals, 2, 'marketplace ID');
+    if (action === 'add' && options.repo !== undefined) {
+      return (await import('./commands/marketplace-repository.mjs')).addRepositoryMarketplace(root, id, options, { applyImportChangeSet, emitImportMutation });
+    }
     const { STUDIO_CHANGE_SET_SCHEMA } = await import('./workflow-studio.mjs');
     const change = action === 'add'
       ? { op: 'marketplace.add', id, label: optionString(options, 'label') ?? undefined, index: optionString(options, 'index'), allowedOrigins: listOption(options, 'allowed-origin') }

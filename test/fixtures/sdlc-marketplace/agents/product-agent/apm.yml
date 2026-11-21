@@ -1,0 +1,25 @@
+name: product-agent
+version: 1.0.0-pdlc
+description: Product elaboration agent that asks clarifying questions first, then writes numbered requirements, INVEST user stories and Given/When/Then acceptance criteria with full traceability.
+type: agent
+source-repository: https://git.example.com/acme/sdlc-marketplace
+maintainer-email: maintainers@example.com
+author-email: maintainers@example.com
+categories:
+  - pdlc
+tags:
+  - product
+  - orchestrator
+  - ga
+pdlc-phases:
+  - elaboration
+pdlc-tasks:
+  - requirements-analysis
+  - user-story-writing
+  - acceptance-criteria-writing
+lifecycle-state: approved
+# Skills this agent routes to, as same-repository APM local paths.
+dependencies:
+  apm:
+    - ../../skills/requirements-writer
+    - ../../skills/acceptance-criteria-writer

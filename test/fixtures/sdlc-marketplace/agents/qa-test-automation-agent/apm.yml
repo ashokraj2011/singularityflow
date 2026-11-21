@@ -1,0 +1,31 @@
+name: qa-test-automation-agent
+version: 1.0.0-pdlc
+description: Multi-channel QA automation agent that prompts for the target channel and routes to the matching test-automation skills for web and android.
+type: agent
+source-repository: https://git.example.com/acme/sdlc-marketplace
+maintainer-email: maintainers@example.com
+author-email: maintainers@example.com
+categories:
+  - pdlc
+tags:
+  - multi-channel
+  - orchestrator
+  - ga
+  - test-automation
+pdlc-phases:
+  - elaboration
+  - delivery
+pdlc-tasks:
+  - test-case-creation
+  - e2e-testing
+  - ui-test-automation
+  - unit-testing
+lifecycle-state: proposed
+# Skills this agent routes to, as same-repository APM local paths.
+dependencies:
+  apm:
+    - ../../skills/web-xray-creation
+    - ../../skills/android-xray-creation
+    - ../../skills/web-e2e-test-generation
+    - ../../skills/android-ui-test-creation
+    - ../../skills/android-unit-test

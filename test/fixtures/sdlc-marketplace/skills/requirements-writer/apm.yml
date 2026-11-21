@@ -1,0 +1,18 @@
+name: requirements-writer
+version: 1.0.0-pdlc
+description: Turn a feature brief and answered clarifying questions into numbered functional and non-functional requirements with assumptions, out-of-scope items and open questions.
+type: skill
+source-repository: https://git.example.com/acme/sdlc-marketplace
+maintainer-email: maintainers@example.com
+author-email: maintainers@example.com
+categories:
+  - pdlc
+tags:
+  - requirements
+  - product
+  - ga
+pdlc-phases:
+  - elaboration
+pdlc-tasks:
+  - requirements-analysis
+lifecycle-state: approved

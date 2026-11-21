@@ -119,7 +119,7 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   assert.deepEqual(first.code.deliveredClauses, ['QF-1:AC-001']);
   assert.deepEqual(first.code.planned['QF-1:AC-001'].expectedPaths, ['src/value.mjs']);
   assert.ok(first.code.passedTests.includes('test/value.test.mjs'), JSON.stringify(first.code));
-  assert.equal(first.citationGuide.checks.length, 4);
+  assert.equal(first.citationGuide.checks.length, 5);
   const corrected = retainReview(repo, 'implement', codeReport(first, { blocking: (code) => ({ id: 'explain-the-value', severity: 'blocking', check: 'plan',
     clauseId: 'QF-1:AC-001', message: 'The clause comment must say why the value is 2, as the plan row says.', ...cite(code, '// @clause:QF-1:AC-001') }) }));
   assert.equal(corrected.status, 'correction-required');

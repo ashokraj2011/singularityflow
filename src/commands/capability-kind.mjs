@@ -20,7 +20,7 @@ async function answerRoutes(view) {
 export async function runCapabilityKind({ positionals = [], options = {} } = {}) {
   const unknown = Object.keys(options).filter((key) => !OPTIONS.has(key)).sort();
   if (unknown.length || positionals.length > 2) {
-    throw new SingularityFlowError(`Use singularity-flow capability kind [--capability ID] [--set PROJECT=KIND]... [--confirm sha256:<DIGEST>] [--json].${unknown.length
+    throw new SingularityFlowError(`Use singularity-flow capability kind [--capability ID] [--set PROJECT=KIND]... [--json]; a person confirms the line it shows with its short code.${unknown.length
       ? ` Not an option here: ${unknown.map((key) => `--${key}`).join(', ')}.` : ''}`, { code: 'SOFTWARE_KIND_USAGE', details: { nextAction: 'singularity-flow capability kind --json' } });
   }
   const { repoRoot } = await import('../git.mjs');

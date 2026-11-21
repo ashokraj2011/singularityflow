@@ -2,9 +2,8 @@
  * What kind of software each project in a repository is, read from its committed files (step intents spec §12.1):
  * web, backend, job, cli, library, mobile or artifact.
  *
- * The kind decides, later, which runtime check a code step gets and which baseline criteria an intake adds (§12.2,
- * §12.3). Today it is a read-only report in `workflow check`: nothing uses it, nothing records it, and nobody is asked
- * to confirm it yet.
+ * The kind decides which runtime check a code step gets (§12.3, runtime-check.mjs) and, later, which baseline criteria
+ * an intake adds (§12.2). `workflow check` reports it; software-kind-record.mjs keeps it once a person confirms it.
  *
  * One kind per project, as the repository's build tools declare projects (repository-projects.mjs); a repository that
  * declares none is one project. Each kind is scored from what the build files name (a framework or dependency counts

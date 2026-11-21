@@ -711,6 +711,13 @@ export function evaluateSourceGroundedReview(report, context) {
     .map((entry) => [entry.id.slice(DISPUTE_PREFIX.length), { reason: entry.reason.trim(), by: String(entry.by ?? '').trim() || entry.actor.trim(), at: entry.decidedAt ?? null,
       ...(entry.carriedFrom ? { carriedFrom: entry.carriedFrom } : {}) }]));
   const disputedFindings = [];
+  // The runtime check this review read (step intents §12.3): its findings that break use are each answered by a use finding.
+  // Only when the report names the capture the context still has: a review retained before a later check keeps its standing.
+  const capture = context.kind === 'code' ? context.runtimeCheck ?? null : null;
+  const runtimeFindingList = (capture?.checks ?? []).flatMap((check) => check.findings ?? []);
+  const runtime = { current: Boolean(capture?.id) && report.runtimeChecked === capture.id, ids: runtimeFindingList.map((entry) => entry.id) };
+  const answered = new Set();
+  const useAdvice = [];
   if (!Array.isArray(report.findings) || report.findings.length > MAX_FINDINGS) {
     findings.push(finding('review-findings-invalid', `Reviewer findings must be an array of at most ${MAX_FINDINGS} entries.`));
   } else {
@@ -728,13 +735,27 @@ export function evaluateSourceGroundedReview(report, context) {
       if (context.kind === 'code') {
         // A finding about an evidence image or PDF names what was inspected there (attestation), as no line exists.
         const visual = context.visualSources?.some((source) => source.id === entry.sourceId);
-        if (!['plan', 'tests', 'quality', 'design'].includes(entry.check) || !entry.sourceId
+        if (!['plan', 'tests', 'quality', 'design', 'use'].includes(entry.check) || !entry.sourceId
             || (!visual && (!Number.isSafeInteger(entry.line) || !entry.quote))) {
-          findings.push(finding('finding-citation-missing', `Reviewer finding '${entry.id}' needs its check (plan, tests, quality or design) and a cited file:line, or for an evidence image or PDF its sourceId and attestation.`, { field: `findings[${index}]` }));
+          findings.push(finding('finding-citation-missing', `Reviewer finding '${entry.id}' needs its check (plan, tests, quality, design or use) and a cited file:line, or for an evidence image or PDF its sourceId and attestation.`, { field: `findings[${index}]` }));
         }
         if (entry.check === 'design' && entry.severity === 'blocking' && !String(entry.defect ?? '').trim()) {
           findings.push(finding('design-blocking-without-defect', `Design finding '${entry.id}' blocks only for a real maintainability defect: name it in defect, or make it advisory.`, { field: `findings[${index}]` }));
         }
+        // The second pass: breaks use blocks, an improvement is advice (D7); the two words and the severity agree.
+        if (entry.check === 'use' && entry.use && (entry.use === 'breaks-use') !== (entry.severity === 'blocking')) {
+          findings.push(finding('use-severity-mismatch', `Use finding '${entry.id}' says ${entry.use} with severity ${entry.severity}: breaks-use is blocking and improvement is advisory; review-source check sets the severity from use.`,
+            { field: `findings[${index}].severity`, proposedEdit: { field: `findings[${index}].severity`, value: entry.use === 'breaks-use' ? 'blocking' : 'advisory' } }));
+        }
+        if (entry.runtimeFinding != null && runtime.current) {
+          if (!runtime.ids.includes(entry.runtimeFinding)) {
+            const near = nearestKnown(entry.runtimeFinding, runtime.ids);
+            findings.push(finding('runtime-finding-unknown', `Reviewer finding '${entry.id}' names runtime finding '${entry.runtimeFinding}', which the runtime check this review read does not have; ${knownChoiceWords(near)} from runtimeCheck.checks[].findings[].id.`,
+              { field: `findings[${index}].runtimeFinding`, ...(near.value ? { proposedEdit: { field: `findings[${index}].runtimeFinding`, value: near.value } } : { allowed: near.allowed }) }));
+          } else if (entry.check === 'use') answered.add(entry.runtimeFinding);
+        }
+        if (entry.check === 'use' && entry.severity === 'advisory') useAdvice.push({ id: entry.id, message: entry.message, ...(entry.runtimeFinding ? { runtimeFinding: entry.runtimeFinding } : {}),
+          ...(entry.sourceId ? { sourceId: entry.sourceId, line: entry.line ?? null } : {}) });
       }
       if (entry.sourceId) {
         if (context.visualSources?.some(source => source.id === entry.sourceId)) {
@@ -759,6 +780,10 @@ export function evaluateSourceGroundedReview(report, context) {
         `Reviewer finding '${entry.id}': ${entry.message}`, { reviewFindingId: entry.id }));
     }
   }
+  if (runtime.current) for (const entry of runtimeFindingList.filter((item) => item.use === 'breaks-use' && !answered.has(item.id))) {
+    findings.push(finding('runtime-finding-unanswered', `The runtime check found ${entry.id}: ${entry.title}. Answer it with a "use" finding naming runtimeFinding "${entry.id}": breaks-use with the code line that causes it, or improvement saying why this change does not cause it.`,
+      { runtimeFinding: entry.id, check: 'use' }));
+  }
   const dispositions = context.humanDispositions ?? [];
   const accepted = new Set();
   if (Array.isArray(dispositions)) for (const entry of dispositions) {
@@ -775,6 +800,8 @@ export function evaluateSourceGroundedReview(report, context) {
     binding, reportSha256, findings, pendingDispositions: unresolved,
     ...(upstreamFindings.length ? { upstreamFindings } : {}),
     ...(disputedFindings.length ? { disputedFindings } : {}),
+    // The second pass's improvements: shown at approval, never a hold and never a version (D7).
+    ...(useAdvice.length ? { useAdvice } : {}),
     disclaimer: 'A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment.'
   };
 }

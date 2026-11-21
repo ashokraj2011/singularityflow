@@ -29,7 +29,8 @@ const projectName = (project) => project.name ?? (project.root || null) ?? proje
 
 export async function softwareKindRecordPath(root, capabilityId) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(String(capabilityId ?? '')) || capabilityId === '..') {
-    throw new SingularityFlowError('Invalid capability ID for the kind of software.', { code: 'SOFTWARE_KIND_CAPABILITY_INVALID' });
+    throw new SingularityFlowError(`'${capabilityId}' is not a capability ID; the kind of software is recorded per capability.`, { code: 'SOFTWARE_KIND_CAPABILITY_INVALID',
+      details: { nextAction: { command: 'singularity-flow capability kind --json', label: 'Show the kinds of this checkout\'s capability.' } } });
   }
   const { gitCommonDir } = await import('./git.mjs');
   return path.join(gitCommonDir(root), 'singularity-flow', 'software-kinds', `${capabilityId}.json`);
@@ -48,6 +49,19 @@ export async function readSoftwareKindRecord(root, capabilityId) {
         || record.projects.some((entry) => typeof entry?.id !== 'string' || !SOFTWARE_KINDS.includes(entry.kind))) return null;
     return record;
   } catch { return null; }
+}
+
+/**
+ * Every kind recorded on this clone, whatever the capability (`{ projects }`, each with its folder and kind): a cheap read
+ * for the review's checklist, which never detects anything itself. Empty when nothing is recorded yet.
+ */
+export async function recordedSoftwareKinds(root) {
+  const { readdir } = await import('node:fs/promises');
+  const directory = path.dirname(await softwareKindRecordPath(root, 'probe'));
+  let names = [];
+  try { names = (await readdir(directory)).filter((name) => name.endsWith('.json')).slice(0, 20); } catch { return { projects: [] }; }
+  const records = await Promise.all(names.map((name) => readSoftwareKindRecord(root, name.slice(0, -5))));
+  return { projects: records.filter(Boolean).flatMap((record) => record.projects.map((project) => ({ ...project, confirmed: true }))) };
 }
 
 /** `--set PROJECT=KIND` values as a map, refused when a kind or project is not one SFlow knows. */

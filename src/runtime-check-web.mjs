@@ -238,7 +238,9 @@ export async function driveWebApplication(url, { launch = null, screenshotDirect
         evidence: { element: shift.what, actions: shift.actions.slice(0, 6) } });
     }
     for (const error of consoleErrors) {
-      findings.push({ type: error.uncaught ? 'page-error' : 'console-error', class: 'breaks-use',
+      // A framework's development warning (React's "Warning: …") is advice; an error or an uncaught exception breaks use.
+      const warning = !error.uncaught && /^Warning: /u.test(error.text);
+      findings.push({ type: error.uncaught ? 'page-error' : 'console-error', class: warning ? 'improvement' : 'breaks-use',
         title: error.uncaught ? 'An uncaught error in the page' : 'An error in the browser console',
         detail: `${error.text}${error.during ? ` (while ${error.during})` : ''}`, evidence: { text: error.text, at: error.at ?? null, during: error.during ?? null } });
     }

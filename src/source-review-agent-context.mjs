@@ -21,7 +21,7 @@ import { withRequirementReviewProtocol, REQUIREMENT_REVIEW_PROTOCOL } from './re
 const FIRST_FIELDS = ['schemaVersion', 'resultType', 'paused', 'personalization', 'ready', 'repositoryPath', 'workItemRoot',
   'workId', 'story', 'phase', 'phaseStatus', 'generation', 'kind', 'canReview', 'status', 'reason', 'continuation', 'recovery',
   'progress', 'taskResume', 'reviewGuide', 'citationGuide', 'bindingPath', 'reportTemplate', 'stagingPath', 'stagingProtocol', 'authorAgentId', 'requiredReviewerAgentId',
-  'reviewer', 'documentReadiness', 'clarifications', 'clarificationGuidance', 'visualSources', 'visualGuidance', 'unreadableSources', 'sources', 'upstreamSpec', 'plan', 'code', 'testRuns', 'artifact', 'reportSchema'];
+  'reviewer', 'documentReadiness', 'clarifications', 'clarificationGuidance', 'visualSources', 'visualGuidance', 'unreadableSources', 'sources', 'upstreamSpec', 'plan', 'code', 'testRuns', 'runtimeCheck', 'artifact', 'reportSchema'];
 
 /** Lossless review projection: one authoritative binding, no duplicated inventory. */
 export function compactSourceReviewContext(packet, binding) {
@@ -47,7 +47,7 @@ export function compactSourceReviewContext(packet, binding) {
       role: packet.canReview
         ? 'You are this operation\'s reviewer: activation is automatic, so act under reviewer.effectiveInstructions (otherwise reviewer.instructions) yourself in this conversation; no other agent, setup or selection is needed. Do the whole review now: the file at stagingProtocol.path already holds reportTemplate with the values SFlow knows; fill in your judgments there with your file-edit tool and run stagingProtocol.check, repair that file and check again, then retain it; never type the report into a shell argument. This packet is complete: a bounded copy lists omittedFields with their line ranges in agentOutput.path; read those ranges with your file tool before concluding anything is missing.'
         : 'No review can be prepared here; relay continuation.actions and stop.',
-      readOrder: [typeof packet.reviewer?.instructions === 'string' ? 'reviewer.effectiveInstructions' : 'reviewer.instructions', 'documentReadiness', 'clarifications', 'citationGuide', 'sources', ...(packet.visualSources?.length ? ['visualSources', 'visualGuidance'] : []), 'upstreamSpec', 'plan', 'code', 'testRuns', 'artifact', 'reportTemplate', 'reportSchema']
+      readOrder: [typeof packet.reviewer?.instructions === 'string' ? 'reviewer.effectiveInstructions' : 'reviewer.instructions', 'documentReadiness', 'clarifications', 'citationGuide', 'sources', ...(packet.visualSources?.length ? ['visualSources', 'visualGuidance'] : []), 'upstreamSpec', 'plan', 'code', 'testRuns', 'runtimeCheck', 'artifact', 'reportTemplate', 'reportSchema']
         .filter(field => field === 'reviewer.effectiveInstructions' || packet[field] != null),
       progress: 'Read progress first. Resume its exact staged draft and nextAction; retained ends the review. afterRetention is future guidance until the report is retained. Never restart context merely to avoid authoring the report.',
       exactTexts: true, bindingCopies: packet.reportTemplate ? 1 : 0,
@@ -55,7 +55,7 @@ export function compactSourceReviewContext(packet, binding) {
         ? 'Apply the requirement-review calibration in reviewer.effectiveInstructions; existing acceptance criteria count as coverage.'
         : REQUIREMENT_REVIEW_PROTOCOL } : {}),
       verification: packet.kind === 'code'
-        ? `Code: run all four checks in citationGuide.checks, (a) plan, (b) tests, (c) quality and security, (d) readability and design. sources are the changed files as published; cite file:line in them. A finding names its check; design blocks only for a named defect.${packet.citationGuide?.evidenceRule ? ' A clause proved by an evidence image or PDF (citationGuide.evidenceFiles) is inspected and attested in its row\'s evidence (citationGuide.evidenceRule).' : ''}`
+        ? `Code: run all five checks in citationGuide.checks, (a) plan, (b) tests, (c) quality and security, (d) readability and design, (e) does it work for its users and callers (useChecklist${packet.runtimeCheck ? ', with runtimeCheck' : ''}). sources are the changed files as published; cite file:line in them. A finding names its check; design blocks only for a named defect; a use finding blocks only when it breaks use.${packet.citationGuide?.evidenceRule ? ' A clause proved by an evidence image or PDF (citationGuide.evidenceFiles) is inspected and attested in its row\'s evidence (citationGuide.evidenceRule).' : ''}`
         : packet.kind === 'document'
           ? 'Document: read it against each pinned source (the Story, its documents and the approved inputs this step reads); give each a cited row (citationGuide.mappingRule).'
           : 'Specification: assess declared verification intent against pinned source obligations, not tool availability. Planning: preserve approved methods and exact verificationCriterion; primary visual/inspection proof is not a test exemption. A real omitted-test exemption still needs a pending human disposition. Neither a contract nor file presence establishes a visual pass.',

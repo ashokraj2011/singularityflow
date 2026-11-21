@@ -43,7 +43,17 @@ async function headCommit(root) {
   try { return (await import('./git-access.mjs')).typedRevision(root, 'HEAD'); } catch { return null; }
 }
 
-/** The capture of `phaseId`'s current version on this checkout, with `current` false once HEAD moved; null when none. */
+/**
+ * What the version delivered, as its publication recorded it: each delivered path with its digest. SFlow's own Story
+ * commits (a retained review, a submission) move HEAD and change none of it, so they never make the check run again.
+ */
+export function deliveredSourceKey(phase) {
+  const paths = (phase?.deliveryEvidence?.paths ?? []).map((entry) => [entry?.path ?? null, entry?.sha256 ?? null, entry?.exists ?? null]);
+  const recorded = [...(phase?.deliveryEvidence?.sourcePaths ?? [])].sort();
+  return `sha256:${createHash('sha256').update(JSON.stringify({ generation: phase?.generation ?? null, paths, recorded })).digest('hex')}`;
+}
+
+/** The capture of `phaseId`'s current version on this checkout, with `current` false once what it delivered changed; null when none. */
 export async function readRuntimeCheck(root, workflow, phaseId) {
   const phase = workflow?.phases?.[phaseId];
   if (!workflow?.workItem?.id || !phase || !(phase.generation >= 1)) return null;
@@ -51,7 +61,7 @@ export async function readRuntimeCheck(root, workflow, phaseId) {
   let capture;
   try { capture = JSON.parse(await readFile(file, 'utf8')); } catch { return null; }
   if (capture?.format !== RUNTIME_CHECK_FORMAT || capture.workId !== workflow.workItem.id || capture.phase !== phaseId || capture.generation !== phase.generation) return null;
-  return { ...capture, current: capture.head === await headCommit(root) };
+  return { ...capture, current: capture.sourceKey === deliveredSourceKey(phase) };
 }
 
 /** The paths a code step's version changed: its recorded delivery paths and Git's diff against its baseline. */
@@ -212,8 +222,8 @@ function numbered(checks) {
 }
 
 /**
- * Run the check for `phaseId`'s published version and keep its capture, or return the one already kept for this version
- * and HEAD (`again` runs it anew). Returns `{ status: 'off' }` while the Story does not adopt it. Never throws for what
+ * Run the check for `phaseId`'s published version and keep its capture, or return the one already kept for what this
+ * version delivered (`again` runs it anew). Returns `{ status: 'off' }` while the Story does not adopt it. Never throws for what
  * the laptop lacks: that is the capture's `missing`. `launchBrowser` and `deadlineMs` are for tests.
  */
 export async function runRuntimeCheck(root, config, workflow, phaseId, { again = false, launchBrowser = null, deadlineMs = null } = {}) {
@@ -254,7 +264,7 @@ export async function runRuntimeCheck(root, config, workflow, phaseId, { again =
       checks.push({ ...common, status: 'not-available', ran: [], findings: [], missing: [{ what: `SFlow's ${project.kind} check`, why: String(error?.message ?? error).split('\n')[0] }] });
     }
   }
-  const capture = { format: RUNTIME_CHECK_FORMAT, id: null, workId: workflow.workItem.id, phase: phaseId, generation: phase.generation, head: await headCommit(root),
+  const capture = { format: RUNTIME_CHECK_FORMAT, id: null, workId: workflow.workItem.id, phase: phaseId, generation: phase.generation, head: await headCommit(root), sourceKey: deliveredSourceKey(phase),
     startedAt, finishedAt: new Date().toISOString(), changedPaths: paths.slice(0, 200),
     kinds: { capability: kinds.capability ?? null, question: kinds.question ?? null, confirm: kinds.confirm?.command ?? null, ...(kinds.unavailable ? { unavailable: kinds.unavailable } : {}),
       projects: (kinds.projects ?? []).map(({ id, root: folder, kind, confirmed }) => ({ id, root: folder, kind, confirmed })) },
@@ -298,3 +308,4 @@ export function runtimeCheckWords(capture) {
   const ran = capture.checks.filter((check) => check.status !== 'not-available').map((check) => `${check.kind}${check.project && check.project !== 'repository-root' ? ` (${check.project})` : ''}`);
   return `Runtime check: ${ran.length ? `ran ${ran.join(', ')}` : 'could not run here'}; ${breaking} finding${breaking === 1 ? '' : 's'} that break${breaking === 1 ? 's' : ''} use, ${findings.length - breaking} advice${missing.length ? `; missing here: ${[...new Set(missing)].join(', ')}` : ''}.`;
 }
+

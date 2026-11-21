@@ -20,6 +20,7 @@ import { approvesAutomatically, automaticApprovalHeldBy } from '../src/approval-
 import { deterministicOnlyGeneration, phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
 import { resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { isConvergencePhase } from '../src/phase-roles.mjs';
+import { stepsHeldByDecisions } from '../src/step-intent-settings.mjs';
 import { CURRENT_INTENT_PROFILE, deriveWorkflowSettings, PACKAGED_STEP_INTENTS, STEP_INTENTS } from '../src/step-intents.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -48,7 +49,7 @@ function compareWorkType(raw, definition, id) {
   }));
   const { facts, steps: derived } = deriveWorkflowSettings(steps, {
     omitsScope: (type.omits ?? []).some((entry) => entry?.responsibility === 'scope'),
-    decisionsAfter: (resolved.decisions ?? []).map((entry) => entry.after),
+    decisionsAfter: stepsHeldByDecisions(resolved.decisions, resolved.phases.map((phase) => phase.id)),
     loopSources: (resolved.reworkLoops ?? []).map((entry) => entry.from),
     designCaptureStep: type.designSources ? type.designSources.capturePhase ?? 'design-intake' : null,
     screenProfiles: (resolved.verification?.profiles ?? []).length > 0,

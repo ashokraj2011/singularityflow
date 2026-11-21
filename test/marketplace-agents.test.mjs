@@ -267,9 +267,9 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     const shown = json(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent']);
     assert.equal(shown.ready, true);
     assert.match(shown.workflowYaml, /^version: 4$/mu);
-    // The channel decision follows Intake, so a person approves Intake: the workflow rule for a step a decision reads.
+    // The channel decision only records the person's own answer, so SFlow still approves Intake when it is clean.
     assert.deepEqual(shown.derived.map((step) => [step.intent, step.changesSource, step.approval]), [
-      ['intake', false, 'person'], ['requirements', false, 'person'], ['code', true, 'person'], ['test', false, 'sflow-when-clean']]);
+      ['intake', false, 'sflow-when-clean'], ['requirements', false, 'person'], ['code', true, 'person'], ['test', false, 'sflow-when-clean']]);
     const out = path.join(root, 'qa.workflow.json');
     flow(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--out', out]);
     const file = path.join(root, 'singularity', 'workflow.yml');

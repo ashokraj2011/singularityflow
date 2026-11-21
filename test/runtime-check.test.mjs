@@ -15,7 +15,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { normalizeApplicationReview } from '../src/application-review-contract.mjs';
-import { readRuntimeCheck, runRuntimeCheck, runtimeCheckForReview, runtimeCheckWords, runtimeFindings, runtimeTryIt } from '../src/runtime-check.mjs';
+import { readRuntimeCheck, runRuntimeCheck, runtimeCheckForReview, runtimeCheckWords, runtimeFindings, runtimeTryIt, runtimeTryItView } from '../src/runtime-check.mjs';
+import { agentAct } from '../src/agent-output.mjs';
 
 async function freePort() {
   const server = createServer();
@@ -117,6 +118,16 @@ test('a backend that answers 500 to bad input, logs the exception and lost an AP
   assert.match(runtimeCheckWords(capture), /^Runtime check: ran backend; 3 findings that break use, \d+ advice\.$/u);
   // The kind is not confirmed yet: the capture carries the one line a person answers.
   assert.match(capture.kinds.question, /SFlow sees this repository as a backend \(API or service\) \(express in package\.json/u);
+  // "Try it" at the approval: optional, recording nothing, with the kind line until a person confirms it.
+  const view = await runtimeTryItView(root, workflow, 'implement');
+  assert.deepEqual([view.optional, view.recordsAcceptance], [true, false]);
+  assert.match(view.line, new RegExp(`^Optional: try it with \\d+ ready requests against http://127\\.0\\.0\\.1:${port} \\(start it with /sf-run-app start\\)\\.$`, 'u'));
+  assert.equal(view.kindRoute.command, 'singularity-flow capability kind --json');
+  const question = 'Approve Implement v1?';
+  const act = agentAct({ approvalContext: { phase: 'implement' }, ready: false, tryIt: { ...view, advice: [{ id: 'labels', message: 'Name the field.' }] },
+    choiceSets: [{ id: 'phase-confirmation', question, options: [{ id: 'implement', label: 'Approve Implement v1' }] }], approvalPacket: { review: {} } });
+  assert.match(act.ask.how, /, then tryIt\.line as one optional line, then each of tryIt\.advice as the reviewer's advice, which holds nothing, then ask the person ask\.question exactly/u);
+  assert.ok(act.read.includes('tryIt'));
 });
 
 test('a command-line tool that exits 0 on an argument it does not accept is a blocking finding', { timeout: 60_000 }, async (t) => {

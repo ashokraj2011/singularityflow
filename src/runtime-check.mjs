@@ -309,3 +309,21 @@ export function runtimeCheckWords(capture) {
   return `Runtime check: ${ran.length ? `ran ${ran.join(', ')}` : 'could not run here'}; ${breaking} finding${breaking === 1 ? '' : 's'} that break${breaking === 1 ? 's' : ''} use, ${findings.length - breaking} advice${missing.length ? `; missing here: ${[...new Set(missing)].join(', ')}` : ''}.`;
 }
 
+/**
+ * "Try it" at a code step's approval (step intents spec §12.5), from its version's runtime check: the ready ways to
+ * try the change by kind (the app's URL and its start, requests valid and invalid, commands, a snippet), what the
+ * check found, and the kind line while a person has not confirmed it. Optional: it records nothing and holds nothing.
+ * Null when the version has no capture here.
+ */
+export async function runtimeTryItView(root, workflow, phaseId) {
+  const capture = await readRuntimeCheck(root, workflow, phaseId);
+  if (!capture) return null;
+  const ways = runtimeTryIt(capture) ?? [];
+  const first = ways[0];
+  const line = first?.kind === 'web' ? `Optional: try it at ${first.url} (start it with ${first.start.copilotCommand}).`
+    : first?.kind === 'backend' ? `Optional: try it with ${first.requests.length} ready request${first.requests.length === 1 ? '' : 's'} against ${first.baseUrl} (start it with ${first.start.copilotCommand}).`
+      : first?.kind === 'cli' ? `Optional: try it with ${first.commands[0]}.` : first?.kind === 'library' ? 'Optional: try it with the usage snippet in tryIt.' : null;
+  return { optional: true, recordsAcceptance: false, phase: phaseId, generation: capture.generation, current: capture.current,
+    words: runtimeCheckWords(capture), ways, ...(line ? { line } : {}),
+    ...(capture.kinds?.question ? { kindQuestion: capture.kinds.question, kindRoute: { command: 'singularity-flow capability kind --json' } } : {}) };
+}

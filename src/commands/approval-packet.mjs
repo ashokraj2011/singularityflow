@@ -75,10 +75,30 @@ export async function loadApprovalPacket({ workId, cwd, fetch = false }, { runSt
   const filled = (await import('../choices.mjs')).approvalReceiptCommands(begun.value);
   // This turn is that approval: what the readiness and the review say comes next is this same approval, never a route.
   const own = { workId, phase };
+  // A code step's ready ways to try it, and the second pass's advice: shown, optional, never a hold (step intents §12.4, §12.5).
+  const tryIt = await approvalTryIt(cwd, workId, phase);
   // The person's Yes is recorded in this same approve turn: onYes has no skill or chat route of its own (choices maps to /sf-start).
-  return { ...begun.value,
+  return { ...begun.value, ...(tryIt ? { tryIt } : {}),
     ...(filled ? { onYes: { ...safeCommandGuidance({ argv: filled.answer }), skill: null, copilotCommand: null, modelFreeCommand: null } } : {}),
     approvalPacket: { readiness: withoutOwnApproval(readiness, own), review: withoutOwnApproval(shown.value, own) } };
+}
+
+/**
+ * What the person may try before approving a code step's version, from its runtime check, and the reviewer's improvements
+ * (advice that holds nothing); null for any other step or when nothing was kept. A read; never a reason to stop.
+ */
+async function approvalTryIt(cwd, workId, phaseId) {
+  try {
+    const [{ repoRoot }, { loadAcceptedStoryExecution }, { phaseRequiresCodeDelivery }] = await Promise.all([
+      import('../git.mjs'), import('../accepted-story-execution.mjs'), import('../code-delivery-policy.mjs')]);
+    const root = repoRoot(cwd);
+    const { config, workflow } = await loadAcceptedStoryExecution(root, workId);
+    if (!phaseRequiresCodeDelivery(workflow.phases?.[phaseId])) return null;
+    const view = await (await import('../runtime-check.mjs')).runtimeTryItView(root, workflow, phaseId);
+    const review = await (await import('../source-review-lifecycle.mjs')).readSourceReviewStatus(root, config, workflow, phaseId).catch(() => null);
+    const advice = review?.useAdvice ?? [];
+    return view || advice.length ? { ...(view ?? { optional: true, recordsAcceptance: false }), ...(advice.length ? { advice } : {}) } : null;
+  } catch { return null; }
 }
 
 // The fields of one action that name its route: its Shell, Copilot and VS Code forms and its skill.

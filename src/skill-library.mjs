@@ -327,6 +327,34 @@ export function withoutTableSection(text, heading) {
   return [...lines.slice(0, from), ...lines.slice(end)].join('\n');
 }
 
+/**
+ * The Story value a "When to use it" names, or null: `when NAME is VALUE`, or several for one NAME joined by ` or `,
+ * up to its first comma, as `workflow from-agent` writes a hard gate's answer ("when channel is web"). `{ name, values }`.
+ */
+export function storyValueCondition(use) {
+  const head = String(use ?? '').split(',')[0].trim();
+  const parts = head ? head.split(/\s+or\s+(?=when\s)/iu).map((part) => /^when\s+([A-Za-z][\w-]*)\s+is\s+(.+)$/iu.exec(part.trim())) : [null];
+  if (parts.some((part) => !part) || new Set(parts.map((part) => part[1])).size !== 1) return null;
+  return { name: parts[0][1], values: parts.map((part) => part[2].trim()) };
+}
+
+/** What the Story's steps recorded for its decisions this round (workflow-decisions.mjs recordedDecisionValues), by name. */
+export function recordedStoryValues(workflow) {
+  const values = {};
+  for (const decision of workflow?.resolution?.decisions ?? []) {
+    const recorded = workflow.phases?.[decision.after]?.decisionInputs;
+    if (recorded?.decision === decision.id) Object.assign(values, recorded.values);
+  }
+  return values;
+}
+
+/** Whether a skill applies: one naming a Story value the Story recorded applies only for that value; any other as before. */
+export function skillAppliesToStory(use, values = {}) {
+  const condition = storyValueCondition(use);
+  return !condition || values[condition.name] == null
+    || condition.values.some((value) => value.toLowerCase() === String(values[condition.name]).toLowerCase());
+}
+
 /** The "When to use it" cell: one line of plain text, or empty for "whenever the step needs it". */
 export function normalizeSkillUse(value) {
   const text = String(value ?? '').replace(/\s+/g, ' ').trim();

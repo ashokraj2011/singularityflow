@@ -1178,7 +1178,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         const [{ resolveStoryExecutionContext }, { expandedOnDemandSkills }] = await Promise.all([
           import('../story-execution-context.mjs'), import('../retained-skill-instructions.mjs')]);
         onDemandSkills = expandedOnDemandSkills(phase, await resolveStoryExecutionContext(worktree, definition, workflow, {
-          agentId: phase.defaultAgent, phaseId: phase.id }));
+          agentId: phase.defaultAgent, phaseId: phase.id }), workflow);
       }
       if (deterministicProducer) {
         const deterministicActiveMilliseconds = Date.now() - activeAccountedAt;

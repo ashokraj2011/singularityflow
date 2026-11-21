@@ -8,6 +8,8 @@
  * - agent.md as stages: numbered headings outside fenced code, hard gates, the step-to-skill table.
  * - The QA agent: the channel question at intake, a test design step, a code step for the automation, the Test Case
  *   Review gate as a person's approval, and the evidence step; the product agent; a stage SFlow asks about.
+ * - The channel is a Story value: Intake's submission records the person's answer, and each later step is given only
+ *   that answer's skills (android gives the android skills, web the web ones), in the imported workflow itself.
  * - The version 4 bundle `workflow import` brings in, which `workflow check --settings` accepts.
  */
 import assert from 'node:assert/strict';
@@ -19,7 +21,9 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { AGENT_TASK_INTENTS, convertAgent, parseAgentDocument, workflowDefinition } from '../src/agent-workflow.mjs';
+import { AGENT_TASK_INTENTS, agentInstructions, convertAgent, parseAgentDocument, workflowDefinition } from '../src/agent-workflow.mjs';
+import { recordedStoryValues, skillAppliesToStory, storyValueCondition } from '../src/skill-library.mjs';
+import { decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, normalizeDecisions } from '../src/workflow-decisions.mjs';
 import { normalizeMarketplaces } from '../src/marketplace.mjs';
 import { parseMarketplaceManifest, parsePackageManifest } from '../src/marketplace-repository.mjs';
 import { STEP_INTENTS } from '../src/phase-roles.mjs';
@@ -144,6 +148,43 @@ test('the QA agent: the channel at intake, a test design step, a code step for t
   assert.deepEqual(phases['qa-test-automation-intake'].clarification, { topics: ['Which channel is this test automation for? Choose one: web, android (recorded as channel).'] });
   for (const phase of Object.values(phases)) assert.deepEqual(Object.keys(phase).filter((key) => ['writeScope', 'generation', 'approval', 'repositoryTests'].includes(key)), [], 'the intent gives every setting');
   assert.deepEqual(workType.phases, conversion.steps.map((step) => step.id));
+
+  // The channel is a Story value: a decision after Intake records the person's answer at its submission, and every
+  // route goes on to the next step, so the answer chooses skills and never skips a step.
+  assert.deepEqual(conversion.storyValue, { name: 'channel', question: 'Which channel is this test automation for?', values: ['web', 'android'],
+    step: 'qa-test-automation-intake', decision: 'channel', tableSection: 'Channel Skill Path Resolution' });
+  assert.deepEqual(workType.decisions, [{ id: 'channel', after: 'qa-test-automation-intake', kind: 'branch', label: 'Which channel is this test automation for?',
+    inputs: [{ name: 'channel', label: 'Which channel is this test automation for?', values: ['web', 'android'] }],
+    routes: [{ id: 'web', label: 'web', when: { channel: 'web' }, to: 'next' }, { id: 'android', label: 'android', to: 'next' }] }]);
+  const [decision] = normalizeDecisions(workType.decisions, { workTypeId: 'qa-test-automation',
+    phases: conversion.steps.map((step) => ({ id: step.id, label: step.label, approval: { mode: 'required', authorities: [] } })) });
+  assert.deepEqual(decision.routes.map((route) => route.to), ['next', 'next']);
+  assert.equal(decisionInputsHint(decision), '--decision channel=<web|android>');
+  // Every skill the table ties to an answer reads it in the form a Story value is read in.
+  assert.deepEqual([...design.skills, ...automation.skills].map((entry) => [entry.skill, storyValueCondition(entry.use)?.values ?? null]),
+    [['web-xray-creation', ['web']], ['android-xray-creation', ['android']], ['web-e2e-test-generation', ['web']], ['android-ui-test-creation', ['android']], ['android-unit-test', ['android']]]);
+  // The agent's instructions name the Story value, and its table of both channels' skill paths is SFlow's line instead.
+  const instructions = agentInstructions(conversion, agent.text);
+  assert.match(instructions, /SFlow records the answer to "Which channel is this test automation for\?" as the Story value channel when Intake is submitted/u);
+  assert.match(instructions, /## Channel Skill Path Resolution\n\nSFlow resolves each step's skill from the Story value channel: the step is given only the skill for the recorded answer\./u);
+  assert.doesNotMatch(instructions, /\| Test Case Creation \| `skills\/web-xray-creation\/` \|/u, 'no table of both channels\' paths');
+  assert.match(instructions, /## 1\. Intake/u, 'the stages stay as written');
+});
+
+test('a skill tied to one answer applies once the Story records another answer only if it is that answer', () => {
+  assert.deepEqual(storyValueCondition('when channel is web or when channel is android'), { name: 'channel', values: ['web', 'android'] });
+  assert.deepEqual(storyValueCondition('When channel is android, only when step 5, Unit Test Gap Fill, is needed'), { name: 'channel', values: ['android'] });
+  for (const free of ['', 'After you write the code, before you publish it', 'only when step 5, Unit Test Gap Fill, is needed', 'when channel is web or when size is big']) {
+    assert.equal(storyValueCondition(free), null, free);
+  }
+  assert.equal(skillAppliesToStory('when channel is web', { channel: 'android' }), false);
+  assert.equal(skillAppliesToStory('when channel is web', { channel: 'Web' }), true);
+  assert.equal(skillAppliesToStory('when channel is web', {}), true, 'not recorded yet: the skill stays, with its condition in words');
+  assert.equal(skillAppliesToStory('Before you publish', { channel: 'android' }), true, 'a skill that names no value is unchanged');
+  const decision = { id: 'channel', after: 'intake', inputs: [{ name: 'channel', type: 'choice', values: ['web', 'android'] }] };
+  const workflow = { resolution: { decisions: [decision] }, phases: { intake: { decisionInputs: { decision: 'channel', values: normalizeDecisionInputValues(decision, { channel: 'ANDROID' }) } } } };
+  assert.deepEqual(recordedStoryValues(workflow), { channel: 'android' });
+  assert.deepEqual(recordedStoryValues({ ...workflow, phases: { intake: { decisionInputs: { decision: 'another', values: { channel: 'web' } } } } }), {}, 'only this round\'s own decision counts');
 });
 
 test('the product agent, and a stage SFlow cannot classify gets the one plain question, never a guess', async () => {
@@ -151,6 +192,7 @@ test('the product agent, and a stage SFlow cannot classify gets the one plain qu
   const asked = convertAgent({ marketplace: MARKET, agent, skills });
   assert.equal(asked.ready, false);
   assert.equal(asked.questions.length, 5, 'the five clarifying questions of its first stage');
+  assert.equal(asked.storyValue, undefined, 'open questions with no choices stay questions, not Story values');
   assert.deepEqual(asked.steps.slice(0, 4).map((step) => step.intent), ['intake', 'requirements', 'requirements', 'requirements']);
   assert.deepEqual(asked.open.map((entry) => entry.step), ['product-traceability-check', 'product-hand-off']);
   const [traceability, handoff] = asked.open;
@@ -225,8 +267,9 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     const shown = json(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent']);
     assert.equal(shown.ready, true);
     assert.match(shown.workflowYaml, /^version: 4$/mu);
+    // The channel decision follows Intake, so a person approves Intake: the workflow rule for a step a decision reads.
     assert.deepEqual(shown.derived.map((step) => [step.intent, step.changesSource, step.approval]), [
-      ['intake', false, 'sflow-when-clean'], ['requirements', false, 'person'], ['code', true, 'person'], ['test', false, 'sflow-when-clean']]);
+      ['intake', false, 'person'], ['requirements', false, 'person'], ['code', true, 'person'], ['test', false, 'sflow-when-clean']]);
     const out = path.join(root, 'qa.workflow.json');
     flow(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--out', out]);
     const file = path.join(root, 'singularity', 'workflow.yml');
@@ -253,6 +296,27 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     const agentText = await readFile(path.join(root, 'singularity/agents/qa-test-automation-agent.agent.md'), 'utf8');
     assert.match(agentText, /SFlow runs the numbered stages below as the steps of the QA Test Automation workflow/u);
     assert.match(agentText, /\| web-xray-creation \|[^\n]*qa-test-automation-test-case-creation[^\n]*when channel is web/u);
+    assert.match(flow(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent']).stdout,
+      /The answer is the Story value channel, recorded when Intake is submitted \(--decision channel=<web\|android>\); each later step is given only the skills for that answer\./u);
+
+    // In the imported workflow: Intake's submission records the person's channel, and each later step is given that
+    // channel's skills only. Choosing android gives the android skills; choosing web gives the web skills.
+    const [{ loadDefinition, resolveWorkType }, { renderAgentSkills }] = await Promise.all([import('../src/config.mjs'), import('../src/agents.mjs')]);
+    const imported = resolveWorkType(await loadDefinition(root), 'qa-test-automation');
+    const recording = decisionFedBy({ resolution: { decisions: imported.decisions } }, 'qa-test-automation-intake');
+    assert.ok(recording, 'Intake records the channel when it is submitted');
+    const storyOn = (channel) => ({ workItem: { id: 'QA-1', workType: 'qa-test-automation' }, resolution: { decisions: imported.decisions },
+      phases: { 'qa-test-automation-intake': channel ? { decisionInputs: { schemaVersion: 1, decision: recording.id, values: normalizeDecisionInputValues(recording, { channel }) } } : {} } });
+    const skillsAt = async (channel, step) => (await renderAgentSkills(root, storyOn(channel), { id: `qa-test-automation-${step}` }, { agent: 'qa-test-automation-agent' })).skills.map((entry) => entry.id).sort();
+    assert.deepEqual(await skillsAt('android', 'test-case-creation'), ['android-xray-creation']);
+    assert.deepEqual(await skillsAt('android', 'test-automation'), ['android-ui-test-creation', 'android-unit-test']);
+    assert.deepEqual(await skillsAt('web', 'test-case-creation'), ['web-xray-creation']);
+    assert.deepEqual(await skillsAt('web', 'test-automation'), ['web-e2e-test-generation']);
+    const androidPrompt = (await renderAgentSkills(root, storyOn('android'), { id: 'qa-test-automation-test-case-creation' }, { agent: 'qa-test-automation-agent' })).text;
+    assert.match(androidPrompt, /`android-xray-creation`/u);
+    assert.doesNotMatch(androidPrompt, /web-xray-creation/u, 'the step sees the chosen skill, not both');
+    // Before Intake records it, both stay, each with its condition in words.
+    assert.deepEqual(await skillsAt(null, 'test-case-creation'), ['android-xray-creation', 'web-xray-creation']);
 
     // --propose: the bundle in SFlow's private folder, and its import as a configuration proposal, ready to confirm.
     const proposed = json(root, ['workflow', 'from-agent', 'acme/product-agent', '--answer', 'product-traceability-check=review', '--answer', 'product-hand-off=report', '--propose']);

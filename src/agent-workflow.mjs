@@ -13,6 +13,11 @@
  *   step; a later gate that only asks a person to approve or choose what the stage before it made becomes that step's
  *   person approval. A stage the rules cannot classify gets the one plain question (§6.3), never a guess, and
  *   `answers` (the person's choice, by step ID) settle it.
+ * - A hard gate's choice the agent records under a name ("Record the answer as `channel`") is a Story value: a branch
+ *   decision after the first step records the person's answer when that step is submitted (workflow-decisions.mjs),
+ *   every route going on to the next step. Each skill the step-to-skill table ties to an answer says so in its
+ *   "When to use it" (`when channel is web`), so a later step is given only the skill for the recorded answer
+ *   (skill-library.mjs skillAppliesToStory), and the agent's own table of both answers' skill paths is replaced by that.
  * - workflowDefinition writes the version 4 workflow.yml pieces: every step with its intent and a `because:` for each
  *   setting it keeps against its intent's profile; Stage 2 derives every other setting (step-intent-settings.mjs).
  *
@@ -327,6 +332,29 @@ const topic = (question) => (question.choices.length
   ? `${question.question.replace(/\?*$/u, '?')} Choose one: ${question.choices.join(', ')}${question.name ? ` (recorded as ${question.name})` : ''}.`
   : question.question);
 
+// The shapes a decision input and its routes take (workflow-decisions.mjs).
+const VALUE_NAME = /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/u;
+const ROUTE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+
+/**
+ * The hard gate's named choice as a Story value the first step records, or null with a note when it cannot be one:
+ * `{ name, question, values, step, decision, tableSection }`.
+ */
+function recordedAnswer(named, first, skillTable, notes) {
+  if (!named.name) return null;
+  const values = named.choices;
+  const routes = values.map((value) => kebab(value));
+  const fits = VALUE_NAME.test(named.name) && named.name.length <= 40 && values.length >= 2 && values.length <= 20
+    && values.every((value) => value.length <= 60) && new Set(values.map((value) => value.toLowerCase())).size === values.length
+    && routes.every((id) => ROUTE_ID.test(id)) && new Set(routes).size === routes.length;
+  if (!fits) {
+    notes.push(`The answer the agent records as ${named.name} stays a question at ${first.label}: its name or choices cannot be a Story value, so every answer's skills are attached with their condition in words.`);
+    return null;
+  }
+  return { name: named.name, question: named.question, values: [...values], step: first.id, decision: kebab(named.name),
+    tableSection: skillTable.section && skillTable.options.length ? skillTable.section : null };
+}
+
 /**
  * The workflow `agent` (a marketplace package with its agent.md `text`) becomes, with `skills` (its skill packages with
  * their SKILL.md `text`) and `answers` ({ stepId: intent } for the stages SFlow asked about). Returns
@@ -392,8 +420,9 @@ export function convertAgent({ marketplace, agent, skills = [], answers = {} }) 
     if (candidate.stage.optional) {
       const when = candidate.stage.conditions.filter((word) => named?.choices.some((choice) => choice.toLowerCase() === word));
       const needed = `only when step ${candidate.stage.number}, ${candidate.stage.title}, is needed`;
+      // The answer's condition comes first, in the form a Story value is read in (skill-library.mjs storyValueCondition).
       candidate.skills = candidate.skills.map((entry) => ({ ...entry,
-        use: entry.use ? `${entry.use}, ${needed}` : `${needed}${when.length ? ` and ${named.name ?? 'the answer'} is ${when.join(' or ')}` : ''}` }));
+        use: entry.use ? `${entry.use}, ${needed}` : when.length ? `${when.map(use).join(' or ')}, ${needed}` : needed }));
     }
   }
 
@@ -512,6 +541,7 @@ export function convertAgent({ marketplace, agent, skills = [], answers = {} }) 
   }
   const usedSkills = [...new Set(steps.flatMap((step) => step.skills.map((entry) => entry.skill)))];
   for (const name of known) if (!usedSkills.includes(name)) notes.push(`${agent.name} depends on skill ${name}, which no stage names, so it is not attached to a step.`);
+  const storyValue = named && steps.length ? recordedAnswer(named, steps[0], parsed.skillTable, notes) : null;
 
   return {
     schemaVersion: 1, resultType: AGENT_WORKFLOW_RESULT,
@@ -521,6 +551,7 @@ export function convertAgent({ marketplace, agent, skills = [], answers = {} }) 
     workflow: { id: workflowId, label, description: oneLine(`${agent.description ?? ''} From marketplace ${marketplace?.id ?? ''}: ${agent.name} ${agent.version ?? ''}`.trim()) },
     agent: { id: kebab(agent.name), label: parsed.title ?? agent.name, description: oneLine(agent.description ?? parsed.frontmatter?.description ?? agent.name) },
     questions: questions.map((question) => ({ ...question, topic: topic(question) })),
+    ...(storyValue ? { storyValue } : {}),
     steps, open, notes,
     skills: usedSkills.map((name) => skillByName.get(name)).filter(Boolean).map((entry) => ({ id: entry.name, description: entry.description ?? entry.name, version: entry.version ?? null })),
     ready: open.length === 0
@@ -533,15 +564,30 @@ export function convertAgent({ marketplace, agent, skills = [], answers = {} }) 
 /** The instructions the agent drafts every step with: how SFlow runs its stages, then its agent.md as written. */
 export function agentInstructions(conversion, agentText) {
   const body = String(agentText ?? '').replace(/\r\n?/gu, '\n').replace(/^﻿?---\n[\s\S]*?\n---(?:\n|$)/u, '').replace(/^\s*# [^\n]*\n/u, '').trim();
+  const value = conversion.storyValue ?? null;
   const asked = conversion.questions.length
-    ? ` The person answers the first stage's questions (${conversion.questions.map((question) => question.question).join(' ')}) at ${conversion.steps[0].label}, and later steps read that answer from it.`
+    ? ` The person answers the first stage's questions (${conversion.questions.map((question) => question.question).join(' ')}) at ${conversion.steps[0].label}, and later steps read that answer from it.${value
+      ? ` SFlow records the answer to "${value.question}" as the Story value ${value.name} when ${conversion.steps[0].label} is submitted, and gives each later step only the skill its stage uses for that answer.` : ''}`
     : '';
   return [
     `SFlow runs the numbered stages below as the steps of the ${conversion.workflow.label} workflow, one stage per step and in order; each step's description names its stage. At each step do that stage only, building on what the earlier steps recorded.${asked}`
       + ' A hard gate is SFlow\'s: the person approves the steps that need a person in SFlow, so never stop and wait in chat for an approval.',
     '',
-    body
+    value?.tableSection ? withoutSection(body, value.tableSection,
+      `SFlow resolves each step's skill from the Story value ${value.name}: the step is given only the skill for the recorded answer. Follow the skill attached to the step.`) : body
   ].join('\n');
+}
+
+/** `text` with the section headed `title` (to the next heading of its level or above) replaced by `words`. */
+function withoutSection(text, title, words) {
+  const lines = markLines(String(text).split('\n'));
+  const heading = (line) => (line.fenced ? null : /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/u.exec(line.text));
+  const at = lines.findIndex((line) => heading(line)?.[2].trim() === title);
+  if (at < 0) return text;
+  const level = heading(lines[at])[1].length;
+  const next = lines.findIndex((line, index) => index > at && heading(line) && heading(line)[1].length <= level);
+  const kept = lines.map((line) => line.text);
+  return [...kept.slice(0, at + 1), '', words, '', ...(next < 0 ? [] : kept.slice(next))].join('\n');
 }
 
 /**
@@ -565,8 +611,24 @@ export function workflowDefinition(conversion, { template = (step) => `${convers
       ...(step.because ? { because: { ...step.because } } : {})
     };
   });
+  const value = conversion.storyValue ?? null;
   return {
     phases,
-    workType: { label: conversion.workflow.label, description: conversion.workflow.description, phases: conversion.steps.map((step) => step.id) }
+    workType: { label: conversion.workflow.label, description: conversion.workflow.description, phases: conversion.steps.map((step) => step.id),
+      ...(value ? { decisions: [storyValueDecision(value)] } : {}) }
+  };
+}
+
+/**
+ * The branch decision that records a hard gate's answer as a Story value when its step is submitted: one input, its
+ * choices, and a route per answer, every one to the next step, so the answer chooses skills and never skips a step.
+ */
+export function storyValueDecision(value) {
+  const label = oneLine(value.question).slice(0, 120);
+  return {
+    id: value.decision, after: value.step, kind: 'branch', label,
+    inputs: [{ name: value.name, label, values: [...value.values] }],
+    routes: value.values.map((choice, index) => ({ id: kebab(choice), label: choice,
+      ...(index < value.values.length - 1 ? { when: { [value.name]: choice } } : {}), to: 'next' }))
   };
 }

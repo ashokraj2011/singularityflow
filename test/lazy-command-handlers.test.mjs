@@ -923,7 +923,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,833,263 (measured on landing-15, 2026-11-21): step intents Stage 3 and the marketplace agent import together.
     // 9,827,858 (measured on landing-14): capability kind's --confirm read as a typeof check (+9).
     // 9,833,272 (measured on landing-15 with main ce94e5a79): the typeof check and the two option names added.
-    assert.ok(closure.bytes <= 9_833_272, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,835,281 (measured for submit.mjs, +2,009, 2026-11-21, loose-ends): a hard gate's answer as a Story value, the
+    // skill for another answer left out of a step (skill-library.mjs storyValueCondition, recordedStoryValues,
+    // skillAppliesToStory, used in agents.mjs and retained-skill-instructions.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_835_281, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1445,7 +1448,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,334,376 (measured on landing-15, 2026-11-21): step intents Stage 3 and the marketplace agent import together.
   // 4,328,971 (measured on landing-14): capability kind's --confirm read as a typeof check (+9).
   // 4,334,385 (measured on landing-15 with main ce94e5a79): the typeof check and the two option names added.
-  assert.ok(current.bytes <= 4_334_385, `session current loads ${current.bytes} source bytes`);
+  // 4,335,893 (measured, +1,508, 2026-11-21, loose-ends): the Story value's skill choice in skill-library.mjs. No new eager file.
+  assert.ok(current.bytes <= 4_335_893, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

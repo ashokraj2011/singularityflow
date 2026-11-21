@@ -244,6 +244,8 @@ function requireAuthoringSkill(value) {
  */
 /** Why a step a person turned "Approve automatically when ready" off for in Workflow Studio is approved by a person. */
 const AUTOMATIC_OFF_REASON = 'A person approves this step: automatic approval was turned off for it in Workflow Studio.';
+/** Why the first step of a rework loop added in Workflow Studio, which its workflow approved automatically, is approved by a person. */
+const LOOP_SOURCE_REASON = 'A person approves this step: it starts a rework loop, and a person decides whether the work goes back.';
 /** Why a step whose questions a person turned off in Workflow Studio asks nothing. */
 const QUESTIONS_OFF_REASON = 'This step asks no questions first: they were turned off for it in Workflow Studio.';
 
@@ -1049,6 +1051,21 @@ class StudioCandidate {
     if (signOff && typeof signOff === 'object' && signOff.automatic === 'off') {
       if (!this.document.hasIn(at)) this.document.setIn(at, AUTOMATIC_OFF_REASON);
     } else this.dropStudioReason(scope, 'approval.automatic', AUTOMATIC_OFF_REASON);
+  }
+
+  /** A rework loop's first step, approved automatically in this workflow: its people approve it from now on. */
+  loopSourceToPeople(workflowId, phaseId) {
+    const scope = ['workTypes', workflowId, 'phaseOverrides', phaseId];
+    const override = this.content.workTypes?.[workflowId]?.phaseOverrides?.[phaseId];
+    const own = isObject(override?.approval) ? override.approval.automatic : undefined;
+    const shared = isObject(this.phase(phaseId)?.approval) ? this.phase(phaseId).approval.automatic : undefined;
+    if ((own ?? shared) !== 'when-ready') return;
+    if (this.intentsDecide(phaseId)) {
+      this.document.setIn([...scope, 'approval', 'automatic'], 'off');
+      if (!this.document.hasIn([...scope, 'because', 'approval.automatic'])) this.document.setIn([...scope, 'because', 'approval.automatic'], LOOP_SOURCE_REASON);
+    } else if (own === 'when-ready') this.document.deleteIn([...scope, 'approval', 'automatic']);
+    else return;
+    this.summary.push(`${this.phaseLabel(phaseId)}: a person approves it now, as the first step of a rework loop.`);
   }
 
   /** Whether a step's intent decides what it leaves unset: it has one, in a version 4 file. */
@@ -3006,6 +3023,10 @@ class StudioCandidate {
       }));
       if (loops.length) this.document.setIn(['workTypes', workflowId, 'reworkLoops'], this.document.createNode(loops));
       else this.document.deleteIn(['workTypes', workflowId, 'reworkLoops']);
+      // A loop's first step is a person's to approve (phase-roles.mjs): one its workflow approved automatically (a shipped
+      // test step's, since step intents Stage 7) is given back to its people here, with the reason, so adding the loop
+      // never leaves the workflow refused.
+      for (const from of new Set(loops.map((loop) => loop.from))) this.loopSourceToPeople(workflowId, from);
       changed.push('send-back rules');
     }
     if (decisions != null) {

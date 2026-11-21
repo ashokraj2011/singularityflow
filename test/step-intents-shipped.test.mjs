@@ -1,7 +1,7 @@
 /**
  * Step intents Stage 4 (spec §4.3, §4.4, §9.2): the shipped workflow.yml is version 4, every step it ships says what it
  * is for, and each setting that differs from its intent's profile is set on the step or the workflow with its reason
- * (G1–G7, kept until the owner's decisions are adopted one at a time in Stage 7).
+ * (G1–G7, each kept until the owner's decision on it is adopted, one at a time, in Stage 7).
  *
  * The golden (test/fixtures/step-intents-shipped-golden.json) is what every shipped work type resolved to before step
  * intents: the digest of its whole resolution, without the intent pins a Story now also keeps (intent, intentProfile,
@@ -86,7 +86,13 @@ test('no shipped setting differs from its intent without a reason, and nothing c
   }
   // The kept differences say why where a person reads them (workflow check --settings): a few of each group.
   const sources = (workType, step) => deriveWorkTypeSettings(raw, workType).steps.find((entry) => entry.id === step).sources;
-  assert.match(sources('feature', 'verification').writeScope.reason, /may add or fix tests itself/u, 'G1');
+  // G1 adopted (D1, Stage 7): the core test steps change no source code, as their intent says, and SFlow approves a
+  // clean run; the three kept differences still say why.
+  assert.equal(sources('feature', 'verification').writeScope.reason, undefined, 'G1 adopted');
+  assert.equal(sources('benchmarking-a', 'testing').writeScope.reason, undefined, 'G1 adopted');
+  assert.match(sources('figma-mobile', 'visual-verification').writeScope.reason, /may correct screen differences/u, 'G1 kept');
+  assert.match(sources('poc-workflow', 'poc-validation').writeScope.reason, /repairs the Playwright tests it runs/u, 'G1 kept');
+  assert.match(sources('quick-fix', 'verify').writeScope.reason, /keeps its check on the changed code/u, 'G1 kept');
   assert.equal(sources('benchmarking-a', 'intake').approval.from, 'override', 'G2');
   assert.match(sources('benchmarking-a', 'intake').approval.reason, /both benchmark workflows/u, 'G2');
   assert.match(sources('quick-fix', 'implement').approval.reason, /the Verify step after it checks it/u, 'G3');

@@ -66,8 +66,10 @@ test('one engine classification decides what a step produces, whatever its write
   const step = (workType, id) => resolveWorkType(definition, workType).phases.find((phase) => phase.id === id);
   assert.equal(stepOutputKind(step('feature', 'implementation')), 'code');
   assert.equal(stepOutputKind(step('feature', 'design')), 'document');
-  // Write scope never implies code: these steps write against source without delivering it.
-  assert.equal(step('feature', 'verification').writeScope, 'source-and-artifact');
+  // Write scope never implies code: these steps write against source without delivering it (the shipped verification
+  // changes no source code since Stage 7, D1; the visual verification still corrects its own screen differences).
+  assert.equal(step('figma-mobile', 'visual-verification').writeScope, 'source-and-artifact');
+  assert.equal(stepOutputKind(step('figma-mobile', 'visual-verification')), 'document');
   assert.equal(stepOutputKind(step('feature', 'verification')), 'document');
   assert.equal(stepOutputKind(step('chore', 'implementation')), 'analysis');
   assert.equal(stepOutputKind({ id: 'sign', generation: { requirement: 'none' } }), 'none');

@@ -830,9 +830,11 @@ test('spec-driven phases use approval-bound summaries while legacy work types re
     .every((input) => input.fallback === 'block'),
   'an empty Agent brief can still inject the whole upstream artifact');
   const release = specDriven.phases.find((phase) => phase.id === 'release');
+  // It cites the code step's test results since Stage 7 (D1: nothing after the code step changes source), so it reads it.
   assert.deepEqual(release.inputs.map((input) => [input.phase, input.projection ?? 'full']), [
-    ['convergence', 'full'], ['verification', 'approved-summary']
+    ['convergence', 'full'], ['verification', 'approved-summary'], ['implementation', 'full']
   ]);
+  assert.equal(release.testEvidenceFrom, 'implementation');
   assert.deepEqual(release.inputs[1].preserve, [
     'Acceptance and specification results',
     'Negative, regression, security, and non-functional checks'

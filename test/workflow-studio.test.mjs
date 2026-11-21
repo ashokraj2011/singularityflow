@@ -146,6 +146,12 @@ test('people, sign-off and send-back rules are edited from the Studio', async ()
   const workflow = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
   assert.deepEqual(workflow.approvalAuthorities['architecture-reviewers'].members, [{ name: 'First Reviewer', email: 'first@example.com', githubLogin: null }]);
   assert.deepEqual(workflow.workTypes['repo-feature'].reworkLoops, [{ from: 'verification', to: 'implementation', maxAttempts: 2 }]);
+  // Its verification was approved by SFlow when clean (it changes no source code, D1); a loop's first step is a person's,
+  // so the Studio gave it back to its people, with the reason, and the workflow stays valid.
+  const loopSource = workflow.workTypes['repo-feature'].phaseOverrides.verification;
+  assert.equal(loopSource.approval.automatic, 'off');
+  assert.match(loopSource.because['approval.automatic'], /starts a rework loop/u);
+  assert.ok(plan.summary.some((line) => /a person approves it now, as the first step of a rework loop/u.test(line)), plan.summary.join('\n'));
   const model = json(root, ['workflow', 'studio']);
   assert.equal(model.groups.find((group) => group.id === 'architecture-reviewers').status, 'people');
   assert.match(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), /^# /m, 'comments in workflow.yml survive the edit');
@@ -461,31 +467,31 @@ test('the drafting skill of a shared step is set for one workflow, cleared again
 
 test('naming a step\'s output keeps the write scope of a step that writes against source', async () => {
   const root = await repository();
-  const file = await changeSet(root, [{ op: 'phase.update', id: 'verification', output: 'analysis' }]);
+  // The visual verification still corrects its own screens (the shipped test steps change no source code since Stage 7).
+  const file = await changeSet(root, [{ op: 'phase.update', id: 'visual-verification', output: 'analysis' }]);
   const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   const workflow = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
-  assert.equal(workflow.phases.verification.generation.task, 'analyze');
-  assert.equal(workflow.phases.verification.writeScope, 'source-and-artifact', 'only moving to or from code changes write scope');
+  assert.equal(workflow.phases['visual-verification'].generation.task, 'analyze');
+  assert.equal(workflow.phases['visual-verification'].writeScope, 'source-and-artifact', 'only moving to or from code changes write scope');
 });
 
-test('whether a step changes code is said outright: a copy of Testing that only reports writes its document alone', async () => {
+test('whether a step changes code is said outright: a copy of the visual verification that only reports writes its document alone', async () => {
   const root = await repository();
   const before = await (await import('../src/workflow-studio.mjs')).buildStudioModel(root);
-  assert.deepEqual(['testing', 'test-run', 'implementation', 'intake'].map((id) => before.phases.find((phase) => phase.id === id).changesCode), [true, false, true, false],
-    'testing may write tests, the test run only reports, implementation delivers code, intake writes its document');
+  assert.deepEqual(['visual-verification', 'testing', 'test-run', 'implementation', 'intake'].map((id) => before.phases.find((phase) => phase.id === id).changesCode),
+    [true, false, false, true, false],
+    'the visual verification may correct screens, testing and the test run only report (D1), implementation delivers code, intake writes its document');
   const file = await changeSet(root, [
-    { op: 'phase.create', id: 'testing-report', label: 'Testing report', copyOf: 'testing', changesCode: false, agent: 'qa' },
-    { op: 'phase.update', id: 'verification', changesCode: false }
+    { op: 'phase.create', id: 'visual-report', label: 'Visual report', copyOf: 'visual-verification', changesCode: false, agent: 'qa' }
   ]);
   const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
-  assert.ok(plan.summary.includes('Verification: whether it changes code changed.'), plan.summary.join('\n'));
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   const workflow = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
-  assert.deepEqual([workflow.phases['testing-report'].writeScope, workflow.phases.testing.writeScope, workflow.phases.verification.writeScope],
-    ['artifact-only', 'source-and-artifact', 'artifact-only'], 'the copy and the changed step change no code; the step it copies still may');
+  assert.deepEqual([workflow.phases['visual-report'].writeScope, workflow.phases['visual-verification'].writeScope],
+    ['artifact-only', 'source-and-artifact'], 'the copy changes no code; the step it copies still may');
   const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [{ op: 'phase.update', id: 'implementation', changesCode: false }]), '--dry-run'],
     { allowFailure: true });
   assert.equal(refused.valid, false);

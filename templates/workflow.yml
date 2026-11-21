@@ -490,6 +490,9 @@ workTypes:
     # Every reviewed step may return the Story to any earlier step or to itself.
     # Approve twice [owner, 2026-11-19]: people approve the plan and every step that may change source files;
     # the steps marked automatic are approved by SFlow when their reviewer says ready and nothing is open.
+    # Verification changes no source code [owner, 2026-11-20, D1]: a failing test goes back to the code step on its
+    # own. Each workflow says so beside its automatic approval, so a repository's own copy of the shared step keeps
+    # the workflow valid.
     phaseOverrides:
       intake: { approval: { automatic: when-ready } }
       requirements: { inputs: [intake], approval: { automatic: when-ready } }
@@ -502,9 +505,12 @@ workTypes:
         approval: { rejectTo: [intake, requirements, design, implementation-spec, implementation] }
       verification:
         inputs: [implementation-spec, implementation]
-        approval: { rejectTo: [intake, requirements, design, implementation-spec, implementation, verification] }
+        testEvidenceFrom: implementation
+        writeScope: artifact-only
+        approval: { automatic: when-ready, rejectTo: [intake, requirements, design, implementation-spec, implementation, verification] }
       conformance:
         inputs: [implementation-spec, implementation, verification]
+        testEvidenceFrom: implementation
         approval: { automatic: when-ready, rejectTo: [intake, requirements, design, implementation-spec, implementation, verification, conformance] }
   bugfix:
     label: Bug fix
@@ -531,9 +537,12 @@ workTypes:
         approval: { rejectTo: [intake, reproduction, fix-design, fix-spec, implementation] }
       verification:
         inputs: [fix-spec, implementation]
-        approval: { rejectTo: [intake, reproduction, fix-design, fix-spec, implementation, verification] }
+        testEvidenceFrom: implementation
+        writeScope: artifact-only
+        approval: { automatic: when-ready, rejectTo: [intake, reproduction, fix-design, fix-spec, implementation, verification] }
       conformance:
         inputs: [fix-spec, implementation, verification]
+        testEvidenceFrom: implementation
         approval: { automatic: when-ready, rejectTo: [intake, reproduction, fix-design, fix-spec, implementation, verification, conformance] }
   chore:
     label: Chore
@@ -556,7 +565,8 @@ workTypes:
           generation.task: A chore may change configuration only, so it runs without the code-delivery checks.
       verification:
         inputs: [implementation]
-        approval: { rejectTo: [intake, implementation, verification] }
+        writeScope: artifact-only
+        approval: { automatic: when-ready, rejectTo: [intake, implementation, verification] }
       conformance:
         inputs: [implementation, verification]
         approval: { automatic: when-ready, rejectTo: [intake, implementation, verification, conformance] }
@@ -584,9 +594,12 @@ workTypes:
         approval: { rejectTo: [findings-intake, remediation-plan, implementation] }
       verification:
         inputs: [remediation-plan, implementation]
-        approval: { rejectTo: [findings-intake, remediation-plan, implementation, verification] }
+        testEvidenceFrom: implementation
+        writeScope: artifact-only
+        approval: { automatic: when-ready, rejectTo: [findings-intake, remediation-plan, implementation, verification] }
       conformance:
         inputs: [remediation-plan, implementation, verification]
+        testEvidenceFrom: implementation
         approval: { automatic: when-ready, rejectTo: [findings-intake, remediation-plan, implementation, verification, conformance] }
   figma-mobile:
     label: Figma export to mobile app
@@ -1004,13 +1017,16 @@ workTypes:
         inputs:
           - { phase: intake, projection: approved-summary, preserve: [Success criteria], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: implementation, projection: approved-summary, preserve: [Changed components, Validation and operational notes], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
-        approval: { rejectTo: [intake, design, implementation, testing] }
+        testEvidenceFrom: implementation
+        writeScope: artifact-only
+        approval: { automatic: when-ready, rejectTo: [intake, design, implementation, testing] }
       conformance:
         inputs:
           - { phase: intake, projection: approved-summary, preserve: [Success criteria], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: design, projection: approved-summary, preserve: [Design and interfaces], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: implementation, projection: approved-summary, preserve: [Changed components], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: testing, projection: approved-summary, preserve: [Test evidence and results], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
+        testEvidenceFrom: implementation
         approval: { automatic: off, authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
         because:
           approval.automatic: Kept as it was before step intents. A person approves the benchmark conformance, in both benchmark workflows so their runs stay comparable.
@@ -1046,9 +1062,12 @@ workTypes:
         approval: { rejectTo: [intake, design, implementation] }
       testing:
         inputs: [intake, implementation]
-        approval: { rejectTo: [intake, design, implementation, testing] }
+        testEvidenceFrom: implementation
+        writeScope: artifact-only
+        approval: { automatic: when-ready, rejectTo: [intake, design, implementation, testing] }
       conformance:
         inputs: [intake, design, implementation, testing]
+        testEvidenceFrom: implementation
         approval: { automatic: off, authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
         because:
           approval.automatic: Kept as it was before step intents. A person approves the benchmark conformance, in both benchmark workflows so their runs stay comparable.
@@ -1122,8 +1141,10 @@ workTypes:
       convergence: { inputs: [specification, planning, implementation] }
       verification:
         inputs: [specification, planning, implementation]
-        approval: { rejectTo: [specification, planning, implementation, convergence, verification] }
-      release: { inputs: [verification], approval: { automatic: when-ready } }
+        testEvidenceFrom: implementation
+        writeScope: artifact-only
+        approval: { automatic: when-ready, rejectTo: [specification, planning, implementation, convergence, verification] }
+      release: { inputs: [verification, implementation], testEvidenceFrom: implementation, approval: { automatic: when-ready } }
 
   spec-driven-standard:
     label: Spec-Driven Standard
@@ -1193,11 +1214,15 @@ workTypes:
           - { phase: specification, projection: approved-summary, preserve: [Actors, User scenarios, Failure and empty states, Permissions, Boundary conditions, Requirements, Non-functional requirements, Assumptions, Out of scope], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
           - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
           - { phase: implementation, projection: approved-summary, preserve: [Changed components and decisions, Tests and operational notes], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
-        approval: { rejectTo: [specification, planning, implementation, convergence, verification] }
+        testEvidenceFrom: implementation
+        writeScope: artifact-only
+        approval: { automatic: when-ready, rejectTo: [specification, planning, implementation, convergence, verification] }
       release:
         inputs:
           - { phase: convergence }
           - { phase: verification, projection: approved-summary, preserve: [Acceptance and specification results, "Negative, regression, security, and non-functional checks"], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
+          - { phase: implementation }
+        testEvidenceFrom: implementation
         approval: { automatic: when-ready }
 # Clarification is `required` only at a Story's intake; later steps proceed on the approved documents and ask
 # only when something is truly unclear (`when-needed`) [owner, 2026-11-19].
@@ -1365,30 +1390,30 @@ phases:
     defaultTemplate: common/verification.md
     artifact: { path: artifacts/verification/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
     clarification: { mode: when-needed, maxQuestions: 3, topics: [test gaps, environment, evidence, deviations] }
-    writeScope: source-and-artifact
+    # A test step changes no source code [owner, 2026-11-20, D1; adopted in Stage 7]: the code step writes the tests,
+    # verification runs them and reports. A failing test goes back to the code step on its own, which starts its next
+    # version with the failures as its task, under the workflow's review brake; SFlow approves a clean run.
+    writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, verification] }
     qualityCommands: []
     # Submission also runs the repository's own tests (npm test, mvn test, go test, ...), found from
-    # its build files, unless the step names its own test command. A failing run goes to the reviewer,
-    # who returns the step to repair; a repository with no test command gets a note, not a refusal.
+    # its build files, unless the step names its own test command. A failing run goes back to the code
+    # step (above); a repository with no test command gets a note, not a refusal.
     # Set off to rely on the code step's tests alone.
     repositoryTests: run
-    because:
-      writeScope: Kept as it was before step intents. Verification may add or fix tests itself, so it may change source files and a person approves it.
   testing:
     intent: test
     label: Testing
     defaultTemplate: benchmark/testing.md
     artifact: { path: artifacts/testing/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
     clarification: { mode: when-needed, maxQuestions: 3, topics: [test gaps, environment, evidence, deviations] }
-    writeScope: source-and-artifact
+    # As for verification: it changes no source code, and a failing test goes back to the code step on its own (D1).
+    writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, testing] }
     qualityCommands: []
     # As for verification. A review of one code step's committed test receipt (testEvidenceFrom)
     # does not run them again.
     repositoryTests: run
-    because:
-      writeScope: Kept as it was before step intents. The benchmarks' testing may add or fix tests itself, so it may change source files and a person approves it.
   # Test run's one step: the repository's own tests run when it is submitted, and its report cites what they
   # found. It writes only its report. A step that runs some of them names testLevels or testIds (see tests:).
   test-run:

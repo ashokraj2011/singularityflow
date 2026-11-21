@@ -22,8 +22,9 @@
  * Which steps: a step whose output is test results, that may not change source files, is not a code step and is approved
  * (by a person or by SFlow), in a Story that pinned owner-step checks level 4 (phase-roles.mjs OWNER_STEP_CHECKS, raised
  * to 4 for this on 2026-11-20). A Story already running
- * keeps what it started with. A test step that may still change source files (today's feature, bugfix and spec-driven
- * verification steps until Stage 7 adopts D1 for them) is unchanged: its approvers return it, or it repairs itself.
+ * keeps what it started with. The shipped verification and testing steps change no source files since Stage 7 adopted D1
+ * for them; a test step that may still change source files (the POC validation, the visual verification, the quick fix's
+ * verify) is unchanged: its approvers return it, or it repairs itself.
  *
  * This module holds the rules, which the submission and the approval read (state.mjs), so VS Code's bundles take only
  * them; the acts that commit, the return and the two version starts, are failing-tests-opening.mjs, which only the

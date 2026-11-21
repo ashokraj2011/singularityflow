@@ -3,12 +3,15 @@
  * (test/fixtures/workflow-v2-before-step-intents.yml, version 2) and the upgrade to this build's version 4 file.
  *
  * - The previous file keeps working with this build, at version 2 and at 3: every shipped work type resolves to the
- *   golden it always had.
+ *   golden it always had (test/fixtures/workflow-v2-before-step-intents.resolutions.json).
  * - Its exact shipped nodes are known packaged revisions, so a reinitialize replaces them; an edited one is the
  *   repository's own and is kept as it is.
  * - The upgrade moves the file to version 4 only when no workflow of the repository's would run differently. A team's
  *   own workflow made only of shipped steps would start deriving the settings it leaves unset, so that repository keeps
  *   its version and takes the shipped steps without what only version 4 reads; every workflow then runs as before.
+ * - Since Stage 7 the shipped workflows run as the owner decided (test steps change no source code, and the rest of
+ *   G1-G7): a repository that takes them runs them as this build ships them, at its own version, and its own
+ *   workflows run as before.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -30,7 +33,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PREVIOUS_TEXT = readFileSync(path.join(ROOT, 'test/fixtures/workflow-v2-before-step-intents.yml'), 'utf8');
 const previous = () => YAML.parse(PREVIOUS_TEXT);
 const shipped = () => YAML.parse(readFileSync(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
-const GOLDEN = JSON.parse(readFileSync(path.join(ROOT, 'test/fixtures/step-intents-shipped-golden.json'), 'utf8'));
+// What each work type of the previous file resolved to, before and with step intents alike: it never moves.
+const PREVIOUS_GOLDEN = JSON.parse(readFileSync(path.join(ROOT, 'test/fixtures/workflow-v2-before-step-intents.resolutions.json'), 'utf8'));
 const canonical = (value) => (Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value);
 const withoutPins = (resolved) => ({
@@ -38,6 +42,13 @@ const withoutPins = (resolved) => ({
 });
 const resolutions = (definition) => Object.fromEntries(Object.keys(definition.workTypes)
   .map((id) => [id, canonical(withoutPins(resolveWorkType(definition, id)))]));
+/** What each shipped work type resolves to now, `edit` applied to the shipped file first. */
+async function shippedResolutions(edit = () => {}) {
+  const value = shipped();
+  edit(value);
+  await loadStepIntentSettings(value);
+  return resolutions(validateDefinition(structuredClone(value)));
+}
 
 /** A repository initialized by this build whose workflow.yml is then `text` (as an older build left it). */
 async function repository(t, text) {
@@ -57,7 +68,7 @@ test('the workflow.yml shipped before step intents keeps working with this build
     for (const id of Object.keys(definition.workTypes)) {
       const resolved = resolveWorkType(definition, id);
       assert.ok(resolved.phases.every((phase) => !Object.hasOwn(phase, 'intent')), `${id} at ${version} derives nothing`);
-      assert.equal(createHash('sha256').update(JSON.stringify(canonical(resolved))).digest('hex'), GOLDEN[id].resolutionSha256, `${id} at ${version}`);
+      assert.equal(createHash('sha256').update(JSON.stringify(canonical(resolved))).digest('hex'), PREVIOUS_GOLDEN[id], `${id} at ${version}`);
     }
   }
 });
@@ -89,9 +100,9 @@ test('an untouched repository moves to version 4 with the shipped steps and thei
       assert.equal(after.version, 4);
       assert.deepEqual(canonical(after.phases), canonical(packaged.phases), `${version} ${restorePackagedSeeds}: phases`);
       assert.deepEqual(canonical(after.workTypes), canonical(packaged.workTypes), `${version} ${restorePackagedSeeds}: workflows`);
-      // Every workflow runs exactly as before the upgrade.
+      // Every workflow runs as this build ships it (the owner's adopted differences, Stage 7), nothing half taken.
       await loadStepIntentSettings(after);
-      assert.deepEqual(resolutions(validateDefinition(structuredClone(after))), resolutions(validateDefinition(previous())));
+      assert.deepEqual(resolutions(validateDefinition(structuredClone(after))), await shippedResolutions());
       // A second refresh finds nothing to do.
       const again = await refreshPackagedConfiguration(root, { restorePackagedSeeds });
       assert.equal(again.files.includes('singularity/workflow.yml'), false, `${version} ${restorePackagedSeeds}: idempotent`);
@@ -110,12 +121,17 @@ test('reinitialize keeps an edited shipped step as the repository\'s own, and mo
   assert.deepEqual(after.phases.verification, edited.phases.verification, 'kept exactly, with no intent');
   assert.ok(refreshed.conflicts.some((entry) => entry.path === 'workflow.phases.verification' && entry.resolution === 'preserved-local'));
   assert.deepEqual(after.phases.implementation, shipped().phases.implementation, 'an untouched step moves on');
-  // The workflows that use the kept step have a step with no intent, so they derive nothing and run as before.
+  // The workflows that use the kept step have a step with no intent, so they derive nothing. They run as this build
+  // ships them, with the repository's own step: its verification changes no source code there because the shipped
+  // workflow says so beside its automatic approval (Stage 7), so the kept step makes no workflow invalid.
   assert.equal(after.version, 4);
   await loadStepIntentSettings(after);
   const definition = validateDefinition(structuredClone(after));
   assert.ok(resolveWorkType(definition, 'feature').phases.every((phase) => !Object.hasOwn(phase, 'intent')));
-  assert.deepEqual(canonical(withoutPins(resolveWorkType(definition, 'feature'))), resolutions(validateDefinition(edited)).feature);
+  const feature = canonical(withoutPins(resolveWorkType(definition, 'feature')));
+  assert.deepEqual(feature, (await shippedResolutions((value) => { value.phases.verification = edited.phases.verification; })).feature);
+  const verification = feature.phases.find((phase) => phase.id === 'verification');
+  assert.deepEqual([verification.label, verification.writeScope, verification.approval.automatic], ['Our verification', 'artifact-only', 'when-ready']);
 });
 
 test('a team\'s own workflow of shipped steps keeps the repository on its version, and every workflow runs as before', async (t) => {
@@ -142,7 +158,15 @@ test('a team\'s own workflow of shipped steps keeps the repository on its versio
     for (const word of ['"intent"', '"because"', '"automatic":"off"']) assert.equal(text.includes(word), false, word);
     // The shipped steps it took are known packaged values, so the next refresh still moves them on.
     for (const [id, value] of Object.entries(after.phases)) assert.equal(isKnownPackagedWorkflowValue('phases', id, value), true, id);
-    assert.deepEqual(resolutions(validateDefinition(structuredClone(after))), resolutions(validateDefinition(structuredClone(before))));
+    // Every workflow runs on the shipped steps as this build ships them, at the repository's version: the shipped
+    // workflows as at version 4, and the team's own derives nothing (its test step now changes no source code, as the
+    // shared step it uses says since Stage 7).
+    const expected = packagedWorkflowWithoutIntents(shipped(), 2);
+    expected.workTypes['our-delivery'] = own;
+    const now = resolutions(validateDefinition(structuredClone(after)));
+    assert.deepEqual(now, resolutions(validateDefinition(expected)));
+    const { ['our-delivery']: _own, ...shippedNow } = now;
+    assert.deepEqual(shippedNow, await shippedResolutions());
   }
   // Moved to version 4 by hand (as Workflow Studio does for a workflow it confirms), the file still takes the shipped
   // steps without their intents while that workflow of shipped steps would run differently with them.

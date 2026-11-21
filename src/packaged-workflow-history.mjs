@@ -359,6 +359,30 @@ const BEFORE_STEP_INTENTS = Object.freeze({
 });
 
 /**
+ * Every packaged node the adopted step-intent differences changed (step intents Stage 7, 2026-11-21: test steps change no
+ * source code, approve twice for the benchmarks and the POC workflow, questions when needed, attached documents, and
+ * convergence approved by SFlow when its check is clean), as shipped before them: as version 4 has it and, where that
+ * differed, as a repository on version 2 or 3 took it. A repository seeded before then holds exactly these values, which
+ * stay framework-owned so the next refresh can replace them.
+ */
+const BEFORE_ADOPTED_DIFFERENCES = Object.freeze({
+  workTypes: Object.freeze({
+    'benchmarking-a': Object.freeze(['a77226943dd3d984efb8fe8652f0a631b7a5790cb887431c033ddc8c0ddf7a1c', 'b4e3dd606d89e762bb76cb157e726c5701178491ba8d708cc520917c3e5ef981']),
+    'benchmarking-b': Object.freeze(['2d77572d3f727a85befeb614d115cec2dc4a4e1b26456110d1e5985353b4b935', 'd9d57eda508708f5ac2722250cb90b4e1a0a2180c1285d33fe7a928ad42b99c3']),
+    bugfix: Object.freeze(['4102c9f0f0574eba7aeb2e0c9bf6cc4fd30169525ad3ce3c1c64fc65693f789b']),
+    chore: Object.freeze(['e77e2382540ec9b0de3db63a425d007a944ccebb3cc8952b4c16fdd85ddd6c2a', 'dfec57c230c2f464f5ae85f46f41d105ab2efc8b75ff9f5681475f07ecb4c29f']),
+    feature: Object.freeze(['34f4956a9cdd565f555cfc69b89372790c635103b3f57ab9438f4e4eb41a8ad8', 'a16d8c24e4c9cf60a42a34c9d5c3dd46bdfa41ecc6873efb1add90c1f0f13b7a']),
+    'findings-remediation': Object.freeze(['f67b902f348f735f418321a5ecb74bd6bb13e826271b58d179497648dc83c688', '0192ac30a43920b813d12803ab6f00097409ecfac0af32ba168ee69e5031d1ff']),
+    'reference-driven-build': Object.freeze(['459ae3ff12dbb941ca7e603b2bdac2fb062868717ca364ea4c6dcebc3c6f7f4b']),
+    'spec-driven-standard': Object.freeze(['46ffc1360346b4e65bea9f074fa08f6f904fd93b67fa15948b4405619887c3ba'])
+  }),
+  phases: Object.freeze({
+    testing: Object.freeze(['0596101e575c768228880b8d55871b37d63cbfa0b151b86e4d0982a7f619baab', '50c0b6c43bf215cc6d807d5b125a3988c139f19b19230bd629f0d39ef79cf654']),
+    verification: Object.freeze(['5205092525f5d83b842ab56b3c28e3d8713208960718e65ac0d7d3b41bfe631b', '8904d083a842ee24fcfb0ff2c73e7fecdad079c70872ce009a9e906ede6d95a5'])
+  })
+});
+
+/**
  * The current nodes as a repository still on version 2 or 3 takes them (workspace-configuration-refresh.mjs
  * packagedWorkflowWithoutIntents: no intents, reasons or `automatic: off`), where that differs from both the current
  * node and the one before step intents. Framework-owned like any shipped revision; test/packaged-provenance-registry
@@ -366,7 +390,11 @@ const BEFORE_STEP_INTENTS = Object.freeze({
  */
 export const PACKAGED_WORKFLOW_VALUE_SHA256_WITHOUT_INTENTS = Object.freeze({
   workTypes: Object.freeze({
-    'findings-remediation': '3af678d67d90a501cbec31078fc2d1e17726629b7d0426c98e24b6ef83753f62',
+    'benchmarking-a': '3ccd98b7eaaa8492637aad4d395d441f3115a490502ce4c85d77e40089f40850',
+    'benchmarking-b': 'd804a32571109f2e764cbc1a11884ff7fb51a52a4f03a76fd488a1e783afae20',
+    chore: '20acb3db0472805d981bf8d0d2870d97ee6139895eb9f18a8bd80e471c38442f',
+    feature: '313a6f7fede2a3da7e1c5494046d396d19bf1fcf2b94ee2a172830c8c46d22f5',
+    'findings-remediation': 'dea8e73cf9aa2ffc44ef8aa7ee07f5354d3d6018b385137fb1a69c0dfd8e4b99',
     'poc-workflow': '949b3ca0957d12a0f1cc056935f2609deead1ab5dcb686c13337dcab78fcaa44'
   }),
   phases: Object.freeze({
@@ -385,6 +413,8 @@ export const PACKAGED_WORKFLOW_VALUE_SHA256_WITHOUT_INTENTS = Object.freeze({
     'scenario-check': 'dea9af470d6a55b2e4c4295ab6c55ed9c087fe593c260ae6ed10e4e9ba83e601',
     'scenario-retest': 'd8ff6cce07f1b7071b03fca9c05a40236582c09aa0e8eee1a88ad62fbc49cac7',
     'test-run': '0869cbc4ee977277bd9a6fcdbe023f40dc04acaa41deb42c50d1549493db1aa1',
+    testing: '50c0b6c43bf215cc6d807d5b125a3988c139f19b19230bd629f0d39ef79cf654',
+    verification: '8904d083a842ee24fcfb0ff2c73e7fecdad079c70872ce009a9e906ede6d95a5',
     verify: 'e8e0d0d8d784244b1a8e9a547af5682c47cb8dbd4c2bc63c70df1264770b4d0e',
     'visual-verification': 'cae7f5c5220831c4eb830888fe38a0515edc78c3dae55df01b37960078cfc55a'
   })
@@ -396,23 +426,23 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'careful-change': 'a6ea3be48cf4ece09dee0adf5f9088ad99cc02826fd2fe54bbdc29feb6baaeda',
     'test-run': '17a4c04485f1515b786e3d06595f36f05d6f707bad3c167274bfb084e53f000d',
     'demo-instruction-test-loop': '37355eeff7baba479e08f925b068343f6b53f277906cf7f0d8a0627ba6fbbb1a',
-    'benchmarking-a': 'a77226943dd3d984efb8fe8652f0a631b7a5790cb887431c033ddc8c0ddf7a1c',
-    'benchmarking-b': '2d77572d3f727a85befeb614d115cec2dc4a4e1b26456110d1e5985353b4b935',
-    bugfix: '4102c9f0f0574eba7aeb2e0c9bf6cc4fd30169525ad3ce3c1c64fc65693f789b',
-    chore: 'e77e2382540ec9b0de3db63a425d007a944ccebb3cc8952b4c16fdd85ddd6c2a',
+    'benchmarking-a': '17411b43a94a7dac3f27ebd82ec3d538602b779e7efd61a0baced17ebf670521',
+    'benchmarking-b': '863390104059afb12d6c371de473c8abd24fed9a9d5e153989f49449c2bf9948',
+    bugfix: '087a226ca173f9b01211501d9b33dc4272c8e34b039d5652e94e7530dbad60ed',
+    chore: '9196bada9e0449df3c00f57e923ad4b04d9d04015850a1bfeec1888881f14e03',
     'classic-delivery': '9991f59f3ba6df48d9e5603edb78e7d33b303b6944f8fffa0e5e01f28fda9574',
     'document-test-repair': 'f2d5aa4742def2f0a771660d229089ede1ed3a0bb913404c362b703dc703feca',
     'demo-web-e2e-testing': '6161336401af54bd15e26c17cee6e45f43cadff36a424e051d0fbf285fb4af9a',
     'demo-check-repair-close': '8b7a856aa801154f306e6a42375fe65d00f6977bac9129d98f202b6ba01ce8f9',
-    feature: '34f4956a9cdd565f555cfc69b89372790c635103b3f57ab9438f4e4eb41a8ad8',
+    feature: '946aa9cb57ae903f24541378a77f87ff73b52dd51feffbb8c23703b06e9e71b5',
     'figma-mobile': '4bf49f8560fc79d59bc91ce46fd209a64723a9d4cc35ee649364b84c189a8772',
     'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
     'poc-workflow': '2f89981a4026255380ccbdfacfa1df162577ef85eedbfd31bac2313f1f08a774',
     'quick-fix': 'be9ad15c5d199f58b7c0fd7e39d1889fdefadffb2453d8373325abcf482d04df',
-    'reference-driven-build': '459ae3ff12dbb941ca7e603b2bdac2fb062868717ca364ea4c6dcebc3c6f7f4b',
+    'reference-driven-build': '3e11dfb6f95bfd3e5629668862af780488e9905bd96b192f7ee4d7a986287ab4',
     'spec-code-test-loop': 'e494c9de72ee485d92c2a567feb2e788241be05fbed170c24564018ed221cbba',
-    'spec-driven-standard': '46ffc1360346b4e65bea9f074fa08f6f904fd93b67fa15948b4405619887c3ba',
-    'findings-remediation': 'f67b902f348f735f418321a5ecb74bd6bb13e826271b58d179497648dc83c688'
+    'spec-driven-standard': '8b3633ce9e7565f087cc4ed280c310476af649ca9676fe650b07264b5cfd46a5',
+    'findings-remediation': 'd20166b69aea81c8a049c6f10a72324e5000b1dd1bffe9ed2f6087013c982b9d'
   }),
   phases: Object.freeze({
     'test-run': 'e70dabd498a904b7a1b739a21e50bb8bccd53b1449d4b8de3f81320264b9a83b',
@@ -463,8 +493,8 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'scenario-repair': 'd0b91e9a20d46b80c7ac2b59140245fc3b94480c13e19d23f17427022ac03333',
     'scenario-retest': '7e3971acf7328dc062ef3a77d011d3536b12f5c2ff8752cb1ef770a5a390ae44',
     specification: '33441e641a89936533be4afa9a9663bf2fe2be4d4166a8b6ac2d78d0abdf67db',
-    testing: '0596101e575c768228880b8d55871b37d63cbfa0b151b86e4d0982a7f619baab',
-    verification: '5205092525f5d83b842ab56b3c28e3d8713208960718e65ac0d7d3b41bfe631b',
+    testing: 'afcc5b6512c3fc5166ede476c431ba341a03e0e38aec1196e64d41573931e30a',
+    verification: '2a2be19c2e654ff38f0bd809b84e9597a942097f03d1ef118e211c43fee53e78',
     verify: '3f8d7783d455b98a5bde58e2dfd2e2ecbf0c7f786e93253a9144630cbbbced0b',
     'visual-verification': 'eb08d123a3b3646651bf6bf950a466a61b7ec09495f38c06b92f0565034c0a5d'
   }),
@@ -491,13 +521,15 @@ export const KNOWN_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze(Object.fromEnt
       PACKAGED_WORKFLOW_VALUE_SHA256_WITHOUT_INTENTS[section] ?? {},
       CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {}
     ];
+    // Revisions kept as lists, one or more hashes per node: older releases, and before the adopted differences.
+    const lists = [HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {}, BEFORE_ADOPTED_DIFFERENCES[section] ?? {}];
     return [section, Object.freeze(Object.fromEntries(
       [...new Set([
-        ...Object.keys(HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {}),
+        ...lists.flatMap((list) => Object.keys(list)),
         ...snapshots.flatMap((snapshot) => Object.keys(snapshot))
       ])].sort().map((id) => [id, Object.freeze([
         ...new Set([
-          ...(HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256[section]?.[id] ?? []),
+          ...lists.flatMap((list) => list[id] ?? []),
           ...snapshots.flatMap((snapshot) => (snapshot[id] ? [snapshot[id]] : []))
         ])
       ])])

@@ -325,8 +325,9 @@ test('a spec-driven Story reviews every authored step, its specification to its 
   await writeVerificationEvidence(story);
   cli('phase', 'publish', 'verification', '--authored', 'human', '--channel', 'manual-in-place');
   kinds.verification = reviewStep((args) => JSON.parse(cli(...args).stdout), 'verification').packet.kind;
+  // Verification changes no source code (D1, Stage 7): reviewed ready with nothing open, SFlow approves it at its submission.
   cli('submit', 'verification');
-  cli('approve', 'verification', '--yes');
+  assert.equal((await workflow()).phases.verification.approvalDisposition, 'approved_automatically');
   cli('prepare', 'release');
   const report = path.join(item, 'artifacts/release/conformance.md');
   await mkdir(path.join(item, 'artifacts/release/verification'), { recursive: true });
@@ -350,13 +351,13 @@ test('a spec-driven Story reviews every authored step, its specification to its 
   }
   const submitted = cli('submit', 'release');
   // Approve twice (owner, 2026-11-19): release, reviewed ready with nothing open, is approved by SFlow at its submission,
-  // as the specification was; people approved the plan, the code and verification, which may change source files.
+  // as the specification and verification were; people approved the plan, the code and convergence.
   const ended = await workflow();
-  for (const step of ['specification', 'release']) {
+  for (const step of ['specification', 'verification', 'release']) {
     assert.equal(ended.phases[step].approvalDisposition, 'approved_automatically', step);
     assert.match(ended.phases[step].automaticApproval.checked.join('; '), /the reviewer said ready/u, step);
   }
-  for (const step of ['planning', 'implementation', 'verification']) assert.equal(ended.phases[step].approvals.filter((entry) => !entry.invalidatedAt).length, 1, step);
+  for (const step of ['planning', 'implementation', 'convergence']) assert.equal(ended.phases[step].approvals.filter((entry) => !entry.invalidatedAt).length, 1, step);
   assert.deepEqual(kinds, { specification: 'specification', planning: 'planning', implementation: 'code', verification: 'document', release: 'document' },
     'every authored step was reviewed, each as what it is');
   assert.equal((await workflow()).status, 'closed', 'the reviewed Story ends');

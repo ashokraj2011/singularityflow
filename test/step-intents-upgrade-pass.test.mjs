@@ -28,7 +28,7 @@ import { STEP_INTENTS, workTypeDerivesIntents } from '../src/phase-roles.mjs';
 import { deriveWorkTypeSettings } from '../src/step-intent-settings.mjs';
 import { INTENT_WORDS } from '../src/step-intents.mjs';
 import {
-  intentPass, intentPassLines, intentPassRoutes, KEPT_BEFORE_INTENTS
+  intentScreen, intentScreenLines, intentScreenRoutes, KEPT_BEFORE_INTENTS
 } from '../src/step-intents-upgrade.mjs';
 import { refreshPackagedConfiguration, refreshSummary } from '../src/workspace-configuration-refresh.mjs';
 import { openConfigurationReviews } from '../src/configuration-review-pass.mjs';
@@ -68,28 +68,28 @@ function writtenReasons(before, after) {
 }
 
 /** The first choice of every question on the screen, as answers. */
-const firstChoices = (pass) => Object.fromEntries(pass.workflows.flatMap((entry) => entry.rows)
+const firstChoices = (shown) => Object.fromEntries(shown.workflows.flatMap((entry) => entry.rows)
   .filter((row) => row.question && row.badge === 'needs-answer').map((row) => [row.step, row.question.choices[0].intent]));
 
 test('every shipped workflow\'s shape, as a team\'s own copy, is offered its intents and runs exactly as before once confirmed', () => {
   const value = beforeStepIntents();
   const copies = Object.keys(value.workTypes).map((id) => teamCopy(value, id, `${id}-`));
-  const pass = intentPass(value, { packaged: SHIPPED_WORKFLOW });
-  assert.deepEqual(pass.workflows.map((entry) => entry.workflow).sort(), [...copies].sort(), 'only the team\'s own workflows, never one SFlow ships');
-  assert.equal(pass.counts.held, 0, pass.workflows.filter((entry) => entry.reason).map((entry) => `${entry.workflow}: ${entry.reason}`).join('\n'));
-  assert.ok(pass.counts.workflows >= copies.length - 2, `most are ready on the rules alone (${pass.counts.workflows} of ${copies.length})`);
-  assert.ok(pass.counts.kept > 0, 'some steps keep settings their intents would change');
-  for (const row of pass.workflows.flatMap((entry) => entry.rows)) {
+  const shown = intentScreen(value, { packaged: SHIPPED_WORKFLOW });
+  assert.deepEqual(shown.workflows.map((entry) => entry.workflow).sort(), [...copies].sort(), 'only the team\'s own workflows, never one SFlow ships');
+  assert.equal(shown.counts.held, 0, shown.workflows.filter((entry) => entry.reason).map((entry) => `${entry.workflow}: ${entry.reason}`).join('\n'));
+  assert.ok(shown.counts.workflows >= copies.length - 2, `most are ready on the rules alone (${shown.counts.workflows} of ${copies.length})`);
+  assert.ok(shown.counts.kept > 0, 'some steps keep settings their intents would change');
+  for (const row of shown.workflows.flatMap((entry) => entry.rows)) {
     assert.ok(STEP_INTENTS.includes(row.intent));
     assert.ok(['sure', 'suggested', 'needs-answer'].includes(row.badge), `${row.step}: ${row.badge}`);
     if (row.badge === 'needs-answer') assert.ok(row.question.choices.length >= 2 && row.question.choices.length <= 3, 'two or three intents to pick from');
   }
   // What a ready workflow keeps is said in words, beside what its intent would give.
-  const kept = pass.workflows.flatMap((entry) => entry.rows).flatMap((row) => row.kept ?? []);
+  const kept = shown.workflows.flatMap((entry) => entry.rows).flatMap((row) => row.kept ?? []);
   assert.ok(kept.every((item) => item.today && item.intent && item.today !== item.intent));
 
   // Confirmed with every question answered: every workflow of the file runs as before, and every copy derives.
-  const answered = intentPass(value, { packaged: SHIPPED_WORKFLOW, answers: firstChoices(pass) });
+  const answered = intentScreen(value, { packaged: SHIPPED_WORKFLOW, answers: firstChoices(shown) });
   assert.equal(answered.counts.workflows, copies.length);
   assert.equal(answered.counts.open, 0);
   assert.equal(answered.after.version, 4);
@@ -117,15 +117,15 @@ test('every shipped workflow\'s shape, as a team\'s own copy, is offered its int
 test('team copies that share their steps: a step one workflow settles is that in all, and every workflow runs as before', () => {
   const value = beforeStepIntents();
   const copies = Object.keys(value.workTypes).map((id) => teamCopy(value, id));
-  const pass = intentPass(value, { packaged: SHIPPED_WORKFLOW });
-  assert.equal(pass.counts.held, 0, pass.workflows.filter((entry) => entry.reason).map((entry) => `${entry.workflow}: ${entry.reason}`).join('\n'));
+  const shown = intentScreen(value, { packaged: SHIPPED_WORKFLOW });
+  assert.equal(shown.counts.held, 0, shown.workflows.filter((entry) => entry.reason).map((entry) => `${entry.workflow}: ${entry.reason}`).join('\n'));
   // One step, one intent: each shared step carries the same intent wherever it is used.
   const intents = new Map();
-  for (const row of pass.workflows.flatMap((entry) => entry.rows)) {
+  for (const row of shown.workflows.flatMap((entry) => entry.rows)) {
     if (intents.has(row.step)) assert.equal(row.intent, intents.get(row.step), `${row.step} means one thing in every workflow`);
     intents.set(row.step, row.intent);
   }
-  const answered = intentPass(value, { packaged: SHIPPED_WORKFLOW, answers: firstChoices(pass) });
+  const answered = intentScreen(value, { packaged: SHIPPED_WORKFLOW, answers: firstChoices(shown) });
   assertRunsAsBefore(value, answered.after, 'shared copies');
   assert.equal(answered.counts.workflows, copies.length);
 });
@@ -212,8 +212,8 @@ test(`generated team workflows: confirmed with any answer, each runs exactly as 
     try { today = resolveWorkType(validateDefinition(structuredClone(value)), 'team'); } catch (error) { assert.fail(`${where}: the team's workflow loads: ${error.message}`); }
     if (startable(today) !== 'starts') continue;
     started += 1;
-    const pass = intentPass(value, { packaged: SHIPPED_WORKFLOW });
-    const entry = pass.workflows.find((candidate) => candidate.workflow === 'team');
+    const shown = intentScreen(value, { packaged: SHIPPED_WORKFLOW });
+    const entry = shown.workflows.find((candidate) => candidate.workflow === 'team');
     assert.ok(entry, where);
     // Structure decides, never the step's name: where SFlow is sure, it is the intent the step was written from
     // (§6.1: a first step that writes the requirements is the intake).
@@ -227,7 +227,7 @@ test(`generated team workflows: confirmed with any answer, each runs exactly as 
       const choice = row.question.choices.find((option) => option.intent === intents[ids.indexOf(row.step)]) ?? row.question.choices[index % row.question.choices.length];
       return [row.step, choice.intent];
     }));
-    const answered = intentPass(value, { packaged: SHIPPED_WORKFLOW, answers });
+    const answered = intentScreen(value, { packaged: SHIPPED_WORKFLOW, answers });
     const final = answered.workflows.find((candidate) => candidate.workflow === 'team');
     if (final.status === 'held') { assert.ok(final.reason, where); continue; }
     assert.equal(final.status, 'ready', where);
@@ -256,8 +256,8 @@ function withUnclearStep() {
 
 test('an unclear step asks the one question: two or three intents with words, never free text; its workflow waits for it', () => {
   const value = withUnclearStep();
-  const pass = intentPass(value, { packaged: SHIPPED_WORKFLOW });
-  const entry = pass.workflows.find((candidate) => candidate.workflow === 'team-classic-delivery');
+  const shown = intentScreen(value, { packaged: SHIPPED_WORKFLOW });
+  const entry = shown.workflows.find((candidate) => candidate.workflow === 'team-classic-delivery');
   assert.equal(entry.status, 'needs-answer');
   const row = entry.rows.find((candidate) => candidate.step === 'team-validate');
   assert.equal(row.badge, 'needs-answer');
@@ -268,22 +268,22 @@ test('an unclear step asks the one question: two or three intents with words, ne
   assert.deepEqual(row.question.choices.map((choice) => choice.intent), ['review', 'release', 'document']);
   assert.match(row.question.note, /^It reads like a test step, which needs its output be test results; change that in Workflow Studio/u);
   assert.ok(row.question.choices.every((choice) => STEP_INTENTS.includes(choice.intent) && /\(\w+\)$/u.test(choice.text)));
-  assert.equal(pass.after, null, 'nothing is ready, so confirming writes nothing yet');
+  assert.equal(shown.after, null, 'nothing is ready, so confirming writes nothing yet');
   // Each answer is one ready command, with the screen's code.
-  const routes = intentPassRoutes(pass, { repository: 'payments' });
+  const routes = intentScreenRoutes(shown, { repository: 'payments' });
   assert.equal(routes.confirm, undefined, 'with nothing ready there is nothing to confirm without an answer');
   assert.deepEqual(routes.answers.map((answer) => answer.command), row.question.choices.map((choice) =>
-    `singularity-flow workspace refresh-configuration --repository payments --confirm-intents ${pass.code} --intent team-validate=${choice.intent}`));
-  const lines = intentPassLines({ ...pass, routes }).join('\n');
+    `singularity-flow workspace refresh-configuration --repository payments --confirm-intents ${shown.code} --intent team-validate=${choice.intent}`));
+  const lines = intentScreenLines({ ...shown, routes }).join('\n');
   assert.match(lines, /What does "Validate" do\?/u);
   assert.match(lines, /needs your answer first/u);
   // Answered, it is ready and runs as before.
-  const answered = intentPass(value, { packaged: SHIPPED_WORKFLOW, answers: { 'team-validate': 'review' } });
+  const answered = intentScreen(value, { packaged: SHIPPED_WORKFLOW, answers: { 'team-validate': 'review' } });
   assert.equal(answered.workflows.find((candidate) => candidate.workflow === 'team-classic-delivery').status, 'ready');
   assert.equal(answered.workflows.flatMap((candidate) => candidate.rows).find((candidate) => candidate.step === 'team-validate').badge, 'yours');
   assertRunsAsBefore(value, answered.after, 'answered');
   // An answer that is not one of the question's choices is not taken.
-  const free = intentPass(value, { packaged: SHIPPED_WORKFLOW, answers: { 'team-validate': 'test' } });
+  const free = intentScreen(value, { packaged: SHIPPED_WORKFLOW, answers: { 'team-validate': 'test' } });
   assert.equal(free.workflows.find((candidate) => candidate.workflow === 'team-classic-delivery').status, 'needs-answer');
 });
 
@@ -294,9 +294,9 @@ test('what keeps its settings, and why: a step SFlow ships without its intent, a
   // A team's code step with nothing before it and nothing left out: Stories cannot start from it.
   teamCopy(value, 'careful-change', 'team-');
   delete value.workTypes['team-careful-change'].omits;
-  const pass = intentPass(value, { packaged: SHIPPED_WORKFLOW });
-  const mixed = pass.workflows.find((entry) => entry.workflow === 'team-mixed');
-  const careful = pass.workflows.find((entry) => entry.workflow === 'team-careful-change');
+  const shown = intentScreen(value, { packaged: SHIPPED_WORKFLOW });
+  const mixed = shown.workflows.find((entry) => entry.workflow === 'team-mixed');
+  const careful = shown.workflows.find((entry) => entry.workflow === 'team-careful-change');
   if (!Object.values(SHIPPED_WORKFLOW.phases).some((step) => typeof step?.intent === 'string')) {
     // Until SFlow ships its steps' intents (Stage 4), a workflow of its steps keeps its settings, with the copy as the way on.
     assert.equal(mixed.status, 'held');
@@ -304,8 +304,8 @@ test('what keeps its settings, and why: a step SFlow ships without its intent, a
   }
   assert.equal(careful.status, 'held');
   assert.match(careful.reason, /^Stories cannot start from it today, so it keeps its settings until that is fixed: .* See what to fix: singularity-flow workflow check team-careful-change$/su);
-  assert.equal(pass.after, null);
-  assert.equal(pass.counts.held, mixed.status === 'held' ? 2 : 1);
+  assert.equal(shown.after, null);
+  assert.equal(shown.counts.held, mixed.status === 'held' ? 2 : 1);
 });
 
 test('testEvidenceFrom: false keeps a step running its own tests: what absent says, in a workflow of intents or not', () => {
@@ -377,39 +377,39 @@ test('the upgrade shows the screen and writes nothing; another code writes nothi
   const today = sealed(resolveWorkType(before, 'team-classic-delivery'));
 
   // The upgrade alone, which is how a person declines: the screen, its code and its commands; workflow.yml as it was.
-  const shown = await refreshPackagedConfiguration(root, { repository: 'payments' });
+  const offered = await refreshPackagedConfiguration(root, { repository: 'payments' });
   assert.equal(await readFile(file, 'utf8'), original, 'declining leaves the workflow as it is');
-  const pass = shown.intentPass;
-  assert.equal(pass.schemaVersion, 1);
-  assert.deepEqual(pass.workflows.map((entry) => [entry.workflow, entry.status]), [['team-classic-delivery', 'ready']]);
-  assert.match(pass.code, /^[0-9a-f]{6}$/u);
-  assert.equal(pass.routes.confirm.command, `singularity-flow workspace refresh-configuration --repository payments --confirm-intents ${pass.code}`);
-  assert.match(pass.summary, /^Step intents: 4 steps of your own workflows can say what they are for.* Nothing changes until you confirm: singularity-flow workspace refresh-configuration --repository payments --confirm-intents [0-9a-f]{6}$/u);
-  assert.ok(!shown.files.includes('singularity/workflow.yml'));
-  assert.deepEqual(refreshSummary([{ status: 'current', repository: 'payments', configurationChanged: false, intentPass: pass }]).at(-1), `payments: ${pass.summary}`);
+  const shown = offered.intentScreen;
+  assert.equal(shown.schemaVersion, 1);
+  assert.deepEqual(shown.workflows.map((entry) => [entry.workflow, entry.status]), [['team-classic-delivery', 'ready']]);
+  assert.match(shown.code, /^[0-9a-f]{6}$/u);
+  assert.equal(shown.routes.confirm.command, `singularity-flow workspace refresh-configuration --repository payments --confirm-intents ${shown.code}`);
+  assert.match(shown.summary, /^Step intents: 4 steps of your own workflows can say what they are for.* Nothing changes until you confirm: singularity-flow workspace refresh-configuration --repository payments --confirm-intents [0-9a-f]{6}$/u);
+  assert.ok(!offered.files.includes('singularity/workflow.yml'));
+  assert.deepEqual(refreshSummary([{ status: 'current', repository: 'payments', configurationChanged: false, intentScreen: shown }]).at(-1), `payments: ${shown.summary}`);
 
   // Another screen's code: nothing written, and the screen as it is now with its own code.
-  const stale = await refreshPackagedConfiguration(root, { repository: 'payments', stepIntents: { confirm: 'abcdef' === pass.code ? 'fedcba' : 'abcdef' } });
-  assert.equal(stale.intentPass.confirmation, 'stale');
-  assert.equal(stale.intentPass.code, pass.code);
+  const stale = await refreshPackagedConfiguration(root, { repository: 'payments', stepIntents: { confirm: 'abcdef' === shown.code ? 'fedcba' : 'abcdef' } });
+  assert.equal(stale.intentScreen.confirmation, 'stale');
+  assert.equal(stale.intentScreen.code, shown.code);
   assert.equal(await readFile(file, 'utf8'), original);
   // An answer to a question the screen does not ask: nothing written.
-  const refused = await refreshPackagedConfiguration(root, { repository: 'payments', stepIntents: { confirm: pass.code, answers: { 'team-testing': 'review' } } });
-  assert.equal(refused.intentPass.confirmation, 'refused');
-  assert.match(refused.intentPass.problems[0], /has no question on this screen/u);
+  const refused = await refreshPackagedConfiguration(root, { repository: 'payments', stepIntents: { confirm: shown.code, answers: { 'team-testing': 'review' } } });
+  assert.equal(refused.intentScreen.confirmation, 'refused');
+  assert.match(refused.intentScreen.problems[0], /has no question on this screen/u);
   assert.equal(await readFile(file, 'utf8'), original);
 
   // Its code: written through the refresh's own write, version 4, each intent first among its step's keys.
-  const confirmed = await refreshPackagedConfiguration(root, { repository: 'payments', stepIntents: { confirm: pass.code } });
-  assert.equal(confirmed.intentPass.confirmation, 'written');
-  assert.deepEqual(confirmed.intentPass.written, ['team-classic-delivery']);
+  const confirmed = await refreshPackagedConfiguration(root, { repository: 'payments', stepIntents: { confirm: shown.code } });
+  assert.equal(confirmed.intentScreen.confirmation, 'written');
+  assert.deepEqual(confirmed.intentScreen.written, ['team-classic-delivery']);
   assert.ok(confirmed.files.includes('singularity/workflow.yml'));
   assert.equal(confirmed.changed, true);
   const text = await readFile(file, 'utf8');
   const written = YAML.parse(text);
   assert.equal(written.version, 4);
   assert.equal(Object.keys(written.phases['team-intake'])[0], 'intent');
-  assert.match(confirmed.intentPass.summary, /^Step intents: 4 steps of 1 workflow now say what they are for.*; every workflow runs as before\.$/u);
+  assert.match(confirmed.intentScreen.summary, /^Step intents: 4 steps of 1 workflow now say what they are for.*; every workflow runs as before\.$/u);
   // Every line the confirmation did not change reads as it was.
   const kept = original.split('\n').filter((line) => !text.includes(line));
   assert.deepEqual(kept.filter((line) => !/^version:/u.test(line)), [], 'only the version line changed among the lines that were there');
@@ -418,7 +418,7 @@ test('the upgrade shows the screen and writes nothing; another code writes nothi
   for (const id of Object.keys(before.workTypes)) assert.equal(sealed(resolveWorkType(after, id)), sealed(resolveWorkType(before, id)), id);
   // The next upgrade has nothing left to offer.
   const again = await refreshPackagedConfiguration(root, { repository: 'payments' });
-  assert.equal(again.intentPass, undefined);
+  assert.equal(again.intentScreen, undefined);
 });
 
 test('an answer without the screen\'s code is refused before anything runs, with the command that shows the screen', async (t) => {
@@ -438,11 +438,11 @@ test('the upgrade\'s pass names each repository whose own workflows can say what
   const calls = [];
   const refresh = async (options) => {
     calls.push(options);
-    return { results: [{ status: 'current', repository: 'payments', configurationChanged: false, intentPass: screen },
+    return { results: [{ status: 'current', repository: 'payments', configurationChanged: false, intentScreen: screen },
       { status: 'current', repository: 'catalog', configurationChanged: false }] };
   };
   const result = await openConfigurationReviews({ registryFile: '/registry.json', refresh });
   assert.equal(result.outcome, 'current');
   assert.deepEqual(result.stepIntents, [{ repository: 'payments', code: 'a1b2c3', summary: screen.summary, counts: screen.counts }]);
-  assert.ok(calls.every((options) => options.stepIntents == null), 'the pass never confirms a screen');
+  assert.ok(calls.every((options) => options.stepIntents == null), 'the shown never confirms a screen');
 });

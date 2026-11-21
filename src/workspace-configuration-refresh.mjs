@@ -1803,7 +1803,7 @@ export async function refreshPackagedConfiguration(root, {
     }
   }
 
-  let intentPass = null;
+  let intentScreen = null;
   if (!dryRun) {
     let loaded;
     try {
@@ -1832,11 +1832,11 @@ export async function refreshPackagedConfiguration(root, {
     if (!restorePackagedSeeds && !rollback
         && Object.keys(merged.value.workTypes ?? {}).some((id) => !Object.hasOwn(incoming.workTypes ?? {}, id))) {
       const { upgradeStepIntents } = await import('./step-intents-upgrade.mjs');
-      intentPass = await upgradeStepIntents(root, {
+      intentScreen = await upgradeStepIntents(root, {
         workflowFile, packaged: incoming, loaded, repository,
         confirm: stepIntents?.confirm ?? null, answers: stepIntents?.answers ?? {}
       });
-      if (intentPass?.confirmation === 'written') changedFiles.add(WORKFLOW_PATH);
+      if (intentScreen?.confirmation === 'written') changedFiles.add(WORKFLOW_PATH);
     }
   }
 
@@ -1844,11 +1844,11 @@ export async function refreshPackagedConfiguration(root, {
     product: lock.product,
     packageContentDigest,
     changed: changedFiles.size > 0,
-    ...(productStampOnly && intentPass?.confirmation !== 'written' ? { productStampOnly } : {}),
+    ...(productStampOnly && intentScreen?.confirmation !== 'written' ? { productStampOnly } : {}),
     files: [...changedFiles].sort(),
     removed: [...removedFiles].sort(),
     conflicts,
-    ...(intentPass ? { intentPass } : {}),
+    ...(intentScreen ? { intentScreen } : {}),
     ...(sectionMerges.length ? { sectionMerges } : {}),
     ...(worldModelMigration ? { worldModelMigration } : {}),
     ...(agentsHome ? { agentsHome } : {}),
@@ -2858,7 +2858,7 @@ function previewResultForCandidate(candidate, status) {
     ...(candidate.refresh.agentsHome ? { agentsHome: candidate.refresh.agentsHome } : {}),
     ...(candidate.refresh.storyCutover ? { storyCutover: candidate.refresh.storyCutover } : {}),
     // The one screen of step intents for this repository's own workflows, with its code (step intents §8).
-    ...(candidate.refresh.intentPass ? { intentPass: candidate.refresh.intentPass } : {})
+    ...(candidate.refresh.intentScreen ? { intentScreen: candidate.refresh.intentScreen } : {})
   };
 }
 
@@ -3013,7 +3013,7 @@ async function proposeCandidate(candidate) {
     memberships: repository.memberships, sourceCommit,
     conflicts: refresh.conflicts, configurationChanged: false, error: null,
     ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}),
-    ...(refresh.intentPass ? { intentPass: refresh.intentPass } : {}), ...extra
+    ...(refresh.intentScreen ? { intentScreen: refresh.intentScreen } : {}), ...extra
   });
   // A difference that is only the build's name is nothing for a person to review [owner, 2026-11-13], except a rollback:
   // going back to the older build is what lowers the repository's minimum build (D8).
@@ -3142,7 +3142,7 @@ async function publishCandidate(candidate) {
     conflicts: refresh.conflicts,
     ...(refresh.worldModelMigration ? { worldModelMigration: refresh.worldModelMigration } : {}),
     ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}),
-    ...(refresh.intentPass ? { intentPass: refresh.intentPass } : {}),
+    ...(refresh.intentScreen ? { intentScreen: refresh.intentScreen } : {}),
     supersededRefs
   };
   } catch (error) {
@@ -3795,7 +3795,7 @@ export function refreshSummary(results) {
       lines.push(`${result.repository}: nothing changed there. ${result.error}`);
     }
     // What the step intents screen offers this repository, or what its confirmation wrote (step intents §8.5).
-    if (result.intentPass?.summary) lines.push(`${result.repository}: ${result.intentPass.summary}`);
+    if (result.intentScreen?.summary) lines.push(`${result.repository}: ${result.intentScreen.summary}`);
     const refused = result.supersededRefs?.refused ?? [];
     if (refused.length) {
       lines.push(`${result.repository}: the host refused to delete ${refused.length} old ref${refused.length === 1 ? '' : 's'} `

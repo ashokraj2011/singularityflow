@@ -153,9 +153,9 @@ function laggingRepositories(preview) {
  * its code and counts. Nothing is written for them here; a person confirms each screen (VS Code asks, once per build).
  */
 function stepIntentScreens(preview) {
-  return (preview?.results ?? []).filter((entry) => entry.intentPass?.code && (entry.intentPass.counts?.workflows || entry.intentPass.counts?.open))
-    .map(({ repository, intentPass }) => Object.freeze({ repository, code: intentPass.code, summary: bounded(intentPass.summary),
-      counts: Object.freeze({ ...intentPass.counts }) }));
+  return (preview?.results ?? []).filter((entry) => entry.intentScreen?.code && (entry.intentScreen.counts?.workflows || entry.intentScreen.counts?.open))
+    .map(({ repository, intentScreen }) => Object.freeze({ repository, code: intentScreen.code, summary: bounded(intentScreen.summary),
+      counts: Object.freeze({ ...intentScreen.counts }) }));
 }
 
 function stalePlan(result) {

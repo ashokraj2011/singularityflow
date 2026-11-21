@@ -9500,8 +9500,8 @@ async function workspaceCommand(positionals, options) {
     // a person saw, by its code, and --intent answers its questions; without the code, the screen is only shown.
     const intentAnswers = optionMap(optionStrings(options, 'intent'), '--intent');
     if (Object.keys(intentAnswers).length && optionString(options, 'confirm-intents') == null) {
-      throw new SingularityFlowError('--intent answers a question on the step intents screen, so it goes with that screen\'s --confirm-intents code. '
-        + 'Each answer\'s command is on the screen: singularity-flow workspace refresh-configuration --dry-run. Nothing was changed.', {
+      throw new SingularityFlowError('--intent answers the step intents screen, with its --confirm-intents code. '
+        + 'Each answer\'s command is on it: singularity-flow workspace refresh-configuration --dry-run. Nothing was changed.', {
         code: 'STEP_INTENTS_CONFIRMATION_REQUIRED',
         details: { nextAction: { executable: 'singularity-flow', argv: ['workspace', 'refresh-configuration', '--dry-run'], label: 'Show the step intents screen with its commands.' } }
       });
@@ -9526,8 +9526,8 @@ async function workspaceCommand(positionals, options) {
     else if (!result.results.length) console.log('No registered workspace repositories require configuration refresh.');
     else {
       const { agentsHomeLines } = await import('./agents-home-migration.mjs');
-      const intentLines = result.results.some((item) => item.intentPass?.workflows?.length)
-        ? (await import('./step-intents-upgrade.mjs')).intentPassLines : () => [];
+      const intentLines = result.results.some((item) => item.intentScreen?.workflows?.length)
+        ? (await import('./step-intents-upgrade.mjs')).intentScreenLines : () => [];
       console.log(`${result.dryRun ? 'Configuration refresh preview' : 'Configuration refresh'}: ${result.status}`);
       for (const item of result.results) {
         const configuration = item.configurationChanged ? 'configuration updated' : 'configuration unchanged';
@@ -9541,7 +9541,7 @@ async function workspaceCommand(positionals, options) {
         if (item.compareUrl) console.log(`    Merge it here: ${item.compareUrl}`);
         if (item.error) console.log(`    ${item.error}`);
         if (item.route) console.log(`    Resolve: ${item.route}`);
-        for (const line of intentLines(item.intentPass)) console.log(`  ${line}`);
+        for (const line of intentLines(item.intentScreen)) console.log(`  ${line}`);
       }
       for (const warning of result.warnings ?? []) console.log(`  Warning: ${warning}`);
       // What happened, in one place: the repositories updated and the old refs removed [owner, 2026-11-16].

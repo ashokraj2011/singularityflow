@@ -44,7 +44,7 @@ import { renderPreservingFormatting, patchYamlDocument } from './yaml-formatting
 /** How every kept setting's reason starts: what Stage 7's adoption and `workflow assess` look for. */
 export const KEPT_BEFORE_INTENTS = 'Kept as it was before step intents';
 
-export const INTENT_PASS_BADGES = Object.freeze({
+export const INTENT_SCREEN_BADGES = Object.freeze({
   declared: 'It says so already', sure: 'SFlow is sure', suggested: 'SFlow suggests', yours: 'Your answer', 'needs-answer': 'Your answer needed'
 });
 
@@ -335,7 +335,7 @@ function prepared(raw, agents) {
 }
 
 /** The screen's code: exactly the rows, intents, badges, kept settings and questions it shows. */
-export function intentPassCode(workflows) {
+export function intentScreenCode(workflows) {
   const text = JSON.stringify(workflows.map((entry) => [entry.workflow, entry.status, entry.reason ?? null, entry.rows.map((row) => [
     row.step, row.intent, row.badge, (row.kept ?? []).map((item) => item.setting), row.question?.choices.map((choice) => choice.intent) ?? null])]));
   return createHash('sha256').update(text).digest('hex').slice(0, 6);
@@ -352,7 +352,7 @@ export function intentPassCode(workflows) {
  * why, the settings it keeps, the one question when it asks); `after` the workflow.yml data confirming writes, or null
  * when nothing is ready; `intents` the steps it gives an intent.
  */
-export function intentPass(raw, { loaded = null, packaged = null, headings = {}, answers = {} } = {}) {
+export function intentScreen(raw, { loaded = null, packaged = null, headings = {}, answers = {} } = {}) {
   const agents = { catalog: loaded?.agentCatalog ?? [], byId: loaded?.agents ?? {}, root: loaded?.agentPromptsRoot ?? null };
   const workTypes = isMapping(raw?.workTypes) ? raw.workTypes : {};
   const phases = isMapping(raw?.phases) ? raw.phases : {};
@@ -362,7 +362,7 @@ export function intentPass(raw, { loaded = null, packaged = null, headings = {},
   const agentOf = (id) => agents.catalog.find((agent) => agent.defaultFor?.includes(id))?.id ?? null;
   const own = Object.entries(workTypes).filter(([id, type]) => !packagedTypes.has(id) && isMapping(type) && Array.isArray(type.phases)
     && type.phases.length && !workTypeDerivesIntents(raw, type));
-  if (!own.length) return { workflows: [], counts: counts([]), code: intentPassCode([]), after: null, intents: {} };
+  if (!own.length) return { workflows: [], counts: counts([]), code: intentScreenCode([]), after: null, intents: {} };
   const before = prepared(raw, agents);
   const today = new Map(Object.keys(workTypes).map((id) => [id, resolvedOrRefused(before, id)]));
 
@@ -470,7 +470,7 @@ export function intentPass(raw, { loaded = null, packaged = null, headings = {},
   }
   for (const entry of workflows) {
     for (const row of entry.rows) {
-      row.badgeText = INTENT_PASS_BADGES[row.badge];
+      row.badgeText = INTENT_SCREEN_BADGES[row.badge];
       row.intentLabel = stepIntentChoice(row.intent)?.label ?? row.intent;
       const kept = entry.status === 'ready' ? (result?.kept.get(entry.workflow) ?? []).filter((item) => item.step === row.step) : [];
       if (kept.length) row.kept = kept;
@@ -479,7 +479,7 @@ export function intentPass(raw, { loaded = null, packaged = null, headings = {},
     if (workflowKept.length) entry.kept = workflowKept;
     if (entry.status !== 'ready') for (const row of entry.rows) delete row.kept;
   }
-  return { workflows, counts: counts(workflows), code: intentPassCode(workflows), after: result?.after ?? null, intents: result?.intents ?? {} };
+  return { workflows, counts: counts(workflows), code: intentScreenCode(workflows), after: result?.after ?? null, intents: result?.intents ?? {} };
 }
 
 /** How many workflows are ready, steps get an intent, steps keep earlier settings, steps ask, and workflows are held. */
@@ -600,7 +600,7 @@ function withReasons(after, definition, ready, intentOf) {
 // The screen as text, routes and the summary line
 
 /** The commands of one repository's screen: confirm it, and confirm it with each answer to each question. */
-export function intentPassRoutes(pass, { repository = null } = {}) {
+export function intentScreenRoutes(pass, { repository = null } = {}) {
   const base = ['singularity-flow', 'workspace', 'refresh-configuration', ...(repository ? ['--repository', repository] : []), '--confirm-intents', pass.code];
   const answers = pass.workflows.flatMap((entry) => entry.rows.filter((row) => row.question && row.badge === 'needs-answer')
     .flatMap((row) => row.question.choices.map((choice) => ({ step: row.step, intent: choice.intent, argv: [...base, '--intent', `${row.step}=${choice.intent}`] }))));
@@ -612,7 +612,7 @@ export function intentPassRoutes(pass, { repository = null } = {}) {
 }
 
 /** The one screen as plain lines, for the CLI and Copilot's chat (spec §6.4, §8.6). */
-export function intentPassLines(pass) {
+export function intentScreenLines(pass) {
   if (!pass?.workflows?.length) return [];
   const lines = [pass.confirmation === 'written' ? 'Step intents, as you confirmed:' : 'Step intents for your own workflows (nothing changes until you confirm):'];
   for (const entry of pass.workflows) {
@@ -639,7 +639,7 @@ export function intentPassLines(pass) {
 }
 
 /** The upgrade's one line about step intents for a repository (spec §8.5), or null when it has nothing to offer. */
-export function intentPassSummary(pass) {
+export function intentScreenSummary(pass) {
   if (!pass?.workflows?.length) return null;
   const { workflows, steps, kept, open, held } = pass.counts;
   if (pass.confirmation === 'written') {
@@ -720,11 +720,11 @@ export async function upgradeStepIntents(root, { workflowFile, packaged, loaded,
     const out = { schemaVersion: 1, ...pass, ...extra };
     delete out.after;
     delete out.intents;
-    out.routes = intentPassRoutes(out, { repository });
-    return { ...out, summary: intentPassSummary(out) };
+    out.routes = intentScreenRoutes(out, { repository });
+    return { ...out, summary: intentScreenSummary(out) };
   };
   let screen;
-  try { screen = intentPass(raw, { loaded, packaged, headings }); }
+  try { screen = intentScreen(raw, { loaded, packaged, headings }); }
   catch (error) { return { schemaVersion: 1, workflows: [], counts: counts([]), code: null, error: firstLine(error.message) }; }
   if (!screen.workflows.length) return null;
   if (confirm == null) return routed(screen);
@@ -742,7 +742,7 @@ export async function upgradeStepIntents(root, { workflowFile, packaged, loaded,
     }
   }
   if (problems.length) return routed(screen, { confirmation: 'refused', problems });
-  const final = Object.keys(answers ?? {}).length ? intentPass(raw, { loaded, packaged, headings, answers }) : screen;
+  const final = Object.keys(answers ?? {}).length ? intentScreen(raw, { loaded, packaged, headings, answers }) : screen;
   if (!final.after) return routed(final, { confirmation: 'nothing-ready' });
   let written;
   try { written = intentsText(text, raw, final.after, final.intents); }
@@ -764,10 +764,10 @@ export async function upgradeStepIntents(root, { workflowFile, packaged, loaded,
   // What is left for another time (a question not answered, a workflow held): its routes name the screen the next
   // upgrade shows, which is the written file's.
   let rest = null;
-  try { rest = intentPass(final.after, { loaded, packaged, headings }); } catch { rest = null; }
+  try { rest = intentScreen(final.after, { loaded, packaged, headings }); } catch { rest = null; }
   const shown = { ...routed(final, { confirmation: 'written', version: final.after.version,
     written: final.workflows.filter((entry) => entry.status === 'ready').map((entry) => entry.workflow) }),
-  routes: rest?.workflows.length ? intentPassRoutes(rest, { repository }) : { answers: [] },
+  routes: rest?.workflows.length ? intentScreenRoutes(rest, { repository }) : { answers: [] },
   ...(rest?.workflows.length ? { next: { code: rest.code, counts: rest.counts } } : {}) };
-  return { ...shown, summary: intentPassSummary(shown) };
+  return { ...shown, summary: intentScreenSummary(shown) };
 }

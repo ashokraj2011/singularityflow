@@ -12,27 +12,27 @@
 type Maybe<T> = Promise<T> | Thenable<T>;
 interface Envelope<T> { data?: T }
 
-export interface IntentPassChoice { intent: string; text: string }
-export interface IntentPassRow {
+export interface IntentScreenChoice { intent: string; text: string }
+export interface IntentScreenRow {
   step: string; label: string; intent: string; intentLabel: string; badge: string; badgeText: string; why: string;
   kept?: Array<{ setting: string; today: string; intent: string }>;
-  question?: { question: string; choices: IntentPassChoice[]; note?: string };
+  question?: { question: string; choices: IntentScreenChoice[]; note?: string };
 }
-export interface IntentPassWorkflow {
-  workflow: string; label: string; status: 'ready' | 'needs-answer' | 'held'; reason: string | null; rows: IntentPassRow[];
+export interface IntentScreenWorkflow {
+  workflow: string; label: string; status: 'ready' | 'needs-answer' | 'held'; reason: string | null; rows: IntentScreenRow[];
   kept?: Array<{ setting: string; today: string; intent: string }>;
 }
-export interface IntentPass {
+export interface IntentScreen {
   code: string | null;
-  workflows: IntentPassWorkflow[];
+  workflows: IntentScreenWorkflow[];
   counts: { workflows: number; steps: number; kept: number; open: number; held: number };
   summary?: string | null;
   confirmation?: 'written' | 'stale' | 'refused' | 'nothing-ready';
   problems?: string[];
 }
-export interface StepIntentsOffer { repository: string; code: string; summary: string; counts: IntentPass['counts'] }
+export interface StepIntentsOffer { repository: string; code: string; summary: string; counts: IntentScreen['counts'] }
 
-interface RefreshResult { results?: Array<{ repository: string; intentPass?: IntentPass; error?: string | null }> }
+interface RefreshResult { results?: Array<{ repository: string; intentScreen?: IntentScreen; error?: string | null }> }
 
 export interface StepIntentsHost {
   run<T>(args: string[]): Promise<T>;
@@ -63,9 +63,9 @@ export function confirmArgs(repository: string, code: string, answers: Record<st
 }
 
 /** The rows that ask, in screen order. */
-export function questionsOf(pass: IntentPass): IntentPassRow[] {
+export function questionsOf(shownScreen: IntentScreen): IntentScreenRow[] {
   const seen = new Set<string>();
-  return pass.workflows.flatMap((entry) => entry.rows).filter((row) => {
+  return shownScreen.workflows.flatMap((entry) => entry.rows).filter((row) => {
     if (!row.question || row.badge !== 'needs-answer' || seen.has(row.step)) return false;
     seen.add(row.step);
     return true;
@@ -73,10 +73,10 @@ export function questionsOf(pass: IntentPass): IntentPassRow[] {
 }
 
 /** The screen as the confirmation's detail: each workflow, each step, what it keeps, and what is kept as it is. */
-export function screenDetail(pass: IntentPass, answers: Record<string, string> = {}): string {
+export function screenDetail(shownScreen: IntentScreen, answers: Record<string, string> = {}): string {
   const lines: string[] = [];
-  for (const entry of pass.workflows) {
-    const answered = entry.status === 'needs-answer' && questionsOf({ ...pass, workflows: [entry] }).every((row) => answers[row.step]);
+  for (const entry of shownScreen.workflows) {
+    const answered = entry.status === 'needs-answer' && questionsOf({ ...shownScreen, workflows: [entry] }).every((row) => answers[row.step]);
     const state = entry.status === 'ready' || answered ? 'each step says what it is for' : entry.status === 'needs-answer' ? 'waits for your answer' : 'kept as it is';
     lines.push(`${entry.label}: ${state}`);
     if (entry.reason) lines.push(`  ${entry.reason}`);
@@ -111,31 +111,31 @@ export async function offerStepIntents(host: StepIntentsHost, offers: StepIntent
 
 /** Show one repository's screen, ask its questions, and write it when the person confirms. */
 export async function reviewStepIntents(host: StepIntentsHost, repository: string): Promise<string> {
-  let pass: IntentPass | undefined;
+  let shownScreen: IntentScreen | undefined;
   try {
     const shown = await host.progress(`Singularity Flow: reading what each step of ${repository}'s workflows is for`,
       () => host.run<Envelope<RefreshResult>>(screenArgs(repository)));
-    pass = shown.data?.results?.find((entry) => entry.repository === repository)?.intentPass;
+    shownScreen = shown.data?.results?.find((entry) => entry.repository === repository)?.intentScreen;
   } catch (error) {
     void host.warn(`Singularity Flow could not show the step intents screen for ${repository}: ${(error as Error).message} `
       + `Run singularity-flow workspace refresh-configuration --repository ${repository} --dry-run to see it.`);
     return 'failed';
   }
-  if (!pass?.code || !(pass.counts.workflows || pass.counts.open)) return 'nothing';
+  if (!shownScreen?.code || !(shownScreen.counts.workflows || shownScreen.counts.open)) return 'nothing';
   const answers: Record<string, string> = {};
-  for (const row of questionsOf(pass)) {
+  for (const row of questionsOf(shownScreen)) {
     const intent = await host.pick(`${row.question!.question}${row.question!.note ? ` ${row.question!.note}` : ''}`,
       row.question!.choices.map((choice) => ({ label: choice.text, intent: choice.intent })));
     if (!intent) return 'not-now';
     answers[row.step] = intent;
   }
-  const confirmed = await host.confirm(`Say what each step of ${repository}'s own workflows is for?`, screenDetail(pass, answers), CONFIRM);
+  const confirmed = await host.confirm(`Say what each step of ${repository}'s own workflows is for?`, screenDetail(shownScreen, answers), CONFIRM);
   if (!confirmed) return 'not-now';
-  let written: IntentPass | undefined;
+  let written: IntentScreen | undefined;
   try {
     const result = await host.progress(`Singularity Flow: writing what each step is for in ${repository}`,
-      () => host.run<Envelope<RefreshResult>>(confirmArgs(repository, pass.code!, answers)));
-    written = result.data?.results?.find((entry) => entry.repository === repository)?.intentPass;
+      () => host.run<Envelope<RefreshResult>>(confirmArgs(repository, shownScreen.code!, answers)));
+    written = result.data?.results?.find((entry) => entry.repository === repository)?.intentScreen;
   } catch (error) {
     void host.warn(`Singularity Flow could not write the step intents for ${repository}: ${(error as Error).message} Nothing was written.`);
     return 'failed';
@@ -152,7 +152,7 @@ export async function reviewStepIntents(host: StepIntentsHost, repository: strin
     return again === REVIEW ? reviewStepIntents(host, repository) : 'not-written';
   }
   // Anything else would refuse the same way again: a build of the workflow settles each step with what it changes in view.
-  const workflow = pass.workflows.find((entry) => entry.status !== 'held')?.workflow ?? pass.workflows[0]?.workflow;
+  const workflow = shownScreen.workflows.find((entry) => entry.status !== 'held')?.workflow ?? shownScreen.workflows[0]?.workflow;
   void host.warn(`The step intents for ${repository} were not written: ${why}${workflow
     ? ` Say what each step is for with what it changes in view: singularity-flow workflow build start --intents ${workflow}` : ''}`);
   return 'not-written';

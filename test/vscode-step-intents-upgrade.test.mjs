@@ -17,7 +17,7 @@ import {
 
 const BUILD = 'abc1234 2026-11-21T10:00Z';
 
-const pass = (overrides = {}) => ({
+const screenOf = (overrides = {}) => ({
   code: 'a1b2c3',
   counts: { workflows: 1, steps: 3, kept: 1, open: 1, held: 0 },
   workflows: [{
@@ -44,7 +44,7 @@ function host({ choice = 'Review…', pick = 'release', confirm = true, response
       const response = args.includes('--dry-run') ? responses.screen : responses.confirm;
       const value = typeof response === 'function' ? response() : response;
       if (value instanceof Error) throw value;
-      return { data: { results: [{ repository: 'payments', intentPass: value }] } };
+      return { data: { results: [{ repository: 'payments', intentScreen: value }] } };
     },
     progress: async (title, task) => { events.push(['progress', title]); return task(); },
     inform: async (message, ...actions) => { events.push(['inform', message, actions]); return actions.length ? choice : undefined; },
@@ -57,14 +57,14 @@ function host({ choice = 'Review…', pick = 'release', confirm = true, response
   };
 }
 
-const offer = { repository: 'payments', code: 'a1b2c3', summary: 'Step intents: …', counts: pass().counts };
+const offer = { repository: 'payments', code: 'a1b2c3', summary: 'Step intents: …', counts: screenOf().counts };
 
 test('the screen\'s commands: the dry-run that shows it and the confirmation with each answer', () => {
   assert.deepEqual(screenArgs('payments'), ['workspace', 'refresh-configuration', '--repository', 'payments', '--dry-run', '--json']);
   assert.deepEqual(confirmArgs('payments', 'a1b2c3', { wrap: 'release', build: 'code' }), ['workspace', 'refresh-configuration', '--repository', 'payments',
     '--confirm-intents', 'a1b2c3', '--intent', 'build=code', '--intent', 'wrap=release', '--json']);
-  assert.deepEqual(questionsOf(pass()).map((row) => row.step), ['wrap']);
-  const detail = screenDetail(pass(), { wrap: 'release' });
+  assert.deepEqual(questionsOf(screenOf()).map((row) => row.step), ['wrap']);
+  const detail = screenDetail(screenOf(), { wrap: 'release' });
   assert.match(detail, /^Team delivery: each step says what it is for$/mu);
   assert.match(detail, /^ {2}Wrap up: release \(your answer\)$/mu);
   assert.match(detail, /^ {4}keeps a person approves it$/mu);
@@ -72,7 +72,7 @@ test('the screen\'s commands: the dry-run that shows it and the confirmation wit
 });
 
 test('Review… asks the one question, confirms on one modal and writes it; once per build and screen', async () => {
-  const item = host({ responses: { screen: pass(), confirm: { ...pass(), confirmation: 'written', summary: 'Step intents: 3 steps of 1 workflow now say what they are for.' } } });
+  const item = host({ responses: { screen: screenOf(), confirm: { ...screenOf(), confirmation: 'written', summary: 'Step intents: 3 steps of 1 workflow now say what they are for.' } } });
   assert.deepEqual(await offerStepIntents(item, [offer], { loadedBuild: BUILD }), ['written']);
   const kinds = item.events.map(([kind]) => kind);
   assert.deepEqual(kinds.filter((kind) => ['inform', 'pick', 'confirm', 'run'].includes(kind)), ['inform', 'run', 'pick', 'confirm', 'run', 'inform']);
@@ -85,23 +85,23 @@ test('Review… asks the one question, confirms on one modal and writes it; once
 });
 
 test('Not now, a closed question or a declined modal writes nothing', async () => {
-  const notNow = host({ choice: 'Not now', responses: { screen: pass() } });
+  const notNow = host({ choice: 'Not now', responses: { screen: screenOf() } });
   assert.deepEqual(await offerStepIntents(notNow, [offer], { loadedBuild: BUILD }), ['not-now']);
   assert.equal(notNow.events.filter(([kind]) => kind === 'run').length, 0);
-  const closed = host({ pick: null, responses: { screen: pass() } });
+  const closed = host({ pick: null, responses: { screen: screenOf() } });
   assert.equal(await reviewStepIntents(closed, 'payments'), 'not-now');
   assert.equal(closed.events.filter(([kind]) => kind === 'run').length, 1, 'only the screen was read');
-  const declined = host({ confirm: false, responses: { screen: pass() } });
+  const declined = host({ confirm: false, responses: { screen: screenOf() } });
   assert.equal(await reviewStepIntents(declined, 'payments'), 'not-now');
   assert.equal(declined.events.filter(([kind]) => kind === 'run').length, 1);
 });
 
 test('a screen that changed meanwhile is one Review away; any other refusal names the build that settles it', async () => {
-  const stale = host({ responses: { screen: pass(), confirm: { ...pass(), confirmation: 'stale', problems: ['Code a1b2c3 names a screen that has changed.'] } } });
+  const stale = host({ responses: { screen: screenOf(), confirm: { ...screenOf(), confirmation: 'stale', problems: ['Code a1b2c3 names a screen that has changed.'] } } });
   assert.equal(await reviewStepIntents(stale, 'payments'), 'not-written');
   const warned = stale.events.find(([kind]) => kind === 'warn');
   assert.deepEqual(warned[2], ['Review…']);
-  const refused = host({ responses: { screen: pass(), confirm: { ...pass(), confirmation: 'refused', problems: ['The confirmed intents did not load as planned; nothing was written.'] } } });
+  const refused = host({ responses: { screen: screenOf(), confirm: { ...screenOf(), confirmation: 'refused', problems: ['The confirmed intents did not load as planned; nothing was written.'] } } });
   assert.equal(await reviewStepIntents(refused, 'payments'), 'not-written');
   const named = refused.events.find(([kind]) => kind === 'warn');
   assert.deepEqual(named[2], [], 'no way back to the same confirmation');

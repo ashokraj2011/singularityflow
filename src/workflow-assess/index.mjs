@@ -16,11 +16,14 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { loadDefinition, resolveWorkType } from '../config.mjs';
+import { loadDefinition, resolveWorkType, WORKFLOW_PATH } from '../config.mjs';
 import { configurationReadRoot } from '../configuration-read-scope.mjs';
+import { isKnownPackagedWorkflowValue } from '../packaged-workflow-history.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { buildStudioModel } from '../workflow-studio.mjs';
+import { parseYamlText } from '../yaml-parse-cache.mjs';
 import { assessSteps, ASSESS_KINDS, ASSESS_SEVERITIES } from './checks.mjs';
 import { workflowLayers } from './layers.mjs';
 import { bytesOf, tokensOf } from './text.mjs';
@@ -41,11 +44,22 @@ function fail(code, message, details = undefined) {
   throw new SingularityFlowError(message, { code, details });
 }
 
-/** What one assessment reads once: the model, the loaded definition and where the files are. */
+/**
+ * The steps and workflows written exactly as an SFlow build shipped them. They are judged as written, not as loaded:
+ * loading fills in what a step leaves out, so a loaded step never matches the shipped one.
+ */
+async function shippedNodes(configRoot) {
+  const written = parseYamlText(await readFile(path.join(configRoot, WORKFLOW_PATH), 'utf8').catch(() => '')) ?? {};
+  const known = (section) => new Set(Object.entries(written[section] ?? {}).filter(([id, value]) => isKnownPackagedWorkflowValue(section, id, value)).map(([id]) => id));
+  return { phases: known('phases'), workTypes: known('workTypes') };
+}
+
+/** What one assessment reads once: the model, the loaded definition, the shipped nodes and where the files are. */
 async function contextOf(root, { model: given = null } = {}) {
   const definition = await loadDefinition(root);
   const model = given ?? await buildStudioModel(root);
-  return { root, configRoot: configurationReadRoot(root), definition, model, resolveWorkType };
+  const configRoot = configurationReadRoot(root);
+  return { root, configRoot, definition, model, resolveWorkType, shipped: await shippedNodes(configRoot) };
 }
 
 /** A workflow's steps, their layers and its findings. */
@@ -53,7 +67,7 @@ async function assessed(context, workflowId, { applicationRoot }) {
   const { steps } = await workflowLayers(workflowId, context);
   const workflow = context.model.workflows.find((entry) => entry.id === workflowId);
   const applicationExists = applicationRoot ? (relative) => existsSync(path.join(applicationRoot, ...relative.split('/'))) : null;
-  const findings = assessSteps({ workflow, steps, model: context.model, definition: context.definition, applicationExists });
+  const findings = assessSteps({ workflow, steps, model: context.model, definition: context.definition, applicationExists, shipped: context.shipped });
   return { workflow, steps, findings };
 }
 

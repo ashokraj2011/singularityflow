@@ -14,6 +14,9 @@
  *
  * Built with one Workflow Studio change set, so every agent file lands wherever this repository keeps
  * its agents; templates are the shipped ones the steps copy, with the team's own lines added.
+ *
+ * The office team copied its steps before step intents (version 2 or 3), so they say nothing of what they are for and
+ * fmly-qa keeps the settings it writes. A copy this build makes takes its source's intent; the change set takes it away.
  */
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -83,6 +86,7 @@ export function familyQaChangeSet({ requirements, implementation }) {
         approval: { groups: ['quality-reviewers'], minimum: 1, rejectTo: ['fmly-implementation', 'fmly-testing'] }, description: 'Tests the change against every acceptance criterion.' },
       { op: 'phase.create', id: 'fmly-review', label: 'Family review', copyOf: 'conformance', agent: 'fmly-reviewer', inputs: ['fmly-requirements', 'fmly-implementation', 'fmly-testing'],
         approval: { groups: ['quality-reviewers'], minimum: 1, rejectTo: ['fmly-implementation', 'fmly-testing', 'fmly-review'] }, description: 'Says, clause by clause, whether the change matches.' },
+      ...['fmly-requirements', 'fmly-implementation', 'fmly-testing', 'fmly-review'].map((id) => ({ op: 'phase.update', id, intent: null })),
       { op: 'skill.attach', skill: 'fmly-test-rules', agent: 'fmly-developer', phases: ['fmly-implementation'], use: 'When you run the tests' },
       { op: 'workflow.create', id: FAMILY_QA, label: 'Family QA test automation', description: 'How the family team ships and checks a change.',
         phases: ['fmly-requirements', 'fmly-implementation', 'fmly-testing', 'fmly-review'] },

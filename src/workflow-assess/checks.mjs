@@ -200,7 +200,7 @@ export const RESETTABLE_SETTINGS = Object.freeze(['writeScope', 'sourceBoundary'
  * setting a step changes from its intent with no reason (`because:`), and one it writes as its intent gives it anyway.
  * Model-free, from the derivation configuration itself runs; each with the builder move that settles it.
  */
-function intentSettingFindings({ workflow, steps, definition }) {
+function intentSettingFindings({ workflow, steps, definition, shipped = null }) {
   if (!workTypeDerivesIntents(definition, definition?.workTypes?.[workflow.id])) return [];
   let derivation = null;
   try { derivation = deriveWorkTypeSettings(definition, workflow.id); } catch { return []; }
@@ -216,9 +216,14 @@ function intentSettingFindings({ workflow, steps, definition }) {
         decidedBy: 'person', moves: [], ...(resettable ? { alternatives: [{ id: 'reset', label: `Take ${warning.setting} away from ${label(warning.step)}, so its intent decides it`,
           moves: [{ move: 'step.reset', id: warning.step, settings: [warning.setting] }] }] } : {}) } });
   }
+  // SFlow's own steps and workflows write their settings out, so a repository still on version 2 or 3 and a team's
+  // workflow that does not derive read them the same (step intents Stage 4): that is not the team's to take away.
+  // `shipped`: the steps and workflows written exactly as shipped (src/workflow-assess/index.mjs).
+  const shippedWorkflow = Boolean(shipped?.workTypes.has(workflow.id));
   for (const step of derivation.steps) {
     const d = step.derived;
-    const explicit = (key) => ['override', 'shared-step'].includes(step.sources[key]?.from);
+    const shippedStep = Boolean(shipped?.phases.has(step.id));
+    const explicit = (key) => (step.sources[key]?.from === 'override' && !shippedWorkflow) || (step.sources[key]?.from === 'shared-step' && !shippedStep);
     const same = [
       ['writeScope', step.intent !== 'code' && explicit('writeScope') && step.settings.writeScope === d.writeScope, d.writeScope],
       ['artifact.kind', explicit('artifact.kind') && step.settings.artifact?.kind === d.artifactKind, d.artifactKind],
@@ -237,7 +242,7 @@ function intentSettingFindings({ workflow, steps, definition }) {
 }
 
 /** Run every check over one workflow's steps (src/workflow-assess/layers.mjs). */
-export function assessSteps({ workflow, steps, model, definition, applicationExists }) {
+export function assessSteps({ workflow, steps, model, definition, applicationExists, shipped = null }) {
   const out = collector(workflow);
   const context = { model, workflowId: workflow.id };
   const reachOf = new Map();
@@ -599,7 +604,7 @@ export function assessSteps({ workflow, steps, model, definition, applicationExi
     }
   }
 
-  for (const entry of intentSettingFindings({ workflow, steps, definition })) out.add(entry);
+  for (const entry of intentSettingFindings({ workflow, steps, definition, shipped })) out.add(entry);
 
   // One change per text: a later finding about text an earlier one already takes out points at it.
   const findings = out.list().sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]

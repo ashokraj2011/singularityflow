@@ -622,6 +622,9 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
       if (mine === undefined) { if (patch[key] === undefined) delete settings[key]; else settings[key] = patch[key]; continue; }
       settings[key] = isMapping(mine) && isMapping(patch[key]) ? { ...patch[key], ...mine } : mine;
     }
+    // `testEvidenceFrom: false` keeps a step from citing a code step's results, which its intent would have it cite
+    // (an upgrade keeps a step that ran its own tests before step intents that way): it says what absent said then.
+    if (settings.testEvidenceFrom === false) delete settings.testEvidenceFrom;
     if (!present(merged.inputs)) settings.inputs = [...d.inputs];
     else if (patch.testEvidenceFrom && !merged.inputs.some((input) => (isMapping(input) ? input.phase : input) === patch.testEvidenceFrom)) {
       // A step that cites a code step's results reads that step (config.mjs requires it): the rule adds it.
@@ -813,7 +816,7 @@ function changedFrameworkSettings(entry, settings, derived, { intent, rejectTo }
       && (merged.approval.automatic === 'when-ready') !== (derived.approval.by === 'sflow-when-clean')) changed.push('approval.automatic');
   if (mode !== 'none' && written(['approval', 'rejectTo']) && !sameSet(merged.approval.rejectTo, rejectTo)) changed.push('approval.rejectTo');
   if (written(['repositoryTests']) && merged.repositoryTests !== derived.repositoryTests) changed.push('repositoryTests');
-  if (written(['testEvidenceFrom']) && merged.testEvidenceFrom !== derived.testEvidenceFrom) changed.push('testEvidenceFrom');
+  if (written(['testEvidenceFrom']) && (merged.testEvidenceFrom === false ? null : merged.testEvidenceFrom) !== derived.testEvidenceFrom) changed.push('testEvidenceFrom');
   if (written(['testRuns']) && merged.testRuns === 'fresh') changed.push('testRuns');
   if (written(['repairBudget'])) changed.push('repairBudget');
   return changed;

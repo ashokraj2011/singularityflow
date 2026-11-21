@@ -2117,6 +2117,8 @@ export function resolveWorkType(definition, workTypeId, { intentProfile = null }
     const override = structuredClone(declaredCatalogValue(workType.phaseOverrides, id) ?? {});
     // Derived: the step and its override laid over its intent's settings.
     const merged = intents ? structuredClone(intents.steps[order].settings) : mergePhaseOverride(phase, override);
+    // `testEvidenceFrom: false` cites no code step's results: what absent says (step intents, the upgrade's kept settings).
+    if (merged.testEvidenceFrom === false) delete merged.testEvidenceFrom;
     // A catalog id resolves to its path here, so every downstream reader — generation, the
     // designer, the catalog view — receives a path and never has to know which form was written.
     const declaredTemplate = declaredCatalogValue(workType.templateOverrides, id) ?? phase.defaultTemplate;

@@ -178,8 +178,13 @@ test('an arshy-like spec-driven Story: each approval says what needs the person\
   cli('prepare', 'convergence');
   cli('phase', 'publish', 'convergence', '--authored', 'deterministic', '--channel', 'kernel-generator');
   cli('story', 'advance', '--work-id', W, '--confirm', json('story', 'advance', '--work-id', W, '--json').confirmationDigest);
-  measure(t, 'convergence', json('phase', 'show', 'convergence', '--json').approvalFocus);
-  cli('approve', 'convergence', '--yes');
+  // Stage 7 (owner, 2026-11-21): a clean spec-vs-code check is approved by SFlow, inside the code approval; only a gap
+  // would put a convergence approval in front of the person.
+  const converged = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.convergence;
+  if (converged.status === 'awaiting_approval') {
+    measure(t, 'convergence', json('phase', 'show', 'convergence', '--json').approvalFocus);
+    cli('approve', 'convergence', '--yes');
+  } else assert.equal(converged.status, 'approved', `convergence is approved by SFlow when its check is clean: ${JSON.stringify(converged).slice(0, 400)}`);
 
   // Verification: SFlow wrote its evidence from its records; it passes publication, its review and submission untouched,
   // and the approval shows it as one line.
@@ -194,14 +199,19 @@ test('an arshy-like spec-driven Story: each approval says what needs the person\
   assert.ok(await writtenBySflow(await readFile(evidenceFile, 'utf8')), 'still SFlow\'s after publication wrote it again');
   story.review('verification');
   cli('submit', 'verification');
-  const verification = json('phase', 'show', 'verification', '--json').approvalFocus;
-  const record = verification.documents.find((document) => document.kind === 'record');
-  assert.equal(record.line, 'Verification v1: written by SFlow from its records; checked by SFlow, kept for audit');
-  assert.ok(record.words.shown < record.words.full / 5);
-  // The weak test still needs the person's eyes here: SFlow wrote the record, it did not judge the test.
-  assert.ok(verification.eyes.items.some((entry) => entry.kind === 'weak-test' && entry.at.requirement === `${W}:AC-001`), JSON.stringify(verification.eyes));
-  measure(t, 'verification', verification);
-  cli('approve', 'verification', '--yes');
+  // Stage 7 (D1): a clean verification is approved by SFlow; the weak test was in front of the person at the code
+  // approval above. Should it wait for a person, its approval shows SFlow's record as one line and keeps the weak test.
+  const verified = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.verification;
+  if (verified.status === 'awaiting_approval') {
+    const verification = json('phase', 'show', 'verification', '--json').approvalFocus;
+    const record = verification.documents.find((document) => document.kind === 'record');
+    assert.equal(record.line, 'Verification v1: written by SFlow from its records; checked by SFlow, kept for audit');
+    assert.ok(record.words.shown < record.words.full / 5);
+    // The weak test still needs the person's eyes here: SFlow wrote the record, it did not judge the test.
+    assert.ok(verification.eyes.items.some((entry) => entry.kind === 'weak-test' && entry.at.requirement === `${W}:AC-001`), JSON.stringify(verification.eyes));
+    measure(t, 'verification', verification);
+    cli('approve', 'verification', '--yes');
+  } else assert.equal(verified.status, 'approved', `a clean verification is approved by SFlow: ${JSON.stringify(verified).slice(0, 400)}`);
 
   // Release: SFlow wrote the conformance report and its evidence index; every gate passes and the Story ends.
   cli('prepare', 'release');
@@ -212,7 +222,8 @@ test('an arshy-like spec-driven Story: each approval says what needs the person\
   assert.match(report, /## Self-approval disclosures\n\nRecorded from the retained approvals\. Keep every line\.\n\n- `planning`: self-approved by/u);
   const index = await readFile(path.join(item, 'artifacts/release/verification/evidence-index.md'), 'utf8');
   assert.ok(await writtenBySflow(index));
-  assert.match(index, /Verification v1 is approved by History Tester\./u);
+  // SFlow approved the clean verification (Stage 7), or its person did.
+  assert.match(index, verified.status === 'approved' ? /Verification v1 is approved by SFlow, as its checks were clean\./u : /Verification v1 is approved by History Tester\./u);
   cli('artifact', 'scan', '--phase', 'release');
   cli('phase', 'publish', 'release', '--authored', 'human', '--channel', 'manual-in-place');
   story.review('release');

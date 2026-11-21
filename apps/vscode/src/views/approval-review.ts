@@ -141,7 +141,7 @@ export type ApprovalFocus = {
   eyes: { title: string; items: Array<{ id: string; kind: string; words: string; at?: FocusAt }>; more?: Array<{ id: string; kind: string; words: string; at?: FocusAt }>;
     none?: string; checked: string };
   documents: Array<{ label: string; path?: string; version?: number; kind: string; line: string; sections?: FocusSection[] }>;
-  words: { full: number; shown: number };
+  words: { full: number; shown: number; line?: string | null };
   binding: string;
 };
 
@@ -191,7 +191,7 @@ export function approvalFocusHtml(focus: ApprovalFocus | null | undefined): stri
   </section>
   <section class="approval-new" aria-label="What is new">
     <h2>What is new</h2>
-    <p class="muted">${Number(focus.words.shown) || 0} of ${Number(focus.words.full) || 0} words to read. ${escape(focus.binding)}</p>
+    <p class="muted">${typeof focus.words.line === 'string' && focus.words.line ? `${escape(focus.words.line)}. ` : ''}${escape(focus.binding)}</p>
     ${documents}
   </section>`;
 }

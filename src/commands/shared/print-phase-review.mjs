@@ -162,7 +162,9 @@ function printApprovalFocus(focus) {
   for (const item of [...focus.eyes.items, ...(focus.eyes.more ?? [])]) console.log(`  ${item.id}. ${item.words}${where(item) ? `  [${where(item)}]` : ''}`);
   if (focus.eyes.none) console.log(`  ${focus.eyes.none}`);
   console.log(`  ${focus.eyes.checked}`);
-  console.log(`\n${style.heading(`What is new (${focus.words.shown} of ${focus.words.full} words to read)`)}`);
+  // One line every surface shows (approval-focus.mjs focusWordsLine); none when the count would say more than all.
+  const words = typeof focus.words?.line === 'string' ? focus.words.line : null;
+  console.log(`\n${style.heading(`What is new${words ? ` (${words})` : ''}`)}`);
   for (const document of focus.documents) {
     console.log(`  ${document.line}`);
     for (const line of document.folded ?? []) console.log(`    ${line}`);
@@ -173,5 +175,6 @@ function printApprovalFocus(focus) {
       for (const entry of section.diff) console.log(`      ${entry.op} ${entry.text.trim()}`);
     }
   }
-  console.log(`  ${focus.binding}\n`);
+  // The block after this one opens with its own blank line.
+  console.log(`  ${focus.binding}`);
 }

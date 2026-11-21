@@ -29,6 +29,16 @@ const SECTION_TEXT_LIMIT = 6000;
 const DIFF_LINE_LIMIT = 120;
 const MEANINGFUL_WORDS = 4;
 
+/**
+ * How much less there is to read, in the words every surface shows: "120 of 525 words to read", or null when the list
+ * and what is new come to as many words as the documents themselves (a short first version), so no count says more than all.
+ */
+export function focusWordsLine(words) {
+  const full = Number(words?.full) || 0;
+  const shown = Number(words?.shown) || 0;
+  return full > 0 && shown < full ? `${shown} of ${full} words to read` : null;
+}
+
 /** The words in `text`, as a person counts them. */
 export function wordCount(text) {
   return (String(text ?? '').match(/[\p{L}\p{N}][\p{L}\p{N}'’._:/@-]*/gu) ?? []).length;
@@ -528,7 +538,7 @@ export async function approvalFocus(root, config, workflow, phase, review, { act
   const shown = wordCount([eyes.title, ...all.map((item) => item.words), eyes.checked].join('\n'))
     + documents.reduce((total, document) => total + document.words.shown, 0);
   return { schemaVersion: 1, step: phase.id, version: Number(phase.generation), ...(sinceLabel ? { since: { label: sinceLabel, yours: earlier.yours } } : {}),
-    eyes, documents, words: { full, shown }, binding: 'Presentation only: approving binds every document in full, as before; each one opens in full.' };
+    eyes, documents, words: { full, shown, line: focusWordsLine({ full, shown }) }, binding: 'Presentation only: approving binds every document in full, as before; each one opens in full.' };
 }
 
 /** The approval focus for an agent: each item and line, without section text or diffs (a chat never pastes them). */
@@ -553,7 +563,7 @@ export function approvalFocusMarkdown(focus, { link = (file) => file } = {}) {
     out.push(`${item.id.slice(1)}. ${item.words}${where}`);
   }
   if (focus.eyes.none) out.push(focus.eyes.none);
-  out.push('', `_${focus.eyes.checked}_`, '', `## What is new`, '', `${focus.words.shown} of ${focus.words.full} words to read. ${focus.binding}`, '');
+  out.push('', `_${focus.eyes.checked}_`, '', `## What is new`, '', `${focusWordsLine(focus.words) ? `${focusWordsLine(focus.words)}. ` : ''}${focus.binding}`, '');
   for (const document of focus.documents) {
     out.push(`### [${document.label}${document.version ? ` v${document.version}` : ''}](${link(document.path)})`, '', document.line, '');
     for (const line of document.folded ?? []) out.push(`- ${line}`);

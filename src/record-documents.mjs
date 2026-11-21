@@ -220,7 +220,7 @@ async function evidenceIndex(root, workflow, phase, rows) {
   ...runs.filter((run) => run.receiptPath).map((run) => ({ what: `Test run ${run.attemptId ?? run.commandId} (${run.step})`, path: run.receiptPath, sha256: String(run.receiptSha256 ?? '').replace(/^sha256:/u, '') }))];
   const gaps = rows.filter((row) => !VERIFIED_RESULTS.has(row.result) && row.result !== 'not-applicable');
   return [`# Release verification evidence index — ${W}`, '', RECORD_DOCUMENT_BANNER, '',
-    verification ? `${verification.step.label ?? verification.step.id} v${verification.step.generation} is approved${verification.approval?.actor ? ` by ${person(verification.approval.actor, 'its approver')}` : ''}. This release reads its evidence:`
+    verification ? `${verification.step.label ?? verification.step.id} v${verification.step.generation} is approved${verification.step.automaticApproval && Number(verification.step.automaticApproval.generation) === Number(verification.step.generation) ? ' by SFlow, as its checks were clean' : verification.approval?.actor ? ` by ${person(verification.approval.actor, 'its approver')}` : ''}. This release reads its evidence:`
       : 'No approved verification step precedes this release; the evidence below is the code step\'s.', '',
     '| Evidence | Path | SHA-256 |', '|---|---|---|', ...files.map((entry) => `| ${cell(entry.what)} | ${code(entry.path)} | ${entry.sha256 ? code(entry.sha256) : 'not recorded'} |`), '',
     '## Observed results', '', ...(runs.length ? runs.map((run) => `- ${code(run.commandId)} (${run.step}${run.reusedBy ? `, reused by ${run.reusedBy}` : ''}): ${run.status}, ${counts(run.tests)}.`) : ['- No test run is recorded.']), '',

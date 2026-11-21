@@ -812,10 +812,18 @@ export function deriveWorkTypeSettings(definition, workTypeId, { profile = null,
     }
   }
   const ownDocuments = Array.isArray(workType.documents?.allowedPhases);
+  // The workflow's own top-level list still bounds the steps an intent opens to documents when it names any of this work
+  // type's steps: a team that narrowed it keeps what it wrote, as before step intents. A list about other steps says
+  // nothing here, so the intents decide. The shipped list names every step an intent opens, so nothing changes there.
+  const topList = Array.isArray(definition.documents?.allowedPhases) ? new Set(definition.documents.allowedPhases) : null;
+  const workflowList = topList && ids.some((id) => topList.has(id)) ? topList : null;
+  const byIntent = steps.filter((step) => step.derived.attachedDocuments).map((step) => step.id);
   const allowedPhases = ownDocuments ? [...workType.documents.allowedPhases]
-    : steps.filter((step) => step.derived.attachedDocuments).map((step) => step.id);
+    : workflowList ? byIntent.filter((id) => workflowList.has(id)) : byIntent;
+  const narrowed = !ownDocuments && workflowList && allowedPhases.length < byIntent.length;
   const documentsReason = reasonFor(workTypeBecause, 'documents.allowedPhases');
-  workTypeSources['documents.allowedPhases'] = ownDocuments ? { from: 'override', ...(documentsReason ? { reason: documentsReason } : {}) } : { from: 'intent' };
+  workTypeSources['documents.allowedPhases'] = ownDocuments ? { from: 'override', ...(documentsReason ? { reason: documentsReason } : {}) }
+    : narrowed ? { from: 'override', reason: 'the workflow\'s own list of steps that take documents leaves some out' } : { from: 'intent' };
 
   return {
     profile: version, facts, planSteps: [...facts.planSteps], steps,

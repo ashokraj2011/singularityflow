@@ -948,7 +948,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the version 2/3 form's `testEvidenceFrom: false` (workspace-configuration-refresh.mjs). The check and its section load
     // only at a convergence step's automatic approval and a code approval's evidence (convergence-section.mjs). No new eager file.
     // 9,846,152 (measured on the integration branch with Stage 7, 2026-11-21): approval-focus and Stage 7 together.
-    assert.ok(closure.bytes <= 9_846_152, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,846,882 (measured on the integration branch, 2026-11-21): the integration fixes (a narrowed top-level document list
+    // kept for derived work types, a version 3 file resolving in the version 2 field order, one word-count line). No new eager file.
+    assert.ok(closure.bytes <= 9_846_882, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1478,7 +1480,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,338,519 (measured on the integration branch with approval-focus, 2026-11-21): the two together.
   // 4,338,600 (measured, +269, 2026-11-21, intents-stage7): the convergence rule's words (config.mjs, phase-roles.mjs). No new eager file.
   // 4,338,788 (measured on the integration branch with Stage 7, 2026-11-21): approval-focus and Stage 7 together.
-  assert.ok(current.bytes <= 4_338_788, `session current loads ${current.bytes} source bytes`);
+  // 4,339,518 (measured on the integration branch, 2026-11-21): the integration fixes in config.mjs and step-intent-settings.mjs. No new eager file.
+  assert.ok(current.bytes <= 4_339_518, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

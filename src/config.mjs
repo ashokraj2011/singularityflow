@@ -2129,6 +2129,15 @@ export function resolveWorkType(definition, workTypeId, { intentProfile = null }
     const merged = intents ? structuredClone(intents.steps[order].settings) : mergePhaseOverride(phase, override);
     // `testEvidenceFrom: false` cites no code step's results: what absent says (step intents, the upgrade's kept settings).
     if (merged.testEvidenceFrom === false) delete merged.testEvidenceFrom;
+    // A shared step that says `false`, given a code step by its override, resolves as if the shared step said nothing:
+    // the override's value goes where an override adds it, so the resolution matches the version 2 form byte for byte.
+    else if (!intents && phase.testEvidenceFrom === false && Object.hasOwn(merged, 'testEvidenceFrom')) {
+      const { testEvidenceFrom: _said, ...unsaid } = phase;
+      const order = Object.keys(mergePhaseOverride(unsaid, override));
+      const value = { ...merged };
+      for (const key of Object.keys(merged)) delete merged[key];
+      for (const key of [...order, ...Object.keys(value)]) if (Object.hasOwn(value, key) && !Object.hasOwn(merged, key)) merged[key] = value[key];
+    }
     // A catalog id resolves to its path here, so every downstream reader — generation, the
     // designer, the catalog view — receives a path and never has to know which form was written.
     const declaredTemplate = declaredCatalogValue(workType.templateOverrides, id) ?? phase.defaultTemplate;

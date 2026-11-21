@@ -14,7 +14,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -30,7 +30,9 @@ import { INTENT_WORDS } from '../src/step-intents.mjs';
 import {
   intentScreen, intentScreenLines, intentScreenRoutes, KEPT_BEFORE_INTENTS
 } from '../src/step-intents-upgrade.mjs';
-import { refreshPackagedConfiguration, refreshSummary } from '../src/workspace-configuration-refresh.mjs';
+import { refreshPackagedConfiguration, refreshSummary, refreshWorkspaceConfigurations } from '../src/workspace-configuration-refresh.mjs';
+import { withAgentsHomeSetting } from '../src/initialization-assets.mjs';
+import { rememberWorkspace } from '../src/workspace.mjs';
 import { openConfigurationReviews } from '../src/configuration-review-pass.mjs';
 import { beforeStepIntents, SHIPPED_WORKFLOW, teamCopy } from './helpers/before-step-intents.mjs';
 
@@ -297,15 +299,14 @@ test('what keeps its settings, and why: a step SFlow ships without its intent, a
   const shown = intentScreen(value, { packaged: SHIPPED_WORKFLOW });
   const mixed = shown.workflows.find((entry) => entry.workflow === 'team-mixed');
   const careful = shown.workflows.find((entry) => entry.workflow === 'team-careful-change');
-  if (!Object.values(SHIPPED_WORKFLOW.phases).some((step) => typeof step?.intent === 'string')) {
-    // Until SFlow ships its steps' intents (Stage 4), a workflow of its steps keeps its settings, with the copy as the way on.
-    assert.equal(mixed.status, 'held');
-    assert.match(mixed.reason, /steps SFlow ships.*use copies of those steps in Workflow Studio/su);
-  }
+  // While the steps SFlow ships have no intent in this repository, a workflow of them keeps its settings, with the
+  // copy as the way on; SFlow's own update brings their intents (Stage 4).
+  assert.equal(mixed.status, 'held');
+  assert.match(mixed.reason, /steps SFlow ships.*use copies of those steps in Workflow Studio/su);
   assert.equal(careful.status, 'held');
   assert.match(careful.reason, /^Stories cannot start from it today, so it keeps its settings until that is fixed: .* See what to fix: singularity-flow workflow check team-careful-change$/su);
   assert.equal(shown.after, null);
-  assert.equal(shown.counts.held, mixed.status === 'held' ? 2 : 1);
+  assert.equal(shown.counts.held, 2);
 });
 
 test('testEvidenceFrom: false keeps a step running its own tests: what absent says, in a workflow of intents or not', () => {
@@ -445,4 +446,81 @@ test('the upgrade\'s pass names each repository whose own workflows can say what
   assert.equal(result.outcome, 'current');
   assert.deepEqual(result.stepIntents, [{ repository: 'payments', code: 'a1b2c3', summary: screen.summary, counts: screen.counts }]);
   assert.ok(calls.every((options) => options.stepIntents == null), 'the shown never confirms a screen');
+});
+
+// ---------------------------------------------------------------------------------------------
+// End to end: the upgrade publishes to sflow/config itself
+
+const gitIn = (cwd, ...args) => {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  assert.equal(result.status, 0, `git ${args.join(' ')}\n${result.stderr}`);
+  return result.stdout.trim();
+};
+
+/** A registered repository whose sflow/config holds the packaged workflow.yml with the team's own workflow and agent. */
+async function registeredTeamRepository(t) {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-intent-pass-remote-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const remote = path.join(root, 'payments.git');
+  const checkout = path.join(root, 'workspace', 'repos', 'payments');
+  gitIn(root, 'init', '-q', '--bare', '--initial-branch=main', remote);
+  gitIn(root, 'init', '-q', '--initial-branch=main', checkout);
+  gitIn(checkout, 'config', 'user.name', 'Intent Tester');
+  gitIn(checkout, 'config', 'user.email', 'intents@example.invalid');
+  await writeFile(path.join(checkout, 'README.md'), 'payments\n');
+  gitIn(checkout, 'add', '-A');
+  gitIn(checkout, 'commit', '-qm', 'Initialize application');
+  gitIn(checkout, 'remote', 'add', 'origin', remote);
+  gitIn(checkout, 'push', '-q', '-u', 'origin', 'main');
+  const publisher = path.join(root, 'publisher');
+  gitIn(root, 'init', '-q', '--initial-branch=sflow/config', publisher);
+  gitIn(publisher, 'config', 'user.name', 'Intent Tester');
+  gitIn(publisher, 'config', 'user.email', 'intents@example.invalid');
+  const value = beforeStepIntents(SHIPPED_WORKFLOW, SHIPPED_WORKFLOW.version);
+  teamCopy(value, 'classic-delivery', 'team-');
+  const steps = value.workTypes['team-classic-delivery'].phases;
+  await mkdir(path.join(publisher, 'singularity', 'agents'), { recursive: true });
+  await writeFile(path.join(publisher, 'singularity', 'workflow.yml'), withAgentsHomeSetting(YAML.stringify(value)));
+  await writeFile(path.join(publisher, 'singularity', 'agents', 'team-delivery.agent.md'), ['---', 'name: team-delivery',
+    'description: Drafts the team\'s own delivery steps.', 'model: [auto]', 'tools: [read, search, edit, execute, bash, ask_user]', 'metadata:',
+    '  sflow-label: "Team delivery"', `  sflow-phases: "${steps.join(',')}"`, `  sflow-default-for: "${steps.join(',')}"`, '---', '',
+    '# Team delivery agent', '', 'Draft the step from its approved inputs, in the team\'s words.', ''].join('\n'));
+  gitIn(publisher, 'add', '-A');
+  gitIn(publisher, 'commit', '-qm', 'The team\'s own workflow');
+  gitIn(publisher, 'remote', 'add', 'origin', remote);
+  gitIn(publisher, 'push', '-q', 'origin', 'HEAD:sflow/config');
+  const workspaceRoot = path.join(root, 'workspace');
+  const manifest = { version: 1, id: 'payments-workspace', name: 'payments workspace', path: workspaceRoot,
+    anchor: { provider: 'workspace', key: 'payments-workspace', title: 'payments workspace' }, leadRepository: 'payments',
+    repositories: { payments: { id: 'payments', url: remote, defaultBranch: 'main', required: true, path: 'repos/payments', role: 'lead', capabilities: [] } } };
+  const registry = path.join(root, 'workspaces.json');
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  await rememberWorkspace(registry, manifest);
+  const published = () => YAML.parse(gitIn(root, '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'));
+  return { registry, published };
+}
+
+test('end to end: the upgrade publishes no intent until the screen is confirmed, then publishes it to sflow/config', async (t) => {
+  const { registry, published } = await registeredTeamRepository(t);
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  const screen = preview.results.find((entry) => entry.repository === 'payments').intentScreen;
+  assert.deepEqual(screen.workflows.map((entry) => [entry.workflow, entry.status]), [['team-classic-delivery', 'ready']]);
+  assert.equal(screen.routes.confirm.command, `singularity-flow workspace refresh-configuration --repository payments --confirm-intents ${screen.code}`);
+  // The one click: the packaged refresh is published, the team's workflow is not touched.
+  const upgraded = await refreshWorkspaceConfigurations({ registryFile: registry });
+  assert.ok(['complete', 'partial'].includes(upgraded.status), JSON.stringify(upgraded.results, null, 2));
+  assert.ok(upgraded.summary.some((line) => line.startsWith('payments: Step intents:') && line.includes(`--confirm-intents ${screen.code}`)), upgraded.summary.join('\n'));
+  assert.equal(published().phases['team-intake'].intent, undefined, 'declining publishes no intent');
+  // Its code: published straight to sflow/config, as the person's own Git identity.
+  const confirmed = await refreshWorkspaceConfigurations({ registryFile: registry, repositories: ['payments'], stepIntents: { confirm: screen.code } });
+  const result = confirmed.results.find((entry) => entry.repository === 'payments');
+  assert.equal(result.status, 'updated', JSON.stringify(result, null, 2));
+  assert.equal(result.intentScreen.confirmation, 'written');
+  assert.ok(confirmed.summary.some((line) => /^payments: Step intents: 4 steps of 1 workflow now say what they are for/u.test(line)), confirmed.summary.join('\n'));
+  const now = published();
+  assert.equal(now.version, 4);
+  assert.deepEqual(now.workTypes['team-classic-delivery'].phases.map((id) => now.phases[id].intent), ['intake', 'code', 'test', 'review']);
+  // Nothing more to offer: the next upgrade's preview has no screen for it.
+  const again = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(again.results.find((entry) => entry.repository === 'payments').intentScreen, undefined);
 });

@@ -513,7 +513,7 @@ function converted(raw, ready, { workTypes, today, agents, labelOf }) {
   // Every other workflow of the file must run as before too: one sharing a step that now says what it is for, and one a
   // version 4 file would let derive.
   const others = Object.keys(workTypes).filter((id) => !readyIds.has(id));
-  for (let pass = 0; pass < 4; pass += 1) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     let definition;
     try { definition = prepared(after, agents); } catch (error) {
       const named = error?.details?.workType;
@@ -530,7 +530,7 @@ function converted(raw, ready, { workTypes, today, agents, labelOf }) {
       if (same(before, now)) continue;
       const keeps = keptSettings(after, entry.workflow, before, now, { intentOf, labelOf });
       const fresh = keeps.kept.filter((item) => !(kept.get(entry.workflow) ?? []).some((known) => known.step === item.step && known.setting === item.setting));
-      if (keeps.stuck.length || (!Object.keys(keeps.steps).length && !Object.keys(keeps.workType).length) || pass === 3) {
+      if (keeps.stuck.length || (!Object.keys(keeps.steps).length && !Object.keys(keeps.workType).length) || attempt === 3) {
         const paths = keeps.stuck.length ? keeps.stuck : differences(before, now);
         held.set(entry.workflow, `Its settings could not be kept exactly as they are (${listed(paths.slice(0, 4))}${paths.length > 4 ? ', …' : ''}), `
           + `so it keeps them as they are. Say what each step is for with what it changes in view: singularity-flow workflow build start --intents ${entry.workflow}`);

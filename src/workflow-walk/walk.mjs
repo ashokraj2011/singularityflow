@@ -377,7 +377,8 @@ async function author(walk, stepId, facts) {
   // A template of prompts only: a sentence under each section, as an author answers each prompt.
   if (text === before) text = answerSections(text, { cite, clauses: walk.clauses });
   if (facts.clauseStep && !definedClauses(text, WALK_WORK_ID).length) {
-    text += clauseSection(WALK_WORK_ID);
+    // Filled again, so a planned-claims table in the same draft (a plan that also writes the IDs) has a row for each.
+    text = fillDocument(`${text}${clauseSection(WALK_WORK_ID)}`, { clauses: walk.clauses, cite, defines: true, workId: WALK_WORK_ID });
     record.notes.push("The step defines the Story's clauses but its template has no clause anchors; the stub added a Requirements section.");
   }
   if (facts.clauseStep) for (const clause of definedClauses(text, WALK_WORK_ID)) if (!walk.clauses.includes(clause)) walk.clauses.push(clause);

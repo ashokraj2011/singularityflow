@@ -8,7 +8,8 @@
  * namespaces, with a sample Work ID), and run through the kernel's own readers:
  *
  * - a step that defines the requirement clauses (plannedClaims.clausePhases) must define at least
- *   one clause anchor the specification index reads (`[<WORK>:REQ-001]`, `[<WORK>:AC-001]`);
+ *   one clause anchor the specification index reads (`[<WORK>:REQ-001]`, `[<WORK>:AC-001]`); so must the step that
+ *   holds the scope of a workflow that changes no code, whose Story's end needs one indexed;
  * - a step that plans a code step's claims (plannedClaims.owners) must hold a planned-claims table
  *   the planned-claim parser accepts as a table (header, columns, divider, row widths, clause and
  *   fulfillment cells); TODO paths and tests are the author's to fill and are not judged;
@@ -86,6 +87,8 @@ const UNREADABLE = Object.freeze({
 // (office 2026-11-11: a realistic example here made Copilot ask the person for real wording).
 export const TEMPLATE_PLACEHOLDERS = 'These are placeholders the step\'s author fills for each Story; a template never holds one Story\'s wording, so nobody is asked for it.';
 export const ANCHOR_PLACEHOLDERS = Object.freeze(['- TODO: one observable requirement per line. [{{work.id}}:REQ-001]', '- TODO: one testable criterion per line. [{{work.id}}:AC-001]']);
+// The document kinds the specification index reads clauses from: a step of one holds the Story's scope.
+const SCOPE_KINDS = new Set(['requirements', 'implementation-spec', 'specification']);
 const ANCHOR_FIX = (file) => `Give ${file} placeholder clauses, each with its anchor:\n${ANCHOR_PLACEHOLDERS.join('\n')}\n${TEMPLATE_PLACEHOLDERS} `
   + 'The anchor gives each clause its ID; code later carries @clause:<WORK>:REQ-001 and tests @ac:<WORK>:AC-001.';
 const TABLE_FIX = (file, codeLabel) => `Give ${file} the planned-claims table the kernel reads, one row per clause anchor the code step ${codeLabel} must meet, with TODO cells:\n`
@@ -102,6 +105,14 @@ export async function templateConformanceFindings(resolved, { read, label = (id)
   const claims = resolved.plannedClaims ?? {};
   const required = claims.mode === 'required';
   const clausePhases = new Set(required ? claims.clausePhases ?? [] : []);
+  // A workflow that changes no code pins no planned claims, yet the step that holds its scope (a requirements, specification
+  // or implementation-spec document) still gives the Story its clauses, and the Story's end needs one indexed
+  // (src/evidence/evaluate.mjs EVIDENCE_NO_CRITERIA) unless every end leaves scope out. Its template must define them too:
+  // a generated workflow walked on both hosts found such a Story refused at its last submission (step intents Stage 6).
+  const scopeLeftOut = (resolved.obligationGraph?.endpoints ?? []).length
+    && resolved.obligationGraph.endpoints.every((end) => (end.omits ?? []).some((entry) => entry.responsibility === 'scope'));
+  const scopeStep = claims.mode === 'disabled' && !scopeLeftOut
+    ? (resolved.phases ?? []).find((phase) => SCOPE_KINDS.has(phase.artifact?.kind))?.id ?? null : null;
   const ownerOf = new Map();
   for (const [codeId, ownerId] of Object.entries(required ? claims.owners ?? {} : {})) ownerOf.set(ownerId, [...(ownerOf.get(ownerId) ?? []), codeId]);
   const spec = (() => { try { return normalizeSpecPolicy(resolved.spec ?? {}); } catch { return normalizeSpecPolicy({}); } })();
@@ -162,7 +173,7 @@ export async function templateConformanceFindings(resolved, { read, label = (id)
         location: { file: source.file, line: 1 }, fix: `Add ${missing.map((section) => `"## ${section}"`).join(', ')} to ${source.file}, with a line saying what to write there.` });
     }
 
-    if (clausePhases.has(phase.id)) {
+    if (clausePhases.has(phase.id) || phase.id === scopeStep) {
       let clauses = null;
       try {
         clauses = extractClauses(rendered.replace(VERIFICATION_INTENT_HEADING, '$1Verification intent, filled per Story$2'), { sourcePath: source.file, namespace: spec.namespace, limits: spec.limits, externalClauses: defined });
@@ -172,7 +183,14 @@ export async function templateConformanceFindings(resolved, { read, label = (id)
           location: { file: source.file, line: error.details?.line ?? lineIn(error.message) }, fix: ANCHOR_FIX(source.file),
           stopsAt: { step: phase.id, when: 'publication' } });
       }
-      if (clauses && !clauses.length) {
+      if (clauses && !clauses.length && phase.id === scopeStep && !clausePhases.has(phase.id)) {
+        const last = label((resolved.phases ?? []).at(-1)?.id);
+        add({ code: 'CHECK_TEMPLATE_CLAUSE_ANCHORS', severity: 'problem', title: `The template of ${label(phase.id)} defines no requirement clauses`,
+          detail: `${label(phase.id)} holds this workflow's scope, and a Story of it can end only with at least one requirement or acceptance criterion indexed, such as [${workId}:REQ-001]. `
+            + `${source.file} has none outside comments and code, so unless its author adds one, every Story is refused when ${last} is submitted ("No requirement or acceptance criterion is indexed for this Story").`,
+          location: { file: source.file, line: structure.headings.find((heading) => /requirement|acceptance|criteria/u.test(heading.normalized))?.line ?? 1 },
+          fix: ANCHOR_FIX(source.file) });
+      } else if (clauses && !clauses.length) {
         add({ code: 'CHECK_TEMPLATE_CLAUSE_ANCHORS', severity: 'problem', title: `The template of ${label(phase.id)} defines no requirement clauses`,
           detail: `${label(phase.id)} defines this workflow's requirement clauses, and its publication requires stable clause anchors such as [${workId}:REQ-001]. `
             + `${source.file} has none outside comments and code, so every Story stops when ${label(phase.id)} is published, and the code step has nothing to trace to.`,

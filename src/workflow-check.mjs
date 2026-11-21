@@ -484,6 +484,7 @@ async function checkWorkflow(workflow, { definition, raw = {}, model, locate, gu
   const settingOf = (stepId) => clarificationSetting(raw, locate, workflow.id, stepId);
   let resolved = null;
   let people = new Map();
+  let walk = null;
   // Steps the engine already says can reach the end unreviewed; the sign-off check does not repeat it.
   const reviewGaps = new Set();
   const unreachable = new Set();
@@ -570,6 +571,19 @@ async function checkWorkflow(workflow, { definition, raw = {}, model, locate, gu
         subject: { ...(entry.phase ? { step: entry.phase } : {}), ...(entry.decision ? { decision: entry.decision } : {}) },
         ...(entry.code === 'WORKFLOW_REJECTION_TARGET' && entry.phase ? { stopsAt: { step: entry.phase, when: 'rejection' } } : {}) });
     }
+    // The walk on every change (step intents Stage 6): every path a Story takes, each step's routes on Copilot CLI and
+    // VS Code, stopping on a loop, a limit with no way on, a route a host lacks, or a value the agent must copy in.
+    // A stop the route simulation already reported above is not shown twice.
+    const simulated = new Set((simulation?.findings ?? []).map((entry) => `${entry.code}\0${entry.decision ?? ''}`));
+    const { QUICK_WALK_CODES, quickWalkResolved } = await import('./workflow-walk/quick.mjs');
+    walk = quickWalkResolved(resolved, { approvalAuthorities: definition.approvalAuthorities, groups, labels: { get: stepLabel }, simulation });
+    for (const entry of walk.stops) {
+      if (entry.alsoChecked && (simulated.has(`${entry.alsoChecked}\0${entry.decision ?? ''}`) || simulated.has(`${entry.alsoChecked}\0`))) continue;
+      add({ code: entry.code, area: 'flow', severity: 'problem', title: entry.title, detail: entry.detail, fix: entry.fix,
+        subject: { ...(entry.step ? { step: entry.step } : {}), ...(entry.decision ? { decision: entry.decision } : {}), ...(entry.host ? { host: entry.host } : {}),
+          ...(entry.stage ? { stage: entry.stage } : {}), walk: entry.class } });
+    }
+    for (const note of walk.notes) add({ code: QUICK_WALK_CODES.outOfTime, area: 'flow', severity: 'note', title: 'The walk did not finish in its time', detail: note, subject: {} });
     // A step that smoke-checks a browser needs the Story's authorized origin, given at start or pinned later, and
     // machine setup before it can be prepared, published or submitted. Nothing is wrong with that, but
     // nobody should first hear of it from a refusal after earlier sign-offs.
@@ -707,8 +721,12 @@ async function checkWorkflow(workflow, { definition, raw = {}, model, locate, gu
       title: undescribed.length === 1 ? `${undescribed[0].label} does not say what it is for` : `${undescribed.length} steps do not say what they are for`,
       detail: `Without a description: ${undescribed.map((step) => step.label).join(', ')}.`, fix: "Add a description in the step's properties in Workflow Studio.", subject: {} });
   }
-  return { findings, resolved, explanationGuidance, people };
+  return { findings, resolved, explanationGuidance, people, walk };
 }
+
+/** What the walk on change did for one workflow, in brief: it ran, how far, and how many stops it found. */
+const walkSummary = (walk) => (walk ? { mode: 'quick', outcome: walk.outcome, paths: walk.paths, routes: walk.routes, stops: walk.stops.length, seconds: walk.seconds,
+  hosts: walk.hosts } : null);
 
 const HEADING = /^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/gmu;
 const isMapping = (value) => value != null && typeof value === 'object' && !Array.isArray(value);
@@ -1050,7 +1068,7 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null,
   const results = [];
   for (const workflow of model.workflows) {
     if (only && !only.includes(workflow.id)) continue;
-    const { findings, resolved, explanationGuidance, people } = await checkWorkflow(workflow, { definition, raw, model, locate, guidance, groups, templates, sfGuard, unmapped });
+    const { findings, resolved, explanationGuidance, people, walk } = await checkWorkflow(workflow, { definition, raw, model, locate, guidance, groups, templates, sfGuard, unmapped });
     // What each step is for, declared or inferred, and how sure SFlow is.
     const intents = await workflowStepIntents(workflow, { raw, resolved, templates });
     results.push({
@@ -1061,6 +1079,7 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null,
       // `--settings`: every step's settings and where each came from (step intents spec §7.4).
       ...(settings ? { settings: (await import('./workflow-step-settings.mjs')).workflowSettingsReport(definition, raw, workflow.id,
         { resolved, intents, groups: new Map(model.groups.map((group) => [group.id, group.label ?? group.id])) }) } : {}),
+      ...(walk ? { walk: walkSummary(walk) } : {}),
       counts: countsOf(findings), findings
     });
   }

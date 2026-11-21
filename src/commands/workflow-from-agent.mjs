@@ -78,7 +78,9 @@ function printQuestions(conversion, routes) {
   if (count > 1) console.log('Then SFlow asks about the next one.');
 }
 
-function printDerived(resolved) {
+function printDerived(resolved, walk = null) {
+  if (walk && !walk.stops.length) console.log(`Walked with no Story: ${walk.paths} path(s) and ${walk.routes} route(s) on ${walk.hosts.join(' and ')}, no loop and no stop.`);
+  for (const stop of walk?.stops ?? []) console.log(`Stop: ${stop.title}\n  Why: ${stop.detail}\n  Fix: ${stop.fix.text}`);
   console.log('What each step\'s intent gives it:');
   for (const step of resolved) {
     const parts = [
@@ -142,15 +144,22 @@ export async function run(argv, { positionals, options }) {
   const { compileAgentWorkflow } = await import('../agent-workflow-bundle.mjs');
   const compiled = await compileAgentWorkflow(conversion, { agentText: agent.text, skillTexts: new Map(skills.map((entry) => [entry.name, entry.text])) });
   const { writeWorkflowBundle, readWorkflowBundle } = await import('../workflow-transfer.mjs');
-  const result = { ...conversion, bundleSha256: compiled.bundle.bundleSha256, workflowYaml: compiled.workflowYaml, derived: compiled.resolved };
+  const result = { ...conversion, bundleSha256: compiled.bundle.bundleSha256, workflowYaml: compiled.workflowYaml, derived: compiled.resolved, walk: compiled.walk };
 
+  // A Story of it would loop or stop: the preview shows each stop and its fix, and nothing is written.
+  if ((out || propose) && compiled.walk.stops.length) {
+    const preview = again(target, answers);
+    throw new SingularityFlowError(`Nothing was written: a Story of ${conversion.workflow.label} would ${compiled.walk.stops.some((stop) => stop.class === 'loop') ? 'loop' : 'stop'} on its way.\n`
+      + `${compiled.walk.stops.map((stop) => `- ${stop.title}\n  Fix: ${stop.fix.text}`).join('\n')}\nThe preview shows each stop with its steps and the --answer choices that change them.`, {
+      code: 'AGENT_WORKFLOW_WALK_STOPPED', details: { stops: compiled.walk.stops, nextAction: { label: 'Preview the workflow and its stops', command: preview } } });
+  }
   if (!out && !propose) {
     const suggested = `${conversion.workflow.id}.workflow.json`;
     const next = [{ label: 'Write it as a workflow bundle', command: again(target, answers, { out: suggested }) },
       { label: 'Show its import as a configuration proposal', command: again(target, answers, { propose: true }) }];
     if (json) return console.log(JSON.stringify({ ...result, next }, null, 2));
     printConversion(conversion);
-    printDerived(compiled.resolved);
+    printDerived(compiled.resolved, compiled.walk);
     console.log('The version 4 workflow it writes (singularity/workflow.yml):');
     for (const line of compiled.workflowYaml.trimEnd().split('\n')) console.log(`  ${line}`);
     console.log('Nothing was written. Next:');
@@ -164,7 +173,7 @@ export async function run(argv, { positionals, options }) {
     const importCommand = command(['singularity-flow', 'workflow', 'import', written, '--dry-run', '--propose']);
     if (json) return console.log(JSON.stringify({ ...result, outputPath: written, bundleSha256: reread.bundleSha256, next: [{ label: 'Preview its import', command: importCommand }] }, null, 2));
     printConversion(conversion);
-    printDerived(compiled.resolved);
+    printDerived(compiled.resolved, compiled.walk);
     console.log(`Wrote the workflow bundle ${written}.`);
     console.log(`Next, preview its import as a configuration proposal: ${importCommand}`);
     return;
@@ -181,7 +190,7 @@ export async function run(argv, { positionals, options }) {
     return console.log(JSON.stringify({ ...result, bundlePath: file, importPlan: plan }, null, 2));
   }
   printConversion(conversion);
-  printDerived(compiled.resolved);
+  printDerived(compiled.resolved, compiled.walk);
   console.log(`The workflow bundle is ${file}. Its import as a configuration proposal:`);
   await (await import('./legacy.mjs')).run(['workflow', 'import', file, '--dry-run', '--propose']);
 }

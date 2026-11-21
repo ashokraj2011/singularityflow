@@ -42,7 +42,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 109
+version: 111
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1641,7 +1641,7 @@ builder's move).
 |---|---|
 | Flow | Steps nobody can reach, routes that never reach the end, loops without a limit, routes an earlier rule always wins, work every route owes (requirements, a plan, the change, verification, a person's review), and a code step with no requirements step before it |
 | Who owns it | A step no agent drafts (shown on the agent files that would fix it, even though the configuration cannot load until it is fixed), code that can reach the end without a sign-off, groups nobody can sign off with, and a last step that needs no sign-off |
-| Guidance | Step templates that lack what their step will be checked for (the clause anchors of a step that defines requirements, the planned-claims table of a step that plans a code step, sections its publication checks for, tokens step entry cannot fill), API calls a step's guidance makes that nothing in the workflow makes, possible conflicts between rules that reach the same step, broken links, and web pages the agent sees only as links |
+| Guidance | Step templates that lack what their step will be checked for (the clause anchors of a step that defines requirements, including the step that holds the scope of a workflow that changes no code, whose Story can end only with a requirement indexed, the planned-claims table of a step that plans a code step, sections its publication checks for, tokens step entry cannot fill), API calls a step's guidance makes that nothing in the workflow makes, possible conflicts between rules that reach the same step, broken links, and web pages the agent sees only as links |
 | Clarity | Steps with the same name, and steps that do not say what they are for |
 | Across the repository | Agents that can run no step, skills attached to nothing, instructions placed in no skill, the same instruction text under two names, and skills attached for steps their agent never drafts |
 
@@ -1864,6 +1864,43 @@ What it cannot judge yet: a step a model must author well (the stub writes for o
 change), visual evidence and screenshots, Initiative workflows, a route a decision does not take
 (the walk follows the route that walks on), a test runner other than `node --test`, and whether a
 person can actually be reached (it approves as a listed member).
+
+#### The walk on every change (`workflow walk --quick`)
+
+A Story walk takes about a minute a workflow, too long to wait for on every save. So every change
+to a workflow runs the quick walk instead, as part of the one check every way of making a workflow
+runs: `workflow create` and `workflow edit`, a Workflow Studio save, a configuration save, `workflow
+import`, a workflow build's verify and finish, and `workflow from-agent`. It also runs in `workflow
+check` and `workflow validate`, so approval sees the same stops.
+
+```bash
+singularity-flow workflow walk --quick                 # every Story workflow of this repository, in milliseconds
+singularity-flow workflow walk team-delivery --quick --json
+```
+
+The quick walk starts no Story, runs no command and no model. It takes every path a Story of the
+workflow can take: a passing run, each decision route, a decision that keeps going back until its
+rounds run out, and each send-back of a person's approval. On each path, for each step, it renders
+the route SFlow hands out at each stage (entry, publication, review, submission, approval, a
+decision, a next version) with the engine's own action-to-command map. It checks each route on
+Copilot CLI and on VS Code's chat. It stops on:
+
+| Class | Stop |
+|---|---|
+| `loop` | the same route comes round with nothing changed: a decision that goes back on values its round never records again (`WALK_SAME_ROUTE_UNCHANGED`), or a route that repeats without a limit (`WALK_ROUTE_REPEATS`) |
+| `limit` | a limit that leaves only the same command: rounds that run out to a group nobody is in (`WALK_NO_WAY_ON`) |
+| `host-route` | a stage with no route (`WALK_ROUTE_MISSING`), or a skill, page tool or Command Palette entry a host does not have (`WALK_ROUTE_NOT_ON_HOST`) |
+| `copy-value` | a route that leaves the agent a value SFlow knows to copy in: a Story, a step, a version (`WALK_VALUE_TO_COPY`); the values a step's own decision reads at its submission are its author's to give |
+| `dead-end` | a step whose gate nothing in the Story can meet: one that cites the test results of a code step nobody approves (`WALK_RESULTS_NEVER_APPROVED`) |
+
+Each stop is a `workflow check` problem with a plain explanation and a filled fix, so a change that
+adds one is refused where it is made, the same as any other problem it adds. The walk is bounded
+(5 seconds a workflow by default; `--total-seconds` sets it). If it runs out of time it adds a note,
+never a stop. `--json` returns `resultType: workflow-walk` with `mode: quick`, `counts` (`workflows`,
+`stops`, `paths`, `routes`, `notJudged`) and `workflows[]`, each with its `outcome`, `paths`,
+`routes` and `stops[]` (`class`, `code`, `step`, `decision`, `host`, `title`, `detail`, `fix`).
+`workflow check --json` gives each workflow's `walk` in brief. The Story walk above stays the deeper
+check: a workflow build's verify runs it before the build can finish.
 
 ### Assess what each step's agent is told (`workflow assess`)
 

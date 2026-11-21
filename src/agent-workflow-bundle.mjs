@@ -128,12 +128,26 @@ export async function compileAgentWorkflow(conversion, { agentText, skillTexts =
     assertWorkTypeStartable(resolved);
     const simulation = simulateWorkflowRoutes(resolved, { approvalAuthorities: validated.approvalAuthorities });
     if (simulation.status === 'failed') throw fail(`The converted workflow's routes do not reach the end: ${JSON.stringify(simulation.counts ?? {})}.`, 'AGENT_WORKFLOW_GRAPH_INVALID');
+    // The walk every new workflow gets (step intents Stage 6): a loop or stop on a Story's way is named with its fix
+    // before anything is written.
+    const walk = await walkConverted(scratch, resolved, validated);
     const bundle = await compileWorkflowBundle(scratch, [workflowId]);
     const { approvesAutomatically } = await import('./approval-authority.mjs');
-    return { bundle, workflowYaml, simulation, resolved: resolvedSummary(resolved, approvesAutomatically) };
+    return { bundle, workflowYaml, simulation, walk, resolved: resolvedSummary(resolved, approvesAutomatically) };
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+/**
+ * The quick walk of the converted workflow (src/workflow-walk/quick.mjs): what it walked and each stop, with its
+ * explanation and fix, where a Story of it would loop or stop. `workflow from-agent` shows them and writes nothing.
+ */
+async function walkConverted(scratch, resolved, definition) {
+  const [{ quickWalkResolved }, { buildStudioModel }] = await Promise.all([import('./workflow-walk/quick.mjs'), import('./workflow-studio.mjs')]);
+  const model = await buildStudioModel(scratch).catch(() => null);
+  const walk = quickWalkResolved(resolved, { approvalAuthorities: definition.approvalAuthorities, groups: new Map((model?.groups ?? []).map((group) => [group.id, group])) });
+  return { mode: 'quick', outcome: walk.outcome, paths: walk.paths, routes: walk.routes, hosts: walk.hosts, stops: walk.stops, notes: walk.notes };
 }
 
 /** What Stage 2 derived for each step, in the words `workflow from-agent` shows. */

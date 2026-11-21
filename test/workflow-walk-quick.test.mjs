@@ -169,7 +169,7 @@ test("copy-value: a route that leaves a value SFlow knows is one to copy; a step
   assert.ok(result.routes > 0);
 });
 
-test('a route that repeats without a limit is a loop the walk names, and workflow check shows it once', () => {
+test('a route that repeats without a limit is a loop the walk names, marked as the one the route simulation reports too, so workflow check shows it once', () => {
   const result = walked(configuration(reusedChannel), { simulation: { scenarios: [{ id: 'retest:again', kind: 'repair', outcome: 'unbounded', path: [], choices: [{ decision: 'retest', route: 'again' }] }], findings: [] } });
   const repeats = result.stops.find((entry) => entry.code === QUICK_WALK_CODES.repeats);
   assert.equal(repeats.class, 'loop');
@@ -323,4 +323,33 @@ test('on change: a Workflow Studio change set that would loop shows the stop and
     return true;
   });
   assert.equal(YAML.parse(await readFile(file, 'utf8')).workTypes.walked.decisions, undefined, 'nothing was written');
+});
+
+test('on change: a workflow that changes no code and holds its scope in a template with no clause anchors gets them added by the one check, or is refused with the fix where the template is SFlow\'s', async (t) => {
+  const root = await repository(t);
+  const file = path.join(root, 'singularity/workflow.yml');
+  const value = YAML.parse(await readFile(file, 'utf8'));
+  value.version = 4;
+  // What the generated walk found: an intake that writes the requirement IDs (no code step pins them), from a template with none.
+  value.phases['nocode-intake'] = { intent: 'intake', label: 'Capture the ask', artifact: { path: 'artifacts/nocode-intake/intake.md' }, defaultTemplate: 'common/intake.md' };
+  value.phases['nocode-design'] = { intent: 'design', label: 'Work it out', artifact: { path: 'artifacts/nocode-design/design.md' }, defaultTemplate: 'common/design.md' };
+  value.workTypes['no-code'] = { label: 'No code', phases: ['nocode-intake', 'nocode-design'] };
+  const { newAgentFile } = await import('../src/agent-file.mjs');
+  await writeFile(path.join(root, 'singularity/agents/no-code-author.agent.md'), newAgentFile({ id: 'no-code-author', label: 'No-code author', description: 'Drafts both steps.',
+    tools: ['read', 'edit'], phases: ['nocode-intake', 'nocode-design'], defaultFor: ['nocode-intake', 'nocode-design'], instructions: 'Write each step as its template asks.' }));
+  const { checkedConfigurationSave } = await import('../src/workflow-autofix.mjs');
+  await assert.rejects(checkedConfigurationSave(root, 'singularity/workflow.yml', YAML.stringify(value), () => writeFile(file, YAML.stringify(value))), (error) => {
+    assert.equal(error.code, 'CONFIGURATION_SAVE_WORKFLOW_PROBLEMS');
+    const problem = error.details.problems.find((entry) => entry.code === 'CHECK_TEMPLATE_CLAUSE_ANCHORS');
+    assert.ok(problem, JSON.stringify(error.details.problems));
+    assert.match(problem.fix, /Give singularity\/templates\/common\/intake\.md placeholder clauses, each with its anchor/u);
+    assert.match(problem.fix, /That template belongs to a packaged workflow, so SFlow does not change it/u);
+    return true;
+  });
+  // A template of the workflow's own gets the anchors added, and the save goes through.
+  await writeFile(path.join(root, 'singularity/templates/no-code-intake.md'), '# {{work.id}} — Intake\n\n## Problem\n\nTODO: What is wanted, and why.\n');
+  value.phases['nocode-intake'].defaultTemplate = 'no-code-intake.md';
+  const saved = await checkedConfigurationSave(root, 'singularity/workflow.yml', YAML.stringify(value), () => writeFile(file, YAML.stringify(value)).then(() => ({ saved: true })));
+  assert.deepEqual(saved.repairs.map((entry) => [entry.path, entry.codes]), [['singularity/templates/no-code-intake.md', ['CHECK_TEMPLATE_CLAUSE_ANCHORS']]]);
+  assert.match(await readFile(path.join(root, 'singularity/templates/no-code-intake.md'), 'utf8'), /\[\{\{work\.id\}\}:REQ-001\]/u);
 });

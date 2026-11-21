@@ -42,7 +42,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 110
+version: 111
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1641,7 +1641,7 @@ builder's move).
 |---|---|
 | Flow | Steps nobody can reach, routes that never reach the end, loops without a limit, routes an earlier rule always wins, work every route owes (requirements, a plan, the change, verification, a person's review), and a code step with no requirements step before it |
 | Who owns it | A step no agent drafts (shown on the agent files that would fix it, even though the configuration cannot load until it is fixed), code that can reach the end without a sign-off, groups nobody can sign off with, and a last step that needs no sign-off |
-| Guidance | Step templates that lack what their step will be checked for (the clause anchors of a step that defines requirements, the planned-claims table of a step that plans a code step, sections its publication checks for, tokens step entry cannot fill), API calls a step's guidance makes that nothing in the workflow makes, possible conflicts between rules that reach the same step, broken links, and web pages the agent sees only as links |
+| Guidance | Step templates that lack what their step will be checked for (the clause anchors of a step that defines requirements, including the step that holds the scope of a workflow that changes no code, whose Story can end only with a requirement indexed, the planned-claims table of a step that plans a code step, sections its publication checks for, tokens step entry cannot fill), API calls a step's guidance makes that nothing in the workflow makes, possible conflicts between rules that reach the same step, broken links, and web pages the agent sees only as links |
 | Clarity | Steps with the same name, and steps that do not say what they are for |
 | Across the repository | Agents that can run no step, skills attached to nothing, instructions placed in no skill, the same instruction text under two names, and skills attached for steps their agent never drafts |
 

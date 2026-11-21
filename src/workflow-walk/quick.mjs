@@ -158,7 +158,7 @@ const words = (list) => (list.length < 2 ? list.join('') : `${list.slice(0, -1).
  * The inputs a decision's choice reads that its round never records again: each value it reuses from a decision whose
  * step lies before where its route back returns. Null when the choice reads any value a round records (its own step's).
  */
-function unchangingReads(decision, target, order) {
+function unchangingReads(decision, target) {
   const reads = new Set([...(decision.routes ?? []).flatMap((route) => Object.keys(route.when ?? {})), ...Object.keys(decision.goal ?? {})]);
   if (!reads.size) return null;
   const own = new Set((decision.inputs ?? []).map((input) => input.name));
@@ -257,7 +257,7 @@ export function quickWalkResolved(resolved, { approvalAuthorities = null, groups
     for (const route of decision.routes ?? []) {
       const reach = routeReach(order, decision.after, route.to);
       if (reach.kind !== 'backward') continue;
-      const reads = unchangingReads(decision, reach.target, order);
+      const reads = unchangingReads(decision, reach.target);
       if (!reads) continue;
       const outside = reads.fixed.filter((input) => {
         const source = decisions.find((entry) => entry.id === input.from);

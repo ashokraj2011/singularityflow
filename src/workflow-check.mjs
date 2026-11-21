@@ -578,7 +578,7 @@ async function checkWorkflow(workflow, { definition, raw = {}, model, locate, gu
     const { QUICK_WALK_CODES, quickWalkResolved } = await import('./workflow-walk/quick.mjs');
     walk = quickWalkResolved(resolved, { approvalAuthorities: definition.approvalAuthorities, groups, labels: { get: stepLabel }, simulation });
     for (const entry of walk.stops) {
-      if (entry.alsoChecked && simulated.has(`${entry.alsoChecked}\0${entry.decision ?? ''}`)) continue;
+      if (entry.alsoChecked && (simulated.has(`${entry.alsoChecked}\0${entry.decision ?? ''}`) || simulated.has(`${entry.alsoChecked}\0`))) continue;
       add({ code: entry.code, area: 'flow', severity: 'problem', title: entry.title, detail: entry.detail, fix: entry.fix,
         subject: { ...(entry.step ? { step: entry.step } : {}), ...(entry.decision ? { decision: entry.decision } : {}), ...(entry.host ? { host: entry.host } : {}),
           ...(entry.stage ? { stage: entry.stage } : {}), walk: entry.class } });

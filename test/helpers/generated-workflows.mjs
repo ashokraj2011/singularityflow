@@ -15,7 +15,8 @@
  * repository's singularity/workflow.yml (as journeyRepository's `configure` edits it). Only workflows a person could
  * make are returned, as a person makes them: a draw the engine refuses to start is drawn again, and so is one the walk
  * every change runs stops (src/workflow-walk/quick.mjs), which is kept in `refused` with its stops. `draws` says how
- * many were drawn.
+ * many were drawn. The template checks of `workflow check` need a repository and are not run here: a step uses its
+ * intent's starter template as it is, and its author writes what its kind asks (test/helpers/generated-journey.mjs).
  */
 import YAML from 'yaml';
 import { readFileSync } from 'node:fs';

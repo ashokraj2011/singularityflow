@@ -623,8 +623,9 @@ function guardedConfirmation(guard, command) {
   return said?.permissionDecision === 'deny' ? said : null;
 }
 
+// `/decide` is Copilot CLI's own Decide card (plugin/extensions/decisions): the person answers it, as at /sf-decide's card.
 const isPersonRoute = (route) => /^singularity-flow (?:approve|decisions record|story advance .*--confirm|reopen)\b/u.test(route.shell ?? '')
-  || /^\/sf-(?:approve|decide|confirm)\b/u.test(route.copilot ?? '') && !route.inTurn;
+  || /^\/(?:sf-(?:approve|decide|confirm)|decide)\b/u.test(route.copilot ?? '') && !route.inTurn;
 
 /**
  * Takes one route: runs what an agent runs for it, then does the agent's or the person's part its result asks for.

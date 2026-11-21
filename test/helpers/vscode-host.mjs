@@ -118,7 +118,8 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
  * One VS Code window on the Story: the tools VS Code's chat calls, the pages they open and the person on them.
  *
  * `person` answers each page: `decide({ packet, versionOpening })` returns 'recommended', 'cancel', 'version-yes' or
- * 'version-no' (default: 'recommended', or 'version-yes' when only the version is asked); `witness()` returns 'yes', 'no'
+ * 'version-no' (default: 'recommended', or 'version-yes' when only the version is asked); `clause()` names the Story's
+ * clause for a choice that must name one, when the item knows none; `witness()` returns 'yes', 'no'
  * or 'unsure'; `adjudicate({ list })` returns 'recommended' or 'cancel'.
  * `windowStory` is the Story this window shows (the approval page's); it defaults to the journey's own.
  */
@@ -207,9 +208,15 @@ export async function vscodeHost(story, { person = {}, windowStory = undefined, 
       const choice = host.person.decide?.({ packet, versionOpening: opening, panel }) ?? (opening && !(packet?.items ?? []).some((item) => item.kind !== 'approval') ? 'version-yes' : 'recommended');
       if (choice === 'cancel') return panel.post({ type: 'decide.cancel' });
       if (choice === 'version-yes' || choice === 'version-no') return panel.post({ type: 'decide.version', answer: choice === 'version-yes' ? 'yes' : 'no', digest: opening?.digest });
+      // A choice that names the clauses carrying it is one the person can make only with a clause to name: the item's own, or
+      // the Story's (`person.clause()`); otherwise they take the next choice they can make.
+      const clauseFor = (entry) => (entry.needs?.clause ? entry.needs.clause.known?.[0] ?? host.person.clause?.() ?? null : null);
+      const can = (entry) => entry.decidedBy?.allowed !== false && entry.available !== false && (!entry.needs?.clause || clauseFor(entry));
       const rows = (packet?.items ?? []).filter((item) => item.kind !== 'approval' && item.decidedBy?.allowed && !item.settled).flatMap((item) => {
-        const option = item.options?.find((entry) => entry.id === item.recommended?.option) ?? item.options?.find((entry) => entry.decidedBy?.allowed !== false && entry.available !== false);
-        return option ? [{ item: item.id, option: option.id, reason: 'The person chose this on the Decide card.', title: item.title }] : [];
+        const recommended = item.options?.find((entry) => entry.id === item.recommended?.option);
+        const option = (recommended && can(recommended) ? recommended : null) ?? item.options?.find(can);
+        return option ? [{ item: item.id, option: option.id, reason: 'The person chose this on the Decide card.', title: item.title,
+          ...(clauseFor(option) ? { clause: clauseFor(option) } : {}) }] : [];
       });
       if (!rows.length) return panel.post({ type: 'decide.cancel' });
       panel.post({ type: 'decide.review', rows });

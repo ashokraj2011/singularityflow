@@ -98,6 +98,8 @@ test('no shipped setting differs from its intent without a reason, and nothing c
   assert.equal(sources('poc-workflow', 'poc-intake').approval.reason, undefined, 'G2 adopted');
   assert.match(sources('demo-check-repair-close', 'demo-close').approval.reason, /closing decision/u, 'G2 kept');
   assert.match(sources('quick-fix', 'implement').approval.reason, /the Verify step after it checks it/u, 'G3');
+  // Convergence folds into the code approval (owner, 2026-11-21): SFlow approves a clean check, and the workflow says why.
+  assert.match(sources('spec-driven-standard', 'convergence').approval.reason, /folds into the code approval/u, 'convergence');
   // G4 adopted (D2): planning, release, careful-change and test-run ask only when needed, as their intents do; the quick
   // fix's and the findings' intakes keep asking only when needed, with their reasons.
   for (const [type, step] of [['spec-driven-standard', 'planning'], ['spec-driven-standard', 'release'], ['careful-change', 'careful-change'], ['test-run', 'test-run']]) {

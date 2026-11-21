@@ -16,6 +16,12 @@
  * The record is the step's `automaticApproval`, its disposition `approved_automatically` and the history event
  * `phase-approved-automatically` ("approved automatically: the reviewer said ready; …"). The gate replays it from the
  * committed records (automatic-approval-replay.mjs). The undo is the next person approval's "Send back".
+ *
+ * Convergence (owner, 2026-11-21: convergence folds into the code approval): the step SFlow builds itself has no
+ * independent reviewer; its check is SFlow's own spec-versus-code check (convergence-section.mjs). A workflow that marks
+ * it `when-ready` has it approved here only when that check is clean: every requirement delivered, nothing found,
+ * proposed or decided by a person, nothing blocking. A gap never approves itself: the step stays in progress with its
+ * items on the decisions card (send it back to the code step, or accept it), and a person approves.
  */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -30,6 +36,25 @@ export const AUTOMATIC_APPROVAL_CHECKS = Object.freeze({
   checksPassed: 'its checks passed',
   nothingOpen: 'nothing was open for it'
 });
+
+/** What SFlow checked before approving a convergence step itself: its own check, in place of a reviewer's. */
+export const CONVERGENCE_APPROVAL_CHECKS = Object.freeze({
+  convergenceClean: 'the convergence check found every requirement delivered and nothing to decide',
+  checksPassed: 'its checks passed',
+  nothingOpen: 'nothing was open for it'
+});
+
+/** The convergence step's own check, from its sealed projection, verified as its approval verifies it; never throws. */
+async function convergenceCheckOf(root, config, workflow, phase) {
+  try {
+    const [{ assertConvergencePublicationReady }, { convergenceSectionOf }] = await Promise.all([
+      import('./convergence-context.mjs'), import('./convergence-section.mjs')]);
+    const ready = await assertConvergencePublicationReady(root, config, workflow, phase);
+    return { ready, section: convergenceSectionOf(ready.projection, ready.current) };
+  } catch (error) {
+    return { error: String(error?.message ?? error).split('\n')[0].slice(0, 200) };
+  }
+}
 
 const digest = (value) => `sha256:${createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex')}`;
 const unique = (lines) => [...new Set(lines.filter((line) => typeof line === 'string' && line.trim()).map((line) => line.trim()))];
@@ -52,7 +77,8 @@ export async function automaticApprovalCheck(root, config, workflow, phaseId) {
   }
   const open = [];
   const policy = phase.approvalPolicy;
-  const [{ editsSource }, { decisionOutcome }] = await Promise.all([import('./phase-roles.mjs'), import('./workflow-decisions.mjs')]);
+  const [{ editsSource, isConvergencePhase }, { decisionOutcome }] = await Promise.all([import('./phase-roles.mjs'), import('./workflow-decisions.mjs')]);
+  const convergence = isConvergencePhase(phase);
   const noSourceChange = !editsSource(phase);
   if (!noSourceChange) open.push('it may change source files');
   const heldBy = automaticApprovalHeldBy(policy);
@@ -66,10 +92,16 @@ export async function automaticApprovalCheck(root, config, workflow, phaseId) {
   const failing = (phase.checks ?? []).filter((check) => check?.status !== 'passed');
   const checksPassed = !failing.length;
   if (!checksPassed) open.push(`${failing.length === 1 ? 'a check' : `${failing.length} checks`} did not pass (${failing.slice(0, 3).map((check) => check.id ?? check.command).join(', ')})`);
-  // The reviewer: only a step its independent reviewer reviews is ever approved without a person.
+  // The reviewer: only a step its independent reviewer reviews is ever approved without a person; convergence, which
+  // SFlow builds itself, only when its own spec-versus-code check is clean (owner, 2026-11-21).
   let review = null;
+  let converged = null;
   const { sourceReviewRequired } = await import('./source-review-policy.mjs');
-  if (!sourceReviewRequired(workflow, phaseId)) open.push('no reviewer reviews this step');
+  if (convergence) {
+    converged = await convergenceCheckOf(root, config, workflow, phase);
+    if (!converged.section) open.push(`its convergence check could not be read here (${converged.error})`);
+    else if (!converged.section.clean) open.push(converged.section.words);
+  } else if (!sourceReviewRequired(workflow, phaseId)) open.push('no reviewer reviews this step');
   else {
     review = await (await import('./source-review-lifecycle.mjs')).readSourceReviewStatus(root, config, workflow, phaseId).catch(() => null);
     if (review?.status !== 'ready') open.push(`its review is ${String(review?.status ?? 'unreadable').replaceAll('-', ' ')}`);
@@ -77,6 +109,7 @@ export async function automaticApprovalCheck(root, config, workflow, phaseId) {
     else if (review.disputedFindings?.length) open.push(`a person disputed the reviewer's finding ${review.disputedFindings.map((entry) => entry.id).join(', ')}`);
   }
   const reviewReady = review?.status === 'ready';
+  const convergenceClean = converged?.section?.clean === true;
   // Nothing open: the one list of decisions, read offline. The approval check itself runs once, when it is recorded.
   let list = null;
   if (open.length === 0) {
@@ -87,20 +120,28 @@ export async function automaticApprovalCheck(root, config, workflow, phaseId) {
     } catch { open.push('the decision list could not be read here'); }
   }
   const nothingOpen = Boolean(list) && open.length === 0;
-  const predicates = { reviewReady, checksPassed, nothingOpen, selfApprovalAllowed, outcomeNext, noSourceChange, noSignatureRequired };
+  const predicates = convergence
+    ? { convergenceClean, checksPassed, nothingOpen, selfApprovalAllowed, outcomeNext, noSourceChange, noSignatureRequired }
+    : { reviewReady, checksPassed, nothingOpen, selfApprovalAllowed, outcomeNext, noSourceChange, noSignatureRequired };
   const eligible = Object.values(predicates).every(Boolean);
+  const checked = Object.values(convergence ? CONVERGENCE_APPROVAL_CHECKS : AUTOMATIC_APPROVAL_CHECKS);
   return {
     applies: true,
     eligible,
     predicates,
-    checked: Object.values(AUTOMATIC_APPROVAL_CHECKS),
+    checked,
     open: eligible ? [] : unique(open),
+    ...(converged?.section ? { convergence: converged.section } : {}),
     record: eligible ? {
       rule: AUTOMATIC_APPROVAL_RULE,
       predicates,
-      checked: Object.values(AUTOMATIC_APPROVAL_CHECKS),
-      review: { status: 'ready', reportSha256: review?.reportSha256 ?? null,
-        reportPath: review?.reportPath ? path.relative(root, review.reportPath).split(path.sep).join('/') : null },
+      checked,
+      // The convergence step's check, as its sealed projection holds it; any other step's reviewer's report.
+      ...(convergence ? { convergence: { iteration: converged.ready.current.iteration, path: converged.ready.projectionRelative,
+        convergenceSha256: converged.ready.projection.convergenceSha256,
+        requirements: converged.section.requirements.length, settledByPlan: converged.section.settledByPlan.length } }
+        : { review: { status: 'ready', reportSha256: review?.reportSha256 ?? null,
+          reportPath: review?.reportPath ? path.relative(root, review.reportPath).split(path.sep).join('/') : null } }),
       checksSha256: digest(phase.checks ?? []),
       decisionListSha256: list?.packetSha256 ?? null
     } : null

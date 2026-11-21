@@ -3,7 +3,8 @@
  * plan and the delivered code; a step marked `approval: { automatic: when-ready }` is approved by SFlow right after it is
  * submitted, when its reviewer said ready, its checks passed and nothing is open for it, and the record says what it
  * checked (`approved_automatically`, never `policy_waived`). Anything open leaves the step with its people. The plan,
- * a step that may change source files, convergence and the design sources are always a person's.
+ * a step that may change source files and the design sources are always a person's; convergence is SFlow's when its own
+ * check is clean (owner, 2026-11-21: convergence folds into the code approval; test/convergence-folds-into-code.test.mjs).
  */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -64,7 +65,7 @@ test('the shipped delivery workflows: people approve the plan and every step tha
   assert.deepEqual(split('classic-delivery').automatic, ['testing', 'conformance']);
   assert.deepEqual(split('spec-code-test-loop').automatic, ['conformance'], 'its testing step starts a rework loop');
   for (const id of ['spec-driven-standard', 'reference-driven-build']) {
-    assert.deepEqual(split(id), { people: ['planning', 'implementation', 'convergence'], automatic: ['specification', 'verification', 'release'] });
+    assert.deepEqual(split(id), { people: ['planning', 'implementation'], automatic: ['specification', 'convergence', 'verification', 'release'] });
   }
   // A fallback to people keeps each step's own approval groups and send-back targets.
   const design = resolveWorkType(definition, 'feature').phases.find((phase) => phase.id === 'design');
@@ -102,7 +103,6 @@ test('configuration refuses it where a person must approve', async () => {
   refused('figma-mobile', 'design-intake', /design versions/u);
   refused('figma-mobile', 'visual-verification', /may change source files/u);
   refused('spec-code-test-loop', 'testing', /send the work back to implementation/u);
-  refused('spec-driven-standard', 'convergence', /moves the Story on from convergence/u, 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED');
   // A repository whose own Design step takes two approvers keeps a valid configuration after the upgrade marks the
   // shipped feature's Design automatic: that step stays with its two people.
   const strict = structuredClone(definition);

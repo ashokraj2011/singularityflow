@@ -171,6 +171,16 @@ function carriedOf(workflow) {
 }
 
 /**
+ * The spec-versus-code check a code approval carries when a convergence step follows the code step (owner, 2026-11-21:
+ * convergence folds into the code approval): each requirement delivered or a gap, from the submitted code. Null for any
+ * other step, or when the Story has no convergence step.
+ */
+async function convergenceOf(root, config, workflow, phase) {
+  if (!phaseRequiresCodeDelivery(phase) || phase.status !== 'awaiting_approval') return null;
+  return (await import('./convergence-section.mjs')).convergenceSectionForCode(root, config, workflow);
+}
+
+/**
  * The evidence beside the decisions of `phaseId`, or null when the step has none of it. `actor` and
  * `authorities` say whether the person looking may accept a held package, as the list says of its rows.
  */
@@ -185,7 +195,8 @@ export async function approvalEvidence(root, config, workflow, phaseId, { actor 
     hold: await part(() => holdOf(workflow, phase, at, { authorities: authorities ?? workflow.resolution?.approvalAuthorities ?? config?.approvalAuthorities, actor })),
     requiredChecks: await part(() => requiredChecksOf(root, config, workflow, phase)),
     askedFor: await part(() => askedForOf(workflow, phase)),
-    carried: await part(() => carriedOf(workflow))
+    carried: await part(() => carriedOf(workflow)),
+    convergence: await part(() => convergenceOf(root, config, workflow, phase))
   };
   const present = Object.entries(parts).filter(([, value]) => value);
   if (!present.length) return null;

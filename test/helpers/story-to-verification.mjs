@@ -49,7 +49,9 @@ export async function storyAtVerification(t, WORK, { untested = null, configure 
   // A person reads no digest; the preview's JSON carries the one the confirmation binds.
   const digest = JSON.parse(cli('story', 'advance', '--work-id', WORK, '--json').stdout).confirmationDigest;
   cli('story', 'advance', '--work-id', WORK, '--confirm', digest);
-  cli('approve', 'convergence', '--yes');
+  // Convergence folds into the code approval (owner, 2026-11-21): SFlow approves a clean check at its submission; one
+  // whose items a person decided waits for its approvers.
+  if (JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.convergence.status === 'awaiting_approval') cli('approve', 'convergence', '--yes');
   cli('prepare', 'verification');
   return { ...story, write, clauses };
 }

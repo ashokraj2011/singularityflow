@@ -100,13 +100,13 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     if (typeof convergenceConfirmation !== 'string'
         || !/^sha256:[0-9a-f]{64}$/.test(convergenceConfirmation)) {
       throw new SingularityFlowError(
-        `Convergence is submitted with singularity-flow story advance --work-id ${resolvedWorkId} --submit, which checks the report first; a person then reviews it and approves it with one Yes.`,
+        `Convergence is submitted with singularity-flow story advance --work-id ${resolvedWorkId} --submit, which checks the report first; SFlow approves a clean report itself, otherwise a person reviews it and approves it with one Yes.`,
         { code: 'CONVERGENCE_ADVANCE_CONFIRMATION_REQUIRED', details: { workId: resolvedWorkId, nextAction: `singularity-flow story advance --work-id ${resolvedWorkId}` } }
       );
     }
     if (initialPhase.approvalPolicy?.mode !== 'required') {
       throw new SingularityFlowError(
-        `Convergence phase '${initialPhase.id}' requires a non-waivable human approval after explicit advancement; approval modes 'none' and 'policy' are not permitted.`,
+        `Convergence phase '${initialPhase.id}' requires its approval after explicit advancement, by a person or by SFlow when its check is clean; approval modes 'none' and 'policy' are not permitted.`,
         { code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED' }
       );
     }

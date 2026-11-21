@@ -351,7 +351,7 @@ function requiredModelAssuranceRank(value) {
 function convergenceAdvanceRequired(workflow, details = {}) {
   const workId = workflow?.workItem?.id ?? details.workId ?? '<WORK-ID>';
   return new SingularityFlowError(
-    `Convergence is submitted with singularity-flow story advance --work-id ${workId} --submit, which checks the report first; a person then reviews it and approves it with one Yes.`,
+    `Convergence is submitted with singularity-flow story advance --work-id ${workId} --submit, which checks the report first; SFlow approves a clean report itself, otherwise a person reviews it and approves it with one Yes.`,
     {
       code: 'CONVERGENCE_ADVANCE_CONFIRMATION_REQUIRED',
       details: { workId, ...details, nextAction: `singularity-flow story advance --work-id ${workId}` }
@@ -362,7 +362,7 @@ function convergenceAdvanceRequired(workflow, details = {}) {
 function assertRequiredConvergenceApproval(phase) {
   if (phase?.approvalPolicy?.mode === 'required') return;
   throw new SingularityFlowError(
-    `Convergence phase '${phase?.id ?? ''}' requires a non-waivable human approval after explicit advancement; approval modes 'none' and 'policy' are not permitted.`,
+    `Convergence phase '${phase?.id ?? ''}' requires its approval after explicit advancement, by a person or by SFlow when its check is clean; approval modes 'none' and 'policy' are not permitted.`,
     {
       code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED',
       details: { mode: phase?.approvalPolicy?.mode ?? null }

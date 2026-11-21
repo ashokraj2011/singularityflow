@@ -189,16 +189,23 @@ test('the agent running convergence cannot create rework or advance', async () =
     'the reviewed digest is not carried into the private confirmed-submission boundary');
   assert.doesNotMatch(advance, /optionBoolean\(options, 'confirm'\)|options\.confirm\s*===\s*true/,
     'advancement still accepts a content-free boolean confirmation');
-  // The private boundary takes only a digest and checks it against the snapshot again; the approval, a
-  // person's, re-checks the same snapshot; and convergence is never approved automatically.
+  // The private boundary takes only a digest and checks it against the snapshot again; the approval re-checks the same
+  // snapshot. Convergence folds into the code approval (owner, 2026-11-21, overriding "convergence is always a
+  // person's"): SFlow approves it only by its own clean check, never by a reviewer's word or with anything to decide.
   const state = withoutComments(await readFile(new URL('state.mjs', SOURCE), 'utf8'));
   assert.match(state, /async function assertConvergenceConfirmation\([^)]*\) \{\s*if \(typeof confirmation !== 'string' \|\| !\/\^sha256:\[0-9a-f\]\{64\}\$\/\.test\(confirmation\)\)/,
     'the confirmed-submission boundary accepts something other than a digest');
   assert.match(state, /await stage\('convergence', async \(\) => \{\s*if \(isConvergencePhase\(phase\)\) \{\s*await assertConvergencePublicationReady\(root, config, workflow, phase\);/,
     'the approval does not re-check the convergence snapshot it advances');
   const { automaticApprovalRefusal } = await import('../src/phase-roles.mjs');
-  assert.match(automaticApprovalRefusal({ id: 'convergence', artifact: { kind: 'convergence-report' } }) ?? '', /only a person's approval/u,
-    'convergence may be approved automatically');
+  assert.equal(automaticApprovalRefusal({ id: 'convergence', artifact: { kind: 'convergence-report' } }), null, 'the owner\'s 2026-11-21 decision');
+  const automatic = withoutComments(await readFile(new URL('automatic-approval.mjs', SOURCE), 'utf8'));
+  assert.match(automatic, /if \(convergence\) \{\s*converged = await convergenceCheckOf\(root, config, workflow, phase\);/,
+    'a convergence step is approved by its own check, not a reviewer\'s');
+  assert.match(automatic, /\{ convergenceClean, checksPassed, nothingOpen,/, 'its check must be clean for SFlow to approve it');
+  const section = withoutComments(await readFile(new URL('convergence-section.mjs', SOURCE), 'utf8'));
+  assert.match(section, /const clean = !facts\.length && !candidates\.length && !findings\.length && !unresolvedBlockers\.length;/,
+    'clean means nothing found, nothing proposed, nothing decided and nothing blocking');
 
   // Every disposition except direct deterministic rework needs a human-authored reason.
   const facts = [{ id: 'CF-aaaaaaaaaaaa', kind: 'absent-observed-claim', clauseIds: [] }];

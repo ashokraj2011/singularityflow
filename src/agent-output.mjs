@@ -751,12 +751,13 @@ export function agentAct(result) {
   if (result.resultType === 'command-result' && result.operation?.id === 'prepare' && result.data?.preparation?.scope) {
     return { ...withRoute({ state: 'next', said: null, do: null }, action), read: ['data.preparation.scope'] };
   }
-  // The convergence confirmation folds into its approval (owner, 2026-11-19): the turn submits the report, and the person
-  // reviews it and approves it with one Yes, at the approval. Nobody types a code or confirms it twice.
+  // The convergence confirmation folds into its approval (owner, 2026-11-19): the turn submits the report, and SFlow
+  // approves a clean one itself (owner, 2026-11-21); otherwise the person approves it with one Yes, at the approval.
+  // Nobody types a code or confirms it twice.
   const convergence = result.classification === 'convergence-advance-required';
   const state = 'next';
   const said = oneLine(`${result.reason ?? result.agentInstruction ?? result.data?.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')}${convergence
-    ? ' Run do.shell once; when it says the report is ready, run its --submit command once in this same turn: it sends the report for approval, where the person reviews it and approves it with one Yes. Never ask them to confirm it first.' : ''}`) || null;
+    ? ' Run do.shell once; when it says the report is ready, run its --submit command once in this same turn: it sends the report for approval: SFlow approves a clean one itself, otherwise the person approves it there with one Yes. Never ask them to confirm it first.' : ''}`) || null;
   const nextsteps = result.resultType === 'sflow-nextsteps'
     ? { read: ['contextBoundary', 'actions', 'pending', ...(/^\/sf(?:low)?-inputs(?:\s|$)/u.test(action?.commandGuidance?.copilotCommand ?? action?.copilotCommand ?? '') ? ['inputs'] : [])] } : {};
   const act = withRoute({ state: action ? state : 'read', said, do: null, ...nextsteps }, action);

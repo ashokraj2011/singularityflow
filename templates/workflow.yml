@@ -1179,7 +1179,8 @@ workTypes:
       planning: spec-driven/plan.md
       convergence: spec-driven/convergence.md
     # Conservative defaults [SPK:REQ-033]: phase-specific clarification, approved upstream inputs,
-    # required publication, and human advancement out of convergence. Large upstream artifacts
+    # required publication, and advancement out of convergence by SFlow's clean check, else a person
+    # [owner, 2026-11-21]. Large upstream artifacts
     # are projected into approval-bound agent briefs. Exact wording remains available through the
     # source artifact's hash-bound sfref handle; older pinned work items retain their full inputs.
     # Every reviewed step may return the Story to any earlier step or to itself.
@@ -1972,17 +1973,20 @@ phases:
     label: Convergence
     defaultTemplate: spec-driven/convergence.md
     # The convergence-report kind is what makes a step convergence, whatever it is called: the
-    # engine generates it, and only a person's approval advances it [SPK:REQ-032]; recognised by its kind [E2G-001].
+    # engine generates it, and its approval advances it [SPK:REQ-032]; recognised by its kind [E2G-001].
     artifact: { path: artifacts/convergence/convergence.md, kind: convergence-report, minimumBytes: 200 }
     generation: { requirement: required, producer: deterministic, task: analyze }
     writeScope: artifact-only
-    # Human advancement out of convergence, and governed rework back to implementation
-    # [SPK:REQ-032]. Advancement fails while blocking findings remain [SPK:REQ-183]. Its reviewers
-    # may also return the Story to planning or the specification when the defect started there.
-    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [specification, planning, implementation, convergence] }
+    # Convergence folds into the code approval [owner, 2026-11-21]: its spec-versus-code check is SFlow's own, shown with
+    # the code approval, and SFlow approves the step when that check is clean (every requirement delivered, nothing to
+    # decide). A real gap never approves itself: its items go to the decisions card, where its approvers send it back to
+    # the code step or decide it, and then approve it. Advancement fails while blocking findings remain [SPK:REQ-183].
+    # Its approvers may also return the Story to planning or the specification when the defect started there.
+    approval: { automatic: when-ready, authorities: [architecture-reviewers], minimum: 1, rejectTo: [specification, planning, implementation, convergence] }
     clarification: { mode: off, maxQuestions: 5 }
     because:
-      generation.producer: SFlow builds the convergence report itself from the specification, the plan and the code; only a person moves the Story on from it.
+      generation.producer: SFlow builds the convergence report itself from the specification, the plan and the code.
+      approval.automatic: Convergence folds into the code approval, so SFlow approves a clean spec-versus-code check itself; a gap goes back to the code step or to a person's decision.
   implement:
     intent: code
     label: Implement

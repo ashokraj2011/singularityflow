@@ -17,7 +17,7 @@ test('the convergence report goes for approval without a separate confirmation o
   assert.match(act.said, /run its --submit command once in this same turn/u);
   assert.match(act.said, /Never ask them to confirm it first/u);
   const skill = await readFile(new URL('../plugin/skills/sflow-submit/SKILL.md', import.meta.url), 'utf8');
-  assert.match(skill, /run its `--submit` command once now: the person reviews the report at its approval and approves it with one Yes there, never a separate confirmation/u);
+  assert.match(skill, /run its `--submit` command once now: SFlow approves a clean report itself, else the person approves it at its approval with one Yes, never a separate confirmation/u);
   assert.doesNotMatch(skill, /--confirm sha256:<DIGEST>/u);
   const story = await readFile(new URL('../src/commands/story.mjs', import.meta.url), 'utf8');
   assert.match(story, /singularity-flow story advance --work-id \$\{workflow\.workItem\.id\} --submit/u);

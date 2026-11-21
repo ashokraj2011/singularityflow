@@ -10,7 +10,7 @@
  * configuration (`artifact`) alike, so the engine, Workflow Studio and simulation agree.
  */
 
-/** The artifact kind of the engine's convergence report: the step a person reviews to advance. */
+/** The artifact kind of the engine's convergence report: SFlow's spec-versus-code check, which advances the Story. */
 export const CONVERGENCE_ARTIFACT_KIND = 'convergence-report';
 
 /** The artifact kind of a conformance report: the final account of every clause against the code. */
@@ -44,7 +44,8 @@ export function artifactKindOf(phase) {
 
 /**
  * The convergence step: the engine reconciles the specification, the plan, the code and its tests
- * into one report, and only an explicit human advancement and approval move the Story past it.
+ * into one report, and only an explicit advancement and its approval move the Story past it: a
+ * person's, or SFlow's when its workflow says so and the check is clean (owner, 2026-11-21).
  */
 export function isConvergencePhase(phase) {
   return interpretedKind(phase) === CONVERGENCE_ARTIFACT_KIND;
@@ -215,7 +216,8 @@ export function automaticApprovalRefusal(phase, { workType = null, phases = [], 
   if (!phase) return null;
   if ((planSteps ? new Set(planSteps) : planStepIds(workType, phases)).has(phase.id)) return 'it is the plan, which a person approves';
   if (editsSource(phase)) return 'it may change source files, so a person approves it';
-  if (isConvergencePhase(phase)) return 'only a person\'s approval moves the Story on from convergence';
+  // Convergence folds into the code approval (owner, 2026-11-21, overriding "convergence is always a person's"): its
+  // check is SFlow's own, and SFlow approves it only when that check is clean (automatic-approval.mjs).
   if (workType?.designSources && (workType.designSources.capturePhase ?? 'design-intake') === phase.id) {
     return 'a person approves which design versions the Story builds on';
   }

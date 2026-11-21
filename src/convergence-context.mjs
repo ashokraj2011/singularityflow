@@ -80,7 +80,7 @@ function assertCommittedPath(root, relative, label, details = {}) {
   }
 }
 
-async function verifiedUpstreamArtifacts(root, config, workflow, convergence) {
+async function verifiedUpstreamArtifacts(root, config, workflow, convergence, { awaiting = null } = {}) {
   const convergenceIndex = workflow.phaseOrder.indexOf(convergence.id);
   const bindings = [];
   for (const phaseId of workflow.phaseOrder.slice(0, Math.max(0, convergenceIndex))) {
@@ -92,7 +92,9 @@ async function verifiedUpstreamArtifacts(root, config, workflow, convergence) {
     });
     const current = await snapshot(secured.absolute);
     const registered = (phase.artifacts ?? []).find((artifact) => artifact.path === secured.relative);
-    if (!registered || registered.status !== 'approved'
+    // The code step's submitted version, while it waits for its approval (convergence-section.mjs reads it then).
+    const submitted = awaiting === phase.id && phase.status === 'awaiting_approval' && registered?.status === 'pending';
+    if (!registered || (registered.status !== 'approved' && !submitted)
         || !sameDigest(registered.sha256, current.sha256)
         || Number(registered.size) !== Number(current.size)) {
       throw new SingularityFlowError(
@@ -182,7 +184,7 @@ async function assertReconciliationTargetCurrent(root, config, workflow, reconci
  * resolver is what prevents publication from validating a self-consistent but stale projection
  * after the specification, claims, acceptance evidence, or reconciliation has moved.
  */
-export async function currentConvergenceContext(root, config, workflow) {
+export async function currentConvergenceContext(root, config, workflow, { codeAwaitingApproval = null } = {}) {
   if (workflow.workflowSnapshot) config = await resolveStoryExecutionDefinition(root, config, workflow);
   if ((workflow.phaseOrder ?? []).filter((id) => isConvergencePhase(workflow.phases?.[id])).length > 1) {
     throw new SingularityFlowError('This accepted workflow has multiple Convergence stages sharing one iteration namespace. It cannot reuse one stage\'s review for another. Configure a single Convergence stage for a new Story; the accepted history remains preserved.',
@@ -244,7 +246,10 @@ export async function currentConvergenceContext(root, config, workflow) {
   const records = await loadBoundActiveSpecRecords(
     root, itemDirectory, workflow, policy, { requireCommitted: true }
   );
-  const upstreamArtifacts = await verifiedUpstreamArtifacts(root, config, workflow, phase);
+  // `codeAwaitingApproval`: the same check on the code step's submitted version before its approval, read only
+  // (convergence-section.mjs: convergence folds into the code approval, owner, 2026-11-21).
+  const upstreamArtifacts = await verifiedUpstreamArtifacts(root, config, workflow, phase,
+    { awaiting: codeAwaitingApproval && codeAwaitingApproval === implementation.id ? implementation.id : null });
   const iteration = Math.max(1, Number(implementation.generation ?? 1));
   const acceptance = evaluateSpecAcceptance(records, policy, {
     workId: workflow.workItem.id,

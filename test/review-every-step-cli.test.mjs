@@ -351,13 +351,16 @@ test('a spec-driven Story reviews every authored step, its specification to its 
   }
   const submitted = cli('submit', 'release');
   // Approve twice (owner, 2026-11-19): release, reviewed ready with nothing open, is approved by SFlow at its submission,
-  // as the specification and verification were; people approved the plan, the code and convergence.
+  // as the specification and verification were, and convergence by its own clean check (owner, 2026-11-21); people
+  // approved the plan and the code.
   const ended = await workflow();
   for (const step of ['specification', 'verification', 'release']) {
     assert.equal(ended.phases[step].approvalDisposition, 'approved_automatically', step);
     assert.match(ended.phases[step].automaticApproval.checked.join('; '), /the reviewer said ready/u, step);
   }
-  for (const step of ['planning', 'implementation', 'convergence']) assert.equal(ended.phases[step].approvals.filter((entry) => !entry.invalidatedAt).length, 1, step);
+  assert.equal(ended.phases.convergence.approvalDisposition, 'approved_automatically');
+  assert.match(ended.phases.convergence.automaticApproval.checked.join('; '), /the convergence check found every requirement delivered/u);
+  for (const step of ['planning', 'implementation']) assert.equal(ended.phases[step].approvals.filter((entry) => !entry.invalidatedAt).length, 1, step);
   assert.deepEqual(kinds, { specification: 'specification', planning: 'planning', implementation: 'code', verification: 'document', release: 'document' },
     'every authored step was reviewed, each as what it is');
   assert.equal((await workflow()).status, 'closed', 'the reviewed Story ends');

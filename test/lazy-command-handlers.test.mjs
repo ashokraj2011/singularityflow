@@ -912,7 +912,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // --again), refuse an agent's kind confirmation (copilot-mutation-guard.mjs) and show "Try it" at approval (agent-output.mjs).
     // The check, its adapters and the kind record load only when a code review or the command runs. No new eager file.
     // 9,827,849 (measured on landing-14, 2026-11-21): Stage 2's hooks, the runtime check's registrations and the review route builder together.
-    assert.ok(closure.bytes <= 9_827_849, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,827,858 (measured on landing-14): capability kind's --confirm read as a typeof check (+9).
+    assert.ok(closure.bytes <= 9_827_858, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1064,7 +1065,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 874,195 (measured 874,195, +413, 2026-11-21, intents-runtime-review): `capability kind` (a read, and its person-confirmed
   // record) and `app-review runtime-check` registered (command-registry.mjs), with --again a boolean (util.mjs). No new eager file.
   // 874,207 (measured on landing-14, 2026-11-21): Stage 2's hooks and the runtime check's registrations together.
-  assert.ok(root.bytes <= 874_207, `root dispatch loads ${root.bytes} source bytes`);
+  // 874,216 (measured on landing-14): capability kind's --confirm read as a typeof check (+9).
+  assert.ok(root.bytes <= 874_216, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1420,7 +1422,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,323,516 (measured, +600, 2026-11-21, intents-runtime-review): the two commands registered, --again, the guard's refusal of an
   // agent's kind confirmation and "Try it" in the approval act. No new eager file.
   // 4,328,962 (measured on landing-14, 2026-11-21): Stage 2's hooks and the runtime check's registrations together.
-  assert.ok(current.bytes <= 4_328_962, `session current loads ${current.bytes} source bytes`);
+  // 4,328,971 (measured on landing-14): capability kind's --confirm read as a typeof check (+9).
+  assert.ok(current.bytes <= 4_328_971, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

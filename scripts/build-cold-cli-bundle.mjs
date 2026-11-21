@@ -75,7 +75,11 @@ const FAMILIES = Object.freeze([
   ['catalogs', ['commands/capability-projects.mjs', 'commands/agents.mjs', 'commands/workflow.mjs', 'commands/workflow-list.mjs', 'workflow-archive.mjs',
     'accounting-projection.mjs',
     'commands/skill.mjs', 'commands/skill-master.mjs', 'commands/instruction.mjs', 'asset-catalog.mjs',
-    'configuration-drafts.mjs', 'logging.mjs', 'harness-events.mjs']],
+    'configuration-drafts.mjs', 'logging.mjs', 'harness-events.mjs',
+    // Step intents: the derivation configuration imports only for a workflow.yml that opts in (config.mjs
+    // loadStepIntentSettings), the inference and `workflow check --settings`. Unclaimed, the opt-in import would load
+    // the compatibility chunk; here a workflow without intents never loads them.
+    'step-intent-settings.mjs', 'step-intents.mjs', 'workflow-step-settings.mjs']],
   // Preserve existing read-family ownership before claiming the focused mutation closure.
   // One additional coarse file avoids loading the legacy generation/model engine on first writes.
   // The ordinary product requirement verdict must not import the entire phase/installer family.

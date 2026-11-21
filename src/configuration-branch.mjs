@@ -20,7 +20,7 @@ import {
   chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, utimes, writeFile
 } from 'node:fs/promises';
 import { initializeDefinition, loadDefinition, resolveWorkType } from './config.mjs';
-import { pinnedIntentProfile } from './step-intent-settings.mjs';
+import { pinnedIntentProfile } from './phase-roles.mjs';
 import {
   describeCapability, describeRepository, enableLedger, repositoryIdFromUrl,
   setDefaultBaseBranch
@@ -2225,11 +2225,7 @@ function verifiedStoryDefinition(snapshot) {
   return retained.definition;
 }
 
-/**
- * Resolve a Story work type and approval authority from the exact approved, retained bytes. `intentProfile` is the
- * step intent profile the Story pinned (pinnedIntentProfile): an amendment derives with it, not the repository's
- * current one, so an upgrade between the Story's start and its amendment changes nothing (step intents spec §7.6).
- */
+/** Resolve a Story work type and approval authority from the exact approved, retained bytes; `intentProfile` is its pinned one. */
 export function resolveApprovedStoryWorkType(snapshot, workTypeId, { intentProfile = null } = {}) {
   // resolveWorkType normalizes a fresh copy; neither the returned policy nor a caller-supplied
   // snapshot projection can modify the private approved definition used by later operations.
@@ -2247,7 +2243,6 @@ export function resolveApprovedStoryWorkType(snapshot, workTypeId, { intentProfi
 export async function resolveApprovedStoryWorkTypeFor(snapshot, workflow) {
   const workTypeId = workflow?.workItem?.workType;
   const closure = workflow?.resolution?.configurationSource?.closure;
-  // With the step intent profile the Story pinned at its start, as the Story itself was resolved.
   const intentProfile = pinnedIntentProfile(workflow?.resolution);
   if (closure?.kind !== 'work-type' || !Array.isArray(closure.workTypes)) return resolveApprovedStoryWorkType(snapshot, workTypeId, { intentProfile });
   return resolveWorkType((await storyConfigurationClosure(snapshot, closure.workTypes)).copyDefinition(), workTypeId, { intentProfile });

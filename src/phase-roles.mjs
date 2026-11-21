@@ -210,11 +210,7 @@ export function planStepIds(workType, phases) {
   return new Set(plan ? [plan.id] : []);
 }
 
-/**
- * Why `phase` is never approved automatically in this work type ("it is the plan"), or null when it may be.
- * `planSteps` names the plan when the work type's step intents settled it (step-intent-settings.mjs: the planner of
- * each code step); otherwise planStepIds reads it from the work type.
- */
+/** Why `phase` is never approved automatically ("it is the plan"), or null; `planSteps`, when step intents settled the plan. */
 export function automaticApprovalRefusal(phase, { workType = null, phases = [], planSteps = null } = {}) {
   if (!phase) return null;
   if ((planSteps ? new Set(planSteps) : planStepIds(workType, phases)).has(phase.id)) return 'it is the plan, which a person approves';
@@ -255,9 +251,7 @@ export function coveredStep(phase) {
  * What a step may say about what it is for (step intents spec §3, §7.1): `intent:`, one of these ten words, written on
  * the step itself, and `because:`, the reason for each of these settings the step sets itself rather than taking
  * from its intent (§7.3). Configuration checks both when it loads (config.mjs); the profiles that give each intent
- * its settings are in step-intents.mjs, and step-intent-settings.mjs derives a work type's settings from them when
- * every step says what it is for (workflow.yml version 4). Names still decide nothing: the engine reads the settings.
- * A work type's own `because:` names the work-type settings it sets itself (WORK_TYPE_BECAUSE_SETTINGS).
+ * its settings are in step-intents.mjs. Names still decide nothing: the engine reads the settings they derive.
  */
 export const STEP_INTENTS = Object.freeze(['intake', 'requirements', 'design', 'plan', 'code', 'test', 'review', 'release', 'report', 'document']);
 export const BECAUSE_SETTINGS = Object.freeze([
@@ -265,4 +259,14 @@ export const BECAUSE_SETTINGS = Object.freeze([
   'clarification', 'clarification.mode', 'approval', 'approval.mode', 'approval.automatic', 'approval.policy', 'approval.rejectTo',
   'repositoryTests', 'testEvidenceFrom', 'testRuns', 'repairBudget'
 ]);
-export const WORK_TYPE_BECAUSE_SETTINGS = Object.freeze(['plannedClaims', 'plannedClaims.clausePhases', 'plannedClaims.owners', 'sourceReview', 'sourceReview.skip']);
+
+// The cheap gate before step intents' derivation (step-intent-settings.mjs loads only behind it): workflow.yml version 4
+// or later with an intent or intentProfiles; a work type derives when every step has an intent. And a Story's pinned profile.
+export const INTENTS_FILE_VERSION = 4;
+const intentsFile = (definition) => Number.isSafeInteger(definition?.version) && definition.version >= INTENTS_FILE_VERSION && definition.phases && typeof definition.phases === 'object';
+export const declaresStepIntents = (definition) => Boolean(intentsFile(definition)) && (definition.intentProfiles !== undefined
+  || Object.values(definition.phases).some((phase) => typeof phase?.intent === 'string'));
+export const workTypeDerivesIntents = (definition, workType) => Boolean(intentsFile(definition)) && Array.isArray(workType?.phases)
+  && workType.phases.length > 0 && workType.phases.every((id) => STEP_INTENTS.includes(Object.hasOwn(definition.phases, id) ? definition.phases[id]?.intent : null)
+    && definition.phases[id].kind !== 'skill');
+export const pinnedIntentProfile = (resolution) => (resolution?.phases ?? []).find((phase) => Number.isSafeInteger(phase?.intentProfile))?.intentProfile ?? null;

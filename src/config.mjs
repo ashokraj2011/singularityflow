@@ -34,12 +34,9 @@ import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
 import {
-  automaticApprovalRefusal, BECAUSE_SETTINGS, isConvergencePhase, isVisualVerificationPhase, reviewKindForResponsibilities, STEP_INTENTS,
-  WORK_TYPE_BECAUSE_SETTINGS
+  automaticApprovalRefusal, BECAUSE_SETTINGS, declaresStepIntents, INTENTS_FILE_VERSION, isConvergencePhase, isVisualVerificationPhase,
+  reviewKindForResponsibilities, STEP_INTENTS, workTypeDerivesIntents
 } from './phase-roles.mjs';
-import {
-  declaredIntentProfile, deriveWorkTypeSettings, INTENT_PROFILE_VERSIONS, INTENTS_FILE_VERSION, knownIntentProfile
-} from './step-intent-settings.mjs';
 import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE, phaseTopologyFindings } from './phase-semantics.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
@@ -194,7 +191,6 @@ function assertStepAuthoringSkill(phase, label) {
 }
 
 function assertConfiguredPhaseProducer(value, label, phaseId, version) {
-  // Version 3 or later: compiled skill steps came with version 3, and version 4 keeps them.
   if (version >= 3 && value?.kind === 'skill') {
     validateConfiguredSkillPhase(value, phaseId);
     return;
@@ -484,15 +480,7 @@ const claimSteps = (r) => (r?.phases ?? []).map((p) => [p.id, currentSpecificati
 export function assertPlannedClaimsReady(resolved) {
   if (resolved?.plannedClaims?.mode !== 'migration-required') return resolved;
   const id = resolved.id ?? 'unknown';
-  if (resolved.plannedClaims.unplanned?.length) {
-    // A workflow of step intents with nothing before a code step to plan it (step intents spec §5): its two ways on.
-    throw new SingularityFlowError(`Workflow '${id}' cannot start a Story: ${resolved.plannedClaims.reason}`, {
-      code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',
-      details: { workType: id, reason: resolved.plannedClaims.reason, unplanned: [...resolved.plannedClaims.unplanned], steps: claimSteps(resolved),
-        nextAction: { command: 'singularity-flow workflow studio', label: resolved.plannedClaims.unscoped
-          ? 'Add a requirements step before it in Workflow Studio.' : 'Add a plan step before it in Workflow Studio.' } }
-    });
-  }
+  if (resolved.plannedClaims.unplanned) refuseWith(stepIntentSettingsNow().unplannedStartProblem(resolved, claimSteps(resolved)));
   throw new SingularityFlowError(
     `Workflow '${id}' predates the planned-claim contract and cannot start a new Story.`,
     {
@@ -954,20 +942,25 @@ export function normalizeModelProviders(value = {}) {
   return { defaultProvider, providers: normalized };
 }
 
-/**
- * The workflow.yml versions this build reads; a higher one was written by a newer SFlow (step intents spec §7.7, D4).
- * Version 3 added compiled skill steps; version 4 keeps everything version 3 means and adds that a work type whose
- * steps all say what they are for (`intent:`) derives its settings from them (step-intent-settings.mjs). A file that
- * uses no intents means the same at 3 and 4.
- */
+/** The workflow.yml versions this build reads; a higher one was written by a newer SFlow (step intents spec §7.7, D4). */
 export const WORKFLOW_FILE_VERSIONS = Object.freeze([2, 3, 4]);
 
-const words = (values) => (values.length < 2 ? values.join('') : `${values.slice(0, -1).join(', ')} and ${values.at(-1)}`);
-const newerSflowRefusal = (message, details) => new SingularityFlowError(`${message} Update SFlow, then run the command again. Nothing was changed.`, {
-  code: 'WORKFLOW_VERSION_NEWER',
-  details: { ...details, running: VERSION,
-    nextAction: { executable: 'singularity-flow', argv: ['update'], label: 'Update SFlow, then run the command again.' } }
-});
+// Step intents' derivation loads only when a workflow.yml opts in (declaresStepIntents): imported by loadDefinition, else required.
+let stepIntentSettings = null;
+export async function loadStepIntentSettings(definition = null) {
+  if (!stepIntentSettings && (!definition || declaresStepIntents(definition))) stepIntentSettings = await import('./step-intent-settings.mjs');
+  return stepIntentSettings;
+}
+function stepIntentSettingsNow() {
+  if (stepIntentSettings) return stepIntentSettings;
+  if (!process.features.require_module) {
+    throw new SingularityFlowError('These workflows derive their settings from step intents, which needs Node.js 22.12 or later or the SFlow-managed runtime.',
+      { code: 'STEP_INTENT_RUNTIME_UNSUPPORTED', details: { nextAction: { executable: 'singularity-flow', argv: ['update'], label: 'Update SFlow.' } } });
+  }
+  stepIntentSettings = createRequire(path.join(PACKAGE_ROOT, 'package.json'))(path.join(PACKAGE_ROOT, 'src/step-intent-settings.mjs'));
+  return stepIntentSettings;
+}
+const refuseWith = (problem) => { if (problem) throw new SingularityFlowError(problem.message, { code: problem.code, details: problem.details }); };
 
 /**
  * A workflow.yml from a newer SFlow is refused with the update, never with a factory reset: resetting would throw
@@ -975,48 +968,21 @@ const newerSflowRefusal = (message, details) => new SingularityFlowError(`${mess
  */
 function assertWorkflowFileVersionReadable(version) {
   if (!Number.isSafeInteger(version) || version <= Math.max(...WORKFLOW_FILE_VERSIONS)) return;
-  throw newerSflowRefusal(`This repository's workflows need a newer SFlow: workflow.yml is version ${version}, and this SFlow reads `
-    + `${words(WORKFLOW_FILE_VERSIONS.map(String))}.`, { version, readable: [...WORKFLOW_FILE_VERSIONS] });
+  throw new SingularityFlowError(
+    `This repository's workflows need a newer SFlow: workflow.yml is version ${version}, and this SFlow reads `
+      + `${WORKFLOW_FILE_VERSIONS.slice(0, -1).join(', ')} and ${WORKFLOW_FILE_VERSIONS.at(-1)}. Update SFlow, then run the command again. Nothing was changed.`, {
+      code: 'WORKFLOW_VERSION_NEWER',
+      details: {
+        version, readable: [...WORKFLOW_FILE_VERSIONS], running: VERSION,
+        nextAction: { executable: 'singularity-flow', argv: ['update'], label: 'Update SFlow, then run the command again.' }
+      }
+    }
+  );
 }
 
-/**
- * `intentProfiles`: the step intent profile this file's work types derive from (spec §7.1, §7.6). Read only in a
- * version 4 file; absent there it is 1, so its meaning never moves with the build. A profile this build does not
- * have was written for a newer SFlow, which is refused with the update (§7.5); a pinned Story asks for its own.
- */
-function assertIntentProfileReadable(profile, { version = INTENTS_FILE_VERSION, pinned = false } = {}) {
-  if (knownIntentProfile(profile)) return;
-  throw newerSflowRefusal(pinned
-    ? `This Story's workflow derives its settings from step intent profile ${profile}, which this SFlow does not have.`
-    : `This repository's workflows need a newer SFlow: they derive their settings from step intent profile ${profile}, and this SFlow has `
-      + `profile ${words(INTENT_PROFILE_VERSIONS.map(String))}.`, { version, intentProfiles: profile });
-}
-
-function assertIntentProfilesField(definition) {
-  if (!Object.hasOwn(definition, 'intentProfiles') || definition.intentProfiles === undefined) return;
-  const value = definition.intentProfiles;
-  const refuse = (message) => {
-    throw new SingularityFlowError(message, { code: 'STEP_INTENT_INVALID', details: { field: 'intentProfiles',
-      nextAction: { command: 'singularity-flow workflow studio', label: 'Fix intentProfiles in workflow.yml, or in Workflow Studio.' } } });
-  };
-  if (definition.version < INTENTS_FILE_VERSION) {
-    refuse(`intentProfiles is read only in a version ${INTENTS_FILE_VERSION} workflow.yml, and this one is version ${definition.version}. `
-      + `Set version: ${INTENTS_FILE_VERSION} to derive step settings from intents, or remove intentProfiles.`);
-  }
-  if (!Number.isSafeInteger(value) || value < 1) refuse(`intentProfiles must be a profile number, such as ${INTENT_PROFILE_VERSIONS[0]}; it is ${JSON.stringify(value)}.`);
-  assertIntentProfileReadable(value, { version: definition.version });
-}
-
-/**
- * `approval.automatic: off` says a person approves a step its intent would let SFlow approve when clean. It is read
- * only on a step with an intent in a version 4 file, where it is the override's own value (step-intent-settings.mjs);
- * everywhere else `automatic` is still when-ready or absent.
- */
-function approvalAsWritten(approval, phase, version) {
-  if (!(version >= INTENTS_FILE_VERSION) || typeof phase?.intent !== 'string' || !isMapping(approval) || approval.automatic !== 'off') return approval;
-  const { automatic: _off, ...rest } = approval;
-  return rest;
-}
+// `automatic: off` keeps a person on a step with an intent (version 4 only).
+const approvalAsWritten = (approval, phase, version) => (version >= INTENTS_FILE_VERSION && typeof phase?.intent === 'string' && approval?.automatic === 'off'
+  ? stepIntentSettingsNow().approvalWithoutOff(approval) : approval);
 
 const BECAUSE_REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const isMapping = (value) => value != null && typeof value === 'object' && !Array.isArray(value);
@@ -1032,9 +998,7 @@ export function stepIntentFieldProblems(step, { label = 'This step', override = 
   const problems = [];
   if (!isMapping(step)) return problems;
   if (step.kind === 'skill' && (Object.hasOwn(step, 'intent') || Object.hasOwn(step, 'because'))) {
-    // A compiled skill step runs as its reviewed binding says; nothing may derive or override its settings.
-    problems.push({ field: Object.hasOwn(step, 'intent') ? 'intent' : 'because', message: `${label} is a compiled skill step: its reviewed skill binding decides how it runs, `
-      + 'so it takes no intent or because. Remove them; a workflow with a skill step keeps its own settings and derives none from intents.' });
+    problems.push({ field: Object.hasOwn(step, 'intent') ? 'intent' : 'because', message: `${label} is a compiled skill step, which runs as its reviewed binding says: remove intent and because.` });
     return problems;
   }
   if (Object.hasOwn(step, 'intent')) {
@@ -1063,7 +1027,7 @@ export function stepIntentFieldProblems(step, { label = 'This step', override = 
   return problems;
 }
 
-/** A step's (or a work type's) `intent:` and `because:` as written, refused at load when wrong (spec §7.1, §7.5). */
+/** A step's (or work type's) `intent:` and `because:` as written: refused at load when wrong. */
 function assertStepIntentFields(value, label, { override = false, settings = BECAUSE_SETTINGS } = {}) {
   const [problem] = stepIntentFieldProblems(value, { label, override, settings });
   if (!problem) return;
@@ -1079,7 +1043,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError(`Legacy role-prompt configuration is no longer supported. Define Agent Markdown under ${AGENTS_HOME}.`);
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
-  assertIntentProfilesField(definition);
+  if (definition.intentProfiles !== undefined) refuseWith(stepIntentSettingsNow().intentProfilesProblem(definition, { running: VERSION }));
   // Settings of removed features (the registered World Model, its views, CALM architecture intent and
   // projection) load and are ignored; doctor names them.
   dropRemovedSettings(definition);
@@ -1088,7 +1052,6 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   // The repository's test commands, before any step's choice among them is checked [RTC:REQ-001].
   const repositoryTests = repositoryTestCommands(definition.tests);
   for (const [phaseId, phase] of Object.entries(definition.phases)) {
-    // Before the skill-step check, so a skill step given an intent hears why it takes none.
     assertStepIntentFields(phase, `Phase '${phaseId}'`);
     assertConfiguredPhaseProducer(phase, `Phase '${phaseId}'`, phaseId, definition.version);
     assertRepositoryTestSelection(phase, repositoryTests, `Phase '${phaseId}'`);
@@ -1097,9 +1060,8 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     normalizeStepActions(phase?.afterStep, definition.integrations, `Phase '${phaseId}'`);
   }
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
-    // Why the workflow sets a work-type setting its intents would give (plannedClaims, sourceReview.skip): §7.3.
     if (isMapping(workType) && Object.hasOwn(workType, 'because')) {
-      assertStepIntentFields({ because: workType.because }, `Work type '${workTypeId}'`, { settings: WORK_TYPE_BECAUSE_SETTINGS });
+      assertStepIntentFields({ because: workType.because }, `Work type '${workTypeId}'`, { settings: stepIntentSettingsNow().WORK_TYPE_BECAUSE_SETTINGS });
     }
     for (const [phaseId, override] of Object.entries(workType?.phaseOverrides ?? {})) {
       assertAuthoringSkillValue(override?.authoringSkill, `Work type '${workTypeId}' phase '${phaseId}' override`);
@@ -1659,6 +1621,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
      * VS Code extension, CI, and a teammate's laptop all hit this the moment one person upgrades.
      */
     try {
+      await loadStepIntentSettings(definition);
       await measureCommandSpan('configuration.validate', () => validateDefinition(definition, { storyBootstrap }));
     } catch (error) {
       if (!(error instanceof SingularityFlowError && /contains unknown field/.test(error.message))) throw await diagnosed(error);
@@ -2115,34 +2078,13 @@ function repositoryTestsPolicy(value, label) {
   return value;
 }
 
-/**
- * The intent derivation of one work type (step intents spec §7.2), or null when it derives nothing: its file is
- * older than version 4, or a step it runs has no intent. `intentProfile` is a Story's pinned profile, for an
- * amendment that resolves newer configuration (§7.6); otherwise the file's `intentProfiles` decides. A contradiction
- * between a step's intent and its own settings refuses the workflow with its fix (§7.5).
- */
+// With intents, the derivation; an amendment derives with the Story's pinned profile (§7.2, §7.6).
 function workTypeIntentDerivation(definition, workTypeId, intentProfile) {
-  const profile = intentProfile ?? declaredIntentProfile(definition);
-  const derivation = deriveWorkTypeSettingsChecked(definition, workTypeId, profile, intentProfile != null);
-  const [first, ...more] = derivation?.refusals ?? [];
-  if (!first) return derivation;
-  throw new SingularityFlowError(`Work type '${workTypeId}': ${first.message} ${first.fix}`, {
-    code: 'STEP_INTENT_INVALID',
-    details: { workType: workTypeId, phase: first.step, field: first.field, fix: first.fix,
-      problems: [first, ...more].map(({ step, field, message, fix }) => ({ step, field, message, fix })),
-      nextAction: { command: 'singularity-flow workflow studio', label: 'Fix the step in Workflow Studio, or in workflow.yml.' } }
-  });
-}
-
-function deriveWorkTypeSettingsChecked(definition, workTypeId, profile, pinned) {
-  const workType = declaredCatalogValue(definition.workTypes, workTypeId);
-  if (!(definition.version >= INTENTS_FILE_VERSION) || !workType) return null;
-  // Only a work type that derives needs the profile; another is unaffected by which profile the file names.
-  const derives = (workType.phases ?? []).every((id) => STEP_INTENTS.includes(declaredCatalogValue(definition.phases, id)?.intent));
-  if (!derives) return null;
-  assertIntentProfileReadable(profile, { version: definition.version, pinned });
-  const groups = Object.keys(normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity));
-  return deriveWorkTypeSettings(definition, workTypeId, { profile, groups });
+  if (!workTypeDerivesIntents(definition, declaredCatalogValue(definition.workTypes, workTypeId))) return null;
+  const { derivation, problem } = stepIntentSettingsNow().workTypeIntents(definition, workTypeId, { intentProfile, running: VERSION,
+    groups: Object.keys(normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity)) });
+  refuseWith(problem);
+  return derivation;
 }
 
 export function resolveWorkType(definition, workTypeId, { intentProfile = null } = {}) {
@@ -2167,15 +2109,13 @@ export function resolveWorkType(definition, workTypeId, { intentProfile = null }
     workTypeId, phases: workType.phases
   });
   const repositoryTests = repositoryTestCommands(definition.tests);
-  // A work type whose steps all say what they are for derives what they do not set themselves (step intents, Stage 2).
   const intents = workTypeIntentDerivation(definition, workTypeId, intentProfile);
   // The repository tests each step that runs tests chose, for the code step before it [PHR:REQ-007], item 8.
   const chosenRepositoryTests = new Map();
   let phases = workType.phases.map((id, order) => {
     const phase = structuredClone(declaredCatalogValue(definition.phases, id));
     const override = structuredClone(declaredCatalogValue(workType.phaseOverrides, id) ?? {});
-    // Derived: the step's settings over its intent's (the derivation merged the override first, then laid both over
-    // the profile). Otherwise the override over the step, as always.
+    // Derived: the step and its override laid over its intent's settings.
     const merged = intents ? structuredClone(intents.steps[order].settings) : mergePhaseOverride(phase, override);
     // A catalog id resolves to its path here, so every downstream reader — generation, the
     // designer, the catalog view — receives a path and never has to know which form was written.
@@ -2232,16 +2172,10 @@ export function resolveWorkType(definition, workTypeId, { intentProfile = null }
     const resolvedPhase = { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, sourceBoundary, inputs, template };
     // Read by people in the Studio and in explanations; a Story's pinned contract and prompts never carry it.
     delete resolvedPhase.description;
-    // What the step is for and why it differs from that. A work type that derives pins them with the profile it
-    // derived from, so a running Story keeps its settings and an amendment derives with the same profile (§7.6);
-    // any other work type resolves exactly as it did before step intents, without them.
+    // Pinned only when the work type derives (§7.6); any other resolves as before step intents.
     delete resolvedPhase.intent;
     delete resolvedPhase.because;
-    if (intents) {
-      resolvedPhase.intent = intents.steps[order].intent;
-      resolvedPhase.intentProfile = intents.profile;
-      if (intents.steps[order].because) resolvedPhase.because = structuredClone(intents.steps[order].because);
-    }
+    if (intents) Object.assign(resolvedPhase, intents.pin(order));
     assertCodeDeliveryConfiguration(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
     assertStepAuthoringSkill(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
     // Pinned with each target's settings, so a running Story keeps the actions it started with. A step
@@ -2272,7 +2206,6 @@ export function resolveWorkType(definition, workTypeId, { intentProfile = null }
   // Approve twice (owner, 2026-11-19): the plan, a step that may change source files, the design sources and a rework
   // loop's start are a person's to approve, never automatically (phase-roles.mjs).
   for (const phase of phases.filter((entry) => entry.approval?.automatic)) {
-    // With intents, the plan is the planner of each code step, the same steps the derivation gave a person.
     const why = automaticApprovalRefusal(phase, { workType, phases, planSteps: intents?.planSteps ?? null });
     if (why) throw new SingularityFlowError(`Work type '${workTypeId}' step '${phase.id}' cannot be approved automatically: ${why}.`,
       { code: 'AUTOMATIC_APPROVAL_NOT_ALLOWED', details: { workType: workTypeId, phase: phase.id,
@@ -2285,8 +2218,7 @@ export function resolveWorkType(definition, workTypeId, { intentProfile = null }
     inputs: phase.inputs.map((input) => ({ ...input, path: phaseById[input.phase]?.artifact?.path ?? null }))
   }));
   const documents = { ...(definition.documents ?? {}), ...(workType.documents ?? {}) };
-  // With intents: the work type's own list, else the steps whose intent takes attached documents; the repository-wide
-  // list, which names steps by ID, is not read for it.
+  // With intents: the work type's own list, else the steps whose intent takes attached documents.
   documents.allowedPhases = (intents ? intents.workType.allowedPhases : documents.allowedPhases ?? [])
     .filter((phaseId) => workType.phases.includes(phaseId));
   const sequenceGates = normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
@@ -2294,31 +2226,13 @@ export function resolveWorkType(definition, workTypeId, { intentProfile = null }
   const tokenEconomy = normalizeTokenEconomy(definition.tokenEconomy ?? {});
   const intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${workTypeId}' intelligence`);
   const configuredSpec = workTypeSpecPolicy(definition.spec, workType.spec);
-  // With intents, the requirement IDs and plan owners the workflow rules give, under what the work type declares, and
-  // what a workflow that changes no code leaves out with the reason the rule gives (spec §5).
+  // With intents: the rules' requirement IDs, plan owners and what a code-free workflow leaves out (§5).
   const omits = intents ? intents.workType.omits : workType.omits;
   let plannedClaims = normalizePlannedClaimsPolicy(intents ? intents.workType.plannedClaims : workType.plannedClaims, {
     workTypeId, phases, spec: configuredSpec,
     scopeOmission: (Array.isArray(omits) ? omits : []).find((entry) => entry?.responsibility === 'scope') ?? null
   });
-  if (intents?.facts.unplanned.length && plannedClaims.mode === 'migration-required') {
-    // Nothing before a code step plans it (the careful-change shape): Story start names the two ways on (§5).
-    const names = intents.facts.unplanned.map((id) => phases.find((phase) => phase.id === id)?.label ?? id);
-    plannedClaims = { ...plannedClaims, unplanned: [...intents.facts.unplanned],
-      reason: names.length === 1
-        ? `Nothing before ${names[0]} plans its change. Add a short plan step before it (recommended), or let it plan its own change: `
-          + 'declare omits for scope and plan on the workflow, with the reason and the group that decides.'
-        : `Nothing before ${words(names)} plans their changes. Add a short plan step before ${names[0]} (recommended), or let them plan their own changes: `
-          + 'declare omits for scope and plan on the workflow, with the reason and the group that decides.' };
-  } else if (intents?.facts.hasCode && !intents.facts.scopeSteps.length && plannedClaims.mode === 'migration-required') {
-    // A code workflow in which no step writes the requirement IDs (no intake, requirements or plan step): §5 gives
-    // nothing to write them, so Story start names the two ways on instead of the legacy planned-claims words.
-    const first = intents.facts.codeSteps[0];
-    const name = phases.find((phase) => phase.id === first)?.label ?? first;
-    plannedClaims = { ...plannedClaims, unplanned: [first], unscoped: true,
-      reason: `No step before ${name} writes the requirements it builds. Add an intake or requirements step before it (recommended), or let it work `
-        + 'without requirement IDs: declare omits for scope and plan on the workflow, with the reason and the group that decides.' };
-  }
+  if (intents) plannedClaims = stepIntentSettingsNow().unplannedClaims(plannedClaims, intents, (id) => phases.find((phase) => phase.id === id)?.label ?? id);
   // An explicit topology opt-out is an acceptance-policy decision, not documentation beside a
   // still-active gate. Resolve acceptance to off so every existing lifecycle consumer observes
   // the decision even before it learns about the richer plannedClaims metadata.

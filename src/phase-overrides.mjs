@@ -1,8 +1,7 @@
 /**
  * A phase as one work type runs it. The resolver, Studio and markup compiler share this rule:
  * nested contract settings merge key by key; explicitly named fields replace shared defaults.
- * `because` (why a step sets a framework setting itself, step intents spec §7.1) merges key by key too, so a
- * workflow's reason for one setting keeps the shared step's reasons for the others; a phase without one keeps its shape.
+ * `because` merges key by key too; a phase without one keeps its shape.
  */
 export function mergePhaseOverride(phase, override = {}) {
   const because = phase?.because != null || override?.because != null

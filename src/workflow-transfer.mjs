@@ -49,7 +49,7 @@ import {
 } from './workflow-transfer-resolution.mjs';
 import { bundleContentsLines, planEntriesText } from './workflow-transfer-resolution.mjs';
 import { assertWorkflowReadinessChanges, validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { INTENTS_FILE_VERSION } from './step-intent-settings.mjs';
+import { INTENTS_FILE_VERSION } from './phase-roles.mjs';
 import { constitutionPolicy, parseConstitution } from './constitution.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';

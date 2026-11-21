@@ -30,9 +30,16 @@
  * page can run the same derivation (Stage 3).
  */
 import { mergePhaseOverride } from './phase-overrides.mjs';
-import { automaticApprovalRefusal, BECAUSE_SETTINGS, isConvergencePhase, STEP_INTENTS, WORK_TYPE_BECAUSE_SETTINGS } from './phase-roles.mjs';
+import {
+  automaticApprovalRefusal, BECAUSE_SETTINGS, INTENTS_FILE_VERSION, isConvergencePhase, pinnedIntentProfile, STEP_INTENTS,
+  workTypeDerivesIntents
+} from './phase-roles.mjs';
 
-export { BECAUSE_SETTINGS, STEP_INTENTS, WORK_TYPE_BECAUSE_SETTINGS };
+// The cheap gate and the pin reader live in the import-free phase-roles.mjs, so a workflow without intents never loads this.
+export { BECAUSE_SETTINGS, INTENTS_FILE_VERSION, pinnedIntentProfile, STEP_INTENTS, workTypeDerivesIntents };
+
+/** The work-type settings a work type's own `because:` may name (spec §7.3): those its steps' intents give. */
+export const WORK_TYPE_BECAUSE_SETTINGS = Object.freeze(['plannedClaims', 'plannedClaims.clausePhases', 'plannedClaims.owners', 'sourceReview', 'sourceReview.skip']);
 
 // ---------------------------------------------------------------------------------------------
 // Profiles (spec §4), shared with step-intents.mjs, which re-exports them with the inference (§6.1)
@@ -310,8 +317,6 @@ export function deriveWorkflowSettings(steps, options = {}) {
 // ---------------------------------------------------------------------------------------------
 // A work type's settings (spec §7.2)
 
-/** The workflow.yml version whose work types derive their settings from step intents (spec §7.7, D4). */
-export const INTENTS_FILE_VERSION = 4;
 /** The profile a version-4 workflow.yml without `intentProfiles` derives from: always the first, so it never moves. */
 export const FIRST_INTENT_PROFILE = 1;
 
@@ -330,12 +335,6 @@ export function declaredIntentProfile(definition) {
 export const INTENT_PROFILE_VERSIONS = Object.freeze(Object.keys(INTENT_PROFILES).map(Number));
 export const knownIntentProfile = (version) => Number.isSafeInteger(version) && Object.hasOwn(INTENT_PROFILES, String(version));
 
-/** The pinned profile of a Story's resolution, from its steps; null for a Story whose workflow derived nothing. */
-export function pinnedIntentProfile(resolution) {
-  const pinned = (resolution?.phases ?? []).find((phase) => Number.isSafeInteger(phase?.intentProfile));
-  return pinned ? pinned.intentProfile : null;
-}
-
 /** Each step a work type runs, with the intent it declares (null when none) and whether it is a compiled skill step. */
 export function workTypeIntentSteps(definition, workType) {
   const ids = Array.isArray(workType?.phases) ? workType.phases : [];
@@ -344,13 +343,6 @@ export function workTypeIntentSteps(definition, workType) {
     return { id, label: typeof step.label === 'string' ? step.label : id, intent: STEP_INTENTS.includes(step.intent) ? step.intent : null,
       skill: step.kind === 'skill' };
   });
-}
-
-/** Whether a work type derives its settings from its steps' intents: version 4 or later, and every step says one. */
-export function workTypeDerivesIntents(definition, workType) {
-  if (!Number.isSafeInteger(definition?.version) || definition.version < INTENTS_FILE_VERSION) return false;
-  const steps = workTypeIntentSteps(definition, workType);
-  return steps.length > 0 && steps.every((step) => !step.skill && step.intent);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -429,6 +421,103 @@ const NO_CODE_REASONS = Object.freeze({
   implement: 'This workflow changes no code; a change it finds is made in a Story of its own.',
   verify: 'This workflow changes nothing in the product, so there is no change of its own to verify.'
 });
+
+// ---------------------------------------------------------------------------------------------
+// Refusals configuration raises for a workflow that opts in (config.mjs throws them; built here so a workflow
+// without intents loads none of their words). Each is `{ message, code, details }`.
+
+const listed = (values) => (values.length < 2 ? values.join('') : `${values.slice(0, -1).join(', ')} and ${values.at(-1)}`);
+const UPDATE = Object.freeze({ executable: 'singularity-flow', argv: ['update'], label: 'Update SFlow, then run the command again.' });
+const STUDIO = (label) => ({ command: 'singularity-flow workflow studio', label });
+
+/** A profile this build does not have: the repository's, or one a Story pinned. Refused with the update (§7.5). */
+export function unknownProfileProblem(profile, { version = INTENTS_FILE_VERSION, pinned = false, running = null } = {}) {
+  if (knownIntentProfile(profile)) return null;
+  const said = pinned ? `This Story's workflow derives its settings from step intent profile ${profile}, which this SFlow does not have.`
+    : `This repository's workflows need a newer SFlow: they derive their settings from step intent profile ${profile}, and this SFlow has `
+      + `profile ${listed(INTENT_PROFILE_VERSIONS.map(String))}.`;
+  return { message: `${said} Update SFlow, then run the command again. Nothing was changed.`, code: 'WORKFLOW_VERSION_NEWER',
+    details: { version, intentProfiles: profile, running, nextAction: UPDATE } };
+}
+
+/**
+ * `intentProfiles` as written (spec §7.1, §7.6): read only in a version 4 file; absent there it is 1, so its meaning never
+ * moves with the build. Null when it is fine.
+ */
+export function intentProfilesProblem(definition, { running = null } = {}) {
+  const value = definition?.intentProfiles;
+  if (value === undefined) return null;
+  const invalid = (message) => ({ message, code: 'STEP_INTENT_INVALID',
+    details: { field: 'intentProfiles', nextAction: STUDIO('Fix intentProfiles in workflow.yml, or in Workflow Studio.') } });
+  if (!(definition.version >= INTENTS_FILE_VERSION)) {
+    return invalid(`intentProfiles is read only in a version ${INTENTS_FILE_VERSION} workflow.yml, and this one is version ${definition.version}. `
+      + `Set version: ${INTENTS_FILE_VERSION} to derive step settings from intents, or remove intentProfiles.`);
+  }
+  if (!Number.isSafeInteger(value) || value < 1) return invalid(`intentProfiles must be a profile number, such as ${FIRST_INTENT_PROFILE}; it is ${JSON.stringify(value)}.`);
+  return unknownProfileProblem(value, { version: definition.version, running });
+}
+
+/** The first contradiction of a work type's derivation, with every one in its details (§7.5); null when there is none. */
+export function contradictionProblem(workTypeId, refusals) {
+  const [first] = refusals ?? [];
+  if (!first) return null;
+  return { message: `Work type '${workTypeId}': ${first.message} ${first.fix}`, code: 'STEP_INTENT_INVALID',
+    details: { workType: workTypeId, phase: first.step, field: first.field, fix: first.fix,
+      problems: refusals.map(({ step, field, message, fix }) => ({ step, field, message, fix })),
+      nextAction: STUDIO('Fix the step in Workflow Studio, or in workflow.yml.') } };
+}
+
+/**
+ * A planned-claims contract the workflow rules could not give (§5): nothing before a code step plans it, or no step
+ * writes the requirement IDs. Story start then names the two ways on, with these words, instead of the legacy ones.
+ */
+export function unplannedClaims(plannedClaims, derivation, labelOf) {
+  if (plannedClaims?.mode !== 'migration-required' || !derivation) return plannedClaims;
+  const { facts } = derivation;
+  const omits = 'declare omits for scope and plan on the workflow, with the reason and the group that decides.';
+  if (facts.unplanned.length) {
+    const names = facts.unplanned.map(labelOf);
+    return { ...plannedClaims, unplanned: [...facts.unplanned], reason: names.length === 1
+      ? `Nothing before ${names[0]} plans its change. Add a short plan step before it (recommended), or let it plan its own change: ${omits}`
+      : `Nothing before ${listed(names)} plans their changes. Add a short plan step before ${names[0]} (recommended), or let them plan their own changes: ${omits}` };
+  }
+  if (!facts.hasCode || facts.scopeSteps.length) return plannedClaims;
+  const name = labelOf(facts.codeSteps[0]);
+  return { ...plannedClaims, unplanned: [facts.codeSteps[0]], unscoped: true,
+    reason: `No step before ${name} writes the requirements it builds. Add an intake or requirements step before it (recommended), or let it work `
+      + `without requirement IDs: ${omits}` };
+}
+
+/**
+ * A work type's derivation as configuration resolves it (config.mjs, behind workTypeDerivesIntents): with its profile,
+ * a Story's pinned one for an amendment (§7.6), refused when this build lacks it or a step contradicts its intent
+ * (§7.5). `{ derivation }` or `{ problem }`; the derivation's `pin(order)` is what each resolved step pins.
+ */
+export function workTypeIntents(definition, workTypeId, { intentProfile = null, groups = null, running = null } = {}) {
+  const profile = intentProfile ?? declaredIntentProfile(definition);
+  const unknown = unknownProfileProblem(profile, { version: definition.version, pinned: intentProfile != null, running });
+  if (unknown) return { problem: unknown };
+  const derivation = deriveWorkTypeSettings(definition, workTypeId, { profile, groups });
+  const problem = contradictionProblem(workTypeId, derivation.refusals);
+  if (problem) return { problem };
+  derivation.pin = (order) => ({ intent: derivation.steps[order].intent, intentProfile: derivation.profile,
+    ...(derivation.steps[order].because ? { because: structuredClone(derivation.steps[order].because) } : {}) });
+  return { derivation };
+}
+
+/** `approval.automatic: off` keeps a person on a step its intent would let SFlow approve: read only on such a step. */
+export function approvalWithoutOff(approval) {
+  const { automatic: _off, ...rest } = approval;
+  return rest;
+}
+
+/** Story start's refusal of such a contract, with its two ways on. */
+export function unplannedStartProblem(resolved, steps) {
+  const claims = resolved.plannedClaims;
+  return { message: `Workflow '${resolved.id}' cannot start a Story: ${claims.reason}`, code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',
+    details: { workType: resolved.id, reason: claims.reason, unplanned: [...claims.unplanned], steps,
+      nextAction: STUDIO(`Add a ${claims.unscoped ? 'requirements' : 'plan'} step before it in Workflow Studio.`) } };
+}
 
 // ---------------------------------------------------------------------------------------------
 // Derivation

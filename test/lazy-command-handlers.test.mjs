@@ -936,7 +936,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // skill for another answer left out of a step (skill-library.mjs storyValueCondition, recordedStoryValues,
     // skillAppliesToStory, used in agents.mjs and retained-skill-instructions.mjs). No new eager file.
     // 9,843,339 (measured on the integration branch, 2026-11-21): Stages 4-6, D1 and the loose ends together.
-    assert.ok(closure.bytes <= 9_843_339, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,835,083 (measured for submit.mjs, +1,811, 2026-11-21, approval-focus): SFlow writes the verification evidence and the
+    // release conformance report from its records where the step's content is derivable (owner, 2026-11-21: too many approvals
+    // of almost similar documents): prepare and publish call it (state.mjs), the approval act leads with what needs the
+    // person's eyes (agent-output.mjs) and the shorter implementation template's earlier digest stays known
+    // (packaged-asset-history.mjs). The writer and the focus load only when used (record-documents.mjs, approval-focus.mjs).
+    // No new eager file.
+    // 9,845,150 (measured on the integration branch with approval-focus, 2026-11-21): the two together.
+    assert.ok(closure.bytes <= 9_845_150, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1461,7 +1468,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,334,585 (measured, +200, 2026-11-21, intents-stage5): `testEvidenceFrom: false` read as absent (config.mjs). No new eager file.
   // 4,335,893 (measured, +1,508, 2026-11-21, loose-ends): the Story value's skill choice in skill-library.mjs. No new eager file.
   // 4,338,331 (measured on the integration branch, 2026-11-21): Stages 4-6, D1 and the loose ends together.
-  assert.ok(current.bytes <= 4_338_331, `session current loads ${current.bytes} source bytes`);
+  // 4,334,573 (measured, +188, 2026-11-21, approval-focus): the shorter implementation template's earlier digest stays known,
+  // so an unmodified copy upgrades (packaged-asset-history.mjs). No new eager file.
+  // 4,338,519 (measured on the integration branch with approval-focus, 2026-11-21): the two together.
+  assert.ok(current.bytes <= 4_338_519, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

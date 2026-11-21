@@ -16,6 +16,8 @@ import { witnessNames } from '../../wel-review.mjs';
  */
 export function printPhaseReview(review, { showArtifact = false } = {}) {
   console.log(`\n${style.heading('Generated documents ready for review')} ${style.detail(style.fields(review.workId, review.phase, `generation ${review.generation}`))}`);
+  // An approval leads with what needs the person's eyes, then only what is new to them [owner, 2026-11-21].
+  if (review.approvalFocus) printApprovalFocus(review.approvalFocus);
   // The step's route, not a record of who produced this generation: that is its authorship. The
   // automatic route is what every step that names no skill drafts on, so repeating it on every
   // submit, approve and review says nothing; it is printed only with the warning that a configured
@@ -146,4 +148,30 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
     console.log('');
     printCommandRoutes(`singularity-flow documents view <id> --work-id ${review.workId}`, { label: style.action('Read them') });
   }
+}
+
+/**
+ * The approval's focus (src/approval-focus.mjs), first: each item with where it is, the "checked by SFlow" line, then each
+ * document in one line with its folded sections and the diff of each changed one. Read from the review's own data, so
+ * printing an approval loads nothing more.
+ */
+function printApprovalFocus(focus) {
+  const where = (item) => [item.at?.path ? `${item.at.path}${item.at.line ? `:${item.at.line}` : ''}` : null, item.at?.section ? `section "${item.at.section}"` : null,
+    item.at?.requirement && !item.at?.path ? `requirement ${item.at.requirement}` : null].filter(Boolean).join(', ');
+  console.log(`\n${style.heading(focus.eyes.title)}`);
+  for (const item of [...focus.eyes.items, ...(focus.eyes.more ?? [])]) console.log(`  ${item.id}. ${item.words}${where(item) ? `  [${where(item)}]` : ''}`);
+  if (focus.eyes.none) console.log(`  ${focus.eyes.none}`);
+  console.log(`  ${focus.eyes.checked}`);
+  console.log(`\n${style.heading(`What is new (${focus.words.shown} of ${focus.words.full} words to read)`)}`);
+  for (const document of focus.documents) {
+    console.log(`  ${document.line}`);
+    for (const line of document.folded ?? []) console.log(`    ${line}`);
+    for (const section of document.sections ?? []) {
+      if (section.state === 'removed') console.log(`    ${section.title}: removed`);
+      if (section.state !== 'changed') continue;
+      console.log(`    ${section.title}:`);
+      for (const entry of section.diff) console.log(`      ${entry.op} ${entry.text.trim()}`);
+    }
+  }
+  console.log(`  ${focus.binding}\n`);
 }

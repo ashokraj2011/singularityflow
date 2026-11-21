@@ -27,6 +27,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
+
+/** The version of the workflow this package ships, which a reset or a fresh install writes. */
+const SHIPPED_WORKFLOW_VERSION = YAML.parse(readFileSync(new URL('../templates/workflow.yml', import.meta.url), 'utf8')).version;
 import { initializeDefinition } from '../src/config.mjs';
 import { confirmCode } from '../src/confirm-code.mjs';
 import { buildRepositoryReadinessPlan, executeRepositoryReadinessPlan } from '../src/initialization/runtime-readiness.mjs';
@@ -892,8 +895,9 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   };
   await registered.commands.get('singularityFlow.factoryReset')();
   assert.equal(registered.openDialogs.at(-1)?.title, 'Choose the Git repository to factory reset');
-  assert.equal(YAML.parse(await readFile(workflowFile, 'utf8')).version, 2,
-    'the guarded editor action installs workflow v2 from the bundled CLI');
+  // The shipped workflow's own version (4 since step intents Stage 4), not a pinned number.
+  assert.equal(YAML.parse(await readFile(workflowFile, 'utf8')).version, SHIPPED_WORKFLOW_VERSION,
+    'the guarded editor action installs the bundled CLI\'s workflow');
   assert.equal(registered.errors.length, 0, registered.errors.join('\n'));
   assert.deepEqual(registered.errors, [], 'degraded configuration is rendered rather than raised as an editor error');
 });
@@ -998,7 +1002,7 @@ Preserve this custom repository agent during reinitialization.
   assert.ok(registered.warningDetails.some((detail) =>
     /Invalid custom agent[\s\S]*company-malformed\.agent\.md[\s\S]*preserved byte-for-byte/i
       .test(detail ?? '')));
-  assert.equal(YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8')).version, 2);
+  assert.equal(YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8')).version, SHIPPED_WORKFLOW_VERSION);
   assert.equal(await readFile(path.join(root, 'app.txt'), 'utf8'), 'application remains\n');
   assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), beforeHead);
   assert.ok(registered.warnings.some((message) => /Factory reset all local Singularity Flow data/.test(message)));
@@ -3204,10 +3208,14 @@ for (const approvalSurface of ['native', 'chat']) test(`${approvalSurface} start
   });
   await until(() => panel.webview.html.includes('This phase has no human specification-quality checklist') ? true : null);
   assert.doesNotMatch(panel.webview.html, /<h2>Specification quality checklist<\/h2>/);
+  // What the page asks, without the specification's own sections that "What is new" shows (approval-focus.mjs): a
+  // section titled "Boundary conditions" is the document's, not a checklist question.
+  const asked = panel.webview.html.replace(/<section class="approval-(?:focus|new)"[\s\S]*?<\/section>/gu, '');
+  assert.match(panel.webview.html, /<h2>What needs your eyes<\/h2>/u, 'the page opens with what needs the person\'s eyes');
   for (const article of [
     'Completeness', 'Ambiguity', 'Consistency', 'Verifiability', 'Boundary conditions',
     'Non-functional requirements'
-  ]) assert.doesNotMatch(panel.webview.html, new RegExp(article));
+  ]) assert.doesNotMatch(asked, new RegExp(article));
   assert.match(panel.webview.html, /Self-approval — not independent review/);
   assert.match(panel.webview.html, /CFA-STORY/);
   assert.match(panel.webview.html,

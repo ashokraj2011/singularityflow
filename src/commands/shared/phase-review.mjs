@@ -104,7 +104,7 @@ async function reviewDisputesOf(root, config, workflow, phase) {
   } catch { return {}; }
 }
 
-export async function phaseReview(root, config, workflow, phase, { includeContinuation = false, includeApprovalCheck = true, includeSheet = false } = {}) {
+export async function phaseReview(root, config, workflow, phase, { includeContinuation = false, includeApprovalCheck = true, includeSheet = false, includeFocus = true } = {}) {
   const documentRead = await measureCommandSpan('phase.document-catalog', () => createDocumentReadSession(root, config, workflow));
   const records = documentRead.records
     .filter((record) => ['artifact', 'agent-brief'].includes(record.type)
@@ -205,7 +205,7 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     evidenceConsistency: await (await import('../../evidence-consistency-read.mjs')).readEvidenceConsistency(
       root, config, workflow, phase, { documents })
   }));
-  return {
+  const review = {
     schemaVersion: 1,
     workId: workflow.workItem.id,
     phase: phase.id,
@@ -284,4 +284,10 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
       problem: issue.problem, status, supersededBy, decide: upstreamIssueDecideCommand(workflow.workItem.id, issue, supersededBy, workflow) })),
     ...(await phaseAuthoringSummary(root, config, workflow, phase, { documents, includeContinuation }))
   };
+  // What needs the approver's eyes, and only what is new to them, first on every approval surface [owner, 2026-11-21].
+  if (includeFocus && phase.status === 'awaiting_approval' && phase.id === workflow.currentPhase) {
+    const focus = await (await import('../../approval-focus.mjs')).approvalFocus(root, config, workflow, phase, review).catch(() => null);
+    if (focus) return { approvalFocus: focus, ...review };
+  }
+  return review;
 }

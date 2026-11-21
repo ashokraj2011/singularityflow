@@ -837,6 +837,9 @@
       "versionArithmetic": 1,
       "lifecycleCommands": 1
     },
+    "workflow-walk/quick.mjs": {
+      "predicateCalls": 1
+    },
     "workflow-walk/walk.mjs": {
       "skillChooserCalls": 1,
       "lifecycleCommands": 3
@@ -875,7 +878,7 @@
         "computedCommands": 1
       },
       "apps/vscode/src/actions.ts": {
-        "argvRoutes": 2,
+        "argvRoutes": 3,
         "computedCommands": 3
       },
       "apps/vscode/src/cli/client.ts": {
@@ -1212,6 +1215,9 @@
       },
       "workflow-task.mjs": {
         "argvRoutes": 3
+      },
+      "workflow-walk/quick.mjs": {
+        "mapRoutes": 1
       },
       "workflow-walk/walk.mjs": {
         "argvRoutes": 15,

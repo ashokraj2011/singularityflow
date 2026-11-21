@@ -1,19 +1,21 @@
 # {{work.id}} — Implementation Summary
 
+<!-- sflow:guidance Say what changed, why, and the decisions made. Never restate the requirements or the plan; SFlow shows them, and records the test runs itself. -->
+
 ## Agent brief
 
-<!-- sflow:guidance Summarize the implemented outcome, consequential decisions, changed surfaces, validation result, remaining limitations, and rollout considerations for downstream agents. Keep it evidence-based; the detailed changed-components and test sections are preserved separately. -->
+<!-- sflow:guidance Two or three sentences for later steps: what changed, why, and any limitation or rollout note. -->
 
 TODO: Write the Agent brief here as visible text; text inside the comment above is not read.
 
-## Implemented outcome
-
-TODO: Summarize the implemented behavior.
-
 ## Changed components and decisions
 
-TODO: Cite exact changed product-source paths and the qualified `@clause:{{work.id}}:REQ-001`-style comments that bind applicable planned clauses to implementation. Explain configuration, migrations, deviations, and reviewed test-only or non-code dispositions. A tag alone is not proof of behavior. For configuration or documentation outcomes, cite the build, CI or inspection result that shows the outcome holds, and write `Not applicable: <reason>` for tags.
+<!-- sflow:guidance Each changed product-source path and why, citing the qualified `@clause:{{work.id}}:REQ-001`-style comment that binds a planned clause (a tag alone is not proof of behavior). Each decision the plan did not settle, with its reason. For a configuration or documentation outcome, cite the build or inspection result and write `Not applicable: <reason>` for tags. -->
+
+TODO: List what changed, why, and the decisions made.
 
 ## Tests and operational notes
 
-TODO: List executable tests tagged with qualified `@ac:{{work.id}}:AC-001` IDs, exact commands and observed results, limitations, flags, and rollout notes. Test tags belong in test files; source-bound clause tags belong in product source. For configuration or documentation outcomes, cite the build, CI or inspection result that shows the outcome holds, and write `Not applicable: <reason>` for tags.
+<!-- sflow:guidance The tests added or changed, tagged `@ac:{{work.id}}:AC-001` in test files, and what an operator must know (flags, limits, rollout). -->
+
+TODO: Name the tests added or changed, and any operational notes.

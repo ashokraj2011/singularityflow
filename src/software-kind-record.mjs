@@ -64,14 +64,14 @@ export async function recordedSoftwareKinds(root) {
   return { projects: records.filter(Boolean).flatMap((record) => record.projects.map((project) => ({ ...project, confirmed: true }))) };
 }
 
-/** `--set PROJECT=KIND` values as a map, refused when a kind or project is not one SFlow knows. */
+/** `--kind PROJECT=KIND` values as a map, refused when a kind or project is not one SFlow knows. */
 export function parseKindOverrides(values, projects) {
   const overrides = new Map();
   for (const value of values ?? []) {
     const match = /^([^=\s]+)=([a-z]+)$/u.exec(String(value));
     const id = match?.[1] === 'this' && projects.length === 1 ? projects[0].id : match?.[1];
     if (!match || !SOFTWARE_KINDS.includes(match[2])) {
-      throw new SingularityFlowError(`--set takes PROJECT=KIND, with KIND one of ${SOFTWARE_KINDS.join(', ')}; '${value}' is not that.`,
+      throw new SingularityFlowError(`--kind takes PROJECT=KIND, with KIND one of ${SOFTWARE_KINDS.join(', ')}; '${value}' is not that.`,
         { code: 'SOFTWARE_KIND_USAGE', details: { nextAction: 'singularity-flow capability kind --json' } });
     }
     if (!projects.some((project) => project.id === id)) {
@@ -117,6 +117,12 @@ export function kindQuestion(kinds) {
   return `${said.join('. ')}. Right?`;
 }
 
+/** A ready `capability kind` command naming each kind `project` is not shown as now. */
+function kindChoices(project, own, sets) {
+  return SOFTWARE_KINDS.filter((kind) => kind !== project.kind).map((kind) => ({ kind,
+    command: ['singularity-flow capability kind', ...own, ...sets, `--kind ${project.id}=${kind}`, '--json'].join(' ') }));
+}
+
 /** The read `capability kind` shows: the kinds, the question while one is unconfirmed, and its confirm and correct routes. */
 export async function softwareKindsView(root, { capabilityId = null, overrides: requested = [] } = {}) {
   const [{ checkoutFilesWithText }, { detectSoftwareKinds, softwareKindTextFiles }] = await Promise.all([
@@ -128,13 +134,14 @@ export async function softwareKindsView(root, { capabilityId = null, overrides: 
   const overrides = parseKindOverrides(requested, detected.projects);
   const kinds = effectiveSoftwareKinds(capability, detected, record, overrides);
   const question = kindQuestion(kinds);
-  const sets = [...overrides].map(([id, kind]) => `--set ${id}=${kind}`);
+  const sets = [...overrides].map(([id, kind]) => `--kind ${id}=${kind}`);
   const own = capabilityId ? ['--capability', capabilityId] : [];
   const confirm = question || overrides.size ? { command: ['singularity-flow capability kind', ...own, ...sets, '--confirm', kinds.digest].join(' '),
     words: overrides.size ? 'Record the kinds as corrected.' : 'Yes: record these kinds.' } : null;
   const unknown = kinds.projects.find((project) => !project.kind) ?? kinds.projects.find((project) => !project.confirmed) ?? kinds.projects[0];
-  const correct = unknown ? { command: ['singularity-flow capability kind', ...own, `--set ${unknown.id}=<KIND>`].join(' '),
-    words: `No: name the kind (${SOFTWARE_KINDS.join(', ')}); SFlow shows the corrected line to confirm.` } : null;
+  // No: one ready command per other kind, nothing to fill in; each shows the corrected line to confirm.
+  const correct = unknown ? { project: unknown.id, words: 'No: run the one for its kind; SFlow shows the corrected line to confirm.',
+    choices: kindChoices(unknown, own, sets.filter((entry) => !entry.startsWith(`--kind ${unknown.id}=`))) } : null;
   return { schemaVersion: 1, resultType: 'sflow-software-kinds', capability, projects: kinds.projects, confirmed: kinds.confirmed, digest: kinds.digest,
     ...(record ? { recordedAt: record.confirmedAt ?? null } : {}), question, ...(confirm ? { confirm } : {}), ...(question ? { correct } : {}),
     notes: [...detected.notes] };
@@ -153,8 +160,10 @@ export async function confirmSoftwareKinds(root, { capabilityId = null, digest, 
   }
   if (view.projects.some((project) => !project.kind)) {
     const unknown = view.projects.find((project) => !project.kind);
-    throw new SingularityFlowError(`SFlow cannot tell what kind of software ${projectName(unknown)} is, so there is nothing to confirm for it yet. Name it with --set ${unknown.id}=<KIND>.`,
-      { code: 'SOFTWARE_KIND_UNKNOWN', details: { nextAction: { command: `singularity-flow capability kind --set ${unknown.id}=<KIND> --json`, label: `Name the kind of ${projectName(unknown)}.` } } });
+    const choices = kindChoices(unknown, capabilityId ? ['--capability', capabilityId] : [], []);
+    throw new SingularityFlowError(`SFlow cannot tell what kind of software ${projectName(unknown)} is, so there is nothing to confirm for it yet. Name its kind with one of the commands given; each shows the line to confirm.`,
+      { code: 'SOFTWARE_KIND_UNKNOWN', details: { nextAction: { command: choices[0].command, label: `If ${projectName(unknown)} is ${KIND_WORDS[choices[0].kind]}.` },
+        recoveryCommands: choices.slice(1).map((choice) => ({ command: choice.command, label: `If it is ${KIND_WORDS[choice.kind]}.` })) } });
   }
   const { identity } = await import('./git.mjs');
   const actor = identity(root, { offline: true });

@@ -2510,7 +2510,7 @@ const PAGES = Object.freeze({
       ['--dry-run', 'For onboard, inspect one repository and return a ref-bound plan without writing.'],
       ['--path CHECKOUT', 'For projects, read a local checkout at its HEAD instead of a repository URL.'],
       ['--branch NAME', 'For projects, the branch to read; the repository\'s default branch otherwise.'],
-      ['--set PROJECT=KIND', 'For kind, name a project\'s kind of software (web, backend, job, cli, library, mobile, artifact) before confirming it.'],
+      ['--kind PROJECT=KIND', 'For kind, name a project\'s kind of software (web, backend, job, cli, library, mobile, artifact) before confirming it.'],
       ['--confirm-plan sha256:<PLAN>', 'For onboard, apply only the exact unchanged plan returned by dry-run.'],
       ['--migrate | --recreate | --reset-local', 'Choose one explicit recovery mode: current-v2 packaged-seed reconciliation, recreation, or lead-registry/organisation-cache reset. Preview it separately before confirmation.'],
       ['--state-branch NAME', 'Inspect an explicitly selected SFlow state branch; an unrecognized branch is never overwritten.'],

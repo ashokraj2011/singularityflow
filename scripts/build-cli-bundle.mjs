@@ -36,7 +36,9 @@ export const CLI_BUNDLE_ENTRIES = Object.freeze({
   'configuration-proposal-sync-worker': 'src/configuration-proposal-sync-worker.mjs'
 });
 // Rarely used, large, or needing their own files: loaded from node_modules as before.
-const EXTERNAL = ['typescript', 'pyright', 'sql.js', 'sql.js/*', '@agentclientprotocol/sdk', '@agentclientprotocol/sdk/*'];
+// playwright-core: SFlow's pinned review browser, reached from bundled code since the runtime check (runtime-check-web.mjs)
+// loads it from the review; bundled, its optional chromium-bidi import broke every command that loads its chunk.
+const EXTERNAL = ['typescript', 'pyright', 'sql.js', 'sql.js/*', '@agentclientprotocol/sdk', '@agentclientprotocol/sdk/*', 'playwright-core', 'playwright-core/*'];
 
 /**
  * Keep the install stamp live: the bundle imports `src/build-info.mjs` and `src/version.mjs`, and

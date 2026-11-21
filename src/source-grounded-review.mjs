@@ -742,7 +742,7 @@ export function evaluateSourceGroundedReview(report, context) {
         if (entry.check === 'design' && entry.severity === 'blocking' && !String(entry.defect ?? '').trim()) {
           findings.push(finding('design-blocking-without-defect', `Design finding '${entry.id}' blocks only for a real maintainability defect: name it in defect, or make it advisory.`, { field: `findings[${index}]` }));
         }
-        // The second pass: breaks use blocks, an improvement is advice (D7); the two words and the severity agree.
+        // In check (e), breaks use blocks and an improvement is advice (D7): the two words and the severity agree.
         if (entry.check === 'use' && entry.use && (entry.use === 'breaks-use') !== (entry.severity === 'blocking')) {
           findings.push(finding('use-severity-mismatch', `Use finding '${entry.id}' says ${entry.use} with severity ${entry.severity}: breaks-use is blocking and improvement is advisory; review-source check sets the severity from use.`,
             { field: `findings[${index}].severity`, proposedEdit: { field: `findings[${index}].severity`, value: entry.use === 'breaks-use' ? 'blocking' : 'advisory' } }));

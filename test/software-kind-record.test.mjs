@@ -30,7 +30,9 @@ test('the first time, one line says what SFlow sees; its confirmation records th
   assert.deepEqual(first.projects.map((project) => [project.id, project.kind, project.confirmed]), [['repository-root', 'web', false]]);
   assert.equal(first.question, 'SFlow sees this repository as a web app (react in package.json). Right?');
   assert.equal(first.confirm.command, `singularity-flow capability kind --confirm ${first.digest}`);
-  assert.equal(first.correct.command, 'singularity-flow capability kind --set repository-root=<KIND>');
+  // No: one ready command per other kind, nothing to fill in.
+  assert.deepEqual(first.correct.choices.map((choice) => choice.kind), ['mobile', 'backend', 'job', 'cli', 'artifact', 'library']);
+  assert.equal(first.correct.choices[1].command, 'singularity-flow capability kind --kind repository-root=backend --json');
   assert.equal(await readSoftwareKindRecord(root, 'repository-root'), null);
   await assert.rejects(confirmSoftwareKinds(root, { digest: `sha256:${'0'.repeat(64)}` }), { code: 'SOFTWARE_KIND_CHANGED' });
   const recorded = await confirmSoftwareKinds(root, { digest: first.digest });
@@ -44,7 +46,7 @@ test('a person may name another kind before confirming; the recorded kind wins o
   const root = await checkout(t, { 'package.json': JSON.stringify({ name: 'grapher', private: true, dependencies: { react: '18.0.0' } }) });
   const corrected = await softwareKindsView(root, { overrides: ['repository-root=backend'] });
   assert.equal(corrected.projects[0].kind, 'backend');
-  assert.equal(corrected.confirm.command, `singularity-flow capability kind --set repository-root=backend --confirm ${corrected.digest}`);
+  assert.equal(corrected.confirm.command, `singularity-flow capability kind --kind repository-root=backend --confirm ${corrected.digest}`);
   await confirmSoftwareKinds(root, { digest: corrected.digest, overrides: ['repository-root=backend'] });
   const view = await softwareKindsView(root);
   assert.deepEqual([view.projects[0].kind, view.projects[0].confirmed, view.projects[0].detectedNow], ['backend', true, 'web']);

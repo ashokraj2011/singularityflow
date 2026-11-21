@@ -71,6 +71,10 @@ test('the code step\'s review reads the runtime check of its version and must an
   assert.match(kinds.question, /^SFlow sees this repository as a library \(a published package \(package\.json\)\)\. Right\?$/u);
   assert.match(kinds.confirm.copilotCommand, /^\/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}$/u);
   assert.equal(kinds.confirm.byCode, `singularity-flow confirm ${kinds.confirm.copilotCommand.split(' ')[1]}`);
+  // Another kind is named first, and shown again to confirm; nothing is recorded by naming it.
+  const named = sflowJson('capability', 'kind', '--kind', 'repository-root=backend').value;
+  assert.equal(named.projects[0].kind, 'backend');
+  assert.match(named.confirm.command, /^singularity-flow capability kind --kind repository-root=backend --confirm sha256:[a-f0-9]{64}$/u);
   assert.equal(sflowJson('confirm', kinds.confirm.copilotCommand.split(' ')[1]).value.recorded, true);
   assert.deepEqual([sflowJson('capability', 'kind').value.confirmed, sflowJson('capability', 'kind').value.question], [true, null]);
 

@@ -899,7 +899,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // workflow setting (source-review-policy.mjs). No new eager file.
     // 9,821,123 (measured for submit.mjs, +65, 2026-11-21, timeout-retry): a SUBPROCESS_TIMEOUT names its program and limit
     // (util.mjs run), so a wait's retry says which program and how long [owner, 2026-11-21]. No new eager file.
-    assert.ok(closure.bytes <= 9_821_123, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,821,723 (measured for submit.mjs, +600, 2026-11-21, intents-runtime-review): the runtime check and the reviewer's second
+    // pass (step intents §12.3-12.5) register `capability kind` and `app-review runtime-check` (command-registry.mjs, util.mjs
+    // --again), refuse an agent's kind confirmation (copilot-mutation-guard.mjs) and show "Try it" at approval (agent-output.mjs).
+    // The check, its adapters and the kind record load only when a code review or the command runs. No new eager file.
+    assert.ok(closure.bytes <= 9_821_723, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1046,7 +1050,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // round, is a boolean option the parser knows (util.mjs). No new eager file.
   // 873,782 (measured 873,782, +65, 2026-11-21, timeout-retry): a SUBPROCESS_TIMEOUT names its program and limit (util.mjs
   // run), so a wait's retry says which program and how long. No new eager file.
-  assert.ok(root.bytes <= 873_782, `root dispatch loads ${root.bytes} source bytes`);
+  // 874,195 (measured 874,195, +413, 2026-11-21, intents-runtime-review): `capability kind` (a read, and its person-confirmed
+  // record) and `app-review runtime-check` registered (command-registry.mjs), with --again a boolean (util.mjs). No new eager file.
+  assert.ok(root.bytes <= 874_195, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1397,7 +1403,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,322,851 (measured on landing-12, 2026-11-21): step intents stages 0-1 and the coverage fix together. No new eager file.
   // 4,322,916 (measured, +65, 2026-11-21, timeout-retry): a SUBPROCESS_TIMEOUT names its program and limit (util.mjs run).
   // No new eager file.
-  assert.ok(current.bytes <= 4_322_916, `session current loads ${current.bytes} source bytes`);
+  // 4,323,516 (measured, +600, 2026-11-21, intents-runtime-review): the two commands registered, --again, the guard's refusal of an
+  // agent's kind confirmation and "Try it" in the approval act. No new eager file.
+  assert.ok(current.bytes <= 4_323_516, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

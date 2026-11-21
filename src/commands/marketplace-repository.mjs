@@ -6,10 +6,10 @@
  * that pinned commit and lists its agents and skills.
  */
 import path from 'node:path';
-import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+import { invocationDirectory, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
 /** A `--repo` value as configuration holds it: a URL as given, a folder as its absolute path. */
-export function repositoryArgument(value, base = process.cwd()) {
+export function repositoryArgument(value, base = invocationDirectory()) {
   const raw = String(value ?? '').trim();
   if (!raw) throw new SingularityFlowError('--repo needs the marketplace\'s Git repository: an https or ssh URL, or a folder that holds a clone.', { code: 'MARKETPLACE_ADD_USAGE' });
   if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(raw) || /^[^/@:\s]+@[^/:\s]+:/u.test(raw) || /^[A-Za-z]:[\\/]/u.test(raw)) return raw;

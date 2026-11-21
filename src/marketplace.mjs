@@ -43,10 +43,7 @@ function text(value, label, max) {
 const COMMIT = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
 const REF = /^(?![./-])(?!.*(?:\.\.|@\{|[~^:?*\\[]))(?!.*\/\.)(?!.*[/.]$)[^\s\u0000-\u001f\u007f]{1,200}$/u;
 
-/**
- * A marketplace's Git repository as configuration holds it: an https or ssh URL, `user@host:path`, or an absolute
- * local path, with no password in it. The full transport check runs when it is read (git.mjs withRemoteCommitSnapshot).
- */
+/** A repository marketplace's Git remote: https or ssh, user@host:path, or an absolute folder; never a password. */
 export function marketplaceRepositoryValue(value, label) {
   const remote = String(value ?? '').trim();
   const usable = remote.length > 0 && remote.length <= 1000 && !/[\s\u0000-\u001f\u007f]/u.test(remote) && !remote.startsWith('-')
@@ -58,7 +55,7 @@ export function marketplaceRepositoryValue(value, label) {
 
 function repositoryMarketplace(id, entry) {
   for (const key of Object.keys(entry)) {
-    if (!['label', 'repository', 'ref', 'commit'].includes(key)) throw fail(`Marketplace '${id}' contains unknown field '${key}'${key === 'index' ? ': a marketplace is a Git repository or an index, not both' : ''}.`);
+    if (!['label', 'repository', 'ref', 'commit'].includes(key)) throw fail(`Marketplace '${id}' contains unknown field '${key}'${key === 'index' ? ': it is a repository or an index, not both' : ''}.`);
   }
   const repository = marketplaceRepositoryValue(entry.repository, `Marketplace '${id}' repository`);
   const ref = entry.ref == null ? null : String(entry.ref);
@@ -71,9 +68,8 @@ function repositoryMarketplace(id, entry) {
 }
 
 /**
- * The `marketplaces:` configuration: id → { label, index, allowedOrigins } for a compiled index, or
- * { label, repository, ref, commit } for a Git repository with an APM manifest at its root (marketplace-repository.mjs),
- * read at that pinned commit. A repository marketplace has no allowed origins: nothing is fetched from outside it.
+ * The `marketplaces:` configuration: id → { label, index, allowedOrigins }, or { label, repository, ref, commit } for a
+ * Git repository with an APM manifest at its root, read at that commit (marketplace-repository.mjs).
  */
 export function normalizeMarketplaces(value = {}) {
   if (value == null) return {};
@@ -193,10 +189,9 @@ export function parseMarketplaceIndex(bytes, marketplace) {
 
 export async function fetchMarketplaceIndex(marketplace, { fetchImpl = globalThis.fetch } = {}) {
   if (marketplace.repository) {
-    // A Git repository marketplace has no index of files to import one by one: its agents become workflows.
-    throw fail(`Marketplace '${marketplace.id}' is a Git repository, which has no index of files to import one by one. `
-      + `See what it has with singularity-flow marketplace browse ${marketplace.id}: it lists the command that turns each of its agents into a workflow.`,
-    'MARKETPLACE_REPOSITORY_NOT_INDEX', { marketplace: marketplace.id, nextAction: `singularity-flow marketplace browse ${marketplace.id}` });
+    const browse = `singularity-flow marketplace browse ${marketplace.id}`;
+    throw fail(`Marketplace '${marketplace.id}' is a Git repository with no files to import one by one. ${browse} lists the command that makes each agent a workflow.`,
+      'MARKETPLACE_REPOSITORY_NOT_INDEX', { marketplace: marketplace.id, nextAction: browse });
   }
   const fetched = await fetchRemoteBytes(marketplace.index, {
     maxBytes: INDEX_MAX_BYTES, fetchImpl, label: `Marketplace '${marketplace.id}' index`, accept: 'application/json'

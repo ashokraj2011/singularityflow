@@ -5,17 +5,18 @@
  *
  * APM 0.35 refuses a package of `type: agent` and drops every key it does not know (pdlc-phases, pdlc-tasks,
  * lifecycle-state), so neither `apm install` nor the APM CLI can list such a marketplace. SFlow reads the files
- * itself, through git.mjs withRemoteCommitSnapshot: read only, nothing checked out, no hook or filter of the other
- * repository runs, and nothing it holds is run or followed. What a package says is data.
+ * itself, through git.mjs: one ls-remote pins the commit (remoteRefCommit), and that commit alone is fetched into a
+ * transient isolated object repository (withIsolatedGitObjectRepository). Read only: nothing is checked out, no hook
+ * or filter of the other repository runs, and a link or submodule in it is refused. What a package says is data.
  */
 import path from 'node:path';
 import YAML from 'yaml';
-import { exactFileAtObject, exactTreePathsAtObject, withRemoteCommitSnapshot } from './git.mjs';
+import { exactFileAtObject, exactTreePathsAtObject, remoteRefCommit, withIsolatedGitObjectRepository } from './git.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const MARKETPLACE_MANIFEST = 'apm.yml';
 export const MARKETPLACE_REPOSITORY_RESULT = 'marketplace-repository';
-const LIMITS = Object.freeze({ packages: 500, manifestBytes: 256 * 1024, documentBytes: 512 * 1024, text: 1000, list: 64, value: 120 });
+const LIMITS = Object.freeze({ packages: 500, manifestBytes: 256 * 1024, documentBytes: 512 * 1024, repositoryBytes: 64 * 1024 * 1024, text: 1000, list: 64, value: 120 });
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
 function fail(message, code = 'MARKETPLACE_REPOSITORY_INVALID', details = undefined) {
@@ -127,9 +128,26 @@ function documentOf(kind, folder, files) {
  */
 export async function readMarketplaceRepository(marketplace, { documents = [] } = {}) {
   const label = marketplace.id ? `Marketplace '${marketplace.id}'` : 'The marketplace';
+  const unreachable = (reason, details = {}) => {
+    const where = marketplace.commit ? `at commit ${marketplace.commit.slice(0, 12)}` : marketplace.ref ? `at ${marketplace.ref}` : 'at its default branch';
+    return fail(`${label} (${marketplace.repository}) cannot be read ${where}: ${reason} Check that this computer can reach it with Git (as a git clone of it would), then run the same command again.`,
+      'MARKETPLACE_REPOSITORY_UNREACHABLE', { repository: marketplace.repository, ref: marketplace.ref ?? null, commit: marketplace.commit ?? null, ...details });
+  };
+  let pinned = marketplace.commit ?? null;
+  if (!pinned) {
+    const resolved = await remoteRefCommit(marketplace.repository, marketplace.ref ?? null);
+    const stderr = String(resolved.result?.stderr ?? '').trim().split(/\r?\n/u).slice(-1)[0]?.slice(0, 200);
+    if (resolved.ambiguous) {
+      throw fail(`${label}: '${marketplace.ref}' is both a branch and a tag there, at different commits. Use --ref with a name only one of them has.`,
+        'MARKETPLACE_REPOSITORY_REF_AMBIGUOUS', { repository: marketplace.repository, ref: marketplace.ref });
+    }
+    if (!resolved.commit) throw unreachable(resolved.result?.status === 0 ? `it has no ${marketplace.ref ? `branch or tag '${marketplace.ref}'` : 'default branch'}.` : `Git said: ${stderr || 'nothing'}.`, { stage: 'resolve' });
+    pinned = resolved.commit;
+  }
   let snapshot;
   try {
-    snapshot = await withRemoteCommitSnapshot({ remote: marketplace.repository, ref: marketplace.ref ?? null, commit: marketplace.commit ?? null }, ({ root, commit }) => {
+    snapshot = await withIsolatedGitObjectRepository({ remote: marketplace.repository, expectedCommit: pinned, executables: true, maximumBytes: LIMITS.repositoryBytes }, (root) => {
+      const commit = pinned;
       const read = (file, maximumBytes) => {
         const bytes = exactFileAtObject(root, commit, file, { maximumBytes, regularOnly: true });
         return bytes ? decode(bytes, file) : null;
@@ -172,11 +190,13 @@ export async function readMarketplaceRepository(marketplace, { documents = [] } 
       return { commit, manifest, packages, problems };
     });
   } catch (error) {
-    if (error?.code !== 'GIT_REMOTE_SNAPSHOT_UNAVAILABLE') throw error;
-    const where = marketplace.commit ? `at commit ${marketplace.commit.slice(0, 12)}` : marketplace.ref ? `at ${marketplace.ref}` : 'at its default branch';
-    throw fail(`${label} (${marketplace.repository}) cannot be read ${where}: ${error.message}${error.details?.stderr ? ` (${error.details.stderr})` : ''}`
-      + ' Check that this computer can reach the repository with Git (the same sign-in a git clone of it uses), then run the same command again.',
-    'MARKETPLACE_REPOSITORY_UNREACHABLE', { repository: marketplace.repository, ref: marketplace.ref ?? null, commit: marketplace.commit ?? null, stage: error.details?.stage ?? null });
+    if (error?.code === 'GIT_OBJECT_REPOSITORY_UNAVAILABLE') throw unreachable(`commit ${pinned.slice(0, 12)} could not be fetched.`, { stage: 'fetch' });
+    if (error?.code === 'GIT_OBJECT_REPOSITORY_LIMIT') throw unreachable(`it is larger than ${LIMITS.repositoryBytes / 1024 / 1024} MiB.`, { stage: 'size' });
+    if (error?.code === 'GIT_OBJECT_REPOSITORY_INVALID') {
+      throw fail(`${label} holds a symbolic link, a submodule or another entry that is not a plain file at ${pinned.slice(0, 12)}, so SFlow does not read it. Ask its maintainers to remove it.`,
+        'MARKETPLACE_REPOSITORY_INVALID', { repository: marketplace.repository, commit: pinned });
+    }
+    throw error;
   }
   return {
     schemaVersion: 1, resultType: MARKETPLACE_REPOSITORY_RESULT,

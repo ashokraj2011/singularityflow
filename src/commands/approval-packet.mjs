@@ -73,5 +73,54 @@ export async function loadApprovalPacket({ workId, cwd, fetch = false }, { runSt
   if (!shown.ok) stopStep(shown, 'phase show');
   // On the person's Yes, the filled command that records it on this receipt; its result names the approval, filled.
   const filled = (await import('../choices.mjs')).approvalReceiptCommands(begun.value);
-  return { ...begun.value, ...(filled ? { onYes: safeCommandGuidance({ argv: filled.answer }) } : {}), approvalPacket: { readiness, review: shown.value } };
+  // This turn is that approval: what the readiness and the review say comes next is this same approval, never a route.
+  const own = { workId, phase };
+  return { ...begun.value, ...(filled ? { onYes: safeCommandGuidance({ argv: filled.answer }) } : {}),
+    approvalPacket: { readiness: withoutOwnApproval(readiness, own), review: withoutOwnApproval(shown.value, own) } };
+}
+
+// The fields of one action that name its route: its Shell, Copilot and VS Code forms and its skill.
+const ROUTE_FIELDS = ['command', 'nextCommand', 'copilotCommand', 'modelFreeCommand', 'skill', 'nextSkill'];
+// What a route object may carry beside its routes and still be one action: its argv and per-platform forms.
+const ACTION_PARTS = new Set(['argv', 'platformCommands', 'commandGuidance']);
+
+/**
+ * Whether a route approves this step of this Story: Copilot's /sf-approve (naming this step or none), the terminal's
+ * `approve <step>` and VS Code's `@sflow /approve <step>`. A route to another step's approval, or another Story's, is not.
+ */
+export function approvesOwnStep(value, { workId, phase }) {
+  const words = String(value ?? '').trim().split(/\s+/u);
+  const at = /^\/(?:sf|sflow)-approve$/u.test(words[0]) ? 1
+    : /^(?:singularity-flow|sflow)$/u.test(words[0]) && words[1] === 'approve' ? 2
+      : words[0] === '@sflow' && words[1] === '/approve' ? 2 : -1;
+  if (at < 0) return false;
+  const rest = words.slice(at);
+  const story = rest.indexOf('--work-id');
+  if (story >= 0 && rest[story + 1] !== workId) return false;
+  const step = rest.find((word, index) => !word.startsWith('--') && rest[index - 1] !== '--work-id');
+  return step === undefined || step === phase;
+}
+
+/**
+ * A readiness or review result an approve turn reads, without the approval of the step being approved as a route
+ * (owner, 2026-11-21: /sf-approve ended "approve or decline in the approval page" with /sf-approve, `approve --fetch`
+ * and @sflow /approve, the same step's approval, which the person read as a loop). An action whose route approves this
+ * step goes (the decision list's next, the review's continuation); a result keeps everything but those route fields.
+ * The decision list's own route goes too when nothing but this approval is left on it. Other items and other steps stay.
+ */
+export function withoutOwnApproval(value, own, depth = 0) {
+  if (Array.isArray(value)) return value.map((entry) => withoutOwnApproval(entry, own, depth + 1)).filter((entry) => entry !== undefined);
+  if (!value || typeof value !== 'object') return value;
+  const approving = ROUTE_FIELDS.filter((field) => typeof value[field] === 'string' && approvesOwnStep(value[field], own));
+  const action = !Object.entries(value).some(([field, child]) => child && typeof child === 'object' && !ACTION_PARTS.has(field));
+  if (depth > 0 && approving.length && action) return undefined;
+  const kept = Object.fromEntries(Object.entries(value).filter(([field]) => !approving.includes(field))
+    .map(([field, child]) => [field, withoutOwnApproval(child, own, depth + 1)]).filter(([, child]) => child !== undefined));
+  // The decision list's summary (submission-readiness.mjs pendingSummary) with only this approval on it: its /sf-decide
+  // opens this same approval again.
+  if (Array.isArray(kept.items) && kept.items.length && kept.items.every((item) => item?.kind === 'approval') && Object.hasOwn(kept, 'open')) {
+    delete kept.command;
+    delete kept.copilotCommand;
+  }
+  return kept;
 }

@@ -19,8 +19,8 @@
  *       declined, and the turn asks nothing more.
  *
  * Each walk fails on the same tool, input, status and next coming back on the same Story state, a route VS Code's chat does
- * not have, a route back to the skill that called the tool, an approval page claimed open on another Story, and the approval
- * handed back as still open. The static checks (every route exists on VS Code, every status has a rule, no two skills send
+ * not have, a route back to the skill that called the tool, an approval page claimed open on another Story, the approval
+ * handed back as still open, and an approval packet that hands the approve turn its own approval (2026-11-21). The static checks (every route exists on VS Code, every status has a rule, no two skills send
  * the chat round) are test/vscode-chat-routes.test.mjs. What these journeys do not walk yet is listed there too.
  */
 import assert from 'node:assert/strict';

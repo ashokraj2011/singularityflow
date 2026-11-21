@@ -263,7 +263,10 @@ export function assessSteps({ workflow, steps, model, definition, applicationExi
       const others = stepsOf(layer).map((id) => byId.get(id));
       const negated = NEGATED.test(sentence.text);
       const span = removalSpan(layer.source, [sentence]);
-      const intent = typeof definition?.phases?.[step.id]?.intent === 'string' ? definition.phases[step.id].intent : null;
+      // SFlow's own text in a step it ships, as shipped, is judged as before step intents (Stage 4): it was written with
+      // the step, and words such as the quick-fix intake's "before any code changes" are no instruction to change code.
+      const shippedText = sentence.owner === 'sflow' && Boolean(shipped?.phases.has(step.id));
+      const intent = typeof definition?.phases?.[step.id]?.intent === 'string' && !shippedText ? definition.phases[step.id].intent : null;
       if (intent && intent !== 'code' && !settings.changesCode && !negated && WRITES_CODE.test(sentence.text)) {
         // Step intents §6.5: the step says what it is for, and its own text says otherwise.
         sentenceFinding(sentence, step, { code: 'ASSESS_TEXT_CONTRADICTS_INTENT', kind: 'contradictory', severity: 'problem',

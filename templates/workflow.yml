@@ -1419,13 +1419,12 @@ phases:
       kind: test-evidence
       minimumBytes: 200
       validation: { requiredHeadings: [What ran, Results, Failures and follow-up] }
-    clarification: { mode: off, maxQuestions: 5 }
+    # It asks only when something about the run is unclear [owner, 2026-11-20, D2].
+    clarification: { mode: when-needed, maxQuestions: 5 }
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [test-run] }
     qualityCommands: []
     repositoryTests: run
-    because:
-      clarification.mode: Kept as it was before step intents. A test run asks nothing first; it runs the repository's own tests and reports what they found.
   visual-verification:
     intent: test
     label: Mobile visual verification
@@ -1954,13 +1953,12 @@ phases:
     defaultTemplate: spec-driven/plan.md
     artifact: { path: artifacts/planning/plan.md, kind: design, minimumBytes: 300 }
     artifactSet: spec-driven-planning
-    # Planning consumes the approved specification without a second mandatory interview. Material
-    # intent changes return through governed amendment/rework rather than an ad-hoc response file.
-    clarification: { mode: off }
+    # Planning consumes the approved specification without a second mandatory interview: it asks only when something is
+    # truly unclear [owner, 2026-11-20, D2]. Material intent changes return through governed amendment/rework rather than an
+    # ad-hoc response file.
+    clarification: { mode: when-needed }
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [specification, planning] }
-    because:
-      clarification.mode: Kept as it was before step intents. Planning works from the approved specification; a change of intent goes through an amendment, not new questions.
   release:
     intent: review
     label: Release
@@ -1969,9 +1967,8 @@ phases:
     artifactSet: spec-driven-verification
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [specification, planning, implementation, convergence, verification, release] }
-    clarification: { mode: off, maxQuestions: 5 }
-    because:
-      clarification.mode: Kept as it was before step intents. Release checks the verified change against the approved specification and asks nothing first.
+    # It checks the verified change against the approved specification, and asks only when something is unclear.
+    clarification: { mode: when-needed, maxQuestions: 5 }
   convergence:
     intent: review
     label: Convergence
@@ -2033,9 +2030,9 @@ phases:
     writeScope: source-and-artifact
     inputs: []
     approval: { authorities: [engineering-reviewers], minimum: 1 }
-    clarification: { mode: off, maxQuestions: 5 }
-    because:
-      clarification.mode: Kept as it was before step intents. A user-defined agent follows its own instructions in its one step, so SFlow asks nothing first.
+    # A user-defined agent follows its own instructions in its one step, and asks only when something is unclear
+    # [owner, 2026-11-20, D2].
+    clarification: { mode: when-needed, maxQuestions: 5 }
 governance:
   requireAcceptanceCriteriaTags: true
   protectedPaths:

@@ -98,7 +98,13 @@ test('no shipped setting differs from its intent without a reason, and nothing c
   assert.equal(sources('poc-workflow', 'poc-intake').approval.reason, undefined, 'G2 adopted');
   assert.match(sources('demo-check-repair-close', 'demo-close').approval.reason, /closing decision/u, 'G2 kept');
   assert.match(sources('quick-fix', 'implement').approval.reason, /the Verify step after it checks it/u, 'G3');
-  assert.match(sources('spec-driven-standard', 'release')['clarification.mode'].reason, /asks nothing first/u, 'G4');
+  // G4 adopted (D2): planning, release, careful-change and test-run ask only when needed, as their intents do; the quick
+  // fix's and the findings' intakes keep asking only when needed, with their reasons.
+  for (const [type, step] of [['spec-driven-standard', 'planning'], ['spec-driven-standard', 'release'], ['careful-change', 'careful-change'], ['test-run', 'test-run']]) {
+    assert.equal(sources(type, step)['clarification.mode'].reason, undefined, `G4 adopted: ${step}`);
+  }
+  assert.match(sources('quick-fix', 'intake')['clarification.mode'].reason, /concrete change/u, 'G4 kept');
+  assert.match(sources('findings-remediation', 'findings-intake')['clarification.mode'].reason, /from the register/u, 'G4 kept');
   assert.match(sources('figma-mobile', 'visual-verification').repositoryTests.reason, /whole test suite/u, 'G5');
   assert.match(deriveWorkTypeSettings(raw, 'feature').workType.sources['plannedClaims.clausePhases'].reason, /its own requirement IDs/u, 'G6');
   assert.match(deriveWorkTypeSettings(raw, 'poc-workflow').workType.sources['documents.allowedPhases'].reason, /no attached documents/u, 'G7');

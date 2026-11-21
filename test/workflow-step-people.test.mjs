@@ -105,10 +105,12 @@ test('every packaged workflow: each step says who does what and where, and its q
     JSON.stringify(report.workflows.flatMap((entry) => entry.findings).filter((entry) => entry.severity !== 'note')));
   const questions = report.workflows.flatMap((workflow) => workflow.findings.filter((entry) => QUESTION_CODES.includes(entry.code))
     .map((entry) => [workflow.id, entry.code, entry.subject.step, entry.severity]));
-  // Two packaged steps define the scope from the Story's own sources and ask only when needed: worth a note, never a problem.
+  // Three packaged steps read the Story's own sources first and ask only when needed: worth a note, never a problem. The
+  // test run's one step asks only when needed since Stage 7 (owner, 2026-11-20, D2: G4).
   assert.deepEqual(questions.sort(), [
     ['findings-remediation', 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', 'findings-intake', 'note'],
-    ['quick-fix', 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', 'intake', 'note']
+    ['quick-fix', 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', 'intake', 'note'],
+    ['test-run', 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', 'test-run', 'note']
   ]);
   for (const workflow of report.workflows) {
     for (const step of workflow.explanation.steps) {

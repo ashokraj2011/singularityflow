@@ -14,6 +14,8 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 
+import type { StepIntentsOffer } from './step-intents-upgrade.ts';
+
 export interface ProductSurface {
   id: 'vscode' | 'cli' | 'copilot';
   state: string;
@@ -59,6 +61,8 @@ export interface ProductAlignmentHost {
   remembered<T>(key: string): T | undefined;
   remember(key: string, value: unknown): Maybe<void>;
   now?(): number;
+  /** Offers each repository's step intents screen (step-intents-upgrade.ts); never waited for. */
+  offerStepIntents?(offers: StepIntentsOffer[]): Maybe<unknown>;
 }
 
 export const PRODUCT_CHECK_KEY = 'singularityFlow.productAlignment.lastCheck';
@@ -218,6 +222,8 @@ interface ReviewsResult {
   summary?: string[];
   unfinished?: Array<{ repository: string; reason: string }>;
   reason?: string | null;
+  /** The repositories whose own workflows can say what each step is for, one screen each (step intents §8). */
+  stepIntents?: StepIntentsOffer[];
 }
 
 /** "N old history and review branches" and any archive tags, as the CLI says it. */
@@ -270,6 +276,9 @@ export async function openConfigurationReviews(host: ProductAlignmentHost, {
   if (result.outcome === 'unavailable') return 'unavailable';
   // A pass that left repositories unchecked is not done for this build: a later window runs it again.
   if (!unfinished.length) await host.remember(CONFIGURATION_REVIEW_KEY, loadedBuild);
+  // Step intents (spec §8): each repository whose own workflows can say what each step is for is offered its one
+  // screen, once per build. Nothing changes until the person confirms it; the window never waits for that.
+  if (result.stepIntents?.length && host.offerStepIntents) void host.offerStepIntents(result.stepIntents);
   const updated = (result.updated ?? []).map((entry) => entry.repository);
   const reviews = (result.reviews ?? []).filter((entry) => entry.proposalBranch);
   for (const line of result.summary ?? []) host.log(`Configuration: ${line}`);

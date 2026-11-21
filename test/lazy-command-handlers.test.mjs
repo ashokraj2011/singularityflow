@@ -929,6 +929,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // words and undo (settled-decisions.mjs, decision-plain.mjs), the settled openings (story-version-opening.mjs), the
     // `submit.returned` outcome and its end of turn (narration/messages.mjs, agent-output.mjs). The rules and the acts load
     // only when a test step's run failed or after a return (failing-tests-return.mjs, failing-tests-opening.mjs). No new eager file.
+    // 9,833,472 (measured for submit.mjs, +200, 2026-11-21, intents-stage5): `testEvidenceFrom: false` read as absent where
+    // configuration resolves a workflow that does not derive (config.mjs). The upgrade's intent pass loads only in the
+    // configuration refresh (step-intents-upgrade.mjs). No new eager file.
     assert.ok(closure.bytes <= 9_838_896, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
@@ -1451,7 +1454,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,334,376 (measured on landing-15, 2026-11-21): step intents Stage 3 and the marketplace agent import together.
   // 4,328,971 (measured on landing-14): capability kind's --confirm read as a typeof check (+9).
   // 4,334,385 (measured on landing-15 with main ce94e5a79): the typeof check and the two option names added.
-  assert.ok(current.bytes <= 4_334_385, `session current loads ${current.bytes} source bytes`);
+  // 4,334,585 (measured, +200, 2026-11-21, intents-stage5): `testEvidenceFrom: false` read as absent (config.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_334_585, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

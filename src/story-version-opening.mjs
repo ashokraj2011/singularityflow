@@ -47,11 +47,13 @@ export const OPENING_REASONS = Object.freeze(['initial', 'watermark', 'rework', 
  * failing-tests-return.mjs).
  */
 export const SETTLED_OPENINGS = Object.freeze({ 'review-corrections': Object.freeze(['review-corrections']),
-  'failing-tests': Object.freeze(['rework', 'rejected']), 'tests-rerun': Object.freeze(['rework', 'rejected']) });
+  'failing-tests': Object.freeze(['rework', 'rejected']), 'tests-rerun': Object.freeze(['rework', 'rejected']),
+  'person-change': Object.freeze(['rework', 'rejected']) });
 /** Whether `settled` stands in for the person's yes to `proposal`. */
 export const settledOpening = (settled, proposal) => Boolean(settled?.settlement) && (SETTLED_OPENINGS[settled.kind] ?? []).includes(proposal?.reason);
 const SETTLED_WORDS = Object.freeze({ 'review-corrections': (proposal) => `only the reviewer had seen version ${proposal.from?.published ?? proposal.version - 1}`,
-  'failing-tests': () => 'the tests of the step after it failed', 'tests-rerun': () => 'the code step\'s fix for its failing tests was approved' });
+  'failing-tests': () => 'the tests of the step after it failed', 'tests-rerun': () => 'the code step\'s fix for its failing tests was approved',
+  'person-change': () => 'the person said yes to going back to it for their change' });
 const OPERATION_ID = /^v[ot]-[0-9a-f]{32}$/u;
 
 const refuse = (message, code, details = {}) => new SingularityFlowError(message, { code, details });

@@ -35,6 +35,9 @@
  *   W  a spec-driven Story whose code misses the test its plan names for a requirement: the code approval already shows
  *      the gap, the convergence check does not approve itself, the person sends it back to the code step, the next
  *      version delivers it, and SFlow approves the clean check (owner, 2026-11-21: convergence folds into the code approval).
+ *   X  a quick design's Implement, which nobody approves, completes in its own turn; the person's change typed after it
+ *      (with and without the step's name, or in their own terminal) asks "Start version 2 of Implement for this change?",
+ *      and one yes goes back to Implement, makes the change there and runs Verify again (daily run, 2026-11-22).
  *
  * Journeys A and V also count the person's approvals on the clean path: the plan and the code, nothing else (with the
  * intake's answers and the scope decisions, which are answers, not approvals).
@@ -1250,6 +1253,97 @@ test('journey W: a convergence gap does not approve itself and goes back to the 
     assert.deepEqual((now.phases.convergence.approvals ?? []).filter((entry) => entry?.decision === 'approved'), []);
     assert.match(now.phases.convergence.automaticApproval.checked.join('; '), /the convergence check found every requirement delivered/u);
     assert.equal(now.currentPhase, 'verification');
+  });
+  settle(t);
+});
+
+// ------------------------------------------------------------------------------------------- X
+
+// Daily run 2026-11-22: since a ready version is submitted in the turn that wrote it (ceremony cut 2), a quick design's
+// Implement, which nobody approves, completes in its own turn and the Story moves on to Verify. The person's change then
+// had three dead ends: `/sf-code <change>` built Verify and dropped their words, `/sf-code implement <change>` said there
+// was nothing to implement, and `phase rollover implement` refused. Now each asks "Start version 2 of Implement for this
+// change?", and on the person's yes the Story goes back to Implement, version 2 opens, the change is made there, and Verify
+// runs again after it (completed-step-change.mjs).
+test('journey X: a change typed after a code step nobody approves has finished goes back to it on one yes, is made there, and Verify runs again', slowLane({ timeout: 1_800_000 }), async (t) => {
+  const W = 'JRN-X';
+  const story = await journeyRepository(t, { configure: (configuration) => {
+    Object.assign(configuration, packagedWorkflowWithoutIntents(configuration, 2));
+    delete configuration.phases['fix-design'].clarification;
+    configuration.workTypes['quick-design'] = { ...configuration.workTypes['quick-fix'], label: 'Quick design', phases: ['intake', 'fix-design', 'implement', 'verify'],
+      sourceReview: { mode: 'off' } };
+  } });
+  startStory(story, W, { workType: 'quick-design', title: 'Change the value', description: 'Return 2.' });
+  story.cli('prepare', 'intake');
+  await story.write(`${story.item}/artifacts/intake/intake.md`, quickFixIntake(W));
+  story.cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  story.cli('submit', 'intake');
+  story.cli('approve', 'intake', '--yes');
+  story.cli('prepare', 'fix-design');
+  await story.write(`${story.item}/artifacts/fix-design/fix-design.md`, [`# ${W} — Fix Design`, '', '## Root cause', '',
+    'The exported constant holds the old value; nothing computes it.', '', '## Minimal safe change', '',
+    `Change the one literal that holds the value, as ${W}:AC-001 asks; no import changes.`, '', '## Alternatives and regression risk', '',
+    'A computed value was rejected as unnecessary; the only regression surface is the one test that reads it.', ''].join('\n'));
+  story.cli('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place');
+  story.cli('submit', 'fix-design');
+  story.cli('approve', 'fix-design', '--yes');
+
+  // Version 1 of the code: written, published and submitted in its own turn, which completes Implement.
+  let note = 'returns the approved value to its callers';
+  const author = async ({ story: s, phase }) => phase === 'implement' && (await writeValueCode(s, { value: 2, clauses: [`${W}:AC-001`], note }), true);
+  const person = cooperativePerson(({ act }) => (/^What would you like to validate\b/u.test(act?.ask?.question ?? '')
+    ? { route: { shell: `singularity-flow nextsteps ${W} --json` } } : null));
+  const written = await followRoutes(story, { label: 'journey X, version 1', start: { copilot: '/sf-code implement' }, agent: { author, review: reviewer() }, person,
+    done: ({ record }) => record?.phases?.implement?.status === 'approved', maxSteps: 20 });
+  t.diagnostic(formatTrail(written.trail));
+  assert.equal(written.reached, true, report(written));
+  assert.equal(storyRecord(story).phases.implement.approvalDisposition, 'not_required');
+
+  const change = 'Start each value comment with "[value]".';
+  const question = /^Start version 2 of Implement for this change\? The Story goes back to Implement: version 1 and its tests stay as published/u;
+  copilotTurn(story, 'journey-x-change').prompt(`/sf-code ${change}`);
+  await check(t, 'the words typed after /sf-code are Implement\'s, and every way in asks the same question, never Verify\'s work', {}, () => {
+    for (const args of [['phase', 'enter', '--compose', '--for-agent', '--json'], ['phase', 'enter', 'implement', '--compose', '--for-agent', '--json']]) {
+      const entered = json(story.raw(args).stdout);
+      assert.equal(entered?.act?.state, 'confirm', JSON.stringify(entered).slice(0, 3000));
+      assert.match(entered.act.ask?.question ?? '', question, JSON.stringify(entered.act));
+      assert.match(entered.act.do?.shell ?? '', /^singularity-flow phase rollover implement --json$/u, JSON.stringify(entered.act));
+    }
+    // Their own terminal's preview asks it too; nothing changes until the person says yes.
+    const preview = json(story.raw(['phase', 'rollover', 'implement', '--json']).stdout);
+    assert.equal(preview?.kind, 'person-change', JSON.stringify(preview).slice(0, 2000));
+    assert.match(preview.question, question);
+    assert.deepEqual(preview.requestedChange?.requests, [change]);
+    assert.equal(storyRecord(story).currentPhase, 'verify');
+  });
+
+  // The person says yes; the change is made in version 2, and the Story goes on to its end by its routes.
+  note = '[value] returns the approved value to its callers';
+  const changed = await followRoutes(story, { label: 'journey X, the change', start: { copilot: `/sf-code ${change}` }, agent: { author, review: reviewer() }, person,
+    done: ({ record }) => publishedGeneration(record, 'implement') >= 2, maxSteps: 20 });
+  t.diagnostic(formatTrail(changed.trail));
+  assert.equal(changed.reached, true, report(changed));
+  // The author accounts for what the person typed, as every view names it (journey Q): the clause the plan covers it by.
+  const accounted = story.raw(['departure', 'account', '--work-id', W, '--instruction', '1', '--clauses', `${W}:AC-001`, '--json']);
+  assert.equal(accounted.status, 0, accounted.stdout.slice(-1500) + accounted.stderr.slice(-1500));
+  const walk = await followRoutes(story, { label: 'journey X, to the end', start: { copilot: '/sf-submit' }, agent: { author, review: reviewer() }, person,
+    detour: ({ finding, route }) => (['no-progress', 'dead-end', 'skill-skips-route'].includes(finding.kind) && route.shell ? { shell: route.shell } : null),
+    done: ({ record }) => record?.status === 'closed', maxSteps: 40 });
+  t.diagnostic(formatTrail(walk.trail));
+  assert.equal(walk.reached, true, `the Story never reached its end\n${report(walk)}`);
+  const record = storyRecord(story);
+  await check(t, 'one yes went back to Implement and opened version 2; the change was made there and Verify ran again', {}, () => {
+    const request = (record.changeRequests ?? []).find((entry) => entry.personChange);
+    assert.deepEqual([request?.sourcePhase, request?.targetPhase], ['verify', 'implement'], JSON.stringify(record.changeRequests));
+    assert.match(request.comment, /\[value\]/u);
+    assert.equal(Number(record.phases.implement.generation), 2);
+    assert.ok(Number(record.phases.verify.generation) >= 1);
+    const settled = (record.settledDecisions ?? []).find((entry) => entry.kind === 'person-change');
+    assert.equal(settled?.effect?.toGeneration, 2, JSON.stringify(record.settledDecisions));
+    assert.deepEqual((record.askedFor ?? []).map((entry) => [entry.phase, entry.text]), [['implement', change]]);
+  });
+  await check(t, 'every step went by its routes, with no detour', {}, () => {
+    assert.deepEqual([...written.findings, ...changed.findings, ...walk.findings], [], `${report(written)}\n${report(changed)}\n${report(walk)}`);
   });
   settle(t);
 });

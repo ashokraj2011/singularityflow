@@ -22,9 +22,11 @@ import { SingularityFlowError } from './util.mjs';
 export const SETTLED_KINDS = Object.freeze(['story-selection', 'own-correction', 'node-version', 'test-command', 'plan-accounting', 'review-corrections',
   // A test step's failing tests returned to the code step, which starts its next version, and the test step's run again
   // once that version is approved (owner, 2026-11-20, D1; failing-tests-return.mjs).
-  'failing-tests', 'tests-rerun']);
+  'failing-tests', 'tests-rerun',
+  // On the person's yes, a finished code step's next version (completed-step-change.mjs).
+  'person-change']);
 /** The kinds that start a step's next version: forward only, and history once a later version of that step exists. */
-const VERSION_STARTS = Object.freeze(['review-corrections', 'own-correction', 'failing-tests', 'tests-rerun']);
+const VERSION_STARTS = Object.freeze(['review-corrections', 'own-correction', 'failing-tests', 'tests-rerun', 'person-change']);
 const RETIRED_KINDS = Object.freeze(['own-correction']);
 const ID = /^STL-[0-9]{3,}$/u;
 const BY = Object.freeze(['agent', 'sflow']);
@@ -158,7 +160,9 @@ export function reraisedRoute(workflow, entry) {
       + 'To disagree with a finding, dispute it on the decisions card or in /sf-decide, with your reason; or return the step when you approve it.',
     'failing-tests': `From now on SFlow asks you before it returns ${entry.effect?.testPhase ?? 'the test step'}'s failing tests to ${step} again. `
       + 'An undo does not withdraw the version it started: that stays open, and the one before it stays as published.',
-    'tests-rerun': `From now on SFlow asks you before it runs ${step}'s tests again after a fix. The version it started stays open.`
+    'tests-rerun': `From now on SFlow asks you before it runs ${step}'s tests again after a fix. The version it started stays open.`,
+    'person-change': `Version ${entry.effect?.toGeneration ?? 'N'} of ${step} was started on your own yes, and stays open: an open version can't be withdrawn. `
+      + `To keep ${step} as it was, make no change in it and publish it again.`
   }[entry.kind],
   command: `singularity-flow phase show ${step} --work-id ${workId}`, copilotCommand: `/sf-phase-documents ${step}` };
   if (entry.kind === 'node-version') return { words: `Which Node ${step}'s tests run on is on the decision list again.`, ...list };

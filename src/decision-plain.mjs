@@ -310,6 +310,8 @@ export function plainSettled(workflow, entry) {
         return `${who} started version ${effect.toGeneration ?? 'N'} of ${step} to fix the tests ${stepName(workflow, effect.testPhase)} found failing, because ${stepName(workflow, effect.testPhase)} changes no code`;
       case 'tests-rerun':
         return `${who} started version ${effect.toGeneration ?? 'N'} of ${step} to run its tests again because ${stepName(workflow, effect.codePhase)} version ${effect.codeGeneration ?? 'N'} fixed them`;
+      case 'person-change':
+        return `${who} went back to ${step} and started version ${effect.toGeneration ?? 'N'} for the change you asked for, because you said yes`;
       default: {
         const [what, because] = String(entry.answer ?? '').split(/:\s+/u, 2);
         return because ? `${who} chose this: ${bare(what)}, because ${bare(because)}` : `${who} chose this: ${bare(what)}`;
@@ -323,6 +325,7 @@ export function plainSettled(workflow, entry) {
   if (entry.history) return `${capital(said)}.`;
   return entry.kind === 'review-corrections' ? `${capital(said)}. Undo only makes SFlow ask you first next time; version ${effect.toGeneration ?? 'N'} stays open. To disagree with a finding, dispute it.${disputed}`
     : ['failing-tests', 'tests-rerun'].includes(entry.kind) ? `${capital(said)}. Undo only makes SFlow ask you first next time; version ${effect.toGeneration ?? 'N'} stays open.`
+      : entry.kind === 'person-change' ? `${capital(said)}. Version ${effect.toGeneration ?? 'N'} stays open.`
       : `${capital(said)}. Undo if wrong.`;
 }
 
@@ -385,7 +388,7 @@ function settledName(workflow, item) {
     case 'node-version': return `Node ${effect.version ?? ''} for ${step}'s tests`.replace('Node  ', 'Node ');
     case 'test-command': return `${effect.commandId ?? 'the test command'} as ${step}'s tests`;
     case 'plan-accounting': return `${effect.path ?? effect.file ?? String(item.subject ?? '').replace(/^file:/u, '')} in the plan`;
-    case 'review-corrections': case 'own-correction': case 'failing-tests': case 'tests-rerun': return `starting version ${effect.toGeneration ?? 'N'} of ${step}`;
+    case 'review-corrections': case 'own-correction': case 'failing-tests': case 'tests-rerun': case 'person-change': return `starting version ${effect.toGeneration ?? 'N'} of ${step}`;
     case 'story-selection': return `opening ${String(item.subject ?? '').split(' on ')[0] || workflow?.workItem?.id}`;
     default: return bare(item.subject ?? item.title);
   }

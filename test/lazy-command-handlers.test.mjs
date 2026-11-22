@@ -954,7 +954,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // or promises no return when there is none, and the workflow change graph skips a step's reasons. No new eager file.
     // 9,848,538 (measured, 2026-11-22): an accepted risk's expiry refusal says which part is wrong and hands back the
     // decision with an expiry that fits (upstream-issues.mjs, Node 26 weekly fixes). No new eager file.
-    assert.ok(closure.bytes <= 9_848_538, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,849,943 (measured for submit.mjs, +1,405, 2026-11-22, daily run): a change the person asks for after a code step nobody
+    // approves has finished goes back to it on their yes: the return's person-change branch (state.mjs rejectPhase), the
+    // typed words kept for that step (asked-for.mjs), its act (agent-output.mjs), the `person-change` settled kind and its
+    // words, and the preview route in the map. The rules and the acts load only when used (completed-step-change*.mjs).
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_849_943, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

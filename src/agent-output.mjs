@@ -555,6 +555,13 @@ export function agentAct(result) {
     // turn fixes the findings. Asked with the host's question tool, never answered by the agent [owner, 2026-11-16].
     // So does a change the person typed after it was published (successor.requests, their words quoted): one yes, then the
     // change in this same turn. Told "submit" by its permission, the agent said they had asked for nothing (daily run 2026-11-17).
+    // A change asked for in a code step that finished: one yes goes back to it, and this turn makes it (completed-step-change.mjs).
+    if (result.status === 'completed-step-change' && result.successor?.question) return withRoute({ state: 'confirm', do: null,
+      read: ['successor', 'next'],
+      ask: { kind: 'choice', question: result.successor.question, choices: (result.successor.choices ?? ['Yes', 'No']).map((label) => ({ label })),
+        how: `Show the person successor.requests in plain words, then ask successor.question now with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation command it returns, then \`singularity-flow phase enter ${result.phase} --compose --for-agent --json\` once, and make the change in ${result.phase} in this same turn. On No, or with no question tool, give the person next and end; never answer it yourself, and never build ${result.currentPhase ?? 'the current step'} in this turn.` },
+      said: oneLine(`The person asked for a change to ${result.phase}, which already finished: ask them whether to go back to it and start version ${result.successor.targetGeneration ?? 'N+1'} for it, and on their Yes make it now.`) },
+    result.successor.preview);
     const asked = result.successor?.requests?.length > 0;
     // Their yes on the decisions card is already kept for this exact version: the preview, then its confirmation, which
     // that yes lets through; never asked a second time (review, 2026-11-17).

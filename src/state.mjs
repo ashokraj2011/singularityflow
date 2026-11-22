@@ -28,7 +28,7 @@ import {
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import { documentSuccessorRefusal, documentSuccessorUnopened } from './prepared-document-successor.mjs';
-import { approveRoute, versionQuestionRoute } from './action-command-map.mjs';
+import { approveRoute, returnRoute, versionQuestionRoute } from './action-command-map.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -8456,7 +8456,9 @@ export async function rejectPhase(root, config, workflow, {
   actor = null, agent = undefined, upstreamIssue = null, presence = null, beyondBudget = false,
   // SFlow's own return of a test step's failing tests to its code step (failing-tests-return.mjs, owner 2026-11-20, D1):
   // `{ kind, tests, commands, files }`. No person and no group return it; the change request and decision say so.
-  automatic = null
+  automatic = null,
+  // A person's change to a finished code step, on their yes's receipt `{ assurance }` (completed-step-change.mjs).
+  personChange = null
 } = {}) {
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   await assertNoPendingPublication(root, config, workflow, 'reject');
@@ -8515,7 +8517,7 @@ export async function rejectPhase(root, config, workflow, {
     requestedPhase: phaseId,
     // An upstream issue's return is decided by the earlier step's owners, so the step that found
     // the defect need not be submitted first [UIF-M2].
-    allowedStatuses: reworkBlockers.length || testingRepair || upstreamIssue
+    allowedStatuses: reworkBlockers.length || testingRepair || upstreamIssue || personChange
       ? ['awaiting_approval', 'in_progress'] : ['awaiting_approval']
   });
   if ((testingRepair || phase.approvalPolicy.changeRequests?.commentRequired !== false)
@@ -8528,8 +8530,16 @@ export async function rejectPhase(root, config, workflow, {
   // SFlow's own return is no agent's or person's: no agent role is asked, and no approval group is matched. Only SFlow's own
   // identity makes one, and never with anything a person's return carries.
   if (automatic && (actor?.automatic !== true || upstreamIssue || convergenceRework || testingRepair || beyondBudget || presence)) automatic = null;
-  if (!automatic) assertPhaseAgentMayMutate(config, workflow, phase, session, 'reject');
-  const authority = automatic ? { authorityGroup: null, identityAssurance: 'automatic' } : requireApprovalAuthority(
+  if (personChange && (automatic || upstreamIssue || convergenceRework || testingRepair || presence || typeof personChange.assurance !== 'string')) personChange = null;
+  if (personChange) {
+    const { completedCodeStepForChange } = await import('./completed-step-change.mjs');
+    if (completedCodeStepForChange(workflow, { named: target })?.id !== target) throw new SingularityFlowError(
+      `${target} is not a finished code step this change can go back to: a person approved it or a step after it.`, { code: 'COMPLETED_STEP_CHANGE_UNAVAILABLE',
+      details: { nextAction: returnRoute(workflow, phase, target) } });
+  }
+  if (!automatic && !personChange) assertPhaseAgentMayMutate(config, workflow, phase, session, 'reject');
+  const authority = automatic ? { authorityGroup: null, identityAssurance: 'automatic' }
+    : personChange ? { authorityGroup: null, identityAssurance: personChange.assurance } : requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     (upstreamIssue ? workflow.phases[target]?.approvalPolicy : null) ?? phase.approvalPolicy,
     session.actor
@@ -8607,6 +8617,7 @@ export async function rejectPhase(root, config, workflow, {
     ...(upstreamIssue ? { [String(upstreamIssue.id).startsWith('FAM-') ? 'forwardAmendment' : 'upstreamIssue']: upstreamIssue.id } : {}),
     // What failed, as SFlow read it from the step's run: the code step's author fixes these.
     ...(automatic ? { automatic: structuredClone(automatic) } : {}),
+    ...(personChange ? { personChange: true } : {}),
     ...(testingRepair ? { testingRepair: {
       confirmation: testingRepair.confirmation,
       changeSetDigest: testingRepair.changeSetDigest,
@@ -8692,6 +8703,7 @@ export async function rejectPhase(root, config, workflow, {
     ...(requestedMembers.length ? { members: requestedMembers } : {}),
     ...(repairBudget ? { repairBudget: { consumed: repairBudget.attempts.length, maximum: repairBudget.maximum } } : {}),
     ...(automatic ? { automatic: automatic.kind } : {}),
+    ...(personChange ? { personChange: true } : {}),
     ...(actionContext ? { actionContext } : {})
   };
   // The card, then the approver's touch, over the final record [SPEC-PSS-v1 M2].

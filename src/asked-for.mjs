@@ -212,8 +212,15 @@ export async function noteTypedTurn(record, { gitDir, workflow, at = Date.now() 
   // `/sf-code <step> [what to change]`: the step is the explicit target, never what the person asked for; only the rest is
   // kept, and a step word alone keeps nothing (alias-matrix.md finding 7) [OSA:REQ-027].
   const { workCommandArguments } = await import('./writing-aliases.mjs');
-  const { focus } = workCommandArguments(record.typed.text, workflow.phaseOrder ?? Object.keys(workflow.phases ?? {}));
+  const { target, focus } = workCommandArguments(record.typed.text, workflow.phaseOrder ?? Object.keys(workflow.phases ?? {}));
   if (!focus) return null;
+  // A change for a code step that finished is that step's, named or not (completed-step-change.mjs, daily run 2026-11-22).
+  const { completedCodeStepForChange } = await import('./completed-step-change.mjs');
+  const coding = ['code', 'implement'].includes(String(record.skill ?? '').trim().split(/\s+/u)[0].replace(/^\/?(?:sflow|sf)-/u, ''));
+  const finished = target && target !== phase.id ? completedCodeStepForChange(workflow, { named: target })
+    : !target && coding ? completedCodeStepForChange(workflow) : null;
+  if (finished) return noteAskedFor(gitDir, { workId: workflow.workItem.id, phase: finished.id, generation: askedForGeneration(finished),
+    text: focus, truncated: record.typed.truncated === true, skill: record.skill, turnId: record.turnId, at: new Date(at).toISOString() });
   return noteAskedFor(gitDir, { workId: workflow.workItem.id, phase: phase.id, generation: askedForGeneration(phase),
     text: focus, truncated: record.typed.truncated === true, skill: record.skill, turnId: record.turnId, at: new Date(at).toISOString() });
 }

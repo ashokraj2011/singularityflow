@@ -121,6 +121,13 @@ async function phaseSubcommand(positionals, options) {
       && await (await import('./phase-opening.mjs')).replayConfirmed(root, config, workflow, phase, optionString(options, 'confirm'), options)) return;
     // An approved amendment is acknowledged before the person is asked to start a version, or confirms one (owner, 2026-11-17).
     (await import('../source-review-policy.mjs')).assertIntentAmendmentAcknowledged(workflow);
+    // A code step that already finished, with nothing a person approved since: a change the person asks for goes back to it,
+    // on their one yes (completed-step-change.mjs, daily run 2026-11-22). Before, this refused with "no changed consumed
+    // generation" and named the next step's approval.
+    if (phase.id !== workflow.currentPhase && options.correction === undefined && !optionBoolean(options, 'review-findings') && !optionBoolean(options, 'as-question')
+      && (await import('../completed-step-change.mjs')).completedCodeStepForChange(workflow, { named: phase.id })) {
+      return (await import('../completed-step-change-opening.mjs')).completedStepChangeRollover(root, config, workflow, phase, options);
+    }
     const plan = await generationRecovery(
       root, workflow, phase,
       async (repositoryRoot, selectedPhase) => await generationResultMatches(

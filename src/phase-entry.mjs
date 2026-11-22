@@ -8,8 +8,24 @@ export { phaseEntryContext };
 /** One model-free entry packet; no tests, begin, prepare, commit, push or lifecycle decisions. */
 export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId = null,
   compose = false, modelEnabled = true } = {}) {
-  const entry = await measureCommandSpan('phase-entry.binding', () => phaseEntryContext({ cwd, phaseId, workId }));
+  let entry;
+  try { entry = await measureCommandSpan('phase-entry.binding', () => phaseEntryContext({ cwd, phaseId, workId })); }
+  catch (error) {
+    // `/sf-code implement <change>` after Implement finished: the named step is not the current one, and the change goes
+    // back to it on the person's yes (completed-step-change.mjs, daily run 2026-11-22). Any other step stays refused.
+    if (error?.code !== 'PHASE_DRAFT_NOT_ACTIVE' || !phaseId) throw error;
+    const current = await phaseEntryContext({ cwd, workId }).catch(() => null);
+    const asked = current && !current.packet.paused ? await completedStepChange(current, phaseId) : null;
+    if (asked) return asked;
+    throw error;
+  }
   if (entry.packet.paused) return entry.packet;
+  // `/sf-code <change>` while the Story is on a later step that writes no code: the change goes back to the code step that
+  // finished, asked first; before, this entered the later step and the person's words were dropped (daily run 2026-11-22).
+  if (entry.packet.ready && !phaseId) {
+    const asked = await completedStepChange(entry, null);
+    if (asked) return asked;
+  }
   const base = { ...entry.packet,
     effects: { contextCompositionRequested: compose, testsRun: false, storyAdvanced: false,
       committed: false, pushed: false }, modelInvocations: 0 };
@@ -39,4 +55,29 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     operationId: taskResume.operationId, continuationBudget: taskResume.continuationBudget,
     ...(taskResume.state === 'inspect-interrupted-operation' ? { state: 'blocked', nextAction: taskResume.nextAction,
       instruction: 'Inspect the interrupted operation before any replay. Preserve its draft and original recovery route.' } : {}) } } : {}) };
+}
+
+/**
+ * The entry for a change the person asked for in a code step that already finished: ask them "Start version 2 of Implement for this
+ * change?" (completed-step-change.mjs), its preview the route, and nothing else; null when no such change
+ * waits. `named`: the step typed after the work command, or null for the nearest finished code step.
+ */
+async function completedStepChange(entry, named) {
+  const [{ completedCodeStepForChange, completedChangeQuestion, stepName }, { waitingWords }, { gitDir }, { versionPreviewRoute }, { versionProposal }] = await Promise.all([
+    import('./completed-step-change.mjs'), import('./asked-for.mjs'), import('./git.mjs'), import('./action-command-map.mjs'), import('./story-version-proposal.mjs')]);
+  const code = completedCodeStepForChange(entry.workflow, { named });
+  if (!code) return null;
+  const requests = await waitingWords(gitDir(entry.root), entry.workflow, code).catch(() => []);
+  if (!requests.length) return null;
+  const version = versionProposal(entry.workflow, code, { reason: 'requested-change' }).proposal.version;
+  const question = completedChangeQuestion(entry.workflow, code, version);
+  const current = entry.workflow.phases[entry.workflow.currentPhase];
+  const route = versionPreviewRoute(entry.workflow, code);
+  const preview = { id: `go-back:${code.id}`, safe: true, automatic: false, confirmation: 'person-yes', ...route, copilotCommand: `${route.skill} ${code.id}`,
+    detail: `Preview going back to ${stepName(code)} for the change the person asked for; on their yes, run the confirmation it returns.` };
+  return { ...entry.packet, phase: code.id, currentPhase: current.id, status: 'completed-step-change', generatesCode: true,
+    effects: { contextCompositionRequested: false, testsRun: false, storyAdvanced: false, committed: false, pushed: false }, modelInvocations: 0,
+    authoringAllowed: false, context: null, contextComposition: 'not-requested',
+    successor: { targetGeneration: version, question, choices: ['Yes', 'No'], requests, preview, returnsFrom: current.id, automatic: false },
+    next: [preview] };
 }

@@ -104,6 +104,9 @@ export function builtPublicationRoute(workflow, phase, producer, modelEnabled) {
 /** A published step's own version question, the open-version preview: its next version opens only on the person's yes [D3]. */
 export const versionPreviewCommand = (step) => actionCommandLine('open-version', 'preview', { step });
 export const reviewFindingsOpenCommand = (step) => actionCommandLine('open-version', 'findings', { step });
+/** The preview as argv and as a route with its work command (completed-step-change.mjs). */
+export const versionPreviewArgv = (step) => actionCommand('open-version', 'preview', { step }).split(' ').filter((word) => word !== '--json');
+export const versionPreviewRoute = (workflow, phase) => ({ skill: actionSkill('open-version', { phase, workflow }), command: versionPreviewCommand(phase.id) });
 export const versionQuestionRoute = (workflow, phase) => ({ skill: actionSkill('open-version', { phase, workflow }),
   command: versionPreviewCommand(phase.id).replace(/ --json$/u, ' --reason "<what to change>" --json') });
 

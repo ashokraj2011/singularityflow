@@ -112,6 +112,9 @@ test('the follower catches a kept result older than the Story\'s last change, re
   const { story } = await quickFix(t);
   // An earlier run of the entry keeps its result; the Story then changes (the intake is written).
   story.raw(['phase', 'enter', '--compose', '--for-agent', '--json']);
+  // The follower allows a kept result one second of clock slack; on a fast machine the change came within it and the
+  // result read as fresh (red on main 580e86bb3, 2026-11-22). The change comes clearly after it, as in a real chat.
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
   await story.write(`${story.item}/artifacts/intake/intake.md`, quickFixIntake(W));
   const walk = await followRoutes(story, {
     label: 'stale replay', start: { shell: 'singularity-flow result last --command "phase enter" --for-agent --json' },

@@ -9,6 +9,12 @@
  * is), gets that returned path back as a correction. Nothing is searched for and nothing is guessed: the correction is
  * an exact path SFlow returned (the turn's checkout, or a file it issued) with the agent's own rest of the path, and it
  * is given only when that file is there. A path SFlow did return that is missing keeps its existing rule.
+ *
+ * On the owner's Story again (VS Code, 2026-11-22, the verification review) SFlow issued the review report at
+ * `…/raj-calc/repos/myc/.git/worktrees/-w-3d5c…/singularity-flow/source-reviews/d-story-verification-gen11.json`; the
+ * reviewer read `…/raj-calc/.git/worktrees/-w-3d5c…/singularity-flow/…`, two folders dropped from the front, and
+ * stopped on the same rule. So a file SFlow issued in its private `singularity-flow` folder is also given back when
+ * the agent's missing path ends with that file's own tail from `singularity-flow` on, whatever came before it.
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -47,6 +53,19 @@ export function pathSlipOf(attempted, returned, { write = false, exists = exists
       const corrected = path.join(path.resolve(known), ...given.slice(at));
       if (corrected !== path.resolve(attempted) && exists(corrected)) return corrected;
     }
+  }
+  // A file SFlow issued in its private folder, its path rebuilt from another start: the same tail from the last
+  // `singularity-flow` folder on (its purpose folder and file name), under a front that dropped, added or changed
+  // folders. Only an issued file that is there, and only when exactly one returned file has that tail.
+  const tailOf = (segments) => {
+    const at = segments.lastIndexOf('singularity-flow');
+    return at < 0 || segments.length - at < 3 ? null : segments.slice(at).join(path.sep);
+  };
+  const tail = tailOf(given);
+  if (tail) {
+    const issued = [...new Set((returned ?? []).filter((known) => typeof known === 'string' && path.isAbsolute(known))
+      .map((known) => path.resolve(known)))].filter((known) => tailOf(known.split(path.sep)) === tail);
+    if (issued.length === 1 && exists(issued[0])) return issued[0];
   }
   return null;
 }

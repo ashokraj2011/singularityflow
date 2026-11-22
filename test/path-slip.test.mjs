@@ -60,6 +60,29 @@ test('a relative .sflow/out result path resolved against another folder (a VS Co
   assert.equal(answer.pathCorrections[0].issuedPath, path.join(root, '.sflow', 'out', 'phase-enter-1.json'));
 });
 
+test('an issued private file whose path the agent rebuilt from another start gets the issued path back', async (t) => {
+  // The owner's verification review, 2026-11-22: two folders dropped from the front of the issued report path.
+  const { base } = await checkout(t);
+  const git = path.join(base, 'raj-calc', 'repos', 'myc', '.git', 'worktrees', '-w-3d5c930cb04673dd6c161852');
+  const issued = path.join(git, 'singularity-flow', 'source-reviews', 'd-story-verification-gen11.json');
+  await mkdir(path.dirname(issued), { recursive: true });
+  await writeFile(issued, '{}\n');
+  const rebuilt = path.join(base, 'raj-calc', '.git', 'worktrees', '-w-3d5c930cb04673dd6c161852', 'singularity-flow', 'source-reviews', 'd-story-verification-gen11.json');
+  assert.equal(pathSlipOf(rebuilt, [issued]), issued);
+  assert.equal(pathSlipOf(path.join(base, 'elsewhere', 'singularity-flow', 'source-reviews', 'd-story-verification-gen11.json'), [issued]), issued, 'any front');
+  // Another step's or generation's file, a file outside SFlow's private folder, or an issued file not there: never.
+  assert.equal(pathSlipOf(rebuilt.replace('gen11', 'gen10'), [issued]), null);
+  assert.equal(pathSlipOf(path.join(base, 'raj-calc', 'source-reviews', 'd-story-verification-gen11.json'), [issued]), null);
+  assert.equal(pathSlipOf(rebuilt, [issued.replace('gen11', 'gen12')]), null);
+  // Two issued files with the same tail (two checkouts) name no single file: no correction.
+  const twin = path.join(base, 'other', '.git', 'singularity-flow', 'source-reviews', 'd-story-verification-gen11.json');
+  await mkdir(path.dirname(twin), { recursive: true });
+  await writeFile(twin, '{}\n');
+  assert.equal(pathSlipOf(rebuilt, [issued, twin]), null);
+  const answer = pathSlipAnswer([{ paths: [rebuilt] }], [issued]);
+  assert.deepEqual(answer.pathCorrections, [{ attemptedPath: rebuilt, issuedPath: issued, operation: 'read' }]);
+});
+
 test('the failure hook hands the exact returned path back for a mistyped review staging path, instead of a blocker', async (t) => {
   const item = await publishedSpecificationStory(t);
   const root = await realpath(item.root);
@@ -83,6 +106,11 @@ test('the failure hook hands the exact returned path back for a mistyped review 
   assert.deepEqual(before.pathCorrections, [{ attemptedPath: typed, issuedPath: staging, operation: 'read' }]);
   assert.match(before.permissionDecisionReason, /^CLI_ISSUED_PATH_MISMATCH: .* is not a path SFlow returned: it is a copy slip of /u);
   assert.deepEqual(await mutationToolGuard({ ...hook, toolName: 'view', toolArgs: { path: staging } }), {}, 'the returned path reads as before');
+  // The staging path rebuilt from another folder, its front dropped (the owner's verification review, 2026-11-22).
+  const rebuilt = path.join(path.dirname(root), 'elsewhere', staging.slice(staging.lastIndexOf(`${path.sep}singularity-flow${path.sep}`) + 1));
+  const front = await mutationToolGuard({ ...hook, toolName: 'view', toolArgs: { path: rebuilt } });
+  assert.equal(front.permissionDecision, 'deny');
+  assert.deepEqual(front.pathCorrections, [{ attemptedPath: rebuilt, issuedPath: staging, operation: 'read' }]);
   const answer = await repositoryToolFailure({ ...hook, toolName: 'view', toolArgs: { path: typed }, error: `ENOENT: no such file or directory, open '${typed}'` });
   assert.match(answer.additionalContext ?? JSON.stringify(answer), new RegExp(`it is a copy slip of ${staging.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`, 'u'));
   assert.doesNotMatch(answer.additionalContext, /explicit blocker/u);

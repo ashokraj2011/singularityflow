@@ -54,6 +54,24 @@ test('the version\'s confirmation is bound to a ticked box and refused on an unt
   }
 });
 
+// Daily run 2026-11-22: Copilot CLI asked with the person's request as the message and the version question as the form field's
+// title. The guard read only the message, refused the confirmation, and the person was asked the same question twice.
+test('the version question in a form field\'s title binds the yes, whatever the message says', async (t) => {
+  const folder = await mkdtemp(path.join(os.tmpdir(), 'sflow-answer-title-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const args = { message: 'Your request: "Start each retry log line with [retry]." Implement already finished.',
+    requestedSchema: { properties: { go: { type: 'string', title: 'Start version 2 of Implement for this change? Version 1 and its tests stay as published.', enum: ['Yes', 'No'] } } } };
+  const payload = { toolName: 'ask_user', toolArgs: args, toolResult: { resultType: 'success', textResultForLlm: 'User responded: Yes' }, turnId: 'turn-title' };
+  const [reply] = repliesOfQuestion(payload);
+  assert.match(reply.asked, /start version 2 of implement for this change\?/u);
+  const file = path.join(folder, 'title.mutation.json');
+  const record = { turnId: 'turn-title' };
+  await startAnswerLedger(file, record, '');
+  await noteQuestionAnswered(file, record, payload);
+  assert.equal(await unboundAnswerReason(file, record, ROLLOVER.options, { positionals: ROLLOVER.positionals, version: 2 }), null,
+    'the yes to the question in the field\'s title starts version 2, asked once');
+});
+
 test('a refusal that ends its own sentence gets no second period, and a whole one no contract line', () => {
   const whole = mutationDenial(null, 'PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded. In their own terminal singularity-flow phase rollover implement, which asks them.', [],
     { routes: [], alone: true });

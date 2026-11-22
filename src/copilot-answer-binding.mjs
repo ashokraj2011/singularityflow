@@ -126,7 +126,10 @@ export function repliesOfQuestion(payload) {
       texts: [...(entry.selected ?? []), ...(entry.freeText ? [entry.freeText] : [])].map(comparable).filter(Boolean) }));
   }
   const said = comparable(raw.replace(/^user (?:responded|selected|answered):?\s*/iu, ''));
-  const asked = [input?.question, input?.message].find((text) => typeof text === 'string') ?? '';
+  // Copilot CLI's form (`requestedSchema`) may carry the question in a field's title, the message saying something else
+  // (daily run 2026-11-22: the yes to "Start version 2 …?" was refused, and the person asked it twice): all of it is asked.
+  const fields = Object.values(input?.requestedSchema?.properties ?? {}).flatMap((field) => [field?.title, field?.description]);
+  const asked = [input?.question, input?.message, ...fields].filter((text) => typeof text === 'string' && text.trim()).join(' ');
   // Another JSON shape: each value the person gave, a form's true or false among them.
   if (parsed && typeof parsed === 'object') {
     const texts = stringLeaves(parsed).map(comparable).filter(Boolean);

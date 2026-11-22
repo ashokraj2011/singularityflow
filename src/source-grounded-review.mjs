@@ -766,13 +766,19 @@ export function evaluateSourceGroundedReview(report, context) {
       }
       // A planning finding about the approved specification is that step's to correct: once raised there
       // it holds only the Story's ending, never the plan; until then its route is the raise [PHR:REQ-003].
-      const owner = entry.severity === 'blocking' && context.kind === 'planning' && entry.ownerPhase
+      const planningOwner = entry.severity === 'blocking' && context.kind === 'planning' && entry.ownerPhase
         && entry.ownerPhase === context.upstreamSpecPhase ? entry.ownerPhase : null;
-      const raised = owner ? (context.upstreamIssues ?? []).find((issue) => reviewFindingRaised(issue, entry)) : null;
+      // On a document SFlow wrote from an earlier step's records, a finding is that step's: a new version would say the same.
+      const recordOwner = !planningOwner && entry.severity === 'blocking' && !disputes.has(entry.id) ? context.recordDocument?.ownerPhase ?? null : null;
+      const owner = planningOwner ?? recordOwner;
+      const raised = owner ? ((recordOwner ? context.recordDocument.upstreamIssues : context.upstreamIssues) ?? [])
+        .find((issue) => reviewFindingRaised(issue, entry)) : null;
       if (raised) upstreamFindings.push({ id: entry.id, ownerPhase: owner, issue: raised.id, status: raised.status, message: entry.message });
-      else if (owner) findings.push(finding('reviewer-blocker',
-        `Reviewer finding '${entry.id}' is about ${owner}'s approved output: ${entry.message} Raise it to ${owner}'s approvers as an upstream issue; then it holds only the Story's ending, not ${context.phase}.`,
-        { reviewFindingId: entry.id, ownerPhase: owner, upstreamPhase: owner, about: entry.clauseId ?? entry.id }));
+      else if (owner) findings.push(finding('reviewer-blocker', recordOwner
+        ? `Reviewer finding '${entry.id}' is about what SFlow wrote into ${context.phase} from ${owner}'s records, so a new version of ${context.phase} would say the same: ${entry.message} Raise it to ${owner}'s approvers as an upstream issue; then it holds only the Story's ending, not ${context.phase}.`
+        : `Reviewer finding '${entry.id}' is about ${owner}'s approved output: ${entry.message} Raise it to ${owner}'s approvers as an upstream issue; then it holds only the Story's ending, not ${context.phase}.`,
+        { reviewFindingId: entry.id, ownerPhase: owner, upstreamPhase: owner, about: entry.clauseId ?? entry.id,
+          ...(recordOwner ? { recordDocument: true, problem: String(entry.message) } : {}) }));
       // A person who may decide for the step disputed it, here or on an earlier version (owner, 2026-11-20): it stays in
       // the review, shown with their reason, and blocks neither the next version nor the submission.
       else if (entry.severity === 'blocking' && disputes.has(entry.id)) disputedFindings.push({ id: entry.id, message: entry.message, ...disputes.get(entry.id) });
@@ -790,6 +796,21 @@ export function evaluateSourceGroundedReview(report, context) {
     if (entry?.reportSha256 === reportSha256 && entry?.decision === 'accepted'
         && typeof entry.reason === 'string' && entry.reason.trim()
         && typeof entry.actor === 'string' && entry.actor.trim()) accepted.add(entry.id);
+  }
+  // So is a row found inconsistent there, or a question about a source (d-story verification, 2026-11-22).
+  const rowOwner = context.recordDocument?.ownerPhase ?? null;
+  if (rowOwner) {
+    const rowNotes = new Map((Array.isArray(report?.rows) ? report.rows : []).map((row) => [row?.id, String(row?.note ?? '').trim()]));
+    for (let index = findings.length - 1; index >= 0; index -= 1) {
+      const entry = findings[index];
+      if (!['document-inconsistent', 'source-question-unresolved'].includes(entry.code) || !entry.rowId || entry.upstreamPhase) continue;
+      const raised = (context.recordDocument.upstreamIssues ?? []).find((issue) => reviewFindingRaised(issue, { id: entry.rowId }));
+      if (raised) {
+        upstreamFindings.push({ id: entry.rowId, ownerPhase: rowOwner, issue: raised.id, status: raised.status, message: entry.message });
+        findings.splice(index, 1);
+      } else findings[index] = { ...entry, ownerPhase: rowOwner, upstreamPhase: rowOwner, about: entry.rowId, recordDocument: true,
+        problem: rowNotes.get(entry.rowId) || entry.message };
+    }
   }
   const unresolved = pendingDispositions.filter((entry) => !accepted.has(entry.id));
   for (const entry of unresolved) findings.push(finding('human-disposition-required',

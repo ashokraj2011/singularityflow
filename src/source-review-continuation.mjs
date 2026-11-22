@@ -51,17 +51,33 @@ export function reviewFindingsHold(workflow, phase, review) {
 }
 
 /**
- * When everything a review still holds is a reviewer finding about the approved specification, the
- * way on is to raise it there [PHR:REQ-003]: the plan's author cannot correct it, and a successor of
- * the plan would meet it again. Null otherwise, or when no raise is open from here.
+ * When everything a review still holds is a finding an earlier step owns, the way on is to raise it there [PHR:REQ-003]: a
+ * planning finding about the specification, one at a time; or the findings on a document SFlow wrote from an earlier step's
+ * records, in one filled raise naming each (d-story, 2026-11-22). Null otherwise, or when no raise is open.
  */
 export function reviewUpstreamRoute(workflow, phase, review) {
   const holding = (review?.findings ?? []).filter((entry) => entry.code !== 'human-disposition-required');
-  if (review?.status !== 'correction-required' || !holding.length || !holding.every((entry) => entry.code === 'reviewer-blocker' && entry.upstreamPhase)) return null;
+  if (review?.status !== 'correction-required' || !holding.length || !holding.every((entry) => entry.upstreamPhase
+    && (entry.code === 'reviewer-blocker' || entry.recordDocument))) return null;
   const [first] = holding;
   const raised = raiseUpstreamIssueRoute(workflow, first.upstreamPhase, phase.id);
-  return raised ? { command: raised.command.replace('<clause-or-section>', first.about ?? first.reviewFindingId), skill: '/sf-decide',
-    label: `${holding.length === 1 ? 'The reviewer finding is' : `${holding.length} reviewer findings are`} about ${first.upstreamPhase}'s approved output: raise ${holding.length === 1 ? 'it' : 'each'} to ${first.upstreamPhase}'s approvers; then ${phase.id} is not held by ${holding.length === 1 ? 'it' : 'them'}, only the Story's ending.` } : null;
+  if (!raised) return null;
+  // Shell-safe words: the route filter refuses quotes and brackets.
+  const word = (value, limit) => { const text = String(value ?? '').replace(/[^A-Za-z0-9 .,:_/@%+=-]+/gu, ' ').replace(/\s+/gu, ' ').trim().slice(0, limit).trim();
+    return /^[A-Za-z0-9.,:_/@%+=-]+$/u.test(text) ? text : `'${text}'`; };
+  const records = holding.every((entry) => entry.recordDocument && entry.upstreamPhase === first.upstreamPhase);
+  if (!records) {
+    return { command: raised.command.replace('<clause-or-section>', word(first.about ?? first.reviewFindingId, 200)), skill: '/sf-decide',
+      label: `${holding.length === 1 ? 'The reviewer finding is' : `${holding.length} reviewer findings are`} about ${first.upstreamPhase}'s approved output: raise ${holding.length === 1 ? 'it' : 'each'} to ${first.upstreamPhase}'s approvers; then ${phase.id} is not held by ${holding.length === 1 ? 'it' : 'them'}, only the Story's ending.` };
+  }
+  // Each finding by the name its raise is matched on, then a comma (the match refuses ':' or '-' after it), words shortened.
+  const named = holding.slice(0, 12);
+  const lead = `Review of ${phase.id} version ${review.generation ?? phase.generation}, a document SFlow wrote from ${first.upstreamPhase}'s records:`;
+  const room = Math.max(40, Math.floor((900 - lead.length) / named.length) - 20);
+  const problem = `${lead} ${named.map((entry) => `${entry.about ?? entry.reviewFindingId ?? entry.rowId}, ${String(entry.problem ?? entry.message).slice(0, room)}`).join(' / ')}`;
+  return { command: raised.command.replace('<clause-or-section>', word(`${phase.id}-review-v${review.generation ?? phase.generation}`, 200))
+    .replace('<what-is-wrong>', word(problem, 990)), skill: '/sf-decide', label: `Raise the review's findings to ${first.upstreamPhase}'s approvers`,
+    reason: `SFlow wrote ${phase.id} from ${first.upstreamPhase}'s records, so another version would say the same. Raise its findings to ${first.upstreamPhase}'s approvers; then only the ending waits.` };
 }
 
 /** Whether a retained review asks the step for corrections its author makes (blocking findings, not only a person's decision). */
@@ -116,7 +132,7 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
   } else if (!stepBeingWritten(workflow, phase) && reviewUpstreamRoute(workflow, phase, review)) {
     const route = reviewUpstreamRoute(workflow, phase, review);
     classification = 'upstream-issue-required';
-    actions = [action(route.skill, route.command, route.label)];
+    actions = [action(route.skill, route.command, route.reason ?? route.label, route.reason ? route.label : null)];
   } else {
     // The step's primary action is the kernel's, from the same basis the edit permission and every other surface read:
     // this review, the step's open version, its successor's consent [OSA:REQ-020, b8]. Only its wording is said here.

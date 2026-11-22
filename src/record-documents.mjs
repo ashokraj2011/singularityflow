@@ -104,7 +104,8 @@ function runsTable(runs) {
  * (owner's d-story, 2026-11-22). Pure.
  */
 function signOffs(row, records) {
-  const slots = (row.verification?.contract?.slots ?? []).filter((slot) => slot.method !== 'test' && slot.status === 'satisfied');
+  // The evaluator calls a witnessed slot met (contract-results.mjs); on d-story's records only `satisfied` cited nothing.
+  const slots = (row.verification?.contract?.slots ?? []).filter((slot) => slot.method !== 'test' && ['met', 'satisfied'].includes(slot.status));
   return slots.map((slot) => [...records].reverse().find((record) => record?.clauseId === row.id && record.slot === slot.slot))
     .filter(Boolean).map((record) => (record.basis === 'person-attestation'
       ? `signed off by ${person(record.actor)} without a screenshot (${code(record.id)}): "${String(record.reason ?? '').replace(/\s+/gu, ' ').slice(0, 300)}"`
@@ -120,6 +121,14 @@ export function testEvidence(row, records = []) {
   if (row.verification?.association === 'through-criteria' && row.verification.criteria?.length) return `through ${row.verification.criteria.map(code).join(', ')}`;
   if (row.verification?.tests?.length) return `tagged in ${row.verification.tests.map(code).join(', ')}`;
   return row.type === 'AC' ? 'no tagged test' : 'no criterion to test; checked as implemented in its source';
+}
+
+/**
+ * The step whose records a record document reports, which owns what a review finds in it: SFlow writes the document from
+ * those records, so a new version of the step that holds it would say the same. Null when the step's document is not one.
+ */
+export function recordDocumentOwner(workflow, phase) {
+  return codeStepBefore(workflow, phase)?.id ?? null;
 }
 
 /** The person sign-off records that count on this Story (SF Guard's signatures, where it requires them). */
@@ -305,7 +314,7 @@ export async function writtenBySflow(text) {
 }
 
 /** `text` with SFlow's seal as the first line of its body, after anything before and its metadata block. */
-async function sealed(text) {
+export async function sealed(text) {
   const digest = await sealDigest(text);
   const unsealed = text.replace(MARKER, '');
   const match = unsealed.match(METADATA);
@@ -321,6 +330,18 @@ async function merged(existing, body) {
   const { extractInputsBlock } = await import('./inputs.mjs');
   const inputs = extractInputsBlock(text);
   return `${[prefix, body.trimEnd(), inputs].filter(Boolean).join('\n\n')}\n`;
+}
+
+/**
+ * Whether publishing `phase` again would write `text` (a sealed record document's authored text) word for word: the records
+ * and SFlow's writer are as they were when it was written. Then what its review finds is no new version's to fix. False
+ * once they changed (a later build writes it better, a run or a sign-off was added); null when the records cannot say.
+ */
+export async function rewritesTheSame(root, config, workflow, phase, text) {
+  const seal = String(text ?? '').match(MARKER)?.[1];
+  if (!seal) return false;
+  const rendered = await renderRecordDocument(root, config, workflow, phase).catch(() => null);
+  return rendered ? seal === await sealDigest(await merged(text, rendered.text)) : null;
 }
 
 /**

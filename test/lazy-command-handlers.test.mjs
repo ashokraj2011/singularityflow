@@ -965,7 +965,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,853,206 (measured, +10): --attest read as a flag (util.mjs BOOLEAN_OPTIONS).
     // 9,853,355 (measured, +149, 2026-11-22): `workflow fix` is /sf-fix-workflow's route too (command-skills.mjs), so the
     // repository check can name it for a custom workflow with a problem. No new eager file.
-    assert.ok(closure.bytes <= 9_853_355, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,855,100 (measured 9,855,052 for submit.mjs, +1,697, 2026-11-22, d-story): a review of a document SFlow wrote from the
+    // records goes to the step that owns them: the review's owner rule (source-grounded-review.mjs) and its one filled raise
+    // (source-review-continuation.mjs). Reading the seal loads only when used (record-documents.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_855_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

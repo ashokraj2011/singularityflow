@@ -430,7 +430,15 @@ async function stepReviewInput(root, config, workflow, phase, kind, { reviewerAg
       sources.push({ id: `input:${step.id}`, path: read.path, text: read.text });
     }
     visualSources.push(...await citedSignOffSources(root, workflow, artifact, sources, visualSources, phase));
-    const context = { ...common, sources, ...(visualSources.length ? { visualSources } : {}), ...(unreadable.length ? { unreadableSources: unreadable } : {}) };
+    // A document SFlow wrote from an earlier step's records and nobody changed since: what its review finds is that step's
+    // to settle, since a new version of this one would say the same (d-story verification, 11 versions, 2026-11-22). Not bound.
+    const records = await import('./record-documents.mjs');
+    const owner = await records.writtenBySflow(artifact.text) ? records.recordDocumentOwner(workflow, phase) : null;
+    const recordDocument = owner ? { ownerPhase: owner, upstreamIssues: upstreamIssueStates(workflow)
+      .filter((state) => !state.supersededBy && state.issue.phase === owner)
+      .map(({ issue, status }) => ({ id: issue.id, about: issue.about ?? '', problem: issue.problem ?? '', status })) } : null;
+    const context = { ...common, sources, ...(visualSources.length ? { visualSources } : {}), ...(unreadable.length ? { unreadableSources: unreadable } : {}),
+      ...(recordDocument ? { recordDocument } : {}) };
     return { ...context, binding: sourceReviewBinding(context) };
   }
   const evidence = phase.deliveryEvidence ?? {};
@@ -1063,8 +1071,8 @@ async function evaluateRetainedSourceReview(root, config, workflow, phaseId, inp
     : [];
   // A finding a person disputed on an earlier review, raised again: already disputed, never blocking again (owner, 2026-11-20).
   const disputes = current ? await carriedDisputes(root, config, workflow, phaseId, current, decisions) : [];
-  const review = evaluateSourceGroundedReview(retained?.record.report ?? null, {
-    ...input,
+  const evaluate = (context) => evaluateSourceGroundedReview(retained?.record.report ?? null, {
+    ...context,
     reviewerAgentId: retained?.record.provenance?.reviewerAgentId ?? null,
     reviewerReadOnly: retained?.record.provenance?.readOnly === true
       && retained.record.provenance.reviewerAgentSha256 === input.reviewerAgentSha256,
@@ -1073,6 +1081,14 @@ async function evaluateRetainedSourceReview(root, config, workflow, phaseId, inp
       ...(String(id).startsWith(DISPUTE_PREFIX) ? { by: actorName(actor), decidedAt: decidedAt ?? null, ...(carriedFrom ? { carriedFrom: { generation: carriedFrom.generation } } : {}) } : {})
     }))
   });
+  let review = evaluate(input);
+  // Findings on a document SFlow wrote are an earlier step's only while publishing again would write it the same: once
+  // its records or SFlow's writer changed, a new version says something new, and fixing it there is the way on.
+  if (input.recordDocument && review.findings?.some((entry) => entry.recordDocument)
+      && await (await import('./record-documents.mjs')).rewritesTheSame(root, config, workflow, workflow.phases[phaseId], input.artifact?.text) === false) {
+    const { recordDocument, ...own } = input;
+    review = evaluate(own);
+  }
   const conflict = sourceReviewAuthorConflict(workflow, workflow.phases[phaseId]);
   return {
     schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, // schema-transient

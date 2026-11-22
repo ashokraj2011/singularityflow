@@ -26,7 +26,7 @@ export async function reviewFindingsUndone(workflow, phase) {
 }
 
 export async function reviewFindingsRollover(root, config, workflow, phase, options, { changedFiles = false } = {}) {
-  const [{ optionBoolean, optionString }, { phaseRequiresCodeDelivery }, { reviewerAloneSaw, reviewFindingsHold, reviewFindingKeys }, { versionPreviewCommand }] = await Promise.all([
+  const [{ optionBoolean, optionString }, { phaseRequiresCodeDelivery }, { reviewerAloneSaw, reviewFindingsHold, reviewFindingKeys, reviewUpstreamRoute }, { versionPreviewCommand }] = await Promise.all([
     import('./util.mjs'), import('./code-delivery-policy.mjs'), import('./source-review-continuation.mjs'), import('./action-command-map.mjs')]);
   if (optionString(options, 'confirm') || optionString(options, 'reason', null) !== null || options.correction !== undefined) {
     throw new SingularityFlowError('--review-findings starts the next version for the review\'s findings and takes no --confirm, --reason or --correction.',
@@ -51,6 +51,13 @@ export async function reviewFindingsRollover(root, config, workflow, phase, opti
   if (kernelNext.operation !== 'open-version' || kernelNext.inputs?.reason !== 'review-corrections') {
     throw new SingularityFlowError(`${phase.label ?? phase.id} has no published version waiting to be corrected for its review; nothing was opened.`, {
       code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: { phase: phase.id, nextAction: (await opening.kernelRoute(root, workflow, phase, { config })).route } });
+  }
+  // Findings an earlier step owns (a planning finding about the specification, or one on a document SFlow wrote from that
+  // step's records): a new version here would meet them again, so their raise is the way on and nothing opens (2026-11-22).
+  const upstream = reviewUpstreamRoute(workflow, phase, review);
+  if (upstream) {
+    throw new SingularityFlowError(`${upstream.reason ?? upstream.label} Nothing was opened.`, {
+      code: 'REVIEW_FINDINGS_UPSTREAM', details: { phase: phase.id, nextAction: { command: upstream.command, label: upstream.label, skill: upstream.skill } } });
   }
   // The workflow's number of starts in a row (2 unless set), or a finding back after a fix: the person decides (owner, 2026-11-19).
   const held = reviewFindingsHold(workflow, phase, review);

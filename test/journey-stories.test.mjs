@@ -1317,9 +1317,30 @@ test('journey X: a change typed after a code step nobody approves has finished g
     assert.equal(storyRecord(story).currentPhase, 'verify');
   });
 
-  // The person says yes; the change is made in version 2, and the Story goes on to its end by its routes.
+  // One /sf-code turn, as the daily run's (2026-11-22 09:47): the preview, the person's yes to the question tool, its
+  // confirmation, and then the change in Implement in that same turn. Before, the guard refused the turn's next command
+  // ("The phase changed during this turn") and sent the person to a new turn (owner, 2026-11-22: "Continue same turn").
+  await check(t, 'the turn that asked goes on in Implement once the person said yes: its entry and its edits are allowed', {}, () => {
+    const turn = copilotTurn(story, 'journey-x-one-turn');
+    turn.prompt(`/sf-code ${change}`);
+    const allowed = (said, what) => assert.notEqual(said?.permissionDecision, 'deny', `${what}: ${said?.permissionDecisionReason ?? ''}`);
+    const previewCommand = 'singularity-flow phase rollover implement --json';
+    allowed(turn.tool('bash', { command: previewCommand }), 'the preview');
+    const preview = json(story.raw(['phase', 'rollover', 'implement', '--json']).stdout);
+    turn.tool('ask_user', { question: preview.question, choices: ['Yes', 'No'] });
+    turn.after('ask_user', { question: preview.question, choices: ['Yes', 'No'] }, { resultType: 'success', textResultForLlm: 'User responded: Yes' });
+    const confirm = `singularity-flow phase rollover implement --confirm ${preview.confirmation} --json`;
+    allowed(turn.tool('bash', { command: confirm }), 'the confirmation');
+    const opened = story.raw(['phase', 'rollover', 'implement', '--confirm', preview.confirmation, '--json']);
+    assert.equal(opened.status, 0, opened.stdout.slice(-1500) + opened.stderr.slice(-1500));
+    assert.equal(storyRecord(story).currentPhase, 'implement');
+    allowed(turn.tool('bash', { command: 'singularity-flow phase enter implement --compose --for-agent --json' }), 'Implement\'s entry in the same turn');
+    allowed(turn.tool('edit', { path: path.join(story.root, 'src/value.mjs') }), 'the change to the code in the same turn');
+  });
+
+  // The change is made in version 2, and the Story goes on to its end by its routes.
   note = '[value] returns the approved value to its callers';
-  const changed = await followRoutes(story, { label: 'journey X, the change', start: { copilot: `/sf-code ${change}` }, agent: { author, review: reviewer() }, person,
+  const changed = await followRoutes(story, { label: 'journey X, the change', start: { copilot: '/sf-code implement' }, agent: { author, review: reviewer() }, person,
     done: ({ record }) => publishedGeneration(record, 'implement') >= 2, maxSteps: 20 });
   t.diagnostic(formatTrail(changed.trail));
   assert.equal(changed.reached, true, report(changed));

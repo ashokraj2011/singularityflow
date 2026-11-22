@@ -277,11 +277,24 @@ async function changeRequestedOf(gitDirectory, workflow, phase) {
     && (await import('./guide.mjs')).requestedSuccessorEligible(workflow, phase);
 }
 
+/**
+ * Whether the Story left this turn's step for a code step by the person's yes to going back to it, given in this turn: the
+ * `person-change` start recorded since the turn began, from the turn's own step to the current one. Pure.
+ */
+function personChangeFollowed(previous, workflow, requestedMode) {
+  if (requestedMode !== 'authoring' || !previous?.originPhase || previous.originPhase === workflow?.currentPhase || !Number.isFinite(previous.recordedAt)) return false;
+  const start = (workflow.settledDecisions ?? []).findLast((entry) => entry?.kind === 'person-change' && entry.phase === workflow.currentPhase);
+  return Boolean(start) && start.effect?.fromPhase === previous.originPhase && Date.parse(start.at) >= previous.recordedAt - 1000;
+}
+
 async function createRecord(payload, record, root, accepted, previous = null) {
   const workflow = accepted.workflow;
   const definition = accepted.definition ?? accepted.config;
   const requestedMode = mutationTurnMode(record.skill);
-  const mode = previous?.originPhase && previous.originPhase !== workflow.currentPhase
+  // The person's own yes in this turn took the Story back to a code step for their change: the turn goes on writing it there
+  // (owner, 2026-11-22: "Continue same turn"; completed-step-change.mjs). Any other change of step ends the turn, as before.
+  const followed = personChangeFollowed(previous, workflow, requestedMode);
+  const mode = previous?.originPhase && previous.originPhase !== workflow.currentPhase && !followed
     && !['approval-only', 'session-only', 'import-team', 'build-workflow', 'fix-workflow', 'run-and-test', 'spec-studio'].includes(requestedMode) ? 'read' : requestedMode;
   const phase = workflow.phases?.[workflow.currentPhase];
   const evidence = mode === 'authoring' && phase?.generationIntent?.status === 'open'
@@ -354,7 +367,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     ...(record.taskCompletionRequested ? { taskCompletionRequested: true } : {}),
     ...(record.taskCompletionRequested ? { taskEntryRequested: samePhase && previous?.taskEntryRequested === true } : {}),
     modeChangedAt: record.modeChangedAt, contract,
-    originPhase: previous?.originPhase ?? contract.phaseId,
+    originPhase: followed ? contract.phaseId : previous?.originPhase ?? contract.phaseId,
     // The generation this turn's edits belong to, when one is open; XPL2 observed writes name it.
     openGeneration: phase?.generationIntent?.status === 'open' ? phase.generationIntent.generation ?? null : null,
     decisionEnded: previous?.decisionEnded ?? false,

@@ -104,7 +104,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'compose', 'for-agent', 'publish-if-ready', 'submit-if-ready', 'review-packet', 'background-sync',
   'host-review', 'presence', 'recipe', 'state-records',
   'attach-if-missing', 'migrate-world-model', 'hard-cutover', 'cached', 'debug', 'personal', 'from-template', 'clear',
-  'author', 'for-person', 'retention', 'all-repositories',
+  'author', 'attest', 'for-person', 'retention', 'all-repositories',
   // story advance --submit: convergence goes for approval with no separate confirmation (owner, 2026-11-19).
   'submit',
   // phase opening --reconcile (OSA Stage 2).

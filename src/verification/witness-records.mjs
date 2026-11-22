@@ -20,6 +20,15 @@ import { PACKAGE_ROOT } from '../package-root.mjs';
 import { createHash } from 'node:crypto';
 
 export const WITNESS_CHECKLIST = Object.freeze(['states-the-outcome', 'matches-the-criterion', 'current-for-this-change']);
+/**
+ * A person's own sign-off with no screenshot or file (owner, 2026-11-22: "even if screenshots are not available a human
+ * reviewer should be able to move the story fwd and his signoff will be taken as evidence"): someone who may witness the
+ * criterion checked it themselves and says what they checked. It satisfies the slot while the plan and code candidate are
+ * the ones it was given for, and every view says it rests on that person's word, with no file.
+ */
+export const PERSON_ATTESTATION = 'person-attestation';
+export const ATTESTATION_NOTE = Object.freeze({ minimum: 20, maximum: 1000 });
+export const isAttestation = (record) => record?.basis === PERSON_ATTESTATION;
 
 /**
  * ARA live/result-based acceptance is a separate observation basis in this authoritative human
@@ -264,11 +273,12 @@ function unpublishedWitnessRefusal(workflow, { clauseId, file, sha256, published
  * Append one witness record. `slot` is the contract slot it witnesses; `file` the inspected path
  * with its current `sha256`; `answers` maps every checklist item to yes or no.
  */
-function recordWitnessWithEvidence(workflow, { clauseId, slot, file, sha256, answers = {}, reason, actor, authorityGroup, identityAssurance = null, at, plannedClaim = null }, publishedEvidence = null) {
+function recordWitnessWithEvidence(workflow, { clauseId, slot, file, sha256, answers = {}, reason, actor, authorityGroup, identityAssurance = null, at, plannedClaim = null, attested = false }, publishedEvidence = null) {
   if (!AC_ID.test(String(clauseId ?? ''))) throw invalid('--criterion must name one acceptance criterion, such as ORDER:AC-001.');
   if (!slot || !['inspection', 'visual'].includes(slot.method)) {
     throw invalid(`${clauseId}'s contract has no inspection or visual slot by that name; tests are witnessed by their own runs.`);
   }
+  if (attested) return recordAttestation(workflow, { clauseId, slot, answers, reason, actor, authorityGroup, identityAssurance, at });
   if (slot.method === 'inspection' && file !== slot.witness.path) {
     throw invalid(`${clauseId}'s slot ${slot.slot} inspects ${slot.witness.path}, not ${file}.`);
   }
@@ -295,6 +305,28 @@ function recordWitnessWithEvidence(workflow, { clauseId, slot, file, sha256, ans
   const record = {
     id: `WIT-${String(workflow.witnessRecords.length + 1).padStart(3, '0')}`,
     clauseId, slot: slot.slot, method: slot.method, file, sha256,
+    contextBinding: witnessContextBinding(workflow),
+    ...(slot.method === 'visual' ? { target: slot.witness.target } : {}),
+    checklist: Object.fromEntries(WITNESS_CHECKLIST.map((item) => [item, answers[item]])),
+    outcome: WITNESS_CHECKLIST.every((item) => answers[item] === 'yes') ? 'met' : 'failed',
+    reason: text, actor, authorityGroup, identityAssurance, at
+  };
+  workflow.witnessRecords.push(record);
+  return record;
+}
+
+/** A person's own sign-off with no file: their note says what they checked, in 20 to 1000 characters. */
+function recordAttestation(workflow, { clauseId, slot, answers, reason, actor, authorityGroup, identityAssurance, at }) {
+  const missing = WITNESS_CHECKLIST.filter((item) => !['yes', 'no'].includes(answers[item]));
+  if (missing.length) throw invalid(`Answer every checklist item once with --confirm or --deny: ${WITNESS_CHECKLIST.join(', ')}.`);
+  const text = String(reason ?? '').trim();
+  if (text.length < ATTESTATION_NOTE.minimum || text.length > ATTESTATION_NOTE.maximum) {
+    throw invalid(`With no screenshot, say what you checked yourself, where and how, in ${ATTESTATION_NOTE.minimum} to ${ATTESTATION_NOTE.maximum} characters with --reason.`, 'WITNESS_RECORD_REASON_REQUIRED');
+  }
+  workflow.witnessRecords ??= [];
+  const record = {
+    id: `WIT-${String(workflow.witnessRecords.length + 1).padStart(3, '0')}`,
+    clauseId, slot: slot.slot, method: slot.method, file: null, sha256: null, basis: PERSON_ATTESTATION,
     contextBinding: witnessContextBinding(workflow),
     ...(slot.method === 'visual' ? { target: slot.witness.target } : {}),
     checklist: Object.fromEntries(WITNESS_CHECKLIST.map((item) => [item, answers[item]])),
@@ -354,6 +386,7 @@ export async function readPublishedWitnessEvidence(root, workflow, { clauseId, f
 
 /** Authoritative witness entry: final publication binding stays inside the existing transaction. */
 export async function recordPublishedWitness(root, workflow, input) {
+  if (input.attested) return recordWitnessWithEvidence(workflow, input);
   const obligations = input.plannedClaim?.obligations ?? (input.plannedClaim ? [input.plannedClaim] : []);
   const evidence = obligations.some(entry => entry.fulfillment === 'evidence')
     ? await readPublishedWitnessEvidence(root, workflow, input) : null;
@@ -372,7 +405,13 @@ export function witnessRecordResults(records = [], currentSha256 = new Map(), { 
     const base = { clauseId: record.clauseId, slot: record.slot, method: record.method, recordId: record.id, file: record.file, reviewer: record.actor };
     const what = record.method === 'inspection' ? 'inspection' : 'visual evidence';
     if (record.contextBinding && !bindings.has(record.contextBinding)) {
-      return { ...base, status: 'missing', message: `The plan or code candidate changed after ${what} ${record.id}; inspect ${record.file} again for this generation.` };
+      return { ...base, status: 'missing', message: isAttestation(record)
+        ? `The plan or code candidate changed after ${record.actor}'s sign-off ${record.id}; ${record.clauseId} needs signing off again for this generation.`
+        : `The plan or code candidate changed after ${what} ${record.id}; inspect ${record.file} again for this generation.` };
+    }
+    if (isAttestation(record)) {
+      return record.outcome === 'met' ? { ...base, status: 'met', attested: true }
+        : { ...base, status: 'failed', message: `${record.actor}'s sign-off ${record.id} found ${record.clauseId} not satisfied: ${record.reason}` };
     }
     if (currentSha256.get(record.file) !== record.sha256) {
       return { ...base, status: 'missing', message: `${record.file} changed after its ${what} ${record.id} for ${record.clauseId}; inspect it again.` };

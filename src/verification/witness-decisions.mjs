@@ -27,7 +27,7 @@ export const WITNESS_DECISIONS_REVISION = 'recorded-visual-reviews-v1';
 export const WITNESS_DECISIONS_HEADING = '# Recorded human visual reviews';
 const LIMIT = 50;
 
-export const WITNESS_DECISIONS_INSTRUCTION = 'These are the human visual and inspection reviews this Story recorded with decision witness, each bound to the SHA-256 of one file. Report them as recorded: where a valid review satisfies a criterion, do not say that criterion lacks human visual review or acceptance; cite its record ID. A review whose bound file or code candidate changed after it was recorded is not valid: say so, and that the criterion needs a new review. Never infer a review that is not listed here.';
+export const WITNESS_DECISIONS_INSTRUCTION = 'These are the human visual and inspection reviews this Story recorded with decision witness, each bound to the SHA-256 of one file, or, with no file, a person\'s own check they described: that is their sign-off, and it proves the criterion as much as a file does. Report them as recorded: where a valid review satisfies a criterion, do not say that criterion lacks human visual review or acceptance; cite its record ID. A review whose bound file or code candidate changed after it was recorded is not valid: say so, and that the criterion needs a new review. Never infer a review that is not listed here.';
 
 /** The latest record of each criterion slot, in the order the evidence matrix reads them. */
 function activeRecords(records = []) {
@@ -44,7 +44,8 @@ export function witnessDecisionsFrom(workflow, currentSha256 = new Map()) {
   const contextBindings = new Set(witnessContextBindings(workflow ?? {}));
   return activeRecords(countedRecords(workflow, workflow?.witnessRecords)).map((record) => {
     const current = currentSha256.has(record.file) ? currentSha256.get(record.file) : undefined;
-    const binding = current === undefined ? 'unchecked'
+    // A person's own sign-off binds no file: it stands on their word and the candidate it was given for.
+    const binding = record.basis === 'person-attestation' ? 'person-attestation' : current === undefined ? 'unchecked'
       : current == null ? 'bound-file-unreadable'
         : current === record.sha256 ? 'bound-file-unchanged' : 'bound-file-changed';
     const candidate = !record.contextBinding ? 'not-recorded'
@@ -61,8 +62,9 @@ export function witnessDecisionsFrom(workflow, currentSha256 = new Map()) {
       ...(record.authorityGroup ? { authorityGroup: record.authorityGroup } : {}),
       ...(record.identityAssurance ? { identityAssurance: record.identityAssurance } : {}),
       ...(record.at ? { at: record.at } : {}),
+      ...(record.basis ? { basis: record.basis } : {}),
       binding, candidate,
-      valid: decision === 'satisfies' && binding === 'bound-file-unchanged' && candidate !== 'changed'
+      valid: decision === 'satisfies' && ['bound-file-unchanged', 'person-attestation'].includes(binding) && candidate !== 'changed'
     };
   });
 }
@@ -70,7 +72,7 @@ export function witnessDecisionsFrom(workflow, currentSha256 = new Map()) {
 /** The digest of each witnessed file's bytes in the working tree, or null when it cannot be read. */
 async function currentWitnessedBytes(root, workflow) {
   const current = new Map();
-  for (const file of new Set((workflow?.witnessRecords ?? []).map((entry) => entry.file))) {
+  for (const file of new Set((workflow?.witnessRecords ?? []).map((entry) => entry.file).filter(Boolean))) {
     try {
       const secured = await secureRepositoryPath(root, file, { label: 'Witnessed file', mustExist: true, type: 'file' });
       current.set(file, `sha256:${createHash('sha256').update(await readFile(secured.absolute)).digest('hex')}`);
@@ -135,6 +137,7 @@ export async function phaseWitnessDecisions(root, workflow, phase) {
 
 /** One review's binding, in the words the block uses. */
 export function witnessBindingStatus(review) {
+  if (review.binding === 'person-attestation') return review.candidate === 'changed' ? 'plan or code candidate changed since: not valid' : 'no file: the person\'s own check';
   if (review.observationBasis === 'live-application-and-retained-results') return 'live result and post-confirmation evidence unchanged';
   if (review.binding === 'bound-file-changed') return 'bound file changed since: not valid';
   if (review.binding === 'bound-file-unreadable') return 'bound file missing or unreadable: not valid';
@@ -144,6 +147,8 @@ export function witnessBindingStatus(review) {
 }
 
 function reviewLine(review) {
+  if (review.binding === 'person-attestation') return [`- ${review.id}: ${review.actor ?? 'a person'}${review.authorityGroup ? ` (${review.authorityGroup})` : ''} signed off ${review.clauseId} slot \`${review.slot}\` themselves, with no screenshot or file, and ${review.decision === 'satisfies' ? 'it satisfies it' : 'it does not satisfy it'}${review.at ? ` at ${review.at}` : ''}; ${witnessBindingStatus(review)}.`,
+    ...(review.reason ? [`  What they checked: ${JSON.stringify(review.reason)}`] : [])].join('\n');
   if (review.observationBasis === 'live-application-and-retained-results') return [`- ${review.id}: authorized human visual acceptance of the live application and retained results satisfies ${review.clauseId} slot \`${review.slot}\`. Evidence was captured afterwards; the human did not claim to inspect those later images. Session: ${review.applicationReview}.`];
   const outcome = review.decision === 'satisfies' ? 'satisfies it'
     : `does not satisfy it${review.answeredNo?.length ? ` (answered no: ${review.answeredNo.join(', ')})` : ''}`;

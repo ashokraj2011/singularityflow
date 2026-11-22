@@ -4390,6 +4390,9 @@ async function decisionWitnessCommand(positionals, options) {
   const clauseId = String(optionString(options, 'criterion') ?? '').toUpperCase();
   const slotName = optionString(options, 'slot') ?? '';
   const file = optionString(options, 'file') ?? '';
+  // A person's own sign-off with no screenshot or file: their --reason says what they checked (owner, 2026-11-22).
+  const attested = optionBoolean(options, 'attest');
+  if (attested && file) throw new SingularityFlowError('--attest is a sign-off with no file: give --file or --attest, not both.', { code: 'WITNESS_RECORD_INVALID' });
   const { evidenceGraphFromAggregate } = await import('./evidence/graph.mjs');
   const { evaluateEvidence } = await import('./evidence/evaluate.mjs');
   const graph = await evidenceGraphFromAggregate(root, config, workflow);
@@ -4418,8 +4421,8 @@ async function decisionWitnessCommand(positionals, options) {
     { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
     actor
   );
-  const secured = await secureRepositoryPath(root, file, { label: 'Witnessed file', mustExist: true, type: 'file' });
-  const sha256 = `sha256:${createHash('sha256').update(await readFile(secured.absolute)).digest('hex')}`;
+  const secured = attested ? null : await secureRepositoryPath(root, file, { label: 'Witnessed file', mustExist: true, type: 'file' });
+  const sha256 = attested ? null : `sha256:${createHash('sha256').update(await readFile(secured.absolute)).digest('hex')}`;
   const answers = {
     ...Object.fromEntries(optionStrings(options, 'confirm').map((item) => [item, 'yes'])),
     ...Object.fromEntries(optionStrings(options, 'deny').map((item) => [item, 'no']))
@@ -4428,6 +4431,12 @@ async function decisionWitnessCommand(positionals, options) {
     throw new SingularityFlowError('A checklist item cannot be both confirmed and denied.', { code: 'WITNESS_RECORD_INVALID' });
   }
   const decide = async (aggregate) => {
+    if (attested) {
+      assertWitnessReviewBinding(aggregate, { expectedContext: optionString(options, 'expected-context-sha256'), expectedFile: null, actualFile: null,
+        clauseId, slot: slotName, file: null });
+      return recordPublishedWitness(root, aggregate, { clauseId, slot, file: null, sha256: null, answers, attested: true, reason: optionString(options, 'reason') ?? '',
+        actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso() });
+    }
     const current = await secureRepositoryPath(root, file, { label: 'Witnessed file', mustExist: true, type: 'file' });
     const actualFile = `sha256:${createHash('sha256').update(await readFile(current.absolute)).digest('hex')}`;
     assertWitnessReviewBinding(aggregate, { expectedContext: optionString(options, 'expected-context-sha256'),
@@ -4451,7 +4460,7 @@ async function decisionWitnessCommand(positionals, options) {
       const recorded = await decide(aggregate);
       aggregate.history.push({
         at: recorded.at, actor: recorded.actor, agent, event: 'witness_recorded', phase: aggregate.currentPhase ?? null,
-        detail: `${recorded.id}: ${recorded.method} of ${recorded.file} for ${recorded.clauseId} slot ${recorded.slot} ${recorded.outcome === 'met' ? 'satisfies it' : 'does not satisfy it'}. ${recorded.reason}`
+        detail: `${recorded.id}: ${recorded.file ? `${recorded.method} of ${recorded.file}` : 'a sign-off with no screenshot'} for ${recorded.clauseId} slot ${recorded.slot} ${recorded.outcome === 'met' ? 'satisfies it' : 'does not satisfy it'}. ${recorded.reason}`
       });
       return recorded;
     },
@@ -4465,7 +4474,8 @@ async function decisionWitnessCommand(positionals, options) {
   // A person's sign-off, which no chat may give, renews the Copilot turn whose decisions card asked for it [owner, 2026-11-16].
   await import('./copilot-mutation-guard.mjs').then((guard) => guard.renewTurnAfterCardAnswer(root, id)).catch(() => {});
   if (!optionBoolean(options, 'json')) {
-    console.log(`Recorded ${record.id}: the ${record.method} of ${record.file} ${record.outcome === 'met' ? 'witnesses' : 'does not witness'} ${record.clauseId} slot ${record.slot}, bound to its current bytes.`);
+    console.log(record.file ? `Recorded ${record.id}: the ${record.method} of ${record.file} ${record.outcome === 'met' ? 'witnesses' : 'does not witness'} ${record.clauseId} slot ${record.slot}, bound to its current bytes.`
+      : `Recorded ${record.id}: your sign-off with no screenshot ${record.outcome === 'met' ? 'satisfies' : 'does not satisfy'} ${record.clauseId} slot ${record.slot}, for the code as it is now.`);
     console.log(publication.pushed
       ? `Decision committed and pushed.`
       : `Decision committed locally; push is disabled by git.publish: off.`);

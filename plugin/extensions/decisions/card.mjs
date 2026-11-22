@@ -45,8 +45,9 @@ const clipSentences = (value) => {
 };
 const choosable = (option) => option.recordable !== false && option.available !== false && option.decidedBy?.allowed === true;
 // A sign-off with no evidence file has nothing to look at yet: it is not asked.
+// A sign-off with a file to look at, or one with none that the person checks themselves (`attest`, owner 2026-11-22).
 const reviews = (item) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false
-  && (option.action.humanReview.files ?? []).length > 0);
+  && ((option.action.humanReview.files ?? []).length > 0 || option.action.humanReview.attest === true));
 const ownSteps = (item) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
 const itemName = (item) => item.details?.path ?? item.title;
 const line = (value) => String(value ?? '').replace(/[\r\n]+/gu, ' ').trim();
@@ -475,7 +476,10 @@ export function answersOnCurrentList(packet, answers) {
  * all three checks, with the note or CONFIRMED_ON_CARD as its reason; No denies the first two, its note required;
  * Not sure records nothing.
  */
-export const SIGN_OFF_ANSWERS = Object.freeze({ yes: 'Yes', no: 'No (say what\'s wrong)', unsure: 'Not sure' });
+export const SIGN_OFF_ANSWERS = Object.freeze({ yes: 'Yes', no: 'No (say what\'s wrong)', unsure: 'Not sure', self: 'I checked it myself (no screenshot)' });
+// A sign-off with no screenshot or file is the person's word about what they checked themselves (owner, 2026-11-22): its note
+// is required, and says what they checked, where and how.
+export const ATTEST_NOTE = 'Say what you checked yourself, where and how (20 to 1000 characters).';
 export const CONFIRMED_ON_CARD = 'Confirmed on the decision card: it shows what the criterion asks for.';
 const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp|svg)$/iu;
 const shortName = (clauseId) => String(clauseId ?? '').slice(String(clauseId ?? '').lastIndexOf(':') + 1);
@@ -486,10 +490,21 @@ export function signOffQuestion(review, file = review?.files?.[0] ?? null) {
   const subject = review?.method === 'visual' || IMAGE_FILE.test(String(file ?? '')) ? 'this screenshot' : file;
   return `Does ${subject} show what ${shortName(review?.clauseId)} asks for?`;
 }
+
+/** The question when there is no screenshot or file to look at: the person's own check is the sign-off. */
+export function attestQuestion(review) {
+  return `No screenshot: did you check yourself that the app does what ${shortName(review?.clauseId)} asks for?`;
+}
 export const unsureWords = (workId) => `Nothing was recorded for ${workId}. Ask someone who knows that screen, or take the screenshot again; the sign-off stays open on the Decide card.`;
-export function signOffAnswers(answer, note = '') {
+export function signOffAnswers(answer, note = '', { attest = false } = {}) {
   const text = String(note ?? '').trim();
   if (answer === 'unsure') return { unsure: true };
+  // No screenshot (the question asked without one, or "I checked it myself"): the note is the evidence.
+  if (attest || answer === 'self') {
+    if (text.length < 20 || text.length > 1000) return { problem: ATTEST_NOTE };
+    const yes = answer !== 'no';
+    return { reason: text, attest: true, answers: [['states-the-outcome', yes], ['matches-the-criterion', yes], ['current-for-this-change', true]] };
+  }
   if (answer === 'no' && !text) return { problem: 'Say what is wrong with it (10 to 1000 characters).' };
   if (text && (text.length < 10 || text.length > 1000)) return { problem: 'Keep the note to 10 to 1000 characters.' };
   if (answer === 'yes') return { reason: text || CONFIRMED_ON_CARD, answers: [['states-the-outcome', true], ['matches-the-criterion', true], ['current-for-this-change', true]] };
@@ -507,16 +522,30 @@ function signOffWhat(review, item = null) {
 
 /** One sign-off, one question: what is decided and why, the criterion, then Yes, No (say what's wrong) or Not sure. */
 export function witnessForm(review, item = null) {
+  // No screenshot: the person's own check is the sign-off, and the note saying what they checked is required.
+  if (review.attest || !(review.files ?? []).length) return { message: [signOffWhat(review, item), ...(review.clauseText ? [`${shortName(review.clauseId)}: ${review.clauseText}`] : [])].join('\n'),
+    requestedSchema: { type: 'object', required: ['answer', 'note'], properties: {
+      answer: { type: 'string', title: attestQuestion(review), enum: [SIGN_OFF_ANSWERS.yes, SIGN_OFF_ANSWERS.no, SIGN_OFF_ANSWERS.unsure] },
+      note: { type: 'string', title: 'What did you check, where and how?', maxLength: 1000 } } } };
   return { message: [signOffWhat(review, item), ...(review.clauseText ? [`${shortName(review.clauseId)}: ${review.clauseText}`] : []),
     ...(review.files.length === 1 ? ['It is open beside this question.'] : [])].join('\n'),
   requestedSchema: { type: 'object', required: ['answer'], properties: {
-    answer: { type: 'string', title: signOffQuestion(review), enum: [SIGN_OFF_ANSWERS.yes, SIGN_OFF_ANSWERS.no, SIGN_OFF_ANSWERS.unsure] },
+    answer: { type: 'string', title: signOffQuestion(review), enum: [SIGN_OFF_ANSWERS.yes, SIGN_OFF_ANSWERS.no, SIGN_OFF_ANSWERS.unsure, SIGN_OFF_ANSWERS.self] },
     // Several files: the person picks the one they looked at; nobody is asked to type a path [PHR:REQ-006].
     ...(review.files.length === 1 ? {} : { file: { type: 'string', title: 'Which file did you look at?', enum: [...review.files] } }),
-    note: { type: 'string', title: 'What is wrong (needed for No; for Yes, optional)', maxLength: 1000 } } } };
+    note: { type: 'string', title: 'What is wrong (needed for No; for Yes, optional); what you checked, for I checked it myself', maxLength: 1000 } } } };
 }
 
 export function witnessAnswers(review, content) {
+  const attest = review.attest === true || !(review.files ?? []).length;
+  if (attest) {
+    const answer = Object.entries(SIGN_OFF_ANSWERS).find(([, word]) => word === content?.answer)?.[0];
+    if (!answer) return { problem: `Answer ${SIGN_OFF_ANSWERS.yes}, ${SIGN_OFF_ANSWERS.no} or ${SIGN_OFF_ANSWERS.unsure}.` };
+    const given = signOffAnswers(answer, content?.note, { attest: true });
+    if (given.unsure) return { problem: null, unsure: true };
+    if (given.problem) return { problem: given.problem };
+    return { problem: null, file: null, attest: true, reason: given.reason, answers: given.answers };
+  }
   const file = review.files.length === 1 ? review.files[0] : String(content?.file ?? '').trim();
   if (!review.files.includes(file)) return { problem: `Pick the file you looked at: ${review.files.join(', ')}.` };
   const answer = Object.entries(SIGN_OFF_ANSWERS).find(([, word]) => word === content?.answer)?.[0];
@@ -524,6 +553,8 @@ export function witnessAnswers(review, content) {
   const given = signOffAnswers(answer, content?.note);
   if (given.unsure) return { problem: null, unsure: true };
   if (given.problem) return { problem: given.problem };
+  // "I checked it myself (no screenshot)": recorded with no file, whatever was open beside it.
+  if (given.attest) return { problem: null, file: null, attest: true, reason: given.reason, answers: given.answers };
   return { problem: null, file, reason: given.reason, answers: given.answers };
 }
 

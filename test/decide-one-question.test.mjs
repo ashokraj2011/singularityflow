@@ -81,7 +81,8 @@ test('Copilot CLI: one sign-off is one question, what and why first, and a Yes i
   assert.deepEqual(Object.keys(requestedSchema.properties), ['answer', 'note']);
   assert.deepEqual(requestedSchema.required, ['answer']);
   assert.equal(requestedSchema.properties.answer.title, QUESTION);
-  assert.deepEqual(requestedSchema.properties.answer.enum, ['Yes', 'No (say what\'s wrong)', 'Not sure']);
+  // With the screenshot open, the person may also sign it off from their own check (owner, 2026-11-22).
+  assert.deepEqual(requestedSchema.properties.answer.enum, ['Yes', 'No (say what\'s wrong)', 'Not sure', 'I checked it myself (no screenshot)']);
   assert.doesNotMatch(JSON.stringify(card.witnessForm(review, item)), /Did you look at it|I reviewed this exact change|observable outcome|current for this change|What did you inspect/u);
   const asked = [];
   const witnessed = [];
@@ -140,7 +141,7 @@ test('terminal walkthrough: the same one question, y with no note records the ye
       return { outcome, said, recorded };
     };
     const yes = await walk(['y', '']);
-    assert.match(yes.said, new RegExp(`${QUESTION.replace(/[?]/gu, '\\?')} y = yes, n = no \\(say what's wrong\\), s = not sure, r = take it again \\[s\\]: `, 'u'));
+    assert.match(yes.said, new RegExp(`${QUESTION.replace(/[?]/gu, '\\?')} y = yes, n = no \\(say what's wrong\\), s = not sure, r = take it again, c = I checked it myself \\(no screenshot\\) \\[s\\]: `, 'u'));
     assert.doesNotMatch(yes.said, /Record this review|What did you look at|observable outcome/u);
     assert.equal(yes.recorded[0][yes.recorded[0].indexOf('--reason') + 1], shared.CONFIRMED_ON_CARD);
     const unsure = await walk(['s']);

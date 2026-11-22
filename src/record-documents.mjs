@@ -106,7 +106,9 @@ function runsTable(runs) {
 function signOffs(row, records) {
   const slots = (row.verification?.contract?.slots ?? []).filter((slot) => slot.method !== 'test' && slot.status === 'satisfied');
   return slots.map((slot) => [...records].reverse().find((record) => record?.clauseId === row.id && record.slot === slot.slot))
-    .filter(Boolean).map((record) => `${record.method ?? 'person'} sign-off ${code(record.id)} (${code(record.file)}), confirmed by a person`);
+    .filter(Boolean).map((record) => (record.basis === 'person-attestation'
+      ? `signed off by ${person(record.actor)} without a screenshot (${code(record.id)}): "${String(record.reason ?? '').replace(/\s+/gu, ' ').slice(0, 300)}"`
+      : `${record.method ?? 'person'} sign-off ${code(record.id)} (${code(record.file)}), confirmed by a person`));
 }
 
 /** What a clause's tests say, in the words a row carries: each test, its run and its outcome, then its sign-offs. */

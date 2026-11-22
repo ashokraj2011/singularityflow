@@ -479,6 +479,20 @@ const RISK_CATEGORY_WORDS = Object.freeze({ 'external-dependency': 'it depends o
  * One item per criterion whose evidence approval waits on a person for: witness each slot after
  * looking at it, or accept the obligation as a dated risk. Both are the person's own commands.
  */
+/**
+ * The sign-off with no screenshot (owner, 2026-11-22): a person who may witness the criterion checked it themselves and says
+ * what they checked. Offered beside a sign-off whose file is not there yet, so a missing screenshot never holds the Story.
+ */
+function attestOption(workflow, context, owed, groups) {
+  if (!owed?.clauseId || !owed.slot || !/^sha256:[a-f0-9]{64}$/u.test(String(owed.contextBinding ?? ''))) return null;
+  const words = 'You checked it yourself and say what you checked; your sign-off is its evidence, with no screenshot.';
+  const step = personalStep({ id: `witness-${owed.slot}-self`, label: 'Sign it off without a screenshot: I checked it myself',
+    command: `singularity-flow decision witness ${workflow.workItem.id} --criterion ${owed.clauseId} --slot ${owed.slot} --attest --confirm states-the-outcome --confirm matches-the-criterion --confirm current-for-this-change --reason "<what you checked>"`,
+    words, decidedBy: stepDecidedBy(workflow, context, groups, words) });
+  return { ...step, action: { ...step.action, humanReview: { kind: 'witness', attest: true, clauseId: owed.clauseId, clauseText: owed.clauseText, slot: owed.slot,
+    method: owed.method, files: [], owners: owed.owners, contextBinding: owed.contextBinding } } };
+}
+
 function evidenceItem(workflow, context, entry) {
   const name = clauseName(workflow, entry.criterion);
   const slots = entry.witnesses.map((witness) => witness.files.length === 1 ? witness.files[0] : `slot ${witness.slot}`);
@@ -498,11 +512,11 @@ function evidenceItem(workflow, context, entry) {
       words,
       decidedBy: stepDecidedBy(workflow, context, owed?.groups ?? witness.groups ?? [...new Set((owed?.owners ?? []).flatMap(id => approvers(workflow, id)))], words)
       });
-      if (notYet(witness)) return { ...step, available: false };
+      if (notYet(witness)) return [{ ...step, available: false }, attestOption(workflow, context, owed, owed?.groups ?? witness.groups ?? [])].filter(Boolean);
       return owed ? { ...step,
         action: { ...step.action, humanReview: { kind: 'witness', clauseId: owed.clauseId, clauseText: owed.clauseText, slot: owed.slot, method: owed.method,
           files: owed.files, owners: owed.owners, contextBinding: owed.contextBinding } } } : step;
-    }),
+    }).flat(),
     ...entry.risks.flatMap((risk, index) => (risk.obligationId ? entry.categories : []).map((category) => option(workflow, context, {
       id: `accept-obligation-risk-${category}${entry.risks.length === 1 ? '' : `-${index + 1}`}`,
       label: `Accept it as a risk until a date: ${RISK_CATEGORY_WORDS[category] ?? category}`,
@@ -1187,7 +1201,14 @@ function owedItem(workflow, context, entry) {
       ...(notYet ? { available: false } : witness ? { humanReview: { kind: 'witness', clauseId: entry.clauseId, clauseText: entry.clauseText, slot: entry.slot, method: entry.method,
         files: entry.files, owners: entry.owners, contextBinding: entry.contextBinding } } : {}) },
     ...(entry.otherCommand ? [{ id: 'other-disposition', label: 'Exclude, defer or set it aside, with a reason', command: entry.otherCommand,
-      words: 'Only a person records it; an agent never answers it.' }] : []), ...risk, ...appReview],
+      words: 'Only a person records it; an agent never answers it.' }] : []),
+    // No screenshot yet: the person's own check is a way through, beside the screenshot (owner, 2026-11-22).
+    ...(notYet && /^sha256:[a-f0-9]{64}$/u.test(String(entry.contextBinding ?? '')) ? [{ id: 'witness-self', label: 'Sign it off without a screenshot: I checked it myself',
+      command: `singularity-flow decision witness ${workflow.workItem.id} --criterion ${entry.clauseId} --slot ${entry.slot} --attest --confirm states-the-outcome --confirm matches-the-criterion --confirm current-for-this-change --reason "<what you checked>"`,
+      words: 'You checked it yourself and say what you checked; your sign-off is its evidence, with no screenshot.',
+      humanReview: { kind: 'witness', attest: true, clauseId: entry.clauseId, clauseText: entry.clauseText, slot: entry.slot, method: entry.method,
+        files: [], owners: entry.owners, contextBinding: entry.contextBinding } }] : []),
+    ...risk, ...appReview],
     // Whose delivery publishes its evidence and what it is: a sign-off nobody can give yet says when it can [owner, 2026-11-16].
     details: witness ? { clause: entry.clauseId, slot: entry.slot, contextBinding: entry.contextBinding, owners: entry.owners ?? [], files: entry.files ?? [], method: entry.method ?? null,
       ...(entry.capture ? { capture: { status: entry.capture.status, file: entry.capture.file, ...(entry.capture.reason ? { reason: entry.capture.reason } : {}),

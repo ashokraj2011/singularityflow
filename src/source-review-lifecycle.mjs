@@ -535,6 +535,9 @@ const OFFERED_FULFILLMENT = new Set(['evidence', 'existing', 'document', 'config
  * the verification evidence said a criterion was proved by a screenshot, but its reviewer was given only the Story's own
  * reference image, judged the claim unproved, and blocked every version (owner's d-story, 2026-11-22).
  */
+/** Who made a record, as a person reads it. */
+const person = (actor) => (typeof actor === 'string' && actor ? actor : actor?.login ?? actor?.name ?? actor?.email ?? 'a person');
+
 export async function citedSignOffSources(root, workflow, artifact, sources, visualSources, phase = null) {
   const text = String(artifact?.text ?? '');
   // A step that reports on delivered code (witness-decisions.mjs) also gets the sign-offs of the criteria it names, cited or
@@ -542,13 +545,23 @@ export async function citedSignOffSources(root, workflow, artifact, sources, vis
   const reports = phase ? (await import('./verification/witness-decisions.mjs')).phaseReadsWitnessDecisions(workflow, phase) : false;
   const latest = new Map();
   for (const record of countedRecords(workflow, workflow.witnessRecords ?? [])) {
-    if (record?.id && record.file && record.clauseId) latest.set(`${record.clauseId}\0${record.slot ?? ''}`, record);
+    if (record?.id && record.clauseId && (record.file || record.basis === 'person-attestation')) latest.set(`${record.clauseId}\0${record.slot ?? ''}`, record);
   }
   const offered = new Set([...sources, ...visualSources].map((source) => source.path));
   const found = [];
   for (const record of latest.values()) {
-    if (offered.has(record.file) || !(text.includes(record.file) || new RegExp(`\\b${record.id}\\b`, 'u').test(text)
-      || (reports && text.includes(record.clauseId)))) continue;
+    const named = (record.file && text.includes(record.file)) || new RegExp(`\\b${record.id}\\b`, 'u').test(text) || (reports && text.includes(record.clauseId));
+    // A person's own sign-off with no file is offered as what it is, their words (owner, 2026-11-22): it proves the clause.
+    if (!record.file && record.basis === 'person-attestation') {
+      if (!named || record.outcome !== 'met' || sources.some((source) => source.id === record.id)) continue;
+      sources.push({ id: record.id, path: `witness-records/${record.id}`, text: [
+        `${record.id}: ${person(record.actor)}${record.authorityGroup ? `, for ${record.authorityGroup},` : ''} signed off ${record.clauseId} (slot ${record.slot}) themselves at ${record.at ?? 'an unrecorded time'}, with no screenshot or file.`,
+        `What they checked: ${record.reason}`,
+        'A person\'s recorded sign-off is this clause\'s evidence, as a screenshot would be: do not block the clause because no screenshot or file exists. Report a finding only when the document or the code contradicts what they said they checked.'
+      ].join('\n') });
+      continue;
+    }
+    if (!record.file || offered.has(record.file) || !named) continue;
     if (sources.length + visualSources.length + found.length >= MAX_CITED_SOURCES) break;
     const mimeType = documentMimeType(record.file);
     if (!(mimeType === 'application/pdf' || (mimeType.startsWith('image/') && mimeType !== 'image/svg+xml'))) continue;

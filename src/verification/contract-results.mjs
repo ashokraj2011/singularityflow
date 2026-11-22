@@ -107,6 +107,10 @@ function recordSlotResult(id, slot, { rowSubmitted, records }) {
   // An inspection or visual slot is witnessed by its own record, bound to this criterion and slot.
   const record = (records ?? []).find((entry) => entry.clauseId === id && entry.slot === slot.slot && entry.method === slot.method) ?? null;
   if (record?.status === 'met') {
+    // A person's own sign-off with no file (witness-records.mjs PERSON_ATTESTATION) counts as the slot's proof at the level
+    // it requires (owner, 2026-11-22); `record.attested` says it rests on their word, and every view names it so.
+    if (record.attested) return { status: 'met', assurance: slot.requiredAssurance ?? 'source-bound', identity: 'declared', execution: 'none',
+      requiredAssurance: slot.requiredAssurance ?? 'source-bound', results: [], record, excepted: false, attested: true, findings: [] };
     return { status: 'met', assurance: record.assurance ?? 'source-bound', identity: record.assurance === 'declared' ? 'declared' : 'source-bound',
       execution: 'none', requiredAssurance: slot.requiredAssurance ?? 'source-bound', results: [], record, excepted: record.exception === true, findings: [] };
   }

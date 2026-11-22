@@ -887,6 +887,8 @@ async function allocatedPlanObligations(root, config, workflow, phase) {
  * what its author must produce before publication. Edit permission and routing only, never a pass;
  * an unreadable or absent plan owes nothing here and the publication checks still apply.
  */
+const SCREENSHOT_FILE = /\.(?:png|jpe?g|gif|webp)$/iu;
+
 export async function plannedEvidencePaths(root, config, workflow, phase) {
   const obligations = await allocatedPlanObligations(root, config, workflow, phase).catch(() => null);
   const prefix = `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence/`;
@@ -923,7 +925,11 @@ async function fulfillmentEvidence(root, obligations, changedPaths, deletedPaths
       if (['existing', 'evidence'].includes(obligation.fulfillment)) {
         paths.push({ path: candidate, state: present ? 'present' : 'missing',
           sha256: present ? createHash('sha256').update(await readFile(secured.absolute)).digest('hex') : null });
-        if (!present) problem(`code.delivery.${obligation.fulfillment}-path-missing`, obligation.clauseId, candidate, `${obligation.clauseId} requires ${obligation.fulfillment}, but ${candidate} does not exist`);
+        // A screenshot not taken yet does not hold the code: its sign-off asks for it, or a person signs off from their own
+        // check with no screenshot (owner, 2026-11-22). Any other retained file is the code step's to deliver, as before.
+        if (!present && !(obligation.fulfillment === 'evidence' && SCREENSHOT_FILE.test(candidate))) {
+          problem(`code.delivery.${obligation.fulfillment}-path-missing`, obligation.clauseId, candidate, `${obligation.clauseId} requires ${obligation.fulfillment}, but ${candidate} does not exist`);
+        }
       } else if (obligation.fulfillment === 'removed') {
         paths.push({ path: candidate, state: present ? 'present' : 'absent' });
         if (present) problem('code.delivery.removed-path-present', obligation.clauseId, candidate, `${obligation.clauseId} removes ${candidate}, but it still exists`);

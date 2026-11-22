@@ -12,7 +12,7 @@
  *
  * Pure on purpose (no `vscode` import), so the tests pin every control and every argv.
  */
-import { SIGN_OFF_ANSWERS, signOffAnswers, signOffQuestion, unsureWords } from '../../../../src/sign-off-question.mjs';
+import { SIGN_OFF_ANSWERS, attestQuestion, signOffAnswers, signOffQuestion, unsureWords } from '../../../../src/sign-off-question.mjs';
 import type { ReviewConfirmationRequest } from './review-confirmation-page.ts';
 
 export interface DecisionTextNeed { default: string; minimum: number; maximum: number }
@@ -645,6 +645,8 @@ export function decisionRecordOutcome(result: unknown, failure: { message: strin
 export interface WitnessReviewTarget { workId: string; criterion?: string; slot?: string }
 export interface WitnessReviewChoice {
   clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; contextBinding: string;
+  /** No screenshot or file: the person's own check is the sign-off (owner, 2026-11-22). */
+  attest?: boolean;
 }
 export interface WitnessReviewHost {
   read(): Promise<DecisionPacket>;
@@ -652,10 +654,10 @@ export interface WitnessReviewHost {
   file(repository: string, files: string[]): Promise<string | undefined>;
   digest(repository: string, file: string): Promise<string>;
   inspect(repository: string, file: string): Promise<void>;
-  /** The one question [owner, 2026-11-18]: 'yes', 'no' or 'unsure'; undefined when the person closes it. */
-  answer(question: string, answers: typeof SIGN_OFF_ANSWERS): Promise<'yes' | 'no' | 'unsure' | undefined>;
-  /** The note: required for No (what is wrong), optional for Yes. Undefined when the person closes it. */
-  note(required: boolean): Promise<string | undefined>;
+  /** The one question [owner, 2026-11-18]: 'yes', 'no', 'unsure' or 'self' (checked with no screenshot); undefined when closed. */
+  answer(question: string, answers: typeof SIGN_OFF_ANSWERS): Promise<'yes' | 'no' | 'unsure' | 'self' | undefined>;
+  /** The note: required for No (what is wrong) and for a sign-off with no screenshot, optional for Yes. Undefined when closed. */
+  note(required: boolean, checked?: boolean): Promise<string | undefined>;
   record(repository: string, argv: string[]): Promise<unknown>;
 }
 export { SIGN_OFF_ANSWERS };
@@ -665,7 +667,7 @@ export function witnessReviewChoices(packet: DecisionPacket): WitnessReviewChoic
   return packet.items.flatMap(item => item.options.filter(option => option.decidedBy.allowed).flatMap(option => {
     const review = option.action?.humanReview;
     if (!review || review.kind !== 'witness' || !/^sha256:[a-f0-9]{64}$/u.test(review.contextBinding ?? '')) return [];
-    const key = `${review.clauseId}\0${review.slot}`;
+    const key = `${review.clauseId}\0${review.slot}${review.attest ? '\0self' : ''}`;
     if (seen.has(key)) return [];
     seen.add(key);
     return [review];
@@ -684,6 +686,7 @@ export async function runWitnessReview(target: WitnessReviewTarget, host: Witnes
   const review = choices.length === 1 ? choices[0]! : await host.choose(choices);
   if (!review) return { status: 'cancelled', message: 'No witness was recorded.' };
   const repository = packet.repositoryPath;
+  if (review.attest || !review.files.length) return attestReview(target, host, review, repository);
   const file = await host.file(repository, review.files);
   if (!file) return { status: 'cancelled', message: 'No witness was recorded.' };
   const digest = await host.digest(repository, file);
@@ -692,11 +695,13 @@ export async function runWitnessReview(target: WitnessReviewTarget, host: Witnes
   const answer = await host.answer(signOffQuestion(review, file), SIGN_OFF_ANSWERS);
   if (answer === undefined) return { status: 'cancelled', message: 'Nothing was recorded.' };
   if (answer === 'unsure') return { status: 'unsure', message: unsureWords(target.workId) };
-  const note = await host.note(answer === 'no');
+  const note = await host.note(answer === 'no' || answer === 'self', answer === 'self');
   if (note === undefined) return { status: 'cancelled', message: 'Nothing was recorded.' };
   const given = signOffAnswers(answer, note);
   if ('problem' in given) throw new Error(given.problem);
   if (!('reason' in given)) return { status: 'unsure', message: unsureWords(target.workId) };
+  // "I checked it myself": recorded with no file, whatever screenshot was open beside it.
+  if ('attest' in given && given.attest) return recordAttestation(target, host, review, repository, given);
   const { reason, answers } = given;
   const fresh = await host.read();
   const current = witnessReviewChoices(fresh).find(entry => entry.clauseId === review.clauseId && entry.slot === review.slot);
@@ -705,5 +710,31 @@ export async function runWitnessReview(target: WitnessReviewTarget, host: Witnes
   const result = await host.record(repository, ['decision', 'witness', '--work-id', target.workId, '--criterion', review.clauseId,
     '--slot', review.slot, '--file', file, '--reason', reason, '--expected-context-sha256', review.contextBinding,
     '--expected-file-sha256', digest, ...answers.flatMap(([id, answer]) => [answer ? '--confirm' : '--deny', id]), '--json']);
+  return { status: 'recorded', result };
+}
+
+/** A sign-off with no screenshot: one question, the person's note required, recorded with --attest (owner, 2026-11-22). */
+async function attestReview(target: WitnessReviewTarget, host: WitnessReviewHost, review: WitnessReviewChoice, repository: string) {
+  const answer = await host.answer(attestQuestion(review), SIGN_OFF_ANSWERS);
+  if (answer === undefined) return { status: 'cancelled', message: 'Nothing was recorded.' };
+  if (answer === 'unsure') return { status: 'unsure', message: unsureWords(target.workId) };
+  const note = await host.note(true, answer !== 'no');
+  if (note === undefined) return { status: 'cancelled', message: 'Nothing was recorded.' };
+  const given = signOffAnswers(answer === 'self' ? 'yes' : answer, note, { attest: true });
+  if ('problem' in given) throw new Error(given.problem);
+  if (!('reason' in given)) return { status: 'unsure', message: unsureWords(target.workId) };
+  return recordAttestation(target, host, review, repository, given);
+}
+
+async function recordAttestation(target: WitnessReviewTarget, host: WitnessReviewHost, review: WitnessReviewChoice, repository: string,
+  given: { reason: string; answers: Array<[string, boolean]> }) {
+  const fresh = await host.read();
+  const current = witnessReviewChoices(fresh).find(entry => entry.clauseId === review.clauseId && entry.slot === review.slot);
+  if (fresh.workId !== target.workId || fresh.repositoryPath !== repository || current?.contextBinding !== review.contextBinding) {
+    throw new Error('The candidate or pending review changed while you answered. Nothing was recorded; reopen the current review.');
+  }
+  const result = await host.record(repository, ['decision', 'witness', '--work-id', target.workId, '--criterion', review.clauseId,
+    '--slot', review.slot, '--attest', '--reason', given.reason, '--expected-context-sha256', review.contextBinding,
+    ...given.answers.flatMap(([id, answer]) => [answer ? '--confirm' : '--deny', id]), '--json']);
   return { status: 'recorded', result };
 }

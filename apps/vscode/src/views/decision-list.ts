@@ -328,11 +328,14 @@ async function witnessReview(client: SingularityFlowClient, target: WitnessRevie
     digest: async (repository, file) => `sha256:${createHash('sha256').update(await readFile(await reviewedPath(repository, file))).digest('hex')}`,
     inspect: async (repository, file) => { await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(await reviewedPath(repository, file))); },
     // The one question, then the note: required for No, optional for Yes [owner, 2026-11-18].
+    // With a screenshot, "I checked it myself (no screenshot)" is a fourth answer (owner, 2026-11-22).
     answer: async (question, answers) => (await vscode.window.showQuickPick([{ label: answers.yes, answer: 'yes' as const }, { label: answers.no, answer: 'no' as const },
-      { label: answers.unsure, answer: 'unsure' as const }], { title: question, placeHolder: question, ignoreFocusOut: true }))?.answer,
-    note: async (required) => vscode.window.showInputBox({ title: required ? 'What is wrong with it?' : 'A note, if you want one', ignoreFocusOut: true,
-      prompt: required ? 'Say what is wrong, in your own words.' : 'Optional: leave it empty to record your yes.',
-      validateInput: value => (!value.trim() && !required) || (value.trim().length >= 10 && value.trim().length <= 1000) ? null : 'Enter 10 to 1000 characters.' }),
+      { label: answers.unsure, answer: 'unsure' as const }, ...(question.startsWith('No screenshot') ? [] : [{ label: answers.self, answer: 'self' as const }])],
+    { title: question, placeHolder: question, ignoreFocusOut: true }))?.answer,
+    note: async (required, checked = false) => vscode.window.showInputBox({ title: checked ? 'What did you check yourself?' : required ? 'What is wrong with it?' : 'A note, if you want one', ignoreFocusOut: true,
+      prompt: checked ? 'Say what you checked, where and how; with no screenshot, this is the evidence.' : required ? 'Say what is wrong, in your own words.' : 'Optional: leave it empty to record your yes.',
+      validateInput: value => checked ? (value.trim().length >= 20 && value.trim().length <= 1000 ? null : 'Enter 20 to 1000 characters.')
+        : (!value.trim() && !required) || (value.trim().length >= 10 && value.trim().length <= 1000) ? null : 'Enter 10 to 1000 characters.' }),
     record: (repository, argv) => client.forkForRepository(repository).run(argv)
   });
   if (result.status !== 'recorded') return result;

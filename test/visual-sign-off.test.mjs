@@ -61,28 +61,27 @@ function packetOf(entry, { workflow = story(), held = true } = {}) {
 const signOff = (packet) => packet.items.find((item) => item.details?.clause === `${W}:AC-002`);
 const text = (html) => html.replace(/<script[\s\S]*?<\/script>/gu, '').replace(/<[^>]+>/gu, ' ').replace(/&#39;/gu, '\'').replace(/&quot;/gu, '"').replace(/&amp;/gu, '&').replace(/\s+/gu, ' ');
 
-test('the dead end, as it was: a published step\'s visual sign-off with no file leaves nothing to record, and every card says why on itself', async () => {
-  // What the demo build's engine gave: no file, unavailable, and no way to get one.
+test('the dead end, as it was, is gone: a visual sign-off with no file is signed off from the person\'s own check on every card', async () => {
+  // What the demo build's engine gave: no file, unavailable, and no way to get one. Since 2026-11-22 the person may sign it
+  // off without a screenshot, saying what they checked: a missing screenshot never holds the Story (owner).
   const packet = packetOf(owed());
   const item = signOff(packet);
   assert.equal(item.holdsApproval, true);
   assert.doesNotMatch(item.why, / {2}/u, 'never "nothing has published  for AC-002"');
   assert.match(item.why, /the plan names no screenshot for AC-002/u);
-  assert.equal(packet.plain.nothingToRecord, 'Nothing here can be recorded yet. Sign off AC-002 after Implementation publishes its screenshot. Approving Implementation waits for it.');
-  // Copilot CLI: said, never an empty form or a silent "No decision was recorded".
-  const seen = { asked: [], shown: [] };
-  const result = await runCard({ read: async () => packet, show: async (line) => { seen.shown.push(line); }, ask: async (form) => { seen.asked.push(form); return { action: 'cancel' }; },
-    record: async () => assert.fail('nothing is recordable'), witness: async () => assert.fail('nothing to sign'), inspect: async () => {} });
-  assert.equal(result.status, 'nothing-recordable');
-  assert.equal(result.message, packet.plain.nothingToRecord);
-  assert.deepEqual(seen.asked, []);
-  assert.ok(seen.shown.includes(packet.plain.nothingToRecord));
-  // VS Code's Decide card: no "Review and record" that does nothing; the reason, on the card.
-  const card = decideHtml(packet);
-  assert.doesNotMatch(card, /data-review/u);
-  assert.ok(text(card).includes(packet.plain.nothingToRecord), text(card));
-  // VS Code's Decisions page: the same words where its review would be.
-  assert.ok(text(decisionListHtml(buildDecisionListView(packet))).includes(packet.plain.nothingToRecord));
+  const self = item.options.find((entry) => entry.id === 'witness-self');
+  assert.equal(self?.label, 'Sign it off without a screenshot: I checked it myself');
+  assert.notEqual(self.available, false);
+  assert.deepEqual([self.action.humanReview.attest, self.action.humanReview.files], [true, []]);
+  assert.equal(packet.plain.nothingToRecord, undefined, 'the person\'s own check is recordable now');
+  // Copilot CLI: one question with the note required, and the sign-off recorded with no file.
+  const seen = { asked: [], signed: [] };
+  const result = await runCard({ read: async () => packet, show: async () => {},
+    ask: async (form) => { seen.asked.push(form); return form.requestedSchema?.properties?.note && form.requestedSchema.required?.includes('note')
+      ? { action: 'accept', content: { answer: 'Yes', note: 'Opened the grapher at 1280 px: the graph lays out in the workspace.' } } : { action: 'cancel' }; },
+    record: async () => ({}), witness: async (current, review, answer) => { seen.signed.push(answer); return { record: { id: 'WIT-001', outcome: 'met' } }; }, inspect: async () => {} });
+  assert.equal(result.status, 'recorded', JSON.stringify(result));
+  assert.deepEqual(seen.signed.map((answer) => [answer.attest, answer.file]), [[true, null]]);
 });
 
 test('after publication the sign-off offers the person\'s screenshot first, never as a card\'s check, and nobody types a path', () => {
@@ -192,11 +191,10 @@ test('when SFlow cannot take the screenshot, the sign-off names what works: the 
   assert.equal(risk.action.command, RISK);
   assert.notEqual(risk.available, false);
   assert.equal(packet.plain.nothingToRecord, undefined, 'the risk is the person\'s own step');
-  // Without a risk to accept, its later line says where the screenshot goes, and the card says nothing is recordable yet.
+  // Without a risk to accept, the person signs it off from their own check (owner, 2026-11-22): something is recordable.
   const bare = packetOf(owed({ capture }));
-  assert.equal(signOff(bare).plain.later, `Sign off AC-002 once its screenshot is saved as ${FILE}: SFlow cannot take it (its package.json build script ("react-scripts build") does not run vite build, and SFlow infers only a Vite build).`);
-  assert.match(bare.plain.nothingToRecord, /^Nothing here can be recorded yet\. Sign off AC-002 once its screenshot is saved as /u);
-  assert.match(bare.plain.nothingToRecord, /Approving Implementation waits for it\.$/u);
+  assert.ok(signOff(bare).options.some((entry) => entry.id === 'witness-self' && entry.available !== false));
+  assert.equal(bare.plain.nothingToRecord, undefined);
 });
 
 test('which build SFlow runs: the Story\'s declared preview, else only Vite with a lock file, inferred and said so', async (t) => {

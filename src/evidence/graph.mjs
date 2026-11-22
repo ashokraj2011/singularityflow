@@ -297,7 +297,7 @@ async function loadInspections(root, directory, workflow, findings) {
  */
 async function loadWitnessRecords(root, workflow) {
   const current = new Map();
-  for (const file of new Set((workflow.witnessRecords ?? []).map((entry) => entry.file))) {
+  for (const file of new Set((workflow.witnessRecords ?? []).map((entry) => entry.file).filter(Boolean))) {
     try {
       const secured = await secureRepositoryPath(root, file, { label: 'Witnessed file', mustExist: true, type: 'file' });
       current.set(file, `sha256:${createHash('sha256').update(await readFile(secured.absolute)).digest('hex')}`);

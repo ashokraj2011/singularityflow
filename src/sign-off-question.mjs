@@ -12,7 +12,10 @@
  *   Not sure  nothing; UNSURE_WORDS says what to do.
  * Pure. The Copilot CLI card keeps its own copy (plugin/extensions/decisions/card.mjs), held equal by a test.
  */
-export const SIGN_OFF_ANSWERS = Object.freeze({ yes: 'Yes', no: 'No (say what\'s wrong)', unsure: 'Not sure' });
+export const SIGN_OFF_ANSWERS = Object.freeze({ yes: 'Yes', no: 'No (say what\'s wrong)', unsure: 'Not sure', self: 'I checked it myself (no screenshot)' });
+// A sign-off with no screenshot or file is the person's word about what they checked themselves (owner, 2026-11-22): its note
+// is required, and says what they checked, where and how.
+export const ATTEST_NOTE = 'Say what you checked yourself, where and how (20 to 1000 characters).';
 // What a Yes with no note records as its reason: the engine asks for one of 10 to 1000 characters.
 export const CONFIRMED_ON_CARD = 'Confirmed on the decision card: it shows what the criterion asks for.';
 const IMAGE = /\.(?:png|jpe?g|gif|webp|svg)$/iu;
@@ -25,6 +28,11 @@ export function signOffQuestion(review, file = review?.files?.[0] ?? null) {
   return `Does ${subject} show what ${shortName(review?.clauseId)} asks for?`;
 }
 
+/** The question when there is no screenshot or file to look at: the person's own check is the sign-off. */
+export function attestQuestion(review) {
+  return `No screenshot: did you check yourself that the app does what ${shortName(review?.clauseId)} asks for?`;
+}
+
 /** What not being sure records (nothing) and what to do instead. */
 // Never a route back to /sf-decide: a chat's /sf-decide calls this review, and the card that asked it is still open
 // [hardening C, F6]. The sign-off stays open on the Decide card until someone answers it.
@@ -35,9 +43,15 @@ export const unsureWords = (workId) => `Nothing was recorded for ${workId}. Ask 
  * `{ problem }` (a No without a note, or a note outside 10 to 1000 characters) or `{ reason, answers }`, `answers`
  * being [check, confirmed] pairs.
  */
-export function signOffAnswers(answer, note = '') {
+export function signOffAnswers(answer, note = '', { attest = false } = {}) {
   const text = String(note ?? '').trim();
   if (answer === 'unsure') return { unsure: true };
+  // No screenshot (the question asked without one, or "I checked it myself"): the note is the evidence.
+  if (attest || answer === 'self') {
+    if (text.length < 20 || text.length > 1000) return { problem: ATTEST_NOTE };
+    const yes = answer !== 'no';
+    return { reason: text, attest: true, answers: [['states-the-outcome', yes], ['matches-the-criterion', yes], ['current-for-this-change', true]] };
+  }
   if (answer === 'no' && !text) return { problem: 'Say what is wrong with it (10 to 1000 characters).' };
   if (text && (text.length < 10 || text.length > 1000)) return { problem: 'Keep the note to 10 to 1000 characters.' };
   if (answer === 'yes') return { reason: text || CONFIRMED_ON_CARD, answers: [['states-the-outcome', true], ['matches-the-criterion', true], ['current-for-this-change', true]] };

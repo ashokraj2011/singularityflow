@@ -67,7 +67,10 @@ async function recordCard(packet, answers) {
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-async function recordWitness(packet, review, { file, reason, answers }) {
+async function recordWitness(packet, review, { file, reason, answers, attest = false }) {
+  // A sign-off with no screenshot: the person's own check, recorded with no file (owner, 2026-11-22).
+  if (attest || !file) return (await runFlow(['decision', 'witness', '--work-id', packet.workId, '--criterion', review.clauseId, '--slot', review.slot, '--attest',
+    '--reason', reason, '--expected-context-sha256', review.contextBinding, ...answers.flatMap(([id, yes]) => [yes ? '--confirm' : '--deny', id]), '--json'])).data;
   const bytes = await readFile(path.resolve(packet.repositoryPath, file));
   const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   return (await runFlow(['decision', 'witness', '--work-id', packet.workId, '--criterion', review.clauseId, '--slot', review.slot, '--file', file, '--reason', reason,

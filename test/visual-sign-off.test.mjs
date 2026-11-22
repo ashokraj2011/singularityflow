@@ -74,6 +74,8 @@ test('the dead end, as it was, is gone: a visual sign-off with no file is signed
   assert.notEqual(self.available, false);
   assert.deepEqual([self.action.humanReview.attest, self.action.humanReview.files], [true, []]);
   assert.equal(packet.plain.nothingToRecord, undefined, 'the person\'s own check is recordable now');
+  // While Implementation is still being written there is nothing to check yet: no sign-off without a screenshot.
+  assert.equal(signOff(packetOf(owed(), { workflow: story({ status: 'in_progress' }) })).options.some((entry) => entry.id === 'witness-self'), false);
   // Copilot CLI: one question with the note required, and the sign-off recorded with no file.
   const seen = { asked: [], signed: [] };
   const result = await runCard({ read: async () => packet, show: async () => {},

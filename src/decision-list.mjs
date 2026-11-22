@@ -480,11 +480,18 @@ const RISK_CATEGORY_WORDS = Object.freeze({ 'external-dependency': 'it depends o
  * looking at it, or accept the obligation as a dated risk. Both are the person's own commands.
  */
 /**
+ * Whether a sign-off with no screenshot can be given: the step that delivers what it is about was submitted or approved
+ * (so there is something to check, and no next version of it is being written), and the sign-off is bound to this change. Before that it is only waiting, like the screenshot.
+ */
+const canAttest = (workflow, owed) => Boolean(owed?.clauseId && owed.slot && /^sha256:[a-f0-9]{64}$/u.test(String(owed.contextBinding ?? ''))
+  && (owed.owners ?? []).some((owner) => ['awaiting_approval', 'approved'].includes(workflow.phases?.[owner]?.status)));
+
+/**
  * The sign-off with no screenshot (owner, 2026-11-22): a person who may witness the criterion checked it themselves and says
  * what they checked. Offered beside a sign-off whose file is not there yet, so a missing screenshot never holds the Story.
  */
 function attestOption(workflow, context, owed, groups) {
-  if (!owed?.clauseId || !owed.slot || !/^sha256:[a-f0-9]{64}$/u.test(String(owed.contextBinding ?? ''))) return null;
+  if (!canAttest(workflow, owed)) return null;
   const words = 'You checked it yourself and say what you checked; your sign-off is its evidence, with no screenshot.';
   const step = personalStep({ id: `witness-${owed.slot}-self`, label: 'Sign it off without a screenshot: I checked it myself',
     command: `singularity-flow decision witness ${workflow.workItem.id} --criterion ${owed.clauseId} --slot ${owed.slot} --attest --confirm states-the-outcome --confirm matches-the-criterion --confirm current-for-this-change --reason "<what you checked>"`,
@@ -1203,7 +1210,7 @@ function owedItem(workflow, context, entry) {
     ...(entry.otherCommand ? [{ id: 'other-disposition', label: 'Exclude, defer or set it aside, with a reason', command: entry.otherCommand,
       words: 'Only a person records it; an agent never answers it.' }] : []),
     // No screenshot yet: the person's own check is a way through, beside the screenshot (owner, 2026-11-22).
-    ...(notYet && /^sha256:[a-f0-9]{64}$/u.test(String(entry.contextBinding ?? '')) ? [{ id: 'witness-self', label: 'Sign it off without a screenshot: I checked it myself',
+    ...(notYet && canAttest(workflow, entry) ? [{ id: 'witness-self', label: 'Sign it off without a screenshot: I checked it myself',
       command: `singularity-flow decision witness ${workflow.workItem.id} --criterion ${entry.clauseId} --slot ${entry.slot} --attest --confirm states-the-outcome --confirm matches-the-criterion --confirm current-for-this-change --reason "<what you checked>"`,
       words: 'You checked it yourself and say what you checked; your sign-off is its evidence, with no screenshot.',
       humanReview: { kind: 'witness', attest: true, clauseId: entry.clauseId, clauseText: entry.clauseText, slot: entry.slot, method: entry.method,

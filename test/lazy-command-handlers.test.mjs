@@ -959,7 +959,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // typed words kept for that step (asked-for.mjs), its act (agent-output.mjs), the `person-change` settled kind and its
     // words, and the preview route in the map. The rules and the acts load only when used (completed-step-change*.mjs).
     // No new eager file.
-    assert.ok(closure.bytes <= 9_849_943, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,853,196 (measured for submit.mjs, +3,253, 2026-11-22): a person's sign-off is evidence. The verification table cites it
+    // (record-documents.mjs), the draft check names a claimed sign-off the document does not cite (witness-report-findings.mjs),
+    // and a sign-off without a screenshot is recorded and read (witness-records.mjs, delivery-evidence.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_853_196, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1490,7 +1493,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,338,600 (measured, +269, 2026-11-21, intents-stage7): the convergence rule's words (config.mjs, phase-roles.mjs). No new eager file.
   // 4,338,788 (measured on the integration branch with Stage 7, 2026-11-21): approval-focus and Stage 7 together.
   // 4,339,518 (measured on the integration branch, 2026-11-21): the integration fixes in config.mjs and step-intent-settings.mjs. No new eager file.
-  assert.ok(current.bytes <= 4_339_518, `session current loads ${current.bytes} source bytes`);
+  // 4,339,923 (measured, +405, 2026-11-22): a person's sign-off without a screenshot is read as met (witness-records.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_339_923, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

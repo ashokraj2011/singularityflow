@@ -193,24 +193,13 @@ test('a real Story delivers source, configuration, test-only, removal, document 
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
   await writeFile(codeArtifact, (await readFile(codeArtifact, 'utf8')).replace(/TODO:[^\n]*/gu,
     'The value module returns 2, the guard is unchanged, the legacy flag is removed and the usage page names value().'));
-  const missing = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
-  assert.notEqual(missing.status, 0, 'missing planned screenshot was published');
-  assert.match(`${missing.stdout}\n${missing.stderr}`, /requires evidence.*does not exist/su);
-  assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.implementation.generation, 0);
-  // The missing screenshot is the author's to produce: one finding per file naming every clause
-  // that owes it, routed to capture it and recheck (never to the workflow maintainer). The runner
-  // is held by that finding, not reported missing, and the author may write exactly that file.
+  // A planned screenshot not taken yet no longer refuses the code's publication (owner, 2026-11-22: a person may sign it
+  // off from their own check); test/sign-off-without-screenshot.test.mjs publishes without it. Here it is taken first.
+  // The screenshot not taken yet is no finding that holds the author: the code may publish without it, and its sign-off
+  // asks for it, or a person signs off from their own check (owner, 2026-11-22). The author may still take it.
   const prepublish = completeAgentResult(run(process.execPath, [CLI, '--no-model', 'phase', 'prepublish', 'implementation', '--for-agent', '--json'],
     root, { allowFailure: true }).stdout);
-  assert.deepEqual(prepublish.findings.map((finding) => [finding.code, finding.path, finding.details.clauseIds]),
-    [['code.delivery.retained-evidence-missing', SCREEN, [ac(6), SCREEN_REQ]]]);
-  const [issue] = prepublish.resolution.issues;
-  assert.equal(issue.status, 'needs-correction');
-  const choice = issue.choices[0].commandGuidance ?? issue.choices[0]; // the agent view says routes once
-  assert.deepEqual([issue.choices[0].kind, choice.copilotCommand, choice.command],
-    ['capture-retained-evidence', '/sf-code', 'singularity-flow phase prepublish implementation --for-agent --json']);
-  assert.equal(prepublish.testExecution.handoff.runnerStatus, 'blocked');
-  assert.equal(prepublish.testExecution.reason, 'CODE_DELIVERY_EVIDENCE_REQUIRED');
+  assert.deepEqual(prepublish.findings.filter((finding) => finding.path === SCREEN).map((finding) => finding.code), []);
   const entry = completeAgentResult(cli('phase', 'enter', 'implementation', '--for-agent', '--json').stdout);
   assert.ok(entry.mutationContract.artifacts.includes(SCREEN), 'the author may write the planned screenshot');
   // Nothing has published it: its sign-off says so, offers no command its own refusal would turn back,

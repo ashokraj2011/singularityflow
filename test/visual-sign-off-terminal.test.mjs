@@ -83,7 +83,7 @@ test('(A) taken at the browser, then signed off with the card\'s one question; r
       'taken, then taken again (--replace) when the person said r');
     assert.deepEqual(opened, [absolute, absolute]);
     assert.match(walk.said(), /Opening your app in SFlow's browser: bring up the screen AC-002 is about, then click "Capture this screen" on SFlow's bar \(up to 10 minutes; closing the browser takes nothing\)\./u);
-    assert.match(walk.said(), /Does this screenshot show what AC-002 asks for\? y = yes, n = no \(say what's wrong\), s = not sure, r = take it again \[s\]: /u);
+    assert.match(walk.said(), /Does this screenshot show what AC-002 asks for\? y = yes, n = no \(say what's wrong\), s = not sure, r = take it again, c = I checked it myself \(no screenshot\) \[s\]: /u);
     const args = records[0];
     assert.deepEqual(args.slice(0, 8), ['decision', 'witness', '--work-id', W, '--criterion', `${W}:AC-002`, '--slot', 'graph-layout']);
     assert.ok(args.includes('--expected-context-sha256') && args.includes(`sha256:${'c'.repeat(64)}`));

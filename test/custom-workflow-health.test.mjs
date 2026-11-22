@@ -4,7 +4,7 @@
  *
  * - `singularity-flow check` names each custom workflow with a problem, in plain words, with its one fix route; SFlow's
  *   own workflows are never listed.
- * - It is checked again only when SFlow's build or the committed configuration changes; otherwise it is kept.
+ * - It is checked again only when SFlow's build or the workflow configuration changes; otherwise it is kept.
  * - A Copilot session's start says the same, from what was kept, so the person hears it before a Story meets it.
  */
 import assert from 'node:assert/strict';

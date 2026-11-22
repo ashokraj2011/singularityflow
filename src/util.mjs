@@ -203,7 +203,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'drain',
   'heartbeat', 'not-applicable', 'submit',
   // guard register|rotate|recover --author (src/commands/guard.mjs).
-  'author',
+  'author', 'attest',
   // reject --beyond-budget: a person's one more rework round past a spent repair budget (repair-budget.mjs).
   'beyond-budget',
   // findings list (src/commands/findings.mjs).

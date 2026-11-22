@@ -5745,7 +5745,7 @@ Run `/sflow-code` once with the supplied focus and stop when it returns. The can
     <details>
       <summary>
         <span class="skill-number">079</span>
-        <span class="skill-title"><strong>sflow-import</strong><span>Import an agent skill, artifact template, agent, or generated-artifact source from a public link or a trusted marketplace after the person reviews its exact content.</span></span>
+        <span class="skill-title"><strong>sflow-import</strong><span>Import an agent skill, artifact template, agent, or generated-artifact source from a public link or a trusted marketplace after the person reviews its exact content, or make a workflow from a marketplace agent.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -5754,11 +5754,11 @@ Run `/sflow-code` once with the supplied focus and stop when it returns. The can
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~984 body tokens</span>
+          <span class="pill">~1248 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-import</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>[preview LINK|market:ID/ENTRY --as skill|template|agent | add ... --sha256 HASH | list | check | remove IMPORT]</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>[preview LINK|market:ID/ENTRY --as skill|template|agent | add ... --sha256 HASH | list | check | remove IMPORT | from-agent MARKETPLACE/AGENT|FOLDER]</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-import/SKILL.md</code></dd></div>
         </dl>
@@ -5768,10 +5768,10 @@ Run `/sflow-code` once with the supplied focus and stop when it returns. The can
         </div>
         <pre data-source="sflow-import"><code>---
 name: sflow-import
-description: Import an agent skill, artifact template, agent, or generated-artifact source from a public link or a trusted marketplace after the person reviews its exact content.
+description: Import an agent skill, artifact template, agent, or generated-artifact source from a public link or a trusted marketplace after the person reviews its exact content, or make a workflow from a marketplace agent.
 disable-model-invocation: true
 agent: agent
-argument-hint: &quot;[preview LINK|market:ID/ENTRY --as skill|template|agent | add ... --sha256 HASH | list | check | remove IMPORT]&quot;
+argument-hint: &quot;[preview LINK|market:ID/ENTRY --as skill|template|agent | add ... --sha256 HASH | list | check | remove IMPORT | from-agent MARKETPLACE/AGENT|FOLDER]&quot;
 
 ---
 # Import skills, templates and agents from a link
@@ -5780,7 +5780,7 @@ argument-hint: &quot;[preview LINK|market:ID/ENTRY --as skill|template|agent | a
 Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. This skill is already loaded; never call the skill tool for it. Unless paused, continue below in this turn.
 
 &lt;!-- sflow-output-contract: deterministic-mutation --&gt;
-**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. Never show a person a hash, digest or commit SHA: name the step, its generation, its files. Each action: &quot;&lt;timing&gt; — &lt;label&gt;&quot;, then its three separate Markdown bullets, in order: &quot;- Copilot: `&lt;copilotCommand&gt;`&quot;, &quot;- Shell: `&lt;command&gt;`&quot;, &quot;- VS Code (model-free): `&lt;modelFreeCommand&gt;`&quot;. Keep returned routes exact; never apart from their label, on one line or in a table. Missing Copilot: &quot;no verified equivalent&quot;; missing Shell or model-free: &quot;not available for this action&quot;. Never invent routes or make more calls for formatting.
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. Never show a person a hash, digest or commit SHA: name the step, its generation, its files. Each action: &quot;&lt;timing&gt; — &lt;label&gt;&quot;, then its three separate Markdown bullets, in order: &quot;- Copilot: `&lt;copilotCommand&gt;`&quot;, &quot;- Shell: `&lt;command&gt;`&quot;, &quot;- VS Code (model-free): `&lt;modelFreeCommand&gt;`&quot;. Keep returned routes exact; never apart from their label, on one line or in a table. Missing Copilot: &quot;no verified equivalent&quot;; missing Shell or model-free: &quot;not available for this action&quot;. Never invent routes or make more calls for formatting. Where the steps say ask_user, use your host&#39;s question tool: ask_user in the Copilot CLI, vscode_askQuestions in VS Code; it is unavailable only when neither exists.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
@@ -5798,8 +5798,17 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 Marketplaces: `singularity-flow marketplace browse &lt;ID&gt; --json` lists entries; preview and add
 `market:&lt;ID&gt;/&lt;ENTRY&gt;` like a link. MCP: `singularity-flow mcp sources &lt;SERVER&gt; --json` refuses with what would
-run; add `--launch` only after the person allows it, then preview `mcp:&lt;SERVER&gt;/prompt|resource|tool/&lt;NAME&gt;`. Trust a new one (`singularity-flow marketplace add &lt;ID&gt; --index &lt;URL&gt; --propose --json`)
-only when the person asks.
+run; add `--launch` only after the person allows it, then preview `mcp:&lt;SERVER&gt;/prompt|resource|tool/&lt;NAME&gt;`. Trust a new one (`singularity-flow marketplace add &lt;ID&gt; --index &lt;URL&gt;` or `--repo &lt;GIT-URL|FOLDER&gt; [--ref BRANCH]`,
+with `--propose --json`) only when the person asks.
+
+Agent to workflow: an entry with `workflowCommand` (an agent of a Git repository marketplace), or an agent folder the
+person names, becomes a workflow. Run `singularity-flow workflow from-agent &lt;MARKETPLACE/AGENT|FOLDER&gt; --json`, which
+writes nothing, and show each step&#39;s `label`, `intent` and `why`. While `ready` is false, ask the first `open`
+question with its `choices` in one `ask_user`, then run it again with every answer so far as `--answer &lt;step&gt;=&lt;intent&gt;`.
+When `walk` lists where a Story would be held up, show each with its `fix` in one `ask_user` and run it again with the
+answer the person changes. When ready, run the same
+command with `--propose --json` and show what `importPlan` adds; after the person accepts, run
+`singularity-flow workflow import &lt;bundlePath&gt; --confirm &lt;importPlan.planSha256&gt; --propose --json` once.
 
 Never edit `singularity/imports.lock.yml`, `singularity/agents.lock.yml` or vendored files by hand, fetch the link
 yourself, or add content the person has not seen. A refusal ends the turn: relay it.

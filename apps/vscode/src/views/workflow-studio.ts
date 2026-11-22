@@ -49,6 +49,19 @@ const MAX_SECRET_NAMES = 64;
 const WORKFLOW_SELECTOR = /^(?:story|initiative):[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_EXPORT_WORKFLOWS = 200;
 const STUDIO_WORKFLOW_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** `MARKETPLACE/AGENT`, as `workflow from-agent` takes it, and one `--answer STEP=INTENT`. */
+const MARKETPLACE_AGENT = /^[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9._-]{0,99}$/;
+const AGENT_STAGE_ANSWER = { step: /^[a-z0-9]+(?:-[a-z0-9]+)*$/, intent: /^[a-z]{1,32}$/ };
+/** A branch or tag name as Git allows it, never an option. */
+const MARKETPLACE_REF = /^[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}$/;
+
+/** The person's answers to what a stage is for, as `--answer` flags; anything else is dropped. */
+function agentStageAnswers(raw: unknown): string[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  return Object.entries(raw as Record<string, unknown>).slice(0, 30)
+    .filter(([step, intent]) => AGENT_STAGE_ANSWER.step.test(step) && step.length <= 120 && typeof intent === 'string' && AGENT_STAGE_ANSWER.intent.test(intent))
+    .flatMap(([step, intent]) => ['--answer', `${step}=${intent as string}`]);
+}
 
 /** A workflow build as `workflow build status|start|add|... --json` returns it; the page reads the rest. */
 interface StudioBuildView { build: { id: string; updatedAt: string; [key: string]: unknown }; proposalPath?: string; [key: string]: unknown }
@@ -274,6 +287,10 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.mcpSources': (message) => this.mcpSources(stringField(message, 'id')),
     'studio.mcpHostAdd': (message) => this.mcpHostAdd(stringField(message, 'id')),
     'studio.marketplaceBrowse': (message) => this.marketplaceBrowse(stringField(message, 'id')),
+    'studio.marketplaceRead': (message) => this.marketplaceRead(stringField(message, 'id'), stringField(message, 'repository'),
+      stringField(message, 'ref'), stringField(message, 'label')),
+    'studio.agentWorkflowPreview': (message) => this.agentWorkflowPreview(stringField(message, 'target'), (message as { answers?: unknown }).answers),
+    'studio.agentWorkflowMake': (message) => this.agentWorkflowMake(stringField(message, 'target'), (message as { answers?: unknown }).answers),
     'studio.importsCheck': () => this.importsCheck(),
     'studio.secretStatus': (message) => this.secretStatus((message as { names?: unknown }).names),
     'studio.storeSecret': (message) => this.storeSecret(stringField(message, 'name')),
@@ -721,6 +738,67 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     try {
       const result = await this.client.run<Record<string, unknown>>(['marketplace', 'browse', id, '--json']);
       this.post({ type: 'studio.marketplaceEntries', result });
+    } catch (error) {
+      this.post({ type: 'studio.importFailed', message: (error as Error).message });
+    }
+  }
+
+  /**
+   * A Git repository marketplace, read once now with a dry run of `marketplace add --repo`: the engine checks it is a
+   * marketplace and names the commit it is read at, and the page queues that exact pin. Nothing is written here.
+   */
+  private async marketplaceRead(id: string | null, repository: string | null, ref: string | null, label: string | null): Promise<void> {
+    const repositoryText = (repository ?? '').trim(); const refText = (ref ?? '').trim(); const labelText = (label ?? '').trim();
+    if (!id || !SERVER_ID.test(id) || !repositoryText || repositoryText.length > MAX_REFERENCE_LENGTH || repositoryText.startsWith('-') || /[\0\r\n]/.test(repositoryText)) {
+      this.post({ type: 'studio.importFailed', message: 'A marketplace needs an ID and its Git repository: an https or ssh URL, or the folder of a clone on this computer.' });
+      return;
+    }
+    if ((refText && !MARKETPLACE_REF.test(refText)) || labelText.length > 200 || labelText.startsWith('-') || /[\0\r\n]/.test(labelText)) {
+      this.post({ type: 'studio.importFailed', message: 'Give a branch or tag name as Git spells it (or leave it empty), and a name of one line.' });
+      return;
+    }
+    try {
+      const result = await this.client.run<{ resultType?: string; valid?: boolean; problems?: Array<{ message?: string }>;
+        marketplace?: { label?: string | null; repository?: string; ref?: string | null; commit?: string; repin?: boolean; agents?: number; skills?: number } }>(
+        ['marketplace', 'add', id, '--repo', repositoryText, ...(refText ? ['--ref', refText] : []), ...(labelText ? ['--label', labelText] : []), '--dry-run', '--json']);
+      if (result.resultType === 'marketplace-unchanged') {
+        this.post({ type: 'studio.importFailed', message: `This repository already reads ${id} at the commit ${refText || 'its default branch'} is at now. Nothing to add.` });
+        return;
+      }
+      const read = result.marketplace;
+      if (result.valid === false || !read?.commit || !read.repository) {
+        this.post({ type: 'studio.importFailed', message: (result.problems ?? []).map((problem) => problem.message).filter(Boolean).join(' ') || `Marketplace ${id} could not be read.` });
+        return;
+      }
+      this.post({ type: 'studio.marketplaceRead', id, label: read.label ?? null, repository: read.repository, ref: read.ref ?? null, commit: read.commit,
+        repin: read.repin === true, agents: read.agents ?? 0, skills: read.skills ?? 0 });
+    } catch (error) {
+      this.post({ type: 'studio.importFailed', message: (error as Error).message });
+    }
+  }
+
+  /** The workflow a marketplace agent becomes, with the person's answers so far: `workflow from-agent`, which writes nothing. */
+  private async agentWorkflowPreview(target: string | null, answers: unknown): Promise<void> {
+    if (!target || !MARKETPLACE_AGENT.test(target)) { this.post({ type: 'studio.importFailed', message: 'Choose an agent of a marketplace this repository trusts.' }); return; }
+    try {
+      const result = await this.client.run<Record<string, unknown>>(['workflow', 'from-agent', target, ...agentStageAnswers(answers), '--json']);
+      this.post({ type: 'studio.agentWorkflowPreviewed', target, result });
+    } catch (error) {
+      this.post({ type: 'studio.importFailed', message: (error as Error).message });
+    }
+  }
+
+  /**
+   * Make it: `workflow from-agent --propose` keeps the bundle in SFlow's private folder, and the page starts Import… with
+   * it, so the person reviews and confirms the import exactly as for any bundle, with the page's own count of changes.
+   */
+  private async agentWorkflowMake(target: string | null, answers: unknown): Promise<void> {
+    if (!target || !MARKETPLACE_AGENT.test(target)) { this.post({ type: 'studio.importFailed', message: 'Choose an agent of a marketplace this repository trusts.' }); return; }
+    try {
+      const result = await this.client.run<{ bundlePath?: string; workflow?: { id?: string } }>(['workflow', 'from-agent', target, ...agentStageAnswers(answers), '--propose', '--json']);
+      if (!result.bundlePath || !path.isAbsolute(result.bundlePath)) { this.post({ type: 'studio.importFailed', message: 'The workflow bundle was not written.' }); return; }
+      this.post({ type: 'studio.agentWorkflowMade', workflowId: result.workflow?.id ?? null });
+      this.requestImport(result.bundlePath);
     } catch (error) {
       this.post({ type: 'studio.importFailed', message: (error as Error).message });
     }

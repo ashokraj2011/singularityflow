@@ -2052,6 +2052,16 @@ test('no-Story setup skills run their own command families before a Story exists
   const epic = await bare('/sf-epic-start', 'epic-start-bare');
   assert.deepEqual(await shell(epic, `singularity-flow epic start EPIC-1 --selection-receipt ${SKILL_COMMAND_RECEIPT}`), {});
   assert.equal((await shell(epic, 'singularity-flow story start PROJ-1 --fetch')).permissionDecision, 'deny');
+  // /sf-import imports the bundle `workflow from-agent --propose` kept, once the person accepts it, and runs no other
+  // workflow command before a Story: its entry names the one subcommand, not the family.
+  const imports = await bare('/sf-import', 'import-bare');
+  const bundle = path.join(f.root, 'notes.md');
+  assert.deepEqual(await shell(imports, `singularity-flow workflow import ${bundle} --confirm ${'a'.repeat(64)} --propose --json`), {});
+  assert.deepEqual(await shell(imports, 'singularity-flow marketplace add acme --repo https://git.example.test/acme/market.git --propose --json'), {});
+  for (const command of ['singularity-flow workflow studio apply --change-set x.json --propose', 'singularity-flow workflow create custom --json',
+    'singularity-flow story start PROJ-1 --fetch']) {
+    assert.equal((await shell(imports, command)).permissionDecision, 'deny', command);
+  }
   // A read skill before a Story still reads only.
   const status = await bare('/sf-epic-status', 'epic-status-bare');
   assert.deepEqual(await shell(status, 'singularity-flow epic status EPIC-1 --json'), {});

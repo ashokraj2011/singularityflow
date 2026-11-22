@@ -50,7 +50,8 @@ export async function addRepositoryMarketplace(root, id, options, { applyImportC
       + `${catalog.packages.length - agents - skills ? `, ${counted(catalog.packages.length - agents - skills, 'other package')}` : ''}.`);
     for (const problem of catalog.problems.slice(0, 10)) console.log(`  Note: ${problem}`);
   }
-  return emitImportMutation(root, { ...result, marketplace: { id, repository, ref, commit: catalog.commit, agents, skills } }, options, {
+  // What Workflow Studio's Trust form queues from a dry run: the label and the commit read now, with no second read.
+  return emitImportMutation(root, { ...result, marketplace: { id, label: change.label ?? null, repository, ref, commit: catalog.commit, ...(repin ? { repin: true } : {}), agents, skills } }, options, {
     operation: 'marketplace.add', messageId: 'marketplace.added', slots: { id }
   });
 }

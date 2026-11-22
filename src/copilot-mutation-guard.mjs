@@ -1825,7 +1825,8 @@ function mentionsKernelExecution(call, value) {
  * executionBoundary is machine, repository or organisation), under the kernel-only rules: the
  * families its own steps name, never every registered command. An Epic, Initiative or machine-level
  * checkout binds no Story, so without this a kernel-only turn there could run none of its own steps.
- * phase-mutation-contract.test.mjs holds each skill's named commands to this list.
+ * phase-mutation-contract.test.mjs holds each skill's named commands to this list. An entry is a command family, or a
+ * family and one subcommand ('workflow import') when the skill runs that one only.
  */
 const NO_STORY_COMMANDS = Object.freeze({
   admin: ['state'], adhoc: ['adhoc', 'land'], agents: ['agents'], auto: ['auto'],
@@ -1841,7 +1842,8 @@ const NO_STORY_COMMANDS = Object.freeze({
   // A fault and its bounded repair need no Story (/sf-fault records one in any checkout).
   fix: ['fault', 'fix', 'repair'],
   'governance-rebuild': ['governance'],
-  impact: ['impact'], import: ['import', 'imports', 'marketplace'],
+  // /sf-import also imports the workflow bundle `workflow from-agent --propose` kept, once the person accepts it.
+  impact: ['impact'], import: ['import', 'imports', 'marketplace', 'workflow import'],
   'initiative-approve': ['initiative'], 'initiative-evidence': ['initiative'], 'initiative-materialize': ['initiative'],
   'initiative-phase': ['initiative'], 'initiative-start': ['initiative'], 'jira-initiative': ['initiative'],
   'jira-update': ['jira'], integrations: ['integrations'], journal: ['journal'], knowledge: ['knowledge'], learn: ['learn'],
@@ -1875,7 +1877,8 @@ function bootstrapAllowed(call, record) {
     && shellAllowed(call, 'kernel-only', record)) return true;
   const families = mode === 'kernel-only' ? NO_STORY_COMMANDS[name] : null;
   const safe = families ? verifiedShellForm(call, record) : null;
-  return Boolean(safe) && families.includes(parseCli(safe.argv).positionals[0]) && shellAllowed(call, 'kernel-only', record);
+  const [family, subcommand] = safe ? parseCli(safe.argv).positionals : [];
+  return Boolean(safe) && families.some((entry) => entry === family || entry === `${family} ${subcommand}`) && shellAllowed(call, 'kernel-only', record);
 }
 
 /** What a task stage leaves an authoring grant: writes, or none (a spent repair budget). Waits keep it [readGuardTaskOutcome]. */

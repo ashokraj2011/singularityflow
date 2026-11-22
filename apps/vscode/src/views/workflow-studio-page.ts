@@ -1119,6 +1119,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     saveAttach: function () { return saveAttach.apply(null, arguments); }, detachSkill: function () { return detachSkill.apply(null, arguments); },
     keepsSkillsInFile: function () { return keepsSkillsInFile.apply(null, arguments); }, addPreviewedImport: function () { return addPreviewedImport.apply(null, arguments); },
     library: function () { return library(); },
+    // Marketplaces: a Git repository trusted at the commit it is read at, and an agent of one as a workflow.
+    renderMarketplaces: function () { return renderMarketplaces.apply(null, arguments); },
+    readRepositoryMarketplace: function () { return readRepositoryMarketplace.apply(null, arguments); },
+    previewAgentWorkflow: function () { return previewAgentWorkflow.apply(null, arguments); },
     authoringSkillControl: function () { return authoringSkillControl.apply(null, arguments); },
     addStepAction: function () { return addStepAction.apply(null, arguments); }, setActionTarget: function () { return setActionTarget.apply(null, arguments); },
     setActionTrigger: function () { return setActionTrigger.apply(null, arguments); }, actionLine: function () { return actionLine.apply(null, arguments); },
@@ -4828,22 +4832,51 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function renderMarketplaces(lib) {
     var section = el('section', { class: 'studio-card', 'aria-label': 'Marketplaces' });
     section.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Marketplaces this repository trusts' }),
-      button('Trust a marketplace', function () { lib.newMarket = { id: '', label: '', index: '', origins: '' }; render(); }, { class: 'secondary' })));
+      button('Trust a marketplace', function () { lib.newMarket = { kind: 'repository', id: '', label: '', index: '', origins: '', repository: '', ref: '' }; render(); }, { class: 'secondary' })));
     var trusted = (state.model.marketplaces || []).filter(function (market) { return !(state.draft.imports || []).some(function (change) { return change.op === 'marketplace.remove' && change.id === market.id; }); });
     var pending = (state.draft.imports || []).filter(function (change) { return change.op === 'marketplace.add'; });
-    if (!trusted.length && !pending.length) section.appendChild(el('p', { class: 'muted', text: 'None yet. A marketplace is a catalog your team publishes; each entry pins its file by hash, and its index can only list files from origins you allow here.' }));
+    if (!trusted.length && !pending.length) section.appendChild(el('p', { class: 'muted', text: 'None yet. A marketplace is a catalog your team publishes: a Git repository of agents and skills, read at the commit you trust, or an index link whose entries each pin their file by hash.' }));
     trusted.forEach(function (market) {
       section.appendChild(el('div', { class: 'check-row' }, el('span', { class: 'mark ok', text: '✓' }),
         el('div', null, el('strong', { text: market.label }), el('div', { class: 'muted', text: market.repository ? market.repository + ' at ' + String(market.commit || '').slice(0, 12)
           : market.index + (market.allowedOrigins.length ? ' · files also from ' + market.allowedOrigins.join(', ') : '') })),
         el('div', { class: 'studio-row' },
           button(lib.busy === 'browse:' + market.id ? 'Opening…' : 'Browse', function () { lib.busy = 'browse:' + market.id; lib.market = market; lib.entries = null; lib.error = null; render(); post({ type: 'studio.marketplaceBrowse', id: market.id }); }, { class: 'secondary', 'aria-label': 'Browse ' + market.label }),
+          market.repository ? button(lib.busy === 'market-read:' + market.id ? 'Reading…' : 'Read its newest commit', function () {
+            readRepositoryMarketplace({ id: market.id, label: market.label, repository: market.repository, ref: market.ref || '' });
+          }, { class: 'secondary', disabled: Boolean(lib.busy), 'aria-label': 'Read the newest commit of ' + market.label }) : null,
           button('Stop trusting', function () { queueImport({ op: 'marketplace.remove', id: market.id }, market.label + ' will no longer be trusted once you publish.'); }, { class: 'secondary', 'aria-label': 'Stop trusting ' + market.label }))));
     });
-    pending.forEach(function (change) { section.appendChild(el('div', { class: 'check-row' }, el('span', { class: 'mark wait', text: '…' }), el('div', null, el('strong', { text: change.label || change.id }), el('div', { class: 'muted', text: change.index + ' · trusted once you publish' })), el('span', null))); });
+    pending.forEach(function (change) { section.appendChild(el('div', { class: 'check-row' }, el('span', { class: 'mark wait', text: '…' }), el('div', null, el('strong', { text: change.label || change.id }), el('div', { class: 'muted', text: (change.repository ? change.repository + ' at ' + String(change.commit || '').slice(0, 12) : change.index) + ' · trusted once you publish' })), el('span', null))); });
     if (lib.newMarket) section.appendChild(renderNewMarketplace(lib));
+    // The workflow an agent becomes shows above the entries, where the person looks after choosing it.
+    if (lib.agentWorkflow) section.appendChild(renderAgentWorkflow(lib));
     if (lib.market && lib.entries) section.appendChild(renderEntries(lib));
     return section;
+  }
+
+  /**
+   * A Git repository marketplace is trusted at the commit it is read at now: the host reads it with a dry run of
+   * 'marketplace add --repo', and the change queued here is that exact pin, published with the rest.
+   */
+  function readRepositoryMarketplace(form) {
+    var lib = library();
+    var trusted = (state.model.marketplaces || []).find(function (market) { return market.id === form.id; });
+    if (trusted && trusted.repository !== form.repository) { setStatus('This repository already trusts a marketplace called ' + form.id + '. Give this one another ID.'); return; }
+    lib.busy = 'market-read:' + form.id; lib.error = null; render();
+    post({ type: 'studio.marketplaceRead', id: form.id, label: String(form.label || '').trim(), repository: form.repository, ref: form.ref || '' });
+  }
+
+  function trustReadMarketplace(message) {
+    var lib = library(); lib.busy = null; lib.error = null;
+    if (lib.newMarket && lib.newMarket.id === message.id) lib.newMarket = null;
+    var change = { op: 'marketplace.add', id: message.id, repository: message.repository, commit: message.commit };
+    if (message.label) change.label = message.label;
+    if (message.ref) change.ref = message.ref;
+    if (message.repin === true) change.repin = true;
+    var found = [message.agents === 1 ? '1 agent' : (message.agents || 0) + ' agents', message.skills === 1 ? '1 skill' : (message.skills || 0) + ' skills'].join(', ');
+    queueImport(change, message.repin === true ? 'Marketplace ' + (change.label || change.id) + ' will be read at its newest commit (' + found + ') once you publish.'
+      : 'Marketplace ' + (change.label || change.id) + ' (' + found + ') will be trusted once you publish.');
   }
 
   function renderNewMarketplace(lib) {
@@ -4852,17 +4885,33 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     box.appendChild(el('div', { class: 'grid-2' },
       field('market-label', 'Name', textInput('market-label', form.label, function (value) { form.label = value; if (!form.id) form.id = kebab(value); requestRender(); }, { placeholder: 'Engineering catalog' })),
       field('market-id', 'ID', textInput('market-id', form.id, function (value) { form.id = kebab(value); }))));
-    box.appendChild(field('market-index', 'Index link (sflow-marketplace@1 JSON)', textInput('market-index', form.index, function (value) { form.index = value.trim(); }, { placeholder: 'https://catalog.example.org/sflow-marketplace.json' })));
-    box.appendChild(field('market-origins', 'Other places its files may come from (optional)', textInput('market-origins', form.origins, function (value) { form.origins = value; }, { placeholder: 'https://cdn.example.org' }), 'Comma-separated origins. Files from anywhere else are refused.'));
+    var repository = form.kind !== 'index';
+    box.appendChild(field('market-kind', 'What it is', select('market-kind', [
+      { value: 'repository', label: 'A Git repository of agents and skills (APM)' },
+      { value: 'index', label: 'An index link (sflow-marketplace@1 JSON)' }], repository ? 'repository' : 'index', function (value) { form.kind = value; render(); })));
+    if (repository) {
+      box.appendChild(field('market-repository', 'Git repository', textInput('market-repository', form.repository, function (value) { form.repository = value.trim(); }, { placeholder: 'https://git.example.com/team/marketplace.git' }),
+        'An https or ssh URL, or the folder of a clone on this computer.'));
+      box.appendChild(field('market-ref', 'Branch or tag (optional)', textInput('market-ref', form.ref, function (value) { form.ref = value.trim(); }, { placeholder: 'main' }),
+        'Read once now; the repository keeps that commit until you read a newer one.'));
+    } else {
+      box.appendChild(field('market-index', 'Index link (sflow-marketplace@1 JSON)', textInput('market-index', form.index, function (value) { form.index = value.trim(); }, { placeholder: 'https://catalog.example.org/sflow-marketplace.json' })));
+      box.appendChild(field('market-origins', 'Other places its files may come from (optional)', textInput('market-origins', form.origins, function (value) { form.origins = value; }, { placeholder: 'https://cdn.example.org' }), 'Comma-separated origins. Files from anywhere else are refused.'));
+    }
     box.appendChild(el('div', { class: 'studio-row' },
-      button('Add to changes', function () {
+      button(lib.busy === 'market-read:' + form.id ? 'Reading…' : 'Add to changes', function () {
+        if (repository) {
+          if (!form.id || !form.repository) { setStatus('A marketplace needs an ID and its Git repository.'); return; }
+          readRepositoryMarketplace(form);
+          return;
+        }
         if (!form.id || !/^https:\/\//.test(form.index)) { setStatus('A marketplace needs an ID and an https:// index link.'); return; }
         var origins = String(form.origins || '').split(',').map(function (value) { return value.trim(); }).filter(Boolean);
         var change = { op: 'marketplace.add', id: form.id, index: form.index, allowedOrigins: origins };
         if (String(form.label || '').trim()) change.label = String(form.label).trim();
         lib.newMarket = null;
         queueImport(change, 'Marketplace ' + (change.label || change.id) + ' will be trusted once you publish.');
-      }, { class: 'primary' }),
+      }, { class: 'primary', disabled: Boolean(lib.busy) }),
       button('Cancel', function () { lib.newMarket = null; render(); }, { class: 'secondary' })));
     return box;
   }
@@ -4889,11 +4938,92 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
             previewImport(importReference(entry, market.id), entry.kind, null);
           }, { class: 'secondary', 'aria-label': (entry.kind === 'generated' ? 'Set up ' : 'Preview ') + entry.label })
           // A Git repository marketplace's agent becomes a workflow; its skills come with it.
-          : entry.workflowCommand ? el('span', { class: 'muted', text: 'As a workflow: ' + entry.workflowCommand })
+          : entry.workflowCommand ? button(lib.busy === 'agent-workflow' && lib.agentWorkflow && lib.agentWorkflow.target === market.id + '/' + entry.name ? 'Reading…' : 'Make a workflow', function () {
+            previewAgentWorkflow(market.id + '/' + entry.name, entry.label, {});
+          }, { class: 'secondary', disabled: Boolean(lib.busy), 'aria-label': 'Make a workflow from ' + entry.label })
             : market.repository ? el('span', { class: 'muted', text: 'Comes with the agents that use it.' })
               : el('span', { class: 'muted', text: 'This version of Singularity Flow cannot import ' + (KIND_WORDS[entry.kind] || entry.kind).replace(/^[A-Z][a-z]/, function (start) { return start.toLowerCase(); }) + ' entries yet.' })));
     });
     box.appendChild(grid);
+    return box;
+  }
+
+  // ---- Library: an agent of a Git repository marketplace as a workflow --------------------------
+
+  /** The workflow the agent becomes, read by the engine with the answers given so far; nothing is written. */
+  function previewAgentWorkflow(target, label, answers) {
+    var lib = library();
+    lib.agentWorkflow = { target: target, label: label, answers: answers || {}, result: null };
+    lib.busy = 'agent-workflow'; lib.error = null; render();
+    post({ type: 'studio.agentWorkflowPreview', target: target, answers: lib.agentWorkflow.answers });
+  }
+
+  /** The person's answer to what a stage is for, then the preview again with it. */
+  function answerAgentStage(step, intent) {
+    var flow = library().agentWorkflow;
+    if (!flow) return;
+    var answers = Object.assign({}, flow.answers); answers[step] = intent;
+    previewAgentWorkflow(flow.target, flow.label, answers);
+  }
+
+  /** Make it: the host writes the bundle to SFlow's private folder and opens its import review, as Import… does. */
+  function makeAgentWorkflow() {
+    var lib = library(); var flow = lib.agentWorkflow;
+    if (!flow || !flow.result || !flow.result.ready || ((flow.result.walk || {}).stops || []).length || lib.busy || state.busy) return;
+    lib.busy = 'agent-workflow-make'; lib.error = null; render();
+    post({ type: 'studio.agentWorkflowMake', target: flow.target, answers: flow.answers });
+  }
+
+  var APPROVAL_WORDS = { person: 'a person approves it', none: 'no approval', 'sflow-when-clean': 'SFlow approves it when clean' };
+
+  function renderAgentWorkflow(lib) {
+    var flow = lib.agentWorkflow; var result = flow.result;
+    var box = el('div', { class: 'decision-box', 'data-key': 'agent-workflow', 'aria-label': 'Workflow from ' + flow.label });
+    box.appendChild(el('div', { class: 'studio-row spread' },
+      el('strong', { text: result ? result.workflow.label + ': a workflow from ' + flow.label : 'Reading ' + flow.label + '…' }),
+      button('Close', function () { lib.agentWorkflow = null; if (lib.busy === 'agent-workflow') lib.busy = null; render(); }, { class: 'secondary', 'aria-label': 'Close the workflow from ' + flow.label })));
+    if (!result) return box;
+    var derived = {};
+    (result.derived || []).forEach(function (step) { derived[step.step] = step; });
+    if ((result.questions || []).length) {
+      var asks = result.questions.map(function (question) { return question.topic; }).join('; ');
+      box.appendChild(el('p', { class: 'muted', text: 'At ' + result.steps[0].label + ', before any work, the person answers: ' + asks + (/[.?!]$/.test(asks) ? '' : '.') }));
+    }
+    box.appendChild(el('ol', null, result.steps.map(function (step) {
+      var given = derived[step.id];
+      return el('li', null,
+        el('div', { class: 'studio-row' }, el('strong', { text: step.label }), el('span', { class: 'pill', text: step.intent || 'not known yet' })),
+        el('div', { class: 'muted', text: (step.addedBySflow ? 'Added by SFlow: ' : '') + step.why }),
+        step.personApproval ? el('div', { class: 'muted', text: 'A person approves it: the agent\'s ' + step.personApproval.gate + ' gate.' }) : null,
+        // The agent's own gate already says a person approves it.
+        given ? el('div', { class: 'muted', text: [given.changesSource ? 'changes code' : 'changes no code'].concat(step.personApproval ? [] : [APPROVAL_WORDS[given.approval] || given.approval],
+          given.repositoryTests === 'run' ? ['runs the repository\'s tests'] : []).join(' · ') }) : null,
+        (step.skills || []).length ? el('div', { class: 'muted', text: 'Skills: ' + step.skills.map(function (entry) { return entry.skill; }).join(', ') }) : null);
+    })));
+    (result.notes || []).forEach(function (note) { box.appendChild(el('p', { class: 'muted', text: 'Note: ' + note })); });
+    var answered = Object.keys(flow.answers).length > 0;
+    var again = answered ? button('Answer again', function () { previewAgentWorkflow(flow.target, flow.label, {}); }, { class: 'secondary', disabled: Boolean(lib.busy) }) : null;
+    if (!result.ready) {
+      var first = result.open[0];
+      box.appendChild(el('div', { class: 'callout wait', role: 'group', 'aria-label': first.question },
+        el('strong', { text: first.question }),
+        first.why ? el('div', { class: 'muted', text: first.why }) : null,
+        el('div', { class: 'studio-row' }, first.choices.map(function (choice) {
+          return button(choice.label, function () { answerAgentStage(first.step, choice.intent); }, { class: 'secondary', disabled: Boolean(lib.busy) });
+        })),
+        result.open.length > 1 ? el('div', { class: 'muted', text: 'Then SFlow asks about the next one.' }) : null));
+      if (again) box.appendChild(el('div', { class: 'studio-row' }, again));
+      return box;
+    }
+    var stops = (result.walk && result.walk.stops) || [];
+    stops.forEach(function (stop) {
+      box.appendChild(el('div', { class: 'callout bad', role: 'alert' }, el('strong', { text: stop.title }), el('div', { text: stop.detail }), el('div', { class: 'muted', text: 'Fix: ' + ((stop.fix && stop.fix.text) || '') })));
+    });
+    box.appendChild(el('div', { class: 'studio-row' },
+      stops.length ? null : button(lib.busy === 'agent-workflow-make' ? 'Making…' : 'Make this workflow', makeAgentWorkflow, { class: 'primary', disabled: Boolean(lib.busy) || Boolean(state.busy) }),
+      again));
+    box.appendChild(el('span', { class: 'muted', text: stops.length ? 'A Story of this workflow would stop on its way, so it is not made. A different answer can change its steps.'
+      : 'Next you review its import; nothing changes until you confirm it there.' }));
     return box;
   }
 
@@ -7228,6 +7358,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       setStatus(message.text || ''); render();
     } else if (message.type === 'studio.importDone') {
       state.busy = null;
+      var made = library().madeWorkflow; library().madeWorkflow = null;
+      if (made && message.outcome === 'written' && state.draft && Object.prototype.hasOwnProperty.call(state.draft.workflows, made)) {
+        openWorkflowCanvas(made);
+        setStatus('The workflow was written to this repository; review the diff and commit it.'); render();
+        return;
+      }
       setStatus(message.outcome === 'cancelled' ? 'Import cancelled; nothing changed.'
         : message.outcome === 'proposed' ? 'The import ' + (message.error ? 'was proposed as ' + personBranch(message.branch) + ', but its review stopped: ' + message.error
           : message.uploaded === false ? 'was saved on this computer as ' + personBranch(message.branch) + ' and is uploading; it appears for review under Changes once uploaded.'
@@ -7285,6 +7421,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       else if (message.view === 'agents' && (message.newAgent === true || typeof message.agent === 'string')) focusAgent(message.newAgent === true ? null : message.agent);
       else if (['home', 'agents', 'skills', 'instructions', 'constitution', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
     } else if (message.type === 'studio.failed') {
+      if (state.library) state.library.madeWorkflow = null;
       // A load that failed after its model never reaches its proposals check; Changes may ask again.
       if (state.proposals && state.proposals.list === null) state.proposals.loading = false;
       state.busy = null; state.reviewing = null; state.rejecting = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
@@ -7307,6 +7444,16 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       lib.pendingAgent = null; render();
     } else if (message.type === 'studio.marketplaceEntries') {
       var market = library(); market.busy = null; market.entries = message.result; market.search = ''; render();
+    } else if (message.type === 'studio.marketplaceRead') {
+      trustReadMarketplace(message);
+    } else if (message.type === 'studio.agentWorkflowPreviewed') {
+      var previewing = library();
+      if (!previewing.agentWorkflow || previewing.agentWorkflow.target !== message.target) return;
+      previewing.busy = null; previewing.error = null; previewing.agentWorkflow.result = message.result; render();
+      var card = document.querySelector && document.querySelector('[data-key=agent-workflow]'); if (card && card.scrollIntoView) card.scrollIntoView({ block: 'start' });
+    } else if (message.type === 'studio.agentWorkflowMade') {
+      // The bundle is written; its import review opens next, and the workflow is opened once it is in this configuration.
+      var making = library(); making.busy = null; making.madeWorkflow = message.workflowId || null; making.agentWorkflow = null; render();
     } else if (message.type === 'studio.importsChecked') {
       var checks = library(); checks.busy = null; checks.check = (message.result && message.result.imports) || [];
       setStatus(checks.check.some(function (entry) { return entry.updateCommand; }) ? 'Some imports changed at their source.' : 'Every import matches its source.'); render();
@@ -7326,7 +7473,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     } else if (message.type === 'studio.mcpHostAdded') {
       setStatus(message.summary || 'Host entry added.');
     } else if (message.type === 'studio.importFailed') {
-      var failed = library(); failed.busy = null; failed.error = message.message || 'That did not work.'; failed.preview = null; render();
+      var failed = library(); failed.busy = null; failed.error = message.message || 'That did not work.'; failed.preview = null;
+      if (failed.agentWorkflow && !failed.agentWorkflow.result) failed.agentWorkflow = null;
+      render();
       var alert = document.querySelector('[role=alert]'); if (alert && alert.scrollIntoView) alert.scrollIntoView({ block: 'center' });
     }
   });

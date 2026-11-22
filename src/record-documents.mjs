@@ -19,6 +19,8 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { countedRecords } from './presence/counted.mjs';
+
 const TEMPLATES = Object.freeze({ 'common/verification.md': { kind: 'verification', artifactKind: 'test-evidence' },
   'spec-driven/release.md': { kind: 'release', artifactKind: 'conformance-report' } });
 export const RECORD_DOCUMENT_BANNER = '> Written by SFlow from its records. Leave it as it is: SFlow writes it again from those records when this step is published.';
@@ -95,14 +97,31 @@ function runsTable(runs) {
     ...runs.map((run) => `| ${code(run.commandId)} | ${cell(run.step)}${run.reusedBy ? `, reused by ${cell(run.reusedBy)} on unchanged code` : ''} | ${run.attemptId ? code(run.attemptId) : 'not recorded'}${run.reusedFrom ? ` (reused from ${cell(run.reusedFrom.phase ?? 'an earlier step')}, code unchanged)` : ''} | ${cell(run.status)} | ${cell(counts(run.tests))} | ${cell([run.environment?.host, run.environment?.platform, run.environment?.arch].filter(Boolean).join(', ') || 'not recorded')} |`)];
 }
 
-/** What a clause's tests say, in the words a row carries: each test, its run and its outcome. */
-function testEvidence(row) {
+/**
+ * A clause's satisfied evidence slots a person signed off (a visual capture confirmed on the decision card), each as its
+ * record and file: the latest record of that clause and slot. Before, the table said "no tagged test" for a criterion
+ * proved by a screenshot, its reviewer blocked every version for it, and a real Story's verification reached version 5
+ * (owner's d-story, 2026-11-22). Pure.
+ */
+function signOffs(row, records) {
+  const slots = (row.verification?.contract?.slots ?? []).filter((slot) => slot.method !== 'test' && slot.status === 'satisfied');
+  return slots.map((slot) => [...records].reverse().find((record) => record?.clauseId === row.id && record.slot === slot.slot))
+    .filter(Boolean).map((record) => `${record.method ?? 'person'} sign-off ${code(record.id)} (${code(record.file)}), confirmed by a person`);
+}
+
+/** What a clause's tests say, in the words a row carries: each test, its run and its outcome, then its sign-offs. */
+export function testEvidence(row, records = []) {
+  const signed = signOffs(row, records);
   const witnesses = row.verification?.witnesses ?? [];
-  if (witnesses.length) return witnesses.map((entry) => `${entry.test ?? code(entry.testSource)}${entry.attemptId ? `, run ${code(entry.attemptId)}` : ''}: ${entry.outcome ?? entry.status ?? 'not run'}`).join('; ');
+  if (witnesses.length) return [...witnesses.map((entry) => `${entry.test ?? code(entry.testSource)}${entry.attemptId ? `, run ${code(entry.attemptId)}` : ''}: ${entry.outcome ?? entry.status ?? 'not run'}`), ...signed].join('; ');
+  if (signed.length) return signed.join('; ');
   if (row.verification?.association === 'through-criteria' && row.verification.criteria?.length) return `through ${row.verification.criteria.map(code).join(', ')}`;
   if (row.verification?.tests?.length) return `tagged in ${row.verification.tests.map(code).join(', ')}`;
   return row.type === 'AC' ? 'no tagged test' : 'no criterion to test; checked as implemented in its source';
 }
+
+/** The person sign-off records that count on this Story (SF Guard's signatures, where it requires them). */
+const signedRecords = (workflow) => countedRecords(workflow, workflow?.witnessRecords ?? []);
 
 const sourceEvidence = (row) => (row.implementation?.observedPaths?.length ? row.implementation.observedPaths.map(code).join(', ')
   : row.plan?.expectedPaths?.length ? `planned in ${row.plan.expectedPaths.map(code).join(', ')}, not observed` : 'no source path');
@@ -149,8 +168,8 @@ async function verificationBody(root, definition, workflow, phase, { ownRuns = n
         : `The repository's tests run when ${phase.label ?? phase.id} is published, or a run on unchanged code is reused; SFlow then adds that run here.`, '',
       '## Acceptance and specification results', '',
       '| Clause | Test evidence | Source | Result |', '|---|---|---|---|',
-      ...rows.map((row) => `| ${code(row.id)} | ${cell(testEvidence(row))} | ${cell(sourceEvidence(row))} | ${cell(resultWords(row))} |`), '',
-      'A source tag binds a requirement to its code; only a test result above verifies it.', '',
+      ...rows.map((row) => `| ${code(row.id)} | ${cell(testEvidence(row, signedRecords(workflow)))} | ${cell(sourceEvidence(row))} | ${cell(resultWords(row))} |`), '',
+      'A source tag binds a requirement to its code; only a test result or a person\'s recorded sign-off above verifies it.', '',
       '## Negative, regression, security, and non-functional checks', '',
       `- Scanners: ${findings ?? 'no scanner findings are recorded for the changed code.'}`,
       `- Tests: ${weak.length ? weak.join('; ') : 'every tagged test asserts what it checks.'}`,
@@ -242,7 +261,7 @@ async function releaseBody(root, definition, config, workflow, phase) {
       `# Release conformance — ${W}`, '', RECORD_DOCUMENT_BANNER, '',
       '## Requirement trace', '',
       '| Clause | Evidence | Verdict |', '|---|---|---|',
-      ...rows.map((row) => `| ${code(row.id)} | ${cell(`${testEvidence(row)}; source ${sourceEvidence(row)}`)} | ${cell(verdictOf(row, deviations))} |`), '',
+      ...rows.map((row) => `| ${code(row.id)} | ${cell(`${testEvidence(row, signedRecords(workflow))}; source ${sourceEvidence(row)}`)} | ${cell(verdictOf(row, deviations))} |`), '',
       '## Constitution conformance', '', ...constitutionLines(workflow), '',
       '## Exceptions', '', ...exceptionLines(workflow), '',
       '## Deviations', '', ...(deviations.length ? deviations.map((entry) => `- ${entry.id}: ${(entry.clauseIds ?? []).map(code).join(', ')}, accepted by ${cell(person(entry.decision?.actor))}: ${cell(entry.decision?.reason ?? 'no reason recorded')}`)

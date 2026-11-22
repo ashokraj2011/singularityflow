@@ -429,6 +429,7 @@ async function stepReviewInput(root, config, workflow, phase, kind, { reviewerAg
       const read = await phaseArtifact(root, config, workflow, step.id);
       sources.push({ id: `input:${step.id}`, path: read.path, text: read.text });
     }
+    visualSources.push(...await citedSignOffSources(root, workflow, artifact, sources, visualSources, phase));
     const context = { ...common, sources, ...(visualSources.length ? { visualSources } : {}), ...(unreadable.length ? { unreadableSources: unreadable } : {}) };
     return { ...context, binding: sourceReviewBinding(context) };
   }
@@ -528,6 +529,39 @@ const OFFERED_FULFILLMENT = new Set(['evidence', 'existing', 'document', 'config
  * which is the author's to correct. Rows changing product code are read from the changed files as before (an image
  * among them too), so their reviews bind what they bound. Adds the text files to `sources`; returns the visual ones.
  */
+/**
+ * The person sign-offs (a visual capture confirmed on the decision card) the reviewed document cites, by record ID or
+ * file, offered to its reviewer as the images they are: the latest record of each clause and slot, its exact bytes. Before,
+ * the verification evidence said a criterion was proved by a screenshot, but its reviewer was given only the Story's own
+ * reference image, judged the claim unproved, and blocked every version (owner's d-story, 2026-11-22).
+ */
+export async function citedSignOffSources(root, workflow, artifact, sources, visualSources, phase = null) {
+  const text = String(artifact?.text ?? '');
+  // A step that reports on delivered code (witness-decisions.mjs) also gets the sign-offs of the criteria it names, cited or
+  // not, so its reviewer can judge a claim its author made without citing (a custom or marketplace author's report).
+  const reports = phase ? (await import('./verification/witness-decisions.mjs')).phaseReadsWitnessDecisions(workflow, phase) : false;
+  const latest = new Map();
+  for (const record of countedRecords(workflow, workflow.witnessRecords ?? [])) {
+    if (record?.id && record.file && record.clauseId) latest.set(`${record.clauseId}\0${record.slot ?? ''}`, record);
+  }
+  const offered = new Set([...sources, ...visualSources].map((source) => source.path));
+  const found = [];
+  for (const record of latest.values()) {
+    if (offered.has(record.file) || !(text.includes(record.file) || new RegExp(`\\b${record.id}\\b`, 'u').test(text)
+      || (reports && text.includes(record.clauseId)))) continue;
+    if (sources.length + visualSources.length + found.length >= MAX_CITED_SOURCES) break;
+    const mimeType = documentMimeType(record.file);
+    if (!(mimeType === 'application/pdf' || (mimeType.startsWith('image/') && mimeType !== 'image/svg+xml'))) continue;
+    let file;
+    try { file = await checkedFile(root, record.file, `Sign-off ${record.id}`, String(record.sha256 ?? '').replace(/^sha256:/u, '') || null); } catch { continue; }
+    offered.add(record.file);
+    found.push({ id: record.id, name: path.posix.basename(record.file), path: record.file, originalSha256: file.sha256, mimeType,
+      absolutePath: file.absolute, bytes: file.bytes.length,
+      instruction: `This is ${record.clauseId}'s ${record.method ?? 'person'} sign-off ${record.id} for its ${record.slot ?? 'evidence'} slot, confirmed by a person on the decision card, which the document cites as its evidence. Use an actual native image/PDF tool to inspect these exact bytes and judge whether they show what ${record.clauseId} asks; record method and observations in visualSourcesReviewed. If no suitable tool is available, ask the human for help inspecting it; never invent a reading.` });
+  }
+  return found;
+}
+
 async function plannedFileSources(root, evidenceDirectory, evidence, planned, sources) {
   const fulfillment = evidence.fulfillment?.obligations ?? evidence.fulfillment;
   const recorded = new Map();

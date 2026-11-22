@@ -16,6 +16,9 @@ import { readReviewArtifact } from '../artifact-review-read.mjs';
 import { phaseReadsWitnessDecisions, storyWitnessDecisions } from './witness-decisions.mjs';
 
 export const WITNESS_UNREPORTED_CODE = 'conformance.witness-unreported';
+export const WITNESS_UNCITED_CODE = 'conformance.witness-uncited';
+/** Words that say a criterion is proved. */
+const CLAIMED = /\b(?:verified|satisfied|met|pass(?:es|ed)?|proven|proved|confirmed)\b/iu;
 const MAXIMUM_FINDINGS = 20;
 
 const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S]*?\n-->/u;
@@ -124,6 +127,52 @@ export function witnessReportFindings(markdown, witnesses = []) {
     }
   }
   return findings;
+}
+
+/**
+ * Each valid sign-off a person confirmed for a criterion the report marks proved (a table row or sentence with the
+ * criterion's ID and a word like "verified"), when the report never cites the sign-off's record ID or file: the author's
+ * to fix in this same draft, by citing it (owner's d-story, 2026-11-22: "verified" with "no tagged test" for a criterion a
+ * screenshot proved, and its reviewer blocked it four versions running). One finding per sign-off. Pure.
+ */
+export function witnessUncitedFindings(markdown, witnesses = []) {
+  const text = authoredText(markdown);
+  const cited = new Set([...text.matchAll(WITNESS_ID)].map((match) => match[0]));
+  const uncited = (witnesses ?? []).filter((entry) => entry?.valid && entry.decision === 'satisfies' && entry.id
+    && !cited.has(entry.id) && !(entry.file && text.includes(entry.file)));
+  if (!uncited.length) return [];
+  const bySuffix = new Map();
+  for (const clauseId of new Set(uncited.map((entry) => String(entry.clauseId).toUpperCase()))) {
+    const suffix = clauseId.slice(clauseId.lastIndexOf(':') + 1);
+    bySuffix.set(suffix, [...(bySuffix.get(suffix) ?? []), clauseId]);
+  }
+  const findings = [];
+  const done = new Set();
+  for (const unit of reportUnits(markdown)) {
+    if (!CLAIMED.test(unit.text) || ABSENT_VISUAL_REVIEW.some((pattern) => pattern.test(unit.text))) continue;
+    const criteria = criteriaIn(unit.text, bySuffix);
+    for (const witness of uncited.filter((entry) => criteria.has(String(entry.clauseId).toUpperCase()) && !done.has(entry.id))) {
+      if (findings.length >= MAXIMUM_FINDINGS) break;
+      done.add(witness.id);
+      findings.push(Object.freeze({
+        code: WITNESS_UNCITED_CODE, category: 'evidence', line: unit.line, value: witness.clauseId, clauseId: witness.clauseId, record: witness.id,
+        message: `Line ${unit.line} marks ${witness.clauseId} proved; its proof is ${witness.id}, a person's ${witness.method} sign-off${witness.file ? ` of ${witness.file}` : ''}. Cite ${witness.id} there.`
+      }));
+    }
+  }
+  return findings;
+}
+
+/** The draft check's findings for one step's report: each uncited sign-off its claims rest on. Never throws. */
+export async function witnessUncitedDraftFindings(root, workflow, phase, artifact) {
+  try {
+    if (!workflow?.witnessRecords?.length || !artifact?.exists || !phaseReadsWitnessDecisions(workflow, phase)) return [];
+    const markdown = await readReviewArtifact(root, artifact.path, 'Required phase artifact');
+    if (markdown == null) return [];
+    return witnessUncitedFindings(markdown, await storyWitnessDecisions(root, workflow)).map((finding) => Object.freeze({ ...finding, path: artifact.path }));
+  } catch {
+    return [];
+  }
 }
 
 /**

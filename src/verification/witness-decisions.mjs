@@ -21,6 +21,7 @@ import { approvedInputPhases } from '../phase-input-policy.mjs';
 import {
   isConformancePhase, isTestEvidencePhase, isVisualVerificationPhase, stepResponsibilities
 } from '../phase-roles.mjs';
+import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 
 export const WITNESS_DECISIONS_REVISION = 'recorded-visual-reviews-v1';
 export const WITNESS_DECISIONS_HEADING = '# Recorded human visual reviews';
@@ -96,14 +97,19 @@ export async function storyWitnessDecisions(root, workflow) {
 
 /**
  * Steps that report on visual or inspection evidence, read from structure, never a step's name: a
- * conformance or test-evidence report, a step that holds the verify responsibility, and any step
- * whose approved inputs include a visual verification step.
+ * conformance or test-evidence report, a step that holds the verify responsibility, any step whose
+ * approved inputs include a visual verification step, and any step that writes no code after one that
+ * does: a custom workflow's QA or acceptance step, or a marketplace agent's, reports on delivered code too
+ * (owner's d-story, 2026-11-22: a criterion proved by a person's screenshot read as unproved).
  */
 export function phaseReadsWitnessDecisions(workflow, phase) {
   if (!workflow || !phase) return false;
   if (isConformancePhase(phase) || isTestEvidencePhase(phase)) return true;
   if (stepResponsibilities(workflow, phase.id).includes('verify')) return true;
-  return approvedInputPhases(workflow, phase).some((id) => isVisualVerificationPhase(workflow.phases?.[id]));
+  if (approvedInputPhases(workflow, phase).some((id) => isVisualVerificationPhase(workflow.phases?.[id]))) return true;
+  const order = workflow.phaseOrder ?? [];
+  return !phaseRequiresCodeDelivery(phase) && order.slice(0, Math.max(0, order.indexOf(phase.id)))
+    .some((id) => phaseRequiresCodeDelivery(workflow.phases?.[id]));
 }
 
 /** The read-only projection a step's entry packet carries, or null when it has nothing to show. */

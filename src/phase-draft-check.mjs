@@ -220,6 +220,11 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       line: finding.line, value: finding.clauseId, message: finding.message,
       fingerprint: artifact.fingerprint
     })));
+    // A criterion the report marks proved by a person's sign-off it never cites: the author cites it here, before its
+    // reviewer is asked (owner's d-story, 2026-11-22).
+    if (workflow.witnessRecords?.length) findings.push(...(await (await import('./verification/witness-report-findings.mjs'))
+      .witnessUncitedDraftFindings(root, workflow, phase, artifact)).map((finding) => ({ code: finding.code, category: finding.category,
+      path: finding.path, line: finding.line, value: finding.value, message: finding.message, fingerprint: artifact.fingerprint })));
     // A partial or missing verdict publishes; a person decides it before approval.
     conformanceAdvisories = comparison.advisories;
     // The engine writes the Verdict summary at prepare; an editable draft whose table or upstream

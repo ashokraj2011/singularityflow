@@ -11,7 +11,7 @@ import test from 'node:test';
 
 import { COMMAND_LINE_SKILL_ROUTES, COMMAND_SKILLS } from '../src/command-skills.mjs';
 import { check, cooperativePerson, quickFixIntake, report, reviewer, scopeAnswers, settle, specDrivenAuthor, viewsAgree } from './helpers/journey-scripts.mjs';
-import { argvOf, entryCommand, followRoutes, formatTrail, journeyRepository, publishedGeneration, skillEntries, startStory } from './helpers/route-follower.mjs';
+import { argvOf, copilotTurn, entryCommand, followRoutes, formatTrail, journeyRepository, publishedGeneration, skillEntries, startStory, storyRecord } from './helpers/route-follower.mjs';
 import { reviewStep } from './helpers/step-review.mjs';
 import { specification } from './helpers/submitted-planning-story.mjs';
 
@@ -125,3 +125,44 @@ test('journey start: a quick fix is started, its intake written, reviewed, submi
   await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => viewsAgree(walk));
   settle(t);
 });
+
+// A real /sf-approve turn, 2026-11-22: the person answered "Approve Planning v1", `choices answer` recorded it and returned
+// `next: null`, because its filled approve command carries the receipt, which only the private execution check admits; the
+// agent then ran a bare `approve`, the guard refused it, and Planning stayed unapproved. Here: the same turn through the
+// hooks, its filled command named and allowed, and the step approved by it.
+test('journey approve in chat: the person\'s Yes, the filled approve command with its receipt, allowed and run, approves the step', async (t) => {
+  const W = 'JRN-AC';
+  const story = await journeyRepository(t);
+  startStory(story, W, { workType: 'quick-fix', title: 'Change the value', description: 'Return 2.' });
+  story.cli('prepare', 'intake');
+  await story.write(`${story.item}/artifacts/intake/intake.md`, quickFixIntake(W));
+  story.cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  reviewStep((args) => JSON.parse(story.cli(...args)), 'intake');
+  story.cli('submit', 'intake');
+  const json = (ran) => JSON.parse(ran.stdout.slice(ran.stdout.indexOf('{')));
+  const allowed = (said, what) => assert.notEqual(said?.permissionDecision, 'deny', `${what}: ${said?.permissionDecisionReason ?? ''}`);
+  const turn = copilotTurn(story, 'journey-approve-chat');
+  turn.prompt(`/sf-approve intake --work-id ${W}`);
+  const beginArgs = ['choices', 'begin', 'approve', W, '--fetch', '--json', '--review-packet'];
+  allowed(turn.tool('bash', { command: `singularity-flow ${beginArgs.join(' ')}` }), 'the review packet');
+  const begun = json(story.raw(beginArgs));
+  const question = begun.choiceSets?.find((entry) => entry.id === 'phase-confirmation')?.question;
+  assert.match(question ?? '', /^Approve .+ v1\?$/u, JSON.stringify(begun.choiceSets));
+  turn.tool('ask_user', { message: question, requestedSchema: { properties: { decision: { type: 'string', title: 'Approval decision', enum: ['Approve', 'Not now'] } } } });
+  turn.after('ask_user', { message: question }, { resultType: 'success', textResultForLlm: `User responded: ${question.replace(/\?$/u, '')}` });
+  const answer = ['choices', 'answer', begun.token, 'phase-confirmation', 'intake', '--json'];
+  allowed(turn.tool('bash', { command: `singularity-flow ${answer.join(' ')}` }), 'recording the Yes');
+  const answered = json(story.raw(answer));
+  await check(t, 'the ready receipt names its filled approve command, receipt and all', {}, () => {
+    assert.equal(answered.ready, true);
+    assert.equal(answered.next?.command, `singularity-flow approve intake --work-id ${W} --fetch --selection-receipt ${begun.token} --for-agent --json`, JSON.stringify(answered.next));
+  });
+  await check(t, 'the guard allows that command in the same turn, and it approves the step', {}, () => {
+    allowed(turn.tool('bash', { command: answered.next.command }), 'the filled approve command');
+    const approved = story.raw(argvOf(answered.next.command));
+    assert.equal(approved.status, 0, approved.stdout.slice(-1500) + approved.stderr.slice(-1500));
+    assert.equal(storyRecord(story).phases.intake.status, 'approved');
+  });
+  settle(t);
+});
+

@@ -82,12 +82,14 @@ export async function choicesCommand(positionals, options) {
       requirePositional(positionals, 3, 'choice ID'),
       requirePositional(positionals, 4, 'selected option ID')
     );
-    // A ready receipt names the command it is for, filled: the token is never assembled into a command by hand.
+    // A ready receipt names the command it is for, filled: the token is never assembled into a command by hand. It is a
+    // private execution command (the receipt is never reusable guidance), so it is checked as one: before, it went through
+    // the presentation check, which refuses every --selection-receipt, `next` was always null, and a real /sf-approve
+    // turn ran a bare `approve` the guard refused after the person's Yes (2026-11-22).
     const filled = receipt.ready ? approvalReceiptCommands(receipt) : null;
-    const { safeCommandGuidance } = await import('../safe-command-guidance.mjs');
-    if (filled) receipt = { ...receipt, next: safeCommandGuidance({ argv: filled.approve }) };
+    if (filled) receipt = { ...receipt, next: await receiptCommand(filled.approve) };
     else if (receipt.ready && receipt.action === 'start') {
-      const start = safeCommandGuidance({ argv: ['start', receipt.workId, '--selection-receipt', receipt.token] });
+      const start = await receiptCommand(['start', receipt.workId, '--selection-receipt', receipt.token]);
       if (start) receipt = { ...receipt, next: { ...start, adds: 'The Story\'s own content and policy flags only (--story-file or --jira, --readiness-baseline, --test-execution-mode, --gate-mode, --target-url); the receipt carries the person\'s choices.' } };
     }
   } else if (subcommand === 'status') receipt = await selectionReceiptStatus(root, requirePositional(positionals, 2, 'selection receipt token'));
@@ -95,3 +97,15 @@ export async function choicesCommand(positionals, options) {
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(receipt, null, 2));
   else printSelectionReceipt(receipt);
 }
+
+/**
+ * A receipt's filled command, as the agent runs it in this turn: `{ command, executable, argv, copyable: false }`, checked as
+ * private execution syntax (one well-formed receipt on the command that takes it), or null when it is not one.
+ */
+async function receiptCommand(argv) {
+  const { validateSflowExecutionCommand } = await import('../safe-command-guidance.mjs');
+  const command = ['singularity-flow', ...argv].join(' ');
+  const checked = argv.every((word) => /^[A-Za-z0-9._:=@/-]+$/u.test(word)) ? validateSflowExecutionCommand(command) : null;
+  return checked ? { command, executable: 'singularity-flow', argv: [...argv], copyable: false } : null;
+}
+

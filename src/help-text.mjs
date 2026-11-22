@@ -425,8 +425,8 @@ Usage:
   singularity-flow workflow intent attachments [--file FILE]... [--folder DIRECTORY]... [--expected-source SHA256] [--id ID] [--json]
   singularity-flow workflow markup compile <FILE|-> [--out BUNDLE.json] [--json]
   singularity-flow workflow markup compile <FILE|-> [--design-review|--inspect-phase PHASE] --json
-  singularity-flow workflow from-agent MARKETPLACE/AGENT [--answer STEP=INTENT]... [--out BUNDLE.json | --propose] [--json]
-                                                        a marketplace agent's stages as a version 4 workflow, every step
+  singularity-flow workflow from-agent FOLDER|MARKETPLACE/AGENT [--answer STEP=INTENT]... [--out BUNDLE.json | --propose] [--json]
+                                                        an agent folder's or marketplace agent's stages as a version 4 workflow, every step
                                                         with what it is for; --out writes the bundle, --propose previews
                                                         its import as a configuration proposal
   singularity-flow workflow studio apply --change-set FILE|- [--dry-run] [--propose] [--json]

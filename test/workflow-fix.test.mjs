@@ -419,3 +419,28 @@ test('workflow fix is a read that never crosses the model boundary', async () =>
   const { HELP } = await import('../src/help-text.mjs');
   assert.match(HELP, /workflow fix \[WORKFLOW\] \[--answers FILE\|-\] \[--write\] \[--json\]/u);
 });
+
+test('a custom workflow whose code step nothing plans is offered a plan step first, put before the code [owner, 2026-11-22]', async () => {
+  const root = await fmlyRepository();
+  const file = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(file, 'utf8'));
+  config.workTypes[WORKFLOW] = { label: 'QA test automation', phases: ['fmly-code', 'fmly-testing'], phaseOverrides: { 'fmly-testing': { inputs: ['fmly-code'] } } };
+  await writeFile(file, YAML.stringify(config));
+  run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'no plan'], root);
+  const result = json(root, ['workflow', 'fix', WORKFLOW]);
+  const question = result.questions.find((entry) => entry.code === 'OBLIGATION_IMPLEMENT_WITHOUT_PLAN');
+  assert.ok(question, JSON.stringify(result.questions.map((entry) => entry.code)));
+  // Adding a plan the repository already defines comes before leaving the plan out, and says what it does.
+  assert.equal(question.choices[0].id, 'add:implementation-spec');
+  assert.match(question.choices[0].label, /^Add .+ before Test code$/u);
+  assert.match(question.choices[0].effect, /plans the change Test code makes, and a person approves the plan before any code\./u);
+  assert.ok(question.choices.some((choice) => choice.id.startsWith('omit:')), 'leaving it out with a reason stays a choice');
+
+  const answers = path.join(root, '..', `${path.basename(root)}-plan-answers.json`);
+  await writeFile(answers, JSON.stringify({ answers: { [question.id]: { choice: 'add:implementation-spec' } } }));
+  const answered = json(root, ['workflow', 'fix', WORKFLOW, '--answers', answers]);
+  const update = answered.changeSet.changes.find((change) => change.op === 'workflow.update' && change.id === WORKFLOW);
+  assert.deepEqual(update?.phases, ['implementation-spec', 'fmly-code', 'fmly-testing']);
+  assert.ok(!answered.after.findings.some((finding) => finding.code === 'OBLIGATION_IMPLEMENT_WITHOUT_PLAN'),
+    JSON.stringify(answered.after.findings.map((finding) => [finding.code, finding.title])));
+});

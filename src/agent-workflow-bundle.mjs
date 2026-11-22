@@ -36,9 +36,12 @@ const guidance = (text) => String(text).replace(/-->/gu, '- ->').replace(/\s+/gu
  */
 function stepTemplate(conversion, step, shipped, { templateAnchors, withClauseAnchors, withPlannedTable }) {
   const stages = [step.stage, ...step.folded.map((entry) => entry.number)].join(' and ');
+  const from = conversion.source.marketplace ? `${conversion.source.marketplace}/${conversion.source.agent}` : conversion.source.agent;
   const lines = [
     `# {{work.id}} — ${step.label}`, '',
-    `<!-- sflow:guidance ${guidance(`Stage ${stages} of ${conversion.agent.label} (${conversion.source.marketplace}/${conversion.source.agent}): follow its "${step.stage}. ${step.label}" section. ${step.summary}`)} -->`, ''
+    `<!-- sflow:guidance ${guidance(step.addedBySflow
+      ? `SFlow's own step, not a stage of ${conversion.agent.label} (${from}): ${step.why} Follow this template; the agent's stages are its other steps.`
+      : `Stage ${stages} of ${conversion.agent.label} (${from}): follow its "${step.stage}. ${step.label}" section. ${step.summary}`)} -->`, ''
   ];
   const body = shipped ? shipped.replace(/\r\n?/gu, '\n').replace(/^# [^\n]*\n+/u, '').trim()
     : ['## What this step decides', '', '## Evidence', '', '## Open questions'].join('\n');

@@ -963,7 +963,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (record-documents.mjs), the draft check names a claimed sign-off the document does not cite (witness-report-findings.mjs),
     // and a sign-off without a screenshot is recorded and read (witness-records.mjs, delivery-evidence.mjs). No new eager file.
     // 9,853,206 (measured, +10): --attest read as a flag (util.mjs BOOLEAN_OPTIONS).
-    assert.ok(closure.bytes <= 9_853_206, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,853,355 (measured, +149, 2026-11-22): `workflow fix` is /sf-fix-workflow's route too (command-skills.mjs), so the
+    // repository check can name it for a custom workflow with a problem. No new eager file.
+    assert.ok(closure.bytes <= 9_853_355, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1497,7 +1499,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,339,518 (measured on the integration branch, 2026-11-21): the integration fixes in config.mjs and step-intent-settings.mjs. No new eager file.
   // 4,339,923 (measured, +405, 2026-11-22): a person's sign-off without a screenshot is read as met (witness-records.mjs). No new eager file.
   // 4,339,933 (measured, +10): --attest read as a flag (util.mjs BOOLEAN_OPTIONS).
-  assert.ok(current.bytes <= 4_339_933, `session current loads ${current.bytes} source bytes`);
+  // 4,340,082 (measured, +149, 2026-11-22): `workflow fix` is /sf-fix-workflow's route too (command-skills.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_340_082, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

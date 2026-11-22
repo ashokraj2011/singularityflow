@@ -669,6 +669,27 @@ function omitOrAddStep(ctx, workflow, finding, responsibility) {
         } });
     }
   }
+  // A plan before the code step, or a verification after the last one: a step the repository already defines, put in
+  // its place, offered before leaving it out [owner, 2026-11-22].
+  if ((responsibility === 'plan' || responsibility === 'verify') && code) {
+    const codes = workflow.steps.filter((step) => step.output === 'code');
+    const anchor = responsibility === 'plan' ? (workflow.steps.find((step) => step.id === finding.subject?.step && step.output === 'code') ?? code) : codes.at(-1);
+    const intent = responsibility === 'plan' ? 'plan' : 'test';
+    const preferred = responsibility === 'plan' ? 'implementation-spec' : 'verification';
+    const candidates = ctx.model.phases.filter((phase) => phase.intent === intent && !workflow.phases.includes(phase.id))
+      .sort((left, right) => Number(right.id === preferred) - Number(left.id === preferred));
+    for (const phase of candidates.slice(0, 3)) {
+      choices.push({ id: `add:${phase.id}`, label: `Add ${phase.label} ${responsibility === 'plan' ? 'before' : 'after'} ${anchor.label}`,
+        effect: responsibility === 'plan' ? `${phase.label} plans the change ${anchor.label} makes, and a person approves the plan before any code.`
+          : `${phase.label} runs the tests after ${anchor.label} and checks each requirement against its tests or a person's sign-off.`,
+        apply: (draft) => {
+          const phases = [...(draft.workflowField(workflow.id, 'phases') ?? workflow.phases)];
+          const at = phases.indexOf(anchor.id);
+          phases.splice(responsibility === 'plan' ? at : at + 1, 0, phase.id);
+          draft.workflow(workflow.id, 'phases', phases);
+        } });
+    }
+  }
   const authorities = ctx.model.groups.filter((group) => group.status !== 'blocked');
   for (const group of authorities.slice(0, 6)) {
     choices.push({ id: `omit:${group.id}`, label: `${workflow.label} needs no ${responsibility}; ${group.label} records why`, needs: 'text',

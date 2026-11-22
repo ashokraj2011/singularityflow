@@ -95,6 +95,8 @@ const OVERRIDES = {
   // Repository-check settings and their cache are machine-local preferences and projections.
   'repository-check-settings.mjs': 'projection',
   'repository-check-cache.mjs': 'projection',
+  // What this SFlow build found in the repository's own workflows, kept under the Git directory and rebuilt from them.
+  'custom-workflow-health.mjs': 'projection',
   'session-listing-cache.mjs': 'projection',
   'session-state-index.mjs': 'projection',
   // A review's disposable static preview and its machine-local captures, kept under the Git directory.

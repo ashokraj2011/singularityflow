@@ -136,7 +136,34 @@ export async function copilotAgentStartHook(root, payload = {}) {
   };
 }
 
+/**
+ * The session's context, with what this SFlow found in the repository's own workflows: said once to the person at the
+ * start, before a Story meets it [owner, 2026-11-22]. Read from what was kept; a stale or missing result is checked
+ * within a few seconds, and when that runs longer the session starts without it and the next one says it.
+ */
 export async function sessionStartAgentHook(root, definition, workflow, payload = {}) {
+  const result = await sessionStartContext(root, definition, workflow, payload);
+  if (!result?.additionalContext) return result;
+  const words = await customWorkflowWords(root);
+  return words ? { ...result, additionalContext: `${result.additionalContext} ${words}` } : result;
+}
+
+const HEALTH_WAIT_MS = 4000;
+
+async function customWorkflowWords(root) {
+  try {
+    const { customWorkflowHealth, healthWords } = await import('./custom-workflow-health.mjs');
+    let timer;
+    const late = new Promise((resolve) => { timer = setTimeout(() => resolve(null), HEALTH_WAIT_MS); timer.unref?.(); });
+    const health = await Promise.race([customWorkflowHealth(root), late]).finally(() => clearTimeout(timer));
+    const words = healthWords(health);
+    return words ? `Tell the person this once, in plain words, before other work, and offer the fix; never fix it yourself without their yes: ${words.replace(/\n/gu, ' ')}` : null;
+  } catch {
+    return null;
+  }
+}
+
+async function sessionStartContext(root, definition, workflow, payload = {}) {
   if (readCopilotMode().paused) return {};
   if (workflow) {
     definition = (await resolveStoryExecutionCatalog(root, definition, workflow)).effectiveDefinition;

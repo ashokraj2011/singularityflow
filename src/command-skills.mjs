@@ -292,7 +292,9 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     'import-team': 'sf-import-team',
     build: 'sf-build-workflow',
     // /sf-fix-workflow begins with this read and drafts the fixes it lists as one reviewed proposal.
-    validate: 'sf-fix-workflow'
+    validate: 'sf-fix-workflow',
+    // The drafts themselves: the same skill asks the person's questions and proposes them (custom-workflow-health.mjs).
+    fix: 'sf-fix-workflow'
   }),
   // The library's reads and Copilot's own steps go to /sf-spec-author; the person's steps have no route
   // (OWN_TERMINAL_STEPS) and the other writes stay with /sf-spec.

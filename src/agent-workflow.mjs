@@ -27,6 +27,7 @@ import YAML from 'yaml';
 import { STEP_INTENTS } from './phase-roles.mjs';
 import { deriveWorkflowSettings } from './step-intent-settings.mjs';
 import { inferStepIntents, intentWordScores } from './step-intents.mjs';
+import { neededSteps, withNeededSteps } from './workflow-needs.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const AGENT_WORKFLOW_RESULT = 'sflow-agent-workflow';
@@ -361,7 +362,7 @@ function recordedAnswer(named, first, skillTable, notes) {
  * `{ workflow, agent, skills, questions, steps, open, notes, source }`; `open` lists the stages still waiting for the
  * person's answer, each with the 2 to 4 choices of §6.3, and no workflow is written while one is open.
  */
-export function convertAgent({ marketplace, agent, skills = [], answers = {} }) {
+export function convertAgent({ marketplace, folder = null, agent, skills = [], answers = {} }) {
   if (!agent?.text) throw fail(`${agent?.name ?? 'The agent'} has no agent.md text to convert.`);
   const parsed = parseAgentDocument(agent.text);
   if (!parsed.stages.length) {
@@ -513,6 +514,22 @@ export function convertAgent({ marketplace, agent, skills = [], answers = {} }) 
     });
   }
 
+  // The steps SFlow needs that the agent has no stage for (workflow-needs.mjs): requirements before its code, and
+  // verification after it. Each is SFlow's own, says why, and runs from its intent's template [owner, 2026-11-22].
+  const added = [];
+  if (!open.length) {
+    const needed = neededSteps(steps, { omits: agent.omits ?? [] });
+    steps.splice(0, steps.length, ...withNeededSteps(steps, needed, (entry) => {
+      const step = { id: stepId(prefix, entry.name, ids), label: entry.label, stage: null, line: null, intent: entry.intent, confidence: 'certain', source: 'sflow',
+        why: entry.why, skills: [], gates: [], folded: [], optional: false, summary: entry.why, addedBySflow: true };
+      added.push({ step: step.id, label: step.label, intent: step.intent, ...(entry.before ? { before: entry.before } : { after: entry.after }), why: entry.why });
+      return step;
+    }));
+    for (const entry of added) {
+      notes.push(`SFlow added ${entry.label} ${entry.before ? 'before' : 'after'} ${steps.find((step) => step.id === (entry.before ?? entry.after))?.label}: ${entry.why}`);
+    }
+  }
+
   // Who approves: the derived settings already hand a step to a person where the agent's gate does; else it says why.
   if (!open.length) {
     const derived = deriveWorkflowSettings(steps.map((step) => ({ id: step.id, intent: step.intent })));
@@ -520,7 +537,7 @@ export function convertAgent({ marketplace, agent, skills = [], answers = {} }) 
       const own = derived.steps[index];
       // What its template needs: the clause anchors of a step that writes the requirement IDs, the planned-claims table of a plan.
       Object.assign(step, { writesRequirementIds: own.writesRequirementIds, isPlan: own.isPlan });
-      const gates = [...step.gates, ...(parsed.stages.find((stage) => stage.number === step.stage)?.hardGate ? [parsed.stages.find((stage) => stage.number === step.stage)] : [])];
+      const gates = step.addedBySflow ? [] : [...step.gates, ...(parsed.stages.find((stage) => stage.number === step.stage)?.hardGate ? [parsed.stages.find((stage) => stage.number === step.stage)] : [])];
       if (gates.length) {
         const gate = gates[0];
         if (own.approval.by === 'person') step.personApproval = { gate: `${gate.number}. ${gate.title}`, derived: own.approval.why };
@@ -537,7 +554,7 @@ export function convertAgent({ marketplace, agent, skills = [], answers = {} }) 
     }
   }
   if (agent.lifecycleState && agent.lifecycleState !== 'approved') {
-    notes.push(`${agent.name} is ${agent.lifecycleState} in the marketplace${agent.lifecycleState === 'proposed' ? ', not yet reviewed by its maintainers' : ''}.`);
+    notes.push(`${agent.name} is ${agent.lifecycleState} in ${marketplace ? 'the marketplace' : 'its apm.yml'}${agent.lifecycleState === 'proposed' ? ', not yet reviewed by its maintainers' : ''}.`);
   }
   const usedSkills = [...new Set(steps.flatMap((step) => step.skills.map((entry) => entry.skill)))];
   for (const name of known) if (!usedSkills.includes(name)) notes.push(`${agent.name} depends on skill ${name}, which no stage names, so it is not attached to a step.`);
@@ -545,14 +562,14 @@ export function convertAgent({ marketplace, agent, skills = [], answers = {} }) 
 
   return {
     schemaVersion: 1, resultType: AGENT_WORKFLOW_RESULT,
-    source: { marketplace: marketplace?.id ?? null, repository: marketplace?.repository ?? null, commit: marketplace?.commit ?? null,
+    source: { marketplace: marketplace?.id ?? null, repository: marketplace?.repository ?? null, commit: marketplace?.commit ?? null, ...(folder ? { folder } : {}),
       agent: agent.name, version: agent.version ?? null, lifecycleState: agent.lifecycleState ?? null, document: agent.document ?? null,
       pdlcPhases: [...(agent.pdlcPhases ?? [])], pdlcTasks: [...(agent.pdlcTasks ?? [])] },
-    workflow: { id: workflowId, label, description: oneLine(`${agent.description ?? ''} From marketplace ${marketplace?.id ?? ''}: ${agent.name} ${agent.version ?? ''}`.trim()) },
+    workflow: { id: workflowId, label, description: oneLine(`${agent.description ?? ''} ${folder && !marketplace ? `From folder ${folder}` : `From marketplace ${marketplace?.id ?? ''}`}: ${agent.name} ${agent.version ?? ''}`.trim()) },
     agent: { id: kebab(agent.name), label: parsed.title ?? agent.name, description: oneLine(agent.description ?? parsed.frontmatter?.description ?? agent.name) },
     questions: questions.map((question) => ({ ...question, topic: topic(question) })),
     ...(storyValue ? { storyValue } : {}),
-    steps, open, notes,
+    steps, added, open, notes,
     skills: usedSkills.map((name) => skillByName.get(name)).filter(Boolean).map((entry) => ({ id: entry.name, description: entry.description ?? entry.name, version: entry.version ?? null })),
     ready: open.length === 0
   };
@@ -571,7 +588,8 @@ export function agentInstructions(conversion, agentText) {
     : '';
   return [
     `SFlow runs the numbered stages below as the steps of the ${conversion.workflow.label} workflow, one stage per step and in order; each step's description names its stage. At each step do that stage only, building on what the earlier steps recorded.${asked}`
-      + ' A hard gate is SFlow\'s: the person approves the steps that need a person in SFlow, so never stop and wait in chat for an approval.',
+      + ' A hard gate is SFlow\'s: the person approves the steps that need a person in SFlow, so never stop and wait in chat for an approval.'
+      + ((conversion.added ?? []).length ? ` SFlow also runs ${conversion.added.map((entry) => entry.label).join(' and ')}, which ${conversion.added.length === 1 ? 'is' : 'are'} not a stage below: there, follow that step's template only.` : ''),
     '',
     value?.tableSection ? withoutSection(body, value.tableSection,
       `SFlow resolves each step's skill from the Story value ${value.name}: the step is given only the skill for the recorded answer. Follow the skill attached to the step.`) : body
@@ -602,7 +620,7 @@ export function workflowDefinition(conversion, { template = (step) => `${convers
     const stages = [step.stage, ...step.folded.map((entry) => entry.number)];
     phases[step.id] = {
       label: step.label,
-      description: oneLine(`Stage${stages.length === 1 ? '' : 's'} ${stages.join(' and ')} of ${conversion.agent.label}: ${step.label}${step.folded.length ? ` (with ${step.folded.map((entry) => entry.title).join(', ')}, when needed)` : ''}. ${step.summary}`).slice(0, 1000),
+      description: step.addedBySflow ? oneLine(`Added by SFlow, not a stage of ${conversion.agent.label}: ${step.why}`).slice(0, 1000) : oneLine(`Stage${stages.length === 1 ? '' : 's'} ${stages.join(' and ')} of ${conversion.agent.label}: ${step.label}${step.folded.length ? ` (with ${step.folded.map((entry) => entry.title).join(', ')}, when needed)` : ''}. ${step.summary}`).slice(0, 1000),
       intent: step.intent,
       artifact: { path: `artifacts/${step.id}/${step.id}.md` },
       defaultTemplate: template(step),

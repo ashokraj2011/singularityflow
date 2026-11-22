@@ -1,7 +1,8 @@
 /**
- * `workflow from-agent <MARKETPLACE>/<AGENT> [--answer STEP=INTENT]... [--out BUNDLE.json | --propose] [--json]`:
+ * `workflow from-agent <FOLDER | MARKETPLACE/AGENT> [--answer STEP=INTENT]... [--out BUNDLE.json | --propose] [--json]`:
  * an agent of a Git repository marketplace (marketplace add --repo) as an SFlow workflow, every step with what it is
- * for (src/agent-workflow.mjs), compiled into a portable workflow bundle (src/agent-workflow-bundle.mjs).
+ * for (src/agent-workflow.mjs), or an agent folder on this computer (src/agent-folder.mjs), with the steps SFlow needs
+ * that the agent has no stage for added (src/workflow-needs.mjs), compiled into a portable workflow bundle (src/agent-workflow-bundle.mjs).
  *
  * - Without --out or --propose it changes nothing: it shows the steps, why each is what it is, the questions the
  *   person answers at the first step, what each step's intent gives it, and the version 4 workflow it writes.
@@ -48,8 +49,9 @@ function questionRoutes(conversion, target, answers, output) {
 
 function printConversion(conversion) {
   const { source } = conversion;
-  console.log(`${conversion.workflow.label}: a workflow from ${source.agent}${source.version ? ` ${source.version}` : ''} in marketplace ${source.marketplace}`
-    + ` (commit ${String(source.commit ?? '').slice(0, 12)})${source.lifecycleState ? `, ${source.lifecycleState}` : ''}.`);
+  console.log(`${conversion.workflow.label}: a workflow from ${source.agent}${source.version ? ` ${source.version}` : ''}`
+    + (source.marketplace ? ` in marketplace ${source.marketplace} (commit ${String(source.commit ?? '').slice(0, 12)})` : ` in folder ${source.folder}`)
+    + `${source.lifecycleState ? `, ${source.lifecycleState}` : ''}.`);
   if (conversion.questions.length) {
     console.log(`The person answers at ${conversion.steps[0].label}, before any work:`);
     for (const question of conversion.questions) console.log(`  ${question.topic}`);
@@ -61,7 +63,8 @@ function printConversion(conversion) {
   }
   console.log('Steps, each with what it is for:');
   conversion.steps.forEach((step, index) => {
-    console.log(`  ${index + 1}. ${step.label}  ${step.intent ?? 'not known yet'}${step.intent ? `, ${step.confidence}` : ''}: ${step.why}`);
+    console.log(step.addedBySflow ? `  ${index + 1}. ${step.label}  ${step.intent}, added by SFlow: ${step.why}`
+      : `  ${index + 1}. ${step.label}  ${step.intent ?? 'not known yet'}${step.intent ? `, ${step.confidence}` : ''}: ${step.why}`);
     if (step.folded.length) console.log(`       It also runs ${step.folded.map((entry) => `stage ${entry.number}, ${entry.title}`).join(' and ')}, when needed.`);
     if (step.personApproval) {
       console.log(`       A person approves it: the agent's ${step.personApproval.gate} gate${step.personApproval.derived ? ` (${step.personApproval.derived})` : ' (kept with its reason)'}.`);
@@ -112,9 +115,13 @@ export async function run(argv, { positionals, options }) {
   const unknown = Object.keys(options).filter((key) => !OPTIONS.has(key));
   if (unknown.length) throw usage(`workflow from-agent does not take --${unknown[0]}.`);
   const target = String(positionals[2] ?? '');
-  const match = TARGET.exec(target);
-  if (!match || positionals.length > 3) {
-    throw usage('Name one agent as MARKETPLACE/AGENT. singularity-flow marketplace browse lists each agent with its command.', { nextAction: 'singularity-flow marketplace list' });
+  const { isAgentFolder, readAgentFolder } = await import('../agent-folder.mjs');
+  // An agent folder on this computer, read as it is; else MARKETPLACE/AGENT [owner, 2026-11-22].
+  const folder = positionals.length === 3 && await isAgentFolder(target);
+  const match = folder ? null : TARGET.exec(target);
+  if ((!folder && !match) || positionals.length > 3) {
+    throw usage('Name one agent: its folder on this computer (the one holding agent.md), or MARKETPLACE/AGENT. singularity-flow marketplace browse lists each marketplace agent with its command.',
+      { nextAction: 'singularity-flow marketplace list' });
   }
   const out = optionString(options, 'out') ?? null;
   const propose = optionBoolean(options, 'propose');
@@ -125,13 +132,22 @@ export async function run(argv, { positionals, options }) {
     import('../git.mjs'), import('../approved-configuration-reader.mjs'), import('../marketplace.mjs'), import('../marketplace-repository.mjs'), import('../agent-workflow.mjs')
   ]);
   const root = repoRoot();
+  let conversion; let agent; let skills;
+  if (folder) {
+    const read = await readAgentFolder(target);
+    ({ agent, skills } = read);
+    conversion = convertAgent({ marketplace: null, folder: read.folder, agent, skills, answers });
+    conversion.notes.push(...read.problems);
+  } else {
   const marketplace = requireMarketplace(await withApprovedConfigurationRead(root, () => configuredMarketplaces(root), { preferAuthority: true }), match[1]);
   if (!marketplace.repository) {
     throw usage(`Marketplace '${marketplace.id}' is an index of files. An agent becomes a workflow from a marketplace that is a Git repository: add that one with marketplace add --repo.`,
       { nextAction: 'singularity-flow marketplace list' });
   }
-  const { listing, agent, skills } = await readMarketplaceAgent(marketplace, match[2]);
-  const conversion = convertAgent({ marketplace: { ...marketplace, commit: listing.commit }, agent, skills, answers });
+  const read = await readMarketplaceAgent(marketplace, match[2]);
+  ({ agent, skills } = read);
+  conversion = convertAgent({ marketplace: { ...marketplace, commit: read.listing.commit }, agent, skills, answers });
+  }
   const output = { out, propose };
 
   if (!conversion.ready) {

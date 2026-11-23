@@ -171,6 +171,85 @@ test('the QA agent: the channel at intake, a test design step, a code step for t
   assert.match(instructions, /## 1\. Intake/u, 'the stages stay as written');
 });
 
+test('the conversion review: every stage once, what SFlow changed, the checks, and the marketplace\'s own findings with their fixes (MCR)', async () => {
+  const { conversionReview, conversionReviewMarkdown } = await import('../src/conversion-review.mjs');
+  const { agent, skills } = await fixtureAgent('qa-test-automation-agent');
+  const conversion = convertAgent({ marketplace: MARKET, agent, skills });
+  // Every note is a finding with a class and an owner; the notes are their words (MCR:REQ-001).
+  assert.deepEqual(conversion.notes, conversion.findings.map((entry) => entry.words));
+  for (const entry of conversion.findings) {
+    assert.match(entry.class, /^(?:sflow|marketplace)-[a-z-]+$/u, entry.class);
+    assert.ok(['sflow', 'marketplace'].includes(entry.owner), entry.owner);
+    if (entry.owner === 'marketplace') assert.ok(entry.fix, `${entry.class} names its fix`);
+  }
+  // Every stage of agent.md once: the channel gate is the questions at Intake, the review gate an approval, stage 5 runs inside the code step.
+  assert.deepEqual(conversion.stages.map((stage) => [stage.number, stage.becomes, stage.step]), [
+    [0, 'questions', 'qa-test-automation-intake'], [1, 'step', 'qa-test-automation-intake'], [2, 'step', 'qa-test-automation-test-case-creation'],
+    [3, 'approval', 'qa-test-automation-test-case-creation'], [4, 'step', 'qa-test-automation-test-automation'], [5, 'folded', 'qa-test-automation-test-automation'],
+    [6, 'step', 'qa-test-automation-execution-and-evidence']]);
+  const review = conversionReview(conversion);
+  assert.deepEqual(review.source, { marketplace: 'acme', repository: '/srv/acme-marketplace', commit: COMMIT, folder: null, agent: 'qa-test-automation-agent',
+    version: '1.0.0-pdlc', lifecycle: 'proposed: not yet reviewed by its maintainers', maintainer: 'maintainers@example.com', sourceRepository: 'https://git.example.com/acme/sdlc-marketplace' });
+  // SFlow's own choices are its changes; the marketplace's are its feedback, and never the other way round (MCR:REQ-014).
+  assert.deepEqual(review.changes.map((entry) => entry.class), ['sflow-merged-stage']);
+  assert.ok(review.feedback.every((entry) => entry.owner === 'marketplace'));
+  assert.ok(review.feedback.some((entry) => entry.class === 'marketplace-lifecycle' && /set its lifecycle-state to approved/u.test(entry.fix)));
+  assert.deepEqual(review.checks.map((check) => [check.id, check.ok]), [['stages', true], ['answers', true]], 'no walk before it compiles');
+  assert.equal(review.ready, true);
+  const automation = review.rows.find((row) => row.step === 'qa-test-automation-test-automation');
+  assert.deepEqual(automation.stages.map((stage) => [stage.number, stage.becomes]), [[4, 'step'], [5, 'folded']]);
+  assert.deepEqual(review.rows[0].questions, ['Which channel is this test automation for? Choose one: web, android (recorded as channel).']);
+  // A walk that stops is a failed check, with its fix, and the workflow is not ready to make.
+  const stopped = conversionReview({ ...conversion, walk: { paths: 2, routes: 3, stops: [{ class: 'stop', title: 'Verify has nothing to verify', fix: { text: 'Add a code step before it' } }] } });
+  assert.deepEqual(stopped.checks.at(-1), { id: 'walk', ok: false, words: 'A Story of it would stop: Verify has nothing to verify.', fixes: [{ title: 'Verify has nothing to verify', detail: null, fix: 'Add a code step before it' }] });
+  assert.equal(stopped.ready, false);
+  // A seeded defect in the marketplace: a stage names a skill the agent does not depend on, and a dependency no stage names.
+  const seeded = convertAgent({ marketplace: MARKET, agent: { ...agent, text: agent.text.replace('## 6. Execution and Evidence', '## 6. Execution and Evidence\n\nUse skill `skills/release-notes-writer/` for the summary.'), skills: [...agent.skills, 'android-unit-test-extra'] }, skills });
+  const defects = conversionReview(seeded).feedback.map((entry) => [entry.class, entry.skill ?? null]);
+  assert.ok(defects.some(([kind, skill]) => kind === 'marketplace-dependency-unused' && skill === 'android-unit-test-extra'), JSON.stringify(defects));
+  // The Markdown form has every section, and says whether it is ready.
+  const markdown = conversionReviewMarkdown(review);
+  for (const heading of ['## Where it came from', '## Agent stage → SFlow step', '## What SFlow changed', '## Needs your answer', '## Checks', '## Feedback for the marketplace']) assert.ok(markdown.includes(heading), heading);
+  assert.match(markdown, /\| 5\. Unit Test Gap Fill \| folded \| Test Automation \|/u);
+  assert.match(markdown, /Ready to make: nothing waits for your answer and every check passed\./u);
+
+  // The product agent: a stage SFlow cannot classify waits for an answer, is a marketplace finding, and the review is not ready.
+  const product = await fixtureAgent('product-agent');
+  const asked = conversionReview(convertAgent({ marketplace: MARKET, agent: product.agent, skills: product.skills }));
+  assert.equal(asked.ready, false);
+  assert.deepEqual(asked.open.map((entry) => entry.step), ['product-traceability-check', 'product-hand-off']);
+  assert.deepEqual(asked.checks.find((check) => check.id === 'answers'), { id: 'answers', ok: false, words: '2 stages need your answer before the workflow is made.' });
+  assert.deepEqual(asked.feedback.filter((entry) => entry.class === 'marketplace-stage-unclassified').map((entry) => entry.step), ['product-traceability-check', 'product-hand-off']);
+  const answered = conversionReview(convertAgent({ marketplace: MARKET, agent: product.agent, skills: product.skills, answers: { 'product-traceability-check': 'review', 'product-hand-off': 'report' } }));
+  assert.equal(answered.ready, true);
+  assert.ok(answered.feedback.some((entry) => entry.class === 'marketplace-stage-unclassified' && /the person chose review/u.test(entry.words)), 'answered once, still the marketplace\'s to make clear');
+});
+
+test('feedback for the marketplace: only its own findings, addressed to its maintainer, and an issue the person opens and submits (MCR §6)', async () => {
+  const { conversionReview, feedbackDocument, repositoryPageUrl, feedbackIssue } = await import('../src/conversion-review.mjs');
+  const { agent, skills } = await fixtureAgent('qa-test-automation-agent');
+  const review = conversionReview(convertAgent({ marketplace: MARKET, agent, skills }));
+  const document = feedbackDocument(review, { date: '2026-11-23' });
+  assert.equal(document.name, 'conversion-feedback-qa-test-automation-agent-1.0.0-pdlc.md');
+  assert.match(document.markdown, /^# Feedback on qa-test-automation-agent 1\.0\.0-pdlc\n\nFound while converting it into an SFlow workflow, 2026-11-23\./u);
+  assert.match(document.markdown, /- Maintainer: maintainers@example\.com\./u);
+  assert.match(document.markdown, /## What to fix in the marketplace\n\n1\. qa-test-automation-agent is proposed in the marketplace, not yet reviewed by its maintainers\.\n   Fix: Review qa-test-automation-agent, then set its lifecycle-state to approved\./u);
+  for (const entry of review.changes) assert.ok(!document.markdown.includes(entry.words), 'SFlow\'s own choices are never sent');
+  assert.doesNotMatch(document.markdown, /\/srv\/|Story|History Tester/u, 'nothing of the importer\'s repository, Story or person');
+  // The agent's own repository takes the issue, filled in; the person opens and submits it.
+  assert.equal(document.issue.bodyInUrl, true);
+  assert.ok(document.issue.url.startsWith('https://git.example.com/acme/sdlc-marketplace/issues/new?title=SFlow%20conversion%20feedback%3A%20qa-test-automation-agent%201.0.0-pdlc&body='), document.issue.url);
+  assert.equal(decodeURIComponent(new URL(document.issue.url).searchParams.get('body')), document.markdown);
+  assert.equal(feedbackIssue(review, 'x'.repeat(9000)).bodyInUrl, false, 'too long for an address: the title only, and the host copies the body');
+  assert.deepEqual(['git@git.example.test:acme/agents.git', 'https://gitlab.example.com/team/agents.git', 'ssh://git@git.example.com/acme/x.git',
+    '/srv/acme-marketplace', 'file:///srv/x', 'http://git.example.com/a/b', 'https://user:pw@git.example.com/a/b', 'https://git.example.com/'].map(repositoryPageUrl),
+  ['https://git.example.test/acme/agents', 'https://gitlab.example.com/team/agents', 'https://git.example.com/acme/x', null, null, null, null, null]);
+  assert.match(feedbackIssue({ ...review, source: { ...review.source, sourceRepository: 'https://gitlab.example.com/team/agents' } }, 'x').url, /^https:\/\/gitlab\.example\.com\/team\/agents\/-\/issues\/new\?/u);
+  assert.equal(feedbackIssue({ ...review, source: { ...review.source, sourceRepository: null } }, 'x'), null, 'a local marketplace has no page to open');
+  // Nothing the marketplace owns: no document at all.
+  assert.equal(feedbackDocument({ ...review, feedback: [] }), null);
+});
+
 test('a skill tied to one answer applies once the Story records another answer only if it is that answer', () => {
   assert.deepEqual(storyValueCondition('when channel is web or when channel is android'), { name: 'channel', values: ['web', 'android'] });
   assert.deepEqual(storyValueCondition('When channel is android, only when step 5, Unit Test Gap Fill, is needed'), { name: 'channel', values: ['android'] });
@@ -274,6 +353,27 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     assert.equal(shown.walk.mode, 'quick');
     assert.deepEqual(shown.walk.stops, []);
     assert.ok(shown.walk.paths >= 1 && shown.walk.routes >= 4, JSON.stringify(shown.walk));
+    // The conversion review (MCR §4): in every JSON answer, and as text with --review; the walk is one of its checks.
+    assert.deepEqual(shown.review.checks.map((check) => [check.id, check.ok]), [['stages', true], ['answers', true], ['walk', true]]);
+    assert.equal(shown.review.ready, true);
+    assert.equal(shown.review.source.commit, shown.source.commit);
+    const reviewed = flow(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--review']).stdout;
+    assert.match(reviewed, /^# Conversion review: QA Test Automation$/mu);
+    assert.match(reviewed, /- Passed: Walked with no Story: \d+ paths? and \d+ routes?, no loop and no stop\./u);
+    assert.match(reviewed, /## Feedback for the marketplace\n\n- qa-test-automation-agent is proposed in the marketplace/u);
+    assert.match(reviewed, /Nothing was written\. Next:/u);
+    const unanswered = flow(root, ['workflow', 'from-agent', 'acme/product-agent', '--review']).stdout;
+    assert.match(unanswered, /## Needs your answer\n\n- What does "Traceability Check" do\? \(stage 6\. Traceability Check\)/u);
+    assert.match(unanswered, /Not ready to make yet: see Needs your answer and Checks\./u);
+    // --feedback FILE writes the marketplace's own findings for its maintainers, and names the issue page the person opens.
+    const written = flow(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--feedback', 'qa-feedback.md']).stdout;
+    assert.match(written, /^Wrote the feedback for the marketplace to .*qa-feedback\.md: \d+ findings?\.$/mu);
+    assert.match(written, /^Open an issue with it, filled in; you submit it: https:\/\/git\.example\.com\/acme\/sdlc-marketplace\/issues\/new\?/mu);
+    assert.match(await readFile(path.join(root, 'qa-feedback.md'), 'utf8'), /## What to fix in the marketplace/u);
+    const asJson = json(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--feedback', 'qa-feedback.md']);
+    assert.equal(asJson.resultType, 'sflow-conversion-feedback');
+    assert.equal(shown.review.feedbackDocument.name, 'conversion-feedback-qa-test-automation-agent-1.0.0-pdlc.md');
+    assert.match(refused(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--feedback', 'x.md', '--out', 'y.json']), /on its own, not with --out or --propose/u);
     const out = path.join(root, 'qa.workflow.json');
     flow(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--out', out]);
     const file = path.join(root, 'singularity', 'workflow.yml');

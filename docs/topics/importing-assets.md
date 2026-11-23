@@ -14,7 +14,7 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 9
+version: 10
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
@@ -49,6 +49,17 @@ A marketplace agent's `agent.md` is a whole process: a hard gate first, a table 
 - **Skills:** the step-to-skill table attaches each skill to its step for its answer ("when channel is web"); every skill an agent depends on becomes a library skill. Once the Story records the answer, each later step is given only that answer's skills: choosing android gives the android skills, web the web ones. The agent's own table of every answer's skill paths is replaced by that line.
 - **What each step is for:** from the PDLC tasks of the skills it uses, then a stage named like one of the agent's tasks, then the step intents rules on its name, words and place, with the agent's PDLC phases leaning (discovery: intake, design; elaboration: intake, requirements, design; delivery: plan, code, test; review: review, test; release: release, report; operations: code, report). A stage none of these settles is asked about once, with two to four choices, each a whole command with `--answer STEP=INTENT`; SFlow never guesses.
 - **The result:** a version 4 workflow in which every step says what it is for, so each step's settings come from its intent. Importing it needs `version: 4` at the top of `singularity/workflow.yml`; the import says so.
+- **The conversion review** (`--review`; Workflow Studio's **Make a workflow** shows it):
+  - where the agent came from: marketplace, commit, version, lifecycle state, maintainer;
+  - every stage of `agent.md` and what it became: a step, part of one, the first step's questions, or a step's approval;
+  - what SFlow changed;
+  - what needs your answer;
+  - the checks: every stage accounted for, nothing waiting, and a walk of a Story of it with no loop or stop.
+
+  The workflow is made only when the review is clean.
+- **Feedback for the marketplace:** each finding the marketplace owns comes with its fix. Examples: a skill a stage names but the agent does not depend on, a dependency no stage uses, a stage SFlow could not classify, a proposed lifecycle state, a missing `maintainer-email`. SFlow's own choices are not included.
+  - `--feedback FILE` writes the findings as Markdown for the maintainers. In Studio, the same comes from **Save as Markdown** and **Copy**.
+  - **Open an issue** opens a new issue in the agent's own repository (`source-repository`) in your browser, filled in. You submit it; SFlow never posts.
 
 | PDLC task | Step intent | Why |
 |---|---|---|

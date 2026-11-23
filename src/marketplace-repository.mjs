@@ -100,7 +100,10 @@ export function parsePackageManifest(text, { source, label = `${source}/${MARKET
     kind: KINDS[type] ?? (type ? 'other' : 'unknown'),
     lifecycleState: oneLine(manifest['lifecycle-state'], 40),
     pdlcPhases: values(manifest['pdlc-phases']), pdlcTasks: values(manifest['pdlc-tasks']),
-    tags: values(manifest.tags), categories: values(manifest.categories), dependencies
+    tags: values(manifest.tags), categories: values(manifest.categories), dependencies,
+    // Who to tell about it, and where its own issues go: the conversion review's feedback is addressed to them (MCR §6).
+    maintainer: oneLine(manifest['maintainer-email'] ?? manifest.maintainer, 200) || null,
+    sourceRepository: oneLine(manifest['source-repository'], 500) || null
   };
 }
 
@@ -173,6 +176,7 @@ export async function readMarketplaceRepository(marketplace, { documents = [] } 
         packages.push({
           name: listed.name, kind: own.kind, type: own.type, version: own.version, description: own.description ?? listed.description,
           lifecycleState: own.lifecycleState, pdlcPhases: own.pdlcPhases, pdlcTasks: own.pdlcTasks, tags: own.tags, categories: own.categories,
+          maintainer: own.maintainer, sourceRepository: own.sourceRepository,
           source: listed.source, includePrerelease: listed.includePrerelease, dependencies: own.dependencies, document
         });
       }

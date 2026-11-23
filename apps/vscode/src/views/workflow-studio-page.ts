@@ -109,6 +109,9 @@ const STUDIO_STYLE = `
 .mark.wait{background:var(--sf-wait);color:var(--vscode-editor-background)}
 .mark.bad{background:var(--sf-bad);color:var(--vscode-editor-background)}
 .mark.dim{border:1px solid var(--sf-border-color)}
+.review-section h3{margin:var(--sf-space-2) 0 4px;font-size:13px}
+.conversion-table{width:100%;border-collapse:collapse;font-size:12px}
+.conversion-table th,.conversion-table td{text-align:left;vertical-align:top;padding:4px 6px;border-top:1px solid var(--sf-border-color);overflow-wrap:anywhere}
 .muted{color:var(--sf-dim,var(--vscode-descriptionForeground));font-size:12px}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid var(--sf-border-color)}
 .pill.new{background:var(--sf-accent-quiet);font-weight:700}
@@ -4969,61 +4972,106 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   /** Make it: the host writes the bundle to SFlow's private folder and opens its import review, as Import… does. */
   function makeAgentWorkflow() {
     var lib = library(); var flow = lib.agentWorkflow;
-    if (!flow || !flow.result || !flow.result.ready || ((flow.result.walk || {}).stops || []).length || lib.busy || state.busy) return;
+    if (!flow || !flow.result || !flow.result.ready || !(flow.result.review && flow.result.review.ready) || ((flow.result.walk || {}).stops || []).length || lib.busy || state.busy) return;
     lib.busy = 'agent-workflow-make'; lib.error = null; render();
     post({ type: 'studio.agentWorkflowMake', target: flow.target, answers: flow.answers });
   }
 
-  var APPROVAL_WORDS = { person: 'a person approves it', none: 'no approval', 'sflow-when-clean': 'SFlow approves it when clean' };
+  // The conversion review (docs/SPEC-MCR-MARKETPLACE-CONVERSION-REVIEW-v1.md section 4): what the agent became, stage by
+  // stage, what SFlow changed, what waits for an answer, the checks and the feedback for the marketplace. Make is offered
+  // only when the review is ready.
+  var BECOMES_WORDS = { step: 'step', folded: 'runs inside', questions: 'questions at', approval: 'approval of', open: 'waits at' };
+
+  function reviewSection(title, children) {
+    return el('div', { class: 'review-section', role: 'group', 'aria-label': title }, el('h3', { text: title }), children);
+  }
 
   function renderAgentWorkflow(lib) {
     var flow = lib.agentWorkflow; var result = flow.result;
     var box = el('div', { class: 'decision-box', 'data-key': 'agent-workflow', 'aria-label': 'Workflow from ' + flow.label });
     box.appendChild(el('div', { class: 'studio-row spread' },
-      el('strong', { text: result ? result.workflow.label + ': a workflow from ' + flow.label : 'Reading ' + flow.label + '…' }),
+      el('strong', { text: result ? 'Conversion review: ' + result.workflow.label + ', a workflow from ' + flow.label : 'Reading ' + flow.label + '…' }),
       button('Close', function () { lib.agentWorkflow = null; if (lib.busy === 'agent-workflow') lib.busy = null; render(); }, { class: 'secondary', 'aria-label': 'Close the workflow from ' + flow.label })));
     if (!result) return box;
-    var derived = {};
-    (result.derived || []).forEach(function (step) { derived[step.step] = step; });
-    if ((result.questions || []).length) {
-      var asks = result.questions.map(function (question) { return question.topic; }).join('; ');
-      box.appendChild(el('p', { class: 'muted', text: 'At ' + result.steps[0].label + ', before any work, the person answers: ' + asks + (/[.?!]$/.test(asks) ? '' : '.') }));
-    }
-    box.appendChild(el('ol', null, result.steps.map(function (step) {
-      var given = derived[step.id];
-      return el('li', null,
-        el('div', { class: 'studio-row' }, el('strong', { text: step.label }), el('span', { class: 'pill', text: step.intent || 'not known yet' })),
-        el('div', { class: 'muted', text: (step.addedBySflow ? 'Added by SFlow: ' : '') + step.why }),
-        step.personApproval ? el('div', { class: 'muted', text: 'A person approves it: the agent\'s ' + step.personApproval.gate + ' gate.' }) : null,
-        // The agent's own gate already says a person approves it.
-        given ? el('div', { class: 'muted', text: [given.changesSource ? 'changes code' : 'changes no code'].concat(step.personApproval ? [] : [APPROVAL_WORDS[given.approval] || given.approval],
-          given.repositoryTests === 'run' ? ['runs the repository\'s tests'] : []).join(' · ') }) : null,
-        (step.skills || []).length ? el('div', { class: 'muted', text: 'Skills: ' + step.skills.map(function (entry) { return entry.skill; }).join(', ') }) : null);
-    })));
-    (result.notes || []).forEach(function (note) { box.appendChild(el('p', { class: 'muted', text: 'Note: ' + note })); });
+    var review = result.review || null;
     var answered = Object.keys(flow.answers).length > 0;
     var again = answered ? button('Answer again', function () { previewAgentWorkflow(flow.target, flow.label, {}); }, { class: 'secondary', disabled: Boolean(lib.busy) }) : null;
-    if (!result.ready) {
-      var first = result.open[0];
-      box.appendChild(el('div', { class: 'callout wait', role: 'group', 'aria-label': first.question },
+    if (!review) {
+      box.appendChild(el('p', { class: 'muted', text: 'This SFlow build gives no conversion review. Update SFlow to review the conversion before making the workflow.' }));
+      return box;
+    }
+    var source = review.source || {};
+    box.appendChild(reviewSection('Where it came from', el('div', null,
+      el('div', { text: source.agent + (source.version ? ' ' + source.version : '') + (source.marketplace ? ', marketplace ' + source.marketplace + (source.commit ? ' at commit ' + String(source.commit).slice(0, 12) : '') : source.folder ? ', folder ' + source.folder : '') }),
+      source.lifecycle ? el('div', { class: 'muted', text: 'Lifecycle: ' + source.lifecycle }) : null,
+      source.maintainer ? el('div', { class: 'muted', text: 'Maintainer: ' + source.maintainer }) : null)));
+
+    var rowsByStep = {};
+    (review.rows || []).forEach(function (row) { rowsByStep[row.step] = row; });
+    var table = el('table', { class: 'conversion-table', 'aria-label': 'Agent stage to SFlow step' },
+      el('thead', null, el('tr', null, ['Stage', 'Becomes', 'Step', 'What it is for', 'Approval', 'Skills'].map(function (title) { return el('th', { text: title }); }))));
+    var body = el('tbody');
+    (review.stages || []).forEach(function (stage) {
+      var row = rowsByStep[stage.step] || {};
+      body.appendChild(el('tr', { 'data-stage': String(stage.number) },
+        el('td', { text: stage.number + '. ' + stage.title }),
+        el('td', { text: BECOMES_WORDS[stage.becomes] || stage.becomes }),
+        el('td', { text: row.label || stage.step || '—' }),
+        el('td', null, el('span', { class: 'pill', text: row.intent || 'not known yet' }), row.why ? el('div', { class: 'muted', text: row.why }) : null),
+        el('td', { class: 'muted', text: (row.approval || '—') + (row.changesCode === true ? ' · changes code' : row.changesCode === false ? ' · changes no code' : '') }),
+        el('td', { class: 'muted', text: (row.skills || []).map(function (entry) { return entry.skill + (entry.when ? ' (' + entry.when + ')' : ''); }).join(', ') || '—' })));
+    });
+    (review.rows || []).filter(function (row) { return row.addedBySflow; }).forEach(function (row) {
+      body.appendChild(el('tr', { 'data-step': row.step },
+        el('td', { text: '—' }), el('td', { text: 'added by SFlow' }), el('td', { text: row.label }),
+        el('td', null, el('span', { class: 'pill', text: row.intent || '' }), el('div', { class: 'muted', text: row.why || '' })),
+        el('td', { class: 'muted', text: row.approval || '—' }), el('td', { text: '—' })));
+    });
+    table.appendChild(body);
+    var asked = (review.rows[0] && review.rows[0].questions) || [];
+    box.appendChild(reviewSection('Agent stage → SFlow step', el('div', null, table,
+      asked.length ? el('p', { class: 'muted', text: 'Asked at ' + review.rows[0].label + ', before any work: ' + asked.join(' ') }) : null)));
+
+    box.appendChild(reviewSection('What SFlow changed', (review.changes || []).length
+      ? el('ul', null, review.changes.map(function (entry) { return el('li', { text: entry.words }); }))
+      : el('p', { class: 'muted', text: 'Nothing: every stage became its own step as written.' })));
+
+    if ((review.open || []).length) {
+      var first = review.open[0];
+      box.appendChild(reviewSection('Needs your answer', el('div', { class: 'callout wait', role: 'group', 'aria-label': first.question },
         el('strong', { text: first.question }),
         first.why ? el('div', { class: 'muted', text: first.why }) : null,
         el('div', { class: 'studio-row' }, first.choices.map(function (choice) {
           return button(choice.label, function () { answerAgentStage(first.step, choice.intent); }, { class: 'secondary', disabled: Boolean(lib.busy) });
         })),
-        result.open.length > 1 ? el('div', { class: 'muted', text: 'Then SFlow asks about the next one.' }) : null));
-      if (again) box.appendChild(el('div', { class: 'studio-row' }, again));
-      return box;
+        review.open.length > 1 ? el('div', { class: 'muted', text: 'Then SFlow asks about the next one.' }) : null)));
     }
-    var stops = (result.walk && result.walk.stops) || [];
-    stops.forEach(function (stop) {
-      box.appendChild(el('div', { class: 'callout bad', role: 'alert' }, el('strong', { text: stop.title }), el('div', { text: stop.detail }), el('div', { class: 'muted', text: 'Fix: ' + ((stop.fix && stop.fix.text) || '') })));
-    });
+
+    box.appendChild(reviewSection('Checks', el('div', null, (review.checks || []).map(function (check) {
+      return el('div', { class: 'check-row', 'data-check': check.id },
+        el('span', { class: 'mark ' + (check.ok ? 'ok' : 'bad'), text: check.ok ? '✓' : '!' }),
+        el('div', null, el('div', { text: check.words }), (check.fixes || []).map(function (fix) { return el('div', { class: 'muted', text: fix.title + '.' + (fix.detail ? ' ' + fix.detail : '') + ' Fix: ' + (fix.fix || '—') }); })),
+        el('span'));
+    }))));
+
+    var document_ = review.feedbackDocument || null;
+    box.appendChild(reviewSection('Feedback for the marketplace', (review.feedback || []).length
+      ? el('div', null,
+        el('ul', null, review.feedback.map(function (entry) { return el('li', null, el('div', { text: entry.words }), entry.fix ? el('div', { class: 'muted', text: 'Fix: ' + entry.fix }) : null); })),
+        document_ ? el('div', { class: 'studio-row' },
+          button('Save as Markdown', function () { post({ type: 'studio.agentFeedbackSave', target: flow.target, answers: flow.answers }); }, { class: 'secondary', disabled: Boolean(lib.busy) }),
+          button('Copy', function () { post({ type: 'studio.agentFeedbackCopy', target: flow.target }); }, { class: 'secondary', disabled: Boolean(lib.busy) }),
+          document_.issue ? button('Open an issue', function () { post({ type: 'studio.agentFeedbackIssue', target: flow.target }); }, { class: 'secondary', disabled: Boolean(lib.busy), 'aria-label': 'Open a new issue with this feedback in your browser' }) : null) : null,
+        document_ ? el('div', { class: 'muted', text: document_.issue ? 'Open an issue fills in a new issue in your browser; you submit it. SFlow never posts it.' : 'Save or copy it for the maintainer; this marketplace has no web page SFlow can open.' }) : null,
+        lib.feedbackStatus ? el('div', { class: 'muted', role: 'status', text: lib.feedbackStatus }) : null)
+      : el('p', { class: 'muted', text: 'Nothing to report.' })));
+
     box.appendChild(el('div', { class: 'studio-row' },
-      stops.length ? null : button(lib.busy === 'agent-workflow-make' ? 'Making…' : 'Make this workflow', makeAgentWorkflow, { class: 'primary', disabled: Boolean(lib.busy) || Boolean(state.busy) }),
+      review.ready ? button(lib.busy === 'agent-workflow-make' ? 'Making…' : 'Make this workflow', makeAgentWorkflow, { class: 'primary', disabled: Boolean(lib.busy) || Boolean(state.busy) }) : null,
       again));
-    box.appendChild(el('span', { class: 'muted', text: stops.length ? 'A Story of this workflow would stop on its way, so it is not made. A different answer can change its steps.'
-      : 'Next you review its import; nothing changes until you confirm it there.' }));
+    box.appendChild(el('span', { class: 'muted', text: review.ready ? 'Next you review its import; nothing changes until you confirm it there.'
+      : (review.open || []).length ? 'Answer what SFlow asks above; the workflow is made once nothing waits and every check passes.'
+        : 'A check did not pass, so the workflow is not made. A different answer can change its steps.' }));
     return box;
   }
 
@@ -7451,6 +7499,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       if (!previewing.agentWorkflow || previewing.agentWorkflow.target !== message.target) return;
       previewing.busy = null; previewing.error = null; previewing.agentWorkflow.result = message.result; render();
       var card = document.querySelector && document.querySelector('[data-key=agent-workflow]'); if (card && card.scrollIntoView) card.scrollIntoView({ block: 'start' });
+    } else if (message.type === 'studio.agentFeedbackDone') {
+      var told = library(); told.feedbackStatus = message.status || null; render();
     } else if (message.type === 'studio.agentWorkflowMade') {
       // The bundle is written; its import review opens next, and the workflow is opened once it is in this configuration.
       var making = library(); making.busy = null; making.madeWorkflow = message.workflowId || null; making.agentWorkflow = null; render();

@@ -10,12 +10,17 @@
  * - --propose writes the bundle to SFlow's private folder and shows its import as a configuration proposal, with the
  *   one command that makes it: the person confirms the import, and a person activates the proposal.
  * - A stage SFlow cannot classify is asked about once, with 2 to 4 choices, each a whole command with --answer.
+ * - --review shows the conversion review (src/conversion-review.mjs, MCR §4) in place of the plain listing: where it came
+ *   from, each stage and the step it became, what SFlow changed, what needs an answer, the checks, and the feedback for
+ *   the marketplace. --json always carries it as `review`, with its `feedbackDocument` when the marketplace owns a finding.
+ * - --feedback FILE writes that feedback as Markdown (MCR §6) and names the new-issue page that takes it, which the person
+ *   opens and submits; SFlow never posts it.
  */
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { commandLineFile, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const OPTIONS = new Set(['answer', 'out', 'propose', 'json']);
+const OPTIONS = new Set(['answer', 'out', 'propose', 'json', 'review', 'feedback']);
 const TARGET = /^([a-z0-9]+(?:-[a-z0-9]+)*)\/([a-z0-9][a-z0-9._-]{0,99})$/u;
 
 function usage(message, details = undefined) {
@@ -103,6 +108,16 @@ function printDerived(resolved, walk = null) {
   }
 }
 
+/** Problems reading the agent's source, each a finding the marketplace (or the folder's owner) fixes. */
+function sourceProblems(conversion, problems) {
+  for (const problem of problems ?? []) {
+    const words = String(problem);
+    conversion.findings.push({ id: `F${String(conversion.findings.length + 1).padStart(2, '0')}`, class: 'marketplace-metadata', owner: 'marketplace', words,
+      fix: 'Correct it where the agent is kept, as the sentence says.' });
+    conversion.notes.push(words);
+  }
+}
+
 /** Where --propose keeps the bundle: SFlow's private folder beside the workflow builds, one file per bundle. */
 async function privateBundlePath(bundle, workflowId, env = process.env) {
   const { workflowBuildStateRoot } = await import('../workflow-build/store.mjs');
@@ -137,7 +152,7 @@ export async function run(argv, { positionals, options }) {
     const read = await readAgentFolder(target);
     ({ agent, skills } = read);
     conversion = convertAgent({ marketplace: null, folder: read.folder, agent, skills, answers });
-    conversion.notes.push(...read.problems);
+    sourceProblems(conversion, read.problems);
   } else {
   const marketplace = requireMarketplace(await withApprovedConfigurationRead(root, () => configuredMarketplaces(root), { preferAuthority: true }), match[1]);
   if (!marketplace.repository) {
@@ -147,12 +162,37 @@ export async function run(argv, { positionals, options }) {
   const read = await readMarketplaceAgent(marketplace, match[2]);
   ({ agent, skills } = read);
   conversion = convertAgent({ marketplace: { ...marketplace, commit: read.listing.commit }, agent, skills, answers });
+  // What the marketplace's own listing says is wrong with this agent or the skills it uses.
+  const own = [agent.name, ...skills.map((entry) => entry.name)];
+  sourceProblems(conversion, (read.listing.problems ?? []).filter((problem) => own.some((name) => String(problem).startsWith(`${name}:`) || String(problem).startsWith(`${name} `))));
+  }
+  const { conversionReview, conversionReviewMarkdown, feedbackDocument } = await import('../conversion-review.mjs');
+  const reviewed = (extra = {}) => {
+    const value = conversionReview({ ...conversion, ...extra });
+    const document = feedbackDocument(value);
+    return document ? { ...value, feedbackDocument: document } : value;
+  };
+  const review = optionBoolean(options, 'review');
+  const feedback = optionString(options, 'feedback') ?? null;
+  if (feedback) {
+    if (out || propose) throw usage('Write the feedback (--feedback FILE) on its own, not with --out or --propose.');
+    const { conversionFeedbackMarkdown } = await import('../conversion-review.mjs');
+    const value = reviewed();
+    const { writeText } = await import('../util.mjs');
+    const file = commandLineFile(root, feedback);
+    await writeText(file, value.feedbackDocument?.markdown ?? conversionFeedbackMarkdown(value));
+    const issue = value.feedbackDocument?.issue ?? null;
+    if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-conversion-feedback', feedbackPath: file, findings: value.feedback.length, issue }, null, 2));
+    console.log(`Wrote the feedback for the marketplace to ${file}: ${value.feedback.length ? `${value.feedback.length} finding${value.feedback.length === 1 ? '' : 's'}` : 'nothing to fix'}.`);
+    if (issue) console.log(`Open an issue with it${issue.bodyInUrl ? ', filled in' : ' (paste the file into it)'}; you submit it: ${issue.url}`);
+    return;
   }
   const output = { out, propose };
 
   if (!conversion.ready) {
     const routes = questionRoutes(conversion, target, answers, output);
-    if (json) console.log(JSON.stringify({ ...conversion, routes }, null, 2));
+    if (json) console.log(JSON.stringify({ ...conversion, routes, review: reviewed() }, null, 2));
+    else if (review) { process.stdout.write(conversionReviewMarkdown(reviewed())); printQuestions(conversion, routes); }
     else { printConversion(conversion); printQuestions(conversion, routes); }
     if (out || propose) {
       throw new SingularityFlowError(`Nothing was written: SFlow asks what ${conversion.open[0].stage} is for. Answer with one of the commands above.`, {
@@ -166,6 +206,7 @@ export async function run(argv, { positionals, options }) {
   const compiled = await compileAgentWorkflow(conversion, { agentText: agent.text, skillTexts: new Map(skills.map((entry) => [entry.name, entry.text])) });
   const { writeWorkflowBundle, readWorkflowBundle } = await import('../workflow-transfer.mjs');
   const result = { ...conversion, bundleSha256: compiled.bundle.bundleSha256, workflowYaml: compiled.workflowYaml, derived: compiled.resolved, walk: compiled.walk };
+  result.review = (() => { const value = conversionReview(result); const document = feedbackDocument(value); return document ? { ...value, feedbackDocument: document } : value; })();
 
   // A Story of it would loop or stop: the preview shows each stop and its fix, and nothing is written.
   if ((out || propose) && compiled.walk.stops.length) {
@@ -179,6 +220,12 @@ export async function run(argv, { positionals, options }) {
     const next = [{ label: 'Write it as a workflow bundle', command: again(target, answers, { out: suggested }) },
       { label: 'Show its import as a configuration proposal', command: again(target, answers, { propose: true }) }];
     if (json) return console.log(JSON.stringify({ ...result, next }, null, 2));
+    if (review) {
+      process.stdout.write(conversionReviewMarkdown(result.review));
+      console.log('Nothing was written. Next:');
+      for (const route of next) console.log(`  ${route.label}: ${route.command}`);
+      return;
+    }
     printConversion(conversion);
     printDerived(compiled.resolved, compiled.walk);
     console.log('The version 4 workflow it writes (singularity/workflow.yml):');

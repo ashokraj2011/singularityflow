@@ -18,6 +18,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { conversionReview } from '../src/conversion-review.mjs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 
@@ -175,6 +176,28 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
     assert.deepEqual(ready.walk.stops, []);
     let card = page.renderMarketplaces(page.library());
     assert.match(text(card), /SFlow approves it when clean|a person approves it/u, 'each step says who approves it');
+    // The conversion review (MCR §4): where it came from, every stage and what it became, what SFlow changed, the checks,
+    // and the marketplace's own findings with their fixes.
+    for (const heading of ['Where it came from', 'Agent stage → SFlow step', 'What SFlow changed', 'Checks', 'Feedback for the marketplace']) {
+      assert.ok(text(card).includes(heading), heading);
+    }
+    assert.match(text(card), /Lifecycle: approved/u);
+    assert.doesNotMatch(text(card), /SFlow read stage 1/u, 'a stage that uses no skill is no task the marketplace can add');
+    for (const stage of ready.review.stages) assert.ok(text(card).includes(`${stage.number}. ${stage.title}`), `stage ${stage.number} is shown`);
+    assert.match(text(card), /Every stage of agent\.md \(\d+\) is accounted for\./u);
+    assert.match(text(card), /SFlow could not tell what stage 6 \(Traceability Check\) is for; the person chose review\./u);
+    assert.match(text(card), /Fix: Give the skills stage 6 uses a pdlc-task/u);
+    // Feedback for the marketplace (MCR §6): the page names the action only; the host acts on the engine's own document.
+    assert.match(text(card), /Open an issue fills in a new issue in your browser; you submit it\. SFlow never posts it\./u);
+    click(buttonNamed(card, 'Save as Markdown'));
+    assert.deepEqual(last(posted, 'studio.agentFeedbackSave'), { type: 'studio.agentFeedbackSave', target: 'acme/product-agent', answers });
+    click(buttonNamed(card, 'Copy'));
+    assert.deepEqual(last(posted, 'studio.agentFeedbackCopy'), { type: 'studio.agentFeedbackCopy', target: 'acme/product-agent' });
+    click(buttonNamed(card, 'Open an issue'));
+    assert.deepEqual(last(posted, 'studio.agentFeedbackIssue'), { type: 'studio.agentFeedbackIssue', target: 'acme/product-agent' });
+    send({ type: 'studio.agentFeedbackDone', status: 'Opened a new issue with the feedback filled in; you submit it.' });
+    card = page.renderMarketplaces(page.library());
+    assert.match(text(card), /Opened a new issue with the feedback filled in; you submit it\./u);
     assert.match(text(card), /Next you review its import; nothing changes until you confirm it there\./u);
     assert.ok(buttons(card).some((entry) => text(entry).trim() === 'Answer again'));
     click(buttonNamed(card, 'Make this workflow'));
@@ -205,9 +228,12 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
     page.previewAgentWorkflow('acme/qa-test-automation-agent', 'qa-test-automation-agent', { 'qa-test-automation-intake': 'intake' });
     const stopped = { ...json(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent']) };
     stopped.walk = { ...stopped.walk, stops: [{ class: 'stop', title: 'A step no one can approve', detail: 'Its approver group is empty.', fix: { text: 'Choose another answer for the review stage.' } }] };
+    stopped.review = conversionReview(stopped);
     send({ type: 'studio.agentWorkflowPreviewed', target: 'acme/qa-test-automation-agent', result: stopped });
     card = page.renderMarketplaces(page.library());
-    assert.match(text(card), /A step no one can approve Its approver group is empty\. Fix: Choose another answer for the review stage\./u);
+    assert.match(text(card), /A Story of it would stop: A step no one can approve\./u);
+    assert.match(text(card), /A step no one can approve\. Its approver group is empty\. Fix: Choose another answer for the review stage\./u);
+    assert.match(text(card), /A check did not pass, so the workflow is not made\./u);
     assert.ok(!buttons(card).some((entry) => text(entry).trim() === 'Make this workflow'));
     click(buttonNamed(card, 'Answer again'));
     assert.deepEqual(last(posted, 'studio.agentWorkflowPreview'), { type: 'studio.agentWorkflowPreview', target: 'acme/qa-test-automation-agent', answers: {} });
@@ -232,4 +258,10 @@ test('the host reads a repository marketplace and makes an agent workflow only t
   assert.match(host, /const MARKETPLACE_AGENT = /u);
   assert.match(host, /AGENT_STAGE_ANSWER\.step\.test\(step\)[\s\S]{0,120}AGENT_STAGE_ANSWER\.intent\.test\(intent\)/u);
   assert.doesNotMatch(host, /writeFile|fs\.promises/u);
+  // Feedback (MCR §6): saved by the engine, copied and opened from the engine's own answer, an https page only, never posted.
+  assert.match(host, /\['workflow', 'from-agent', target, \.\.\.agentStageAnswers\(answers\), '--feedback', chosen\.fsPath, '--json'\]/u);
+  assert.match(host, /this\.agentPreview = \{ target, answers, result \}/u);
+  assert.match(host, /if \(!feedback \|\| !\/\^https:\\\/\\\/\[\^\\s@\]\+\$\/u\.test\(url\)\)/u);
+  assert.match(host, /vscode\.env\.openExternal\(vscode\.Uri\.parse\(url, true\)\)/u);
+  assert.doesNotMatch(host, /studio\.agentFeedbackIssue[^\n]*stringField\(message, 'url'\)/u, 'the page never hands the host an address');
 });

@@ -306,11 +306,12 @@ function placeLeans(index, candidates) {
 }
 
 /** The step IDs of a workflow: the agent's short name and the stage, unique and at most 64 characters. */
-function stepId(prefix, title, taken) {
+function stepId(prefix, title, taken, renamed = null) {
   const stem = `${prefix}-${kebab(title) || 'step'}`.slice(0, MAX.id - 3).replace(/-+$/u, '');
   let id = stem;
   for (let index = 2; taken.has(id); index += 1) id = `${stem}-${index}`;
   taken.add(id);
+  if (id !== stem) renamed?.(id, stem);
   return id;
 }
 
@@ -341,7 +342,7 @@ const ROUTE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
  * The hard gate's named choice as a Story value the first step records, or null with a note when it cannot be one:
  * `{ name, question, values, step, decision, tableSection }`.
  */
-function recordedAnswer(named, first, skillTable, notes) {
+function recordedAnswer(named, first, skillTable, find) {
   if (!named.name) return null;
   const values = named.choices;
   const routes = values.map((value) => kebab(value));
@@ -349,7 +350,8 @@ function recordedAnswer(named, first, skillTable, notes) {
     && values.every((value) => value.length <= 60) && new Set(values.map((value) => value.toLowerCase())).size === values.length
     && routes.every((id) => ROUTE_ID.test(id)) && new Set(routes).size === routes.length;
   if (!fits) {
-    notes.push(`The answer the agent records as ${named.name} stays a question at ${first.label}: its name or choices cannot be a Story value, so every answer's skills are attached with their condition in words.`);
+    find('marketplace-answer-name-unusable', 'marketplace', `The answer the agent records as ${named.name} stays a question at ${first.label}: its name or choices cannot be a Story value, so every answer's skills are attached with their condition in words.`,
+      { step: first.id, fix: `Record the answer under a name of letters and hyphens (at most 40 characters), with 2 to 20 distinct choices of at most 60 characters each.` });
     return null;
   }
   return { name: named.name, question: named.question, values: [...values], step: first.id, decision: kebab(named.name),
@@ -371,6 +373,13 @@ export function convertAgent({ marketplace, folder = null, agent, skills = [], a
   const skillByName = new Map(skills.map((entry) => [entry.name, entry]));
   const known = new Set(agent.skills ?? skills.map((entry) => entry.name));
   const notes = [];
+  // What the conversion decided, changed or found, each with who acts on it: the marketplace fixes its own, SFlow's are
+  // its choices (MCR §5). A note is a finding's words, kept for every reader of notes.
+  const findings = [];
+  const find = (kind, owner, words, extra = {}) => {
+    findings.push({ id: `F${String(findings.length + 1).padStart(2, '0')}`, class: kind, owner, words, ...extra });
+    notes.push(words);
+  };
   const prefix = kebab(agent.name).replace(/-agent$/u, '') || 'agent';
   const workflowId = prefix.slice(0, MAX.id);
   const label = oneLine(String(parsed.title ?? agent.name).replace(/\s+agent$/iu, '')) || agent.name;
@@ -411,7 +420,10 @@ export function convertAgent({ marketplace, folder = null, agent, skills = [], a
     const seen = new Map();
     for (const entry of [...fromRow, ...fromNotes, ...fromBody]) {
       if (!known.has(entry.skill)) {
-        notes.push(`Stage ${candidate.stage.number} names skill ${entry.skill}, which ${agent.name} does not depend on (its apm.yml dependencies.apm), so it is left out.`);
+        if (!findings.some((item) => item.class === 'marketplace-skill-not-a-dependency' && item.stage === candidate.stage.number && item.skill === entry.skill)) {
+          find('marketplace-skill-not-a-dependency', 'marketplace', `Stage ${candidate.stage.number} names skill ${entry.skill}, which ${agent.name} does not depend on (its apm.yml dependencies.apm), so it is left out.`,
+            { stage: candidate.stage.number, skill: entry.skill, fix: `Add ../../skills/${entry.skill} to ${agent.name}'s apm.yml dependencies.apm, or stop naming it in stage ${candidate.stage.number}.` });
+        }
         continue;
       }
       // A skill a row ties to an answer keeps that condition over the stage's own unconditional mention.
@@ -430,7 +442,8 @@ export function convertAgent({ marketplace, folder = null, agent, skills = [], a
   // What each stage is for: its skills' tasks, a stage named like one of the agent's tasks, then the §6.1 rules.
   const ids = new Set();
   for (const candidate of candidates) {
-    candidate.id = stepId(prefix, candidate.stage.title, ids);
+    candidate.id = stepId(prefix, candidate.stage.title, ids, (id, stem) => find('sflow-renamed-id', 'sflow',
+      `Stage ${candidate.stage.number} (${candidate.stage.title}) has the name of an earlier stage, so its step is ${id}, not ${stem}.`, { stage: candidate.stage.number, step: id }));
     const fromSkills = intentOfSkills(candidate.skills.map((entry) => entry.skill), skillByName);
     // Skills that do tasks of several intents: the one the stage is named like decides ("Static Analysis").
     const ownTask = fromSkills && !fromSkills.certain
@@ -503,9 +516,12 @@ export function convertAgent({ marketplace, folder = null, agent, skills = [], a
       previous.folded.push({ number: candidate.stage.number, title: candidate.stage.title });
       previous.skills.push(...candidate.skills.filter((entry) => !previous.skills.some((own) => own.skill === entry.skill)));
       previous.gates.push(...candidate.gates);
-      notes.push(`Stage ${candidate.stage.number} (${candidate.stage.title}) is optional and ${candidate.decided.intent} like ${previous.label}, so it runs inside that step: its skills are attached there for when it is needed.`);
+      candidate.stepId = previous.id;
+      find('sflow-merged-stage', 'sflow', `Stage ${candidate.stage.number} (${candidate.stage.title}) is optional and ${candidate.decided.intent} like ${previous.label}, so it runs inside that step: its skills are attached there for when it is needed.`,
+        { stage: candidate.stage.number, step: previous.id });
       continue;
     }
+    candidate.stepId = candidate.id;
     steps.push({
       id: candidate.id, label: candidate.stage.title, stage: candidate.stage.number, line: candidate.stage.line,
       ...(candidate.decided ?? { intent: null, confidence: 'unclear', source: 'none', why: 'waiting for the person\'s answer' }),
@@ -526,7 +542,7 @@ export function convertAgent({ marketplace, folder = null, agent, skills = [], a
       return step;
     }));
     for (const entry of added) {
-      notes.push(`SFlow added ${entry.label} ${entry.before ? 'before' : 'after'} ${steps.find((step) => step.id === (entry.before ?? entry.after))?.label}: ${entry.why}`);
+      find('sflow-added-step', 'sflow', `SFlow added ${entry.label} ${entry.before ? 'before' : 'after'} ${steps.find((step) => step.id === (entry.before ?? entry.after))?.label}: ${entry.why}`, { step: entry.step });
     }
   }
 
@@ -554,22 +570,61 @@ export function convertAgent({ marketplace, folder = null, agent, skills = [], a
     }
   }
   if (agent.lifecycleState && agent.lifecycleState !== 'approved') {
-    notes.push(`${agent.name} is ${agent.lifecycleState} in ${marketplace ? 'the marketplace' : 'its apm.yml'}${agent.lifecycleState === 'proposed' ? ', not yet reviewed by its maintainers' : ''}.`);
+    find('marketplace-lifecycle', 'marketplace', `${agent.name} is ${agent.lifecycleState} in ${marketplace ? 'the marketplace' : 'its apm.yml'}${agent.lifecycleState === 'proposed' ? ', not yet reviewed by its maintainers' : ''}.`,
+      { fix: `Review ${agent.name}, then set its lifecycle-state to approved.` });
   }
   const usedSkills = [...new Set(steps.flatMap((step) => step.skills.map((entry) => entry.skill)))];
-  for (const name of known) if (!usedSkills.includes(name)) notes.push(`${agent.name} depends on skill ${name}, which no stage names, so it is not attached to a step.`);
-  const storyValue = named && steps.length ? recordedAnswer(named, steps[0], parsed.skillTable, notes) : null;
+  for (const name of known) {
+    if (!usedSkills.includes(name)) {
+      find('marketplace-dependency-unused', 'marketplace', `${agent.name} depends on skill ${name}, which no stage names, so it is not attached to a step.`,
+        { skill: name, fix: `Name ${name} in the stage that uses it (its row of the step-to-skill table, or the stage's own text), or remove it from dependencies.apm.` });
+    }
+  }
+  const storyValue = named && steps.length ? recordedAnswer(named, steps[0], parsed.skillTable, find) : null;
+  // A stage only a person could classify, or one SFlow read from its words alone: a pdlc-task would say it for certain.
+  for (const step of steps.filter((entry) => !entry.addedBySflow)) {
+    const tasks = [...new Set(step.skills.flatMap((entry) => skillByName.get(entry.skill)?.pdlcTasks ?? []))];
+    if (step.source === 'person') {
+      find('marketplace-stage-unclassified', 'marketplace', `SFlow could not tell what stage ${step.stage} (${step.label}) is for; the person chose ${step.intent}.`,
+        { stage: step.stage, step: step.id, fix: `Give the skills stage ${step.stage} uses a pdlc-task from the marketplace taxonomy, or name the stage like the task it does.` });
+    } else if (!['skill', 'task'].includes(step.source) && step.intent && step.skills.length && !tasks.length) {
+      // Only what the marketplace can make certain: a stage that uses skills, none of which says what task it does.
+      const used = step.skills.map((entry) => entry.skill);
+      find('marketplace-missing-task', 'marketplace', `Stage ${step.stage} (${step.label}) uses ${used.join(', ')}, and none of ${used.length === 1 ? 'it carries' : 'them carries'} a pdlc-task, so SFlow read it as ${step.intent} from its words.`,
+        { stage: step.stage, step: step.id, skill: used[0], fix: `Give ${used.join(' and ')} the pdlc-task from the marketplace taxonomy that says what ${used.length === 1 ? 'it does' : 'they do'}.` });
+    }
+  }
+  for (const entry of open) {
+    find('marketplace-stage-unclassified', 'marketplace', `SFlow cannot tell what stage ${entry.stage} is for, so it asks the person.`,
+      { stage: Number(String(entry.stage).split('.')[0]) || null, step: entry.step, fix: `Give the skills stage ${entry.stage} uses a pdlc-task from the marketplace taxonomy, or name the stage like the task it does.` });
+  }
+  // What an agent's apm.yml should hold for its users: a version, a description, a maintainer.
+  const missing = [['version', agent.version], ['description', agent.description], ['maintainer-email', agent.maintainer === undefined ? 'unread' : agent.maintainer]]
+    .filter(([, value]) => !value).map(([field]) => field);
+  if (missing.length) {
+    find('marketplace-metadata', 'marketplace', `${agent.name}'s apm.yml has no ${missing.join(', ')}.`, { fix: `Add ${missing.join(' and ')} to ${agent.name}'s apm.yml.` });
+  }
+  // What became of each stage of agent.md: a step, part of one, the first step's questions, or a step's approval.
+  const first = steps[0]?.id ?? null;
+  const stageOutcomes = [
+    ...leading.map((stage) => ({ number: stage.number, title: stage.title, becomes: 'questions', step: first })),
+    ...candidates.flatMap((candidate) => [
+      { number: candidate.stage.number, title: candidate.stage.title, becomes: candidate.stepId && candidate.stepId !== candidate.id ? 'folded' : candidate.stepId ? 'step' : 'open', step: candidate.stepId ?? candidate.id },
+      ...candidate.gates.map((gate) => ({ number: gate.number, title: gate.title, becomes: 'approval', step: candidate.stepId ?? candidate.id }))
+    ])
+  ].sort((left, right) => left.number - right.number);
 
   return {
     schemaVersion: 1, resultType: AGENT_WORKFLOW_RESULT,
     source: { marketplace: marketplace?.id ?? null, repository: marketplace?.repository ?? null, commit: marketplace?.commit ?? null, ...(folder ? { folder } : {}),
       agent: agent.name, version: agent.version ?? null, lifecycleState: agent.lifecycleState ?? null, document: agent.document ?? null,
+      maintainer: agent.maintainer ?? null, sourceRepository: agent.sourceRepository ?? null,
       pdlcPhases: [...(agent.pdlcPhases ?? [])], pdlcTasks: [...(agent.pdlcTasks ?? [])] },
     workflow: { id: workflowId, label, description: oneLine(`${agent.description ?? ''} ${folder && !marketplace ? `From folder ${folder}` : `From marketplace ${marketplace?.id ?? ''}`}: ${agent.name} ${agent.version ?? ''}`.trim()) },
     agent: { id: kebab(agent.name), label: parsed.title ?? agent.name, description: oneLine(agent.description ?? parsed.frontmatter?.description ?? agent.name) },
     questions: questions.map((question) => ({ ...question, topic: topic(question) })),
     ...(storyValue ? { storyValue } : {}),
-    steps, added, open, notes,
+    steps, added, open, notes, findings, stages: stageOutcomes,
     skills: usedSkills.map((name) => skillByName.get(name)).filter(Boolean).map((entry) => ({ id: entry.name, description: entry.description ?? entry.name, version: entry.version ?? null })),
     ready: open.length === 0
   };

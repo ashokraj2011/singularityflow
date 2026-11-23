@@ -195,6 +195,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private focus: StudioFocusView | null = null;
   private workflowToOpen: string | null = null;
   private agentToOpen: StudioAgentFocus | null = null;
+  /** The last conversion the page previewed: its feedback is what Copy and Open an issue use, never text from the page. */
+  private agentPreview: { target: string; answers: unknown; result: Record<string, unknown> } | null = null;
   /** A bundle to import once the page is ready, from the team-import panel; never a webview path. */
   private bundleToImport: string | null = null;
   private build: OpenBuild | null = null;
@@ -291,6 +293,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       stringField(message, 'ref'), stringField(message, 'label')),
     'studio.agentWorkflowPreview': (message) => this.agentWorkflowPreview(stringField(message, 'target'), (message as { answers?: unknown }).answers),
     'studio.agentWorkflowMake': (message) => this.agentWorkflowMake(stringField(message, 'target'), (message as { answers?: unknown }).answers),
+    'studio.agentFeedbackSave': (message) => this.agentFeedbackSave(stringField(message, 'target'), (message as { answers?: unknown }).answers),
+    'studio.agentFeedbackCopy': (message) => this.agentFeedbackCopy(stringField(message, 'target')),
+    'studio.agentFeedbackIssue': (message) => this.agentFeedbackIssue(stringField(message, 'target')),
     'studio.importsCheck': () => this.importsCheck(),
     'studio.secretStatus': (message) => this.secretStatus((message as { names?: unknown }).names),
     'studio.storeSecret': (message) => this.storeSecret(stringField(message, 'name')),
@@ -782,6 +787,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     if (!target || !MARKETPLACE_AGENT.test(target)) { this.post({ type: 'studio.importFailed', message: 'Choose an agent of a marketplace this repository trusts.' }); return; }
     try {
       const result = await this.client.run<Record<string, unknown>>(['workflow', 'from-agent', target, ...agentStageAnswers(answers), '--json']);
+      this.agentPreview = { target, answers, result };
       this.post({ type: 'studio.agentWorkflowPreviewed', target, result });
     } catch (error) {
       this.post({ type: 'studio.importFailed', message: (error as Error).message });
@@ -802,6 +808,46 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     } catch (error) {
       this.post({ type: 'studio.importFailed', message: (error as Error).message });
     }
+  }
+
+  /** The feedback of the conversion the page shows, from the engine's own answer (MCR §6); null when there is none. */
+  private agentFeedback(target: string | null): { name: string; markdown: string; issue: { url: string; bodyInUrl: boolean } | null } | null {
+    if (!target || this.agentPreview?.target !== target) return null;
+    const review = this.agentPreview.result.review as { feedbackDocument?: { name: string; markdown: string; issue: { url: string; bodyInUrl: boolean } | null } } | undefined;
+    return review?.feedbackDocument ?? null;
+  }
+
+  /** Save the feedback where the person chooses: the engine writes it (workflow from-agent --feedback). */
+  private async agentFeedbackSave(target: string | null, answers: unknown): Promise<void> {
+    const feedback = this.agentFeedback(target);
+    if (!target || !MARKETPLACE_AGENT.test(target) || !feedback) { this.post({ type: 'studio.agentFeedbackDone', status: 'Preview the workflow again; its feedback is not here.' }); return; }
+    const chosen = await vscode.window.showSaveDialog({ title: 'Save the feedback for the marketplace', saveLabel: 'Save',
+      defaultUri: vscode.Uri.file(path.join(os.homedir(), feedback.name)), filters: { Markdown: ['md'] } });
+    if (!chosen) { this.post({ type: 'studio.agentFeedbackDone', status: 'Nothing was saved.' }); return; }
+    try {
+      await this.client.run(['workflow', 'from-agent', target, ...agentStageAnswers(answers), '--feedback', chosen.fsPath, '--json']);
+      this.post({ type: 'studio.agentFeedbackDone', status: `Saved ${path.basename(chosen.fsPath)} for the marketplace's maintainers.` });
+    } catch (error) {
+      this.post({ type: 'studio.agentFeedbackDone', status: (error as Error).message });
+    }
+  }
+
+  private async agentFeedbackCopy(target: string | null): Promise<void> {
+    const feedback = this.agentFeedback(target);
+    if (!feedback) { this.post({ type: 'studio.agentFeedbackDone', status: 'Preview the workflow again; its feedback is not here.' }); return; }
+    await vscode.env.clipboard.writeText(feedback.markdown);
+    this.post({ type: 'studio.agentFeedbackDone', status: 'Copied the feedback; paste it where the maintainers will read it.' });
+  }
+
+  /** A new issue in the person's browser, filled in from the engine's answer; the person submits it, SFlow never posts. */
+  private async agentFeedbackIssue(target: string | null): Promise<void> {
+    const feedback = this.agentFeedback(target);
+    const url = feedback?.issue?.url ?? '';
+    if (!feedback || !/^https:\/\/[^\s@]+$/u.test(url)) { this.post({ type: 'studio.agentFeedbackDone', status: 'This marketplace has no issue page SFlow can open; save or copy the feedback instead.' }); return; }
+    if (!feedback.issue?.bodyInUrl) await vscode.env.clipboard.writeText(feedback.markdown);
+    await vscode.env.openExternal(vscode.Uri.parse(url, true));
+    this.post({ type: 'studio.agentFeedbackDone', status: feedback.issue?.bodyInUrl ? 'Opened a new issue with the feedback filled in; you submit it.'
+      : 'Opened a new issue; the feedback is copied, so paste it there and submit it.' });
   }
 
   /**

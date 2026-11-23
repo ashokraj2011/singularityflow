@@ -16,7 +16,7 @@ import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { discrepancySteps, upstreamDiscrepanciesFromMarkdown } from '../phase-upstream-discrepancies.mjs';
 import {
   decidableUpstreamStep, decideUpstreamIssue, discrepancyIssueRequests, raiseUpstreamIssue, upstreamIssueAuthorities, upstreamIssueDecideCommand,
-  upstreamIssueStates, UPSTREAM_ISSUE_OUTCOMES, UPSTREAM_ISSUE_PROBLEM_MAXIMUM, UPSTREAM_ISSUE_PROPOSALS
+  upstreamIssueStates, upstreamReturnJoin, UPSTREAM_ISSUE_OUTCOMES, UPSTREAM_ISSUE_PROBLEM_MAXIMUM, UPSTREAM_ISSUE_PROPOSALS
 } from '../upstream-issues.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
@@ -246,11 +246,26 @@ export async function decideUpstreamIssueRecord(root, config, workflow, issueId,
   });
   // Check everything except the change request a return opens before anything is written.
   decision(structuredClone(workflow), 'CR-999');
-  const record = (aggregate, recorded) => {
+  const record = (aggregate, recorded, joined = null) => {
     aggregate.history.push({ at: recorded.at, actor: recorded.actor, agent, event: 'upstream_issue_decided', phase: aggregate.currentPhase ?? null,
-      detail: `${recorded.issue}: ${recorded.outcome}${recorded.link ? ` (${recorded.link})` : ''}. ${recorded.reason}` });
+      detail: `${recorded.issue}: ${recorded.outcome}${recorded.link ? ` (${recorded.link})` : ''}${joined
+        ? `, joining the return to ${joined.targetPhase} already open` : ''}. ${recorded.reason}` });
     return recorded;
   };
+  // The work already goes back through the issue's step for an open return: this one joins it, linked to its change
+  // request, and nothing is returned twice (d-story, 2026-11-23).
+  const joined = upstreamReturnJoin(workflow, state.issue);
+  if (joined) {
+    const { value } = await transactStory(root, config, workflow, {
+      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
+      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'upstream-issue' }
+    }, `[${workflow.workItem.id}][upstream-issue] ${issueId} joins ${joined.id}`, async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'decide an upstream issue');
+      return { ...record(aggregate, decision(aggregate, joined.id), joined), joined: { id: joined.id, targetPhase: joined.targetPhase } };
+    }, { exactWorkItemPaths: [], eventFromResult: (recorded) => ({ authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
+      payload: { decision: 'upstream-issue', issue: recorded.issue, reviewPacketSha256: null } }) });
+    return { value, authority };
+  }
   const current = workflow.phases?.[workflow.currentPhase];
   if (!current || !['in_progress', 'awaiting_approval'].includes(current.status)) {
     refused('A return needs a current step in progress or awaiting approval.', 'UPSTREAM_ISSUE_RETURN_UNAVAILABLE');
@@ -317,11 +332,12 @@ async function decide(root, config, workflow, issueId, options) {
   }, { actor, agent }));
   if (!optionBoolean(options, 'json')) {
     console.log(`Decided ${issueId} through ${authority.authorityGroup}: ${outcome}${value.link ? ` (${value.link})` : ''}.`);
-    if (outcome === 'return') console.log(`${value.changeRequest.id} returned the Story to ${value.changeRequest.targetPhase}; the current step's working files are kept.`);
+    if (value.joined) console.log(`${issueId} joins ${value.joined.id}: the work already goes back through ${value.joined.targetPhase}, which corrects this too. Nothing else was returned.`);
+    else if (outcome === 'return') console.log(`${value.changeRequest.id} returned the Story to ${value.changeRequest.targetPhase}; the current step's working files are kept.`);
   }
-  const { changeRequest, ...recorded } = value;
+  const { changeRequest, joined, ...recorded } = value;
   emit(options, workflow, 'decide', { slots: { issue: issueId, outcome },
-    body: { decision: recorded, ...(changeRequest ? { changeRequestId: changeRequest.id } : {}) }, changed: true });
+    body: { decision: recorded, ...(changeRequest ? { changeRequestId: changeRequest.id } : {}), ...(joined ? { changeRequestId: joined.id, joined: true } : {}) }, changed: true });
 }
 
 /** Save corrected bytes of an earlier step for its approvers [UIF-M3]. */
@@ -439,6 +455,11 @@ async function decideAmendment(root, config, workflow, amendmentId, options) {
  */
 export async function commitAmendmentRevalidation(root, config, workflow, { amendmentId, phaseId, outcome, reason }, { actor, agent = null }) {
   if (outcome === 'return') {
+    // A return made earlier in the same answers already sends the work back through this step and reset it, so no
+    // revalidation is owed: it is joined, nothing is written and nothing is returned twice (d-story class, 2026-11-23).
+    const owed = pendingAmendmentRevalidations(workflow).some((entry) => entry.amendment === amendmentId && entry.phase === phaseId);
+    const joined = owed ? null : upstreamReturnJoin(workflow, { phase: phaseId, at: '' });
+    if (joined) return { amendment: amendmentId, phase: phaseId, outcome: 'return', link: joined.id, joined: true };
     const current = workflow.phases?.[workflow.currentPhase];
     if (!current || !['in_progress', 'awaiting_approval'].includes(current.status)) {
       refused('A return needs a current step in progress or awaiting approval.', 'UPSTREAM_ISSUE_RETURN_UNAVAILABLE');
@@ -479,8 +500,8 @@ async function revalidate(root, config, workflow, phaseId, options) {
     optionOf: () => (outcome === 'unchanged' ? 'still-holds' : outcome === 'return' ? 'return-step' : null) });
   const value = await withChatAdvice(answer.advice, () => commitAmendmentRevalidation(root, config, workflow, { amendmentId, phaseId, outcome, reason: answer.reason }, { actor, agent }));
   if (!optionBoolean(options, 'json')) {
-    console.log(outcome === 'return'
-      ? `${value.link} returned the Story to ${phaseId} after ${amendmentId}.`
+    console.log(value.joined ? `${phaseId} already goes back for ${value.link}, which runs it again against ${amendmentId}; nothing else was returned.`
+      : outcome === 'return' ? `${value.link} returned the Story to ${phaseId} after ${amendmentId}.`
       : `Recorded that ${phaseId} holds under ${amendmentId}; its approval stands.`);
   }
   emit(options, workflow, 'revalidate', { slots: { phase: phaseId, outcome }, body: { revalidation: value }, changed: true });

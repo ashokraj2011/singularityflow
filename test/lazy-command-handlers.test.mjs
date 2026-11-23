@@ -981,7 +981,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // and publication's specification gate load finding-overrides.mjs only when they run), with its route, guard and words
     // (phase-resolution.mjs, copilot-mutation-guard.mjs, copilot-answer-binding.mjs, person-step-catalog.mjs, decision-list.mjs).
     // No new eager file.
-    assert.ok(closure.bytes <= 9_862_384, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,863,740 (measured for submit.mjs, +1,356, 2026-11-23, d-story): a return of an upstream issue whose step already
+    // goes back for an open return joins it, on the decision list and in its words (upstream-routes.mjs upstreamReturnJoin,
+    // decision-list.mjs returnOption, decision-advice.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_863_740, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

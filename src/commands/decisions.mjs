@@ -772,8 +772,8 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
   const issueId = effect.issue ?? produced.issue;
   const { value } = await decideUpstreamIssueRecord(root, config, workflow, issueId, { outcome: effect.outcome, reason: step.values.reason,
     expires: effect.outcome === 'accept-risk' ? step.values.expires : null }, { actor, agent });
-  const { changeRequest, ...decision } = value;
-  return { ...decision, ...(changeRequest ? { changeRequestId: changeRequest.id } : {}) };
+  const { changeRequest, joined, ...decision } = value;
+  return { ...decision, ...(changeRequest ? { changeRequestId: changeRequest.id } : {}), ...(joined ? { changeRequestId: joined.id, joined: true } : {}) };
 }
 
 function recordId(kind, record) {

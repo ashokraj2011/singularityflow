@@ -74,6 +74,9 @@ export function optionDoes(workflow, item, entry) {
   if (decision) {
     if (decision.outcome === 'accept-risk') return `Accepted as a risk ${until(entry)}: the verdict stays as written, tests still run, and it is asked again after that day.`;
     if (decision.outcome === 'dismiss') return 'Closed as not a real problem, with your reason kept in the history; nothing else changes.';
+    if (decision.outcome === 'return' && decision.joins) {
+      return `Joins the return already open (${decision.joins}): ${stepName(workflow, decision.issuePhase)} is being redone and fixes this too; nothing is sent back again.`;
+    }
     if (decision.outcome === 'return') return `Returns the work to ${stepName(workflow, decision.issuePhase)}: ${reopenWords(workflow, decision.issuePhase)}.`;
   }
   const [effect] = effects;
@@ -210,7 +213,11 @@ export function itemRecommendation(workflow, item) {
       if (details.status === 'expired' && options.some((entry) => entry.id === 'return')) {
         return rec(item, 'return', `Its accepted risk ended and the problem is still open, so ${stepName(workflow, details.phase)} corrects it.`);
       }
-      return lean('return the work if the reported problem is real, and dismiss it if it is not; accept it as a risk only if the Story may ship with it until a date.');
+      // Only a choice the item offers: with no return, the lean never says to return the work (d-story, 2026-11-23).
+      if (options.some((entry) => entry.id === 'return')) {
+        return lean('return the work if the reported problem is real, and dismiss it if it is not; accept it as a risk only if the Story may ship with it until a date.');
+      }
+      return lean('dismiss it if the reported problem is not real; accept it as a risk only if the Story may ship with it until a date.');
     }
     case 'visual-profile':
       return options.some((entry) => entry.id === 'capture')

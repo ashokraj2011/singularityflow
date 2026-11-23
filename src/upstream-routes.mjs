@@ -129,12 +129,30 @@ export function upstreamReturnLegal(workflow, ownerPhase) {
 }
 
 /**
+ * The open return that already sends the work back through `issue`'s step, or null: a change request made after the issue
+ * was raised, to that step or an earlier one, while the Story is still at or before the issue's step. A return of the
+ * issue then joins it, linked to that change request, and nothing is returned twice. On d-story (2026-11-23) "Return the
+ * work to Verification" for two issues about Verification returned the first; the second was refused, as there was no
+ * later step left to return from, and the card offered only accepting it as a risk or dismissing it.
+ */
+export function upstreamReturnJoin(workflow, issue) {
+  const order = workflow?.phaseOrder ?? [];
+  const at = order.indexOf(issue?.phase);
+  const current = order.indexOf(workflow?.currentPhase);
+  if (workflow?.status !== 'in_progress' || at < 0 || current < 0 || current > at) return null;
+  return (workflow.changeRequests ?? []).findLast((request) => request?.status === 'open'
+    && order.indexOf(request.targetPhase) >= 0 && order.indexOf(request.targetPhase) <= at
+    && String(request.requestedAt ?? '') >= String(issue.at ?? '')) ?? null;
+}
+
+/**
  * The outcomes its approvers may choose now, as the decide command lists them. It listed `return`
  * while a decision was pending, or once another return had gone past the issue's step, and the
- * return was then refused (2026-10-28).
+ * return was then refused (2026-10-28). A return that joins an open one is listed with the issue.
  */
-export function upstreamIssueOutcomes(workflow, ownerPhase) {
-  return ['plan-correction', 'amend', ...(!workflow || upstreamReturnLegal(workflow, ownerPhase) ? ['return'] : []), 'accept-risk', 'dismiss'].join('|');
+export function upstreamIssueOutcomes(workflow, ownerPhase, issue = null) {
+  const returnable = !workflow || upstreamReturnLegal(workflow, ownerPhase) || Boolean(issue && upstreamReturnJoin(workflow, issue));
+  return ['plan-correction', 'amend', ...(returnable ? ['return'] : []), 'accept-risk', 'dismiss'].join('|');
 }
 
 /** The statuses of an issue that still owe a person's decision: undecided, or an accepted risk that expired. */

@@ -15,12 +15,12 @@ import { z } from 'zod';
 import { discrepancyItemSha256 } from './records.mjs';
 import { agentInputIssues, knownChoiceWords, nearestKnown } from './text-lines.mjs';
 import { countedRecords } from './presence/counted.mjs';
-import { decidableUpstreamStep, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueAuthorities, upstreamIssueOutcomes, upstreamIssueStates } from './upstream-routes.mjs';
+import { decidableUpstreamStep, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueAuthorities, upstreamIssueOutcomes, upstreamIssueStates, upstreamReturnJoin } from './upstream-routes.mjs';
 import { SingularityFlowError, unknownStepDetails } from './util.mjs';
 
 // The pure state read lives with the routes, which every lifecycle command already loads, so the
 // conformance gate can ask it without loading this module's schemas [owner decision 2026-10-19].
-export { decidableUpstreamStep, upstreamIssueAuthorities, upstreamIssueStates };
+export { decidableUpstreamStep, upstreamIssueAuthorities, upstreamIssueStates, upstreamReturnJoin };
 export { discrepancyItemSha256 };
 
 export const UPSTREAM_ISSUE_OUTCOMES = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'dismiss']);
@@ -212,7 +212,7 @@ export function openUpstreamIssues(workflow, now = new Date().toISOString()) {
 /** The decide command; a superseded issue, should its approvers close it, is dismissed naming its replacement. */
 export function upstreamIssueDecideCommand(workId, issue, supersededBy = null, workflow = null) {
   if (supersededBy) return `singularity-flow upstream-issue decide ${issue.id} --work-id ${workId} --outcome dismiss --reason "Superseded by ${supersededBy}."`;
-  return `singularity-flow upstream-issue decide ${issue.id} --work-id ${workId} --outcome ${upstreamIssueOutcomes(workflow, issue.phase)} --reason "<why>"`;
+  return `singularity-flow upstream-issue decide ${issue.id} --work-id ${workId} --outcome ${upstreamIssueOutcomes(workflow, issue.phase, issue)} --reason "<why>"`;
 }
 
 /** One terminal blocker per open issue, with its exact decide command. A superseded issue blocks nothing. */

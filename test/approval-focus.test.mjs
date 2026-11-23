@@ -25,7 +25,7 @@ import { codeReport, retainStepReview, reviewStep } from './helpers/step-review.
 import { slowLane } from './helpers/slow-lane.mjs';
 import { completeAgentResult } from '../src/agent-output.mjs';
 import { approvalFocusMarkdown, comparableLine, focusSections, lineDiff, wordCount } from '../src/approval-focus.mjs';
-import { writtenBySflow } from '../src/record-documents.mjs';
+import { sealed, writtenBySflow } from '../src/record-documents.mjs';
 
 // The shipped spec-driven review, every authored step reviewed (the fixture turns it off).
 const REVIEWED = (configuration) => {
@@ -224,8 +224,21 @@ test('an arshy-like spec-driven Story: each approval says what needs the person\
   assert.ok(await writtenBySflow(index));
   // SFlow approved the clean verification (Stage 7), or its person did.
   assert.match(index, verified.status === 'approved' ? /Verification v1 is approved by SFlow, as its checks were clean\./u : /Verification v1 is approved by History Tester\./u);
+  // d-story (2026-11-23): the report's author added a note, so it was theirs, and the index, still SFlow's, was never written
+  // again: it named the verification version it was first written from. Here the index names an older one and the report
+  // carries a note; publishing writes the index again from the records and leaves the author's report as they wrote it.
+  const indexFile = path.join(item, 'artifacts/release/verification/evidence-index.md');
+  await writeFile(indexFile, await sealed(index.replace(/^<!-- singularity-flow:record-document sha256:[a-f0-9]{64} -->\n/u, '').replace(/Verification v1 /u, 'Verification v0 ')));
+  const reportFile = path.join(item, 'artifacts/release/conformance.md');
+  const noted = `${report.trimEnd()}\n\n## Notes\n\nThe owner read the trace with the product owner before release.\n`;
+  await writeFile(reportFile, noted);
+  assert.equal(await writtenBySflow(noted), false, 'the note makes the report its author\'s');
   cli('artifact', 'scan', '--phase', 'release');
   cli('phase', 'publish', 'release', '--authored', 'human', '--channel', 'manual-in-place');
+  const rewritten = await readFile(indexFile, 'utf8');
+  assert.ok(await writtenBySflow(rewritten), 'the index stays SFlow\'s');
+  assert.match(rewritten, /Verification v1 is approved/u, 'written again from the records, whoever owns the report');
+  assert.match(await readFile(reportFile, 'utf8'), /The owner read the trace with the product owner before release\./u, 'the author\'s report is kept');
   story.review('release');
   cli('submit', 'release');
   const ended = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));

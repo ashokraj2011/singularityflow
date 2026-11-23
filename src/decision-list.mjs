@@ -33,7 +33,7 @@ import { testRunCauseWords } from './test-run-cause.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
 import { automaticApprovalsBefore, coveredStep, finalScopeStep, isConformancePhase, ownerStepChecks } from './phase-roles.mjs';
-import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnLegal } from './upstream-routes.mjs';
+import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnJoin, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { advisedItem, reopenWords } from './decision-advice.mjs';
 import { findingOverrideCommand, returnRoute, reviewDisputeCommand } from './action-command-map.mjs';
@@ -204,6 +204,27 @@ function coveringCandidate(candidates, clauses) {
 const returnLegal = upstreamReturnLegal;
 
 /**
+ * The return choice of an issue about `owner`, or null: a return from the current step, or, when the work already goes back
+ * through `owner` for an open return, the same return joined (upstream-routes.mjs). On d-story (2026-11-23) the second of
+ * two issues about Verification lost its return once the first had sent the work back, and could only be accepted or dismissed.
+ */
+function returnOption(workflow, context, { issue, target, raise = [], words, reason }) {
+  const ownerName = stepName(workflow, target.phase);
+  const joined = issue?.id ? upstreamReturnJoin(workflow, issue) : null;
+  if (joined) {
+    return option(workflow, context, {
+      id: 'return', label: `Fix it in the redo of ${ownerName} already under way`,
+      words: `${ownerName} already went back (${joined.id}); this records that the same redo fixes this too, and nothing is sent back again.`,
+      effects: [...raise, { ...issueDecision(target, 'return'), joins: joined.id }],
+      needs: { reason: textNeed(`${ownerName} is being redone (${joined.id}); the same redo fixes this.`, REASON) }
+    });
+  }
+  if (!returnLegal(workflow, target.phase)) return null;
+  return option(workflow, context, { id: 'return', label: `Return the work to ${ownerName}`, words,
+    effects: [...raise, issueDecision(target, 'return')], needs: { reason: textNeed(reason, REASON) } });
+}
+
+/**
  * One item for deviated or unplanned rows [SCS:REQ-012]: the code differs from what the clause says, so a
  * person decides which one changes. Fix the code (return to the code step), update the spec (write the
  * owning step's document as the code does it, decided by its approvers), accept it for now until a
@@ -362,14 +383,10 @@ function gapItem(workflow, context, group) {
     effects: [...raise, issueDecision(target, 'dismiss')],
     needs: { reason: textNeed(`Dismissed: ${names} ${isAre} delivered completely by ${ownerName}; the report's verdict stays as written.`, REASON) }
   }));
-  if (returnLegal(workflow, owner)) {
-    options.push(option(workflow, context, {
-      id: 'return', label: `Return the work to ${ownerName}`,
-      words: `${ownerName} delivers ${names} again and the steps after it run again; working files are kept.`,
-      effects: [...raise, issueDecision(target, 'return')],
-      needs: { reason: textNeed(`Returned to ${ownerName} so it delivers ${names}.`, REASON) }
-    }));
-  }
+  const back = returnOption(workflow, context, { issue, target, raise,
+    words: `${ownerName} delivers ${names} again and the steps after it run again; working files are kept.`,
+    reason: `Returned to ${ownerName} so it delivers ${names}.` });
+  if (back) options.push(back);
   return {
     kind: 'conformance-gap',
     title: `${names} ${isAre} ${listWords(verdicts)} in the ${reportWords}`,
@@ -413,14 +430,10 @@ function issueItem(workflow, context, state, { early = false } = {}) {
       needs: { reason: textNeed(`Dismissed: ${aboutName} in ${ownerName} is not a defect.`, REASON) }
     })
   ];
-  if (returnLegal(workflow, issue.phase)) {
-    options.push(option(workflow, context, {
-      id: 'return', label: `Return the work to ${ownerName}`,
-      words: `${ownerName} is corrected and the steps after it run again; working files are kept.`,
-      effects: [issueDecision(issue, 'return')],
-      needs: { reason: textNeed(`Returned to ${ownerName} to correct ${aboutName}.`, REASON) }
-    }));
-  }
+  const back = returnOption(workflow, context, { issue, target: issue,
+    words: `${ownerName} is corrected and the steps after it run again; working files are kept.`,
+    reason: `Returned to ${ownerName} to correct ${aboutName}.` });
+  if (back) options.push(back);
   return {
     kind: 'upstream-issue',
     title: `${aboutName}: a problem reported in ${ownerName}`,
@@ -429,7 +442,7 @@ function issueItem(workflow, context, state, { early = false } = {}) {
     details: { issue: issue.id, phase: issue.phase, about: issue.about, status: state.status, proposed: issue.proposed ?? null, ...(early ? { early: true } : {}),
       supersedes: (context.facts.issues ?? []).filter((entry) => entry.supersededBy === issue.id).map((entry) => entry.issue.id),
       coveredBy: covering.map((entry) => entry.id),
-      commands: [`singularity-flow upstream-issue decide ${issue.id} --work-id ${workflow.workItem.id} --outcome ${upstreamIssueOutcomes(workflow, issue.phase)} --reason "<why>"`] }
+      commands: [`singularity-flow upstream-issue decide ${issue.id} --work-id ${workflow.workItem.id} --outcome ${upstreamIssueOutcomes(workflow, issue.phase, issue)} --reason "<why>"`] }
   };
 }
 
@@ -2668,7 +2681,8 @@ export function effectWords(workflow, effect, values = {}) {
   if (effect.kind === 'completeness-review') return 'record that you reviewed the scope for completeness (completeness review)';
   if (effect.kind === 'applicability') return `record that ${effect.responsibility} does not apply to this Story (applicability decision)`;
   if (effect.kind === 'routing') return `send the Story ${effect.to ? (effect.to === 'end' ? 'to its end' : `to ${stepName(workflow, effect.to)}`) : `by route ${effect.option}`} (routing decision)`;
-  const what = { 'accept-risk': `accept it as a risk until ${values.expires}`, dismiss: 'dismiss it', return: `return the work to ${stepName(workflow, effect.issuePhase)}` }[effect.outcome] ?? effect.outcome;
+  const what = { 'accept-risk': `accept it as a risk until ${values.expires}`, dismiss: 'dismiss it',
+    return: effect.joins ? `fix it in the redo of ${stepName(workflow, effect.issuePhase)} already under way (${effect.joins})` : `return the work to ${stepName(workflow, effect.issuePhase)}` }[effect.outcome] ?? effect.outcome;
   return `${what} (decision on ${effect.issue ?? 'the new upstream issue'})`;
 }
 

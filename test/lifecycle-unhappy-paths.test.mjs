@@ -116,6 +116,45 @@ test('after an upstream return corrects the plan, the unchanged code step publis
   assert.equal(after.phases.implementation.status, 'awaiting_approval', 'its tests ran again and it is reviewed again');
 });
 
+test('two issues about one step sent back together are one return: the second joins it, never refused (d-story 2026-11-23)', async (t) => {
+  const W = 'LIFE-JOIN';
+  const { root, cli, state } = await approvedCode(t, W);
+  for (const problem of ['The intake never says that callers may cache the value.', 'The intake never names who approved the value.',
+    'The intake never says what callers do with an old value.']) {
+    cli('upstream-issue', 'raise', '--phase', 'intake', '--about', 'Request and outcome', '--problem', problem);
+  }
+  const list = JSON.parse(cli('decisions', W, '--json').stdout).data;
+  const itemOf = (packet, issue) => packet.items.find((item) => item.details?.issue === issue);
+  const [first, second] = [itemOf(list, 'UPI-001'), itemOf(list, 'UPI-002')];
+  // "Return the work to Intake for both", as the Decide card records it: on d-story the first returned and the second
+  // was refused, and the card then offered only accepting it as a risk or dismissing it.
+  const answers = path.join(root, '.git', 'answers.json');
+  const reason = 'Intake must state these rules before the code is checked again.';
+  await writeFile(answers, JSON.stringify({ choose: { [first.id]: 'return', [second.id]: 'return' }, reason: { [first.id]: reason, [second.id]: reason },
+    confirm: list.packetSha256 }));
+  const recorded = JSON.parse(cli('decisions', 'record', W, '--answers', answers, '--json').stdout).data;
+  assert.equal(recorded.recorded.length, 2, JSON.stringify(recorded.recorded));
+  let after = await state();
+  assert.equal(after.currentPhase, 'intake');
+  assert.deepEqual(after.changeRequests.map((request) => [request.id, request.targetPhase, request.status]), [['CR-001', 'intake', 'open']], 'one return, not two');
+  assert.deepEqual(after.upstreamIssueDecisions.map((entry) => [entry.issue, entry.outcome, entry.link]), [['UPI-001', 'return', 'CR-001'], ['UPI-002', 'return', 'CR-001']]);
+  // The third, decided afterwards: its return joins the open one on the list and in the terminal.
+  const later = itemOf(JSON.parse(cli('decisions', W, '--json').stdout).data, 'UPI-003');
+  const join = later.options.find((option) => option.id === 'return');
+  assert.ok(join, `the list offers the return: ${later.options.map((option) => option.id).join(', ')}`);
+  assert.equal(join.label, 'Fix it in the redo of Intake already under way');
+  assert.match(join.does, /^Joins the return already open \(CR-001\): Intake is being redone and fixes this too; nothing is sent back again\.$/u);
+  assert.deepEqual(join.effects.map((effect) => [effect.issue, effect.outcome, effect.joins]), [['UPI-003', 'return', 'CR-001']]);
+  assert.match(later.details.commands[0], /--outcome plan-correction\|amend\|return\|accept-risk\|dismiss/u);
+  assert.match(later.recommended.words, /^Recommended: Return the work if the reported problem is real/u);
+  const decided = cli('upstream-issue', 'decide', 'UPI-003', '--outcome', 'return', '--reason', 'The redo of Intake states this rule too.');
+  assert.match(decided.stdout, /UPI-003 joins CR-001: the work already goes back through intake, which corrects this too\. Nothing else was returned\./u);
+  after = await state();
+  assert.equal(after.changeRequests.length, 1);
+  assert.deepEqual(after.upstreamIssueDecisions.at(-1).link, 'CR-001');
+  assert.match(after.history.at(-1).detail, /^UPI-003: return \(CR-001\), joining the return to intake already open\./u);
+});
+
 test('cancel needs no agent session: the Git identity cancels, as reject does', async (t) => {
   const W = 'LIFE-CANCEL';
   const { root, cli, state } = await approvedCode(t, W);
@@ -174,4 +213,12 @@ test('an upstream issue\'s decide command lists return only when a return can ru
   workflow.currentPhase = 'intake';
   workflow.phases.intake = { id: 'intake', status: 'in_progress' };
   assert.equal(outcomes('intake'), 'plan-correction|amend|accept-risk|dismiss');
+  // An open return made after the issue was raised, through its step: the return joins it (d-story, 2026-11-23).
+  workflow.status = 'in_progress';
+  workflow.changeRequests = [{ id: 'CR-001', status: 'open', targetPhase: 'intake', requestedAt: '2026-11-23T10:00:00.000Z' }];
+  const outcomesAt = (at) => upstreamIssueDecideCommand('W', { id: 'UPI-001', phase: 'intake', at }, null, workflow).match(/--outcome (\S+)/u)[1];
+  assert.equal(outcomesAt('2026-11-23T09:00:00.000Z'), 'plan-correction|amend|return|accept-risk|dismiss');
+  assert.equal(outcomesAt('2026-11-23T11:00:00.000Z'), 'plan-correction|amend|accept-risk|dismiss', 'a return made before the issue never fixes it');
+  workflow.changeRequests[0].status = 'resolved';
+  assert.equal(outcomesAt('2026-11-23T09:00:00.000Z'), 'plan-correction|amend|accept-risk|dismiss', 'a resolved return is no redo under way');
 });

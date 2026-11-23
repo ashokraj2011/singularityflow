@@ -9,7 +9,7 @@ related:
   - approvals
   - artifacts-and-generation
   - changing-requirements
-version: 10
+version: 11
 commands: []
 ---
 A rejection reopens the phase and requires a fresh generation — with the reviewer's reasons pinned as composed context for the regeneration, alongside anything they cited. Nothing else is lost: implementation branches, interval history, checkpoints, and evidence carry forward. Rejection is designed to be cheap for the author and informative by construction: generation 2 starts from everything generation 1 learned, including the reviewer's exact words.
@@ -23,6 +23,8 @@ The target of a rejection, a reopen or a backward workflow decision always needs
 A code step's first generation must implement: a test-only change there is refused, and a clause that truly needs only tests is corrected in its plan row (Fulfillment `test-only`, or `existing` where the behaviour already lives) through `upstream-issue raise --phase <plan owner>`. A later generation that a person's rejection or reopen returned to the code step, from that step's own review or a later one, may change only tests: the previous generation's source carries over when it is byte-identical to that generation's evidence, its clause comments count where they are, and the tests run again. Nobody edits product source to make the generation look changed. The receipt names the returning change request and the source it carried.
 
 A return to a step before the code step (an upstream issue's return, or a rejection sent further back) corrects what the code read, such as the plan or the scope. The code step's next generation may then carry its previous generation's exact source and tests unchanged: they run again and are reviewed again, and anything the corrected plan still owes is judged as for any generation. The receipt names that return. Any other generation left with no change after a return is refused; its message names the way out. Either make the change the return asks for, or a reviewer of the returning step withdraws the return with `singularity-flow story rework roll-forward --change-request <CR-ID>` (preview, then `--confirm`), which restores the returned generation and the returning step. A confirmed review repair (`reject <review> --to <code> --repair`) whose returned edits were all undone publishes as no further change instead: the approved bytes are tested and reviewed again, because withdrawing it would bring the review's own edits back.
+
+The work goes back through a step once. When it already goes back through a step for an open return, another upstream issue about that step, or a later one, joins that return instead of being refused. It is recorded as `return`, linked to the same change request, and nothing is returned twice. The Decide card words it "Fix it in the redo of <step> already under way". The same holds for a later step that has to be redone after an amendment, once an earlier return has reset it.
 
 ## Approvals rework keeps
 

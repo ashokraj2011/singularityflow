@@ -347,16 +347,20 @@ export async function rewritesTheSame(root, config, workflow, phase, text) {
 /**
  * Write `phase`'s record document from the records. `stage: 'prepare'` writes it in a document just created from its
  * template; `stage: 'publish'` writes it again only while SFlow's seal on it holds (nobody edited it since). Returns what
- * was written, or null: the document is then its author's, checked as before.
+ * was written, or null: the document is then its author's, checked as before. Its evidence index is SFlow's while it is
+ * absent or still sealed, whoever owns the document: on d-story (2026-11-23) the release report's author added a note, so
+ * the index was never written again and still named Verification v13 after v14 was approved.
  */
 export async function writeRecordDocument(root, config, workflow, phase, { stage, artifactPath, ownRuns = null }) {
   if (!await recordDocumentKind(workflow, phase)) return null;
   const { writeText } = await import('./util.mjs');
   let existing;
   try { existing = await readFile(artifactPath, 'utf8'); } catch { return null; }
-  if (stage === 'publish' && !await writtenBySflow(existing)) return null;
+  const own = stage !== 'publish' || await writtenBySflow(existing);
   const rendered = await renderRecordDocument(root, config, workflow, phase, { ownRuns }).catch(() => null);
   if (!rendered) return null;
+  if (rendered.index) await writeEvidenceIndex(artifactPath, rendered.index, writeText);
+  if (!own) return null;
   let text = await merged(existing, rendered.text);
   if (phase.requiredArtifact?.kind === 'conformance-report') {
     const { withVerdictSummary, conformanceEvidenceReuse } = await import('./conformance-readiness.mjs');
@@ -364,15 +368,15 @@ export async function writeRecordDocument(root, config, workflow, phase, { stage
   }
   text = await sealed(text);
   await writeText(artifactPath, text);
-  if (rendered.index) {
-    const file = path.join(path.dirname(artifactPath), EVIDENCE_INDEX);
-    const before = await readFile(file, 'utf8').catch(() => null);
-    // The index is SFlow's while it is absent or still sealed; one someone wrote stays theirs.
-    if (before == null || await writtenBySflow(before)) {
-      const { mkdir } = await import('node:fs/promises');
-      await mkdir(path.dirname(file), { recursive: true });
-      await writeText(file, await sealed(rendered.index));
-    }
-  }
   return { text, from: rendered.from };
+}
+
+/** The evidence index beside a record document, written from the records while it is absent or still sealed; one someone wrote stays theirs. */
+async function writeEvidenceIndex(artifactPath, index, writeText) {
+  const file = path.join(path.dirname(artifactPath), EVIDENCE_INDEX);
+  const before = await readFile(file, 'utf8').catch(() => null);
+  if (before != null && !await writtenBySflow(before)) return;
+  const { mkdir } = await import('node:fs/promises');
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeText(file, await sealed(index));
 }

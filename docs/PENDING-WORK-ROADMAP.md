@@ -489,6 +489,7 @@ matrix cell.
 | Governed Delivery and Proof | M0–M8 are implemented; M9–M11 remain partial and non-GA. Readiness v1 stays backward-compatible, while opt-in v2 embeds the strict fail-closed CAB-R2 provider diagnostic | Approve an authenticated runner/provider and verifier, complete provider pilots and physical signed release evidence, then exercise enrollment/migration/support windows before enforcement or GA | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Auto v2 | Story P0/P1, model/AST optionality, direct Ad Hoc Candidate adoption, and guarded registered comparative-quality projection are implemented | Optional SGOS profile after its independent acceptance contract; execute and independently review a real qualifying comparison study | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
 | Fast onboarding and safe Git | M0–M5 code-local contracts are active. Portable delivery-state authority discovery, URL-first approved-map inspection, explicit registered-lead search, deferred proposal enumeration, exact conflict reconciliation, cross-process verified capability-catalog reuse, Smart clone defaults, and the VS Code explanation/recovery slice landed through `main@7508665e`. RDS v1's explicit model-free provider catalog and repository selection flow subsequently landed at `main@baca8ed1`; controlled release evidence remains open | Complete `CAD-WSP-PLAN-v1` M6 office/platform evidence, FOS AC-035, external M5 adapter certification, and RDS physical office/provider evidence | [Operator guide](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md), [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md), [capability/workspace extension plan](CAPABILITY-AUTHORITY-DISCOVERY-AND-WORKSPACE-PERFORMANCE-PLAN.md), and [repository discovery specification](SPEC-RDS-REPOSITORY-DISCOVERY-AND-SELECTION-v1.md) |
+| Story storage (SSB) | Proposed, not built. The spec and [ADR 0019](adr/0019-story-state-off-the-code-branch.md) landed at `main@fca4d3c78` | The owner's go and four decisions, then the M0 probes | [SSB-v1](SPEC-SSB-STORY-STATE-BRANCH-v1.md) and `SSB-001` below |
 
 Completed work is not repeated in this tracker. In particular, the
 [VS Code UI remediation contract](history/completed-fixes.md#vs-code-ui-remediation-plan) is implemented and regression-backed; a
@@ -920,6 +921,53 @@ See [Token Reduction preview](TOKEN-REDUCTION.md) for the exact boundary and val
 The registered World Model (WMB v4), its persisted exact-history views (WMP) and the CALM
 projection were removed, so none of their work is pending. The Repository brief that phases get
 now is read from the source with no build.
+
+## Story storage off the code branch (SSB)
+
+### [ ] SSB-001 — A Story's code branch holds code and documents; SFlow's records live on its own state ref
+
+**Added:** 2026-11-23, at `main@fca4d3c78`.
+
+**Owner, 2026-11-23:** "documents will be in the PR and it should be part of the code base. The workflow, .singularity
+and all can be in state".
+
+**Contract:** [SSB-v1](SPEC-SSB-STORY-STATE-BRANCH-v1.md) and [ADR 0019](adr/0019-story-state-off-the-code-branch.md),
+which supersedes ADR 0018's option A once accepted. It replaces
+[CPR-v1](SPEC-CPR-CLEAN-PULL-REQUESTS-v1.md), which is not to be built.
+
+**What it delivers:**
+- A Story's pull request and the default branch hold only code, tests and `docs/stories/<WORK-ID>/`.
+- Everything else SFlow keeps is on `refs/singularity/state/<WORK-ID>`, checked out at `.singularity/` and ignored by
+  Git.
+- An approval or a decision no longer commits to the code branch or starts CI.
+
+**Parked until the owner says go and settles four questions** (the spec's §10 has the defaults):
+1. the documents' folder;
+2. which documents join the code base;
+3. a hidden ref or a visible branch;
+4. every new Story or opt-in.
+
+| Milestone | Scope | Size |
+|---|---|---|
+| M0 | Probes: atomic push with the state ref on GitHub, GitLab and Azure DevOps; no CI for it; `.singularity/` in real VS Code and for Copilot; `git clean` and branch switches | 1 day |
+| M1 | One resolver for every Story path; today's layout unchanged | 4 days |
+| M2 | The state ref and its checkout | 3 days |
+| M3 | One atomic publication and its recovery | 4 days |
+| M4 | Documents in the code base; agents, skills, hooks and the code step's scope | 3 days |
+| M5 | VS Code, Copilot hooks, status, landing, the Story list and the `story.storage` setting | 3 days |
+| M6 | Epics; the fuzzer, invariants and journeys on both layouts; storage docs | 3 days |
+
+About four weeks. Each milestone lands on `main` behind `story.storage`, with today's layout unchanged. A failed M0 probe
+changes the spec before M1 starts. The size was measured on `main@99b0b01f8`:
+- 311 Story-path joins in about 70 source files;
+- 138 source files and 492 test files that name `work-items`.
+
+**Exit gate (`[x]`):**
+- the spec's acceptance A1 to A8 pass;
+- a real Story runs end to end in VS Code on the new layout;
+- a Story started on today's layout finishes unchanged.
+
+SSB is independent of the dependency order above.
 
 ## Pickup checklist
 

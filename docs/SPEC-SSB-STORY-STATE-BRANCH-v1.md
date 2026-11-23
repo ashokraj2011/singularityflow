@@ -2,7 +2,9 @@
 
 **Specification ID:** `SSB-v1`
 
-**Status:** Proposed, not built. Decision record: [ADR 0019](adr/0019-story-state-off-the-code-branch.md).
+**Status:** Proposed, not built. Parked on the roadmap as
+[`SSB-001`](PENDING-WORK-ROADMAP.md#story-storage-off-the-code-branch-ssb). Decision record:
+[ADR 0019](adr/0019-story-state-off-the-code-branch.md).
 
 **Owner, 2026-11-23:**
 - "Lets not store all singularity things in the branch, Why cant it be in state branch?"

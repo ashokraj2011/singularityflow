@@ -163,6 +163,11 @@ const AUTHOR_CODES = new Set(['AGENT_BRIEF_SUMMARY_REQUIRED', 'AGENT_BRIEF_PRESE
 // An honest comparison that finds the delivery incomplete: the gap is the delivering step's, so the
 // report's author never edits the verdict; that step's approvers decide an upstream issue.
 const UPSTREAM_DEFECT_CODES = new Set(['conformance.verdict-incomplete']);
+// Every other conformance finding is about what the step's own report says (a clause row, a verdict, a person's
+// sign-off it never cites), so its author fixes it in the draft, whatever category the check reported it under. On
+// the owner's d-story (2026-11-23) conformance.witness-uncited came as 'evidence', fell through to the maintainer and
+// /sf-doctor while the same result told the author to re-author it, and the author stopped.
+const CONFORMANCE_AUTHOR_CODE = /^conformance\./u;
 const DERIVED_CODES = new Set(['phase.grounding.required', 'phase.grounding.not-ready',
   'phase.generation-intent.required', 'GENERATION_INTENT_REQUIRED']);
 const OPERATION_CATEGORIES = new Set(['host', 'integration', 'transport', 'external-evidence',
@@ -223,7 +228,7 @@ export function phaseFindingPolicy(finding) {
     riskEligible = !(coverage?.invalidEvidence?.length || coverage?.unclaimedChangedPaths?.length
       || coverage?.withdrawnButClaimed?.length)
       && (finding.details?.riskEligible === true || finding.details?.qualityRisk?.eligible === true);
-  } else if (AUTHOR_CATEGORIES.has(category) || /^artifact\./u.test(code) || AUTHOR_CODES.has(code)) {
+  } else if (AUTHOR_CATEGORIES.has(category) || /^artifact\./u.test(code) || CONFORMANCE_AUTHOR_CODE.test(code) || AUTHOR_CODES.has(code)) {
     classification = 'author-correction'; repair = 'owned-author';
   } else if (category === 'clarification') {
     classification = 'human-input'; repair = 'record-real-answer';

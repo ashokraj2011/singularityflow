@@ -968,7 +968,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,855,100 (measured 9,855,052 for submit.mjs, +1,697, 2026-11-22, d-story): a review of a document SFlow wrote from the
     // records goes to the step that owns them: the review's owner rule (source-grounded-review.mjs) and its one filled raise
     // (source-review-continuation.mjs). Reading the seal loads only when used (record-documents.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_855_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,855,582 (measured for submit.mjs, +530, 2026-11-23, d-story): every finding a step raises names who fixes it, never the
+    // maintainer for want of a rule (phase-resolution.mjs owners, foreignFindingGuidance; phase-finding-policy.mjs conformance
+    // codes). No new eager file.
+    assert.ok(closure.bytes <= 9_855_582, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

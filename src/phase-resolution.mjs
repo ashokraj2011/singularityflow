@@ -4,7 +4,7 @@ import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-deliv
 import { submitRoute } from './action-command-map.mjs';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
-import { planCorrectsFirst, coverageScopeReviewPaths, repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding, activeRepairPhase, openScopeAppeal, phaseCorrectionTargets, phaseRepairActionAdmission } from './phase-finding-policy.mjs';
+import { correctionPlan, planCorrectsFirst, coverageScopeReviewPaths, repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding, activeRepairPhase, openScopeAppeal, phaseCorrectionTargets, phaseRepairActionAdmission } from './phase-finding-policy.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapDecisions, upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
@@ -89,6 +89,25 @@ function testFindingRoute(workflow, phase, finding, code, author) {
 }
 
 /** Closed dispositions, including an honest owner route for an unknown/unsupported blocker. */
+/** A finding's own `nextAction` as a route: `singularity-flow …` with no quoted arguments, or null. */
+function ownCommand(nextAction) {
+  const command = typeof nextAction === 'string' ? nextAction : nextAction?.command;
+  if (typeof command !== 'string' || !/^singularity-flow [^'"\\]+$/u.test(command.trim())) return null;
+  return { argv: command.trim().split(/\s+/u).slice(1), label: typeof nextAction === 'object' ? nextAction.label ?? null : null,
+    skill: typeof nextAction === 'object' ? nextAction.skill ?? null : null };
+}
+
+/**
+ * What a draft's author is told when none of its findings is the author's to fix: the first finding's own route, or
+ * null when one is the author's. Never "re-author every finding" beside a resolution that names someone else (owner's
+ * d-story, 2026-11-23: the author followed the resolution's maintainer route and stopped with the draft unchanged).
+ */
+export function foreignFindingGuidance(workflow, phase, findings = []) {
+  if (!findings.length || correctionPlan(workflow, phase, findings).own.length) return null;
+  const [lead] = phaseResolutionChoices(workflow, phase, findings[0]).choices;
+  return lead ? `No finding here is this draft's to re-author. ${lead.detail}${lead.command ? ` Next: ${lead.command}` : ''}` : null;
+}
+
 export function phaseResolutionChoices(workflow, phase, finding) {
   // The affected input's owner is not the phase executing this repair. Preservation, input
   // restoration and continuation stay on the active consumer, even for older pinned Stories.
@@ -107,6 +126,8 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   const author = () => (skill === undefined ? (skill = generationSkillForPhase(phase, workflow)) : skill);
   // Where the step stands and its own next action, recovery only for real damage; changed published bytes are damage.
   const recovery = route('inspect', phase.id, ['nextsteps', workId, '--json'], `See where ${phase.id} stands; nothing is committed, discarded, approved or retried.`);
+  // The author's own recheck, the one command every in-draft correction ends with.
+  const ownRecheck = ['phase', 'prepublish', phase.id, '--for-agent', '--json'];
   const damage = route('inspect', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
     'Inspect the exact preserved state. No automatic commit, discard, approval or retry.');
   const basePolicy = phaseFindingPolicy(finding);
@@ -173,7 +194,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
         `Keep the honest verdict; it publishes. ${owner} owns the gap: ${primary.detail} ${CONFORMANCE_GAP_RULE}`, primary.skill);
       gapRoutes = others.map((choice) => route(choice.kind, choice.owner, choice.argv, choice.detail, choice.skill));
     }
-  } else if (code === 'plan_evidence_correction_review_required') {
+  } else if (code === 'plan_evidence_correction_review_required' || code === 'phase.evidence-contract.not-ready') {
     resolution = route('human-review', 'plan-approval-authority',
       ['appeal', 'evidence-prepare', '--phase', phase.id, '--path', finding.path ?? '<EVIDENCE-PATH>',
         '--clause', '<CLAUSE-ID>', '--method', 'visual', '--reason', '<reason>', '--json'],
@@ -215,7 +236,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (category === 'appeal' || code.includes('appeal')) {
     resolution = route('human-review', 'plan-approval-authority', ['appeal', 'list', '--phase', phase.id, '--json'],
       'Review the saved appeal, or ask for corrections and prepare a new version. This neither approves the step nor waives a risk.', '/sf-appeal');
-  } else if (/dirty|worktree|working.tree|staged|index.conflict/u.test(code) || category === 'worktree'
+  } else if (/dirty|worktree|working.tree|staged|index.conflict/u.test(code) || ['worktree', 'change-scope'].includes(category)
       // Files outside this step's documents: a person's set-aside or move, never a draft edit.
       || code === 'phase_artifact_only_changes' || code === 'phase_source_change_ungoverned') {
     resolution = route('worktree-review', 'human-reviewer', ['recover', workId, '--phase', phase.id, '--json'],
@@ -246,7 +267,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       : route('pilot-risk-review', 'phase-approval-authority',
         ['appeal', 'risk-prepare', '--phase', phase.id, '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
         'Preview exact missing coverage. An authorized human may accept it for this pilot phase with an expiry; soft mode alone is no waiver. Tests, review and integrity stay enforced.', '/sf-appeal');
-    const deliver = policy.repairableByProducer ? route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
+    const deliver = policy.repairableByProducer ? route('author-correction', phase.id, ownRecheck,
       'Deliver the clauses this finding lists in the open generation: implement each in its planned source with its @clause comment, bind a planned file that already holds it, and add its planned tests; then recheck.',
       author()) : null;
     resolution = deliver ?? scope ?? route('author-correction', phase.id, ['nextsteps', workId, '--json'],
@@ -254,18 +275,24 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     gapRoutes = [scope, risk].filter((choice) => choice && choice !== resolution);
   } else if (code === 'code_delivery_retained_evidence_missing') {
     // A planned evidence file is this step's deliverable. Say how to make it from this checkout.
-    resolution = route('capture-retained-evidence', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
+    resolution = route('capture-retained-evidence', phase.id, ownRecheck,
       `Produce ${finding.path ?? 'the planned evidence file'} from this checkout with the tool the plan names (a browser on a loopback port you confirmed free, a simulator or emulator, or a command-line run), bring it to the planned state, save the file at exactly that path, then recheck. A test that captures it saves under its runner's output (for example test-results/) and the file is copied to that path once: a test that saves straight to the path replaces the published file on every later run. Never use a server or device session another checkout runs and never fabricate evidence; the file is not a visual pass, and a person witnesses it after submission.`,
       author());
   } else if (code === 'code_delivery_evidence_required') {
-    resolution = route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
+    resolution = route('author-correction', phase.id, ownRecheck,
       'Finish the delivery this finding lists in the open generation (source, tests, clause tags or planned evidence), then recheck. The test runner is resolved from the change set: no test configuration, amendment or risk review is needed for it.',
       author());
   } else if (code === 'code_delivery_test_command_required') {
     resolution = route('runner-setup', phase.id, ['capability', 'test-setup', '--json'],
       'No supported structured test command can be inferred. Read the suggestions, repair the repository-owned test script within this step\'s approved scope, then recheck; an explicit command needs a reviewed policy amendment.', '/sf-test-setup');
+  } else if (code === 'conformance.witness-uncited') {
+    // The report marks a criterion proved and never cites the person's sign-off that proves it: one citation in the
+    // author's own draft, then the same check again (owner's d-story, 2026-11-23).
+    resolution = route('author-correction', phase.id, ownRecheck,
+      `${finding.message ?? 'Cite the person\'s sign-off where the report marks its criterion proved.'} Add the citation in this draft, keep every other claim as it is, then recheck.`,
+      author());
   } else if (AGENT_BRIEF_CODES.has(code)) {
-    resolution = route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
+    resolution = route('author-correction', phase.id, ownRecheck,
       'Write the Agent brief (or summary) as visible text under its heading, outside any <!-- --> template comment, close every comment, then recheck.',
       author());
   } else if (/unclaimed|outside.*scope/u.test(code) || category === 'coverage') {
@@ -277,7 +304,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (policy.classification === 'author-correction' && /test|validation|coverage/u.test(code)) {
     // A planned-test row or a missing assertion is the author's draft or test to correct, never a run's risk
     // review: the word "test" in its code sent plan rows to the test-run routes [owner policy 2026-11-10].
-    resolution = route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
+    resolution = route('author-correction', phase.id, ownRecheck,
       'Correct the cited row or test in this step\'s own draft or open generation, then recheck; prepublish lists every remaining finding at once.',
       author());
   } else if (/test|validation|coverage/u.test(code) || ['test', 'tests', 'validation'].includes(category)) {
@@ -310,6 +337,37 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (/artifact|placeholder|document|grounding|clarification|traceability/u.test(code)) {
     resolution = route('author-correction', phase.id, ['phase', 'show', phase.id, '--show-artifact'],
       'Repair only the current owned draft and recheck. Approved/published bytes require a successor or authorized return.', '/sf-phase-documents');
+  // Findings whose owner is known, never the maintainer's (owner's d-story, 2026-11-23: a finding no rule named fell to
+  // "give the maintainer" and /sf-doctor, and the author stopped). phase-resolution-owners.test.mjs walks every code.
+  } else if (/^trp_/u.test(code) && ['code-delivery', 'test-recovery', ''].includes(category)) {
+    // A code step carried by an accepted test-run risk that no longer holds: the exact observation first, then the
+    // Story's delegated risk reviewers decide (refusal-remediation.mjs gives the same route).
+    resolution = route('risk-review', 'test-risk-authority',
+      ['story', 'test-policy', 'risks', '--work-id', workId, '--phase', finding.details?.phase ?? phase.id, '--operation', 'publish', '--json'],
+      'Read the exact failed or unavailable test observation. Repair the check, or let the Story\'s delegated risk reviewers decide an eligible current issue; no failed test becomes passed.');
+  } else if (code === 'code.verification.corner-case-uncovered') {
+    // Changed code with no test signal for a branch or boundary: the step that writes the code adds the assertion; a
+    // later step reports it as it is (advisory only).
+    resolution = phaseRequiresCodeDelivery(phase)
+      ? route('author-correction', phase.id, ownRecheck,
+        `${finding.message ?? 'Add the missing test assertion for the changed code.'} Add it in this open version, then recheck.`, author())
+      : { ...recovery, detail: `${finding.message ?? 'Changed code has no matching test signal.'} Report it as it is; the step that writes the code adds the test. Advisory only.` };
+  } else if (code === 'phase.assignment.required') {
+    resolution = route('assignment', 'phase-assigner', ['assign', phase.id, '<assignee>'],
+      `Assign who owns ${phase.id}, then recheck. Nothing in the draft changes.`, '/sf-assign');
+  } else if (code === 'code.generation.intent-unverified') {
+    // The open version's intent record could not be verified: its exact preserved state, never a fresh one.
+    resolution = damage;
+  } else if (category === 'lifecycle') {
+    // Not the current in-progress step, or a lifecycle record moved on: where the step stands and its own next action.
+    resolution = recovery;
+  } else if (category === 'records') {
+    // A Story record that could not be read or no longer matches its binding: the exact preserved state.
+    resolution = damage;
+  } else if (ownCommand(finding.details?.nextAction)) {
+    // A finding that names its own next command keeps it.
+    const next = ownCommand(finding.details.nextAction);
+    resolution = route('finding-route', phase.id, next.argv, next.label ?? finding.message ?? 'Run the command this finding names.', next.skill ?? null);
   } else {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'No automatic repair or waiver is registered for this finding. Give the maintainer this exact finding and preserved-state diagnostics.', '/sf-doctor');
@@ -366,7 +424,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     // What the finding means, its usual causes, the fix, and who else can act.
     documentation: findingDocumentation(finding),
     status: lead.kind.endsWith('owner') || lead.kind === 'owner-escalation'
-      ? 'needs-owner' : lead.kind.includes('risk') || lead.kind.includes('appeal') || ['human-review', 'worktree-review', 'plan-amendment', 'current-phase-correction', 'decide-upstream-issue'].includes(lead.kind) ? 'needs-human' : 'needs-correction',
+      ? 'needs-owner' : lead.kind.includes('risk') || lead.kind.includes('appeal') || ['human-review', 'worktree-review', 'plan-amendment', 'current-phase-correction', 'decide-upstream-issue', 'assignment'].includes(lead.kind) ? 'needs-human' : 'needs-correction',
     choices: admitted, preserved: ['working-tree bytes', 'Git index', 'published evidence', 'approval history'] };
 }
 

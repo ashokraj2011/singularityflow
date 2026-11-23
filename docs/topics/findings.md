@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 24
+version: 25
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -227,6 +227,28 @@ Set a finding command up in `singularity/workflow.yml`, on the code step's `qual
 A run on unchanged code, with the same tool version and ruleset digest, stands for a later gate: submission does not run it again.
 
 A step's review (`sflow phase show <PHASE>`, and the data the approval card reads) shows what its scanners recorded and, while it awaits approval, each of the Story's GitHub `requiredChecks` (CodeQL, SonarCloud, a CI job) on the submitted commit: passed, failed, pending or missing, read through `gh`. They are evidence for the reviewer; approval does not wait on them.
+
+### conformance.witness-uncited
+
+The report marks a criterion proved (verified, met, passed) and never cites the person's sign-off that proves it: its record
+(`WIT-…`) or its file. The report's author cites it in that row or sentence, keeps every other claim as it is, and rechecks
+with `sflow phase prepublish <PHASE> --json`. It is the author's to fix in the same turn, never the maintainer's.
+
+### phase.assignment.required
+
+The step's rules need an assigned owner before it publishes. Assign one with `sflow assign <PHASE> <assignee>` (or
+`/sf-assign`), then recheck. Nothing in the draft changes.
+
+### code.generation.intent-unverified
+
+The open code version's intent record could not be verified, so its edits cannot be bound to it. Inspect the exact
+preserved state with `sflow recover <WORK-ID> --phase <PHASE> --json` and follow what it offers; never open a fresh
+version over it.
+
+### code.verification.corner-case-uncovered
+
+Changed code has a branch or boundary with no matching test signal. On the step that writes the code, add the assertion
+the message names in the open version and recheck. A later step reports it as it is; it is advisory there.
 
 ### Vulnerable new dependencies
 

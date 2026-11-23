@@ -106,3 +106,45 @@ test('the reviewer of a custom report step gets the sign-off of every criterion 
   // The same words in a step before the code are not a report on it: nothing is offered.
   assert.deepEqual(await citedSignOffSources(root, workflow, uncited, [], [], workflow.phases.scope), []);
 });
+
+test('an uncited sign-off is the author\'s to cite in this turn, never the maintainer\'s, and so is every conformance finding about the report\'s own words', async () => {
+  // Owner's d-story, 2026-11-23, verification version 12: prepublish raised conformance.witness-uncited under the category
+  // 'evidence', which no policy knew. Its act said "re-author every finding", its resolution said "no automatic repair or
+  // waiver is registered … give the maintainer" with /sf-doctor, and the author stopped with the draft unchanged.
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { phaseFindingPolicy, correctionPlan } = await import('../src/phase-finding-policy.mjs');
+  const { phaseResolutionProjection } = await import('../src/phase-resolution.mjs');
+  const witness = { id: 'WIT-004', clauseId: 'D-1:AC-004', slot: 'responsive-screen', method: 'visual', file: FILE, valid: true, decision: 'satisfies' };
+  const report = 'singularity/work-items/D-1/artifacts/verification/test-evidence.md';
+  // As phase-draft-check.mjs raises it.
+  const [found] = witnessUncitedFindings('| `D-1:AC-004` | no tagged test | `src/App.css` | verified |', [witness]);
+  const raised = { code: found.code, category: found.category, path: report, line: found.line, value: found.value, message: found.message, fingerprint: 'f1' };
+  const phase = { id: 'verification', status: 'in_progress', generation: 12, generationPolicy: { defaultProducer: 'governed-agent' } };
+  const workflow = { workItem: { id: 'D-1' }, status: 'in_progress', currentPhase: 'verification', phaseOrder: ['verification'],
+    phases: { verification: phase }, resolution: { phases: [] } };
+  assert.equal(phaseFindingPolicy(raised).classification, 'author-correction');
+  assert.equal(correctionPlan(workflow, phase, [raised]).sameTurn, true, 'the author repairs it in the same turn');
+  const [issue] = phaseResolutionProjection(workflow, phase, [raised], { transition: 'publish' }).issues;
+  assert.notEqual(issue.status, 'needs-owner');
+  assert.equal(issue.choices[0].kind, 'author-correction');
+  assert.deepEqual(issue.choices[0].commandGuidance.argv, ['phase', 'prepublish', 'verification', '--for-agent', '--json']);
+  assert.match(issue.choices[0].detail, /Cite WIT-004 there\. Add the citation in this draft, keep every other claim as it is, then recheck\.$/u);
+  assert.ok(!issue.choices.some((choice) => choice.kind === 'owner-escalation'), JSON.stringify(issue.choices.map((choice) => choice.kind)));
+
+  // Every conformance code SFlow raises, under whatever category a check reports it: the report's author fixes it, except
+  // an honest verdict that the delivery is incomplete, which the delivering step's approvers decide.
+  const codes = new Set();
+  const walk = async (folder) => {
+    for (const entry of await readdir(folder, { withFileTypes: true })) {
+      const file = path.join(folder, entry.name);
+      if (entry.isDirectory()) await walk(file);
+      else if (entry.name.endsWith('.mjs')) for (const match of (await readFile(file, 'utf8')).matchAll(/'(conformance\.[a-z-]+)'/gu)) codes.add(match[1]);
+    }
+  };
+  await walk(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src'));
+  assert.ok(codes.size >= 10 && codes.has('conformance.witness-uncited'), [...codes].join(', '));
+  for (const code of codes) for (const category of ['evidence', 'traceability', 'records', '']) {
+    const policy = phaseFindingPolicy({ code, category, path: report });
+    assert.equal(policy.classification, code === 'conformance.verdict-incomplete' ? 'upstream-defect' : 'author-correction', `${code} as '${category}'`);
+  }
+});

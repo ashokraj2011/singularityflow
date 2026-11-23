@@ -392,6 +392,11 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase, workflow));
   const awaitingApproval = phase.status === 'awaiting_approval';
   const clean = findings.length === 0;
+  // When no finding is this draft's author's, the guidance names the first one's own route, never "re-author every
+  // finding" beside a resolution that names someone else (owner's d-story, 2026-11-23: the author followed the
+  // resolution's maintainer route and stopped).
+  const foreignGuidance = !clean && !nextRoute && !upstreamOnly && repairClass === 'agent-authoring'
+    ? (await import('./phase-resolution.mjs')).foreignFindingGuidance(workflow, phase, findings) : null;
   const commands = Object.freeze({
     recheck: `singularity-flow phase draft-check ${phase.id} --json${modelEnabled === false ? ' --no-model' : ''}`,
     recover: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json${modelEnabled === false ? ' --no-model' : ''}`,
@@ -455,7 +460,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       // The escalation (finding-escalation.mjs ESCALATION_THRESHOLD, 3 sightings) fires on the second
       // changed draft that keeps the same finding; the limit the skills follow says the same.
       maximumChangedFingerprints: 2,
-      guidance: clean ? null : nextRoute?.guidance ?? (upstreamOnly ? UPSTREAM_GAP_GUIDANCE
+      guidance: clean ? null : nextRoute?.guidance ?? foreignGuidance ?? (upstreamOnly ? UPSTREAM_GAP_GUIDANCE
         : [traceabilityRepair?.sameTurn ? traceabilityRepair.guidance : correctionGuidance(repairClass, phase, { deterministicCode }),
           upstreamGap ? UPSTREAM_GAP_GUIDANCE : null].filter(Boolean).join(' ') || null),
       skill: nextRoute ? nextRoute.skill : (repairClass === 'agent-authoring' ? generationSkill : null)

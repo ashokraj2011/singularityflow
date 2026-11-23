@@ -28,7 +28,8 @@ const CODE_SECTIONS = new Map(Object.entries({
   // An honest partial or missing verdict, its approval refusal and its gate code share one entry.
   'conformance.verdict-incomplete': ['conformance.verdict-incomplete', 'conformance_blocking_verdicts', 'gate.conformance.blocking-verdict'],
   'conformance.verdict-contradicted': ['conformance.verdict-contradicted', 'conformance.verdict-summary-stale'],
-  'plan_evidence_correction_review_required': ['plan_evidence_correction_review_required'],
+  // Its wrapper at publication readiness is the same review by the plan's approvers.
+  'plan_evidence_correction_review_required': ['plan_evidence_correction_review_required', 'phase.evidence-contract.not-ready'],
   'phase_quality_risk_pending_tests': ['phase_quality_risk_pending_tests'],
   'generation.document.published-changed': ['generation.document.published-changed'],
   'Agent brief findings': ['agent_brief_summary_required', 'agent_brief_preserved_section_required',
@@ -45,7 +46,12 @@ const CODE_SECTIONS = new Map(Object.entries({
   // A code step's lint, static-analysis and security findings on changed lines, and its scanners [CQF M4].
   'Code quality findings': ['code_quality_findings', 'code_quality_findings_held'],
   // A vulnerable package the Story added, which holds the step's approval for a person [CQF:REQ-052].
-  'Vulnerable new dependencies': ['dependency_vulnerability_held']
+  'Vulnerable new dependencies': ['dependency_vulnerability_held'],
+  // Each with its own owner, never the maintainer for want of a rule (owner's d-story, 2026-11-23).
+  'conformance.witness-uncited': ['conformance.witness-uncited'],
+  'phase.assignment.required': ['phase.assignment.required'],
+  'code.generation.intent-unverified': ['code.generation.intent-unverified'],
+  'code.verification.corner-case-uncovered': ['code.verification.corner-case-uncovered']
 }).flatMap(([section, codes]) => codes.map((code) => [code, section])));
 
 // Code families the recovery routes match by prefix or pattern.

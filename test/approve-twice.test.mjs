@@ -20,6 +20,7 @@ import { automaticApprovalWords, needsPersonWords } from '../src/automatic-appro
 import { automaticApprovalsBefore } from '../src/phase-roles.mjs';
 import { verifyAutomaticApproval } from '../src/automatic-approval-replay.mjs';
 import { approvalChainSnapshot } from '../src/approval-chain.mjs';
+import { approvalProjection, receiptApprovalText } from '../src/evidence-receipt.mjs';
 import { isKnownPackagedWorkflowValue } from '../src/packaged-workflow-history.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
@@ -136,8 +137,9 @@ test('an upgrade replaces an untouched shipped workflow, and keeps a customized 
 
 test('the approval chain says a step was approved automatically, or will be when ready', () => {
   const policy = { mode: 'required', automatic: 'when-ready', authorities: ['architecture-reviewers'], minimum: 1 };
-  const chain = (design) => approvalChainSnapshot({ workItem: { id: 'AT-1' }, phaseOrder: ['design'], phases: { design },
-    resolution: { approvalAuthorities: { 'architecture-reviewers': { label: 'Architecture reviewers', members: [] } } } }).phases[0].approval;
+  const chain = (design, { reviewed = true } = {}) => approvalChainSnapshot({ workItem: { id: 'AT-1' }, phaseOrder: ['design'], phases: { design },
+    resolution: { approvalAuthorities: { 'architecture-reviewers': { label: 'Architecture reviewers', members: [] } },
+      ...(reviewed ? { sourceReview: { mode: 'enforce', phases: ['design'], kinds: { design: 'document' } } } : {}) } }).phases[0].approval;
   const phase = (status, extra = {}) => ({ id: 'design', label: 'Design', status, generation: 1, approvals: [], approvalPolicy: policy, ...extra });
   assert.equal(chain(phase('in_progress')).state, 'approved-automatically-when-ready');
   const done = chain(phase('approved', { approvalDisposition: 'approved_automatically', automaticApproval: { checked: [] } }));
@@ -147,6 +149,16 @@ test('the approval chain says a step was approved automatically, or will be when
   const waiting = chain(phase('awaiting_approval'));
   assert.equal(waiting.state, 'awaiting-approval');
   assert.equal(waiting.minimum, 1);
+  // A step no reviewer reviews is approved by a person whatever its rules say, so nothing promises otherwise: the intake
+  // receipt said "approved automatically when its reviewer says ready" beside "no reviewer reviews this step".
+  assert.equal(chain(phase('in_progress'), { reviewed: false }).state, 'not-submitted');
+  const receipt = (step, sourceReview) => receiptApprovalText({ approvals: approvalProjection(step, { approvals: [] },
+    { workItem: { id: 'AT-1' }, phases: { design: step }, resolution: sourceReview ? { sourceReview } : {} }) });
+  assert.equal(receipt(phase('awaiting_approval'), null), '0/1 (exact)');
+  assert.equal(receipt(phase('awaiting_approval'), { mode: 'enforce', phases: ['design'], kinds: { design: 'document' } }),
+    '0/1; approved automatically when its reviewer says ready and nothing is open, otherwise by a person');
+  assert.equal(receipt(phase('approved', { approvalDisposition: 'approved_automatically' }), null),
+    'approved automatically (no person; the reviewer said ready, its checks passed, nothing was open)');
 });
 
 test('a person\'s approval covers the steps SFlow approved since the last one, by their versions', () => {

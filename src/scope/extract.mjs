@@ -51,6 +51,9 @@ export const DECIDABLE_SCOPE_DISPOSITIONS = Object.freeze(['included', 'existing
 export const SCOPE_CHOICE_WORDS = 'included: a clause of this Story states it (name that clause); existing: the product already did it before this Story (name the clauses of this Story that verify it); '
   + 'excluded, deferred, informative, duplicate or superseded: no clause states it, with your reason.';
 
+/** The same on a Story that states no clause: nothing can be linked, so included and existing are never offered. */
+export const SCOPE_CHOICE_WORDS_NO_CLAUSES = 'This Story states no clause to link it to: excluded, deferred, informative, duplicate or superseded, with your reason.';
+
 /** Dispositions that must name the clauses that carry the statement. */
 export const CLAUSE_LINKED_DISPOSITIONS = Object.freeze(['included', 'existing']);
 

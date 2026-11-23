@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { approvesAutomatically } from './approval-authority.mjs';
+import { automaticApprovalPossible } from './automatic-approval-possible.mjs';
 
 import {
   changedRepositoryPaths, loadActiveSpecRecords, mergeObservedClaimRecords, mergePlannedClaimRecords
@@ -52,11 +52,14 @@ function checkProjection(phase, packet) {
   };
 }
 
-function approvalProjection(phase, packet, workflow) {
+export function approvalProjection(phase, packet, workflow) {
   const mode = phase?.approvalPolicy?.mode ?? 'required';
-  // Approve twice: a step SFlow approves when it is ready says so; one it approved needs no person's approval.
-  const automatic = approvesAutomatically(phase?.approvalPolicy)
-    ? (phase.status === 'approved' && phase.approvalDisposition === 'approved_automatically' ? 'approved' : 'when-ready') : null;
+  // Approve twice: a step SFlow approves when it is ready says so; one it approved needs no person's approval. Only a step
+  // its reviewer reviews, or the convergence step, is ever approved without a person (automatic-approval.mjs), so a step
+  // with no reviewer never promises it: its intake receipt said "approved automatically when its reviewer says ready"
+  // beside "no reviewer reviews this step" [owner's note, 2026-11-21].
+  const approvedAutomatically = phase?.status === 'approved' && phase.approvalDisposition === 'approved_automatically';
+  const automatic = approvedAutomatically ? 'approved' : automaticApprovalPossible(workflow, phase) ? 'when-ready' : null;
   const required = ['none', 'policy'].includes(mode) || automatic === 'approved' ? 0 : phase?.approvalPolicy?.minimum ?? 1;
   // On a Story SF Guard requires, only an approval whose presence signature verifies counts (M4).
   const decisions = countedApprovals(workflow, (packet.approvals ?? []).filter((entry) => !entry.invalidatedAt && entry.decision === 'approved'));

@@ -72,7 +72,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 473: spec–code sync M1's two import-free leaves (conformance-differences.mjs, departure-acceptance.mjs), which the
     // conformance gap decisions read so approval and the gates decide deviated and unplanned rows without loading the
     // report reader or the departure model [SCS:REQ-010, REQ-013].
-    assert.ok(closure.files.size <= 473, `${file} loads ${closure.files.size} local files (budget 473; retired graph 597)`);
+    // 474: automatic-approval-possible.mjs (2026-11-23), the one rule the evidence receipt and the approval chain share for
+    // whether a step can be approved without a person; its own module so the session projection loads no approval rules.
+    assert.ok(closure.files.size <= 474, `${file} loads ${closure.files.size} local files (budget 474; retired graph 597)`);
     // Step intents' derivation loads only for a workflow.yml that opts in (config.mjs loadStepIntentSettings), never eagerly.
     for (const lazy of ['step-intent-settings.mjs', 'step-intents.mjs', 'workflow-step-settings.mjs']) {
       assert.equal(closure.files.has(path.join(sourceRoot, lazy)), false, `${file} eagerly loads ${lazy}`);
@@ -971,7 +973,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,855,582 (measured for submit.mjs, +530, 2026-11-23, d-story): every finding a step raises names who fixes it, never the
     // maintainer for want of a rule (phase-resolution.mjs owners, foreignFindingGuidance; phase-finding-policy.mjs conformance
     // codes). No new eager file.
-    assert.ok(closure.bytes <= 9_855_582, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,858,437 (measured for submit.mjs, +2,855, 2026-11-23): only a step its reviewer reviews promises automatic approval
+    // (automatic-approval-possible.mjs, the one new file, read by evidence-receipt.mjs and approval-chain.mjs), and a Story with
+    // no clause offers no linked scope choice (owed-decisions.mjs, decision-list.mjs, scope/extract.mjs).
+    assert.ok(closure.bytes <= 9_858_437, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

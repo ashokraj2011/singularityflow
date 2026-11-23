@@ -1133,10 +1133,13 @@ function witnessWhy(workflow, entry) {
 /** A requirement statement the Story's ending needs a disposition of: each disposition a choice, the same write as `decision scope`. */
 function scopeItem(workflow, context, entry) {
   const workId = workflow.workItem.id;
+  // A Story that states no clause: nothing can carry the statement, so included and existing are never offered [owner, 2026-11-23].
+  const noClauses = Array.isArray(entry.clauses) && entry.clauses.length === 0;
   return {
     kind: 'owed-decision', title: `Decide scope item ${entry.id}`,
-    why: `${entry.text ? `"${entry.text}" ` : ''}needs a link or a disposition from an approver of a step that defines the scope.`,
-    options: SCOPE_CHOICES.map(([disposition, label, linked]) => ({ ...option(workflow, context, { id: `scope-${disposition}`, label,
+    why: `${entry.text ? `"${entry.text}" ` : ''}${noClauses ? 'needs a disposition from an approver of a step that defines the scope; this Story states no clause to link it to.'
+      : 'needs a link or a disposition from an approver of a step that defines the scope.'}`,
+    options: SCOPE_CHOICES.filter(([, , linked]) => !(noClauses && linked)).map(([disposition, label, linked]) => ({ ...option(workflow, context, { id: `scope-${disposition}`, label,
       words: disposition === 'included' ? 'Name the clause of this Story that states it, such as the acceptance criterion that covers it.'
         : disposition === 'existing' ? 'Only for behaviour the product had before this Story; name the clauses that verify it.'
           : 'The statement stays in the inventory with your reason.',

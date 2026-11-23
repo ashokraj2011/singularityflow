@@ -2638,6 +2638,8 @@ async function importPlan(root, destination, original, chosen) {
   }
   const incomingSkillAssets = skillFileAssets(bundle);
   const expectedSkillFiles = new Map(incomingSkillAssets.map((asset) => [asset.path, asset.sha256]));
+  // A template here that differs from the bundle's: decided after the loop, against the bundle's template as SFlow completes it.
+  const templateDifferences = [];
   for (const asset of [...bundle.assets, ...incomingSkillAssets]) {
     const relative = targetTemplatePath(asset, values.story, values.initiative);
     const subject = assetSubject(asset, relative);
@@ -2698,9 +2700,26 @@ async function importPlan(root, destination, original, chosen) {
           add.push(entry('agent-phase-additions', asset.id, { path: relative, phases: stepsOnly.phases, defaultFor: stepsOnly.defaultFor }));
           extendedAgents.set(asset.id, { relative, before: content, text: stepsOnly.text });
         }
-      } else conflicts.push(noted(entry(asset.kind, relative, { reason: comparison.reason }), subject));
+      } else if (asset.kind === 'template') templateDifferences.push({ asset, relative, subject, content, reason: comparison.reason });
+      else conflicts.push(noted(entry(asset.kind, relative, { reason: comparison.reason }), subject));
     }
     assetTargets.push({ asset, relative });
+  }
+  // Importing a bundle again: SFlow completed its template with the placeholders the workflow's checks need the first time
+  // (workflow-autofix.mjs), so the repository's copy is the bundle's template as SFlow completes it, not a different file.
+  // It was asked about as same path, different content [hardening sweep follow-up, owner 2026-11-23]. Only that exact
+  // completion reuses it; any other difference is still the person's question.
+  if (templateDifferences.length) {
+    const workflows = [...new Set([...add, ...reuse, ...conflicts].filter((item) => item.kind === 'story.workTypes').map((item) => item.id))];
+    const completed = workflows.length ? await (await import('./workflow-autofix.mjs')).checkCandidate(target.root,
+      templateDifferences.map(({ asset, relative }) => ({ path: relative, content: assetBytes(asset).toString('utf8') })),
+      { workflows, editable: (file) => templateDifferences.some(({ relative }) => relative === file) }).catch(() => null) : null;
+    for (const { asset, relative, subject, content, reason } of templateDifferences) {
+      const own = completed?.files?.find((file) => file.path === relative)?.content;
+      const sameText = (left, right) => left.equals(right) || (textAssetFormat(left).valid && textAssetFormat(left).normalized === textAssetFormat(right).normalized);
+      if (own != null && sameText(Buffer.from(String(own)), content)) reuse.push(noted(entry(asset.kind, relative, { sha256: asset.sha256, completedBySflow: true }), subject));
+      else conflicts.push(noted(entry(asset.kind, relative, { reason }), subject));
+    }
   }
   // Where each carried import came from, pointed at the file's place in this repository. A record
   // that differs only in when it was fetched describes the same import, so the target keeps its own.

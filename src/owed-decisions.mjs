@@ -11,7 +11,7 @@
 import { finalScopeStep, ownerStepChecks, stepResponsibilities } from './phase-roles.mjs';
 import { retainedEvidenceDelivered, visualSignOffCapture, WITNESS_CHECKLIST, witnessContextBinding } from './verification/witness-records.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
-import { SCOPE_CHOICE_WORDS, scopeDecisionArgv, scopeDecisionCommandLine } from './scope/extract.mjs';
+import { SCOPE_CHOICE_WORDS, SCOPE_CHOICE_WORDS_NO_CLAUSES, scopeDecisionArgv, scopeDecisionCommandLine } from './scope/extract.mjs';
 
 const MAX_LISTED = 8;
 const MAX_TEXT = 160;
@@ -98,15 +98,26 @@ function listed(entries, limit = MAX_LISTED) {
   return { entries: entries.slice(0, limit), more: Math.max(0, entries.length - limit) };
 }
 
-/** Statements of the Story's sources nobody has linked to a clause or dispositioned. */
-function scopeItemsOf(workflow, inventory) {
+/** The clauses the Story states, from its trusted indexes; null when they cannot be read here (an untrusted graph). */
+function storyClauseIds(graph) {
+  const indexes = graph?.untrusted ? null : graph?.records?.indexes;
+  return Array.isArray(indexes) ? [...new Set(indexes.flatMap((index) => (index?.clauses ?? []).map((clause) => clause?.id)).filter(Boolean))] : null;
+}
+
+/**
+ * Statements of the Story's sources nobody has linked to a clause or dispositioned, each with the clauses it may be linked
+ * to. On a Story that states no clause, included and existing are never offered: no clause could carry it (the Decide card
+ * offered "Included" on such a Story) [owner, 2026-11-23].
+ */
+function scopeItemsOf(workflow, inventory, clauses = null) {
+  const none = Array.isArray(clauses) && !clauses.length;
   return (inventory?.items ?? []).filter((item) => item.disposition === 'unresolved').map((item) => {
     const text = String(item.text ?? '').replace(/\s+/gu, ' ').trim();
     const decide = scopeDecisionArgv(workflow.workItem.id, item.id);
     return { id: item.id, source: item.line ? `${item.sourceId}:${item.line}` : item.sourceId, kind: item.kind ?? null, humanRequired: true,
       text: text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 1)}…` : text,
-      command: scopeDecisionCommandLine(decide.linked), otherCommand: scopeDecisionCommandLine(decide.unlinked),
-      choose: SCOPE_CHOICE_WORDS };
+      command: scopeDecisionCommandLine(none ? decide.unlinked : decide.linked), otherCommand: none ? null : scopeDecisionCommandLine(decide.unlinked),
+      choose: none ? SCOPE_CHOICE_WORDS_NO_CLAUSES : SCOPE_CHOICE_WORDS, ...(clauses ? { clauses: clauses.slice(0, 200) } : {}) };
   });
 }
 
@@ -156,7 +167,7 @@ export async function owedDecisions(root, config, workflow, phaseIds, { limit = 
         ...(witness.capture && { capture: witness.capture }) }));
     await reader.capture.withCaptureFailures(root, workflow, witnesses);
     const scopeItems = !scoping.length ? []
-      : scopeItemsOf(workflow, graph.untrusted ? await reader.previewScopeInventory(root, config, workflow) : graph.scope);
+      : scopeItemsOf(workflow, graph.untrusted ? await reader.previewScopeInventory(root, config, workflow) : graph.scope, storyClauseIds(graph));
     if (!witnesses.length && !scopeItems.length) return null;
     const owedWitnesses = listed(witnesses, limit), owedScope = listed(scopeItems, limit);
     // The step that defines the scope last is approved only once each is decided [PHR:REQ-002].
@@ -196,7 +207,7 @@ export function owedDecisionLines(owed) {
   if (scopeCount) {
     lines.push(`Open scope items (${scopeCount}, human only, ${owed.scopeHoldsApproval ? `approving ${owed.scopeHoldsApproval} waits for them` : 'not blocking this step'}):`);
     // Which choice is which, before the commands: an agent read "existing" for a statement this Story's own criterion states [office, 2026-11-12].
-    lines.push(`  Choose: ${SCOPE_CHOICE_WORDS}`);
+    lines.push(`  Choose: ${owed.scopeItems[0]?.choose ?? SCOPE_CHOICE_WORDS}`);
     for (const item of owed.scopeItems) {
       lines.push(`  ${item.id} ${item.source ?? ''}: "${item.text}"`, `    ${item.command}`, ...(item.otherCommand ? [`    ${item.otherCommand}`] : []));
     }

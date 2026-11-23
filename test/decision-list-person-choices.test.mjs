@@ -57,6 +57,17 @@ test('a scope statement offers every disposition, asks for clauses only where th
   assert.equal(packet.record.copilotCommand, '/sf-decide W-1', 'the /sf-decide route keeps working');
 });
 
+test('on a Story that states no clause, a scope statement never offers included or existing: nothing could carry it', () => {
+  // The Decide card offered "Included: a clause of this Story states it" on a Story with no clauses [owner, 2026-11-23].
+  const [none] = list(owed({ ...scope('SRI-1'), clauses: [] })).items;
+  assert.deepEqual(none.options.map((option) => option.id), DECIDABLE_SCOPE_DISPOSITIONS.filter((entry) => !CLAUSE_LINKED_DISPOSITIONS.includes(entry)).map((entry) => `scope-${entry}`));
+  assert.match(none.why, /needs a disposition from an approver of a step that defines the scope; this Story states no clause to link it to\.$/u);
+  assert.ok(none.options.every((option) => !option.needs.clause));
+  // Clauses that could not be read here are no reason to hide a choice: every disposition stays.
+  const [unknown] = list(owed({ ...scope('SRI-1'), clauses: undefined })).items;
+  assert.deepEqual(unknown.options.map((option) => option.id), DECIDABLE_SCOPE_DISPOSITIONS.map((entry) => `scope-${entry}`));
+});
+
 test('recording a statement names its clauses as the Story\'s index spells them, and refuses anything else', () => {
   const packet = list(owed(scope('SRI-1')));
   const choose = (option, values = {}) => decisionRecordPlan(packet, parseDecisionAnswers({ choose: { d1: option }, reason: { d1: 'The first requirement carries this statement.' }, ...values }), { at: AT });

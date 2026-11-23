@@ -160,6 +160,20 @@ test('the incident: an imported workflow whose first step lacks anchors and the 
   const validated = await validateWorkflows(landed, { workflow: ID });
   assert.deepEqual(problemFindings(validated, ID), []);
   assert.equal(validated.workflows[0].valid, true);
+
+  // Importing the same bundle again: the template is the bundle's own as SFlow completed it, never "same path, different
+  // content" for the person to answer [hardening sweep follow-up, owner 2026-11-23].
+  const again = flow(landed, 'workflow', 'import', bundleFile, '--dry-run', '--json', '--propose');
+  assert.equal(again.status, 0, again.stderr + again.stdout);
+  const replan = JSON.parse(again.stdout);
+  assert.ok(!(replan.conflicts ?? []).some((entry) => entry.id === TEMPLATE_PATH), JSON.stringify(replan.conflicts));
+  assert.ok((replan.reused ?? []).some((entry) => entry.id === TEMPLATE_PATH && entry.completedBySflow === true), JSON.stringify(replan.reused));
+  // A template someone changed by hand is still the person's question (the preview reads the reviewed configuration).
+  await writeFile(path.join(landed, TEMPLATE_PATH), `${await readFile(path.join(landed, TEMPLATE_PATH), 'utf8')}\nA line someone added.\n`);
+  git(landed, '-c', 'user.name=Autofix Tester', '-c', 'user.email=autofix@example.test', 'commit', '-qam', 'A hand edit to the template');
+  git(landed, 'push', '-q', 'origin', 'HEAD:refs/heads/sflow/config');
+  const edited = JSON.parse(flow(landed, 'workflow', 'import', bundleFile, '--dry-run', '--json', '--propose').stdout);
+  assert.ok((edited.conflicts ?? []).some((entry) => entry.id === TEMPLATE_PATH), JSON.stringify(edited.conflicts));
 });
 
 test('an import whose problem only its author can fix is refused at its preview with the fix, never first at approval', async (t) => {

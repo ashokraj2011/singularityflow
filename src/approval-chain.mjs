@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { approvalPolicyCapacity, approvalRequirementsMet, approvesAutomatically, remainingRequiredAuthorities } from './approval-authority.mjs';
+import { approvalPolicyCapacity, approvalRequirementsMet, remainingRequiredAuthorities } from './approval-authority.mjs';
 import { automaticApprovalDisposition } from './lifecycle-transitions.mjs';
+import { automaticApprovalPossible } from './automatic-approval-possible.mjs';
 import { noCurrentPhaseLabel, storyStatusLabel } from './progress.mjs';
 
 function normalizedPath(value) {
@@ -77,12 +78,13 @@ function policyPhaseReviewedByPeople(phase, activeApprovals) {
     || (phase.status === 'approved' && activeApprovals > 0);
 }
 
-function approvalState(phase, mode, met, minimum, reviewedByPeople = false) {
+function approvalState(phase, mode, met, minimum, reviewedByPeople = false, automaticPossible = false) {
   if (phase.status === 'skipped') return 'skipped';
   if (mode === 'none') return 'not-required';
   // Approve twice: SFlow approved it when it was ready, or will once it is submitted ready with nothing open.
   if (automaticApprovalDisposition(phase) === 'approved_automatically') return 'approved-automatically';
-  if (approvesAutomatically(phase.approvalPolicy) && ['in_progress', 'pending'].includes(phase.status)) return 'approved-automatically-when-ready';
+  // Only where SFlow can: a step with no reviewer is approved by a person, whatever its rules say.
+  if (automaticPossible && ['in_progress', 'pending'].includes(phase.status)) return 'approved-automatically-when-ready';
   // Policy approval means the waiver completed the phase; a phase it did not cover reads as any
   // human-reviewed phase does.
   if (mode === 'policy' && !reviewedByPeople) return phase.status === 'approved' ? 'policy-approved' : 'policy-pending';
@@ -142,7 +144,7 @@ export function approvalChainSnapshot(workflow, { presence = null } = {}) {
       documents: phaseDocuments(phase),
       approval: Object.freeze({
         mode,
-        state: approvalState(phase, mode, met, minimum, reviewedByPeople),
+        state: approvalState(phase, mode, met, minimum, reviewedByPeople, automaticApprovalPossible(workflow, phase)),
         minimum,
         received: activeApprovals.length,
         remaining: !peopleDecide || met || phase.status === 'skipped' ? 0 : Math.max(waitingFor.length, minimum - distinctApprovers, 1),

@@ -17,6 +17,44 @@ export function retainedSkillExpansion(workflow, phase, context, skill) {
   return `singularity-flow ${args.map(quote).join(' ')}`;
 }
 
+/** The retained procedure `skillId` composes to for `phase`, as `skill show` returns it (skill.composedText), or null. */
+export function retainedProcedure(phase, context, skillId) {
+  if (context?.identity?.mode !== 'workflow-snapshot') return null;
+  const entries = (context.dependencies ?? []).filter(entry => entry.source === 'library' && entry.id === skillId
+    && matches(phase?.id, entry.phases) && entry.inclusion === 'included' && entry.text);
+  if (!entries.length) return null;
+  const skill = parseLibrarySkill(entries[0].text, { id: entries[0].id });
+  const composition = composeSkillInstructions([{ ...skill, referencedInstructions: entries[0].referencedInstructions ?? [] }]);
+  return { id: skill.id, label: skill.label, sha256: skill.sha256,
+    text: [composition.bodies.get(skill.id), composition.tail].filter(Boolean).join('\n\n') };
+}
+
+/**
+ * Each retained procedure `ids` names, written as a file in the checkout's output folder (.sflow/out/procedures/) from
+ * the same verified Story closure `skill show` reads, when the step's prompt is composed. A file tool reads it on every
+ * host; the shell command stays a second way. On test-sflow (2026-11-23) a VS Code agent's `skill show` was refused for
+ * how it was typed, the read gateway has no such read, and the agent, told a refusal means unavailable, stopped before
+ * drafting. Returns id -> { path, ranges }; a procedure not written is simply absent.
+ */
+export async function writeRetainedProcedures(root, phase, context, ids) {
+  const files = new Map();
+  try {
+    const [{ mkdir, writeFile }, path, { agentOutputDirectory, AGENT_OUTPUT_FOLDER, lineRanges }] = await Promise.all([
+      import('node:fs/promises'), import('node:path'), import('./agent-output-folder.mjs')]);
+    const directory = path.join(await agentOutputDirectory(root), 'procedures');
+    await mkdir(directory, { recursive: true });
+    for (const id of ids) {
+      const procedure = retainedProcedure(phase, context, id);
+      if (!procedure) continue;
+      const name = `${id}-${digest(procedure.sha256).slice(0, 12)}.md`;
+      const text = `<!-- retained procedure: ${procedure.id} sha256=${digest(procedure.sha256)} -->\n\n# ${procedure.label ?? procedure.id}\n\n${procedure.text.trim()}\n`;
+      await writeFile(path.join(directory, name), text);
+      files.set(id, { path: `${AGENT_OUTPUT_FOLDER}/procedures/${name}`, ranges: lineRanges(text) });
+    }
+  } catch { /* the retrieval command stays the way to it */ }
+  return files;
+}
+
 /** Pure selector consumes an owner-verified execution context; the CLI verifies that owner first. */
 export function selectRetainedSkillInstructions(workflow, phase, context, request) {
   const fail = message => { throw new SingularityFlowError(message, { code: 'SKILL_RETAINED_BINDING_STALE' }); };

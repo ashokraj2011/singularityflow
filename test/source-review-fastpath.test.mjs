@@ -64,7 +64,10 @@ test('review readers cannot statically pull in phase authoring or lifecycle publ
   // contract; phase-inspection-generation.mjs and submit-route.mjs, which they replace, leave. The writers above stay out.
   // 281 (landing-7; main 698adbc95 measures 280): review-dispute-words.mjs, an import-free leaf that only words a person's
   // dispute of a reviewer's finding, joins through the review reads that show it [owner, 2026-11-20]. The writers above stay out.
-  assert.ok(visited.size < 282, `review read closure grew to ${visited.size} local modules`);
+  // 282 (28ffdfe53, 2026-11-23; measured here only now, as this test reads sources and no import named it):
+  // automatic-approval-possible.mjs, a pure rule on two policy readers, joins through the evidence receipt and the
+  // approval chain a review reads, so neither promises an automatic approval the step cannot have. The writers above stay out.
+  assert.ok(visited.size < 283, `review read closure grew to ${visited.size} local modules`);
 });
 
 test('only exact read forms share a review command scope; writers and override flags never do', () => {

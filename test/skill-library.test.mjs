@@ -463,8 +463,12 @@ test('on-demand skills are explicit, scoped, retained offline and retrieved by e
   assert.doesNotMatch(rendered.text, /OPTIONAL-PROCEDURE/);
   assert.match(rendered.text, /load one only when its use condition applies/);
   assert.match(rendered.text, /Never defer mandatory safety, correctness or policy instructions/);
-  assert.match(rendered.text, /A retrieval refusal means unavailable/);
+  // Only the retrieval's own refusal means unavailable; a refusal of how a command was typed sends the agent to the file or
+  // to the command alone (test-sflow, 2026-11-23: told any refusal means unavailable, an agent stopped before drafting).
+  assert.match(rendered.text, /Only the retrieval's own refusal \(SKILL_RETAINED_BINDING_STALE\) means a procedure is unavailable/);
+  assert.match(rendered.text, /A refusal of how a command was typed \(PHASE_MUTATION_\.\.\.\) is not that/);
   assert.match(rendered.text, /--snapshot-sha256/);
+  assert.doesNotMatch(rendered.text, /\.sflow\/out\/procedures/, 'a prompt only rendered writes no file and names none');
   assert.equal(rendered.skills[0].instructions, optional.instructions.trim());
   assert.ok(Buffer.byteLength(rendered.text) < Buffer.byteLength(optional.instructions) / 2);
   const request = { skillId: 'security-review', workId: 'SEC-1', phaseId: 'implementation', agentId: 'developer',
@@ -473,6 +477,19 @@ test('on-demand skills are explicit, scoped, retained offline and retrieved by e
   const verifiedAgain = await resolveStoryExecutionContext(story.root, story.config, story.workflow, { agentId: 'developer', phaseId: 'implementation' });
   const result = selectRetainedSkillInstructions(story.workflow, phase, verifiedAgain, request);
   assert.equal(result.skill.instructions, optional.instructions.trim());
+  // A prompt composed for a run writes each pinned procedure as a file from the same verified closure, and names it.
+  const composed = await renderAgentSkills(story.root, story.workflow, phase, { agent: 'developer' }, {
+    record: true, itemDirectory: path.join(story.root, 'singularity/work-items/SEC-1'), executionContext: verifiedAgain,
+    fetchImpl: () => { throw new Error('No network'); } });
+  const named = composed.text.match(/Read it from `(\.sflow\/out\/procedures\/security-review-[a-f0-9]{12}\.md)` with your file tool/u);
+  assert.ok(named, composed.text.slice(0, 2000));
+  const file = await readFile(path.join(story.root, named[1]), 'utf8');
+  assert.ok(file.includes(result.skill.composedText.trim()), 'the file holds the text skill show returns');
+  assert.match(file, new RegExp(`^<!-- retained procedure: security-review sha256=${result.skill.sha256.replace(/^sha256:/u, '')} -->`, 'u'));
+  // A procedure longer than one read (7,000 bytes) names its line ranges; a shorter one is read whole.
+  if (Buffer.byteLength(file) > 7_000) assert.match(composed.text, /in \d+ ranges \(lines 1–\d+/u);
+  else assert.doesNotMatch(composed.text, /ranges \(lines/u);
+  assert.doesNotMatch(composed.text, /OPTIONAL-PROCEDURE/, 'still not loaded into the prompt');
   assert.equal(result.authority, 'verified-story-snapshot');
   assert.equal(result.effects.filesChanged, false);
   for (const change of [{ workId: 'OTHER' }, { phaseId: 'verification' }, { agentId: 'qa' }, { generation: 2 },
@@ -490,6 +507,17 @@ test('on-demand skills are explicit, scoped, retained offline and retrieved by e
   ]) });
   assert.match(mixed, /MANDATORY POLICY MUST REMAIN\./);
   assert.doesNotMatch(mixed, /OPTIONAL-PROCEDURE/);
+});
+
+test('a pinned procedure longer than one read is named with its line ranges, then its command', () => {
+  const rendered = renderLibrarySkills('developer', [{ id: 'p', label: 'P', sha256: 'a'.repeat(64), instructions: 'x' }], {
+    expansions: new Map([['p', 'singularity-flow skill show p']]),
+    files: new Map([['p', { path: '.sflow/out/procedures/p-aaaaaaaaaaaa.md', ranges: [[1, 120], [121, 200]] }]]) });
+  assert.match(rendered, /Read it from `\.sflow\/out\/procedures\/p-aaaaaaaaaaaa\.md` with your file tool, in 2 ranges \(lines 1–120, 121–200\); its text is the procedure; or retrieve it before applying/u);
+  assert.match(rendered, /Optional procedures are catalogued with the file that holds each one and an exact read-only retrieval command/u);
+  const commandOnly = renderLibrarySkills('developer', [{ id: 'p', label: 'P', sha256: 'a'.repeat(64), instructions: 'x' }],
+    { expansions: new Map([['p', 'singularity-flow skill show p']]) });
+  assert.match(commandOnly, /Optional procedure; instructions retained, not loaded\. Retrieve it before applying/u);
 });
 
 test('Studio edits preserve explicit skill loading and ordinary descriptions never defer instructions', async t => {

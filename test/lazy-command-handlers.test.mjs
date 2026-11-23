@@ -987,7 +987,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,864,782 (measured for submit.mjs, +1,042, 2026-11-23): in a test run, a submitted release's record documents are checked
     // against their records (submit.mjs submittedRecordDocuments, the step invariants loaded lazily from src/story-invariants.mjs),
     // and the release report's comparison writes it as the writer does (record-documents.mjs composed). No new eager file.
-    assert.ok(closure.bytes <= 9_864_782, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,868,579 (measured for submit.mjs, +3,797, 2026-11-23): each pinned procedure is also written as a file when a
+    // step's prompt is composed, and the catalog names it (retained-skill-instructions.mjs, skill-library.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_868_579, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1525,7 +1527,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,340,082 (measured, +149, 2026-11-22): `workflow fix` is /sf-fix-workflow's route too (command-skills.mjs). No new eager file.
   // 4,341,351 (measured, +1,269, 2026-11-23): the finding override as a person's step in the tables the guard reads
   // (person-step-catalog.mjs, copilot-answer-binding.mjs, command-registry.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_341_351, `session current loads ${current.bytes} source bytes`);
+  // 4,342,348 (+997, measured 2026-11-23): the skill catalog's words for a pinned procedure's file (skill-library.mjs).
+  assert.ok(current.bytes <= 4_342_348, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

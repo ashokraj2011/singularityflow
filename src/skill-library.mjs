@@ -368,10 +368,18 @@ export function normalizeSkillUse(value) {
  * The prompt text for the library skills attached to an agent in a step: a short instruction to
  * read and apply them, then each skill with when to use it and its instructions.
  */
-export function renderLibrarySkills(agentId, entries, { expansions = new Map(), composition = null } = {}) {
+/** Where a retained procedure's file is and how to read it: its text is the procedure. */
+function procedureFileWords(file) {
+  const ranges = file.ranges ?? [];
+  return `Read it from \`${file.path}\` with your file tool${ranges.length > 1 ? `, in ${ranges.length} ranges (lines ${ranges.map(([start, end]) => `${start}–${end}`).join(', ')})` : ''}; its text is the procedure;`;
+}
+
+export function renderLibrarySkills(agentId, entries, { expansions = new Map(), composition = null, files = new Map() } = {}) {
   if (!entries.length) return '';
+  // Only the retrieval's own answer says a procedure is unavailable. A refusal of how a command was typed said nothing about
+  // the procedure, yet "a retrieval refusal means unavailable" stopped an agent before drafting (test-sflow, 2026-11-23).
   const guidance = expansions.size
-    ? 'Apply eager instructions below. Optional procedures are catalogued with exact read-only retrieval commands; load one only when its use condition applies. Never defer mandatory safety, correctness or policy instructions. A retrieval refusal means unavailable: do not use live library bytes or invent the procedure.'
+    ? `Apply eager instructions below. Optional procedures are catalogued${files.size ? ' with the file that holds each one and' : ' with'} an exact read-only retrieval command; load one only when its use condition applies. Never defer mandatory safety, correctness or policy instructions. Only the retrieval's own refusal (SKILL_RETAINED_BINDING_STALE) means a procedure is unavailable: then do not use live library bytes or invent it. A refusal of how a command was typed (PHASE_MUTATION_...) is not that: read the procedure's file, or run the command again on its own.`
     : entries.some((entry) => entry.scopes?.some((scope) => scope.startsWith('workflow ')))
       ? 'These skills apply to this workflow step. Read each one before you start this step.'
       : `These skills from the skill master are attached to ${agentId}. Read each one before you start this step.`;
@@ -386,7 +394,7 @@ export function renderLibrarySkills(agentId, entries, { expansions = new Map(), 
     entry.instructionRefs?.length ? `\nReferenced instructions: ${entry.instructionRefs.join(', ')} (retained with this skill).` : null,
     '',
     expansions.has(entry.id)
-      ? `Optional procedure; instructions retained, not loaded. Retrieve before applying; use skill.composedText from the response as the procedure:\n\n${expansions.get(entry.id)}`
+      ? `Optional procedure; instructions retained, not loaded. ${files.get(entry.id) ? `${procedureFileWords(files.get(entry.id))} or retrieve it` : 'Retrieve it'} before applying; use skill.composedText from the response as the procedure:\n\n${expansions.get(entry.id)}`
       : (composition?.bodies.get(entry.id) ?? entry.instructions).trim()
   ].filter((line) => line != null).join('\n'));
   return [

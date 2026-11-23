@@ -1,5 +1,5 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { retainedSkillExpansion } from './retained-skill-instructions.mjs';
+import { retainedSkillExpansion, writeRetainedProcedures } from './retained-skill-instructions.mjs';
 import { resolveSkillInstructions } from './instruction-library.mjs';
 import { composeSkillInstructions } from './skill-instruction-composition.mjs';
 import { createHash } from 'node:crypto';
@@ -652,9 +652,11 @@ export async function renderAgentSkills(root, workflow, phase, session, {
     if (!saved) skill.referencedInstructions = await resolveSkillInstructions(configurationReadRoot(root), skill);
   }
   const composition = composeSkillInstructions(library.skills.filter(entry => !expansions.has(entry.id)));
+  // Each pinned procedure as a file too, written while a real prompt is composed: a file tool reaches it on every host.
+  const files = record && expansions.size ? await writeRetainedProcedures(root, phase, executionContext, [...expansions.keys()]) : new Map();
   const text = [
     selected.map((entry) => `<!-- agent skill: ${session.agent}/${entry.id} sha256=${entry.sha256} -->\n\n## Agent skill: ${entry.id}\n\n${entry.content.trim()}`).join('\n\n'),
-    renderLibrarySkills(session.agent, library.skills, { expansions, composition }),
+    renderLibrarySkills(session.agent, library.skills, { expansions, composition, files }),
     composition.tail
   ].filter(Boolean).join('\n\n');
   const warnings = [...synced.warnings, ...library.warnings];

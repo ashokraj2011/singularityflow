@@ -191,7 +191,7 @@ A Copilot turn may read and prepare. Importing and updating stay the person's re
 
 ## 10. Acceptance
 
-- **A1:** Converting every agent of the public sample marketplace (`ashokraj2011/sdlc-marketplace`) gives a review
+- **A1:** Converting every agent of the public sample marketplace (`sdlc-marketplace`) gives a review
   where every stage appears once: as a step, merged into one, or open. Every note is a finding with an owner.
 - **A2:** A seeded defect in the sample (a skill named but not depended on; a stage with no task) appears under
   **Feedback for the marketplace**, with a suggested fix. SFlow's own additions never appear there.

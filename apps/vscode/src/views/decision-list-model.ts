@@ -48,7 +48,7 @@ export interface DecisionOptionPacket {
   sharedLabel?: string;
   /** The same choice's exact command for the person's own terminal, shown beside it (an intent amendment's decide) [owner, 2026-11-13]. */
   terminal?: string;
-  action?: { command: string | null; alternativeCommands?: string[]; humanReview?: { kind: 'witness'; clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; owners: string[]; contextBinding: string };
+  action?: { command: string | null; alternativeCommands?: string[]; humanReview?: WitnessReviewChoice & { kind: 'witness'; owners: string[] };
     /** A file the person writes before running the command (an intent-amendment draft), named by the engine. */
     file?: string };
 }
@@ -648,6 +648,10 @@ export interface WitnessReviewChoice {
   /** No screenshot or file: the person's own check is the sign-off (owner, 2026-11-22). */
   attest?: boolean;
 }
+type WitnessReviewResult =
+  | { status: 'recorded'; result: unknown }
+  | { status: 'unavailable' | 'cancelled' | 'unsure'; message: string };
+
 export interface WitnessReviewHost {
   read(): Promise<DecisionPacket>;
   choose(choices: WitnessReviewChoice[]): Promise<WitnessReviewChoice | undefined>;
@@ -675,7 +679,7 @@ export function witnessReviewChoices(packet: DecisionPacket): WitnessReviewChoic
 }
 
 /** No selection, answer or reason ever arrives from Copilot. Closing any native prompt cancels. */
-export async function runWitnessReview(target: WitnessReviewTarget, host: WitnessReviewHost) {
+export async function runWitnessReview(target: WitnessReviewTarget, host: WitnessReviewHost): Promise<WitnessReviewResult> {
   if (typeof target.workId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(target.workId)
       || target.criterion && !/^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u.test(target.criterion)
       || target.slot && !/^[A-Za-z0-9._-]{1,128}$/u.test(target.slot)) throw new Error('Select an exact Story, acceptance criterion and witness slot.');
@@ -714,7 +718,7 @@ export async function runWitnessReview(target: WitnessReviewTarget, host: Witnes
 }
 
 /** A sign-off with no screenshot: one question, the person's note required, recorded with --attest (owner, 2026-11-22). */
-async function attestReview(target: WitnessReviewTarget, host: WitnessReviewHost, review: WitnessReviewChoice, repository: string) {
+async function attestReview(target: WitnessReviewTarget, host: WitnessReviewHost, review: WitnessReviewChoice, repository: string): Promise<WitnessReviewResult> {
   const answer = await host.answer(attestQuestion(review), SIGN_OFF_ANSWERS);
   if (answer === undefined) return { status: 'cancelled', message: 'Nothing was recorded.' };
   if (answer === 'unsure') return { status: 'unsure', message: unsureWords(target.workId) };
@@ -727,7 +731,7 @@ async function attestReview(target: WitnessReviewTarget, host: WitnessReviewHost
 }
 
 async function recordAttestation(target: WitnessReviewTarget, host: WitnessReviewHost, review: WitnessReviewChoice, repository: string,
-  given: { reason: string; answers: Array<[string, boolean]> }) {
+  given: { reason: string; answers: Array<[string, boolean]> }): Promise<WitnessReviewResult> {
   const fresh = await host.read();
   const current = witnessReviewChoices(fresh).find(entry => entry.clauseId === review.clauseId && entry.slot === review.slot);
   if (fresh.workId !== target.workId || fresh.repositoryPath !== repository || current?.contextBinding !== review.contextBinding) {

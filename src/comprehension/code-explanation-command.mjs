@@ -111,6 +111,25 @@ async function optionalNarrative(root, explanation, {
 
 const REPOSITORY_INCOMPATIBLE = ['narrate', 'length', 'since', 'hunk', 'symbol', 'clause', 'work-id', 'phase'];
 
+async function runCodeMap(root, options, operation) {
+  if ([...REPOSITORY_INCOMPATIBLE, 'repository', 'no-index'].some(name => options[name] != null)) {
+    throw new SingularityFlowError(
+      'The code map takes only a view and an optional repository path.',
+      { code: 'CMP_CODE_MAP_QUERY_INVALID' }
+    );
+  }
+  const { loadCodeMap } = await import('./code-map.mjs');
+  const codeMap = await loadCodeMap(root, { view: optionString(options, 'code-map'), scope: optionString(options, 'path') });
+  return emitCommandResult(commandResult({
+    operation,
+    subject: { kind: 'repository', id: path.basename(root) },
+    outcome: succeeded('code-explanation.map-reported', { files: codeMap.modules.length, symbols: codeMap.symbols.length }),
+    effects: noEffects(),
+    restState: 'informational',
+    data: { mode: 'observe-only', codeMap }
+  }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+}
+
 /**
  * The `--repository` request, or null. `--repository` also takes a value in workspace commands, so
  * the parser hands it the next word: `explain code --repository src/pay` reads as that scope.
@@ -173,6 +192,7 @@ export async function runCodeExplanation(_argv, {
     );
   }
   const root = repoRoot();
+  if (options['code-map'] != null) return runCodeMap(root, options, operation);
   const repository = repositoryRequest(options);
   if (repository) return runRepositoryExplanation(root, options, operation, repository.scope);
   const wantsNarrative = optionBoolean(options, 'narrate');

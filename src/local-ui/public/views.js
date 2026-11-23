@@ -12,6 +12,7 @@ const icons = {
   agents: '<circle cx="10" cy="9" r="3"/><path d="M4 20c.4-4 2.4-6 6-6s5.6 2 6 6m2-16 .7 1.6 1.8.4-1.8.5L18 8l-.7-1.5-1.8-.5 1.8-.4z"/>',
   skills: '<path d="m12 2.8 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3-4.6-4.5 6.3-.9z"/>',
   instructions: '<path d="M4 5h16M4 12h16M4 19h11"/>',
+  code: '<path d="m8 6-6 6 6 6m8-12 6 6-6 6m-2-15-4 18"/>',
   run: '<circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/>',
   decisions: '<path d="m12 2 8 3.5v6c0 5-3.2 8.5-8 10.5-4.8-2-8-5.5-8-10.5v-6zM8.5 12l2.2 2.2 4.8-5"/>',
   about: '<circle cx="12" cy="12" r="9"/><path d="M12 10v7M12 7h.01"/>',
@@ -38,7 +39,7 @@ export function icon(name) {
 const groups = [
   ['Workspace', [['home', 'Overview'], ['specs', 'Spec Studio'], ['stories', 'Stories']]],
   ['Toolkit', [['workflows', 'Workflows'], ['agents', 'Agents'], ['skills', 'Skills'], ['instructions', 'Instructions']]],
-  ['Tools', [['decisions', 'Decisions'], ['run', 'Run & Test']]]
+  ['Tools', [['code', 'Code Explainer'], ['decisions', 'Decisions'], ['run', 'Run & Test']]]
 ];
 const pageLabels = Object.fromEntries([...groups.flatMap(([, pages]) => pages), ['spec', 'Spec Studio'], ['about', 'About']]);
 export const pageLabel = page => pageLabels[page] ?? 'Overview';
@@ -127,6 +128,7 @@ export function overviewView(context, recent) {
         <h2>Quick access</h2>
         <div class="quick-list">
           ${quickLink('#stories', 'stories', 'Browse Stories', 'Find work by title, creator or repository.', 'blue')}
+          ${quickLink('#code', 'code', 'Explore code', 'Follow calls, changes and their Story requirements.', 'blue')}
           ${quickLink('#decisions', 'decisions', 'Review decisions', 'See what needs a decision in this checkout.', 'gold')}
           ${quickLink('#run', 'run', 'Run & Test', 'See application plans and the latest test results.', 'mint')}
         </div>

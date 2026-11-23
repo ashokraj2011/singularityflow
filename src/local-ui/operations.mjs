@@ -30,6 +30,9 @@ const reads = {
   'agent.list': () => ['agents', 'list'],
   'skill.list': () => ['skill', 'list'],
   'instruction.list': () => ['instruction', 'list'],
+  'code.changes': () => ['explain', 'code', '--code-map=changes'],
+  'code.repository': input => ['explain', 'code', '--code-map=repository',
+    ...(input.scope == null ? [] : [`--path=${text(input.scope, 'Repository path', 1000)}`])],
   'decision.list': input => ['decisions', ...(input.workId ? [identifier(input.workId, 'Story ID')] : [])],
   'app.plan': () => ['app', 'plan'],
   'app.status': () => ['app', 'status'],
@@ -38,6 +41,7 @@ const reads = {
 };
 const fields = {
   'story.read': ['workId'], 'decision.list': ['workId'],
+  'code.repository': ['scope'],
   ...Object.fromEntries(['read', 'show', 'check', 'history', 'sources', 'gaps'].map(name => [`spec.${name}`, ['specId']])),
   'spec.read': ['specId', 'operationId'],
   'spec.create': ['title', 'intent', 'kind'], 'spec.save': ['specId', 'sequence', 'content', 'title', 'kind'],

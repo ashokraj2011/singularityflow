@@ -1,4 +1,11 @@
-# Code Explainer (VS Code)
+# Code Explainer
+
+In the browser workspace, open **Tools → Code Explainer**. Use **Changes** to follow edited
+declarations, their diffs and their Story trace, or **Repository** to explore tracked files by
+folder. The browser analyzes source in the selected local checkout and marks call links inferred
+from source names and imports. Use the VS Code panel for editor language services.
+
+## VS Code
 
 **Implemented boundary:** an interactive, read-only explanation of the source code a change touches:
 which functions changed, who calls them, what they call, which tests name them, and which
@@ -10,7 +17,7 @@ title bar, or from **Explain This Code** in the editor's *Singularity Flow* subm
 function at the cursor (and works on code the change did not touch). **Code Explainer** is one of the
 Navigator's main destinations, and *Work tools → Understand changes* lists it too.
 
-## What it shows
+### What it shows
 
 - **Dependency graph.** One card per file, one row per function, method or class, laid out in layers:
   callers to the left of what they call. Changed rows carry their `+added −removed` counts and a
@@ -55,7 +62,7 @@ Navigator's main destinations, and *Work tools → Understand changes* lists it 
 - **Walkthrough.** The changed functions in reading order (callers before the functions they call,
   code before tests, whole-file changes last), one step at a time, each with its explanation and diff.
 
-## Lenses
+### Lenses
 
 The bar under the header chooses how to look at the code. **Code** is everything above: the
 dependency graph, the trace, the walkthrough and the repository. The other four lenses read the same
@@ -136,7 +143,7 @@ callee, ↑/↓ within a card, `/` to find, `I` to isolate the selection's neigh
 `L` to lay the graph out again, `M` for the overview. Filters show or hide changed, repository, caller,
 callee, test, external and other cards; **Call depth** 1–3 follows callers of callers and callees of callees.
 
-## Where the facts come from
+### Where the facts come from
 
 | Fact | Source | What it does not mean |
 |---|---|---|
@@ -153,7 +160,7 @@ Every sentence in the explanation says which of these it rests on. **How this vi
 *engine* item in the status line) lists, per language, where symbols and calls came from and how many
 language-service requests were answered, empty or failed.
 
-## Boundaries
+### Boundaries
 
 - **Bounded.** Anything cut is named in the view.
   - Per build: at most 40 changed code files, 120 call-hierarchy requests, 240 functions, and 40

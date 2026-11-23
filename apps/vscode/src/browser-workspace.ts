@@ -20,7 +20,8 @@ const bridges = new Map<string, EditorBridge>();
 const menus: Record<string, string> = {
   specs: 'singularityFlow.openSpecStudio', workflows: 'singularityFlow.openWorkflowStudio',
   stories: 'singularityFlow.openStories', intake: 'singularityFlow.startWork', run: 'singularityFlow.workspaceRunTest',
-  decisions: 'singularityFlow.decisions', configuration: 'singularityFlow.openConfigurationCenter'
+  decisions: 'singularityFlow.decisions', configuration: 'singularityFlow.openConfigurationCenter',
+  code: 'singularityFlow.openCodeExplainer'
 };
 const copilotAvailable = (): boolean => Boolean(vscode.extensions.getExtension('GitHub.copilot-chat'))
   && vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') !== 'disabled'

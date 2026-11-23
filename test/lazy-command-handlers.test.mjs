@@ -976,7 +976,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,858,437 (measured for submit.mjs, +2,855, 2026-11-23): only a step its reviewer reviews promises automatic approval
     // (automatic-approval-possible.mjs, the one new file, read by evidence-receipt.mjs and approval-chain.mjs), and a Story with
     // no clause offers no linked scope choice (owed-decisions.mjs, decision-list.mjs, scope/extract.mjs).
-    assert.ok(closure.bytes <= 9_858_437, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,862,384 (measured for submit.mjs, +3,947, 2026-11-23): a person overrides a blocking finding the check got wrong,
+    // honoured where the checks read their findings (phase-draft-check.mjs, publication-preflight.mjs, conformance-readiness.mjs
+    // and publication's specification gate load finding-overrides.mjs only when they run), with its route, guard and words
+    // (phase-resolution.mjs, copilot-mutation-guard.mjs, copilot-answer-binding.mjs, person-step-catalog.mjs, decision-list.mjs).
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_862_384, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1135,7 +1140,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 874,216 (measured on landing-14): capability kind's --confirm read as a typeof check (+9).
   // 874,699 (measured on landing-15 with main ce94e5a79): the typeof check and the two option names added.
   // 874,709 (measured, +10, 2026-11-22): --attest, a person's sign-off with no screenshot, read as a flag (util.mjs).
-  assert.ok(root.bytes <= 874_709, `root dispatch loads ${root.bytes} source bytes`);
+  // 874,729 (measured, +20, 2026-11-23): `decision override-finding` registered (command-registry.mjs). No new eager file.
+  assert.ok(root.bytes <= 874_729, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1511,7 +1517,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,339,923 (measured, +405, 2026-11-22): a person's sign-off without a screenshot is read as met (witness-records.mjs). No new eager file.
   // 4,339,933 (measured, +10): --attest read as a flag (util.mjs BOOLEAN_OPTIONS).
   // 4,340,082 (measured, +149, 2026-11-22): `workflow fix` is /sf-fix-workflow's route too (command-skills.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_340_082, `session current loads ${current.bytes} source bytes`);
+  // 4,341,351 (measured, +1,269, 2026-11-23): the finding override as a person's step in the tables the guard reads
+  // (person-step-catalog.mjs, copilot-answer-binding.mjs, command-registry.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_341_351, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

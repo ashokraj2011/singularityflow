@@ -891,6 +891,10 @@ export function argvAllowed(argv, mode, value) {
         // Its recommended answer takes no reason: --recommended, which the command checks and the binding holds to a Yes [C10].
         && ['unchanged', 'return'].includes(options.outcome) && (typeof options.reason === 'string' || options.recommended === true))
     && options['work-id'] === value.contract.workId;
+  // Overriding a check's blocking finding, on the person's own yes to its question and in their own words [owner, 2026-11-23].
+  if (mode === 'decision-only' && positionals[0] === 'decision' && positionals[1] === 'override-finding') return !value.decisionEnded
+    && positionals.length === 3 && positionals[2] === value.contract.workId && typeof options.finding === 'string' && typeof options.reason === 'string'
+    && Object.keys(options).every((key) => ['phase', 'finding', 'reason', 'json'].includes(key));
   if (mode === 'decision-only') return !value.decisionEnded && positionals[0] === 'decision'
     && DECIDE_SKILL_MUTATIONS.includes(positionals[1]) && positionals.length <= 3
     // A plan row correction too, held to the person's own answer to the question that showed its rows [owner, 2026-11-19].

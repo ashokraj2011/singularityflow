@@ -91,6 +91,18 @@ async function reviewAdvisories(root, config, workflow, phase, includeSheet) {
   return { ...advisories, ...(sheet ? { sheet } : {}) };
 }
 
+/** The check's findings a person overrode for the submitted version, with who and why (finding-overrides.mjs) [owner, 2026-11-23]. */
+async function findingOverridesOf(workflow, phase) {
+  try {
+    if (!workflow?.findingOverrides?.length) return {};
+    const { activeFindingOverrides, overriddenWords } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'finding-overrides.mjs')).href);
+    const overrides = activeFindingOverrides(workflow, phase, Number(phase.generation)).map((entry) => ({ id: entry.id, finding: entry.finding,
+      code: entry.code, path: entry.path, message: entry.message, by: entry.actor, reason: entry.reason,
+      words: overriddenWords({ code: entry.code, path: entry.path, value: entry.value }, { by: entry.actor, reason: entry.reason }) }));
+    return overrides.length ? { findingOverrides: overrides } : {};
+  } catch { return {}; }
+}
+
 /** The review's findings a person disputed, each in the words every surface shows; none when its review is not read here. */
 async function reviewDisputesOf(root, config, workflow, phase) {
   try {
@@ -266,6 +278,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     owedDecisions: reviewBinding ? await owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)) : null,
     // Each finding of its review a person disputed, with their reason: the approver decides with it in view [owner, 2026-11-20].
     ...(phase.status === 'awaiting_approval' ? await reviewDisputesOf(root, config, workflow, phase) : {}),
+    // Each check finding a person overrode for this version, with their reason: decided with it in view [owner, 2026-11-23].
+    ...(phase.status === 'awaiting_approval' ? await findingOverridesOf(workflow, phase) : {}),
     // Approve twice: the steps SFlow approved since the last person approval, which this approval covers and shows.
     ...(phase.status === 'awaiting_approval' ? await import('../../phase-roles.mjs').then(({ automaticApprovalsBefore, coveredStep }) => {
       const covered = automaticApprovalsBefore(workflow, phase.id).map(coveredStep);

@@ -127,7 +127,7 @@ export function worktreeAttempt(root, draftFingerprint = null) {
 }
 
 /** The escalation for a finding seen `count` times in a row, or null below the threshold. */
-export function findingEscalation({ count, code, workId, phaseId }) {
+export function findingEscalation({ count, code, workId, phaseId, overrideKey = null }) {
   if (!(count >= ESCALATION_THRESHOLD)) return null;
   const documentation = findingDocumentation({ code });
   const disputable = DISPUTABLE_GATES.includes(code);
@@ -136,6 +136,10 @@ export function findingEscalation({ count, code, workId, phaseId }) {
     ...(disputable ? [{ kind: 'dispute', owner: 'phase-approval-authority',
       command: `singularity-flow appeal risk-prepare${work} --phase ${phaseId} --finding ${code} --evidence-file <PATH> --expires <YYYY-MM-DD> --reason <why> --json`,
       detail: 'Prepare a dispute with the evidence; one of the step\'s approvers reviews it live and may accept it as an exception for this exact candidate.' }] : []),
+    // A finding its gate lets a person override (finding-overrides.mjs) [owner, 2026-11-23].
+    ...(overrideKey && workId ? [{ kind: 'override', owner: 'phase-approval-authority',
+      command: `singularity-flow decision override-finding ${workId} --phase ${phaseId} --finding ${overrideKey} --reason "<REASON>"`,
+      detail: 'If the check is wrong, someone the step\'s approval rules name overrides this exact finding with their own reason, on the decision list or in their terminal; recorded as overridden, never passed.' }] : []),
     { kind: 'documentation', owner: 'reader', command: documentation.command,
       detail: 'What the finding means, its usual causes, and who else can act.' },
     // The step's own read (the map's inspect form), never recovery: a repeated finding is not damage, and the instruction
@@ -148,6 +152,7 @@ export function findingEscalation({ count, code, workId, phaseId }) {
     instruction: `The same ${code} finding has returned ${count} times after repairs; repeating the repair cannot pass. `
       + 'Stop repairing, prepublishing, recovering or re-running the appeal preflight for it. Tell the person what is blocked and hand it to someone other than the author: '
       + (disputable ? 'prepare a dispute with the evidence for the step\'s approvers, or ' : '')
+      + (overrideKey && workId ? 'someone the step\'s approval rules name may override it with their reason on the decision list, or ' : '')
       + 'follow the route its documentation names. Nothing was accepted or waived.',
     routes: Object.freeze(routes)
   });

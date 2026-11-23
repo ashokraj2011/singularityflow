@@ -4154,6 +4154,8 @@ async function decisionCommand(positionals, options) {
   if (action === 'witness') return decisionWitnessCommand(positionals, options);
   if (action === 'witness-exception') return (await import('./commands/decision-witness-exception.mjs')).decisionWitnessExceptionCommand(positionals, options);
   if (action === 'witness-defer') return (await import('./commands/decision-witness-defer.mjs')).decisionWitnessDeferCommand(positionals, options);
+  // A person overrides a blocking finding the check got wrong (finding-overrides.mjs) [owner, 2026-11-23].
+  if (action === 'override-finding') return (await import('./commands/decision-override-finding.mjs')).decisionOverrideFindingCommand(positionals, options);
   if (action === 'visual-risk') return (await import('./commands/decision-visual-risk.mjs')).decisionVisualRiskCommand(positionals, options);
   if (action === 'screenshot') return (await import('./commands/decision-screenshot.mjs')).decisionScreenshotCommand(positionals, options);
   throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope, decision completeness, decision plan, decision departure, decision risk, decision test-risk, decision test-narrowing, decision test-command, decision finding-risk, decision evidence-reuse, decision visual-profile, decision witness or decision witness-exception.`, { code: 'COMMAND_UNKNOWN' });

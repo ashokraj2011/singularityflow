@@ -310,6 +310,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded ${slot(s.record)}; the tests still run every time, and only a run with the same environment cause is let through until it expires or is revoked.`,
     preserves: false
   },
+  'decision.override-finding.succeeded': {
+    headline: (s) => `Recorded ${slot(s.record)}; that finding no longer blocks the version of its step being written, and it is shown as overridden, never as passed.`,
+    preserves: false
+  },
   'decision.finding-risk.succeeded': {
     headline: (s) => `Recorded ${slot(s.record)}; the scanners still run every time, and only this finding, from the same rule, tool and version, is kept until it expires or is revoked.`,
     preserves: false

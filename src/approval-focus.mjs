@@ -347,6 +347,8 @@ function deliveryStep(workflow, phase) {
 async function reviewerItems(root, config, workflow, phase, review) {
   const items = [];
   for (const entry of review?.reviewDisputes ?? []) items.push({ kind: 'dispute', words: `Disputed review finding ${entry.finding}: ${entry.message} ${entry.by} disputed it: ${entry.reason} Return the step if you agree with the reviewer.`, at: at(null, null, { finding: entry.finding }) });
+  // A check's finding a person overrode for this version [owner, 2026-11-23].
+  for (const entry of review?.findingOverrides ?? []) items.push({ kind: 'override', words: `Overridden check finding ${entry.code}${entry.path ? ` on ${entry.path}` : ''}: ${entry.message} ${entry.by} overrode it: ${entry.reason} Return the step if you agree with the check.`, at: at(entry.path ?? null, null, { finding: entry.finding }) });
   let status = null;
   try {
     if ((await import('./source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id)) {

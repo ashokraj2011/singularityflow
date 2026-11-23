@@ -373,13 +373,21 @@ export async function inspectPhaseArtifactQuality(root, config, workflow, phase,
   const findings = await inspectRawPhaseAuthoredReviewContent(root, config, workflow, phase, options);
   if (options.resolveRisks === false || !(workflow.qualityRiskDecisions ?? []).some(record =>
     record?.gate === 'PHASE_ARTIFACT_QUALITY' && record.binding?.phaseId === phase.id)) {
-    return { findings, acceptedFindings: [], risks: null };
+    return withOverrides(workflow, phase, { findings, acceptedFindings: [], risks: null });
   }
   const { resolveArtifactQualityFindings } = await import('./phase-artifact-risk.mjs');
   const transition = options.transition ?? (phase.status === 'awaiting_approval' ? 'approve'
     : Number(phase.generation) > 0 && phase.generationIntent?.status !== 'open' ? 'submit' : 'publish');
-  return resolveArtifactQualityFindings(root, config, workflow, phase, findings,
-    { transition, generation: options.generation ?? null });
+  return withOverrides(workflow, phase, await resolveArtifactQualityFindings(root, config, workflow, phase, findings,
+    { transition, generation: options.generation ?? null }));
+}
+
+/** A person's overrides of these findings, honoured here once for the draft check, publication and submission. */
+async function withOverrides(workflow, phase, result) {
+  if (!workflow?.findingOverrides?.length && !result.findings.length) return result;
+  const { honourOverrides } = await import('./finding-overrides.mjs');
+  const honoured = honourOverrides(workflow, phase, result.findings);
+  return { ...result, findings: honoured.findings, overridden: honoured.overridden };
 }
 
 export async function inspectPhaseAuthoredReviewContent(root, config, workflow, phase, options = {}) {

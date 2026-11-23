@@ -684,6 +684,11 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     return commitReviewDispute(root, config, workflow, { phaseId: effect.phase, findingId: effect.finding, reason: step.values.reason,
       reportSha256: effect.reportSha256 ?? null }, { actor });
   }
+  if (effect.kind === 'finding-override') {
+    // Override the check's finding: the same function as `decision override-finding`, for the finding the list showed [owner, 2026-11-23].
+    const { commitFindingOverride } = await import('../finding-override-commit.mjs');
+    return commitFindingOverride(root, config, workflow, { phaseId: effect.phase, key: effect.finding, reason: step.values.reason }, { actor, agent });
+  }
   if (effect.kind === 'asked-for-note') {
     // "That was not a request": the person's words kept as a note, so nothing waits for them [owner, 2026-11-18].
     const { accountAsNote } = await import('../asked-for-records.mjs');
@@ -778,6 +783,7 @@ function recordId(kind, record) {
   if (kind === 'intent-amendment-acknowledge') return `${record?.id} acknowledged`;
   if (kind === 'asked-for-note') return `${record?.id}: instruction ${record?.instruction} kept as a note`;
   if (kind === 'review-dispute') return `the reviewer's finding ${record?.finding} disputed`;
+  if (kind === 'finding-override') return `the check's finding ${record?.finding} overridden`;
   if (kind === 'amendment-revalidation') return `${record?.phase} ${record?.outcome} after ${record?.amendment}${record?.link ? ` (${record.link})` : ''}`;
   if (kind === 'upstream-issue-decision') return `${record?.issue} ${record?.outcome}`;
   if (kind === 'scope-disposition') return `${record?.item} ${record?.disposition}`;
@@ -1070,7 +1076,7 @@ async function record(root, options, workId, io) {
     // One entry per decision, in its own words: a record's ID says neither how many were made nor what they were.
     const draftedItems = new Set([...drafted, ...unchanged].map((entry) => entry.item));
     // What an intent amendment's decision did, beside what was chosen: a partial approval waits for the rest.
-    const said = new Map(outcome.recorded.filter((entry) => /^(?:intent-amendment-(?:decision|refresh|acknowledge)|settled-undo|review-dispute)$/u.test(entry.kind) && entry.record?.words)
+    const said = new Map(outcome.recorded.filter((entry) => /^(?:intent-amendment-(?:decision|refresh|acknowledge)|settled-undo|review-dispute|finding-override)$/u.test(entry.kind) && entry.record?.words)
       .map((entry) => [entry.item, entry.record.words]));
     const decided = plan.steps.filter((step) => !draftedItems.has(step.item))
       .map((step) => ({ item: step.item, words: `${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}${said.has(step.item) ? `. ${said.get(step.item)}` : ''}` }));

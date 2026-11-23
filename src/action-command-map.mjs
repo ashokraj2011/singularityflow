@@ -52,7 +52,9 @@ export const ACTION_COMMANDS = Object.freeze({
     'env-bind': 'env bind <input> --stdin', capability: 'capability show --json', 'test-command': 'story test-policy amend --reason <why>',
     appeal: 'appeal preflight --phase <step> --work-id <W> --json',
     // A reviewer's blocking finding a person disputes (`<input>`: the finding's ID), with their own reason [owner, 2026-11-20].
-    dispute: 'review-source dispute <step> --work-id <W> --finding <input> --reason "<REASON>"' }),
+    dispute: 'review-source dispute <step> --work-id <W> --finding <input> --reason "<REASON>"',
+    // A check's blocking finding a person overrides (`<input>`: its CHK- key), with their own reason [owner, 2026-11-23].
+    override: 'decision override-finding <W> --phase <step> --finding <input> --reason "<REASON>"' }),
   'recover-operation': entry('work', { reconcile: 'phase opening <step> --reconcile --json', recover: 'recover <W> --phase <step> --json' }),
   'takeover-writer': entry(ACTION_SKILLS.takeover, { takeover: 'session takeover <W> --json' }),
   'refresh-authority': entry('by-command', { branch: 'refresh-branch', session: 'session current --for-agent --json' }),
@@ -131,6 +133,7 @@ export const decideRoute = (workflow) => ({ skill: ACTION_SKILLS.decide, command
 export const inTurnSubmitCommand = (workId) => actionCommandLine('submit-version', 'in-turn', { workId });
 /** "Dispute this finding": the person's own reason goes where `<REASON>` stands (review-finding-dispute.mjs). */
 export const reviewDisputeCommand = (workId, step, finding) => actionCommandLine('decide', 'dispute', { step, workId, input: finding });
+export const findingOverrideCommand = (workId, step, key) => actionCommandLine('decide', 'override', { step, workId, input: key });
 export const handoffSubmitRoute = (workflow, phase) => {
   const route = fixed(ACTION_SKILLS.readiness, 'submit-version', 'step', workflow, phase);
   return { ...route, command: route.command + decisionSubmitArguments(workflow, phase.id) };

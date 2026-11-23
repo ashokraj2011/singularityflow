@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 25
+version: 26
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -35,6 +35,38 @@ Use this topic when a step was refused and you need to know what the finding mea
 3. Fix what the entry says the author owns, then recheck with `sflow phase prepublish <PHASE> --json`.
 4. When the author cannot fix it (the finding belongs to an earlier step, a person must decide, or the check misreads correct work), use the route its entry names for someone else instead of repeating the same repair.
 5. When the same finding returns a third time after real changes, the result says so: a refusal's first step becomes "Stop" with the routes for someone other than the author, and `sflow phase prepublish` reports `repairLoop.status: escalate`. A recheck with nothing changed is not counted. The count is kept on this computer only and accepts nothing.
+
+## Overriding a finding
+
+Every finding that blocks a step has a person's way past it.
+
+- **Most already have one:** an assignment, an accepted test-run risk, a scope appeal, a plan decision, a dispute of the
+  reviewer's finding, a dispute of the code-delivery check.
+- **A finding a check raises about the step's own document has an override** for when the check is wrong. Examples:
+  a "TODO" that is a product name, a clause row the check misreads, or a sign-off the report already names in its own
+  words.
+
+Who and how:
+
+- Someone the step's approval rules name decides it, with their own reason (20 to 1000 characters): one of its approvers,
+  or its author where the step lets the author approve their own work. The agent never decides it.
+- It is a row on the decision list: the Decide card, `/sf-decide` after the person's Yes, or `sflow decisions record`.
+  Or the person runs `sflow decision override-finding <WORK-ID> --phase <PHASE> --finding <CHK-ID> --reason <TEXT>` in
+  their own terminal.
+- The finding's key (`CHK-` and twelve hex digits) is in its route, on the decision list, and in
+  `sflow phase prepublish <PHASE> --json` (`findings[].override.key`).
+
+What it does:
+
+- That exact finding (its code, file and clause, never its wording) stops blocking the version of the step being
+  written. Prepublish, publication and submission honour it alike.
+- It is recorded as overridden, never as passed. `sflow phase prepublish` lists it under `overridden`, and the step's
+  approvers see who overrode it and why beside the approval; they may still return the step.
+- A later version of the step is checked afresh.
+
+Never overridden here: a finding that guards integrity, an authority or a secret; a failing test (its accepted risk
+instead); the code delivery check (its dispute instead); a missing or damaged document; a person's own answer still owed;
+and where the Story stands.
 
 ## Finding classes
 

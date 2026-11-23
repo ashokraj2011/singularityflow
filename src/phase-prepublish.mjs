@@ -715,7 +715,7 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
     const count = observeFindingStreak(root, { workId: workflow.workItem.id, phaseId: phase.id, generation: draft.generation,
       fingerprint: findingFingerprint(blocking), attempt: worktreeAttempt(root, draftFingerprint) });
     escalation = findingEscalation({ count, code: codes.find((code) => DISPUTABLE_GATES.includes(code)) ?? codes[0],
-      workId: workflow.workItem.id, phaseId: phase.id });
+      workId: workflow.workItem.id, phaseId: phase.id, overrideKey: blocking.find((finding) => finding.override?.key)?.override.key ?? null });
   } else if (ready) {
     // Its checks pass: a finding that returns later starts its count again [review 2026-11-17, kernel #7].
     (await import('./finding-escalation.mjs')).settleFindingStreak(root, { workId: workflow.workItem.id, phaseId: phase.id });
@@ -734,6 +734,8 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
     producer: draft.producer,
     qualityDisposition: draft.qualityDisposition,
     acceptedQualityRisks: draft.acceptedQualityRisks,
+    // Findings a person overrode for this version: they block nothing, and are shown as overridden, never passed.
+    ...(draft.overridden?.length ? { overridden: draft.overridden } : {}),
     ...(draft.evidenceConsistency ? { evidenceConsistency: draft.evidenceConsistency } : {}),
     ownership: draft.ownership,
     draftFingerprint,

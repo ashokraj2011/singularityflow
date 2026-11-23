@@ -1269,6 +1269,19 @@
    ]
   },
   {
+   "id": "finding-override",
+   "list": "findingOverrides",
+   "action": "decision.override-finding",
+   "label": "Finding override",
+   "isPerson": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  },
+  {
    "id": "visual-risk",
    "list": "visualRiskDecisions",
    "action": "decision.visual-risk",
@@ -1665,6 +1678,12 @@
    "effect": "review-safe",
    "lists": {
     "witnessDeferrals": "witness_deferred"
+   }
+  },
+  "decision-made:finding-override": {
+   "effect": "review-safe",
+   "lists": {
+    "findingOverrides": "finding_overridden"
    }
   },
   "decision-made:visual-risk": {

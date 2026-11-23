@@ -17,7 +17,7 @@
  */
 import { NODE_PIN_CLASS } from './node-pin-names.mjs';
 import { ISSUE_ONLY_OPTIONS, PERSON_STEPS } from './person-step-catalog.mjs';
-import { presenceRequires } from './presence/counted.mjs';
+import { countedRecords, presenceRequires } from './presence/counted.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
 import { clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, rowChangeWords, rowTakesPaths } from './plan-row-fit.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
@@ -36,7 +36,7 @@ import { automaticApprovalsBefore, coveredStep, finalScopeStep, isConformancePha
 import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { advisedItem, reopenWords } from './decision-advice.mjs';
-import { returnRoute, reviewDisputeCommand } from './action-command-map.mjs';
+import { findingOverrideCommand, returnRoute, reviewDisputeCommand } from './action-command-map.mjs';
 import { disputedFindingWords } from './review-dispute-words.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
@@ -47,7 +47,7 @@ const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
 // A draft writes no record, so it goes first: a later record that fails leaves only a file a person may delete.
-export const EFFECT_ORDER = Object.freeze(['settled-undo', 'intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'asked-for-note', 'review-dispute', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
+export const EFFECT_ORDER = Object.freeze(['settled-undo', 'intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'asked-for-note', 'review-dispute', 'finding-override', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
 const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure', 'intent-amendment-decision', 'intent-amendment-refresh']);
 /**
@@ -108,6 +108,8 @@ function effectGroups(workflow, effect) {
   if (effect.kind === 'amendment-revalidation') return issueGroups(workflow, effect.phase);
   // A dispute of its reviewer's finding is for whoever the step's approval rules name (`review-source dispute`).
   if (effect.kind === 'review-dispute') return issueGroups(workflow, effect.phase);
+  // So is overriding its check's finding (`decision override-finding`).
+  if (effect.kind === 'finding-override') return issueGroups(workflow, effect.phase);
   // Drafting an amendment decides nothing, and its own command checks no group; the scope approvers decide the amendment.
   // Anyone working on the Story acknowledges an approved one [owner, 2026-11-13, D2].
   // So does undoing what was settled for a person: it only hands the question back [owner, 2026-11-13].
@@ -1829,6 +1831,31 @@ function disputeOption(workflow, context, facts, finding, id = 'dispute') {
     needs: { reason: textNeed('', REASON) } }), oneByOne: true, terminal: command, ...(presenceRequires(workflow) ? {} : { chat: { command } }) };
 }
 
+/**
+ * Each blocking finding the step's own check raises now that a person may override, while its author writes the version
+ * (finding-overrides.mjs) [owner, 2026-11-23]. Offered, never asked: by default the author fixes it. One already overridden
+ * is no row: it blocks nothing, and the list says who overrode it and why.
+ */
+function checkFindingItems(workflow, context, facts) {
+  if (!facts) return [];
+  const name = stepName(workflow, facts.phase);
+  return facts.findings.map((finding) => {
+    const command = findingOverrideCommand(workflow.workItem.id, facts.phase, finding.key);
+    const where = finding.path ? ` (${finding.path}${finding.line ? `:${finding.line}` : ''})` : '';
+    const override = { ...option(workflow, context, { id: 'override', label: 'Override: the check is wrong',
+      words: `Say why the check is wrong, in your own words. It then no longer blocks version ${facts.generation} of ${name}; it is recorded as overridden, never as passed, and ${name}'s approvers see your reason and may still return the step.`,
+      effects: [{ kind: 'finding-override', phase: facts.phase, finding: finding.key, generation: facts.generation }],
+      needs: { reason: textNeed('', REASON) } }), oneByOne: true, terminal: command, ...(presenceRequires(workflow) ? {} : { chat: { command } }) };
+    return {
+      kind: 'check-finding', title: `The check's finding ${finding.code} on ${name} version ${facts.generation}`,
+      why: `The check found: ${finding.message}${where}. Its author fixes it by default. Override it only if the check is wrong.`,
+      options: [override],
+      details: { phase: facts.phase, generation: facts.generation, finding: finding.key, code: finding.code, message: finding.message,
+        ...(finding.path ? { path: finding.path } : {}), ...(finding.value ? { clauseId: finding.value } : {}), commands: [command] }
+    };
+  });
+}
+
 /** The findings of the review a settled start of a version was for, while that version is being written; none otherwise. */
 function startedFindings(facts, entry) {
   if (!facts?.open || entry.kind !== 'review-corrections' || entry.phase !== facts.phase || Number(entry.effect?.toGeneration) !== Number(facts.open.version)) return [];
@@ -1910,8 +1937,12 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
   const disputes = (context.facts?.reviewDisputes?.status === 'awaiting_approval' && context.facts.reviewDisputes.phase === phase.id ? context.facts.reviewDisputes.findings : [])
     .filter((finding) => finding.disputed).map((finding) => ({ finding: finding.id, message: finding.message, by: finding.disputed.by, reason: finding.disputed.reason,
       ...(finding.disputed.carriedFrom ? { carriedFrom: finding.disputed.carriedFrom } : {}), words: disputedFindingWords(finding.id, finding.disputed) }));
+  // Each check finding a person overrode for this version, with their reason [owner, 2026-11-23]: overridden, never passed.
+  const overrides = countedRecords(workflow, workflow.findingOverrides).filter((entry) => entry.phase === phase.id
+    && Number(entry.generation) === Number(phase.generation) && !entry.withdrawnAt)
+    .map((entry) => `${entry.code}${entry.path ? ` on ${entry.path}` : ''} was overridden by ${entry.actor ?? 'a person'}: "${entry.reason}". Recorded as overridden, not passed.`);
   const reviewed = [...ledger.map((group) => `Settled for you: ${group.words}.`), ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : []),
-    ...disputes.map((entry) => entry.words)];
+    ...disputes.map((entry) => entry.words), ...overrides];
   return {
     kind: 'approval', title: `Approve ${name}`,
     why: `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}${ownTerminal ? ' It takes your signature, in your own terminal.' : ''}`,
@@ -2058,13 +2089,14 @@ const HOLDS_WORDS = Object.freeze({
 export const DECISION_OUTCOMES = Object.freeze({
   accept: 'Accept', 'accept-risk': 'Accept as a risk until a date', return: 'Return to a step', 'change-spec': 'Change the spec',
   'not-applicable': 'Not applicable', defer: 'Decide later', dismiss: 'Dismiss: not real', route: 'Choose the route', 'own-step': 'Your own step',
-  undo: 'Undo: ask me instead', dispute: 'Dispute: the reviewer is wrong'
+  undo: 'Undo: ask me instead', dispute: 'Dispute: the reviewer is wrong', override: 'Override: the check is wrong'
 });
 
 /** The outcome an option is, from its kind and ID; anything not named below accepts what the item asks about. */
 export function optionOutcome(item, entry) {
   const id = String(entry.id ?? '');
   if (id === 'dispute' || id.startsWith('dispute-')) return 'dispute';
+  if (id === 'override') return 'override';
   if (item.kind === 'settled') return 'undo';
   if (item.kind === 'routing-decision' || /^(?:choose|to)-/u.test(id) || id === 'route') return 'route';
   // Approving an intent amendment changes the approved clauses.
@@ -2288,7 +2320,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // what waits on them]: a row on the card and the list, never a question a chat asks, never counted as one.
   const offered = [...(facts.completeness ? [completenessItem(workflow, context, facts.completeness)] : []),
     ...(facts.convergence ? convergenceAnswerItems(workflow, context, facts.convergence) : []),
-    ...reviewFindingItems(workflow, context, facts.reviewDisputes)].map((item) => underGuard(workflow, item)).map((item, index) => advisedItem(workflow, { id: `d${items.length + index + 1}`, ...item,
+    ...reviewFindingItems(workflow, context, facts.reviewDisputes), ...checkFindingItems(workflow, context, facts.findingOverrides)].map((item) => underGuard(workflow, item)).map((item, index) => advisedItem(workflow, { id: `d${items.length + index + 1}`, ...item,
     optional: true,
     options: item.options.map((entry) => ({ ...entry, outcome: optionOutcome(item, entry), outcomeWords: DECISION_OUTCOMES[optionOutcome(item, entry)] })),
     decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing }))
@@ -2597,6 +2629,7 @@ export function effectWords(workflow, effect, values = {}) {
   if (effect.kind === 'asked-for-note') return `keep instruction ${effect.instruction} of ${stepName(workflow, effect.phase)} as a note, not a request (instruction account)`;
   if (effect.kind === 'settled-undo') return `undo ${effect.settled}, so it is a question for a person again (undo of a settled decision)`;
   if (effect.kind === 'review-dispute') return `dispute the reviewer's finding ${effect.finding} on ${stepName(workflow, effect.phase)} version ${effect.generation} with your reason; it no longer blocks the step (review dispute)`;
+  if (effect.kind === 'finding-override') return `override the check's finding ${effect.finding} on ${stepName(workflow, effect.phase)} version ${effect.generation} with your reason (finding override)`;
   if (effect.kind === 'intent-amendment-draft') {
     return `draft ${stepName(workflow, effect.phase)}'s scope with a slot for ${listWords((effect.clauses ?? []).map((clause) => clauseName(workflow, clause)))}`
       + `${effect.path ? ` at ${effect.path}` : ''}; nothing is recorded or decided (intent-amendment draft)`;

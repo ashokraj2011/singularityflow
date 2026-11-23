@@ -403,7 +403,11 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     'When every listed item is delivered and the finding still returns unchanged, the check is misreading the work: stop repairing and prepare a dispute with the evidence (test output, the test file). One of the step\'s approvers reviews it live and may accept it as an exception for this exact candidate; it is recorded as an exception, never a pass, and tests still run.',
     '/sf-appeal') : null;
   const lead = planFirst && gapRoutes[0]?.kind === 'author-correction' ? gapRoutes[0] : resolution;
-  const choices = [lead, ...[resolution, ...gapRoutes].filter((choice) => choice !== lead), ...(dispute ? [dispute] : []), ...(upstreamReturn ? [upstreamReturn] : []), recovery];
+  // A finding its gate lets a person override (finding-overrides.mjs): their way past it when the check is wrong [owner, 2026-11-23].
+  const override = finding.override?.key ? route('override', 'phase-approval-authority',
+    ['decision', 'override-finding', workId, '--phase', phase.id, '--finding', finding.override.key, '--reason', '<why>'],
+    `If the check is wrong, a person ${phase.id}'s approval rules name overrides it with their reason; it then shows as overridden, never passed. Never the agent's decision.`, '/sf-decide') : null;
+  const choices = [lead, ...[resolution, ...gapRoutes].filter((choice) => choice !== lead), ...(dispute ? [dispute] : []), ...(override ? [override] : []), ...(upstreamReturn ? [upstreamReturn] : []), recovery];
   if (!foreignApproved && isArtifactQualityFinding(finding)) choices.splice(1, 0, route('pilot-risk-review', 'phase-approval-authority',
     ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', phaseFindingCode(finding),
       '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],

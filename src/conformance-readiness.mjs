@@ -262,8 +262,19 @@ export async function inspectPhaseQualifiedConformance(root, config, workflow, p
   return (await inspectPhaseConformance(root, config, workflow, phase)).findings;
 }
 
-/** The report's blocking findings, its verdict advisories and its Verdict summary, read once. */
+/**
+ * The report's blocking findings, its verdict advisories and its Verdict summary, read once; a finding a person overrode
+ * leaves the findings for `overridden` (finding-overrides.mjs), so prepublish, publication and submission agree.
+ */
 export async function inspectPhaseConformance(root, config, workflow, phase) {
+  const read = await inspectUnhonouredConformance(root, config, workflow, phase);
+  if (!read.findings?.length) return read;
+  const { honourOverrides } = await import('./finding-overrides.mjs');
+  const honoured = honourOverrides(workflow, phase, read.findings);
+  return { ...read, findings: honoured.findings, overridden: honoured.overridden };
+}
+
+async function inspectUnhonouredConformance(root, config, workflow, phase) {
   if (phase?.requiredArtifact?.kind !== 'conformance-report') return { findings: [], advisories: [], summary: null };
   const qualified = workflow.resolution?.spec?.conformanceRows === 'qualified';
   const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);

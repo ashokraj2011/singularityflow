@@ -164,7 +164,7 @@ export const REASON_RULES = Object.freeze({
   'upstream-issue revalidate': { reason: [20, 1000] }, 'upstream-issue decide': { reason: [20, 1000] },
   'decision applicability': { reason: [20, 1000] }, 'decision departure': { reason: [20, 1000] },
   'decision plan': { reason: [20, 1000], 'supporting-reason': [10, 500] }, 'decision scope': { reason: [20, 1000] },
-  'decision completeness': { reason: [20, 1000] }, 'review-source dispute': { reason: [20, 1000] }
+  'decision completeness': { reason: [20, 1000] }, 'review-source dispute': { reason: [20, 1000] }, 'decision override-finding': { reason: [20, 1000] }
 });
 
 function reasonLengthProblem(positionals, options) {
@@ -205,6 +205,10 @@ function yesNoCommand([command, sub, third, fourth], options, version = null) {
   // Disputing the reviewer's finding: only on a Yes to the question naming it, with the person's own reason [owner, 2026-11-20].
   if (command === 'review-source' && sub === 'dispute') {
     return { records: 'yes', only: true, asked: true, row: `dispute ${text('finding')[0]}`, names: text('finding'), yes: ['dispute', 'dispute it', 'dispute this finding'], no: [] };
+  }
+  // Overriding a check's finding: only on a Yes to the question naming it, with the person's own reason [owner, 2026-11-23].
+  if (command === 'decision' && sub === 'override-finding') {
+    return { records: 'yes', only: true, asked: true, row: `override ${text('finding')[0]}`, names: text('finding'), yes: ['override', 'override it', 'override this finding'], no: [] };
   }
   if (command === 'story' && sub === 'intent-amendment' && third === 'acknowledge') {
     return { records: 'yes', only: true, asked: true, row: `acknowledge ${fourth}`, names: [fourth].filter(Boolean), yes: ['acknowledge', 'acknowledge it'], no: [] };

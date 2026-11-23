@@ -27,6 +27,7 @@ export const CHANGEABLE_KINDS = Object.freeze(['convergence-answer', 'convergenc
 // A reviewer's finding nothing waits on, and any other row offered beside the list: asked only once the person chooses to.
 export const DISPUTE = 'Dispute a reviewer\'s finding';
 export const OPTIONAL = 'Answer an optional row';
+export const OVERRIDE = 'Override a check\'s finding';
 export const RECORD = 'Record these decisions';
 export const SIGN = 'Record this review';
 export const FORM_SIZE = 5;
@@ -99,13 +100,17 @@ export const skipWord = (item) => (item.settled ? KEEP_SETTLED : plainWords(item
 /** What is offered beside the list and is no answer given or settlement: a reviewer's finding, a completeness review. */
 const offeredOnly = (item) => optional(item) && !changeable(item);
 /** The first form's choice for those, by what they are: "Dispute a reviewer's finding (4)". */
-const offerWord = (rows) => (rows.every((item) => item.kind === 'review-finding') ? DISPUTE : OPTIONAL);
+const offerWord = (rows) => (rows.every((item) => item.kind === 'review-finding') ? DISPUTE
+  : rows.every((item) => item.kind === 'check-finding') ? OVERRIDE : OPTIONAL);
 const listWords = (values) => (values.length < 2 ? values.join('') : `${values.slice(0, -1).join(', ')} and ${values.at(-1)}`);
 /** What is offered beside the list, named, never counted: the reviewer's findings by their IDs, then anything else. */
 function optionalWords(rows) {
   const findings = rows.filter((item) => item.kind === 'review-finding').map((item) => item.details?.finding ?? bare(item.title));
-  const others = rows.filter((item) => item.kind !== 'review-finding').map((item) => bare(item.title));
+  // A check's findings by their codes [owner, 2026-11-23].
+  const checks = rows.filter((item) => item.kind === 'check-finding').map((item) => item.details?.code ?? bare(item.title));
+  const others = rows.filter((item) => !['review-finding', 'check-finding'].includes(item.kind)).map((item) => bare(item.title));
   return [findings.length ? `the reviewer's ${findings.length === 1 ? 'finding' : 'findings'} ${listWords(findings)}, which you may dispute if the reviewer is wrong; left alone, the author fixes ${findings.length === 1 ? 'it' : 'them'}` : null,
+    checks.length ? `the check's ${checks.length === 1 ? 'finding' : 'findings'} ${listWords(checks)}, which you may override if the check is wrong; left alone, the author fixes ${checks.length === 1 ? 'it' : 'them'}` : null,
     others.length ? `${listWords(others)}, which you may answer if you disagree` : null].filter(Boolean).join('; and ');
 }
 /** The items the card asks now, as questions: open, offered and the approval, never what waits for later or was settled. */

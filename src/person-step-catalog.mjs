@@ -152,7 +152,7 @@ export const ANSWER_BOUND_TURNS = Object.freeze(['decide', 'converge', 'reject',
 // Change impact on: a chat proposal waits for the person's yes, the one step held there [CIC:REQ-015].
 export const PROPOSAL_BOUND_TURNS = Object.freeze(['reject', 'amend']);
 export const ANSWER_BOUND_STEPS = Object.freeze(['story-decision', 'convergence-adjudication', 'upstream-issue-decision', 'decision-list-record', 'intent-amendment-proposal',
-  'settled-undo', 'intent-amendment-acknowledgement', 'review-dispute']);
+  'settled-undo', 'intent-amendment-acknowledgement', 'review-dispute', 'finding-override']);
 
 const EPIC_COMMANDS = new Set(['initiative', 'epic']);
 const HOST_POLICY_ASSERTIONS = ['confirm-protected', 'confirm-push-policy', 'confirm-pin-retention'];
@@ -173,6 +173,8 @@ export const PERSON_DECISIONS = Object.freeze([
   ['source-review-decision', ([command, sub]) => command === 'review-source' && sub === 'decide', ['review-decide']],
   // Dispute this finding: a bound yes in /sf-decide, with the person's own reason, never under SF Guard [owner, 2026-11-20].
   ['review-dispute', ([command, sub]) => command === 'review-source' && sub === 'dispute', ['decide']],
+  // Overriding a check's blocking finding: a bound yes in /sf-decide with the person's own reason [owner, 2026-11-23].
+  ['finding-override', ([command, sub]) => command === 'decision' && sub === 'override-finding', ['decide']],
   ['constitution-exception', ([command, sub]) => command === 'constitution' && sub === 'except', ['constitution']],
   ['repair-authorization', ([command, sub]) => command === 'repair' && sub === 'authorize', ['fix']],
   ['telemetry-consent', ([command, sub]) => command === 'telemetry' && sub === 'enable', ['telemetry']],
@@ -232,6 +234,9 @@ export const PERSON_STEPS = Object.freeze([
     family: { list: 'witnessRecords', action: 'decision.witness', label: 'Witness review', isPerson: always } },
   { id: 'witness-deferral', guard: 'own:witness-deferral', review: { kind: 'witness-defer', entry: safe({ witnessDeferrals: 'witness_deferred' }) },
     family: { list: 'witnessDeferrals', action: 'decision.witness-defer', label: 'Witness deferral', isPerson: always } },
+  // A person's override of a check's blocking finding for the version being written (finding-overrides.mjs).
+  { id: 'finding-override', guard: 'decision:finding-override', effect: 'finding-override', review: { kind: 'finding-override', entry: safe({ findingOverrides: 'finding_overridden' }) },
+    family: { list: 'findingOverrides', action: 'decision.override-finding', label: 'Finding override', isPerson: always } },
   // A visual step approver's accepted risk on one failed comparison, which nothing else clears [PHR:REQ-006].
   { id: 'visual-risk', guard: 'own:visual-risk', review: { kind: 'visual-risk', entry: safe({ visualRiskDecisions: 'visual_risk_accepted' }) },
     family: { list: 'visualRiskDecisions', action: 'decision.visual-risk', label: 'Visual risk', isPerson: always } },
@@ -305,7 +310,7 @@ export const PERSON_STEP_FAMILIES = Object.freeze(PERSON_STEPS.filter((row) => r
 
 // The order a commit's lists are read in (REVIEW_SAFE_DECISION_LISTS).
 const REVIEW_KIND_ORDER = Object.freeze(['applicability', 'scope', 'completeness', 'plan', 'departure', 'risk', 'test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'test-scope', 'visual-profile',
-  'witness-exception', 'witness-defer', 'visual-risk', 'approver-refresh', 'quality-risk', 'witness', 'upstream-issue', 'forward-amendment', 'test-command', 'phase-appeal', 'evidence-contract-correction', 'target-origin', 'settled', 'workflow']);
+  'witness-exception', 'witness-defer', 'finding-override', 'visual-risk', 'approver-refresh', 'quality-risk', 'witness', 'upstream-issue', 'forward-amendment', 'test-command', 'phase-appeal', 'evidence-contract-correction', 'target-origin', 'settled', 'workflow']);
 /** What each decision kind does to a submitted review: REVIEW_EFFECTS's `decision-made:*` (state.mjs). */
 export const PERSON_STEP_REVIEW_EFFECTS = Object.freeze(Object.fromEntries(REVIEW_KIND_ORDER.map((kind) =>
   [`decision-made:${kind}`, PERSON_STEPS.find((row) => row.review?.kind === kind).review.entry])));

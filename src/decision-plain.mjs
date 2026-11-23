@@ -135,6 +135,8 @@ function question(workflow, item) {
       return `${title}?`;
     case 'review-finding':
       return `Dispute the reviewer's finding ${details.finding} on ${step} version ${details.generation}?`;
+    case 'check-finding':
+      return `Override the check's finding ${details.code} on ${step} version ${details.generation}?`;
     // One approval question everywhere, by step and version (owner, 2026-11-19): "Approve Requirements v1?".
     case 'approval':
       return `Approve ${step}${Number.isSafeInteger(details.generation) && details.generation > 0 ? ` v${details.generation}` : ''}?`;
@@ -169,6 +171,8 @@ function why(workflow, item) {
       return 'Nothing waits on it; it records that you looked for what is missing or unclear.';
     case 'review-finding':
       return `The reviewer found: ${clip(bare(details.message ?? ''), 160)}. Its author fixes it unless you dispute it.`;
+    case 'check-finding':
+      return `The check found: ${clip(bare(details.message ?? ''), 160)}. Its author fixes it unless you override it.`;
     case 'approval': {
       // Each disputed finding of its review, with who disputed it and why, beside the approval [owner, 2026-11-20].
       const disputed = details.disputes?.length ? ` ${details.disputes.map((entry) => entry.words).join(' ')} Return the step if you agree with the reviewer.` : '';
@@ -250,6 +254,7 @@ const checkOf = (item) => (item.check && item.check.status !== 'checked' ? item.
 function skipWords(item) {
   switch (item.kind) {
     case 'review-finding': return 'Don\'t dispute (the author fixes it)';
+    case 'check-finding': return 'Don\'t override (the author fixes it)';
     case 'convergence-answer': return 'Keep this answer';
     case 'convergence-settled': return 'Keep what the plan says';
     default: return 'Not now (nothing waits on it)';
@@ -258,6 +263,7 @@ function skipWords(item) {
 
 /** What an offered item lets the person do, as the one line a chat may say of it; never asked as a question. */
 const OFFER_WORDS = Object.freeze({ 'review-finding': 'dispute a reviewer\'s finding you disagree with',
+  'check-finding': 'override a check\'s finding the check got wrong',
   'scope-completeness': 'record that you reviewed the scope for completeness',
   'convergence-answer': 'change an answer already given', 'convergence-settled': 'overrule what the plan settled' });
 

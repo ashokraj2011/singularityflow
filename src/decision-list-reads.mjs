@@ -577,8 +577,14 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     reviewDisputes: offerReuse && workflow.status === 'in_progress' && ['in_progress', 'awaiting_approval'].includes(phase?.status)
       ? await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'review-finding-dispute.mjs')).href)
         .then((module) => module.reviewDisputeFacts(root, config, workflow, phase)).catch(() => null) : null,
+    // A check's blocking findings a person may override, while the step is written (finding-overrides.mjs) [owner, 2026-11-23].
+    // A count skips them, as it skips disputes; from the CLI source, out of the VS Code bundles that read this list.
+    findingOverrides: answering && phase?.status === 'in_progress'
+      ? await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'finding-override-commit.mjs')).href)
+        .then((module) => module.findingOverrideFacts(root, config, workflow, phase)).catch(() => null) : null,
     state: {
       phases: Object.fromEntries((workflow.phaseOrder ?? []).map((id) => [id, `${workflow.phases?.[id]?.status}:${Number(workflow.phases?.[id]?.generation ?? 0)}`])),
+      findingOverrides: (workflow.findingOverrides ?? []).length,
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,
       evidenceReuses: (workflow.evidenceReuses ?? []).length, testRunRisks: (workflow.testRunRisks ?? []).length,
       testNarrowings: (workflow.testNarrowings ?? []).length,

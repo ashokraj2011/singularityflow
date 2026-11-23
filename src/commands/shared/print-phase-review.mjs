@@ -60,6 +60,11 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
     console.log('Disputed review findings (return the step if you agree with the reviewer):');
     for (const entry of review.reviewDisputes) console.log(`  ${entry.words}`);
   }
+  // A check's finding a person overrode, with their reason: overridden, never passed; returning the step stays the approver's.
+  if (review.findingOverrides?.length) {
+    console.log('Overridden check findings (return the step if you agree with the check):');
+    for (const entry of review.findingOverrides) console.log(`  ${entry.words}`);
+  }
   // What the scanners recorded and the required checks' results: evidence for the reviewer [CQF:REQ-055].
   if (review.qualityFindings?.words) console.log(`Findings: ${review.qualityFindings.words}`);
   if (review.requiredChecks?.words) console.log(review.requiredChecks.words);

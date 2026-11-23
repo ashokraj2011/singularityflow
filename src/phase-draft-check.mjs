@@ -158,6 +158,8 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   let traceabilityRepair = null;
   let verifiedCodeIntent = false;
   let artifactQuality = { acceptedFindings: [], risks: null };
+  // Findings a person overrode for this version: they block nothing and are shown with who and why (finding-overrides.mjs).
+  const overriddenFindings = [];
   let specificationAdvisories = [];
   let conformanceAdvisories = [];
   let evidenceConsistency = null;
@@ -178,6 +180,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   } else {
     artifactQuality = await inspectPhaseArtifactQuality(root, config, workflow, phase);
     findings = artifactQuality.findings;
+    overriddenFindings.push(...(artifactQuality.overridden ?? []));
   }
 
   // Catch the same specification defects before publication, while this producer can repair its
@@ -215,6 +218,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   const inspectOwnedDraft = () => ownInspectionOpen(workflow, phase, findings);
   if (inspectOwnedDraft() && artifact?.exists) {
     const comparison = await inspectPhaseConformance(root, config, workflow, phase);
+    overriddenFindings.push(...(comparison.overridden ?? []));
     findings.push(...comparison.findings.map((finding) => ({
       code: finding.code, category: 'traceability', path: finding.path,
       line: finding.line, value: finding.clauseId, message: finding.message,
@@ -363,6 +367,13 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     ? await (await import(CORNER_CASE_MODULE)).inspectCornerCaseObligations(root, config, workflow, phase)
     : { cornerCases: { status: 'not-applicable', blocking: false, advisories: [] }, findings: [] };
   if (inspectOwnedDraft() && cornerCases.blocking) findings.push(...cornerCaseFindings);
+  // A finding a person overrode stops blocking this version, whichever check raised it here; each one a person may
+  // override carries its key for the routes (owner, 2026-11-23).
+  if (findings.length) {
+    const honoured = (await import('./finding-overrides.mjs')).honourOverrides(workflow, phase, findings);
+    findings = honoured.findings;
+    overriddenFindings.push(...honoured.overridden);
+  }
   // The author's own findings lead; an answer a person still owes follows them (correction.after), and leads
   // only when nothing else is the author's to correct (owner policy 2026-11-10).
   const ownDraft = correctionPlan(workflow, phase, findings);
@@ -436,6 +447,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     artifacts: reviewDraft.artifacts,
     findings: normalizedFindings,
     advisories: combinedAdvisories,
+    ...(overriddenFindings.length ? { overridden: Object.freeze(overriddenFindings) } : {}),
     documentation,
     coverage,
     cornerCaseObligations: cornerCases,

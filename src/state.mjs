@@ -3889,7 +3889,11 @@ export async function publishGeneration(root, config, workflow, {
     namespace: (workflow.resolution?.spec ?? config.spec)?.namespace ?? null
   });
   gate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  if (gate.errors.length) {
+  // A finding a person overrode is honoured here as in the draft check; one error each, so none is skipped unread.
+  const overriddenAll = gate.errors.length && workflow.findingOverrides?.length
+    && !(await import('./finding-overrides.mjs')).honourOverrides(workflow, phase,
+      specificationGateDiagnostics(gate, requiredRepoPath(config, workflow, phase)).findings).findings.length;
+  if (gate.errors.length && !overriddenAll) {
     const clarification = specificationGateDiagnostics(gate, requiredRepoPath(config, workflow, phase)).findings.some(finding => finding.category === 'clarification');
     throw new SingularityFlowError(
       `Phase ${phase.id} is not publishable:\n- ${gate.errors.join('\n- ')}\n`

@@ -67,24 +67,29 @@ test('VS Code launches the independent browser once, without a folder switch; Co
   assert.equal(mocked.opened.length, 2, 'each native launch opens once');
   const originalSession = await fetch(`${service.descriptor.origin}/api/session`, { headers: { Cookie: cookie, 'X-SFlow-Tab': session.tabId } });
   assert.equal((await originalSession.json()).capabilities.copilot, true, 'opening another tab retains the first window bridge');
-  const send = async specId => {
+  const send = async input => {
     const result = await fetch(`${service.descriptor.origin}/api/handoffs`, { method: 'POST', headers: { Origin: service.descriptor.origin,
       'Content-Type': 'application/json', Cookie: cookie, 'X-SFlow-Tab': session.tabId, 'X-SFlow-CSRF': session.csrf },
-      body: JSON.stringify({ contextId: session.context.id, type: 'spec.assist', specId }) });
+      body: JSON.stringify({ contextId: session.context.id, ...input }) });
     return result.json();
   };
-  const accepted = await send('SPEC-TEST');
-  let outcome;
-  for (let i = 0; i < 80; i++) {
-    const result = await fetch(`${service.descriptor.origin}/api/handoffs/${accepted.id}`, { headers: { Cookie: cookie, 'X-SFlow-Tab': session.tabId } });
-    outcome = await result.json();
-    if (outcome.state === 'delivered') break;
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
+  const deliver = async input => {
+    const accepted = await send(input);
+    for (let i = 0; i < 80; i++) {
+      const result = await fetch(`${service.descriptor.origin}/api/handoffs/${accepted.id}`, { headers: { Cookie: cookie, 'X-SFlow-Tab': session.tabId } });
+      const outcome = await result.json();
+      if (outcome.state === 'delivered') return outcome;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.fail('The browser handoff was not delivered');
+  };
+  const outcome = await deliver({ type: 'spec.assist', specId: 'SPEC-TEST' });
   assert.equal(outcome.state, 'delivered'); assert.equal(outcome.modelExecution, 'not-observed');
   assert.equal(mocked.commands[0][0], 'workbench.action.chat.open');
   assert.equal(mocked.commands[0][1].isPartialQuery, true, 'the person chooses Send');
   assert.match(mocked.commands[0][1].query, /^\/sf-spec-author SPEC-TEST /u);
+  await deliver({ type: 'native.menu', menu: 'code' });
+  assert.deepEqual(mocked.commands[1], ['singularityFlow.openCodeExplainer']);
   assert.equal(logs.length, 0);
   // A reply naming another engine, and a bridge inside it, is never loaded into the editor: only this window's own engine is.
   const foreign = path.join(base, 'foreign-engine');

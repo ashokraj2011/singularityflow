@@ -521,6 +521,107 @@ test('startup removes stale temporary files, aged and read receipts; a tab\'s st
   assert.deepEqual(nativeEnvironment({ PATH: '/usr/bin', 'BASH_FUNC_module%%': '() {  :; }' }), { PATH: '/usr/bin' });
 });
 
+test('browser Code Explainer follows changed code and browses tracked files without editing the checkout', async t => {
+  const screenshot = process.env.SINGULARITY_FLOW_CODE_EXPLAINER_SCREENSHOT;
+  const { root, directory, mustGit, cleanup } = await fixture(t);
+  await mkdir(path.join(root, 'src'));
+  const quote = path.join(root, 'src', 'quote.js');
+  const original = [
+    "import { calculateTax } from './tax.js';",
+    '',
+    'export function quoteTotal(subtotal) {',
+    "  if (subtotal < 0) throw new Error('Subtotal must be positive');",
+    '  return subtotal + calculateTax(subtotal);',
+    '}',
+    ''
+  ].join('\n');
+  await writeFile(quote, original);
+  await writeFile(path.join(root, 'src', 'tax.js'), 'export function calculateTax(subtotal) {\n  return subtotal * 0.08;\n}\n');
+  await writeFile(path.join(root, 'src', 'receipt.js'), [
+    "import { quoteTotal } from './quote.js';",
+    'export function formatReceipt(subtotal) {',
+    '  return quoteTotal(subtotal).toFixed(2);',
+    '}',
+    ''
+  ].join('\n'));
+  await mkdir(path.join(root, 'singularity'));
+  await writeFile(path.join(root, 'singularity', 'private-example.js'), 'export function internalOnly() { return 7; }\n');
+  await mkdir(path.join(root, 'test'));
+  const regression = path.join(root, 'test', 'quote.test.js');
+  await writeFile(regression, "import test from 'node:test';\n");
+  mustGit('add', '.');
+  mustGit('commit', '-qm', 'Checkout source');
+  await writeFile(quote, original
+    .replace('export function quoteTotal', '// @clause:QUOTE-1:AC-001 reject an invalid subtotal\nexport function quoteTotal')
+    .replace('subtotal < 0', 'subtotal <= 0'));
+  await writeFile(regression, [
+    "import test from 'node:test';",
+    "import assert from 'node:assert/strict';",
+    "import { quoteTotal } from '../src/quote.js';",
+    '// @ac:QUOTE-1:AC-001',
+    "test('rejects a zero subtotal', () => assert.throws(() => quoteTotal(0)));", ''
+  ].join('\n'));
+  await writeFile(path.join(root, 'src', 'z-local.js'), 'export function temporaryDiscount() {\n  return 0.05;\n}\n');
+  const before = mustGit('status', '--porcelain');
+
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ headless: true }); cleanup(() => browser.close());
+  const service = await startService({ directory }); cleanup(() => service.close());
+  const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID() });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(launch.url);
+  await page.getByRole('link', { name: 'Code Explainer', exact: true }).click();
+  await page.getByRole('heading', { name: 'Call map', exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Selected declaration' }).getByText('quoteTotal').waitFor();
+  await page.getByRole('region', { name: 'Callers', exact: true }).getByRole('button', { name: /formatReceipt/ }).waitFor();
+  const callee = page.getByRole('region', { name: 'Called declarations' }).getByRole('button', { name: /calculateTax/ });
+  await callee.waitFor();
+  const diff = page.getByRole('table', { name: 'Changed lines' });
+  const addedLine = diff.getByRole('row').filter({ hasText: 'subtotal <= 0' });
+  const removedLine = diff.getByRole('row').filter({ hasText: 'subtotal < 0' });
+  assert.deepEqual((await addedLine.locator('td').allTextContents()).slice(0, 3), ['', '5', '+']);
+  assert.deepEqual((await removedLine.locator('td').allTextContents()).slice(0, 3), ['4', '', '-']);
+  if (screenshot) await page.screenshot({ path: screenshot, fullPage: true, animations: 'disabled' });
+  await callee.click();
+  await page.getByRole('region', { name: 'Selected code' }).getByRole('heading', { name: 'calculateTax' }).waitFor();
+  const search = page.getByRole('searchbox', { name: 'Find a file or declaration' });
+  await search.fill('quoteTotal');
+  await page.getByRole('complementary').getByRole('button', { name: /quoteTotal/ }).click();
+  await page.getByRole('button', { name: 'Logic', exact: true }).click();
+  await page.locator('.cx-logic').getByText('subtotal <= 0', { exact: false }).waitFor();
+  await page.getByRole('button', { name: 'Requirements & tests', exact: true }).click();
+  await page.locator('summary').getByText('QUOTE-1:AC-001', { exact: true }).click();
+  await page.getByText('test/quote.test.js', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'src/quote.js', exact: true }).click();
+  await page.getByRole('heading', { name: 'Call map', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Requirements & tests', exact: true }).click();
+  await page.getByText('No test runs were retained for this change view.').waitFor();
+  await search.fill('temporaryDiscount');
+  await page.getByRole('complementary').getByRole('button', { name: /temporaryDiscount/ }).click();
+  await page.getByRole('table', { name: 'Source excerpt' }).getByText('return 0.05;', { exact: false }).waitFor();
+
+  await page.getByRole('group', { name: 'Code to explore' }).getByRole('button', { name: 'Repository', exact: true }).click();
+  await page.getByRole('heading', { name: 'Files', exact: true }).waitFor();
+  await page.getByText('Browse folders and files', { exact: true }).click();
+  await page.getByRole('button', { name: 'src · 3 files' }).click();
+  await page.getByRole('navigation', { name: 'Repository path' }).getByText('src', { exact: true }).waitFor();
+  await page.getByText('Browse folders and files', { exact: true }).click();
+  await page.getByRole('button', { name: 'tax.js', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Repository path' }).getByText('tax.js', { exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Selected code' }).getByRole('heading', { name: 'calculateTax' }).waitFor();
+  await page.getByRole('textbox', { name: 'Repository-relative path' }).fill('src/receipt.js');
+  await page.getByRole('button', { name: 'Go', exact: true }).click();
+  await page.getByRole('region', { name: 'Selected code' }).getByRole('heading', { name: 'formatReceipt' }).waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth), true);
+  const stored = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }));
+  assert.ok(!JSON.stringify(stored).includes('calculateTax'));
+  assert.equal(mustGit('status', '--porcelain'), before);
+  assert.deepEqual(errors, []);
+});
+
 test('actual browser creates, edits, previews, saves and reloads a draft without retaining prose in browser storage', async t => {
   const { root, directory, cleanup } = await fixture(t);
   const { chromium } = await import('playwright-core');

@@ -960,6 +960,10 @@ export const MESSAGES = Object.freeze({
       + (s.indexed === 'yes' ? ' The local AST index was filled for this scope (derived, disposable).' : ''),
     preserves: true
   },
+  'code-explanation.map-reported': {
+    headline: (s) => `Code map shows ${slot(s.files, '0')} file(s) and ${slot(s.symbols, '0')} declaration(s).`,
+    preserves: true
+  },
   'code-explanation.repository-over-budget': {
     headline: (s) => `${slot(s.scope, 'The repository')} holds ${slot(s.files, 'more')} application files, more than the AST budget `
       + `(${slot(s.maxFiles, '500')} files, ${slot(s.maxMiB, '20')} MiB), so it is explained one folder or file at a time. Nothing was indexed.`,

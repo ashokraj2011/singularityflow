@@ -82,10 +82,13 @@ function budgetsOf(definition) {
  * The application files tracked under `scope`, and whether they fit the AST budget. Run by the
  * background worker or an explicit explanation: one bounded `git ls-files` and one `lstat`
  * per file. Over budget, nothing else is read. The budget counts every tracked application file;
- * `paths` keeps only those present in the working tree, so a sparse checkout never asks Git for a
- * blob it would have to fetch.
+ * outside list-only mode `paths` keeps only those present in the working tree, so a sparse
+ * checkout never asks Git for a blob it would have to fetch. List-only readers check just the
+ * paths they choose to open, without inspecting file contents or refreshing the index.
  */
-export async function repositoryCodeInventory(root, { scope = null, limits = REPOSITORY_EXPLANATION_LIMITS } = {}) {
+export async function repositoryCodeInventory(root, {
+  scope = null, limits = REPOSITORY_EXPLANATION_LIMITS, listOnly = false
+} = {}) {
   const definition = await comprehensionDefinition(root);
   let pathContext;
   try { pathContext = applicationPathContext(definition); } catch { pathContext = applicationPathContext(); }
@@ -101,6 +104,7 @@ export async function repositoryCodeInventory(root, { scope = null, limits = REP
   if (paths.length > budgets.maxFiles) {
     return { ...base, status: 'over-budget', reason: 'file-budget', paths, hidden, files: paths.length };
   }
+  if (listOnly) return { ...base, status: 'listed', paths, hidden, files: paths.length };
   const sizes = new Map();
   const present = [];
   let bytes = 0;
@@ -119,7 +123,7 @@ export async function repositoryCodeInventory(root, { scope = null, limits = REP
 }
 
 /** The application entries directly below the scope, at least one level deep, with counts. */
-function entriesBelow(inventory, scope, limits) {
+export function repositoryCodeEntries(inventory, scope, limits = REPOSITORY_EXPLANATION_LIMITS) {
   const prefix = scope ? `${scope}/` : '';
   const groups = new Map();
   for (const file of inventory.paths) {
@@ -333,7 +337,7 @@ export async function explainRepository(root, { scope: requested = null, index =
     );
   }
   const single = Boolean(scope) && inventory.paths.length === 1 && inventory.paths[0] === scope;
-  const { entries, total } = single ? { entries: [], total: 0 } : entriesBelow(inventory, scope, limits);
+  const { entries, total } = single ? { entries: [], total: 0 } : repositoryCodeEntries(inventory, scope, limits);
   const result = {
     schemaVersion: 1, // schema-transient: read projection for one request; never persisted
     kind: 'repository-explanation',

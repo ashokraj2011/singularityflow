@@ -33,10 +33,14 @@ test('packaged CLI opens the independent service with original asset paths and z
   const directory = serviceDirectory(env); descriptor = await readPrivate(path.join(directory, 'instance.json'));
   assert.equal(launched.instance, descriptor.instance);
   assert.equal((await control(descriptor, 'status')).build.engineRoot, root.slice(0, -1), 'source paths are anchored to the selected package');
-  const [index, script, views] = await Promise.all(['/', '/app.js', '/views.js'].map(asset => fetch(`${descriptor.origin}${asset}`)));
+  const [index, script, views, code, codeStyle] = await Promise.all(
+    ['/', '/app.js', '/views.js', '/code-explainer.js', '/code-explainer.css'].map(asset => fetch(`${descriptor.origin}${asset}`))
+  );
   assert.equal(index.status, 200); assert.match(await index.text(), /SFlow Workspace/u);
   assert.equal(script.status, 200); assert.match(await script.text(), /Spec Studio/u);
   assert.equal(views.status, 200); assert.match(await views.text(), /Workspace overview/u);
+  assert.equal(code.status, 200); assert.match(await code.text(), /mountCodeExplainer/u);
+  assert.equal(codeStyle.headers.get('content-type'), 'text/css; charset=utf-8');
   const health = [];
   for (let i = 0; i < 5; i++) {
     const at = performance.now(); assert.equal((await fetch(`${descriptor.origin}/health`)).status, 200); health.push(performance.now() - at);
@@ -61,7 +65,8 @@ test('npm package includes the service, browser and Copilot skill assets', { tim
   for (const file of ['src/commands/ui.mjs', 'src/local-ui/cli.mjs', 'src/local-ui/client.mjs', 'src/local-ui/server.mjs',
     'src/local-ui/native-auth.mjs', 'src/local-ui/cli-recovery.mjs',
     'src/local-ui/bridge-client.mjs', 'src/local-ui/public/index.html', 'src/local-ui/public/app.js',
-    'src/local-ui/public/app.css', 'src/local-ui/public/views.js', 'plugin/skills/sflow-ui/SKILL.md']) assert.ok(files.has(file), file);
+    'src/local-ui/public/app.css', 'src/local-ui/public/views.js', 'src/local-ui/public/code-explainer.js',
+    'src/local-ui/public/code-explainer.css', 'src/comprehension/code-map.mjs', 'plugin/skills/sflow-ui/SKILL.md']) assert.ok(files.has(file), file);
 });
 
 test('foreground JSON readiness is visible before shutdown and the native control closes it cleanly', { timeout: 30_000 }, async t => {

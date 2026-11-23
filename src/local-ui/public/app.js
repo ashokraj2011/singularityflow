@@ -125,6 +125,7 @@ const activityLabels = {
   'spec.source.read': 'Read source', 'spec.source.add': 'Attach source', 'story.list': 'List Stories',
   'workflow.list': 'List Workflows', 'agent.list': 'List Agents', 'skill.list': 'List Skills',
   'instruction.list': 'List Instructions', 'decision.list': 'Read decisions',
+  'code.changes': 'Explain code changes', 'code.repository': 'Explore repository code',
   ...Object.fromEntries(runPanels)
 };
 function renderActivity() {
@@ -711,6 +712,13 @@ async function navigate() {
     else if (page === 'spec') await specification(decodeURIComponent(parts[1] ?? ''), parts[2] === 'published', epoch);
     else if (page === 'stories') await stories(epoch);
     else if (Object.hasOwn(catalogs, page)) await catalog(page, epoch);
+    else if (page === 'code') {
+      const { mountCodeExplainer } = await import('./code-explainer.js');
+      if (epoch !== state.epoch) return;
+      const panel = document.createElement('div');
+      main.replaceChildren(panel);
+      await mountCodeExplainer(panel, { operation, editor: nativeButton('code', 'Open in VS Code') });
+    }
     else if (page === 'run') await runAndTest(epoch);
     else if (page === 'decisions') await decisions(epoch);
     else if (page === 'about') await about(epoch);

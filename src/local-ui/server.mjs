@@ -18,7 +18,9 @@ const publicFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
-  ['/views.js', ['views.js', 'text/javascript; charset=utf-8']]
+  ['/views.js', ['views.js', 'text/javascript; charset=utf-8']],
+  ['/code-explainer.js', ['code-explainer.js', 'text/javascript; charset=utf-8']],
+  ['/code-explainer.css', ['code-explainer.css', 'text/css; charset=utf-8']]
 ]);
 const terminal = new Set(['succeeded', 'failed', 'unknown', 'expired']);
 const RETENTION_MS = 7 * 24 * 60 * 60_000;
@@ -414,7 +416,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             insist(bridge.copilot, 'UI_COPILOT_UNAVAILABLE', 'Copilot handoff is unavailable in this window.', 409);
             identifier(input.specId, 'Specification ID');
           } else {
-            insist(['specs', 'workflows', 'stories', 'intake', 'run', 'decisions', 'configuration'].includes(input.menu), 'UI_REQUEST_INVALID', 'Unknown native menu.');
+            insist(['specs', 'workflows', 'stories', 'intake', 'run', 'decisions', 'configuration', 'code'].includes(input.menu), 'UI_REQUEST_INVALID', 'Unknown native menu.');
             if (input.specId) identifier(input.specId, 'Specification ID');
           }
           insist(handoffs.size < 256, 'UI_HANDOFF_LIMIT', 'Reopen the browser workspace to clear old editor handoffs.', 429);

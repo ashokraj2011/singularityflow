@@ -45,7 +45,9 @@ export async function buildIdentity() {
     'bin/singularity-flow.mjs', 'src/cli-entry.mjs', 'src/command-registry.mjs', 'src/commands/ui.mjs', 'src/local-ui/cli.mjs',
     'src/local-ui/private-state.mjs', 'src/local-ui/client.mjs', 'src/local-ui/server.mjs',
     'src/local-ui/operations.mjs', 'src/local-ui/bridge-client.mjs', 'src/local-ui/public/app.js',
-    'src/local-ui/public/app.css', 'src/local-ui/public/index.html', 'src/local-ui/public/views.js'];
+    'src/local-ui/public/app.css', 'src/local-ui/public/index.html', 'src/local-ui/public/views.js',
+    'src/local-ui/public/code-explainer.js', 'src/local-ui/public/code-explainer.css',
+    'src/comprehension/code-map.mjs'];
   names.push('src/local-ui/native-auth.mjs', 'src/local-ui/cli-recovery.mjs');
   const hash = createHash('sha256');
   for (const name of names) hash.update(name).update(await readFile(path.join(engineRoot, name)));

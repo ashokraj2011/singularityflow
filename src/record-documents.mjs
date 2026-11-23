@@ -341,7 +341,20 @@ export async function rewritesTheSame(root, config, workflow, phase, text) {
   const seal = String(text ?? '').match(MARKER)?.[1];
   if (!seal) return false;
   const rendered = await renderRecordDocument(root, config, workflow, phase).catch(() => null);
-  return rendered ? seal === await sealDigest(await merged(text, rendered.text)) : null;
+  return rendered ? seal === await sealDigest(await composed(root, config, workflow, phase, text, rendered)) : null;
+}
+
+/**
+ * The text SFlow writes for `phase` over `existing`, unsealed: the metadata first, the inputs block last, and a conformance
+ * report's verdict summary after it. The writer and the comparison above build it the same way: the comparison left the
+ * verdict summary out, so it never matched a release report, and every review finding on one opened a new version that
+ * wrote the same report again (Story fuzzer, 2026-11-23).
+ */
+async function composed(root, config, workflow, phase, existing, rendered) {
+  const text = await merged(existing, rendered.text);
+  if (phase.requiredArtifact?.kind !== 'conformance-report') return text;
+  const { withVerdictSummary, conformanceEvidenceReuse } = await import('./conformance-readiness.mjs');
+  return withVerdictSummary(text, workflow, phase.id, { reused: await conformanceEvidenceReuse(root, config, workflow, phase.id).catch(() => []) });
 }
 
 /**
@@ -361,12 +374,7 @@ export async function writeRecordDocument(root, config, workflow, phase, { stage
   if (!rendered) return null;
   if (rendered.index) await writeEvidenceIndex(artifactPath, rendered.index, writeText);
   if (!own) return null;
-  let text = await merged(existing, rendered.text);
-  if (phase.requiredArtifact?.kind === 'conformance-report') {
-    const { withVerdictSummary, conformanceEvidenceReuse } = await import('./conformance-readiness.mjs');
-    text = withVerdictSummary(text, workflow, phase.id, { reused: await conformanceEvidenceReuse(root, config, workflow, phase.id).catch(() => []) });
-  }
-  text = await sealed(text);
+  const text = await sealed(await composed(root, config, workflow, phase, existing, rendered));
   await writeText(artifactPath, text);
   return { text, from: rendered.from };
 }

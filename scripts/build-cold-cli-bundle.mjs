@@ -270,6 +270,11 @@ export async function buildColdCliBundle({ root, outdir, toolRoot, entries, exte
           const live = LIVE_SOURCE_FILES.map(file => path.join(root, 'src', file)).find(file => file === target);
           return live ? { id: `../src/${path.relative(path.join(root, 'src'), live).split(path.sep).join('/')}`, external: true } : null;
         }
+      }, {
+        // Code only a source run carries (the step invariants a test run checks, src/story-invariants.mjs): the bundle's
+        // marker is true here, so tree-shaking drops each guarded hook and everything it would import.
+        name: 'source-run-only',
+        transform(code) { return code.includes('globalThis.__SFLOW_CLI_BUNDLE__') ? { code: code.replaceAll('globalThis.__SFLOW_CLI_BUNDLE__', 'true'), map: null } : null; }
       }, nodeResolve({ preferBuiltins: true }), commonjs(), json({ compact: true })],
       // Existing source cycles are handled by the module compiler. New inter-family static cycles
       // are separately refused below; no cycle warning is converted into a permission decision.

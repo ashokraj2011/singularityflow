@@ -625,6 +625,11 @@ export async function readPendingList(root, config, workflow, { phaseId = null, 
   // Every item in plain words, the same on every host [owner, 2026-11-16].
   const packet = withPlainWords(workflow, decisionPacket(workflow, facts, { authorities, actor, at, requestedPhase, card }));
   const storyNext = packet.items?.length ? null : await storyNextStep(root, workflow);
+  // In a test run: what this list shows can be done as it says (story-invariants.mjs) [owner, 2026-11-23].
+  if (globalThis.__SFLOW_CLI_BUNDLE__ !== true && globalThis.__SFLOW_EXTENSION_HOST__ !== true && process.env.SINGULARITY_FLOW_INVARIANTS) {
+    await (await import('./invariant-checks.mjs')).withStoryInvariants((checks) => checks.reportViolations(checks.packetViolations(workflow, packet, { at }),
+      { story: workflow.workItem?.id ?? null, phase: packet.phase ?? null }));
+  }
   return { ...packet, ...(storyNext ? { next: storyNext } : {}),
     sheet: await sheetOf(root, workflow, packet, { approvalCheck: facts.approvalCheck, authorities, actor, card }) };
 }

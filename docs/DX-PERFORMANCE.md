@@ -530,6 +530,39 @@ npm run test:slow
 SINGULARITY_FLOW_TEST_SLOW=1 node --test test/rework-lifecycle.test.mjs
 ```
 
+### Step invariants and the Story fuzzer
+
+Tests check the outcomes they were written for. A real Story combines them, and that is where its
+bugs were: on 2026-11-23 two issues returned with one answer was refused for the second, and a
+release evidence index went stale once its report was edited. Every test had passed. Two checks now
+run against what a Story's steps leave behind (`src/story-invariants.mjs`).
+
+**Step invariants.** The isolated test environment names a log (`SINGULARITY_FLOW_INVARIANTS`).
+While it is set, the CLI checks the state wherever it reads or writes it:
+
+- Every decision list it builds is checked. A recommendation names only a choice it shows. An open
+  item has a choice the person can take. Every return it shows runs now, and so does each return
+  chosen with the ones before it.
+- Every release step it submits is checked. The report and evidence index SFlow wrote from its
+  records, if still sealed, say what those records say.
+- Every refusal is checked. Its route is never the refused command again.
+
+The suite runner fails on any line the run logs that `test/fixtures/known-invariant-violations.json`
+does not list. That list only shrinks. The checks are loaded from `src/` by `src/invariant-checks.mjs`,
+so they change nothing a command does, and no bundle carries them.
+
+**The Story fuzzer** (`test/story-fuzzer.test.mjs`, slow lane) copies a spec-driven Story built up
+to its Verification step. It walks seeded sequences of what a person and an author do: advance a
+step, sometimes with an edited release report; raise issues; answer one item, or all alike; return
+a step for changes. After every action it checks three things:
+
+- the logged invariants;
+- every choice the list shows, recorded on a copy, alone and as one answer for all;
+- that the Story always has something to do.
+
+Two walks replay d-story's. A failure prints its seed and its actions. Widen a run with
+`SINGULARITY_FLOW_FUZZ_SEEDS=1,2,3,…` and `SINGULARITY_FLOW_FUZZ_STEPS=12`.
+
 The current liveness hardening at `main@03825387` also routes `SIGINT` and `SIGTERM` through the
 same bounded process-tree shutdown used for timeouts. The aggregate waits for detached descendants
 to quiesce and prints an exact retry command. Exact authority-state hashing no longer streams bytes

@@ -196,6 +196,15 @@ function parseSummary(output) {
   return summary;
 }
 
+/** The step invariants the run's CLI calls found (src/story-invariants.mjs), and those the known list does not cover. */
+async function invariantFindings(file) {
+  const { readViolations, unknownViolations } = await import(pathToFileURL(path.join(root, 'src/story-invariants.mjs')).href);
+  const { readFile } = await import('node:fs/promises');
+  const known = JSON.parse(await readFile(path.join(root, 'test/fixtures/known-invariant-violations.json'), 'utf8')).entries ?? [];
+  const found = await readViolations(file);
+  return { found: found.length, unknown: unknownViolations(found, known) };
+}
+
 async function writeAtomic(file, value) {
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${process.pid}.tmp`;
@@ -207,10 +216,12 @@ const startedAt = new Date().toISOString();
 const started = Date.now();
 console.log(`SFlow test shard ${shard.index}/${shard.count}: ${selected.length} ${suite} file(s), deadline ${deadlineMs} ms.`);
 let result;
+let invariants = { found: 0, unknown: [] };
 try {
   result = await executeBounded([
     ...reporterFlags, ...flags, concurrencyFlag, '--test', ...selected
   ]);
+  invariants = await invariantFindings(isolated.SINGULARITY_FLOW_INVARIANTS);
 } finally {
   rmSync(machineState, { recursive: true, force: true });
 }
@@ -218,7 +229,11 @@ const summary = parseSummary(`${result.stdout}\n${result.stderr}`);
 const complete = summary != null;
 const passed = result.status === 0 && complete
   && summary.failed === 0 && summary.cancelled === 0 && summary.todo === 0
-  && (!failOnSkippedFiles || summary.skipped === 0);
+  && (!failOnSkippedFiles || summary.skipped === 0) && !invariants.unknown.length;
+if (invariants.unknown.length) {
+  console.error(`\nSFlow test shard ${shard.index}/${shard.count}: ${invariants.unknown.length} step invariant violation(s) no entry of test/fixtures/known-invariant-violations.json lists:`);
+  for (const entry of invariants.unknown.slice(0, 40)) console.error(`  - ${entry.invariant}${entry.kind ? ` (${entry.kind})` : ''}: ${entry.words} [${(entry.argv ?? []).join(' ')}]`);
+}
 const commit = git(['rev-parse', '--verify', 'HEAD']);
 const tree = git(['rev-parse', '--verify', 'HEAD^{tree}']);
 const cleanCheckout = (git(['status', '--porcelain=v1', '--untracked-files=all']) ?? '') === '';
@@ -236,7 +251,8 @@ const receipt = {
   platform: process.platform, architecture: process.arch, nodeVersion: process.versions.node,
   failOnSkipped: failOnSkippedFiles, deadlineMs, timedOut: result.timedOut,
   outputOverflow: result.overflow, exitCode: result.status, signal: result.signal ?? null,
-  summary: summary ?? { tests: 0, passed: 0, failed: 1, cancelled: 0, skipped: 0, todo: 0 }
+  summary: summary ?? { tests: 0, passed: 0, failed: 1, cancelled: 0, skipped: 0, todo: 0 },
+  invariants: { found: invariants.found, unknown: invariants.unknown.length }
 };
 if (receiptOption) await writeAtomic(path.resolve(root, receiptOption), receipt);
 

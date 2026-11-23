@@ -91,6 +91,8 @@ export async function buildCliBundle({ root = ROOT, outdir = path.join(root, 'bu
     legalComments: 'none',
     external: EXTERNAL,
     plugins: [liveStamp(root)],
+    // Code only a source run carries (the step invariants a test run checks, src/story-invariants.mjs) is dropped here.
+    define: { 'globalThis.__SFLOW_CLI_BUNDLE__': 'true' },
     // Bundled CommonJS packages (yaml's Node build) call require(); an ES module has none of its own.
     banner: { js: 'import { createRequire as __sflowCreateRequire } from "node:module"; const require = __sflowCreateRequire(import.meta.url);' },
     metafile: true,

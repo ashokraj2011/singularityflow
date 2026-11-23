@@ -38,6 +38,10 @@ export function oversizedTextRefusal(error) {
 
 export async function reportCliFailure(error, argv = []) {
   error = oversizedTextRefusal(error) ?? error;
+  // In a test run: a refusal's route is never the refused command again (story-invariants.mjs).
+  if (globalThis.__SFLOW_CLI_BUNDLE__ !== true && globalThis.__SFLOW_EXTENSION_HOST__ !== true && process.env.SINGULARITY_FLOW_INVARIANTS) {
+    await (await import('./invariant-checks.mjs')).withStoryInvariants((checks) => checks.reportViolations(checks.refusalViolations(argv, error)));
+  }
   const result = commandResultOf(error);
   let json = false;
   let verbose = false;

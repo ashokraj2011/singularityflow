@@ -339,7 +339,21 @@ export async function runSubmitCommand(positionals, options, submitContext) {
 
 /** Generic phase submission can never opt into the convergence advancement context. */
 export async function submitCommand(positionals, options) {
-  return runSubmitCommand(positionals, options);
+  const result = await runSubmitCommand(positionals, options);
+  // In a test run: a release document SFlow wrote from its records still says what they say (story-invariants.mjs).
+  if (globalThis.__SFLOW_CLI_BUNDLE__ !== true && globalThis.__SFLOW_EXTENSION_HOST__ !== true && process.env.SINGULARITY_FLOW_INVARIANTS) await submittedRecordDocuments(positionals, options);
+  return result;
+}
+
+async function submittedRecordDocuments(positionals, options) {
+  await (await import('../invariant-checks.mjs')).withStoryInvariants(async (checks) => {
+    const { repoRoot } = await import('../git.mjs');
+    const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
+    const root = repoRoot();
+    const { definition, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id') ?? undefined);
+    const phase = workflow.phases?.[positionals[1] ?? ''] ?? null;
+    if (phase) checks.reportViolations(await checks.recordDocumentViolations(root, definition, workflow, phase), { story: workflow.workItem?.id ?? null, phase: phase.id });
+  });
 }
 
 /** Combined command used only after `story advance` has received its explicit confirmation. */

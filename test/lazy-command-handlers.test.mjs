@@ -984,7 +984,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,863,740 (measured for submit.mjs, +1,356, 2026-11-23, d-story): a return of an upstream issue whose step already
     // goes back for an open return joins it, on the decision list and in its words (upstream-routes.mjs upstreamReturnJoin,
     // decision-list.mjs returnOption, decision-advice.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_863_740, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,864,782 (measured for submit.mjs, +1,042, 2026-11-23): in a test run, a submitted release's record documents are checked
+    // against their records (submit.mjs submittedRecordDocuments, the step invariants loaded lazily from src/story-invariants.mjs),
+    // and the release report's comparison writes it as the writer does (record-documents.mjs composed). No new eager file.
+    assert.ok(closure.bytes <= 9_864_782, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

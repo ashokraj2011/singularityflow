@@ -213,8 +213,10 @@ function currentBranch(root) {
 
 export async function loadCodeMap(root, { view, scope = null }) {
   if (!['changes', 'repository'].includes(view) || (scope != null && (view !== 'repository' || !validPath(scope)))) {
+    // Its way out names the view to ask for (scripts/plain-language-check.mjs: no generic help).
     throw new SingularityFlowError('Choose Changes or Repository and use a repository-relative folder or file.', {
-      code: 'CMP_CODE_MAP_QUERY_INVALID'
+      code: 'CMP_CODE_MAP_QUERY_INVALID',
+      details: { nextAction: `singularity-flow explain code --code-map=${view === 'changes' ? 'changes' : 'repository'}` }
     });
   }
   const activeBranch = currentBranch(root);

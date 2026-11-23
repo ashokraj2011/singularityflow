@@ -113,9 +113,11 @@ const REPOSITORY_INCOMPATIBLE = ['narrate', 'length', 'since', 'hunk', 'symbol',
 
 async function runCodeMap(root, options, operation) {
   if ([...REPOSITORY_INCOMPATIBLE, 'repository', 'no-index'].some(name => options[name] != null)) {
+    // Its way out is the same map with nothing else asked of it (scripts/plain-language-check.mjs: no generic help).
+    const view = optionString(options, 'code-map') === 'changes' ? 'changes' : 'repository';
     throw new SingularityFlowError(
       'The code map takes only a view and an optional repository path.',
-      { code: 'CMP_CODE_MAP_QUERY_INVALID' }
+      { code: 'CMP_CODE_MAP_QUERY_INVALID', details: { nextAction: `singularity-flow explain code --code-map=${view}` } }
     );
   }
   const { loadCodeMap } = await import('./code-map.mjs');

@@ -250,6 +250,28 @@ test('feedback for the marketplace: only its own findings, addressed to its main
   assert.equal(feedbackDocument({ ...review, feedback: [] }), null);
 });
 
+test('provenance: the pieces a workflow uses, what changed between two commits in words, and the lines that changed (MCR §7, §8)', async () => {
+  const { agentProvenance, piecesDifferences, differencesWords, sourcePieces, workflowImportKey } = await import('../src/agent-workflow-provenance.mjs');
+  const { lineChanges } = await import('../src/conversion-review.mjs');
+  const { agent, skills } = await fixtureAgent('qa-test-automation-agent');
+  const conversion = convertAgent({ marketplace: MARKET, agent, skills, answers: {} });
+  const record = agentProvenance(conversion, { agent, skills, answers: { b: 'x', a: 'y' }, convertedBy: '0.9.0', targetPath: 'singularity/agents/qa.agent.md', agentText: 'text' });
+  assert.equal(workflowImportKey('qa-test-automation'), 'workflow:qa-test-automation');
+  assert.deepEqual(Object.keys(record.source.answers), ['a', 'b'], 'answers in one order, so the same answers are the same record');
+  assert.equal(record.source.commit, COMMIT);
+  assert.equal(agentProvenance({ ...conversion, source: { ...conversion.source, marketplace: null } }, { agent, skills, targetPath: 'x', agentText: '' }), null, 'a folder has no marketplace to update from');
+  const before = sourcePieces(agent, skills);
+  assert.deepEqual(piecesDifferences(before, before), { agent: false, manifest: false, skills: { added: [], removed: [], changed: [] }, unchanged: true });
+  const after = sourcePieces({ ...agent, text: `${agent.text}\nOne more rule.` }, [...skills.filter((entry) => entry.name !== 'android-unit-test'), { name: 'kotlin-lint', text: 'x' }]
+    .map((entry) => (entry.name === 'web-xray-creation' ? { ...entry, text: `${entry.text}\nmore` } : entry)));
+  const difference = piecesDifferences(before, after);
+  assert.equal(differencesWords(difference), 'agent.md and skill web-xray-creation changed; skill kotlin-lint was added; skill android-unit-test was removed');
+  assert.equal(differencesWords(piecesDifferences(before, before)), 'nothing it uses changed');
+  assert.deepEqual(lineChanges('a\nb\nc\n', 'a\nB\nc\nd\n'), [{ op: '+', text: 'B' }, { op: '-', text: 'b' }, { op: '+', text: 'd' }]);
+  assert.deepEqual(lineChanges('same\n\n', 'same\n'), [], 'blank lines are no change');
+  assert.equal(lineChanges('', Array.from({ length: 300 }, (_, index) => `line ${index}`).join('\n')).at(-1).text, '100 more changed lines');
+});
+
 test('a skill tied to one answer applies once the Story records another answer only if it is that answer', () => {
   assert.deepEqual(storyValueCondition('when channel is web or when channel is android'), { name: 'channel', values: ['web', 'android'] });
   assert.deepEqual(storyValueCondition('When channel is android, only when step 5, Unit Test Gap Fill, is needed'), { name: 'channel', values: ['android'] });
@@ -426,6 +448,83 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     const proposed = json(root, ['workflow', 'from-agent', 'acme/product-agent', '--answer', 'product-traceability-check=review', '--answer', 'product-hand-off=report', '--propose']);
     assert.equal(proposed.importPlan.status, 'ready');
     assert.ok(path.isAbsolute(proposed.bundlePath) && !proposed.bundlePath.startsWith(root));
+
+    // Provenance (MCR §7): the import wrote where the QA workflow came from, which imports status reads as current.
+    const ledger = YAML.parse(await readFile(path.join(root, 'singularity/imports.lock.yml'), 'utf8'));
+    const record = ledger.imports['workflow:qa-test-automation'];
+    assert.deepEqual([record.kind, record.source.kind, record.source.marketplace, record.source.commit, record.source.agent, record.source.version, record.workflow],
+      ['workflow', 'marketplace-agent', 'acme', pinned, 'qa-test-automation-agent', '1.0.0-pdlc', 'qa-test-automation']);
+    assert.match(record.pieces.agent, /^[a-f0-9]{64}$/u);
+    assert.deepEqual(Object.keys(record.pieces.skills), ['android-ui-test-creation', 'android-unit-test', 'android-xray-creation', 'web-e2e-test-generation', 'web-xray-creation']);
+    assert.equal(record.target.id, 'qa-test-automation-agent');
+    const statusRow = json(root, ['imports']).imports.find((row) => row.key === 'workflow:qa-test-automation');
+    assert.deepEqual([statusRow.status, statusRow.source], ['current', 'agent:acme/qa-test-automation-agent@1.0.0-pdlc']);
+    // Check for updates (MCR §8): nothing changed at its source yet.
+    let sourceCheck = json(root, ['imports', 'check']).imports.find((row) => row.key === 'workflow:qa-test-automation');
+    assert.equal(sourceCheck.status, 'up to date');
+    // The pinned commit, or a newer one that changes nothing the workflow uses.
+    assert.match(sourceCheck.detail, /^(?:commit [a-f0-9]{12}|nothing it uses changed at [a-f0-9]{12})$/u);
+    assert.equal(sourceCheck.updateCommand, undefined);
+    // The marketplace changes one skill: the check says which, and the update shows exactly that line.
+    const skillFile = path.join(market, 'skills/web-xray-creation/SKILL.md');
+    await writeFile(skillFile, `${await readFile(skillFile, 'utf8')}\nAlways name the browser and its version in each test case.\n`);
+    run('git', ['commit', '-am', 'web xray: name the browser'], market);
+    const newest = run('git', ['rev-parse', 'HEAD'], market).stdout.trim();
+    sourceCheck = json(root, ['imports', 'check']).imports.find((row) => row.key === 'workflow:qa-test-automation');
+    assert.equal(sourceCheck.status, 'changed at its source');
+    assert.equal(sourceCheck.detail, `skill web-xray-creation changed at ${newest.slice(0, 12)}`);
+    assert.equal(sourceCheck.updateCommand, 'singularity-flow workflow from-agent acme/qa-test-automation-agent --update');
+    const updated = json(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--update']);
+    assert.deepEqual([updated.review.update.recorded, updated.review.update.from, updated.review.update.to, updated.review.update.words],
+      [true, pinned, newest, 'skill web-xray-creation changed']);
+    assert.deepEqual(updated.review.update.skills.map((entry) => [entry.skill, entry.change, entry.lines]),
+      [['web-xray-creation', 'changed', [{ op: '+', text: 'Always name the browser and its version in each test case.' }]]]);
+    assert.deepEqual(updated.review.update.steps, { added: [], removed: [], reclassified: [] });
+    assert.equal(updated.review.update.nothingChanged, false);
+    assert.equal(updated.review.ready, true);
+    const updateText = flow(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--update', '--review']).stdout;
+    assert.match(updateText, /## What changed in the marketplace\n\n- Imported from commit [a-f0-9]{12} \(1\.0\.0-pdlc\); now [a-f0-9]{12} \(1\.0\.0-pdlc\): skill web-xray-creation changed\./u);
+    assert.match(updateText, /### Skill web-xray-creation \(changed\)\n\n```diff\n\+ Always name the browser and its version in each test case\.\n```/u);
+    // Its import is reviewed like any other; the record it carries names the newer commit.
+    const updating = json(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--update', '--propose']);
+    const carried = JSON.parse(await readFile(updating.bundlePath, 'utf8')).imports['workflow:qa-test-automation'];
+    assert.equal(carried.source.commit, newest);
+    assert.notEqual(carried.pieces.skills['web-xray-creation'], record.pieces.skills['web-xray-creation']);
+
+    // The marketplace brings the product agent back, as it was at the pinned commit.
+    run('git', ['checkout', pinned, '--', 'agents/product-agent'], market);
+    run('git', ['commit', '-m', 'bring the product agent back'], market);
+    // An agent never imported here: its source was not recorded, so the update compares with the pinned commit (MCR:REQ-022).
+    const unrecorded = json(root, ['workflow', 'from-agent', 'acme/product-agent', '--answer', 'product-traceability-check=review', '--answer', 'product-hand-off=report', '--update']);
+    assert.equal(unrecorded.review.update.recorded, false);
+    assert.equal(unrecorded.review.update.from, pinned);
+    // The product workflow imported with the person's answers; then the marketplace rewrites what Traceability Check does:
+    // that one answer is asked again, the other stands (MCR:REQ-033).
+    const productOut = path.join(root, 'product.workflow.json');
+    flow(root, ['workflow', 'from-agent', 'acme/product-agent', '--answer', 'product-traceability-check=review', '--answer', 'product-hand-off=report', '--out', productOut]);
+    const productPlan = json(root, ['workflow', 'import', productOut, '--dry-run']);
+    flow(root, ['workflow', 'import', productOut, '--confirm', productPlan.planSha256]);
+    run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'import the product workflow'], root);
+    assert.deepEqual(YAML.parse(await readFile(path.join(root, 'singularity/imports.lock.yml'), 'utf8')).imports['workflow:product'].source.answers,
+      { 'product-hand-off': 'report', 'product-traceability-check': 'review' });
+    const productAgent = path.join(market, 'agents/product-agent/agent.md');
+    await writeFile(productAgent, (await readFile(productAgent, 'utf8')).replace(/## 6\. Traceability Check\n/u, '## 6. Traceability Check\n\nWalk the matrix with the team, line by line.\n'));
+    run('git', ['commit', '-am', 'product: traceability walk-through'], market);
+    const asked = json(root, ['workflow', 'from-agent', 'acme/product-agent', '--update']);
+    assert.deepEqual(asked.review.update.askedAgain, ['product-traceability-check']);
+    assert.deepEqual(asked.review.open.map((entry) => entry.step), ['product-traceability-check'], 'only the changed stage is asked again');
+    assert.equal(asked.review.ready, false);
+    assert.ok(asked.review.update.agent.some((line) => line.op === '+' && line.text === 'Walk the matrix with the team, line by line.'));
+    // An agent the marketplace no longer has is said so; the workflow stays until a person retires it (MCR:REQ-035).
+    const manifestFile = path.join(market, 'apm.yml');
+    const manifest = YAML.parse(await readFile(manifestFile, 'utf8'));
+    manifest.marketplace.packages = manifest.marketplace.packages.filter((entry) => entry.name !== 'qa-test-automation-agent');
+    await writeFile(manifestFile, YAML.stringify(manifest));
+    run('git', ['commit', '-am', 'retire the QA agent'], market);
+    const retired = json(root, ['imports', 'check']).imports.find((row) => row.key === 'workflow:qa-test-automation');
+    assert.equal(retired.status, 'removed at its source');
+    assert.match(retired.detail, /the workflow stays until a person retires it/u);
+    assert.ok(YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).workTypes['qa-test-automation'], 'nothing is removed by a check');
   } finally {
     await rm(market, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });

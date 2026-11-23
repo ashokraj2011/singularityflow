@@ -1595,7 +1595,8 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
       const record = clone(ledger.imports[key]);
       // A bundle carries agents at their portable path, wherever this repository keeps them [AGH:REQ-024].
       if (record.target?.path) record.target.path = agentPathIn(LEGACY_AGENTS_ROOT, record.target.path);
-      if (record.kind === 'agent') {
+      // A workflow made from a marketplace agent records its agent file the same way (MCR §7).
+      if (record.kind === 'agent' || record.kind === 'workflow') {
         const original = discovered.find((agent) => agent.id === record.target.id);
         const exported = assets.find((asset) => asset.kind === 'agent' && asset.id === record.target.id);
         // Export may materialize file-based attachments into a previously imported agent.

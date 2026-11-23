@@ -74,11 +74,56 @@ export function conversionReview(result) {
     open: (result.open ?? []).map((entry) => ({ step: entry.step, stage: entry.stage, question: entry.question, why: entry.why ?? null, choices: entry.choices ?? [] })),
     checks,
     feedback: findings.filter((finding) => finding.owner !== 'sflow'),
+    ...(result.update ? { update: result.update } : {}),
     ready
   };
 }
 
+/** The update section's lines: what changed in the marketplace since the import, and what it changes for SFlow. */
+function updateLines(update) {
+  const short = (commit) => String(commit ?? '—').slice(0, 12);
+  const lines = ['## What changed in the marketplace', '',
+    bullet(`${update.recorded ? 'Imported from' : 'Its source was not recorded; compared with the marketplace\'s pinned'} commit ${short(update.from)}${update.version.from ? ` (${update.version.from})` : ''}; now ${short(update.to)}${update.version.to ? ` (${update.version.to})` : ''}: ${update.words}.`)];
+  if (update.nothingChanged) lines.push(bullet('Nothing changed for SFlow: the workflow stays as imported, and making it records the newer commit only.'));
+  const steps = update.steps ?? {};
+  if (steps.added?.length) lines.push(bullet(`New steps: ${steps.added.join(', ')}.`));
+  if (steps.removed?.length) lines.push(bullet(`Steps no longer made: ${steps.removed.join(', ')}.`));
+  for (const entry of steps.reclassified ?? []) lines.push(bullet(`${entry.step} is now ${entry.to}, not ${entry.from}.`));
+  if (update.askedAgain?.length) lines.push(bullet(`Asked again, as their stages changed: ${update.askedAgain.join(', ')}.`));
+  for (const words of update.findings?.added ?? []) lines.push(bullet(`New finding: ${words}`));
+  for (const words of update.findings?.resolved ?? []) lines.push(bullet(`Resolved: ${words}`));
+  const diff = (title, changes) => (changes?.length ? ['', `### ${title}`, '', '```diff', ...changes.map((change) => `${change.op === '…' ? '#' : change.op} ${change.text}`), '```'] : []);
+  lines.push(...diff('agent.md', update.agent));
+  for (const entry of update.skills ?? []) lines.push(...diff(`Skill ${entry.skill} (${entry.change})`, entry.lines));
+  return [...lines, ''];
+}
+
 const bullet = (text) => `- ${text}`;
+
+/**
+ * The lines removed (`-`) and added (`+`) from `before` to `after`, blank lines ignored, at most `limit` of them: what an
+ * update shows of a prompt that changed. Longest common subsequence; a text too long for it lists both sides.
+ */
+export function lineChanges(before, after, { limit = 200 } = {}) {
+  const left = String(before ?? '').split(/\r?\n/u).map((line) => line.trimEnd()).filter((line) => line.trim());
+  const right = String(after ?? '').split(/\r?\n/u).map((line) => line.trimEnd()).filter((line) => line.trim());
+  let changes;
+  if (left.length * right.length > 250_000) changes = [...left.map((text) => ({ op: '-', text })), ...right.map((text) => ({ op: '+', text }))];
+  else {
+    const table = Array.from({ length: left.length + 1 }, () => new Array(right.length + 1).fill(0));
+    for (let i = left.length - 1; i >= 0; i -= 1) for (let j = right.length - 1; j >= 0; j -= 1) {
+      table[i][j] = left[i] === right[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+    }
+    changes = [];
+    let i = 0; let j = 0;
+    while (i < left.length || j < right.length) {
+      if (i < left.length && j < right.length && left[i] === right[j]) { i += 1; j += 1; }
+      else if (j < right.length && (i >= left.length || table[i][j + 1] >= table[i + 1][j])) { changes.push({ op: '+', text: right[j] }); j += 1; }
+      else { changes.push({ op: '-', text: left[i] }); i += 1; }
+    }
+  }
+  return changes.length > limit ? [...changes.slice(0, limit), { op: '…', text: `${changes.length - limit} more changed lines` }] : changes;
+}
 
 /** The review as Markdown: the same sections, for Copilot and the terminal. */
 export function conversionReviewMarkdown(review) {
@@ -104,7 +149,8 @@ export function conversionReviewMarkdown(review) {
     ...(review.open.length ? review.open.flatMap((entry) => [bullet(`${entry.question} (stage ${entry.stage})`), ...entry.choices.map((choice) => `  - ${choice.label}`)]) : ['Nothing.']),
     '', '## Checks', '',
     ...review.checks.flatMap((check) => [bullet(`${check.ok ? 'Passed' : 'Not yet'}: ${check.words}`), ...(check.fixes ?? []).map((fix) => `  - ${fix.title}.${fix.detail ? ` ${fix.detail}` : ''} Fix: ${fix.fix ?? '—'}`)]),
-    '', '## Feedback for the marketplace', '',
+    '', ...(review.update ? updateLines(review.update) : []),
+    '## Feedback for the marketplace', '',
     ...(review.feedback.length ? review.feedback.map((entry) => bullet(`${entry.words}${entry.fix ? ` Fix: ${entry.fix}` : ''}`)) : ['Nothing to report.']),
     '', review.ready ? 'Ready to make: nothing waits for your answer and every check passed.' : 'Not ready to make yet: see Needs your answer and Checks.'
   ];

@@ -223,6 +223,28 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
     assert.equal(page.state().workflow, kept.workflow.id);
     assert.equal(page.state().status, 'The workflow was written to this repository; review the diff and commit it.');
 
+    // An update (MCR §8): the marketplace changes a skill the workflow uses; Check for updates names it, and Review update
+    // opens the same review in update mode, whose Make is Update this workflow.
+    run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'import the product workflow'], root);
+    const skillFile = path.join(market, 'skills/requirements-writer/SKILL.md');
+    await writeFile(skillFile, `${await readFile(skillFile, 'utf8')}\nNumber every assumption.\n`);
+    for (const args of [['add', '-A'], ['commit', '-m', 'requirements writer: number assumptions']]) run('git', args, market);
+    ({ page, posted, send } = studio(json(root, ['workflow', 'studio'])));
+    send({ type: 'studio.importsChecked', result: json(root, ['imports', 'check']) });
+    const imported = page.renderImported(page.library());
+    assert.match(text(imported), /workflow:product/u);
+    assert.match(text(imported), /changed at its source \(skill requirements-writer changed at [a-f0-9]{12}\)/u);
+    click(buttonNamed(imported, 'Review update'));
+    assert.deepEqual(last(posted, 'studio.agentWorkflowPreview'), { type: 'studio.agentWorkflowPreview', target: 'acme/product-agent', answers: {}, update: true });
+    send({ type: 'studio.agentWorkflowPreviewed', target: 'acme/product-agent', result: json(root, ['workflow', 'from-agent', 'acme/product-agent', '--update']) });
+    let updateCard = page.renderMarketplaces(page.library());
+    assert.match(text(updateCard), /What changed in the marketplace/u);
+    assert.match(text(updateCard), /Since this workflow was imported \(version 1\.0\.0-pdlc\): skill requirements-writer changed\./u);
+    assert.doesNotMatch(text(updateCard).slice(text(updateCard).indexOf('Conversion review:')), /[a-f0-9]{12}/u, 'the review shows no commit or digest for a person to read');
+    assert.match(text(updateCard), /\+ Number every assumption\./u);
+    click(buttonNamed(updateCard, 'Update this workflow'));
+    assert.deepEqual(last(posted, 'studio.agentWorkflowMake'), { type: 'studio.agentWorkflowMake', target: 'acme/product-agent', answers: {}, update: true });
+
     // A walk that stops shows each stop and makes nothing; Answer again starts over.
     ({ page, posted, send } = studio(json(root, ['workflow', 'studio'])));
     page.previewAgentWorkflow('acme/qa-test-automation-agent', 'qa-test-automation-agent', { 'qa-test-automation-intake': 'intake' });
@@ -250,8 +272,8 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
 test('the host reads a repository marketplace and makes an agent workflow only through engine commands, with checked arguments', async () => {
   const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
   assert.match(host, /\['marketplace', 'add', id, '--repo', repositoryText, \.\.\.\(refText \? \['--ref', refText\] : \[\]\), \.\.\.\(labelText \? \['--label', labelText\] : \[\]\), '--dry-run', '--json'\]/u);
-  assert.match(host, /\['workflow', 'from-agent', target, \.\.\.agentStageAnswers\(answers\), '--json'\]/u);
-  assert.match(host, /\['workflow', 'from-agent', target, \.\.\.agentStageAnswers\(answers\), '--propose', '--json'\][\s\S]{0,400}this\.requestImport\(result\.bundlePath\)/u);
+  assert.match(host, /\['workflow', 'from-agent', target, \.\.\.agentStageAnswers\(answers\), \.\.\.\(update \? \['--update'\] : \[\]\), '--json'\]/u);
+  assert.match(host, /\['workflow', 'from-agent', target, \.\.\.agentStageAnswers\(answers\), \.\.\.\(update \? \['--update'\] : \[\]\), '--propose', '--json'\][\s\S]{0,400}this\.requestImport\(result\.bundlePath\)/u);
   // Nothing the page sends becomes an option: an ID, a repository that does not start with '-', a Git ref, STEP=INTENT.
   assert.match(host, /repositoryText\.startsWith\('-'\)/u);
   assert.match(host, /const MARKETPLACE_REF = \/\^\[A-Za-z0-9_\]/u);
@@ -263,5 +285,7 @@ test('the host reads a repository marketplace and makes an agent workflow only t
   assert.match(host, /this\.agentPreview = \{ target, answers, result \}/u);
   assert.match(host, /if \(!feedback \|\| !\/\^https:\\\/\\\/\[\^\\s@\]\+\$\/u\.test\(url\)\)/u);
   assert.match(host, /vscode\.env\.openExternal\(vscode\.Uri\.parse\(url, true\)\)/u);
+  // An update (MCR §8): --update only when the page says exactly true, on the same checked arguments.
+  assert.match(host, /\(message as \{ update\?: unknown \}\)\.update === true/u);
   assert.doesNotMatch(host, /studio\.agentFeedbackIssue[^\n]*stringField\(message, 'url'\)/u, 'the page never hands the host an address');
 });

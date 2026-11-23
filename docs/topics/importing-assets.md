@@ -14,7 +14,7 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 10
+version: 11
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
@@ -60,6 +60,11 @@ A marketplace agent's `agent.md` is a whole process: a hard gate first, a table 
 - **Feedback for the marketplace:** each finding the marketplace owns comes with its fix. Examples: a skill a stage names but the agent does not depend on, a dependency no stage uses, a stage SFlow could not classify, a proposed lifecycle state, a missing `maintainer-email`. SFlow's own choices are not included.
   - `--feedback FILE` writes the findings as Markdown for the maintainers. In Studio, the same comes from **Save as Markdown** and **Copy**.
   - **Open an issue** opens a new issue in the agent's own repository (`source-repository`) in your browser, filled in. You submit it; SFlow never posts.
+- **Where it came from, and updates:** the import writes a `workflow:<id>` record to `singularity/imports.lock.yml`. It holds the marketplace, the commit, the agent's version, a SHA-256 of `agent.md`, of its `apm.yml` and of each skill, and your answers.
+  - `singularity-flow imports check`, or Workflow Studio's **Check for updates**, reads the marketplace at its newest commit and says what changed, for example "skill web-xray-creation changed".
+  - `workflow from-agent <MARKETPLACE/AGENT> --update`, or **Review update**, converts the agent again with your recorded answers. The review then shows only what changed, with the changed lines of `agent.md` and of each skill. A stage whose own words changed is asked again.
+  - Updating is an import like any other, reviewed before it is written. Stories already running keep the workflow they started with. An agent the marketplace no longer has is reported, and its workflow stays until you retire it.
+  - A workflow imported before its source was recorded is compared with the marketplace's pinned commit; updating it records its source.
 
 | PDLC task | Step intent | Why |
 |---|---|---|

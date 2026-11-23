@@ -1126,6 +1126,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     renderMarketplaces: function () { return renderMarketplaces.apply(null, arguments); },
     readRepositoryMarketplace: function () { return readRepositoryMarketplace.apply(null, arguments); },
     previewAgentWorkflow: function () { return previewAgentWorkflow.apply(null, arguments); },
+    renderImported: function () { return renderImported.apply(null, arguments); },
     authoringSkillControl: function () { return authoringSkillControl.apply(null, arguments); },
     addStepAction: function () { return addStepAction.apply(null, arguments); }, setActionTarget: function () { return setActionTarget.apply(null, arguments); },
     setActionTrigger: function () { return setActionTrigger.apply(null, arguments); }, actionLine: function () { return actionLine.apply(null, arguments); },
@@ -4954,11 +4955,14 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   // ---- Library: an agent of a Git repository marketplace as a workflow --------------------------
 
   /** The workflow the agent becomes, read by the engine with the answers given so far; nothing is written. */
-  function previewAgentWorkflow(target, label, answers) {
+  function previewAgentWorkflow(target, label, answers, update) {
     var lib = library();
-    lib.agentWorkflow = { target: target, label: label, answers: answers || {}, result: null };
-    lib.busy = 'agent-workflow'; lib.error = null; render();
-    post({ type: 'studio.agentWorkflowPreview', target: target, answers: lib.agentWorkflow.answers });
+    // An update keeps its mode while the person answers (MCR section 8).
+    var updating = update === true || Boolean(update === undefined && lib.agentWorkflow && lib.agentWorkflow.target === target && lib.agentWorkflow.update);
+    lib.agentWorkflow = { target: target, label: label, answers: answers || {}, result: null, update: updating };
+    lib.busy = 'agent-workflow'; lib.error = null; lib.feedbackStatus = null; render();
+    post(updating ? { type: 'studio.agentWorkflowPreview', target: target, answers: lib.agentWorkflow.answers, update: true }
+      : { type: 'studio.agentWorkflowPreview', target: target, answers: lib.agentWorkflow.answers });
   }
 
   /** The person's answer to what a stage is for, then the preview again with it. */
@@ -4974,7 +4978,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var lib = library(); var flow = lib.agentWorkflow;
     if (!flow || !flow.result || !flow.result.ready || !(flow.result.review && flow.result.review.ready) || ((flow.result.walk || {}).stops || []).length || lib.busy || state.busy) return;
     lib.busy = 'agent-workflow-make'; lib.error = null; render();
-    post({ type: 'studio.agentWorkflowMake', target: flow.target, answers: flow.answers });
+    post(flow.update ? { type: 'studio.agentWorkflowMake', target: flow.target, answers: flow.answers, update: true }
+      : { type: 'studio.agentWorkflowMake', target: flow.target, answers: flow.answers });
   }
 
   // The conversion review (docs/SPEC-MCR-MARKETPLACE-CONVERSION-REVIEW-v1.md section 4): what the agent became, stage by
@@ -5002,7 +5007,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     }
     var source = review.source || {};
     box.appendChild(reviewSection('Where it came from', el('div', null,
-      el('div', { text: source.agent + (source.version ? ' ' + source.version : '') + (source.marketplace ? ', marketplace ' + source.marketplace + (source.commit ? ' at commit ' + String(source.commit).slice(0, 12) : '') : source.folder ? ', folder ' + source.folder : '') }),
+      // No commit or digest for a person to read: the agent's version says which one it is.
+      el('div', { text: source.agent + (source.version ? ' ' + source.version : '') + (source.marketplace ? ', marketplace ' + source.marketplace + ', at the commit this repository trusts' : source.folder ? ', folder ' + source.folder : '') }),
       source.lifecycle ? el('div', { class: 'muted', text: 'Lifecycle: ' + source.lifecycle }) : null,
       source.maintainer ? el('div', { class: 'muted', text: 'Maintainer: ' + source.maintainer }) : null)));
 
@@ -5054,6 +5060,28 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         el('span'));
     }))));
 
+    var update = review.update || null;
+    if (update) {
+      var steps = update.steps || {};
+      var changes = [update.agent && update.agent.length ? { title: 'agent.md', lines: update.agent } : null].concat((update.skills || []).map(function (entry) {
+        return { title: 'Skill ' + entry.skill + ' (' + entry.change + ')', lines: entry.lines || [] };
+      })).filter(Boolean);
+      box.appendChild(reviewSection('What changed in the marketplace', el('div', null,
+        el('div', { text: (update.recorded ? 'Since this workflow was imported' : 'Its source was not recorded; compared with the commit this repository trusts')
+          + (update.version && update.version.from && update.version.to ? (update.version.from === update.version.to ? ' (version ' + update.version.to + ')' : ' (version ' + update.version.from + ', now ' + update.version.to + ')') : '')
+          + ': ' + update.words + '.' }),
+        update.nothingChanged ? el('div', { class: 'muted', text: 'Nothing changed for SFlow: the workflow stays as imported, and updating it records the newer commit only.' }) : null,
+        (steps.added || []).length ? el('div', { text: 'New steps: ' + steps.added.join(', ') + '.' }) : null,
+        (steps.removed || []).length ? el('div', { text: 'Steps no longer made: ' + steps.removed.join(', ') + '.' }) : null,
+        (steps.reclassified || []).map(function (entry) { return el('div', { text: entry.step + ' is now ' + entry.to + ', not ' + entry.from + '.' }); }),
+        (update.askedAgain || []).length ? el('div', { text: 'Asked again, as their stages changed: ' + update.askedAgain.join(', ') + '.' }) : null,
+        ((update.findings || {}).added || []).map(function (words) { return el('div', { class: 'muted', text: 'New finding: ' + words }); }),
+        ((update.findings || {}).resolved || []).map(function (words) { return el('div', { class: 'muted', text: 'Resolved: ' + words }); }),
+        changes.map(function (change) {
+          return el('details', { class: 'agent-prompt' }, el('summary', { text: change.title }),
+            el('pre', { text: change.lines.map(function (line) { return (line.op === '…' ? '#' : line.op) + ' ' + line.text; }).join('\n') }));
+        }))));
+    }
     var document_ = review.feedbackDocument || null;
     box.appendChild(reviewSection('Feedback for the marketplace', (review.feedback || []).length
       ? el('div', null,
@@ -5067,7 +5095,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       : el('p', { class: 'muted', text: 'Nothing to report.' })));
 
     box.appendChild(el('div', { class: 'studio-row' },
-      review.ready ? button(lib.busy === 'agent-workflow-make' ? 'Making…' : 'Make this workflow', makeAgentWorkflow, { class: 'primary', disabled: Boolean(lib.busy) || Boolean(state.busy) }) : null,
+      review.ready ? button(lib.busy === 'agent-workflow-make' ? (flow.update ? 'Updating…' : 'Making…') : (flow.update ? 'Update this workflow' : 'Make this workflow'), makeAgentWorkflow, { class: 'primary', disabled: Boolean(lib.busy) || Boolean(state.busy) }) : null,
       again));
     box.appendChild(el('span', { class: 'muted', text: review.ready ? 'Next you review its import; nothing changes until you confirm it there.'
       : (review.open || []).length ? 'Answer what SFlow asks above; the workflow is made once nothing waits and every check passes.'
@@ -5097,6 +5125,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   /** An update is a fresh preview of the changed source, added with replace and the same target. */
   function reviewUpdate(row, checked) {
+    // A workflow made from a marketplace agent: its conversion review in update mode (MCR section 8).
+    var agent = /^singularity-flow workflow from-agent ([a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9._-]{0,99}) --update$/.exec(checked.updateCommand || '');
+    if (row.kind === 'workflow' && agent) { previewAgentWorkflow(agent[1], agent[1].split('/')[1], {}, true); return; }
     var match = /^singularity-flow import add "([^"]+)"/.exec(checked.updateCommand || '');
     if (!match) return;
     var target = row.target || {};

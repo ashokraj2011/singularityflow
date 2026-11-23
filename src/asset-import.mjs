@@ -469,6 +469,7 @@ async function fileState(root, relative) {
 
 function sourceLabel(source) {
   if (source?.kind === 'marketplace') return `market:${source.marketplace}/${source.entry}@${source.version}`;
+  if (source?.kind === 'marketplace-agent') return `agent:${source.marketplace}/${source.agent}@${source.version ?? String(source.commit ?? '').slice(0, 12)}`;
   if (source?.kind === 'mcp') return `mcp:${source.server}/${source.method}/${source.method === 'resource' ? encodeURIComponent(source.name) : source.name}`;
   return source?.url ?? source?.urlTemplate ?? source?.kind ?? 'unknown';
 }
@@ -492,7 +493,7 @@ export async function importsStatus(root) {
       status = !state.exists ? 'missing'
         : state.sha256 === expected ? 'current'
           : entry.kind === 'skill' ? 'edited (its agent refuses it until it is imported again)'
-            : entry.kind === 'agent' ? 'customized' : 'edited here';
+            : entry.kind === 'agent' || entry.kind === 'workflow' ? 'customized' : 'edited here';
     }
     rows.push({ key, kind: entry.kind, status, source: sourceLabel(entry.source), sha256: entry.sha256 ?? null, bytes: entry.bytes ?? null, fetchedAt: entry.fetchedAt ?? null, target });
   }
@@ -507,6 +508,36 @@ function updateCommand(key, entry, sha256, reference = entry.source.url) {
     entry.kind !== 'agent' ? `--id ${target.id}` : null,
     entry.kind === 'skill' && target.phases?.length ? `--phases ${target.phases.join(',')}` : null,
     `--sha256 ${sha256}`, '--replace'].filter(Boolean).join(' ');
+}
+
+/**
+ * A workflow made from a marketplace agent (MCR §8): its marketplace read at its newest commit, and the digests of what
+ * the workflow uses compared with those recorded. A change is reviewed with `workflow from-agent --update`; an agent the
+ * marketplace no longer has is said so, and the workflow stays until a person retires it.
+ */
+async function marketplaceAgentCheck(root, key, entry) {
+  const source = entry.source;
+  const [{ withApprovedConfigurationRead }, { configuredMarketplaces }, { readMarketplaceAgent }, { piecesDifferences, differencesWords, sourcePieces }] = await Promise.all([
+    import('./approved-configuration-reader.mjs'), import('./marketplace.mjs'), import('./marketplace-repository.mjs'), import('./agent-workflow-provenance.mjs')]);
+  // A map by ID, read where the check already reads the approved configuration.
+  const marketplaces = await withApprovedConfigurationRead(root, () => configuredMarketplaces(root), { preferAuthority: true }).catch(() => configuredMarketplaces(root)).catch(() => ({}));
+  const marketplace = marketplaces[source.marketplace] ?? null;
+  if (!marketplace?.repository) return { key, status: 'unavailable', detail: `marketplace ${source.marketplace} is no longer trusted here as a Git repository` };
+  let read;
+  try { read = await readMarketplaceAgent({ ...marketplace, commit: null }, source.agent); }
+  catch (error) {
+    return ['MARKETPLACE_AGENT_UNKNOWN', 'MARKETPLACE_AGENT_NOT_AGENT'].includes(error?.code)
+      ? { key, status: 'removed at its source', detail: `${source.agent} is no longer in marketplace ${source.marketplace}; the workflow stays until a person retires it` }
+      : { key, status: 'unavailable', detail: error.message };
+  }
+  const commit = read.listing.commit;
+  const difference = piecesDifferences(entry.pieces, sourcePieces(read.agent, read.skills));
+  const at = `${String(commit).slice(0, 12)}${read.agent.version && read.agent.version !== source.version ? `, version ${read.agent.version}` : ''}`;
+  if (commit === source.commit || difference.unchanged) {
+    return { key, status: 'up to date', detail: commit === source.commit ? `commit ${String(commit).slice(0, 12)}` : `${differencesWords(difference)} at ${at}` };
+  }
+  return { key, status: 'changed at its source', detail: `${differencesWords(difference)} at ${at}`, commit,
+    updateCommand: `singularity-flow workflow from-agent ${source.marketplace}/${source.agent} --update` };
 }
 
 /**
@@ -538,6 +569,10 @@ export async function checkImportSources(root, { fetchImpl = globalThis.fetch } 
         key, status: 'newer version available', detail: `${latest.version} (imported ${entry.source.version})`,
         sha256: latest.sha256, updateCommand: updateCommand(key, entry, latest.sha256, reference)
       });
+      continue;
+    }
+    if (entry.source?.kind === 'marketplace-agent') {
+      rows.push(await marketplaceAgentCheck(root, key, entry));
       continue;
     }
     if (entry.source?.kind !== 'url' || typeof entry.source.url !== 'string') {

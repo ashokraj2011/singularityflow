@@ -15,12 +15,16 @@
  *   the marketplace. --json always carries it as `review`, with its `feedbackDocument` when the marketplace owns a finding.
  * - --feedback FILE writes that feedback as Markdown (MCR §6) and names the new-issue page that takes it, which the person
  *   opens and submits; SFlow never posts it.
+ * - --update (MCR §8) converts the agent at its marketplace's newest commit with the answers its import recorded, and the
+ *   review shows only what changed since that import; a stage whose own words changed is asked again. With --propose
+ *   its import is reviewed like any other. A workflow imported before its source was recorded is compared with the
+ *   marketplace's pinned commit, and making it records its source.
  */
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { commandLineFile, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const OPTIONS = new Set(['answer', 'out', 'propose', 'json', 'review', 'feedback']);
+const OPTIONS = new Set(['answer', 'out', 'propose', 'json', 'review', 'feedback', 'update']);
 const TARGET = /^([a-z0-9]+(?:-[a-z0-9]+)*)\/([a-z0-9][a-z0-9._-]{0,99})$/u;
 
 function usage(message, details = undefined) {
@@ -108,6 +112,63 @@ function printDerived(resolved, walk = null) {
   }
 }
 
+/**
+ * An update (MCR §8): the record the workflow's import wrote, the agent at that commit (or, with no record, at the
+ * marketplace's pinned commit), the answers to keep, and `summary(conversion)`, what changed for the review.
+ */
+async function updateOf(root, marketplace, agentName, newest, given, withApprovedConfigurationRead) {
+  const [{ loadImportsLedger }, { configurationReadRoot }, { readMarketplaceAgent }, { convertAgent, parseAgentDocument },
+    { piecesDifferences, differencesWords, sourcePieces }, { lineChanges }] = await Promise.all([
+    import('../imports-ledger.mjs'), import('../configuration-read-scope.mjs'), import('../marketplace-repository.mjs'), import('../agent-workflow.mjs'),
+    import('../agent-workflow-provenance.mjs'), import('../conversion-review.mjs')]);
+  const ledger = await withApprovedConfigurationRead(root, () => loadImportsLedger(configurationReadRoot(root)), { preferAuthority: true }).catch(() => ({ imports: {} }));
+  const record = Object.values(ledger.imports ?? {}).find((entry) => entry?.kind === 'workflow' && entry.source?.kind === 'marketplace-agent'
+    && entry.source.marketplace === marketplace.id && entry.source.agent === agentName) ?? null;
+  const from = record?.source.commit ?? marketplace.commit ?? null;
+  const previous = from ? await readMarketplaceAgent({ ...marketplace, commit: from }, agentName).catch(() => null) : null;
+  const recorded = { ...(record?.source.answers ?? {}) };
+  // A recorded answer stands only for a stage whose own words did not change; the person is asked again about the rest.
+  const stagesOf = (text) => new Map(parseAgentDocument(text).stages.map((stage) => [stage.title, `${stage.title}\n${stage.body ?? ''}`.trim()]));
+  const before = previous ? stagesOf(previous.agent.text) : new Map();
+  const after = stagesOf(newest.agent.text);
+  const earlier = previous ? convertAgent({ marketplace: { ...marketplace, commit: from }, agent: previous.agent, skills: previous.skills, answers: {} }) : null;
+  const titleOf = new Map((earlier?.steps ?? []).map((step) => [step.id, step.label]));
+  const current = new Set(convertAgent({ marketplace: { ...marketplace, commit: newest.listing.commit }, agent: newest.agent, skills: newest.skills, answers: {} }).steps.map((step) => step.id));
+  const dropped = Object.keys(recorded).filter((step) => !current.has(step) || !titleOf.has(step) || before.get(titleOf.get(step)) !== after.get(titleOf.get(step)));
+  for (const step of dropped) delete recorded[step];
+  const answers = { ...recorded, ...given };
+  const summary = (conversion) => {
+    const was = record?.pieces ?? (previous ? sourcePieces(previous.agent, previous.skills) : null);
+    const difference = was ? piecesDifferences(was, sourcePieces(newest.agent, newest.skills)) : null;
+    const previousConversion = previous ? convertAgent({ marketplace: { ...marketplace, commit: from }, agent: previous.agent, skills: previous.skills, answers: record?.source.answers ?? {} }) : null;
+    const stepsBefore = new Map((previousConversion?.steps ?? []).map((step) => [step.id, step]));
+    const stepsAfter = new Map(conversion.steps.map((step) => [step.id, step]));
+    const findingKey = (entry) => `${entry.class}\u0000${entry.words}`;
+    const findingsBefore = new Set((previousConversion?.findings ?? []).map(findingKey));
+    const findingsAfter = new Set(conversion.findings.map(findingKey));
+    const skillText = (read, name) => read?.skills.find((entry) => entry.name === name)?.text ?? '';
+    const skills = difference ? [...difference.skills.changed, ...difference.skills.added, ...difference.skills.removed]
+      .map((name) => ({ skill: name, change: difference.skills.added.includes(name) ? 'added' : difference.skills.removed.includes(name) ? 'removed' : 'changed',
+        lines: lineChanges(skillText(previous, name), skillText(newest, name)) })) : [];
+    const steps = {
+      added: [...stepsAfter.keys()].filter((id) => !stepsBefore.has(id)),
+      removed: [...stepsBefore.keys()].filter((id) => !stepsAfter.has(id)),
+      reclassified: [...stepsAfter.values()].filter((step) => stepsBefore.has(step.id) && stepsBefore.get(step.id).intent && step.intent && stepsBefore.get(step.id).intent !== step.intent)
+        .map((step) => ({ step: step.id, from: stepsBefore.get(step.id).intent, to: step.intent }))
+    };
+    const nothing = Boolean(difference?.unchanged) && !steps.added.length && !steps.removed.length && !steps.reclassified.length;
+    return {
+      recorded: Boolean(record), from, to: newest.listing.commit, version: { from: record?.source.version ?? previous?.agent.version ?? null, to: newest.agent.version ?? null },
+      read: Boolean(previous), words: difference ? differencesWords(difference) : 'what it was imported from could not be read',
+      difference, agent: previous && difference?.agent ? lineChanges(previous.agent.text, newest.agent.text) : [], skills, steps,
+      findings: { added: conversion.findings.filter((entry) => !findingsBefore.has(findingKey(entry))).map((entry) => entry.words),
+        resolved: (previousConversion?.findings ?? []).filter((entry) => !findingsAfter.has(findingKey(entry))).map((entry) => entry.words) },
+      askedAgain: dropped.filter((step) => step in (record?.source.answers ?? {})), nothingChanged: nothing
+    };
+  };
+  return { answers, summary };
+}
+
 /** Problems reading the agent's source, each a finding the marketplace (or the folder's owner) fixes. */
 function sourceProblems(conversion, problems) {
   for (const problem of problems ?? []) {
@@ -142,12 +203,14 @@ export async function run(argv, { positionals, options }) {
   const propose = optionBoolean(options, 'propose');
   if (out && propose) throw usage('Write the bundle (--out FILE) or show its import as a proposal (--propose), not both.');
   const json = optionBoolean(options, 'json');
-  const answers = parseAnswers(optionStrings(options, 'answer'));
+  let answers = parseAnswers(optionStrings(options, 'answer'));
+  const update = optionBoolean(options, 'update');
+  if (update && folder) throw usage('--update reads a marketplace agent at its newest commit: name it as MARKETPLACE/AGENT.');
   const [{ repoRoot }, { withApprovedConfigurationRead }, { configuredMarketplaces, requireMarketplace }, { readMarketplaceAgent }, { convertAgent }] = await Promise.all([
     import('../git.mjs'), import('../approved-configuration-reader.mjs'), import('../marketplace.mjs'), import('../marketplace-repository.mjs'), import('../agent-workflow.mjs')
   ]);
   const root = repoRoot();
-  let conversion; let agent; let skills;
+  let conversion; let agent; let skills; let updated = null;
   if (folder) {
     const read = await readAgentFolder(target);
     ({ agent, skills } = read);
@@ -159,9 +222,14 @@ export async function run(argv, { positionals, options }) {
     throw usage(`Marketplace '${marketplace.id}' is an index of files. An agent becomes a workflow from a marketplace that is a Git repository: add that one with marketplace add --repo.`,
       { nextAction: 'singularity-flow marketplace list' });
   }
-  const read = await readMarketplaceAgent(marketplace, match[2]);
+  const read = await readMarketplaceAgent(update ? { ...marketplace, commit: null } : marketplace, match[2]);
   ({ agent, skills } = read);
+  if (update) {
+    updated = await updateOf(root, marketplace, match[2], read, answers, withApprovedConfigurationRead);
+    answers = updated.answers;
+  }
   conversion = convertAgent({ marketplace: { ...marketplace, commit: read.listing.commit }, agent, skills, answers });
+  if (updated) conversion.update = updated.summary(conversion);
   // What the marketplace's own listing says is wrong with this agent or the skills it uses.
   const own = [agent.name, ...skills.map((entry) => entry.name)];
   sourceProblems(conversion, (read.listing.problems ?? []).filter((problem) => own.some((name) => String(problem).startsWith(`${name}:`) || String(problem).startsWith(`${name} `))));
@@ -203,7 +271,8 @@ export async function run(argv, { positionals, options }) {
   }
 
   const { compileAgentWorkflow } = await import('../agent-workflow-bundle.mjs');
-  const compiled = await compileAgentWorkflow(conversion, { agentText: agent.text, skillTexts: new Map(skills.map((entry) => [entry.name, entry.text])) });
+  const compiled = await compileAgentWorkflow(conversion, { agentText: agent.text, skillTexts: new Map(skills.map((entry) => [entry.name, entry.text])),
+    provenance: { agent, skills, answers } });
   const { writeWorkflowBundle, readWorkflowBundle } = await import('../workflow-transfer.mjs');
   const result = { ...conversion, bundleSha256: compiled.bundle.bundleSha256, workflowYaml: compiled.workflowYaml, derived: compiled.resolved, walk: compiled.walk };
   result.review = (() => { const value = conversionReview(result); const document = feedbackDocument(value); return document ? { ...value, feedbackDocument: document } : value; })();

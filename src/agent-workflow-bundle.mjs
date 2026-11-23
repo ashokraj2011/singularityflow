@@ -74,7 +74,7 @@ function attachments(conversion) {
  * SKILL.md in `skillTexts` (name → text): `{ bundle, workflowYaml, resolved }`, where `workflowYaml` is the version 4
  * workflow.yml pieces as written and `resolved` what Stage 2 derives for each step.
  */
-export async function compileAgentWorkflow(conversion, { agentText, skillTexts = new Map() } = {}) {
+export async function compileAgentWorkflow(conversion, { agentText, skillTexts = new Map(), provenance = null } = {}) {
   const [{ initializeDefinition, loadDefinition, resolveWorkType, assertWorkTypeStartable }, { compileWorkflowBundle },
     { simulateWorkflowRoutes }, { librarySkillText, parseSkillAttachments, skillAttachmentsText, SKILL_ATTACHMENTS_PATH },
     { AGENTS_HOME, agentFileIn }, { newAgentFile }, { INTENTS_FILE_VERSION }] = await Promise.all([
@@ -112,10 +112,18 @@ export async function compileAgentWorkflow(conversion, { agentText, skillTexts =
       await put(`${templatesRoot}/${template(step)}`, stepTemplate(conversion, step, shipped, fixes));
     }
     const stepIds = conversion.steps.map((step) => step.id);
-    await put(agentFileIn(conversion.agent.id, AGENTS_HOME), newAgentFile({
+    const agentFile = newAgentFile({
       id: conversion.agent.id, label: conversion.agent.label, description: conversion.agent.description, tools: [...AGENT_TOOLS],
       phases: stepIds, defaultFor: stepIds, instructions: agentInstructions(conversion, agentText)
-    }));
+    });
+    await put(agentFileIn(conversion.agent.id, AGENTS_HOME), agentFile);
+    // Where it came from, as the record its bundle carries and its import writes (MCR §7): a marketplace agent only.
+    if (provenance && conversion.source?.marketplace) {
+      const [{ agentProvenance, workflowImportKey }, { renderImportsLedger }, { VERSION }] = await Promise.all([
+        import('./agent-workflow-provenance.mjs'), import('./imports-ledger.mjs'), import('./version.mjs')]);
+      const record = agentProvenance(conversion, { ...provenance, convertedBy: VERSION, targetPath: agentFileIn(conversion.agent.id, AGENTS_HOME), agentText: agentFile });
+      await put('singularity/imports.lock.yml', renderImportsLedger({ version: 1, imports: { [workflowImportKey(workflowId)]: record } }));
+    }
     for (const skill of conversion.skills) {
       const text = skillTexts.get(skill.id);
       if (text == null) throw fail(`Skill ${skill.id}'s SKILL.md was not read, so the workflow cannot carry it.`, 'AGENT_WORKFLOW_SKILL_MISSING');

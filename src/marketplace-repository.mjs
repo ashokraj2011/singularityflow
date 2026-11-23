@@ -9,6 +9,7 @@
  * transient isolated object repository (withIsolatedGitObjectRepository). Read only: nothing is checked out, no hook
  * or filter of the other repository runs, and a link or submodule in it is refused. What a package says is data.
  */
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import YAML from 'yaml';
 import { exactFileAtObject, exactTreePathsAtObject, remoteRefCommit, withIsolatedGitObjectRepository } from './git.mjs';
@@ -177,6 +178,8 @@ export async function readMarketplaceRepository(marketplace, { documents = [] } 
           name: listed.name, kind: own.kind, type: own.type, version: own.version, description: own.description ?? listed.description,
           lifecycleState: own.lifecycleState, pdlcPhases: own.pdlcPhases, pdlcTasks: own.pdlcTasks, tags: own.tags, categories: own.categories,
           maintainer: own.maintainer, sourceRepository: own.sourceRepository,
+          // What a workflow made from it records, so an update can tell its apm.yml changed (MCR §7).
+          manifestSha256: createHash('sha256').update(text, 'utf8').digest('hex'),
           source: listed.source, includePrerelease: listed.includePrerelease, dependencies: own.dependencies, document
         });
       }

@@ -2,7 +2,7 @@
 
 **Specification ID:** `MCR-v1`
 
-**Status:** Proposed, not built. Owner direction, 2026-11-23: "it is important to make sure the import is correct and
+**Status:** Built 2026-11-23 (owner: "Build MCR this is very important"; the §12 questions kept their defaults). M1 and M2 in e615edfa1; M3 (provenance, Check for updates, Update) after it. Owner direction, 2026-11-23: "it is important to make sure the import is correct and
 an update will be fine .. maybe need a proper screen to make sure the conversion is right and what sflow corrects and
 give the feedback to marketplace stakeholders", then "create a spec and keep it".
 

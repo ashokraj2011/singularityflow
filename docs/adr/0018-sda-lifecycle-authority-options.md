@@ -1,6 +1,7 @@
 # ADR 0018 — SDA Phase B: where lifecycle authority lives
 
 - **Status:** Accepted, option A (2026-10-30). The Story branch stays lifecycle authority.
+  [ADR 0019](0019-story-state-off-the-code-branch.md), proposed 2026-11-23, would supersede it.
 - **Date:** 2026-10-29 (proposed); 2026-10-30 (accepted)
 - **Baseline:** `main@c6a65e33b`
 - **Decision owner:** Singularity Flow repository maintainers

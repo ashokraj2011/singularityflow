@@ -2,8 +2,10 @@
 
 **Specification ID:** `CPR-v1`
 
-**Status:** Proposed, not built. Owner, 2026-11-23: "Lets not store all singularity things in the branch, Why cant it be
-in state branch?", then, asked what drives it: "yes mostly for clean PRs".
+**Status:** Superseded by [SSB-v1](SPEC-SSB-STORY-STATE-BRANCH-v1.md) and
+[ADR 0019](adr/0019-story-state-off-the-code-branch.md), and not to be built. It is kept as the fallback if SSB is not
+built. Owner, 2026-11-23: "Lets not store all singularity things in the branch, Why cant it be in state branch?", then,
+asked what drives it: "yes mostly for clean PRs".
 
 **Decision this records:** a code-only pull request, built when the Story lands. Moving lifecycle state off the Story
 branch would be ADR 0018's option B, a re-architecture of weeks. That stays the owner's later choice. ADR 0018's

@@ -534,7 +534,7 @@ test('actual browser creates, edits, previews, saves and reloads a draft without
   const page = await context.newPage(), errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(bootstrap.url);
-  await page.getByRole('heading', { name: /Good work starts/ }).waitFor();
+  await page.getByRole('heading', { name: 'Workspace overview', exact: true }).waitFor();
   assert.ok(!page.url().includes('ticket='));
   await page.getByRole('button', { name: /New specification/ }).click();
   await page.getByLabel('Name', { exact: true }).fill('Browser acceptance journey');
@@ -547,6 +547,13 @@ test('actual browser creates, edits, previews, saves and reloads a draft without
   await page.getByRole('button', { name: 'Write', exact: true }).click();
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await page.getByText('All changes saved · version 2').waitFor();
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await page.getByRole('button', { name: 'Saved versions', exact: true }).click();
+  await page.locator('#history-result').getByText('Version 2', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Checks', exact: true }).click();
+  await page.getByRole('button', { name: 'Check draft', exact: true }).click();
+  await page.locator('#check-result .pill').waitFor();
+  await page.getByRole('button', { name: 'Sources', exact: true }).click();
   if (process.env.SINGULARITY_FLOW_UI_SCREENSHOT) await page.screenshot({ path: process.env.SINGULARITY_FLOW_UI_SCREENSHOT, fullPage: true });
   await page.reload();
   assert.equal(await page.getByRole('textbox', { name: 'Specification content' }).inputValue(), '# Browser acceptance journey\n\nThe person can close an account.');
@@ -564,7 +571,8 @@ test('actual browser creates, edits, previews, saves and reloads a draft without
   assert.equal(await page.locator('body').evaluate(element => element.classList.contains('collapsed')), true);
   const second = await context.newPage();
   const secondLaunch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID() });
-  await second.goto(secondLaunch.url); await second.getByRole('heading', { name: /Good work starts/ }).waitFor();
+  await second.goto(secondLaunch.url);
+  await second.getByRole('heading', { name: 'Workspace overview', exact: true }).waitFor();
   const originalHash = new URL(page.url()).hash;
   await second.evaluate(hash => { location.hash = hash; }, originalHash);
   await second.getByRole('textbox', { name: 'Specification content' }).waitFor();
@@ -587,6 +595,100 @@ test('actual browser creates, edits, previews, saves and reloads a draft without
   await page.waitForFunction(() => document.querySelector('#support-result img')?.naturalWidth === 1);
   await page.getByRole('link', { name: 'Instructions', exact: true }).click();
   await page.getByRole('heading', { name: 'Fixture standard', exact: true }).waitFor();
+  assert.deepEqual(errors, []);
+});
+
+test('browser navigation, Story selection and readable summaries work on desktop and narrow screens', async t => {
+  const { root, base, directory, cleanup } = await fixture(t);
+  const other = path.join(base, 'checkout-b');
+  await mkdir(other);
+  const calls = [];
+  const values = {
+    'story.list': { stories: [
+      { workId: 'SW-1', title: 'Checkout recovery', createdAt: '2026-10-01T10:00:00Z', createdBy: 'Team A',
+        phase: 'implementation', repository: { id: 'checkout' }, checkoutPath: other, availability: 'ready' },
+      { workId: 'SW-2', title: 'Payment reporting', createdAt: '2026-10-02T10:00:00Z', createdBy: 'Team B',
+        phase: 'planning', repository: { id: 'reporting' }, availability: 'remote-only' }
+    ] },
+    'spec.list': { drafts: [{ specId: 'SPEC-CHECKOUT', title: 'Local checkout idea', sequence: 2 }],
+      specs: [{ specId: 'SPEC-CHECKOUT', latest: { title: 'Shared checkout rules', revision: 3, reviewState: 'reviewed' } }] },
+    'decision.list': { resultType: 'sflow-decisions', workId: 'SW-1', phaseLabel: 'Implementation',
+      plain: { headline: 'One decision is waiting.' },
+      items: [{ title: 'Review the checkout result', plain: { why: 'A visual check is required.' },
+        decidedBy: { words: 'A reviewer from Team A can answer.' } }] },
+    'app.plan': { resultType: 'sflow-app-plan', entries: [{ id: 'web', name: 'Checkout app', argv: ['npm', 'run', 'dev'] }] },
+    'app.status': { resultType: 'sflow-app-status', entries: [{ id: 'web', name: 'Checkout app', started: false, ready: false }] },
+    'tests.plan': { resultType: 'sflow-test-plan', commands: [{ id: 'smoke', argv: ['npm', 'test'] }] },
+    'tests.summary': { resultType: 'sflow-test-summary', run: { id: 'run-1', label: 'Checkout tests' },
+      totals: { passed: 6, failed: 1, skipped: 0 }, commands: [{ id: 'smoke', status: 'failed' }] }
+  };
+  const service = await startService({ directory, execute: async ({ operation }) => {
+    calls.push(operation);
+    assert.ok(Object.hasOwn(values, operation), `Unexpected operation: ${operation}`);
+    return { value: values[operation] };
+  } });
+  cleanup(() => service.close());
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ headless: true }); cleanup(() => browser.close());
+  const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID() });
+  const page = await browser.newPage({ viewport: { width: 1360, height: 950 } });
+  const nav = page.getByRole('navigation', { name: 'Main navigation' });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(launch.url);
+  await page.getByRole('heading', { name: 'Workspace overview' }).waitFor();
+  assert.deepEqual(calls, [], 'the overview renders from the session without asking for repository reads');
+  await nav.getByRole('link', { name: 'Stories' }).click();
+  const stories = page.getByRole('table', { name: 'Stories' });
+  await stories.waitFor();
+  assert.match(await stories.getByRole('row').nth(1).textContent(), /Payment reporting/u);
+  await stories.getByRole('button', { name: 'Created' }).click();
+  assert.match(await stories.getByRole('row').nth(1).textContent(), /Checkout recovery/u);
+  await page.getByRole('searchbox', { name: 'Find a Story' }).fill('team b');
+  assert.equal(await stories.getByRole('row').count(), 2);
+  await page.getByRole('searchbox', { name: 'Find a Story' }).clear();
+  await page.getByRole('button', { name: 'Can open here' }).click();
+  assert.equal(await stories.getByRole('row').count(), 2);
+  await page.getByRole('button', { name: 'Open Checkout recovery' }).click();
+  await page.getByRole('heading', { name: 'Workspace overview' }).waitFor();
+  assert.equal(await page.locator('#context-name').textContent(), 'SW-1');
+
+  await nav.getByRole('link', { name: 'Spec Studio' }).click();
+  await page.getByRole('button', { name: 'Published', exact: true }).click();
+  await page.getByRole('link', { name: 'Shared checkout rules', exact: true }).waitFor();
+  assert.equal(await page.getByRole('link', { name: 'Local checkout idea', exact: true }).count(), 0);
+  await page.getByRole('searchbox', { name: 'Find a specification' }).fill('unmatched');
+  await page.getByRole('heading', { name: 'No matching specifications' }).waitFor();
+
+  await nav.getByRole('link', { name: 'Decisions' }).click();
+  await page.getByRole('heading', { name: 'Review the checkout result' }).waitFor();
+  await page.getByText('A visual check is required.', { exact: true }).waitFor();
+  assert.equal(await page.locator('#main pre').isVisible(), false, 'the native packet is available on demand');
+  await page.getByText('Technical details', { exact: true }).click();
+  assert.equal(await page.locator('#main pre').isVisible(), true);
+  await nav.getByRole('link', { name: 'Run & Test' }).click();
+  await page.getByText('npm run dev', { exact: true }).waitFor();
+  await page.getByText('Not started', { exact: true }).waitFor();
+  await page.getByText('Checkout tests', { exact: true }).waitFor();
+  await page.getByText('6 passed', { exact: true }).waitFor();
+  assert.equal(await page.locator('#main pre:visible').count(), 0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const menu = page.getByRole('button', { name: 'Open navigation' });
+  assert.equal(await nav.isVisible(), false);
+  await menu.click();
+  assert.equal(await nav.isVisible(), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await nav.isVisible(), false);
+  assert.equal(await menu.evaluate(element => element === document.activeElement), true);
+  await menu.click();
+  await nav.getByRole('link', { name: 'Stories' }).click();
+  await stories.waitFor();
+  assert.equal(await nav.isVisible(), false);
+  const width = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth
+  }));
+  assert.equal(width.content, width.viewport, 'the Story table scrolls within the page at phone width');
   assert.deepEqual(errors, []);
 });
 

@@ -14,7 +14,12 @@ const randomKey = () => randomBytes(32).toString('base64url');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const equal = (a, b) => typeof a === 'string' && typeof b === 'string'
   && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-const publicFiles = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/app.css', ['app.css', 'text/css; charset=utf-8']]]);
+const publicFiles = new Map([
+  ['/', ['index.html', 'text/html; charset=utf-8']],
+  ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/app.css', ['app.css', 'text/css; charset=utf-8']],
+  ['/views.js', ['views.js', 'text/javascript; charset=utf-8']]
+]);
 const terminal = new Set(['succeeded', 'failed', 'unknown', 'expired']);
 const RETENTION_MS = 7 * 24 * 60 * 60_000;
 const MAX_RECORDS = 8192;

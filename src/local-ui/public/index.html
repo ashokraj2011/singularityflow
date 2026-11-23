@@ -1,18 +1,81 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SFlow Workspace</title><link rel="stylesheet" href="/app.css"><script type="module" src="/app.js"></script></head>
-<body><a class="skip" href="#main">Skip to workspace</a>
-<aside id="sidebar" aria-label="Main navigation">
-  <a class="brand" href="#home"><span class="brand-icon">∿</span><span class="nav-label">SFlow<span class="brand-sub">Your local workspace</span></span></a>
-  <div class="workspace-label nav-label">WORKSPACE</div>
-  <nav id="navigation"></nav>
-  <div class="sidebar-bottom"><span id="connection" role="status"><i></i><span class="nav-label">Connecting</span></span><button id="collapse" class="icon-button" title="Collapse navigation" aria-label="Collapse navigation">«</button></div>
-</aside>
-<div class="workspace"><header class="topbar"><div><span class="context-dot"></span><button id="context-switch" class="quiet" title="Switch this tab’s checkout"><span id="context-name">Local workspace</span>⌄</button><span class="separator">/</span><span id="current-page">Overview</span></div><div class="topbar-right"><span class="local-badge">LOCAL</span><button id="activity-toggle" class="quiet">Activity <span id="activity-count">0</span></button></div></header>
-<div id="banner" role="alert" hidden></div><main id="main" tabindex="-1"><div class="loading"><span class="spinner"></span>Connecting to SFlow…</div></main>
-<footer id="footer">Files and drafts stay on this computer.</footer></div>
-<aside id="activity" hidden aria-label="Workspace activity"><div class="activity-heading"><h2>Activity</h2><button id="activity-close" class="icon-button" aria-label="Close activity">×</button></div><div id="activity-items"></div></aside>
-<dialog id="create-dialog"><form id="create-form"><div class="eyebrow">SPEC STUDIO</div><h2>Start with an idea</h2><p class="muted">Save now. Develop the details as you learn.</p><label for="spec-title">Name</label><input id="spec-title" required maxlength="240" placeholder="A better checkout experience">
-<label for="spec-kind">What are you describing?</label><select id="spec-kind"><option value="business">A business need</option><option value="technical">A technical solution</option></select><label for="spec-idea">Your starting idea <span class="muted">(optional)</span></label><textarea id="spec-idea" rows="5" maxlength="20000" placeholder="Who is it for, and what should improve?"></textarea><div id="create-error" role="alert"></div><div class="dialog-actions"><button type="button" id="create-cancel" class="quiet">Cancel</button><button type="submit" class="primary">Create specification</button></div></form></dialog>
-<dialog id="context-dialog"><div class="eyebrow">THIS TAB</div><h2>Choose where you’re working</h2><p class="muted">Return to a checkout you opened, or find another one in Stories.</p><div id="context-choices"></div><div class="dialog-actions"><button id="context-cancel" class="quiet">Close</button></div></dialog>
-</body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SFlow Workspace</title>
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div id="navigation-scrim" hidden></div>
+  <aside id="sidebar">
+    <a class="brand" href="#home" aria-label="SFlow overview">
+      <span class="brand-mark" aria-hidden="true">∿</span>
+      <span class="brand-name nav-label">Singularity Flow</span>
+    </a>
+    <nav id="navigation" aria-label="Main navigation"></nav>
+    <div class="sidebar-bottom">
+      <a class="nav-link" href="#about" title="About" aria-label="About"><span id="about-icon"></span><span class="nav-label">About</span></a>
+      <button id="collapse" class="nav-link" type="button" title="Collapse navigation" aria-label="Collapse navigation" aria-controls="navigation">
+        <span id="collapse-icon"></span><span class="nav-label">Collapse sidebar</span>
+      </button>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div class="breadcrumbs">
+        <button id="mobile-menu" class="icon-button" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"></button>
+        <button id="context-switch" class="quiet" type="button" aria-label="Switch checkout" aria-haspopup="dialog" disabled>
+          <span id="checkout-icon"></span><span id="context-name">Workspace</span><span id="checkout-chevron"></span>
+        </button>
+        <span class="breadcrumb-divider" aria-hidden="true">/</span>
+        <span id="current-page">Overview</span>
+      </div>
+      <div class="topbar-actions">
+        <span id="connection" class="connection" role="status" data-status="connecting"><i></i><span id="connection-text">Connecting</span></span>
+        <button id="activity-toggle" class="quiet" type="button" aria-expanded="false" aria-controls="activity">
+          <span id="activity-icon"></span><span>Activity</span><span id="activity-count" hidden>0</span>
+        </button>
+      </div>
+    </header>
+    <div id="banner" hidden><span id="banner-message" role="status"></span>
+      <button id="banner-close" class="icon-button" type="button" aria-label="Dismiss message"></button>
+    </div>
+    <main id="main" tabindex="-1">
+      <div class="loading" role="status"><span class="spinner" aria-hidden="true"></span>Connecting to SFlow…</div>
+    </main>
+  </div>
+  <aside id="activity" hidden aria-label="Workspace activity">
+    <header class="activity-heading"><h2>Activity</h2><button id="activity-close" class="icon-button" type="button" aria-label="Close activity"></button></header>
+    <div id="activity-items"></div>
+  </aside>
+  <dialog id="create-dialog" aria-labelledby="create-title">
+    <form id="create-form">
+      <h2 id="create-title">New specification</h2>
+      <label for="spec-title">Name</label>
+      <input id="spec-title" required maxlength="240" placeholder="Simpler checkout">
+      <label for="spec-kind">Specification type</label>
+      <select id="spec-kind"><option value="business">Business need</option><option value="technical">Technical solution</option></select>
+      <label for="spec-idea">Your starting idea <span class="muted">(optional)</span></label>
+      <textarea id="spec-idea" rows="4" maxlength="20000" placeholder="Who is it for, and what should improve?"></textarea>
+      <div id="create-error" class="form-error" role="alert"></div>
+      <div class="dialog-actions">
+        <button type="button" id="create-cancel" class="quiet">Cancel</button>
+        <button type="submit" class="primary">Create specification</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="context-dialog" aria-labelledby="context-title">
+    <h2 id="context-title">Switch checkout</h2>
+    <p class="muted">Choose a checkout already opened in this tab, or find another one in Stories.</p>
+    <div id="context-choices"></div>
+    <div id="context-error" class="form-error" role="alert"></div>
+    <div class="dialog-actions">
+      <button id="context-cancel" class="quiet" type="button">Close</button>
+      <a id="context-stories" class="button" href="#stories">Browse Stories</a>
+    </div>
+  </dialog>
+</body>
+</html>

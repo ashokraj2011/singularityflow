@@ -38,12 +38,12 @@ async function readSources(root, paths, affected) {
   let unavailable = 0;
   for (const file of paths) {
     try {
-      const { bytes: source } = await readRepositoryManifest(root, file, {
-        allowLinks: false, maxBytes: Math.min(MAX_FILE_BYTES, MAX_SOURCE_BYTES - bytes)
+      const { bytes: source, links } = await readRepositoryManifest(root, file, {
+        maxBytes: Math.min(MAX_FILE_BYTES, MAX_SOURCE_BYTES - bytes)
       });
       bytes += source.length;
       const location = affected.get(file)?.location;
-      if (location && location.contentAfterSha256 !== `sha256:${createHash('sha256').update(source).digest('hex')}`) {
+      if (links?.length || (location && location.contentAfterSha256 !== `sha256:${createHash('sha256').update(source).digest('hex')}`)) {
         unavailable += 1;
         continue;
       }

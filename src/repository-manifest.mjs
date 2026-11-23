@@ -94,9 +94,8 @@ function sameFile(left, right) {
 }
 
 /** Bind the link chain and the bytes of its regular target, with no-follow descriptor checks. */
-export async function readRepositoryManifest(root, relative, { maxBytes = 2 * 1024 * 1024, allowLinks = true } = {}) {
+export async function readRepositoryManifest(root, relative, { maxBytes = 2 * 1024 * 1024 } = {}) {
   const resolved = await resolveRepositoryManifest(root, relative);
-  if (!allowLinks && resolved.links.length) throw unsafe(relative, 'linked paths are excluded from this read');
   if (resolved.info.size > maxBytes) throw new SingularityFlowError(
     `Initialization manifest exceeds the ${maxBytes}-byte file bound: ${relative}`, {
       code: 'INI_DETECTION_BOUND_EXCEEDED', details: { path: relative, bound: 'maxFileBytes', observed: resolved.info.size }

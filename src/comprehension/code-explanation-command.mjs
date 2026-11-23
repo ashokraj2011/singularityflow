@@ -123,7 +123,9 @@ async function runCodeMap(root, options, operation) {
   return emitCommandResult(commandResult({
     operation,
     subject: { kind: 'repository', id: path.basename(root) },
-    outcome: succeeded('code-explanation.map-reported', { files: codeMap.modules.length, symbols: codeMap.symbols.length }),
+    outcome: succeeded('comprehension.explanation-reported', {
+      type: 'code map', subject: path.basename(root), status: codeMap.notices.length ? 'partial' : 'available', nodes: codeMap.symbols.length
+    }),
     effects: noEffects(),
     restState: 'informational',
     data: { mode: 'observe-only', codeMap }

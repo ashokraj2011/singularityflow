@@ -185,7 +185,7 @@ export class OutcomeReviewPanel {
     if (choice.id.startsWith('open:')) {
       const url = entry?.started && entry.ready ? loopbackUrl(entry.url) : null;
       if (!url) throw new Error('The selected application has no ready local address. Refresh before opening it.');
-      await vscode.env.openExternal(vscode.Uri.parse(url)); return;
+      await vscode.env.openExternal(url as unknown as vscode.Uri); return;
     }
     if (choice.id.startsWith('start:')) {
       if (!entry || entry.started || entry.portTaken) throw new Error('The selected application cannot be started from this outcome. Refresh its current status.');
@@ -243,7 +243,7 @@ export class OutcomeReviewPanel {
     // Try it: `item` is the way, `check` the entry (TRY_IT_START_ENTRY: its start command). Optional; it records nothing.
     if (action === 'try-open') {
       const url = tryItOpenUrl(this.view?.tryIt, item);
-      if (url) await vscode.env.openExternal(vscode.Uri.parse(url));
+      if (url) await vscode.env.openExternal(url as unknown as vscode.Uri);
       return;
     }
     if (action === 'try-copy') {

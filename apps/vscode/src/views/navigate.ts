@@ -27,5 +27,5 @@ export async function navigateTo(command: string, ...args: unknown[]): Promise<v
 
 /** Open a repository's GitHub page. `repositoryWebTarget` has already re-derived the URL. */
 export async function openRepositoryWeb(url: string): Promise<void> {
-  await vscode.env.openExternal(vscode.Uri.parse(url));
+  await vscode.env.openExternal(url as unknown as vscode.Uri);
 }

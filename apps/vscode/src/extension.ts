@@ -7396,7 +7396,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const openEvidence = async (item: EvidenceCatalogItem): Promise<void> => {
     if (item.url) {
-      await vscode.env.openExternal(vscode.Uri.parse(item.url));
+      await vscode.env.openExternal(item.url as unknown as vscode.Uri);
       return;
     }
     if (item.storage === 'local') {
@@ -8755,29 +8755,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (proposal.transportIntent) watchProposalUpload(proposal.transportIntent, proposal.branch);
           return { outcome: 'proposed', branch: proposal.branch, error: null, uploaded: false };
         }
+        // The outcome goes back now; the note's button is the person's to click later, or never. Waiting
+        // for it left Workflow Studio and the import review busy until someone found the note again.
         const review = 'Review and approve';
-        const selected = await showCompactInformationMessage(
-          `Workflow proposal ${personBranch(proposal.branch)} was pushed with ${files} configuration file${files === 1 ? '' : 's'}. `
+        const branch = proposal.branch;
+        void showCompactInformationMessage(
+          `Workflow proposal ${personBranch(branch)} was pushed with ${files} configuration file${files === 1 ? '' : 's'}. `
           + `It remains visible as Pending review until it is merged into ${proposal.baseBranch ?? 'sflow/config'}. `
           + 'The active Story was not changed.',
           review, 'Later'
-        );
-        if (selected === review) {
-          const stopped = await reviewAndActivateWorkflowProposal(proposal.branch);
-          return { outcome: 'proposed', branch: proposal.branch, error: stopped };
-        }
-        return { outcome: 'proposed', branch: proposal.branch, error: null };
+        ).then((selected) => { if (selected === review) void reviewAndActivateWorkflowProposal(branch); });
+        return { outcome: 'proposed', branch, error: null };
       } else if (proposal.authorityMode === 'local' || !propose) {
         const openSourceControl = 'Open Source Control';
-        const selected = await showCompactInformationMessage(
+        void showCompactInformationMessage(
           'Workflow configuration was saved as an uncommitted local draft. Review and commit '
           + 'it through the local configuration authority; no proposal was pushed and it is '
           + 'not yet available to new Stories.',
           openSourceControl, 'Later'
-        );
-        if (selected === openSourceControl) {
-          await vscode.commands.executeCommand('workbench.view.scm');
-        }
+        ).then((selected) => { if (selected === openSourceControl) void vscode.commands.executeCommand('workbench.view.scm'); });
         return { outcome: 'written', error: null };
       }
       void showCompactInformationMessage('The approved configuration already contains this workflow change.');

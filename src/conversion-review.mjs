@@ -161,7 +161,10 @@ export function conversionReviewMarkdown(review) {
  * The feedback for the marketplace as Markdown (MCR §6): only the findings the marketplace owns, each with its fix,
  * and where it came from. It holds nothing of the importer's repository, Story or person.
  */
-export function conversionFeedbackMarkdown(review, { date = new Date().toISOString().slice(0, 10) } = {}) {
+/** Today on this computer's calendar: a person reads the feedback's date, so it is not UTC's day. */
+const localDay = (at = new Date()) => `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+
+export function conversionFeedbackMarkdown(review, { date = localDay() } = {}) {
   const { source } = review;
   const lines = [
     `# Feedback on ${source.agent}${source.version ? ` ${source.version}` : ''}`, '',

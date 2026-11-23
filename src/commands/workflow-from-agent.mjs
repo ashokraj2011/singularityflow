@@ -182,9 +182,10 @@ function sourceProblems(conversion, problems) {
 /** Where --propose keeps the bundle: SFlow's private folder beside the workflow builds, one file per bundle. */
 async function privateBundlePath(bundle, workflowId, env = process.env) {
   const { workflowBuildStateRoot } = await import('../workflow-build/store.mjs');
-  const directory = path.join(path.dirname(workflowBuildStateRoot(env)), 'marketplace-workflows');
+  // One folder per bundle, so the file a person sees (the import review's title) is named after the workflow alone.
+  const directory = path.join(path.dirname(workflowBuildStateRoot(env)), 'marketplace-workflows', String(bundle.bundleSha256).replace(/^sha256:/u, ''));
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  return path.join(directory, `${workflowId}-${String(bundle.bundleSha256).replace(/^sha256:/u, '').slice(0, 12)}.json`);
+  return path.join(directory, `${workflowId}.workflow.json`);
 }
 
 export async function run(argv, { positionals, options }) {

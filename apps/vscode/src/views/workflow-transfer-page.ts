@@ -1,6 +1,6 @@
 export const WORKFLOW_TRANSFER_BODY = `
-<main><h1>Import or duplicate a workflow</h1>
-<p>Review every agent, skill and reusable instruction, then choose unique destination identities. References are rewritten together; existing objects are not overwritten.</p>
+<main><h1 id="transfer-title">Import or duplicate a workflow</h1>
+<p id="transfer-lede">Review every agent, skill and reusable instruction, then choose unique destination identities. References are rewritten together; existing objects are not overwritten.</p>
 <p id="transfer-status" role="status" aria-live="polite">Loading dependencies…</p>
 <div id="transfer-inventory"></div><div id="transfer-identities"></div>
 <h2>Exact plan</h2><pre id="transfer-plan"></pre>
@@ -75,6 +75,7 @@ export const WORKFLOW_TRANSFER_SCRIPT = String.raw`
       return [row.label || row.sourceId, destination(rows, 'instruction', row.sourceId), (row.usedBy || []).map(function (id) { return destination(rows, 'skill', id); }).join(', '), row.description];
     })));
   }
+  function updating() { return Boolean(plan && (plan.updates || []).length); }
   function render() {
     var rows = plan.identities || []; renderInventory(rows);
     var identities = document.getElementById('transfer-identities'); identities.replaceChildren();
@@ -88,7 +89,10 @@ export const WORKFLOW_TRANSFER_SCRIPT = String.raw`
         renderInventory(rows);
         var errors = validation(rows); status.textContent = errors.length ? errors.join('; ') : 'Names changed. Validate the plan before continuing.';
       });
-      return [row.kind, row.sourceId, input, !row.renameable ? row.reason || 'Shared, read-only contract' : value !== row.sourceId ? 'Independent identity' : (row.occupiedIds || []).indexOf(value) >= 0 ? 'Reuse exact only; rename to keep independent' : 'Will add'];
+      var updated = updating() && value === row.sourceId && (row.occupiedIds || []).indexOf(value) >= 0;
+      var replaced = updated && ((plan.operations || {}).replace || []).some(function (item) { return item.subject === row.subject; });
+      return [row.kind, row.sourceId, input, !row.renameable ? row.reason || 'Shared, read-only contract' : value !== row.sourceId ? 'Independent identity'
+        : updated ? (replaced ? 'Replaced by the update' : 'Unchanged') : (row.occupiedIds || []).indexOf(value) >= 0 ? 'Reuse exact only; rename to keep independent' : 'Will add'];
     })));
     document.getElementById('transfer-plan').textContent = JSON.stringify({ status: plan.status, operations: plan.operations, renamed: plan.renamed,
       changedPaths: plan.changedPaths, destination: plan.destinationAuthority, confirmation: plan.planSha256, unresolved: plan.unresolved,
@@ -106,7 +110,12 @@ export const WORKFLOW_TRANSFER_SCRIPT = String.raw`
     if (message.type !== 'transfer.plan') return;
     plan = message.plan; pending = false;
     if (!initialized) { initialized = true; choices = Object.assign({}, plan.resolutions || {});
-      (plan.identities || []).forEach(function (row) { if (!choices[row.subject] && row.renameable && (row.occupiedIds || []).indexOf(row.sourceId) >= 0 && row.kind.indexOf('approval-group') < 0) {
+      // An update replaces what its earlier import wrote, in place: a copy under new names is the wrong default for it.
+      if (updating()) {
+        var title = document.getElementById('transfer-title'), lede = document.getElementById('transfer-lede');
+        if (title) title.textContent = 'Update a workflow from its marketplace';
+        if (lede) lede.textContent = 'It replaces what the earlier import wrote here, where nobody changed it since. Anything changed here, or shared with another workflow, is asked about, and keeping this repository\'s own is suggested.';
+      } else (plan.identities || []).forEach(function (row) { if (!choices[row.subject] && row.renameable && (row.occupiedIds || []).indexOf(row.sourceId) >= 0 && row.kind.indexOf('approval-group') < 0) {
         choices[row.subject] = { action: 'rename', to: row.suggestedId }; } });
       render(); if (Object.keys(choices).length) sendPreview(); return;
     }

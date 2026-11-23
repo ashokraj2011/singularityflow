@@ -633,7 +633,7 @@ export class RunAndTest implements vscode.Disposable {
     const state = this.stateOf(capability);
     const url = loopbackUrl(state.status?.find((item) => item.id === entryId)?.url ?? state.plan?.find((item) => item.id === entryId)?.url);
     if (!url) return this.update(capability, { error: `${entryId} has no loopback URL to open.`, notice: null });
-    await vscode.env.openExternal(vscode.Uri.parse(url));
+    await vscode.env.openExternal(url as unknown as vscode.Uri);
   }
 
   /**

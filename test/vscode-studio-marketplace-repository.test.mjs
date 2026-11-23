@@ -233,12 +233,17 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
     send({ type: 'studio.importsChecked', result: json(root, ['imports', 'check']) });
     const imported = page.renderImported(page.library());
     assert.match(text(imported), /workflow:product/u);
-    assert.match(text(imported), /changed at its source \(skill requirements-writer changed at [a-f0-9]{12}\)/u);
+    // No commit for a person to read: the engine's words, not its terminal detail (real VS Code, 2026-11-24).
+    assert.match(text(imported), /changed at its source \(skill requirements-writer changed\)/u);
+    assert.doesNotMatch(text(imported), /[a-f0-9]{12}/u);
     click(buttonNamed(imported, 'Review update'));
     assert.deepEqual(last(posted, 'studio.agentWorkflowPreview'), { type: 'studio.agentWorkflowPreview', target: 'acme/product-agent', answers: {}, update: true });
     send({ type: 'studio.agentWorkflowPreviewed', target: 'acme/product-agent', result: json(root, ['workflow', 'from-agent', 'acme/product-agent', '--update']) });
     let updateCard = page.renderMarketplaces(page.library());
     assert.match(text(updateCard), /What changed in the marketplace/u);
+    // An update reads the newest commit, which this repository does not trust yet; its short change is shown open.
+    assert.match(text(updateCard), /product-agent 1\.0\.0-pdlc, marketplace acme, at its newest commit/u);
+    assert.doesNotMatch(text(updateCard), /at the commit this repository trusts/u);
     assert.match(text(updateCard), /Since this workflow was imported \(version 1\.0\.0-pdlc\): skill requirements-writer changed\./u);
     assert.doesNotMatch(text(updateCard).slice(text(updateCard).indexOf('Conversion review:')), /[a-f0-9]{12}/u, 'the review shows no commit or digest for a person to read');
     assert.match(text(updateCard), /\+ Number every assumption\./u);
@@ -284,8 +289,14 @@ test('the host reads a repository marketplace and makes an agent workflow only t
   assert.match(host, /\['workflow', 'from-agent', target, \.\.\.agentStageAnswers\(answers\), '--feedback', chosen\.fsPath, '--json'\]/u);
   assert.match(host, /this\.agentPreview = \{ target, answers, result \}/u);
   assert.match(host, /if \(!feedback \|\| !\/\^https:\\\/\\\/\[\^\\s@\]\+\$\/u\.test\(url\)\)/u);
-  assert.match(host, /vscode\.env\.openExternal\(vscode\.Uri\.parse\(url, true\)\)/u);
+  assert.match(host, /vscode\.env\.openExternal\(url as unknown as vscode\.Uri\)/u);
   // An update (MCR §8): --update only when the page says exactly true, on the same checked arguments.
   assert.match(host, /\(message as \{ update\?: unknown \}\)\.update === true/u);
   assert.doesNotMatch(host, /studio\.agentFeedbackIssue[^\n]*stringField\(message, 'url'\)/u, 'the page never hands the host an address');
+  // The import's outcome goes back to Workflow Studio at once: real VS Code, 2026-11-24, the import review and Studio
+  // stayed busy until someone found the "saved as an uncommitted local draft" note and clicked one of its buttons.
+  const extension = await readFile(path.join(packageRoot, 'apps/vscode/src/extension.ts'), 'utf8');
+  assert.match(extension, /void showCompactInformationMessage\(\s*'Workflow configuration was saved as an uncommitted local draft\./u);
+  assert.match(extension, /void showCompactInformationMessage\(\s*`Workflow proposal \$\{personBranch\(branch\)\} was pushed/u);
+  assert.doesNotMatch(extension, /= await showCompactInformationMessage\(\s*(?:'Workflow configuration was saved|`Workflow proposal \$\{personBranch\(proposal\.branch\)\} was pushed)/u);
 });

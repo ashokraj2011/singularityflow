@@ -111,7 +111,7 @@ test('every page that draws the link is hosted by a panel that opens it', async 
     assert.doesNotMatch(text, /nav: false/, `${host} must keep the shared footer script that posts the click`);
   }
   assert.match(await source('views/navigate.ts'),
-    /export async function openRepositoryWeb\(url: string\)[^{]*\{\s*await vscode\.env\.openExternal\(vscode\.Uri\.parse\(url\)\);/);
+    /export async function openRepositoryWeb\(url: string\)[^{]*\{\s*await vscode\.env\.openExternal\(url as unknown as vscode\.Uri\);/);
 });
 
 test('the reads behind the pages carry each repository URL through to the link', async () => {

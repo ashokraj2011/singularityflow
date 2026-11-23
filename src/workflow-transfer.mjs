@@ -2374,6 +2374,47 @@ function assetSubject(asset, relative) {
   return null;
 }
 
+/** An import of the workflow a marketplace agent made, over the record of that same agent's earlier import here (MCR §8). */
+function agentWorkflowUpdate(existing, incoming) {
+  const from = existing?.source; const to = incoming?.source;
+  return existing?.kind === 'workflow' && incoming?.kind === 'workflow' && from?.kind === 'marketplace-agent' && to?.kind === 'marketplace-agent'
+    && from.marketplace === to.marketplace && from.agent === to.agent && existing.workflow === incoming.workflow;
+}
+
+/**
+ * The digest of what an agent workflow's earlier import wrote at a conflict, or null when it recorded none. A record
+ * from before `written` was kept still names its agent file's bytes and each skill's.
+ */
+function earlierWrote(record, item) {
+  const written = plainObject(record.written) ? record.written[`${item.kind}:${item.id}`] : null;
+  if (typeof written === 'string') return written;
+  const hex = (value) => `sha256:${String(value).replace(/^sha256:/u, '')}`;
+  if (item.kind === 'agent' && item.id === record.target?.path && record.fileSha256) return hex(record.fileSha256);
+  const skill = item.kind === 'skill' ? /^singularity\/skill-library\/([^/]+)\/SKILL\.md$/u.exec(item.id) : null;
+  return skill && record.pieces?.skills?.[skill[1]] ? hex(record.pieces.skills[skill[1]]) : null;
+}
+
+/**
+ * What an agent workflow's import writes here, by item, as digests: its update replaces only what still matches
+ * (MCR §8). What this import reuses unchanged keeps the earlier import's digest.
+ */
+function importWrites(bundle, assetTargets, writes, contents, earlier) {
+  const written = {};
+  for (const { governs, section, values } of configSections(bundle)) {
+    for (const [id, value] of Object.entries(values)) if (writes.has(`${governs}.${section}\0${id}`)) written[`${governs}.${section}:${id}`] = digest(canonicalJson(value));
+  }
+  for (const [id, lock] of Object.entries(bundle.agentLocks ?? {})) if (writes.has(`agent-lock\0${id}`)) written[`agent-lock:${id}`] = digest(canonicalJson(lock));
+  for (const workflow of Object.keys(bundle.objects.story.workTypes ?? {})) {
+    if (!writes.has(`workflow-skill-attachments\0${workflow}`)) continue;
+    written[`workflow-skill-attachments:${workflow}`] = digest(skillAttachmentsText((bundle.workflowSkillAttachments ?? []).filter((entry) => entry.workflow === workflow)) ?? '');
+  }
+  for (const { asset, relative } of assetTargets) {
+    if (writes.has(`${asset.kind}\0${relative}`)) written[`${asset.kind}:${relative}`] = digest(contents.has(relative) ? Buffer.from(contents.get(relative)) : assetBytes(asset));
+  }
+  const before = plainObject(earlier?.written) ? earlier.written : {};
+  return Object.fromEntries(Object.entries({ ...before, ...written }).sort(([left], [right]) => left.localeCompare(right)));
+}
+
 /** An import record follows what it describes: an agent's skill, the agent, a server, a template file. */
 function importRecordSubject(record) {
   const target = plainObject(record.target) ? record.target : {};
@@ -2382,6 +2423,8 @@ function importRecordSubject(record) {
   if (record.kind === 'mcp-server') return subjectRef('mcp-server', target.id);
   if (record.kind === 'template') return subjectRef('template-file', target.path);
   if (record.kind === 'library-skill') return subjectRef('skill', target.id);
+  // A workflow made from a marketplace agent (MCR §7): its record follows the workflow.
+  if (record.kind === 'workflow') return subjectRef('workflow', record.workflow);
   return null;
 }
 
@@ -2580,6 +2623,9 @@ async function importPlan(root, destination, original, chosen) {
   const add = []; const reuse = []; const conflicts = [];
   const subjects = new Map();
   const noted = (item, subject) => { if (subject) subjects.set(item, subject); return item; };
+  // What the repository holds now for each conflict, as a digest: an update replaces only what its import wrote (MCR §8).
+  const holds = new Map();
+  const holding = (item, value) => { holds.set(item, digest(value)); return item; };
   try { validateSkillTargetPolicy(bundle, values.story, targetAgents); }
   catch (error) {
     conflicts.push(entry('story.configuration', WORKFLOW_PATH, {
@@ -2601,7 +2647,7 @@ async function importPlan(root, destination, original, chosen) {
         reuse.push(noted(entry(`${governs}.${section}`, id), subject));
         add.push(entry('mcp-server-additions', id, { phases: listed.phases ?? [], agents: listed.agents ?? [] }));
         extendedServers.set(id, Object.fromEntries(Object.keys(listed).map((key) => [key, clone(value[key])])));
-      } else conflicts.push(noted(entry(`${governs}.${section}`, id, { reason: 'same ID has different content' }), subject));
+      } else conflicts.push(holding(noted(entry(`${governs}.${section}`, id, { reason: 'same ID has different content' }), subject), canonicalJson(existing[id])));
     }
   }
   const currentAttachments = await readSkillAttachments(target.root);
@@ -2614,7 +2660,7 @@ async function importPlan(root, destination, original, chosen) {
     const textOf = (entries) => skillAttachmentsText(entries) ?? '';
     if (textOf(existing) === textOf(incoming)) reuse.push(operation);
     else if (!existing.length) add.push(operation);
-    else conflicts.push(Object.assign(operation, { reason: 'workflow has different skill attachments' }));
+    else conflicts.push(holding(Object.assign(operation, { reason: 'workflow has different skill attachments' }), textOf(existing)));
   }
   for (const [id, value] of Object.entries(bundle.agentLocks)) {
     const existing = target.agentLock.value.agents[id];
@@ -2624,7 +2670,7 @@ async function importPlan(root, destination, original, chosen) {
     const subject = subjectRef('agent', id);
     if (existing == null) add.push(noted(entry('agent-lock', id), subject));
     else if (canonicalJson(existing) === canonicalJson(value) || canonicalJson(portable) === canonicalJson(value)) reuse.push(noted(entry('agent-lock', id), subject));
-    else conflicts.push(noted(entry('agent-lock', id, { reason: 'same agent has a different dependency lock' }), subject));
+    else conflicts.push(holding(noted(entry('agent-lock', id, { reason: 'same agent has a different dependency lock' }), subject), canonicalJson(existing)));
   }
   const assetTargets = [];
   const targetPaths = new Map();
@@ -2702,7 +2748,7 @@ async function importPlan(root, destination, original, chosen) {
           extendedAgents.set(asset.id, { relative, before: content, text: stepsOnly.text });
         }
       } else if (asset.kind === 'template') templateDifferences.push({ asset, relative, subject, content, reason: comparison.reason });
-      else conflicts.push(noted(entry(asset.kind, relative, { reason: comparison.reason }), subject));
+      else conflicts.push(holding(noted(entry(asset.kind, relative, { reason: comparison.reason }), subject), content));
     }
     assetTargets.push({ asset, relative });
   }
@@ -2719,23 +2765,28 @@ async function importPlan(root, destination, original, chosen) {
       const own = completed?.files?.find((file) => file.path === relative)?.content;
       const sameText = (left, right) => left.equals(right) || (textAssetFormat(left).valid && textAssetFormat(left).normalized === textAssetFormat(right).normalized);
       if (own != null && sameText(Buffer.from(String(own)), content)) reuse.push(noted(entry(asset.kind, relative, { sha256: asset.sha256, completedBySflow: true }), subject));
-      else conflicts.push(noted(entry(asset.kind, relative, { reason }), subject));
+      else conflicts.push(holding(noted(entry(asset.kind, relative, { reason }), subject), content));
     }
   }
   // Where each carried import came from, pointed at the file's place in this repository. A record
   // that differs only in when it was fetched describes the same import, so the target keeps its own.
   const targetPathOf = new Map(assetTargets.map(({ asset, relative }) => [asset.path, relative]));
+  // What an agent workflow's import wrote here is the repository's record, not the import's.
   const sameImport = (left, right) => {
-    const { fetchedAt: _left, ...a } = left; const { fetchedAt: _right, ...b } = right;
+    const { fetchedAt: _left, written: _leftWritten, ...a } = left; const { fetchedAt: _right, written: _rightWritten, ...b } = right;
     return canonicalJson(a) === canonicalJson(b);
   };
   const importRecords = [];
+  // The same marketplace agent's workflow, imported here before: this bundle is its update (MCR §8).
+  const earlierImports = new Map();
   for (const [key, carried] of Object.entries(bundle.imports ?? {})) {
     const record = clone(carried);
     record.target.path = targetPathOf.get(carried.target.path) ?? carried.target.path;
     const existing = target.importsLedger.value.imports[key];
+    if (agentWorkflowUpdate(existing, record)) earlierImports.set(key, existing);
     const operation = noted(existing == null || sameImport(existing, record) ? entry('import-record', key)
-      : entry('import-record', key, { reason: 'same import has a different source or hash' }), importRecordSubject(record));
+      : entry('import-record', key, { reason: earlierImports.has(key) ? 'an update of this workflow from its marketplace' : 'same import has a different source or hash' }),
+    importRecordSubject(record));
     (existing == null ? add : operation.reason ? conflicts : reuse).push(operation);
     importRecords.push([key, record]);
   }
@@ -2752,10 +2803,39 @@ async function importPlan(root, destination, original, chosen) {
       return { path: relative, state: operation?.reason ?? operation?.sha256 ?? operation?.kind ?? 'unknown' };
     })
   };
+  // An update replaces, with no question, what the repository still holds exactly as the earlier import wrote it and no
+  // other workflow here uses. What was changed here since, or is shared, stays a question that suggests keeping the
+  // repository's own (MCR §8).
+  const usage = targetUsage(values, targetAgents);
+  const autoReplace = new Set(); const updateAsks = new Map();
+  if (earlierImports.size) {
+    const earlier = [...earlierImports.values()];
+    const updatedWorkflows = new Set(earlier.map((record) => `story:${record.workflow}`));
+    const updatedAgents = new Set(earlier.map((record) => record.target?.id).filter(Boolean));
+    const bySubject = new Map();
+    for (const item of conflicts) {
+      const subject = subjects.get(item);
+      if (!subject || Object.hasOwn(resolutions, subject)) continue;
+      if (!bySubject.has(subject)) bySubject.set(subject, []);
+      bySubject.get(subject).push(item);
+    }
+    for (const [subject, items] of bySubject) {
+      const { kind, id } = parseSubject(subject);
+      const others = [...(usage.get(subject) ?? [])].filter((workflow) => !updatedWorkflows.has(workflow)).map((workflow) => workflow.replace(/^story:/u, ''));
+      if (kind === 'skill') {
+        for (const attachment of currentAttachments) if (attachment.skill === id && !updatedAgents.has(attachment.agent)) others.push(attachment.workflow ?? `agent ${attachment.agent}`);
+      }
+      const untouched = (item) => (item.kind === 'import-record' && earlierImports.has(item.id))
+        || (holds.has(item) && earlier.some((record) => earlierWrote(record, item) === holds.get(item)));
+      if (items.every(untouched) && !others.length) autoReplace.add(subject);
+      else updateAsks.set(subject, others.length ? `it is also used here by ${[...new Set(others)].sort().join(', ')}` : 'it was changed here since it was imported');
+    }
+  }
   // Keep drops the imported subject entirely, its new copies and records too; replace writes it over
   // the repository's own. A subject without a choice stays a conflict.
   const chosenAction = (item) => {
-    const action = resolutions[subjects.get(item)]?.action;
+    const subject = subjects.get(item);
+    const action = resolutions[subject]?.action ?? (autoReplace.has(subject) ? 'replace' : null);
     return action === 'keep' || action === 'replace' ? action : null;
   };
   const used = new Set();
@@ -2900,7 +2980,6 @@ async function importPlan(root, destination, original, chosen) {
   for (const item of removals) changedPaths.add(item.id);
   // What is still open, one entry per subject: why, which of the repository's workflows use it,
   // and the choices, with a free new name ready for rename.
-  const usage = targetUsage(values, targetAgents);
   const grouped = new Map();
   for (const item of open) {
     const subject = subjects.get(item) ?? null;
@@ -2915,9 +2994,11 @@ async function importPlan(root, destination, original, chosen) {
     const subject = items[0].subject ?? null;
     const { kind, id } = subject ? parseSubject(subject) : { kind: null, id: key };
     const choices = subjectChoices(kind).filter((action) => action !== 'rename' || !renameRefusal(kind, id, bundle));
-    const suggested = suggestedAction(kind);
+    const asked = subject ? updateAsks.get(subject) : null;
+    const suggested = asked ? 'keep' : suggestedAction(kind);
     unresolved.push({
-      subject, kind, id, reasons: items.map((item) => `${conflictPart(item)}: ${item.reason}`),
+      subject, kind, id, reasons: [...items.map((item) => `${conflictPart(item)}: ${item.reason}`),
+        ...(asked ? [`The marketplace changed it, and ${asked}, so keeping this repository's own is suggested.`] : [])],
       choices, suggested: choices.includes(suggested) ? suggested : choices.includes('keep') ? 'keep' : null,
       ...(choices.includes('rename') ? { renameTo: await naming.free(kind, id) } : {}),
       usedBy: subject ? [...(usage.get(subject) ?? [])].sort() : []
@@ -2988,6 +3069,8 @@ async function importPlan(root, destination, original, chosen) {
     schemaVersion: 1, resultType: 'workflow-import-plan', bundleSha256: original.bundleSha256,
     ...(destination ? { destinationAuthority: destination.identity } : {}),
     targetStateSha256: digest(state),
+    // An update of a marketplace agent's workflow imported here before (MCR §8): it replaces in place, never as a copy.
+    ...(earlierImports.size ? { updates: [...earlierImports.keys()].sort() } : {}),
     ...(Object.keys(resolutions).length ? { resolutions } : {}),
     operations: {
       add: additions.sort(byIdentity), reuse: reuse.sort(byIdentity),
@@ -3224,7 +3307,10 @@ async function importOutputs(operations, {
   }
   if (importRecords.length) {
     const value = clone(target.importsLedger.value);
-    for (const [key, record] of importRecords) value.imports[key] = record;
+    for (const [key, record] of importRecords) {
+      value.imports[key] = record.kind === 'workflow'
+        ? { ...record, written: importWrites(bundle, assetTargets, writes, contents, target.importsLedger.value.imports[key]) } : record;
+    }
     outputs.push({ file: target.importsLedger.file, content: renderImportsLedger(value) });
   }
   for (const { asset, relative } of assetTargets) {

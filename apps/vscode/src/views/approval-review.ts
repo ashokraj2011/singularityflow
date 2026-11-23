@@ -915,7 +915,7 @@ export function collectApprovalReview(
         const entry = typeof message.entry === 'number' && Number.isInteger(message.entry) ? message.entry : null;
         if (message.action === 'open') {
           const url = tryItOpenUrl(request.tryIt, way);
-          if (url) void vscode.env.openExternal(vscode.Uri.parse(url));
+          if (url) void vscode.env.openExternal(url as unknown as vscode.Uri);
           return;
         }
         const copied = message.action === 'copy' ? tryItCopyText(request.tryIt, way, entry) : null;

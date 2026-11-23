@@ -176,6 +176,11 @@ answer is reused only for a stage whose words and skills did not change.
 **MCR:REQ-034:** Approving an update is an import, through the same transfer review. Stories already running keep their
 frozen snapshot. New Stories use the update. A Story whose next step opens after the update does not change mid-Story.
 
+**MCR:REQ-036:** An update imports in place, never as a copy. The import record keeps a digest of everything its import
+wrote. The update replaces, with no question, what the repository still holds exactly as written, and the record. It
+asks about anything changed here since, or used by another workflow, and suggests keeping the repository's own. Found
+in the real VS Code check of 2026-11-24, where the update was blocked and its review renamed everything.
+
 **MCR:REQ-035:** An agent removed from the marketplace is never removed from the repository by an update. The workflow
 stays, marked "source removed", until a person retires it.
 

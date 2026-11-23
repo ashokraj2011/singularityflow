@@ -878,6 +878,11 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
       if (record.kind === 'mcp-server' && serverMap.has(target.id)) { target.id = serverMap.get(target.id); next = `mcp-server:${target.id}`; }
       if (record.kind === 'template' && templateMap.has(target.id)) { target.id = templateMap.get(target.id); next = `template:${target.id}`; }
       if (record.kind === 'library-skill' && skillMap.has(target.id)) { target.id = skillMap.get(target.id); next = `library-skill:${target.id}`; }
+      // A workflow made from a marketplace agent (MCR §7): its record names the workflow and its agent.
+      if (record.kind === 'workflow') {
+        if (map('workflow').has(record.workflow)) { record.workflow = map('workflow').get(record.workflow); next = `workflow:${record.workflow}`; }
+        if (agentMap.has(target.id)) target.id = agentMap.get(target.id);
+      }
       for (const [from, to] of movedPaths) if (target.path === from) { target.path = to; break; }
       if (Array.isArray(target.phases)) target.phases = withRenamed(target.phases, phaseMap, targetPhases);
       if (record.kind === 'generated' && !existsHere(target.agent)) Object.assign(target, generatedPlace(target.phase, target.path, phaseMap));
@@ -885,7 +890,7 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
       if (Array.isArray(target.tools)) target.tools = target.tools.map((tool) => swapCompound(tool, hostMap));
       // Keep the source hash unchanged; separately pin the exact destination bytes after
       // a reviewed rename. Otherwise imports status mistakes our own transformation for edits.
-      const changed = record.kind === 'agent' ? changedAgents
+      const changed = record.kind === 'agent' || record.kind === 'workflow' ? changedAgents
         : record.kind === 'library-skill' ? changedSkills : null;
       if (changed?.has(target.id)) {
         record.fileSha256 = sha256Hex(changed.get(target.id));

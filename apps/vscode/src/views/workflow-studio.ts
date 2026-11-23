@@ -845,7 +845,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     const url = feedback?.issue?.url ?? '';
     if (!feedback || !/^https:\/\/[^\s@]+$/u.test(url)) { this.post({ type: 'studio.agentFeedbackDone', status: 'This marketplace has no issue page SFlow can open; save or copy the feedback instead.' }); return; }
     if (!feedback.issue?.bodyInUrl) await vscode.env.clipboard.writeText(feedback.markdown);
-    await vscode.env.openExternal(vscode.Uri.parse(url, true));
+    // The address as written: VS Code encodes a Uri a second time, and the issue body arrived as "%23 Feedback…"
+    // (real VS Code, 2026-11-24). Every page the extension opens passes its string (test/vscode-open-external.test.mjs).
+    await vscode.env.openExternal(url as unknown as vscode.Uri);
     this.post({ type: 'studio.agentFeedbackDone', status: feedback.issue?.bodyInUrl ? 'Opened a new issue with the feedback filled in; you submit it.'
       : 'Opened a new issue; the feedback is copied, so paste it there and submit it.' });
   }

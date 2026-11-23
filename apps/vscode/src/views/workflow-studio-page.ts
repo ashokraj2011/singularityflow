@@ -111,7 +111,10 @@ const STUDIO_STYLE = `
 .mark.dim{border:1px solid var(--sf-border-color)}
 .review-section h3{margin:var(--sf-space-2) 0 4px;font-size:13px}
 .conversion-table{width:100%;border-collapse:collapse;font-size:12px}
-.conversion-table th,.conversion-table td{text-align:left;vertical-align:top;padding:4px 6px;border-top:1px solid var(--sf-border-color);overflow-wrap:anywhere}
+/* Words wrap whole: 'anywhere' let the table squeeze a column to one letter ("Bec om es"), seen in real VS Code 2026-11-24. */
+.conversion-scroll{overflow-x:auto}
+.conversion-table th,.conversion-table td{text-align:left;vertical-align:top;padding:4px 6px;border-top:1px solid var(--sf-border-color);overflow-wrap:break-word}
+.conversion-table td:nth-child(4){min-width:14em}
 .muted{color:var(--sf-dim,var(--vscode-descriptionForeground));font-size:12px}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid var(--sf-border-color)}
 .pill.new{background:var(--sf-accent-quiet);font-weight:700}
@@ -5008,7 +5011,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var source = review.source || {};
     box.appendChild(reviewSection('Where it came from', el('div', null,
       // No commit or digest for a person to read: the agent's version says which one it is.
-      el('div', { text: source.agent + (source.version ? ' ' + source.version : '') + (source.marketplace ? ', marketplace ' + source.marketplace + ', at the commit this repository trusts' : source.folder ? ', folder ' + source.folder : '') }),
+      // An update reads the marketplace at its newest commit, which this repository does not trust yet: what changed is below.
+      el('div', { text: source.agent + (source.version ? ' ' + source.version : '') + (source.marketplace ? ', marketplace ' + source.marketplace + (review.update ? ', at its newest commit' : ', at the commit this repository trusts') : source.folder ? ', folder ' + source.folder : '') }),
       source.lifecycle ? el('div', { class: 'muted', text: 'Lifecycle: ' + source.lifecycle }) : null,
       source.maintainer ? el('div', { class: 'muted', text: 'Maintainer: ' + source.maintainer }) : null)));
 
@@ -5035,7 +5039,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     });
     table.appendChild(body);
     var asked = (review.rows[0] && review.rows[0].questions) || [];
-    box.appendChild(reviewSection('Agent stage → SFlow step', el('div', null, table,
+    box.appendChild(reviewSection('Agent stage → SFlow step', el('div', { class: 'conversion-scroll' }, table,
       asked.length ? el('p', { class: 'muted', text: 'Asked at ' + review.rows[0].label + ', before any work: ' + asked.join(' ') }) : null)));
 
     box.appendChild(reviewSection('What SFlow changed', (review.changes || []).length
@@ -5077,8 +5081,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         (update.askedAgain || []).length ? el('div', { text: 'Asked again, as their stages changed: ' + update.askedAgain.join(', ') + '.' }) : null,
         ((update.findings || {}).added || []).map(function (words) { return el('div', { class: 'muted', text: 'New finding: ' + words }); }),
         ((update.findings || {}).resolved || []).map(function (words) { return el('div', { class: 'muted', text: 'Resolved: ' + words }); }),
+        // A short change is shown open: reading what changed is what the update review is for.
         changes.map(function (change) {
-          return el('details', { class: 'agent-prompt' }, el('summary', { text: change.title }),
+          return el('details', { class: 'agent-prompt', open: changes.reduce(function (sum, entry) { return sum + entry.lines.length; }, 0) <= 40 }, el('summary', { text: change.title }),
             el('pre', { text: change.lines.map(function (line) { return (line.op === '…' ? '#' : line.op) + ' ' + line.text; }).join('\n') }));
         }))));
     }
@@ -5114,7 +5119,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       var checked = lib.check && lib.check.find(function (entry) { return entry.key === row.key; });
       section.appendChild(el('div', { class: 'check-row' },
         el('span', { class: 'mark ' + (row.status === 'current' ? 'ok' : row.status === 'missing' || row.status.indexOf('edited (') === 0 ? 'bad' : 'wait'), text: row.status === 'current' ? '✓' : '!' }),
-        el('div', null, el('strong', { text: row.key }), el('div', { class: 'muted', text: row.source + ' · ' + row.status + (checked ? ' · ' + checked.status + (checked.detail ? ' (' + checked.detail + ')' : '') : '') })),
+        el('div', null, el('strong', { text: row.key }), el('div', { class: 'muted', text: row.source + ' · ' + row.status + (checked ? ' · ' + checked.status + ((checked.words || checked.detail) ? ' (' + (checked.words || checked.detail) + ')' : '') : '') })),
         el('div', { class: 'studio-row' },
           checked && checked.updateCommand ? button('Review update', function () { reviewUpdate(row, checked); }, { class: 'primary', 'aria-label': 'Review the update to ' + row.key }) : null,
           row.kind === 'mcp-server' && row.status === 'current' ? button('Add host entry', function () { post({ type: 'studio.mcpHostAdd', id: row.target.id }); }, { class: 'secondary', 'aria-label': 'Add the host entry for ' + row.target.id }) : null,

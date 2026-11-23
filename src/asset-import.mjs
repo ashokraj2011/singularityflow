@@ -532,11 +532,14 @@ async function marketplaceAgentCheck(root, key, entry) {
   }
   const commit = read.listing.commit;
   const difference = piecesDifferences(entry.pieces, sourcePieces(read.agent, read.skills));
-  const at = `${String(commit).slice(0, 12)}${read.agent.version && read.agent.version !== source.version ? `, version ${read.agent.version}` : ''}`;
+  const newer = read.agent.version && read.agent.version !== source.version ? read.agent.version : null;
+  const at = `${String(commit).slice(0, 12)}${newer ? `, version ${newer}` : ''}`;
+  // `detail` names the commit for the terminal; `words` is the same without it, for a screen a person reads.
   if (commit === source.commit || difference.unchanged) {
-    return { key, status: 'up to date', detail: commit === source.commit ? `commit ${String(commit).slice(0, 12)}` : `${differencesWords(difference)} at ${at}` };
+    return { key, status: 'up to date', detail: commit === source.commit ? `commit ${String(commit).slice(0, 12)}` : `${differencesWords(difference)} at ${at}`,
+      words: commit === source.commit ? 'nothing newer in the marketplace' : differencesWords(difference) };
   }
-  return { key, status: 'changed at its source', detail: `${differencesWords(difference)} at ${at}`, commit,
+  return { key, status: 'changed at its source', detail: `${differencesWords(difference)} at ${at}`, words: `${differencesWords(difference)}${newer ? `; now version ${newer}` : ''}`, commit,
     updateCommand: `singularity-flow workflow from-agent ${source.marketplace}/${source.agent} --update` };
 }
 

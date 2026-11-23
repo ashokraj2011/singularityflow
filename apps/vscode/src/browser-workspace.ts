@@ -67,6 +67,6 @@ export async function openBrowserWorkspace(client: SingularityFlowClient, contex
   } catch (error) {
     output.appendLine(`SFlow editor bridge unavailable: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const opened = await vscode.env.openExternal(vscode.Uri.parse(launch.url));
+  const opened = await vscode.env.openExternal(launch.url as unknown as vscode.Uri);
   if (!opened) throw new Error('VS Code could not open the default browser. Run singularity-flow ui open from the same checkout.');
 }

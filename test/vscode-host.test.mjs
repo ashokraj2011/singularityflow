@@ -11910,7 +11910,7 @@ function withTaskHost(api, registered) {
     onDidEndTaskProcess: processEnded.event,
     onDidEndTask: taskEnded.event
   };
-  api.env.openExternal = async (uri) => { registered.opened.push(uri.fsPath); return true; };
+  api.env.openExternal = async (uri) => { registered.opened.push(typeof uri === 'string' ? uri : uri.fsPath); return true; };
   registered.endTask = (execution, exitCode) => { processEnded.fire({ execution, exitCode }); taskEnded.fire({ execution }); };
   // Debug attach: what VS Code is asked to start, and which debugger extensions are installed.
   registered.debugSessions = [];

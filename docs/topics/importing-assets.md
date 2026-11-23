@@ -14,7 +14,7 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 11
+version: 12
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
@@ -63,6 +63,7 @@ A marketplace agent's `agent.md` is a whole process: a hard gate first, a table 
 - **Where it came from, and updates:** the import writes a `workflow:<id>` record to `singularity/imports.lock.yml`. It holds the marketplace, the commit, the agent's version, a SHA-256 of `agent.md`, of its `apm.yml` and of each skill, and your answers.
   - `singularity-flow imports check`, or Workflow Studio's **Check for updates**, reads the marketplace at its newest commit and says what changed, for example "skill web-xray-creation changed".
   - `workflow from-agent <MARKETPLACE/AGENT> --update`, or **Review update**, converts the agent again with your recorded answers. The review then shows only what changed, with the changed lines of `agent.md` and of each skill. A stage whose own words changed is asked again.
+  - Its import updates the workflow in place. It replaces what the earlier import wrote, where nobody changed it here since. A file changed here since, or one another workflow uses, is asked about, and keeping your own is suggested.
   - Updating is an import like any other, reviewed before it is written. Stories already running keep the workflow they started with. An agent the marketplace no longer has is reported, and its workflow stays until you retire it.
   - A workflow imported before its source was recorded is compared with the marketplace's pinned commit; updating it records its source.
 

@@ -181,7 +181,7 @@ export class HelpPanel {
   private async openLink(target: string | null): Promise<void> {
     if (!target) return;
     if (/^https:\/\//i.test(target)) {
-      await vscode.env.openExternal(vscode.Uri.parse(target));
+      await vscode.env.openExternal(target as unknown as vscode.Uri);
       return;
     }
     const relative = target.split('#')[0]?.trim();

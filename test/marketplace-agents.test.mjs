@@ -473,6 +473,8 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     sourceCheck = json(root, ['imports', 'check']).imports.find((row) => row.key === 'workflow:qa-test-automation');
     assert.equal(sourceCheck.status, 'changed at its source');
     assert.equal(sourceCheck.detail, `skill web-xray-creation changed at ${newest.slice(0, 12)}`);
+    // The same without the commit, for Workflow Studio's row: no commit for a person to read.
+    assert.equal(sourceCheck.words, 'skill web-xray-creation changed');
     assert.equal(sourceCheck.updateCommand, 'singularity-flow workflow from-agent acme/qa-test-automation-agent --update');
     const updated = json(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--update']);
     assert.deepEqual([updated.review.update.recorded, updated.review.update.from, updated.review.update.to, updated.review.update.words],
@@ -490,6 +492,41 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     const carried = JSON.parse(await readFile(updating.bundlePath, 'utf8')).imports['workflow:qa-test-automation'];
     assert.equal(carried.source.commit, newest);
     assert.notEqual(carried.pieces.skills['web-xray-creation'], record.pieces.skills['web-xray-creation']);
+    // The bundle is named after its workflow alone: the import review's title shows no digest.
+    assert.equal(path.basename(updating.bundlePath), 'qa-test-automation.workflow.json');
+    // The update imports in place (real VS Code, 2026-11-24: it was blocked, its record a conflict with no choice). What
+    // its import wrote and nobody changed here is replaced with no question, the record too, and the plan says it is an
+    // update, so the import review gives nothing a new name.
+    assert.equal(updating.importPlan.status, 'ready', JSON.stringify(updating.importPlan.unresolved));
+    assert.deepEqual(updating.importPlan.updates, ['workflow:qa-test-automation']);
+    assert.deepEqual(updating.importPlan.operations.replace.map((item) => [item.kind, item.subject]),
+      [['import-record', 'workflow:qa-test-automation'], ['skill', 'skill:web-xray-creation']]);
+    assert.deepEqual(updating.importPlan.operations.add, []);
+    // The first import recorded what it wrote, so the update can tell an untouched file from an edited one.
+    assert.match(record.written['skill:singularity/skill-library/web-xray-creation/SKILL.md'], /^sha256:[a-f0-9]{64}$/u);
+    assert.ok(Object.keys(record.written).some((key) => key.startsWith('story.phases:')) && Object.keys(record.written).some((key) => key.startsWith('template:')));
+    // A skill changed here since the import stays the person's question, with keeping theirs suggested.
+    const localSkill = path.join(root, 'singularity/skill-library/web-xray-creation/SKILL.md');
+    const ownSkill = await readFile(localSkill, 'utf8');
+    await writeFile(localSkill, `${ownSkill}\nOur house rule: one browser per case.\n`);
+    const editedHere = json(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--update', '--propose']).importPlan;
+    assert.equal(editedHere.status, 'blocked');
+    assert.deepEqual(editedHere.unresolved.map((item) => [item.subject, item.suggested]), [['skill:web-xray-creation', 'keep']]);
+    assert.match(editedHere.unresolved[0].reasons.at(-1), /^The marketplace changed it, and it was changed here since it was imported, so keeping this repository's own is suggested\.$/u);
+    assert.deepEqual(editedHere.operations.replace.map((item) => item.subject), ['workflow:qa-test-automation'], 'the record is still the update\'s');
+    await writeFile(localSkill, ownSkill);
+    // Confirmed, the update writes the newer skill and its record; the check then finds nothing newer.
+    const updatePlan = json(root, ['workflow', 'import', updating.bundlePath, '--dry-run']);
+    assert.equal(updatePlan.status, 'ready');
+    flow(root, ['workflow', 'import', updating.bundlePath, '--confirm', updatePlan.planSha256]);
+    assert.match(await readFile(localSkill, 'utf8'), /Always name the browser and its version in each test case\./u);
+    const updatedRecord = YAML.parse(await readFile(path.join(root, 'singularity/imports.lock.yml'), 'utf8')).imports['workflow:qa-test-automation'];
+    assert.equal(updatedRecord.source.commit, newest);
+    assert.notEqual(updatedRecord.written['skill:singularity/skill-library/web-xray-creation/SKILL.md'], record.written['skill:singularity/skill-library/web-xray-creation/SKILL.md']);
+    assert.equal(updatedRecord.written['agent:singularity/agents/qa-test-automation-agent.agent.md'], record.written['agent:singularity/agents/qa-test-automation-agent.agent.md'], 'what it reused keeps its digest');
+    const upToDate = json(root, ['imports', 'check']).imports.find((row) => row.key === 'workflow:qa-test-automation');
+    assert.deepEqual([upToDate.status, upToDate.words], ['up to date', 'nothing newer in the marketplace']);
+    run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'update the QA workflow'], root);
 
     // The marketplace brings the product agent back, as it was at the pinned commit.
     run('git', ['checkout', pinned, '--', 'agents/product-agent'], market);

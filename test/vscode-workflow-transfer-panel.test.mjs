@@ -15,7 +15,7 @@ class Element {
   all(tag) { return this.children.flatMap((child) => [ ...(child.tag === tag ? [child] : []), ...child.all(tag) ]); }
 }
 function browser() {
-  const elements = Object.fromEntries(['status', 'apply', 'inventory', 'identities', 'plan', 'preview', 'cancel'].map((id) => [`transfer-${id}`, new Element('div')]));
+  const elements = Object.fromEntries(['title', 'lede', 'status', 'apply', 'inventory', 'identities', 'plan', 'preview', 'cancel'].map((id) => [`transfer-${id}`, new Element('div')]));
   const posted = [], listeners = {};
   const window = { Node: Element, __sfVscode: { postMessage: (message) => posted.push(structuredClone(message)) }, addEventListener: (type, callback) => { listeners[type] = callback; } };
   new Function('window', 'document', WORKFLOW_TRANSFER_SCRIPT)(window, { createElement: (tag) => new Element(tag), getElementById: (id) => elements[id] });
@@ -62,6 +62,25 @@ test('existing IDs get independent names automatically, and immutable contract i
   assert.equal(ui.elements['transfer-apply'].disabled, false);
   assert.equal(ui.elements['transfer-identities'].all('input')[1].disabled, true);
   assert.equal(ui.elements['transfer-identities'].all('input')[2].value, 'reviewer-imported/check');
+});
+
+test('an update of a marketplace workflow replaces in place: nothing gets a new name, and each row says what the update does', () => {
+  // Real VS Code, 2026-11-24: the page gave every existing ID a new name, so Update this workflow made a second copy.
+  const ui = browser();
+  const rows = [identity('workflow', 'product', { occupiedIds: ['product'], suggestedId: 'product-imported' }),
+    identity('agent', 'product-agent', { occupiedIds: ['product-agent'], suggestedId: 'product-agent-imported' }),
+    identity('skill', 'requirements-writer', { occupiedIds: ['requirements-writer'], suggestedId: 'requirements-writer-imported' })];
+  const previews = ui.posted.length;
+  ui.receive(ready(rows, { updates: ['workflow:product'], operations: { replace: [
+    { kind: 'import-record', id: 'workflow:product', subject: 'workflow:product' },
+    { kind: 'skill', id: 'singularity/skill-library/requirements-writer/SKILL.md', subject: 'skill:requirements-writer' }] } }));
+  assert.equal(ui.posted.length, previews, 'no preview with new names is asked for');
+  assert.equal(ui.elements['transfer-title'].textContent, 'Update a workflow from its marketplace');
+  assert.match(ui.elements['transfer-lede'].textContent, /^It replaces what the earlier import wrote here, where nobody changed it since\./u);
+  assert.equal(ui.elements['transfer-apply'].disabled, false);
+  assert.deepEqual(ui.elements['transfer-identities'].all('input').map((input) => input.value), ['product', 'product-agent', 'requirements-writer']);
+  const dispositions = ui.elements['transfer-identities'].all('td').map((cell) => cell.textContent).filter((text) => /Replaced by the update|Unchanged/u.test(text));
+  assert.deepEqual(dispositions, ['Replaced by the update', 'Unchanged', 'Replaced by the update']);
 });
 
 test('instruction inventory tracks renamed owning skills and blocks instruction collisions', () => {

@@ -13,6 +13,7 @@ import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const WEB_SECRET = inventedValue('web-token-', 'secret-7731');
 const API_SECRET = inventedValue('api-db-p', 'ass-9142');
+const QA_FILE_VALUE = inventedValue('qa-file-sec', 'ret-5512');
 const SERVER = (file, label) => `import { readFileSync, writeFileSync } from 'node:fs';
 writeFileSync('pid.txt', String(process.pid));
 console.log('${label} read: ' + readFileSync('${file}', 'utf8').trim().split('\\n').join(' | '));
@@ -142,10 +143,10 @@ test('tests run refuses a missing environment file before any command runs, then
   assert.equal(await readFile(repo.env.FIXTURE_FLAG, 'utf8'), 'ran\n');
   const summary = repo.sflowJson('tests', 'summary', '--capability', 'web');
   const text = JSON.stringify([ran.value, summary.value]);
-  assert.equal(text.includes('qa-file-secret-5512'), false, 'the run result and its summary never hold the value');
+  assert.equal(text.includes(QA_FILE_VALUE), false, 'the run result and its summary never hold the value');
   assert.match(text, /\[redacted:ENV_QA-QA_SECRET_TOKEN\]/u, 'the failure message shows where the value was');
   const runs = path.join(repo.root, '.git', 'singularity-flow', 'test-runs', 'web');
-  for (const name of await readdir(runs)) assert.equal((await readFile(path.join(runs, name), 'utf8')).includes('qa-file-secret-5512'), false);
+  for (const name of await readdir(runs)) assert.equal((await readFile(path.join(runs, name), 'utf8')).includes(QA_FILE_VALUE), false);
   assert.equal(git(repo.root, ['status', '--porcelain', '--', '.env.qa']).stdout, '');
 });
 

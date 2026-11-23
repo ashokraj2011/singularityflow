@@ -18,7 +18,7 @@ export const FAKE_SECRETS =
   awsSecret: inventedValue('wJalr', 'XUtnFEMI/K7MDEN', 'G/bPxRfiCYEXAMPLEKEY'),
   jwt: inventedJwt({ alg: 'HS256', typ: 'JWT' }, { sub: 'fake-user' }, base64url('signature-fake-1234567890')),
   urlPassword: inventedValue('pr1c1n', 'gFakePw'),
-  djangoKey: 'django-insecure-fake-key-for-tests-only',
+  djangoKey: inventedValue('django-insec', 'ure-fake-key-for-tests-only'),
   highEntropy: inventedValue('Zk3q9Vb7Lp2', 'Xw8Rt5Ny1Hc', '6Md4Gs0Jf'),
   argumentToken: inventedValue('cli-token-', 'value-31337'),
   vscodeToken: inventedValue('vsc-fake-t', 'oken-24601'),

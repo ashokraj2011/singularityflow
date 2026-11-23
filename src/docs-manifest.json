@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "22a5be840594acbc1fbb9fcab1cba79046e82457",
+  "sourceCommit": "37d5be1f8d21f6a76a8b8fe3b89b86a1d836c23a",
   "topicCount": 94,
-  "contentSha256": "6bd2eacbf77f0d78553ed0fb46d1afc286374bf7ca90f2de5dfec249de5534ee",
+  "contentSha256": "e4ebf75934ae0cd24608419cdf4f5245722c73019f1f7fdf6609ada294512634",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -208,8 +208,8 @@
     {
       "id": "environment-bindings",
       "title": "Test environments without committing their values",
-      "version": 8,
-      "sha256": "c94cddbdfa58f2adb534077b640b33ad9c38b0e0a0e71eb4ebd666ba2b3a5516",
+      "version": 9,
+      "sha256": "50b771fd17d30a2cf364be0fe308d862f423109b0773e5017041beed056eda7e",
       "routingSha256": "3f61bd3248485e24065d018c2cc3d1fcd7f9e68c572106f2f5ae5e77f7c668bb",
       "file": "environment-bindings.md"
     },
@@ -568,8 +568,8 @@
     {
       "id": "secrets",
       "title": "Refusing to commit a credential",
-      "version": 6,
-      "sha256": "6ba9d243802f03a7e6367f9084958d435a0586a6b1a309d76f3326777db1f3ee",
+      "version": 7,
+      "sha256": "80ea42009b4a7a07a060f4d1f4ec082a75008da71ec0dc3bc9d8d779d6bb799a",
       "routingSha256": "5d0b121e8ac30beccedccbd95b7e3ac088d5d2f7af517dea3c020be68fb33180",
       "file": "secrets.md"
     },
@@ -592,8 +592,8 @@
     {
       "id": "sf-guard",
       "title": "SF Guard",
-      "version": 17,
-      "sha256": "e24808beb15fc90155b641ec1e50c9fbe488c3ec69be118fe164ff2cc43df96f",
+      "version": 18,
+      "sha256": "13dd77809f595fac939d1dd1f53f44e10876d9611baa60fe2214a7f23898322f",
       "routingSha256": "1730dab865bf605dcd8d5bbf24f48b0a5b12910437e6a5b62423dbe686c80cf6",
       "file": "sf-guard.md"
     },

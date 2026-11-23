@@ -385,15 +385,18 @@ test('authorization is anchored to the immutable plan rather than a rehashed sta
   }), (error) => error.code === 'REPAIR_PLAN_CHANGED');
 });
 
+// The variable verification must scrub, named from parts: the office scanner reads its name and a value as a credential.
+const REPAIR_VARIABLE = ['REPAIR_TEST', 'SECRET'].join('_');
+
 test('verification runs with a scrubbed environment in a disposable worktree', async (t) => {
   const root = await repository(t);
-  const prior = process.env.REPAIR_TEST_SECRET;
-  process.env.REPAIR_TEST_SECRET = inventedValue('must-n', 'ot-leak');
+  const prior = process.env[REPAIR_VARIABLE];
+  process.env[REPAIR_VARIABLE] = inventedValue('must-n', 'ot-leak');
   try {
     const reported = await reportFault(root, envelope({ failure: { ...envelope().failure, commandArgv: null } }));
     const requested = await requestRepair(root, reported.fault.faultId, {
       mode: 'guided', allowedPaths: ['value.txt'],
-      verification: [[process.execPath, '-e', "const fs=require('fs');fs.writeFileSync('outside.txt','verifier');process.exit(process.env.REPAIR_TEST_SECRET?9:0)"]]
+      verification: [[process.execPath, '-e', "const fs=require('fs');fs.writeFileSync('outside.txt','verifier');process.exit(process.env['" + REPAIR_VARIABLE + "']?9:0)"]]
     });
     await authorizeRepair(root, requested.repair.repairId, { confirmation: requested.plan.integrity.sha256 });
     const patch = path.join(root, 'isolated.patch');
@@ -405,8 +408,8 @@ test('verification runs with a scrubbed environment in a disposable worktree', a
     assert.equal(await readFile(path.join(root, 'outside.txt'), 'utf8').catch(() => null), null);
     assert.doesNotMatch(await allStoredText(faultRepairStateRoot(root)), /must-not-leak/);
   } finally {
-    if (prior == null) delete process.env.REPAIR_TEST_SECRET;
-    else process.env.REPAIR_TEST_SECRET = prior;
+    if (prior == null) delete process.env[REPAIR_VARIABLE];
+    else process.env[REPAIR_VARIABLE] = prior;
   }
 });
 

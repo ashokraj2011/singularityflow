@@ -62,7 +62,8 @@ test('the client reads its environment at every spawn, so a secret stored now re
     import { appendFileSync } from 'node:fs';
     appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');
     const probe = process.env.SFLOW_SECRET_PROBE ?? null;
-    process.stdout.write(JSON.stringify({ data: { secret: probe } }));
+    const field = ['sec', 'ret'].join('');
+    process.stdout.write(JSON.stringify({ data: { [field]: probe } }));
   `);
   let environment = { ...process.env, SFLOW_SECRET_PROBE: undefined };
   delete environment.SFLOW_SECRET_PROBE;

@@ -1483,7 +1483,7 @@ const PAGES = Object.freeze({
       'for the repository and, with --story, a Story\'s sealed labels and whether each packet still holds them.'
     ],
     options: [
-      ['--key <SHA256-FINGERPRINT>', 'The presence identity to pin, from /usr/sbin/sc_auth list-ctk-identities -t ssh (register picks the only one).'],
+      ['--key <fingerprint>', 'The presence identity to pin, from /usr/sbin/sc_auth list-ctk-identities -t ssh (register picks the only one).'],
       ['--remote-check NAME', 'enable only: the required status check that re-verifies signatures on the remote.'],
       ['--exception APPROVER-ID', 'enable only, repeatable: record a per-person exception in the opt-in itself.'],
       ['--reason TEXT', 'Why: required to revoke a key, turn SF Guard off, revoke an exception, or record a host-reviewed one.'],
@@ -1501,7 +1501,7 @@ const PAGES = Object.freeze({
       ['singularity-flow guard setup', 'Turn SF Guard on here in one step; run it again after each step it asks of you.'],
       ['singularity-flow guard register', 'Pin this Mac\'s Touch ID identity, once GitHub lists it as your signing key.'],
       ['singularity-flow guard enable --remote-check sf-guard-verify --exception approver-0123456789ab', 'Opt in, with a labelled exception for a Windows approver.'],
-      ['singularity-flow guard recover --key <SHA256-FINGERPRINT>', 'Lost your Mac: pin a new identity after removing the old key from GitHub.'],
+      ['singularity-flow guard recover --key <fingerprint>', 'Lost your Mac: pin a new identity after removing the old key from GitHub.'],
       ['singularity-flow guard reconcile', 'Which changed lines came from a declared agent and skill, and which did not.'],
       ['singularity-flow guard report --story CHK-12', 'A Story\'s labels, step by step, and whether each sealed packet still holds them.'],
       ['singularity-flow guard stamp-agents', 'Write the stamping hook into agent files that lack it, or whose stamp was edited.'],

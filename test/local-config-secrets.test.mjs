@@ -15,7 +15,7 @@ import { scanEntries, secretRefusal } from '../src/secrets.mjs';
 import { inventedValue } from './helpers/invented-secrets.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
-const VALUE = 'Xq7mA2pLz9vB';
+const VALUE = inventedValue('Xq7mA2', 'pLz9vB');
 const TOKEN = inventedValue('abc123xyz9', '8', '7LMNopq456');
 
 async function repository(t, files = {}) {

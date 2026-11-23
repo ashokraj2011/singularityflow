@@ -101,6 +101,9 @@ const OVERRIDES = {
   'session-state-index.mjs': 'projection',
   // A review's disposable static preview and its machine-local captures, kept under the Git directory.
   'application-review-preview.mjs': 'local-operational',
+  // Each pinned procedure, written to the checkout's Git-excluded output folder from the verified Story closure whenever
+  // a step's prompt is composed, and written again from it each time (ddab68a07).
+  'retained-skill-instructions.mjs': 'projection',
   // A marketplace agent's workflow bundle, laid out in a scratch configuration and removed, like workflow markup's.
   'agent-workflow-bundle.mjs': 'shared-state',
   // The upgrade's intent pass writes a repository's own workflows inside the refresh candidate of the approved

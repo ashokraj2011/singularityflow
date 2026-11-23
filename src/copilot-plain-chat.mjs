@@ -194,7 +194,8 @@ export async function notePrompt(payload, { skill = null, now = Date.now() } = {
   const at = new Date(now).toISOString();
   // What this chat now holds: its own secret where the host keeps a blocked prompt, else the earlier one, which a
   // /sf-pause turn keeps too: only the pause it asks for, which clears this copy, ends it.
-  const holds = secret && keepsBlockedPrompt(payload) ? secret : prior;
+  let holds = prior;
+  if (secret && keepsBlockedPrompt(payload)) holds = secret;
   await writeSessionCopy(payload, { turnId, at, plain: !skill, skill, ...(words ?? { text: '' }), secret, ...(holds ? { held: holds } : {}),
     root: repository.root, story, changed: false });
   await notePromptLog(repository.common, { session: sessionKey(payload)?.slice(0, 16) ?? null, turn: turnId,

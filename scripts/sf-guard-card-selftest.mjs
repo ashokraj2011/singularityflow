@@ -126,7 +126,7 @@ export async function verifySelfTest(directory, { say = console.log } = {}) {
  * host child's program, `confirm` waits for the person. Returns what was signed and verified.
  */
 export async function runSelfTest({ directory, keyId, guard: guardDeps = {}, presence = {}, child = [CLI], confirm = pressEnter, say = console.log, leaveDecision = false }) {
-  if (!keyId) throw new Error('Name the Touch ID identity made for this test: --key <SHA256:…> (/usr/sbin/sc_auth list-ctk-identities -t ssh).');
+  if (!keyId) throw new Error('Name the Touch ID identity made for this test: --key <fingerprint> (/usr/sbin/sc_auth list-ctk-identities -t ssh).');
   if (existsSync(directory) && (await readdir(directory)).length) throw new Error(`${directory} is not empty: name a new folder.`);
   await mkdir(path.join(directory, 'tmp'), { recursive: true });
   const env = selfTestEnvironment(directory);
@@ -240,7 +240,7 @@ async function cli(argv) {
     return;
   }
   if (command === 'signer') {
-    if (!keyId) throw new Error('Name the Touch ID identity made for this test: --key <SHA256:…>.');
+    if (!keyId) throw new Error('Name the Touch ID identity made for this test: --key <fingerprint>.');
     const env = { ...process.env };
     for (const name of MARKERS) delete env[name];
     await pressEnter(`The signer alone: a child process with no terminal signs a self-test statement with ${keyId}. Press Enter; Touch ID asks next.`);

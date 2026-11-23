@@ -43,7 +43,7 @@ related:
   - approvals
   - configuration
   - copilot-and-surfaces
-version: 17
+version: 18
 ---
 SF Guard makes a person's own steps provable. An agent runs as the same user on the same computer: it can read Git configuration, run any command, fake a terminal and write Git records directly, so nothing it can type proves a person decided. SF Guard asks for the one thing it cannot produce, a signature from a Secure Enclave key on the person's Mac made after their Touch ID. It is off until a repository opts in; a repository that never opts in behaves exactly as before. Refusals keep the `PSS_` codes of SPEC-PSS-v1.
 
@@ -62,7 +62,7 @@ Use this topic to see whether SF Guard is on, to pin your presence key, to opt a
 
 `sflow guard setup`, in your own terminal, does what is left of these steps in order and stops at each one only you can take (creating the identity, listing it on GitHub), saying exactly what to do; run it again and it carries on. It also writes the CI recipe when it is missing.
 
-1. Create a Touch ID identity, once: `/usr/sbin/sc_auth create-ctk-identity -l sf-guard -k p-256-ne -t bio`. It is non-exportable and lives in the Secure Enclave. `/usr/sbin/sc_auth list-ctk-identities -t ssh` shows its fingerprint (`SHA256:…`).
+1. Create a Touch ID identity, once: `/usr/sbin/sc_auth create-ctk-identity -l sf-guard -k p-256-ne -t bio`. It is non-exportable and lives in the Secure Enclave. `/usr/sbin/sc_auth list-ctk-identities -t ssh` shows its fingerprint (`<fingerprint>`).
 2. Get its public key: `/usr/bin/ssh-keygen -w /usr/lib/ssh-keychain.dylib -K -N ""` in an empty directory writes a key stub and its `.pub` (a reference, no secret). Add the `.pub` line to your GitHub account (Settings, SSH and GPG keys, New SSH key) as a **Signing Key**, and check the fingerprint GitHub shows matches the `sc_auth` one.
 3. `sflow guard register` pins it. It refuses a key GitHub does not list, a key with a readable private copy (`~/.ssh`, `IdentityFile`, or a plain `ssh-agent` key), an identity that is exportable, not Touch ID protected or expired, and an unreachable GitHub (nothing is recorded; run it again).
 4. `sflow guard enable --remote-check <NAME>` is the signed opt-in. Name `--exception <APPROVER-ID>` for an approver with no signer; `sflow guard status` lists approver IDs.

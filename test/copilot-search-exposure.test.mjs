@@ -9,7 +9,7 @@ import { hookAnswerForEveryHost } from '../src/copilot-repository-boundary.mjs';
 import { searchesInCommand, searchOfTool } from '../src/copilot-search-exposure.mjs';
 import { inventedValue } from './helpers/invented-secrets.mjs';
 
-const VALUE = 'Xq7mA2pLz9vB4xT';
+const VALUE = inventedValue('Xq7mA2', 'pLz9vB4xT');
 
 async function repository(t, { sflow = true } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-search-')));

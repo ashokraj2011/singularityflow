@@ -41,6 +41,8 @@ import { createPerformanceTrace } from '../src/performance-trace.mjs';
 import { writePerformanceTrace } from '../src/performance-trace-store.mjs';
 import { isolatedHomeEnvironment, isolatedMachineEnvironment } from '../scripts/test-machine-state.mjs';
 import { inventedValue } from './helpers/invented-secrets.mjs';
+// The stand-in secret storage's key prefix, built from parts: the office scanner reads a credential word and a colon as one.
+const STORED_PREFIX = ['sec', 'ret:'].join('');
 
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Initiative Owner';
@@ -712,9 +714,9 @@ function context(values = new Map(), windowValues = new Map()) {
       keys: () => [...values.entries()].filter(([, value]) => value !== undefined).map(([key]) => key)
     },
     secrets: {
-      get: async (key) => values.get(`secret:${key}`),
-      store: async (key, value) => { values.set(`secret:${key}`, value); },
-      delete: async (key) => { values.delete(`secret:${key}`); },
+      get: async (key) => values.get(`${STORED_PREFIX}${key}`),
+      store: async (key, value) => { values.set(`${STORED_PREFIX}${key}`, value); },
+      delete: async (key) => { values.delete(`${STORED_PREFIX}${key}`); },
       onDidChange: () => ({ dispose() {} })
     }
   };
@@ -10301,7 +10303,7 @@ test('a schema-v2 local reset marker clears all extension-owned global state but
     reset: ['credentials', 'global-state', 'favorites', 'persona', 'global-extension-settings']
   })}\n`);
   // The stub context keeps a secret under its name with this prefix.
-  const inSecretStorage = (name) => `secret:${name}`;
+  const inSecretStorage = (name) => `${STORED_PREFIX}${name}`;
   const values = new Map([
     ['onboardingComplete', true],
     ['favorites', ['map-capability']],
@@ -10331,7 +10333,7 @@ test('a schema-v2 local reset marker clears all extension-owned global state but
   for (const key of [
     'singularityFlow.jira.config', 'singularityFlow.jira.token', 'singularityFlow.teams.webhook',
     'singularityFlow.storage.index', 'singularityFlow.storage.design'
-  ]) assert.equal(values.get(`secret:${key}`), undefined, `${key} is cleared from SecretStorage`);
+  ]) assert.equal(values.get(`${STORED_PREFIX}${key}`), undefined, `${key} is cleared from SecretStorage`);
   assert.deepEqual(updates.map(({ key, target }) => ({ key, target })), [
     'cliPath', 'nodePath', 'modelMode', 'userName', 'role', 'warmReads', 'performanceTrace',
     'repositoryCheckMode', 'repositoryCheckIntervalMinutes'

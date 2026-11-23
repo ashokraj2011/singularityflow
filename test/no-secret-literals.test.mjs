@@ -124,7 +124,7 @@ test('the rules find each shape and pass placeholders, references and patterns',
   const passed = [
     `export NPM_TOKEN="your-artifactory-token"`, `tokenSecret: 'SFLOW_SECRET_GRAPH_TOKEN'`, `password: '\${DB_PASSWORD}'`,
     `const ${inventedValue('JIRA_', 'TOKEN')} = 'singularityFlow.jira.token';`, `token=[REDACTED]`, `https://user:pw@host/repo`,
-    `https://x-access-token:\${GH_TOKEN}@git.example.test/acme/app.git`, `singularity-flow guard rotate --key <SHA256-FINGERPRINT>`,
+    `https://x-access-token:\${GH_TOKEN}@git.example.test/acme/app.git`, `singularity-flow guard rotate --key <fingerprint>`,
     `${'token'}SavingComparison: 'not-evaluated'`, `"jsonwebtoken": "^9.0.0"`, `Basic authentication.`, `recommendationSha256`,
     `const pattern = /gh[pousr]_[A-Za-z0-9]{20,}/u;`
   ];
@@ -161,12 +161,15 @@ test('the office rules find credential-shaped code and pass placeholders, kept f
     `first${'Pass'}Verified: receipts.filter((entry) => entry.ok).length,`,
     `${'cred'}ential-helper: 'Install the helper'`,
     `const ${'SEC'}RET_RULES = Object.freeze([`,
-    `${'pass'}word = os.environ["DB"]`
+    `${'pass'}word = os.environ["DB"]`,
+    // What the office report of 2026-11-23 named beyond the photographed rules.
+    `singularity-flow guard register --key <${'SHA'}256-FINGERPRINT>`, `--key <${'SHA'}256:…>`,
+    `const holds = found ? ${'sec'}ret : prior;`, `  '${'sec'}ret: bound privately on each computer',`, 'values.get(`' + `${'sec'}ret:` + '${key}`)'
   ];
   for (const line of caught) assert.notDeepEqual(officeLineFindings(line), [], line);
   const passed = [
     'token: nonce,', 'processToken: processNonce,', 'tokenEconomyMode:', "const OK = 'pass';", 'INTEGRATION_SECRET_NAME =',
-    'secret: SFLOW_SECRET_EVENTS_KEY', 'password: ${DB_PASSWORD}', 'const access = String(raw);', "'not-evaluated',"
+    `${'sec'}ret: SFLOW_SECRET_EVENTS_KEY`, 'password: ${DB_PASSWORD}', 'const access = String(raw);', "'not-evaluated',"
   ];
   for (const line of passed) assert.deepEqual(officeLineFindings(line), [], line);
   const [marked] = officeTextFindings(`const ${'tok'}en = randomUUID(); // ${'sflow-allow'}-secret: a fixture's own value`);

@@ -4,7 +4,7 @@ Status: owner decisions recorded 2026-11-05. It extends `docs/SPEC-ENVIRONMENT-F
 holds for the private store, placement and the `env files` commands.
 
 v1 protects a file once someone has registered it. Before that nothing does: in a repository with no
-declaration, Copilot can read `.env`, the secret scan passes `.env` and an unquoted `password: Xq7m…` in
+declaration, Copilot can read `.env`, the secret scan passes `.env` and an unquoted `password: <real-value>` in
 `application.yml`, and a commit takes them. People put real keys in config files to test with, and they
 expect those keys to stay on their laptop whether or not they remembered to set anything up.
 

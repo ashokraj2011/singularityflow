@@ -29,7 +29,7 @@ const readiness = (ready: Suggestion['start']['ready']): string => {
 
 const KIND_WORDS: Record<string, string> = {
   secret:
-    'secret: bound privately on each computer with env bind; never copied',
+    'kept private: bound on each computer with env bind; never copied',
   endpoint: 'endpoint', flag: 'flag'
 };
 

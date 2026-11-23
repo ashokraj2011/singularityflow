@@ -32,7 +32,13 @@ const SHAPES = [
 const HEURISTICS = [
   // The office copy of this rule is cut off in the photograph after its first alternative; this is its visible part.
   ['Credential word as string literal', /\?\s*["'`](?:secret|password|passwd|pass|token)["'`]/u],
-  ['Key fingerprint', /--key\s+SHA256:\S+/u]
+  ['Key fingerprint', /--key\s+SHA256:\S+/u],
+  // Seen in the office report of 2026-11-23, beyond the photographed rules: a fingerprint placeholder after --key, a
+  // credential word as the value a ternary gives, and a quoted text or template that opens with the word secret and a
+  // colon (a kind's label, a stand-in storage key). Every hit it reported in that shape said secret, never password.
+  ['Key fingerprint placeholder', /--key\s+<?SHA256/u],
+  ['Credential word as a ternary value', /\?\s*(?:secret|password|passwd|pass|pwd)\s*:/u],
+  ['Credential label in quoted text', /['"`]secret\s*:(?:\s|\$\{)/u]
 ];
 /** A credential word, the rest of its name, `=` or `:`, then the value up to whitespace, a quote or `$<>{}()[],;`. */
 const ASSIGNMENT = new RegExp(`${WORD}[\\w.-]*["']?\\s*[:=]\\s*["'\`]?([^\\s"'\`$<>{}()\\[\\],;]{6,})`, 'gu');

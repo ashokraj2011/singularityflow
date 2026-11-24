@@ -144,6 +144,30 @@ function blockerGroups(blockers) {
   });
 }
 
+/**
+ * Which evidence records the composed context states [2026-11-24]: its sections, or the refreshes a reused prompt gains.
+ * A record the context does not state is read from the result as before.
+ */
+export function phaseEntryEvidenceInContext(packet) {
+  const text = typeof packet?.context?.text === 'string' ? packet.context.text : '';
+  const section = (heading) => text.startsWith(`${heading}\n`) || text.includes(`\n${heading}\n`);
+  const execution = Boolean(packet?.retainedExecutionEvidence) && (section('# Governed execution evidence') || section('# Current execution-evidence refresh'));
+  const consistency = Boolean(packet?.evidenceConsistency) && (section('# Evidence consistency') || section('# Current evidence-consistency refresh'));
+  const reviews = Array.isArray(packet?.recordedVisualReviews?.reviews) ? packet.recordedVisualReviews.reviews : [];
+  // Recorded visual reviews are stated inside the evidence-consistency account, each by its ID.
+  const visualReviews = consistency && reviews.every((review) => typeof review?.id === 'string' && text.includes(`${review.id}:`));
+  return { execution, consistency, visualReviews };
+}
+
+/** Where the guide sends the agent for governed outcomes: the composed context when it states them, else the records. */
+function evidenceWords({ execution, consistency }) {
+  if (execution && consistency) {
+    return 'Governed outcomes and evidence consistency are stated in context.text (# Governed execution evidence, # Evidence consistency): read them there; retainedExecutionEvidence and evidenceConsistency hold the same records with their hashes, for when one is needed';
+  }
+  if (execution) return 'Governed outcomes are stated in context.text (# Governed execution evidence): read them there; retainedExecutionEvidence holds the same records with their hashes, for when one is needed';
+  return 'Use retainedExecutionEvidence for governed outcomes';
+}
+
 export function phaseEntryAgentPresentation(packet) {
   if (packet.paused) return packet;
   const projected = phaseEntryPacketCompaction(agentPacketPresentation(packet));
@@ -154,16 +178,21 @@ export function phaseEntryAgentPresentation(packet) {
   };
   const control = ENTRY_CONTROL_ORDER.filter((key) => Object.hasOwn(projected, key));
   const material = Object.keys(projected).filter((key) => !control.includes(key) && key !== 'context');
+  // What the composed context already states is read there, once [2026-11-24, a person's real Copilot logs: these
+  // records were 38% of a phase entry and read again beside the context that renders them]. They stay in the result,
+  // with the hashes and commits the context leaves out, for when one is needed; what to act on is still read here.
+  const inContext = phaseEntryEvidenceInContext(projected);
+  const reconciliation = projected.retainedExecutionEvidence?.reconciliation ? ['retainedExecutionEvidence.reconciliation'] : [];
   return { agentGuide: {
-    readOrder: [...control, 'recovery', 'intent', 'recovery.testExecution', 'retainedExecutionEvidence',
-      ...(Object.hasOwn(projected, 'evidenceConsistency') ? ['evidenceConsistency'] : []),
-      ...(Object.hasOwn(projected, 'recordedVisualReviews') ? ['recordedVisualReviews'] : []), 'references', 'context.text'],
+    readOrder: [...control, 'recovery', 'intent', 'recovery.testExecution', ...(inContext.execution ? reconciliation : ['retainedExecutionEvidence']),
+      ...(Object.hasOwn(projected, 'evidenceConsistency') && !inContext.consistency ? ['evidenceConsistency'] : []),
+      ...(Object.hasOwn(projected, 'recordedVisualReviews') && !inContext.visualReviews ? ['recordedVisualReviews'] : []), 'references', 'context.text'],
     testExecutionPath: 'recovery.testExecution',
     retainedExecutionEvidencePath: 'retainedExecutionEvidence',
     ...(Object.hasOwn(projected, 'evidenceConsistency') ? { evidenceConsistencyPath: 'evidenceConsistency' } : {}),
     contextFilePath: 'context.file.path',
     platform: process.platform,
-    instruction: 'Read authority fields together once, without key enumeration; they come first and are complete, one field per line two levels deep. status clarification-required is this skill\'s own next step: compose and ask the unanswered questions in this turn. Never relay the skill you are running as a next action; do that step. Binding ready is not source-edit permission: use mutationContract and codeAuthoringReady before edits. authoringProgress describes the remaining draft milestone, not completed code or permission to publish. Read clarification.checkpoint before interpreting authoringAllowed. Use retainedExecutionEvidence for governed outcomes; recovery.testExecution describes this phase\'s runner, not absence of upstream execution. Reconcile stale narrative and IDE discovery separately; command success is not criterion acceptance. Never truncate control instructions with arbitrary string/byte slices. If a tool cuts context.text, read context.file.path (the same composed prompt, verified by context.file.sha256, without the presentation-only reply personalization) in bounded portions, or complete named sections from the same saved packet; do not recompose or infer absent instructions, and never author from partial context. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
+    instruction: 'Read authority fields together once, without key enumeration; they come first and are complete, one field per line two levels deep. status clarification-required is this skill\'s own next step: compose and ask the unanswered questions in this turn. Never relay the skill you are running as a next action; do that step. Binding ready is not source-edit permission: use mutationContract and codeAuthoringReady before edits. authoringProgress describes the remaining draft milestone, not completed code or permission to publish. Read clarification.checkpoint before interpreting authoringAllowed. ' + evidenceWords(inContext) + '; recovery.testExecution describes this phase\'s runner, not absence of upstream execution. Reconcile stale narrative and IDE discovery separately; command success is not criterion acceptance. Never truncate control instructions with arbitrary string/byte slices. If a tool cuts context.text, read context.file.path (the same composed prompt, verified by context.file.sha256, without the presentation-only reply personalization) in bounded portions, or complete named sections from the same saved packet; do not recompose or infer absent instructions, and never author from partial context. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
   },
   ...Object.fromEntries([...control, ...material].map((key) => [key, projected[key]])),
   ...(Object.hasOwn(projected, 'context') ? { context: projected.context } : {}) };

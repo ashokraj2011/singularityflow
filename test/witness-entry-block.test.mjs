@@ -117,8 +117,11 @@ test('a conformance step\'s entry packet and composed prompt carry the recorded 
   assert.equal(reviews.revision, 'recorded-visual-reviews-v1');
   assert.deepEqual(reviews.reviews.map((review) => [review.id, review.clauseId, review.slot, review.file, review.decision, review.binding, review.valid]),
     [['WIT-001', 'WIT-ENTRY-1:AC-001', 'converter-screenshot', SCREEN, 'satisfies', 'bound-file-unchanged', true]]);
-  assert.ok(entry.agentGuide.readOrder.includes('recordedVisualReviews'));
-  assert.ok(entry.agentGuide.readOrder.includes('evidenceConsistency'));
+  // The composed context states the review and the evidence account, so the guide reads them there, once; the records
+  // stay in the result with their hashes [2026-11-24].
+  assert.equal(entry.agentGuide.readOrder.includes('recordedVisualReviews'), false);
+  assert.equal(entry.agentGuide.readOrder.includes('evidenceConsistency'), false);
+  assert.match(entry.agentGuide.instruction, /stated in context\.text/u);
   assert.equal(entry.evidenceConsistency.visualReviews[0].id, 'WIT-001');
   assert.equal(entry.evidenceConsistency.visualReviews[0].valid, true);
   assert.ok(entry.evidenceConsistency.summary.some((line) => line.includes('WIT-001: WIT-ENTRY-1:AC-001')));
@@ -154,6 +157,8 @@ test('without a witness the entry packet and prompt are unchanged; one recorded 
   assert.equal(reused.recordedVisualReviews.reviews[0].valid, true);
   assert.match(reused.context.text, /# Current evidence-consistency refresh\n/u);
   assert.equal(reused.evidenceConsistency.visualReviews[0].valid, true);
+  // A review recorded after composition reaches the context as its refresh, so it too is read there.
+  assert.equal(reused.agentGuide.readOrder.includes('recordedVisualReviews'), false);
 });
 
 test('draft-check names a report row that denies the recorded review, as an advisory only', async t => {

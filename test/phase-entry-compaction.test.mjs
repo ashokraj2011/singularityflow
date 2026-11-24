@@ -61,3 +61,27 @@ test('without the composed prompt, or with different text, every instruction sta
   assert.equal(Object.keys(presented).at(-1), 'context');
   assert.ok(presented.agentGuide.readOrder.includes('recovery'));
 });
+
+test('the guide reads governed outcomes once: in the composed context when it states them, else in the records', async () => {
+  const { phaseEntryAgentPresentation, phaseEntryEvidenceInContext } = await import('../src/agent-packet-presentation.mjs');
+  const records = {
+    retainedExecutionEvidence: { entries: [{ phase: 'implementation' }], reconciliation: { inspect: { command: 'singularity-flow phase show implementation' } } },
+    evidenceConsistency: { summary: ['implementation generation 1: passed'] },
+    recordedVisualReviews: { reviews: [{ id: 'WIT-001' }] }
+  };
+  const stated = '# Phase contract\n\n# Governed execution evidence\n\nimplementation passed\n\n# Evidence consistency\n\n- WIT-001: satisfies\n';
+  const read = phaseEntryAgentPresentation({ ready: true, ...records, context: { text: stated } });
+  assert.deepEqual(read.agentGuide.readOrder.filter((key) => /Evidence|Consistency|Visual/u.test(key)), ['retainedExecutionEvidence.reconciliation'],
+    'what to act on is still read; the records the context states are not read twice');
+  assert.match(read.agentGuide.instruction, /Governed outcomes and evidence consistency are stated in context\.text/u);
+  assert.match(read.agentGuide.instruction, /not absence of upstream execution/u);
+  assert.deepEqual(read.retainedExecutionEvidence, records.retainedExecutionEvidence, 'the records stay in the result');
+  // A refresh on a reused prompt counts as stated.
+  assert.deepEqual(phaseEntryEvidenceInContext({ ...records, context: { text: 'x\n\n# Current execution-evidence refresh\n\ny\n\n# Current evidence-consistency refresh\n\n- WIT-001: ok\n' } }),
+    { execution: true, consistency: true, visualReviews: true });
+  // A review the context does not name, or no context at all: the records are read as before.
+  assert.equal(phaseEntryEvidenceInContext({ ...records, context: { text: stated.replace('WIT-001', 'WIT-002') } }).visualReviews, false);
+  const unread = phaseEntryAgentPresentation({ ready: true, ...records });
+  assert.ok(['retainedExecutionEvidence', 'evidenceConsistency', 'recordedVisualReviews'].every((key) => unread.agentGuide.readOrder.includes(key)));
+  assert.match(unread.agentGuide.instruction, /Use retainedExecutionEvidence for governed outcomes/u);
+});

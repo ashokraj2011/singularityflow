@@ -18,7 +18,7 @@ import { localAskedFor, needsAccount, noteAskedFor, redactedWords } from '../src
 import { accountWords, appendableAskedFor, instructionAccounting, instructionWords } from '../src/asked-for-records.mjs';
 import { foldCapabilityPolicy, PLAIN_CHAT_EDITS_DEFAULT, validateCapabilities } from '../src/capabilities.mjs';
 import { initializeDefinition } from '../src/config.mjs';
-import { plainChatChangeGuard, plainChatEditsPolicy } from '../src/copilot-plain-chat.mjs';
+import { notePrompt, plainChatChangeGuard, plainChatEditsPolicy, promptRepository } from '../src/copilot-plain-chat.mjs';
 import { endRepositoryBoundaryTurn, hookAnswerForEveryHost, recordRepositoryBoundaryTurn, repositoryToolGuard } from '../src/copilot-repository-boundary.mjs';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
 import { proposeProgressiveCapabilityChange } from '../src/organisation.mjs';
@@ -125,6 +125,37 @@ test('PCR REQ-001: a repository that does not use SFlow, or no repository, keeps
   const outside = path.join(repo.directory, 'notes');
   await mkdir(outside);
   assert.deepEqual(await recordRepositoryBoundaryTurn({ sessionId: 'person', cwd: outside, prompt: TOKEN }), {});
+});
+
+test('PCR REQ-002: a chat that starts in no repository (VS Code\'s own chat folder) is the selected Story checkout\'s', async (t) => {
+  // VS Code starts a chat under Copilot's home when the workspace folder is no repository; its prompts went unkept,
+  // unchecked for secrets and with no route line, while its skill turns found the Story checkout [2026-11-25, a person's logs].
+  const repo = await clone(t, { story: 'QF-1' });
+  const plain = await clone(t, { sflow: false });
+  const chats = path.join(repo.directory, 'copilot', 'chats', 'c1');
+  await mkdir(chats, { recursive: true });
+  const asked = [];
+  const to = (root) => async (payload) => { asked.push(payload.cwd); return root; };
+  assert.equal((await promptRepository(chats, { cwd: chats }, to(repo.root)))?.root, repo.root);
+  assert.equal(await promptRepository(chats, { cwd: chats }, to(plain.root)), null, 'a checkout that does not use SFlow keeps nothing');
+  assert.equal(await promptRepository(chats, { cwd: chats }, async () => { throw new Error('unreadable'); }), null);
+  assert.equal(await promptRepository(chats, { cwd: chats }, to(null)), null, 'no Story selected');
+  assert.deepEqual(asked, [chats, chats, chats]);
+  // A chat that starts in a repository is that repository's, and never asks where the Story is.
+  assert.equal(await promptRepository(plain.root, { cwd: plain.root }, to(repo.root)), null);
+  assert.equal((await promptRepository(repo.root, { cwd: repo.root }, to(plain.root)))?.root, repo.root);
+  assert.equal(asked.length, 3);
+
+  const prompt = (text) => notePrompt({ sessionId: 'vscode-chat', cwd: chats, timestamp: Date.now(), prompt: text }, { discover: to(repo.root) });
+  const answer = await prompt('what does retry.js do?');
+  assert.match(answer.additionalContext, /^SFlow: QF-1 is at Implement\. To change it, the person types \/sf-code QF-1/u);
+  const [logged] = await readPromptLog(path.join(repo.root, '.git'), { workId: 'QF-1' });
+  assert.deepEqual([logged.kind, logged.text, logged.repository, logged.phase], ['plain', 'what does retry.js do?', repo.root, 'implement']);
+  const local = await localAskedFor(path.join(repo.root, '.git'), { workId: 'QF-1', phase: 'implement', generation: 1 });
+  assert.deepEqual(local.turns.map((entry) => [entry.text, entry.plainChat]), [['what does retry.js do?', true]]);
+  const blocked = await prompt(`push it with ${TOKEN}`);
+  assert.equal(blocked.decision, 'block');
+  assert.ok(!JSON.stringify(await readPromptLog(path.join(repo.root, '.git'))).includes(TOKEN), 'kept only redacted');
 });
 
 test('PCR REQ-002: in a Story checkout a plain prompt joins the Story\'s "Asked for", marked plain chat; it waits for no account until its turn changes something', async (t) => {

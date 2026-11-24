@@ -112,6 +112,26 @@ test('a declared file, and what SFlow holds for it, are refused in any repositor
   assert.equal(await plainChatEnvironmentFilesGuard(command, { env: repo.env, policyFor: async () => 'allow' }), null);
 });
 
+test('a chat that starts in no repository judges a linked file by the selected Story checkout\'s links', async (t) => {
+  // VS Code starts a chat in its own folder when the workspace folder is no repository [2026-11-25]: a declared file
+  // linked to a real file outside any repository was protected only for chats that start in the repository.
+  const repo = await repository(t);
+  const own = path.join(repo.base, 'my-settings', 'api-dev.yml');
+  await writeFiles(path.dirname(own), { 'api-dev.yml': 'name: shop\n' });
+  assert.equal(repo.json(['env', 'files', 'link', 'dev', 'services/api/src/main/resources/application-dev.yml', '--to', own]).status, 0);
+  const chats = path.join(repo.base, 'copilot-chats', 'c1');
+  await mkdir(chats, { recursive: true });
+  const discover = async (value) => { assert.equal(value.cwd, chats); return repo.root; };
+  for (const payload of [read(chats, own), { cwd: chats, toolName: 'bash', toolArgs: { command: `cat ${own}` } }]) {
+    assert.equal(await environmentFilesToolGuard(payload, { env: repo.env, discover: async () => null }), null, 'no Story selected: nothing says it is linked');
+    assert.ok(refused(await environmentFilesToolGuard(payload, { env: repo.env, discover })), JSON.stringify(payload.toolArgs));
+    assert.ok(refused(await plainChatEnvironmentFilesGuard(payload, { env: repo.env, discover })), JSON.stringify(payload.toolArgs));
+  }
+  assert.equal(await plainChatEnvironmentFilesGuard(read(chats, path.join(repo.root, 'README.md')), { env: repo.env, discover }), null);
+  // A chat that starts in a repository is judged by it, and never asks where the Story is.
+  assert.ok(refused(await environmentFilesToolGuard(read(repo.root, own), { env: repo.env, discover: () => assert.fail('asked') })));
+});
+
 test('the runtime guard: refused in a plain chat, left alone while paused, and a person\'s step comes first', async (t) => {
   const repo = await sflowRepository(t);
   const mode = path.join(repo.base, 'state', 'mode.json');

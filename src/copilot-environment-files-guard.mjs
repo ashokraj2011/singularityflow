@@ -366,6 +366,19 @@ function denial(target) {
   };
 }
 
+/**
+ * Whose environment files a call is judged against: the repository the chat starts in, else, for a chat that starts in
+ * no repository at all (VS Code's own chat folder when the workspace folder is not one), the Story checkout SFlow
+ * routes it to. Before, such a chat protected only the workspace's files, never the repository's [2026-11-25].
+ */
+async function protectedRoot(payload, discover) {
+  const cwd = typeof payload.cwd === 'string' && payload.cwd ? payload.cwd : process.cwd();
+  if (repositoryOf(cwd)) return cwd;
+  const find = discover ?? (async (value) => (await import('./copilot-repository-boundary.mjs')).resolveCopilotDiscoveryRoot(value));
+  const root = await Promise.resolve(find(payload)).catch(() => null);
+  return typeof root === 'string' && root ? root : cwd;
+}
+
 // A `/sf-` turn looks at every file a call names and excuses none.
 const EVERY_FILE = Object.freeze({ covers: () => true, allows: async () => false });
 
@@ -373,8 +386,8 @@ const EVERY_FILE = Object.freeze({ covers: () => true, allows: async () => false
  * The refusal for the first tool call that touches an environment file, or null. `scope.covers` says
  * whether a file known only by its name or value is this guard's to judge; `scope.allows` excuses one it would refuse.
  */
-export async function environmentFilesToolGuard(payload = {}, { env = process.env, scope = EVERY_FILE } = {}) {
-  const protection = await environmentFileProtection(payload.cwd, { env });
+export async function environmentFilesToolGuard(payload = {}, { env = process.env, scope = EVERY_FILE, discover = null } = {}) {
+  const protection = await environmentFileProtection(await protectedRoot(payload, discover), { env });
   for (const call of callsOf(payload)) {
     const cwd = call.args?.cwd ?? payload.cwd;
     if (TERMINALS.has(call.name)) {
@@ -450,7 +463,7 @@ export async function plainChatSecretsPolicy(root, subjectPath) {
  * SFlow, is not SFlow's to judge, and a capability may say `allow`. Neither opens a config file, and
  * capabilities are read only for a call that would be refused.
  */
-export async function plainChatEnvironmentFilesGuard(payload = {}, { env = process.env, policyFor = plainChatSecretsPolicy } = {}) {
+export async function plainChatEnvironmentFilesGuard(payload = {}, { env = process.env, policyFor = plainChatSecretsPolicy, discover = null } = {}) {
   const repositoryFor = (target, cwd) => { const absolute = absoluteOf(target, cwd); return absolute ? repositoryOf(absolute) : null; };
   const answers = new Map();
   const covers = (target, cwd) => {
@@ -463,5 +476,5 @@ export async function plainChatEnvironmentFilesGuard(payload = {}, { env = proce
     const repository = repositoryFor(target, cwd);
     return Boolean(repository) && await policyFor(repository.root, path.relative(repository.root, absoluteOf(target, cwd)).split(path.sep).join('/')) === 'allow';
   };
-  return environmentFilesToolGuard(payload, { env, scope: { covers, allows } });
+  return environmentFilesToolGuard(payload, { env, scope: { covers, allows }, discover });
 }

@@ -39,6 +39,25 @@ function small(file, limit = SMALL_FILE_BYTES) {
 
 const canonical = (value) => { try { return realpathSync.native(value); } catch { return path.resolve(value); } };
 
+/** The Story checkout SFlow routes a chat to, as its skill turns find it (copilot-repository-boundary.mjs). */
+async function discoveredRoot(payload) {
+  return (await import('./copilot-repository-boundary.mjs')).resolveCopilotDiscoveryRoot(payload);
+}
+
+/**
+ * The repository a prompt belongs to: the one its chat starts in, else, for a chat that starts in no repository at
+ * all, the Story checkout the person selected, as SFlow's skill turns find it. VS Code starts a chat in its own folder
+ * under Copilot's home when the workspace folder is no repository (one holding the repository in a subfolder); those
+ * chats' prompts went unkept, unchecked for secrets and unrecorded as plain-chat changes [2026-11-25, a person's logs].
+ * A chat that starts in another repository is that repository's, and kept by none that does not use SFlow.
+ */
+export async function promptRepository(cwd, payload, discover = discoveredRoot) {
+  const here = sflowRepositoryAt(cwd);
+  if (here || repositoryOf(cwd)) return here;
+  const root = await Promise.resolve(discover(payload)).catch(() => null);
+  return typeof root === 'string' && root ? sflowRepositoryAt(root) : null;
+}
+
 /** The repository that uses SFlow holding `target` (a folder, or a file that may not exist yet), or null. */
 export function sflowRepositoryAt(target) {
   if (typeof target !== 'string' || !target) return null;
@@ -174,7 +193,7 @@ function heldReason(kind) {
  * Where the host keeps a blocked prompt in its chat (VS Code), the chat stays blocked until a new one, except for
  * /sf-pause, the person's own way out when it was no secret.
  */
-export async function notePrompt(payload, { skill = null, now = Date.now() } = {}) {
+export async function notePrompt(payload, { skill = null, now = Date.now(), discover = discoveredRoot } = {}) {
   const { subagentPayload, typedArguments } = await import('./asked-for.mjs');
   // A subagent's task shares its session: the person's own copy, and any secret it marks, stay.
   if (subagentPayload(payload)) return null;
@@ -182,7 +201,7 @@ export async function notePrompt(payload, { skill = null, now = Date.now() } = {
   const held = prior && !PAUSE_SKILLS.includes(skill) ? prior : null;
   await writeSessionCopy(payload, null);
   if (typeof payload.prompt !== 'string') return null;
-  const repository = sflowRepositoryAt(typeof payload.cwd === 'string' ? payload.cwd : process.cwd());
+  const repository = await promptRepository(typeof payload.cwd === 'string' ? payload.cwd : process.cwd(), payload, discover);
   if (!repository) return null;
   // A skill's turn is judged by what the person typed after it, never by the skill text a host expanded.
   const values = await environmentFileValues(repository);

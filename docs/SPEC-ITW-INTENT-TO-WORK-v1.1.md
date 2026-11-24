@@ -1,0 +1,340 @@
+# Intent to work (ITW) — v1.1: say what you want; SFlow does the work
+
+**Specification ID:** `ITW-v1.1`
+
+**Status:** Proposed, not built. Replaces [ITW v1](SPEC-ITW-INTENT-TO-WORK-v1.md). Also takes in the useful parts of
+an outside draft, "SPEC-IEX v1.1, Intent to Verified Execution" (2026-11-07); section 5 lists what was left out of it and
+why.
+
+**Owner:**
+- 2026-11-24:
+  - "intent to work. ..when someone /sf-task or something it will automatically spinup workflow using the intent and do
+    the work"
+  - "why do we need workflows ..let it be dynamic"
+  - "it can check the marketplace for skills also"
+- 2026-11-25, on merging the two: "i think this can superside the other sf-task spec"
+
+**Builds on:**
+- step intents (`STEP_INTENTS` in `src/phase-roles.mjs`), from which `src/step-intent-settings.mjs` derives each step's
+  settings;
+- the workflow walk, which finds loops and stops before anything starts;
+- Story workflow snapshots ([WFA](WFA-WORKFLOW-SNAPSHOTS.md));
+- automatic approval of clean steps, and approval in the chat;
+- plain-chat routing ([PCR](SPEC-PCR-PLAIN-CHAT-ROUTING-v1.md)): a question in a plain chat needs no task;
+- software kinds (`src/software-kinds.mjs`);
+- the skill library, and trusted marketplaces with their conversion review
+  ([MCR](SPEC-MCR-MARKETPLACE-CONVERSION-REVIEW-v1.md));
+- Story lessons ([LRN](SPEC-LRN-STORY-LESSONS-v1.md)).
+
+**What changed from v1:**
+- Two new kinds:
+  - `refactor`, which checks what must not change before and after;
+  - `review`, which reports on a change and edits nothing.
+- An investigation never edits code. "Fix it" carries its report forward.
+- "Quick" never removes a step. A change that turns out bigger gets the steps it needs.
+- A task that names a document uses the exact version it started with.
+- After a person answers, the work carries on with nothing typed.
+- Progress is quiet: one line per finished step.
+- The last message says plainly what was done and what was checked.
+- Journey tests count a person's actions and keep mechanical ones at zero.
+
+---
+
+## 1. Why
+
+Starting work today means choosing a base, an intake and a workflow (`/sf-start`), and someone has to have written that
+workflow first. `/sf-auto` runs work by itself, but it needs capability IDs and a hash confirmation for each flight. A
+person who wants a bug fixed should be able to say so and get the fix, with the same guardrails. A person who wants a
+bug understood, a spec written or code tidied should get that too, from the same line.
+
+## 2. What a person does
+
+```text
+/sf-task fix the login timeout on slow networks
+```
+
+SFlow answers with one line and starts:
+
+```text
+Plan: code → tests → you approve the code → pull request. Say "add a design step" to change it.
+```
+
+It then does the work in the same chat, step after step. It stops only where a person must decide: an approval the team
+rules give a person, or a real question. After the answer it carries on by itself. The work ends with the pull request.
+
+The same chat can go on from one task to the next:
+
+```text
+/sf-task why do cancelled orders still send emails?      → a report: what was seen, the cause, what to change
+fix it                                                   → a fix task that starts from that report
+/sf-task write a spec for order export                   → docs/specs/order-export.md on the task's branch
+make the date range part of the file name                → the same document, revised
+/sf-task implement the order export spec                 → a feature task bound to that version of the spec
+```
+
+## 3. The rules
+
+**ITW:REQ-001, the front door.**
+- `/sf-task <words>` in Copilot: VS Code, Copilot CLI and IntelliJ.
+- `singularity-flow task "<words>" [--kind KIND] [--json]` in the terminal shows the plan and writes nothing; `--start`
+  starts it.
+- `/sf-task` with no words continues the person's open task.
+- A question asked in a plain chat needs no task. `/sf-task` is for work whose result should be kept.
+
+**ITW:REQ-002, the kind of task.**
+- The agent says which kind the words describe: `fix`, `feature`, `change`, `refactor`, `tests`, `docs`,
+  `investigate`, `review` or `chore`.
+- SFlow refuses a kind it does not know.
+- When the words fit two kinds equally, the person is asked once, with the kinds as choices.
+
+**ITW:REQ-003, the steps, composed.** SFlow builds the steps from the kind, the same way every time:
+
+| Kind | Steps (by step intent) |
+|---|---|
+| fix, chore | intake → code → test |
+| change | intake → plan → code → test |
+| feature | intake → requirements → plan → code → test |
+| refactor | intake → plan (what must not change) → code → test (the same checks, before and after) |
+| tests | intake → code (the tests) → test |
+| docs | intake → document |
+| investigate | intake → design (investigate) → report |
+| review | intake → report (findings on the named change) |
+
+- Each step's settings come from its intent, as for any workflow that says what its steps are for.
+- The composed steps are walked before anything starts: a plan that would loop or stop is never started.
+- The agent may suggest a larger plan for a large task, for example adding design to a feature. The person sees it in
+  the plan line.
+
+**ITW:REQ-004, the team's rules.** `tasks:` in `singularity/workflow.yml` replaces whole workflows with a few rules that
+always apply:
+- `always`: steps or approvals every task of a kind gets. Defaults:
+  - every code change gets a test step;
+  - a person approves the delivered code;
+  - a person approves a plan where there is one.
+- `paths`: touching these files adds a step or a reviewer, for example a security review for `src/auth/**`, or a plan
+  approval for `db/migrations/**`.
+- `use`: a kind (or paths) that must follow a named workflow, for example `release: Classic delivery`.
+  - An existing workflow is then used as it is.
+  - Workflows stay for work a team must do the same way every time.
+
+The rules are checked last. They only add steps or raise approvals; nothing a person or an agent says removes one. "Skip
+the tests" on a code change is refused with the rule's words. The rules change like any configuration: a reviewed
+proposal.
+
+**ITW:REQ-005, approvals.**
+- SFlow approves each step that is clean, as it does today, and records that it did.
+- A person approves what the rules give a person, and nothing else.
+
+**ITW:REQ-006, the Story's own workflow.**
+- The composed steps become the Story's workflow, frozen into its snapshot like any pinned workflow. They are never
+  written to `workflow.yml`, so a task needs no configuration proposal.
+- `workflow check`, the walk and the audit read it as they read any Story's workflow.
+- A Story reopened on another laptop has the same steps.
+
+**ITW:REQ-007, the Story.** Every task is a Story; a small fix is a small Story.
+- Its ID is a Jira key when the words or `--work-id` name one. Otherwise it is the next free `<prefix>-<n>`; the prefix
+  is `tasks.idPrefix`, default `TASK`.
+- Its base is the repository's default branch.
+- Its intake is the person's words and anything they attached.
+
+**ITW:REQ-008, doing the work.**
+- In the chat, SFlow runs each step after the last, with the turn continuations it uses today. It stops at a person's
+  approval or a real question.
+- After the answer, the work carries on with nothing typed:
+  - An answer or approval given in the chat continues in the same turn.
+  - An approval given on the VS Code approval page or Decide card sends the continue line into the chat itself.
+- No step needs a typed step ID, hash or "resume". `/sf-task` with no words is only for coming back later.
+
+**ITW:REQ-009, changing the plan.**
+- "Add a design step" or "skip the plan" re-composes the steps from the current one forward. Done steps stay, and the
+  rules still apply.
+- The change is recorded with who asked for it.
+
+**ITW:REQ-010, skills for each step.**
+- For each composed step, SFlow looks for skills that fit, by:
+  - the step's intent, matched to a marketplace skill's `pdlc-task` through the table conversion uses
+    (`AGENT_TASK_INTENTS`);
+  - what the task touches: the repository's software kinds (web, backend, mobile and so on) and the person's words,
+    matched to the skill's tags.
+- Sources, in order:
+  1. the repository's skill library;
+  2. trusted marketplaces, read at the commit the repository trusts.
+
+  An untrusted marketplace is never read.
+- A marketplace skill marked approved or `ga` is offered directly. One marked proposed or beta needs the person's yes.
+- A marketplace skill not yet in the repository costs one yes the first time, with its exact text shown, as any import.
+  It is then in the library, and the next task uses it without asking.
+- The plan line names the skills it uses: "code → tests (with web-e2e-test-generation from acme, new here: add it?)".
+- The exact skill text a Story uses is frozen into its snapshot.
+
+**ITW:REQ-011, a marketplace agent as the plan.** When one marketplace agent's stages cover the task, SFlow offers that
+agent's workflow as the plan, through the conversion review. Its steps then replace the composed ones, with the team
+rules still applied.
+
+**ITW:REQ-012, words and progress.**
+- The plan is one line.
+- No commit, digest or step ID is shown to a person.
+- Progress is one line when a step finishes, for example "Code done; running the tests." A passing check or an
+  automatic approval adds no line of its own; both are in the Story's record.
+- A stop says what is needed, why, and the one thing to do: "The integration tests need the test database. Your
+  changes are kept. Start it, then say go on."
+
+**ITW:REQ-013, investigating.**
+- An `investigate` task never edits code. It may run the repository's tests and other commands that change nothing, to
+  reproduce the problem.
+- Its report says:
+  - what was seen;
+  - whether the problem was reproduced, and how;
+  - the cause, when the evidence supports one, otherwise the guesses that remain;
+  - what is affected;
+  - the next step.
+- It never claims a cause the evidence does not support, and never says anything is fixed.
+- "Fix it" in the same chat starts a `fix` task whose intake is the report. A question the investigation already
+  answered is not asked again.
+
+**ITW:REQ-014, size comes from what changes, not from the words.**
+- "Quick", "small" or "just" never remove a step or an approval.
+- When the code step's changes touch a `paths` rule, that rule's step or reviewer is added before the code approval,
+  with one line saying why.
+- When a `fix` turns out to need a public interface or a data change, SFlow says so in one line and re-composes forward
+  as a `change`: a plan step is added, and the person approves the plan. Done steps stay. Steps are only added, so this
+  needs no extra yes.
+
+**ITW:REQ-015, refactoring.**
+- The plan step says what must not change (outputs, public interfaces, errors, formats, side effects and order, as they
+  apply) and which checks show it.
+- Before any edit, SFlow runs those checks on the base and records the results.
+- The test step runs the same checks after the change.
+- A check that passed before and fails after is a behaviour change. The step stops and names it. The person then
+  chooses one of two things:
+  - keep the old behaviour: the work goes back to the code step;
+  - accept the new behaviour: the task becomes a `change`, and its plan is revised.
+- A check that already failed before stays a finding; the refactor does not approve it.
+- What no check covers is named in the last message. A refactor is never reported as safer than what ran.
+
+**ITW:REQ-016, documents.**
+- A `docs` task writes its document in the repository, on the Story's branch. Git keeps its versions.
+- While the task is open, "change section 2" or "add the timeout case" revises the same document in the same task.
+- A task that names a document (a path, or "the spec we wrote") uses the document's exact version when the task starts.
+  The Story records that commit and path.
+- Later edits do not change the running task. At the next stop SFlow says a newer version exists and offers to re-plan
+  from the current step.
+- When a person approved the named document in an earlier task, it stands as the requirements: a `feature` composes
+  intake → plan → code → test.
+
+**ITW:REQ-017, "this", "it" and "that spec".**
+- In the same chat, these mean the open task, its document or its report.
+- When two things could be meant, one question names both.
+- A new, unrelated request starts a new task. It takes nothing from the earlier task's steps or approvals.
+
+**ITW:REQ-018, the end of a task, and the last message.**
+- The end point depends on the kind:
+  - a code kind ends with the pull request;
+  - `investigate` and `review` end with the report;
+  - `docs` ends with the document's pull request.
+- "Stop before the pull request" ends a code kind with the change checked and committed on the Story's branch.
+- The last message says:
+  - what was done, and where it is (the pull request link or the document's path);
+  - which checks ran and passed, and which did not run;
+  - what a person approved;
+  - anything left open.
+- It never calls something checked that no check covered.
+
+**ITW:REQ-019, counting a person's work.**
+- Journey tests count a person's actions in two groups:
+  - real decisions: approvals the rules give a person, and real questions;
+  - everything else: typed commands, continue lines, repeated questions, and pages opened only to move on.
+- For the journeys in section 7, the second group is zero.
+
+## 4. What stays as it is
+
+These already hold in SFlow, and `/sf-task` keeps them:
+- The agent proposes. SFlow's code composes the steps, checks them and records what happened. Model text never
+  approves anything.
+- An approval is given through SFlow's approval: the page, the card, or the yes it asks for in the chat. It is never
+  read from other words.
+- Zero tests found, a skipped required test or a timeout is never a pass.
+- Results from before a change do not count for the changed code.
+- No made-up Story ID. Hooks and tests are never switched off to get a green result.
+
+## 5. From IEX, left out, and why
+
+| IEX proposed | Here instead |
+|---|---|
+| A second kind of work beside the Story (work requests, execution runs, and moving a run into a Story) | Every task is a Story. Approvals, evidence, lessons, AI credits and the Code Explainer are all kept per Story; a second kind would split each of them. |
+| A document store outside Git, with saves and versions | Documents live in the repository, on the Story's branch. Git is the version history. |
+| A plan compiler, a capability registry and admission records | The steps are composed by fixed rules from step intents and the team's rules; the existing walk and checks catch loops. |
+| An SFlow-owned chat screen with one adaptive result area | SFlow works inside Copilot's chat (VS Code, CLI, IntelliJ) and its existing pages. |
+| Standing permission, handing running work to another machine, undo of any change, cloud and data changes | Out of scope. Resuming a Story on a second laptop is [SSB](SPEC-SSB-STORY-STATE-BRANCH-v1.md)'s job. |
+| Analysis with no task | Already there: a plain chat answers questions ([PCR](SPEC-PCR-PLAIN-CHAT-ROUTING-v1.md)). |
+
+## 6. How it relates to what exists
+
+- `/sf-start` stays the explicit route: base, intake and workflow chosen by hand.
+- `/sf-auto` stays for bounded runs with nobody at the keyboard. A later version may let `/sf-task` hand a plan to it.
+- Workflows stay, and are optional. A `use` rule, or the person ("use Feature"), picks one.
+- With [SSB](SPEC-SSB-STORY-STATE-BRANCH-v1.md), the composed workflow lives with the rest of the Story's state.
+- Lessons ([LRN](SPEC-LRN-STORY-LESSONS-v1.md)) reach a task's steps as they reach any Story's.
+
+## 7. Acceptance
+
+- **A1:** In a repository with no workflow of its own, `/sf-task fix …`:
+  - composes intake → code → test;
+  - starts a Story with a generated ID;
+  - runs to the code approval with no other command.
+- **A2:** The same words and the same repository give the same plan.
+- **A3:** A `paths` rule for `src/auth/**` adds its step when the task touches auth, and only then.
+- **A4:** "Skip the tests" on a code change is refused with the rule's words. No rule is ever removed by a task.
+- **A5:** A `docs` task has no code step. An `investigate` task ends with a report, and no source file changed.
+- **A6:** In a web project with a trusted marketplace:
+  - the test step offers `web-e2e-test-generation`;
+  - its first use asks one yes with its text shown;
+  - the next task uses it without asking.
+- **A7:** A proposed or beta skill needs a yes. An untrusted marketplace is never read.
+- **A8:** `use: { release: classic-delivery }` makes a release task follow that workflow unchanged.
+- **A9:** The Story's snapshot holds the composed steps and the skill texts. A second laptop resumes the same steps.
+- **A10:** A journey test walks `/sf-task` to the pull request on VS Code and the Copilot CLI. The Story fuzzer composes
+  tasks of every kind, and the invariant checks hold.
+- **A11:** A fix with no real question takes exactly two person actions: the words and the code approval.
+- **A12:** "Fix it" after an investigation starts a fix whose intake is the report. No question is asked twice.
+- **A13:** A refactor that changes the order of two errors stops at its test step and names the change. A refactor with
+  every check unchanged ends by listing the checks that ran.
+- **A14:** "Quick fix the permission check" in `src/auth/**` gets the security review step.
+- **A15:** A `fix` that turns out to need a database migration becomes a `change` with a plan approval. Its code step
+  is kept.
+- **A16:** A docs task writes `docs/specs/x.md`, and "change section 2" revises the same file in the same task. Then:
+  - a feature task naming the spec uses that exact version;
+  - an edit to the spec while the task runs does not change it;
+  - the next stop says a newer version exists.
+- **A17:** On the VS Code approval page, Yes continues the chat with nothing typed. In the Copilot CLI, a yes in the
+  chat continues in the same turn.
+- **A18:** A task with five automatic approvals and twelve passing checks shows one line per finished step and nothing
+  else.
+- **A19:** An unrelated second request in the same chat starts a new task. The first task's approvals are not reused.
+- **A20:** The last message of a code task names the pull request, the checks that ran, those that did not, and what a
+  person approved.
+
+## 8. Milestones
+
+| Milestone | Scope | Size |
+|---|---|---|
+| M1 | Kinds (with refactor and review), the composer, team rules, the Story's own workflow, `singularity-flow task` (REQ-002 to 007) | about 1 week |
+| M2 | `/sf-task` in Copilot: running step after step, carrying on after an answer, quiet progress, changing and growing the plan, the last message (REQ-001, 008, 009, 012, 014, 017, 018) | about 1 week |
+| M3 | Investigate then fix, refactor checks before and after, documents bound to a version (REQ-013, 015, 016) | 3 to 4 days |
+| M4 | Skills from the library and trusted marketplaces, first-use import, a marketplace agent as the plan (REQ-010, 011) | 3 to 4 days |
+| M5 | VS Code's Start a task box, journeys with action counts, the fuzzer, one real run (REQ-019) | 2 to 3 days |
+
+About 3½ to 4 weeks.
+
+## 9. Open questions for the owner
+
+1. **Where a code task ends.**
+   - Default: the pull request, as in v1.
+   - The other choice, from IEX: stop at the checked change on the Story's branch, and open the pull request only when
+     asked.
+2. **The ID prefix** when no Jira key is given. Default `TASK`.
+3. **Default approvals.** Default: a person approves the plan (where there is one) and the delivered code; SFlow
+   approves every other clean step. The rules can raise this.
+4. **A new marketplace skill's first use.** Default: one yes, with its text shown. The alternative is to use approved
+   skills from a trusted marketplace with no yes.
+5. **The kinds.** Default: fix, feature, change, refactor, tests, docs, investigate, review and chore.

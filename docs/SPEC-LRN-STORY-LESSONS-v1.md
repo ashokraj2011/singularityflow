@@ -157,7 +157,7 @@ the repository's configured test command by itself.
 - A lesson repeated twice is pinned, and the approval's line offers it to the person as a team rule:
   `singularity-flow lessons rule <K-ID>`, or Team rule in VS Code's Lessons. A team rule comes first for every step on
   its files, is never marked out of date by a rewrite, and reaches the team with the change that holds it. It stays
-  guidance (REQ-009). ITW's `tasks:` rules ([ITW](SPEC-ITW-INTENT-TO-WORK-v1.md) REQ-004) add steps, not guidance, and
+  guidance (REQ-009). ITW's `tasks:` rules ([ITW](SPEC-ITW-INTENT-TO-WORK-v1.1.md) REQ-004) add steps, not guidance, and
   are separate.
 
 **LRN:REQ-013, safety.**

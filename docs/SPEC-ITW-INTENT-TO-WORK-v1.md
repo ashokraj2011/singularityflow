@@ -2,7 +2,7 @@
 
 **Specification ID:** `ITW-v1`
 
-**Status:** Proposed, not built.
+**Status:** Replaced by [ITW v1.1](SPEC-ITW-INTENT-TO-WORK-v1.1.md) (2026-11-25). Not built.
 
 **Owner, 2026-11-24:**
 - "intent to work. ..when someone /sf-task or something it will automatically spinup workflow using the intent and do

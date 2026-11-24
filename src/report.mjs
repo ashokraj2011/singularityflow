@@ -1000,7 +1000,7 @@ function sessionsTotals(sessions) {
     `${sessions.requests.toLocaleString('en-US')} request${sessions.requests === 1 ? '' : 's'} you sent`,
     `${sessions.modelCalls.toLocaleString('en-US')} model call${sessions.modelCalls === 1 ? '' : 's'}`,
     `${tokenCount(sessions.inputTokens)} input tokens${sessions.cacheHitShare != null ? `, ${sessions.cacheHitShare}% read from Copilot's cache` : ''}`,
-    ...(sessions.aiu != null ? [`${aiuCell({ value: sessions.aiu })} AIU`] : []),
+    ...(sessions.aiu != null ? [`${aiuCell({ value: sessions.aiu })} AI credits`] : []),
     ...(sessions.activityPhases?.length ? [counted(sessions.turns, 'agent turn'),
       `${counted(sessions.toolCalls, 'tool call')}${sessions.failedToolCalls ? ` (${sessions.failedToolCalls.toLocaleString('en-US')} failed)` : ''}`,
       counted(sessions.quotaAndModelEvents, 'quota or model event')] : [])
@@ -1029,9 +1029,9 @@ function sessionsNotes(report) {
   const labels = (ids) => ids.map((id) => `\`${id}\``).join(', ');
   const activity = sessions.activityPhases ?? [];
   const same = activity.length === sessions.coveredPhases.length && activity.every((id) => sessions.coveredPhases.includes(id));
-  const usageSources = 'requests, model calls, premium requests and AIU';
+  const usageSources = 'requests, model calls, premium requests and AI credits';
   const activitySources = 'turns, tool calls and quota and model events';
-  const sources = same ? `in ${labels(activity)} these logs are the only source of requests, turns, model and tool calls, premium requests, AIU and quota and model events`
+  const sources = same ? `in ${labels(activity)} these logs are the only source of requests, turns, model and tool calls, premium requests, AI credits and quota and model events`
     : [sessions.coveredPhases.length ? `in ${labels(sessions.coveredPhases)} these logs are the only source of ${usageSources}` : null,
       activity.length ? `in ${labels(activity)} ${sessions.coveredPhases.length ? 'they are' : 'these logs are'} the only source of ${activitySources}` : null]
       .filter(Boolean).join(', and ');
@@ -1042,14 +1042,14 @@ function sessionsNotes(report) {
   if (activity.length) notes.push(`An agent turn is one model round trip, a sub-agent's included. Quota and model events are the requests Copilot refused over quota or as rate limited, or that failed, calls another model answered, Auto falling back from its pick and Copilot changing the model on its own. How much of the premium allowance is left is not counted: only some Copilot versions write it, for the whole account.`);
   const activityNote = activity.length ? sessionsActivityNote(sessions) : null;
   if (activityNote) notes.push(activityNote);
-  if (sessions.intervalsWithoutCalls) notes.push(`Older Copilot versions recorded only running totals for ${sessions.intervalsWithoutCalls} interval${sessions.intervalsWithoutCalls === 1 ? '' : 's'}: their premium requests and AIU are counted, without model calls or tokens.`);
+  if (sessions.intervalsWithoutCalls) notes.push(`Older Copilot versions recorded only running totals for ${sessions.intervalsWithoutCalls} interval${sessions.intervalsWithoutCalls === 1 ? '' : 's'}: their premium requests and AI credits are counted, without model calls or tokens.`);
   if (sessions.callsOutsideStory) notes.push(`${sessions.callsOutsideStory} model call${sessions.callsOutsideStory === 1 ? '' : 's'} on this branch fell before the Story began or after it finished, and ${sessions.callsOutsideStory === 1 ? 'is' : 'are'} not counted.`);
   if (sessions.pendingSessions) notes.push(`${sessions.pendingSessions} Copilot session${sessions.pendingSessions === 1 ? ' is' : 's are'} still being read; the next report adds what ${sessions.pendingSessions === 1 ? 'it holds' : 'they hold'}.`);
   return notes;
 }
 
-const SESSION_PHASE_COLUMNS = ['Premium requests', 'Requests', 'Model calls', 'Input tokens', 'Cached', 'Uncached', 'Cache writes', 'Output tokens', 'Cache hit', 'AIU'];
-const SESSION_MODEL_COLUMNS = ['Premium requests', 'Requests', 'Model calls', 'Input tokens', 'Cached', 'Uncached', 'Output tokens', 'Cache hit', 'AIU',
+const SESSION_PHASE_COLUMNS = ['Premium requests', 'Requests', 'Model calls', 'Input tokens', 'Cached', 'Uncached', 'Cache writes', 'Output tokens', 'Cache hit', 'AI credits'];
+const SESSION_MODEL_COLUMNS = ['Premium requests', 'Requests', 'Model calls', 'Input tokens', 'Cached', 'Uncached', 'Output tokens', 'Cache hit', 'AI credits',
   'Tool calls', 'Sub-agents', 'Auto picks'];
 
 function sessionCells(usage, { cacheWrites = true } = {}) {
@@ -1122,7 +1122,7 @@ function copilotSources(report) {
     'A turn is one model round trip; where Copilot\'s spans do not report the count, it is the model calls under the request.',
     logs && !estimated ? 'Premium requests are Copilot\'s own count.'
       : logs ? `Premium requests are Copilot's own count where the logs cover a phase, and elsewhere ${estimate}.` : `Premium requests are ${estimate}.`,
-    'Billed (AIU) is the usage Copilot reports for its model calls.',
+    'AI credits are the usage Copilot reports for its model calls and bills on AI-credit plans (10^9 nano-AIU is one credit), compaction included.',
     'The phase prompt is the prompt sflow composed for the latest generation: exact bytes, tokens estimated as bytes ÷ 4. Copilot adds its own instructions, tools and history to it.'
   ].join(' ');
 }
@@ -1159,13 +1159,13 @@ export function renderMarkdown(report, { changeImpact = null } = {}) {
     const totals = [
       copilot.requests.value != null ? `${countCell(copilot.requests)} requests` : null,
       copilot.premiumRequests.value != null ? `${premiumCell(copilot.premiumRequests)} premium requests (${copilot.premiumRequests.status === 'observed' ? 'Copilot\'s count' : 'estimated'})` : null,
-      copilot.billedAiu?.value != null ? `${aiuCell(copilot.billedAiu)} AIU billed (Copilot-reported)` : null,
+      copilot.billedAiu?.value != null ? `${aiuCell(copilot.billedAiu)} AI credits (Copilot-reported)` : null,
       copilot.turns.value != null ? `${countCell(copilot.turns)} turns` : null,
       copilot.eventCount ? `${copilot.eventCount} quota or model event${copilot.eventCount === 1 ? '' : 's'}` : null,
       copilot.largestPrompt ? `largest phase prompt ${sizeLabel(copilot.largestPrompt.bytes)} in \`${copilot.largestPrompt.phase}\`` : null
     ].filter(Boolean);
     if (totals.length) lines.push(totals.join(' · '), '');
-    lines.push('| Phase | Gens | Sent back | Requests | Turns | Model calls | Tool calls | Premium requests | Billed (AIU) | Phase prompt |');
+    lines.push('| Phase | Gens | Sent back | Requests | Turns | Model calls | Tool calls | Premium requests | AI credits | Phase prompt |');
     lines.push('|-------|------|-----------|----------|-------|-------------|------------|------------------|--------------|-----------------|');
     for (const phase of report.phases) {
       lines.push(`| ${phase.label} (\`${phase.id}\`) | ${phase.generations} | ${phase.sentBack} | ${countCell(phase.copilot.requests)} | ${countCell(phase.copilot.turns)} | ${countCell(phase.copilot.modelCalls)} | ${toolCell(phase)} | ${premiumCell(phase.copilot.premiumRequests)} | ${aiuCell(phase.copilot.billedAiu)} | ${promptCell(phase.copilot.prompt)} |`);
@@ -1349,7 +1349,7 @@ function copilotHtml(report) {
   const missing = copilot.premiumRequests.missingModels.length
     ? `<p class="note">Premium requests are ${copilot.premiumRequests.value == null ? 'unavailable' : 'partial'}: no <code>tokens.premiumMultipliers</code> entry for ${escapeHtml(copilot.premiumRequests.missingModels.join(', '))}.</p>` : '';
   return `<h2>Copilot activity by phase</h2>
-<table><thead><tr><th>Phase</th><th>Gens</th><th>Sent back</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium requests</th><th>Billed (AIU)</th><th>Phase prompt</th></tr></thead><tbody>${tableRows}</tbody></table>
+<table><thead><tr><th>Phase</th><th>Gens</th><th>Sent back</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium requests</th><th>AI credits</th><th>Phase prompt</th></tr></thead><tbody>${tableRows}</tbody></table>
 ${chatLine ? `<p class="note">${escapeHtml(chatLine)}</p>` : ''}
 <h3>Requests, turns, model and tool calls</h3>
 ${activityChart}

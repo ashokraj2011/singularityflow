@@ -11,7 +11,7 @@ import {
 } from './dashboard-model.ts';
 import { escape, icon } from './webview.ts';
 
-/** Copilot's billed usage in AI units, or a dash when nothing reported it. */
+/** Copilot's AI credits (its billed usage), or a dash when nothing reported it. */
 function aiuLabel(metric: { value: number | null } | null | undefined): string {
   return metric?.value == null ? '—' : metric.value.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
@@ -99,8 +99,8 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
     <td>${escape(copilotCountLabel(phase.copilot?.turns))}</td>
     <td>${escape(copilotCountLabel(phase.copilot?.modelCalls))}</td>
     <td>${escape(copilotCountLabel(phase.copilot?.toolCalls))}${failed ? ` <span class="warning-text">(${failed} failed)</span>` : ''}</td>
-    <td>${escape(premiumLabel(phase.copilot?.premiumRequests))}${phase.copilot?.eventCount ? ` <span class="warning-text" title="Quota or model events">⚠ ${phase.copilot.eventCount}</span>` : ''}</td>
     <td>${escape(aiuLabel(phase.copilot?.billedAiu))}</td>
+    <td>${escape(premiumLabel(phase.copilot?.premiumRequests))}${phase.copilot?.eventCount ? ` <span class="warning-text" title="Quota or model events">⚠ ${phase.copilot.eventCount}</span>` : ''}</td>
     ${sessions?.found ? `<td>${phase.copilot?.sessions?.cacheHitShare != null ? `${phase.copilot.sessions.cacheHitShare}%` : '—'}</td>` : ''}
     <td class="duration-cell">${promptBarHtml(phase, scale)}</td>
   </tr>`;
@@ -123,8 +123,8 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
     <p class="muted">${sourcesHtml(analytics)}</p>
     <div class="summary-grid lifecycle-kpis">
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.requests))}</strong><span>Requests you sent</span></div>
+      ${copilot.billedAiu?.value != null ? `<div class="summary-card"><strong>${escape(aiuLabel(copilot.billedAiu))}</strong><span>AI credits · Copilot's count${sessions?.found ? ', compaction and sub-agents included' : ' (Copilot Chat)'}</span></div>` : ''}
       <div class="summary-card${copilot.events.some((event) => event.kind !== 'failed') ? ' governance-warning' : ''}"><strong>${escape(premiumLabel(copilot.premiumRequests))}</strong><span>Premium requests · ${escape(premiumNote)}</span></div>
-      ${copilot.billedAiu?.value != null ? `<div class="summary-card"><strong>${escape(aiuLabel(copilot.billedAiu))}</strong><span>Billed usage (AIU) · reported by ${sessions?.found ? 'Copilot' : 'Copilot Chat'}</span></div>` : ''}
       ${sessions?.found && sessions.cacheHitShare != null ? `<div class="summary-card"><strong>${sessions.cacheHitShare}%</strong><span>Cache hit · input tokens read from Copilot's cache</span></div>` : ''}
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.turns))}</strong><span>Agent turns${copilot.turnsDerived ? ' · some counted from model calls' : ''}${sessions?.subagents ? ` · ${counted(sessions.subagents, 'sub-agent')}` : ''}</span></div>
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.toolCalls))}</strong><span>Tool calls${failedTools ? ` · ${failedTools.toLocaleString('en-US')} failed` : ''}</span></div>
@@ -135,7 +135,7 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
     ${chat}
     ${captureNotes}
     <div class="table-wrap"><table class="analytics-table">
-      <thead><tr><th>Phase</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>${sessions?.found ? 'Premium' : 'Premium (est.)'}</th><th>Billed (AIU)</th>${sessions?.found ? '<th>Cache hit</th>' : ''}<th>Prompt</th></tr></thead>
+      <thead><tr><th>Phase</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>AI credits</th><th>${sessions?.found ? 'Premium' : 'Premium (est.)'}</th>${sessions?.found ? '<th>Cache hit</th>' : ''}<th>Prompt</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     ${events}

@@ -128,14 +128,14 @@ test('Story Analytics shows the premium requests and cache hits Copilot\'s sessi
   const html = copilotActivityHtml(buildLifecycleAnalytics(report));
   assert.match(html, /<strong>4<\/strong><span>Premium requests · Copilot&#39;s count, from its session logs<\/span>/);
   assert.match(html, /<strong>66\.7%<\/strong><span>Cache hit · input tokens read from Copilot's cache<\/span>/);
-  assert.match(html, /<th>Premium<\/th><th>Billed \(AIU\)<\/th><th>Cache hit<\/th>/);
+  assert.match(html, /<th>AI credits<\/th><th>Premium<\/th><th>Cache hit<\/th>/);
   assert.match(html, /<td>80%<\/td>/);
   assert.match(html, /<td>40%<\/td>/);
   assert.match(html, /Copilot's session logs on this computer: 4 premium requests and 3 model calls for this Story, read /);
   assert.match(html, /Counted from Copilot's own session logs on this computer, which Copilot CLI and VS Code's Copilot agent write with no setup\. A phase they do not cover is counted from the older OpenTelemetry feeds/);
   assert.match(html, /Premium requests are Copilot's own count\. The prompt is what sflow composed/, 'no estimate is mentioned when nothing is estimated');
   assert.doesNotMatch(html, /premiumMultipliers|Counted from the spans/);
-  assert.match(html, /Billed usage \(AIU\) · reported by Copilot</);
+  assert.match(html, /AI credits · Copilot's count, compaction and sub-agents included</);
   assert.equal(premiumLabel({ value: 4, status: 'observed', missingModels: [] }), '4', 'Copilot\'s own count is not an estimate');
 
   const none = deriveReport(metered, { now: at(60), copilotSessions: { branch: 'ENG-9', read: false, reason: 'no-session-logs', calls: [] } });
@@ -180,8 +180,8 @@ test('Story Analytics fills agent turns, tool calls and quota and model events f
   assert.doesNotMatch(html, /gpt-4\.1/, 'design\'s span events are replaced by the logs\' (none), not added');
   assert.match(html, /Copilot's session logs on this computer: 2 premium requests, 2 model calls, 3 agent turns and 3 tool calls for this Story/);
   // Per step: requirements 1 turn and 2 tool calls (1 failed) with 2 events; design 2 turns and 1 tool call.
-  assert.match(html, /<td><strong>Requirements<\/strong><small>1 generation<\/small><\/td>\s*<td>1<\/td>\s*<td>1<\/td>\s*<td>1<\/td>\s*<td>2 <span class="warning-text">\(1 failed\)<\/span><\/td>\s*<td>1 <span class="warning-text" title="Quota or model events">⚠ 2<\/span><\/td>/);
-  assert.match(html, /<td><strong>Design &lt;b&gt;<\/strong><small>1 generation<\/small><\/td>\s*<td>1<\/td>\s*<td>2<\/td>\s*<td>1<\/td>\s*<td>1<\/td>\s*<td>1<\/td>/);
+  assert.match(html, /<td><strong>Requirements<\/strong><small>1 generation<\/small><\/td>\s*<td>1<\/td>\s*<td>1<\/td>\s*<td>1<\/td>\s*<td>2 <span class="warning-text">\(1 failed\)<\/span><\/td>\s*<td>[^<]*<\/td>\s*<td>1 <span class="warning-text" title="Quota or model events">⚠ 2<\/span><\/td>/);
+  assert.match(html, /<td><strong>Design &lt;b&gt;<\/strong><small>1 generation<\/small><\/td>\s*<td>1<\/td>\s*<td>2<\/td>\s*<td>1<\/td>\s*<td>1<\/td>\s*<td>[^<]*<\/td>\s*<td>1<\/td>/);
   assert.equal(copilotEventSentence({ phase: 'design', generation: null, kind: 'model-switched', operation: 'invoke_agent', count: 2,
     requestedModel: 'model-premium-2', resolvedModel: 'model-alpha-1.5', errorType: null, firstAt: null, lastAt: null }),
   'design: Copilot changed the model from model-premium-2 to model-alpha-1.5 on its own, 2 times.');

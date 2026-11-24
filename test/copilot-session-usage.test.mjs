@@ -369,7 +369,7 @@ test('a report places each call in the phase worked on then, shows premium reque
   assert.deepEqual(report.copilot.captureNotes, []);
 
   const markdown = renderMarkdown(report);
-  assert.match(markdown, /## Copilot premium requests and cache use\n\n5 premium requests · 3 requests you sent · 5 model calls · 6,000 input tokens, 85% read from Copilot's cache · 1\.3 AIU/);
+  assert.match(markdown, /## Copilot premium requests and cache use\n\n5 premium requests · 3 requests you sent · 5 model calls · 6,000 input tokens, 85% read from Copilot's cache · 1\.3 AI credits/);
   assert.match(markdown, /\| Design \(`design`\) \| 4 \| 2 \| 3 \| 4,000 \| 3,300 \| 700 \| 500 \| 120 \| 82\.5% \| 1\.1 \|/);
   assert.match(markdown, /\| Requirements \(`requirements`\) \| — \| — \|/);
   assert.match(markdown, /\| model-premium-2 \| 3 \| 1 \| 1 \| 2,000 \| 1,500 \| 500 \| 40 \| 75% \| 0\.9 \|/);
@@ -456,10 +456,10 @@ test('a report fills turns, tool calls and quota and model events from the logs 
   assert.match(markdown, /- design, from 2026-11-01T10:21:00\.000Z: Copilot answered 1 model call for model-alpha-1\.5 with model-other-9\./);
   assert.match(markdown, /- requirements generation 1, from 2026-11-01T09:20:00\.000Z: 2 model calls were rate limited \(429\)\./);
   assert.match(markdown, /· 4 agent turns · 6 tool calls \(4 failed\) · 6 quota or model events/);
-  assert.match(markdown, /Never counted twice: in `design`, `implementation` these logs are the only source of requests, turns, model and tool calls, premium requests, AIU and quota and model events\./);
+  assert.match(markdown, /Never counted twice: in `design`, `implementation` these logs are the only source of requests, turns, model and tool calls, premium requests, AI credits and quota and model events\./);
   assert.match(markdown, /Tool calls that did not succeed, by Copilot's code: 2 denied, 2 other; 1 sub-agent started; the model changed 2 times \(1 by a person, 1 by Copilot on its own\); Auto picked a model 2 times, falling back 1 time; errors Copilot recorded, by class: 1 quota, 1 rate_limit, 1 authentication\./);
   assert.match(markdown, /How much of the premium allowance is left is not counted: only some Copilot versions write it, for the whole account\./);
-  assert.match(markdown, /\| Model \| Premium requests \| Requests \| Model calls \| Input tokens \| Cached \| Uncached \| Output tokens \| Cache hit \| AIU \| Tool calls \| Sub-agents \| Auto picks \|/);
+  assert.match(markdown, /\| Model \| Premium requests \| Requests \| Model calls \| Input tokens \| Cached \| Uncached \| Output tokens \| Cache hit \| AI credits \| Tool calls \| Sub-agents \| Auto picks \|/);
   assert.match(markdown, /\| model-alpha-1\.5 \| 2 \| 2 \| 3 \|[^\n]*\| 4 \(2 failed\) \| 0 \| 1 \|/);
   assert.match(markdown, /_Counts come from Copilot's own session logs on this computer, which Copilot CLI and VS Code's Copilot agent write with no setup\. A phase the logs do not cover is counted from the spans Copilot exports for launches through `singularity-flow copilot`, and the local file Copilot Chat in VS Code writes on a computer where counting is on; no phase is counted from both\./);
   assert.match(markdown, /Premium requests are Copilot's own count where the logs cover a phase, and elsewhere estimated as requests times `tokens\.premiumMultipliers`; GitHub's billing is authoritative\./);
@@ -471,7 +471,7 @@ test('a report fills turns, tool calls and quota and model events from the logs 
 
   // All premium requests from the logs: no estimate is mentioned.
   const covered = deriveReport({ ...storyWorkflow(), phaseOrder: ['design', 'implementation'] }, { now: at(500), copilotSessions });
-  assert.match(renderMarkdown(covered), /Premium requests are Copilot's own count\. Billed/);
+  assert.match(renderMarkdown(covered), /Premium requests are Copilot's own count\. AI credits/);
   assert.doesNotMatch(renderMarkdown(covered), /premiumMultipliers/);
 });
 
@@ -567,3 +567,85 @@ test('no work command, hook or skill reaches the session usage reader', async ()
     assert.doesNotMatch(await readFile(path.join(packageRoot, file), 'utf8'), /^import[^;]*copilot-session-usage/mu, `${file} imports it eagerly`);
   }
 });
+
+// 2026-11-24, checked against a person's real Copilot logs (78 sessions, 1,205.29 AI credits by Copilot's own totals):
+// SFlow kept sub-agent calls under the keys of the session's first calls, missed what Copilot billed beyond its call
+// records (compaction), and skipped VS Code chats whose folder is no Git root. Each is held here.
+const longId = (tag) => `${tag}`.padEnd(440, 'x');
+
+test('a sub-agent\'s calls are kept beside the session\'s own, though Copilot\'s ids are too long to keep and both count from 1', async () => {
+  const { root, story, sessions } = await fixture();
+  const main = 'session-with-sub-agent';
+  const sub = (sequence, nano) => event('session.usage_record', { usage: { model: 'model-alpha-1.5', inputTokens: 10, outputTokens: 1, cost: 0, initiator: 'sub-agent',
+    accounting: { sourceSessionId: 'sub-agent-session', sequence, usageId: longId(`sub-${sequence}`) }, copilotUsage: { totalNanoAiu: nano } } }, 2);
+  const own = (sequence, nano) => event('session.usage_record', { usage: { model: 'model-alpha-1.5', inputTokens: 10, outputTokens: 1, cost: sequence === 1 ? 1 : 0, initiator: sequence === 1 ? 'user' : 'agent',
+    accounting: { sourceSessionId: main, sequence, usageId: longId(`own-${sequence}`) }, copilotUsage: { totalNanoAiu: nano } } }, 1);
+  await session(sessions, main, [start(0, { gitRoot: story, branch: 'ENG-7' }), own(1, 1_000_000_000), own(2, 500_000_000), sub(1, 300_000_000), sub(2, 200_000_000)]);
+  await syncCopilotSessionUsage(root, { directory: sessions, now: Date.parse(at(10)) });
+  const calls = (await copilotSessionCalls(root, 'ENG-7')).calls;
+  assert.equal(calls.length, 4, 'sub-agent calls 1 and 2 are not the session\'s calls 1 and 2');
+  assert.equal(calls.reduce((sum, entry) => sum + entry.nanoAiu, 0), 2_000_000_000);
+  assert.deepEqual(calls.map((entry) => entry.initiator).sort(), ['agent', 'sub-agent', 'sub-agent', 'user']);
+});
+
+test('what Copilot billed beyond its call records is counted from its own total, once, and a lower total adds nothing', async () => {
+  const { root, story, sessions } = await fixture();
+  await session(sessions, 'session-compacted', [
+    start(0, { gitRoot: story, branch: 'ENG-7' }),
+    call(1, { session: 'session-compacted', sequence: 1, initiator: 'user', nano: 1_000_000_000 }),
+    event('session.compaction_complete', { compactionTokensUsed: { copilotUsage: { totalNanoAiu: 400_000_000 } } }, 2),
+    event('session.usage_checkpoint', { totalPremiumRequests: 1, totalNanoAiu: 1_400_000_000 }, 2),
+    call(3, { session: 'session-compacted', sequence: 2, nano: 600_000_000 }),
+    event('session.shutdown', { totalPremiumRequests: 1, totalNanoAiu: 2_000_000_000 }, 4),
+    event('session.usage_checkpoint', { totalPremiumRequests: 1, totalNanoAiu: 1_900_000_000 }, 5)
+  ]);
+  await syncCopilotSessionUsage(root, { directory: sessions, now: Date.parse(at(10)) });
+  const calls = (await copilotSessionCalls(root, 'ENG-7')).calls;
+  assert.equal(calls.reduce((sum, entry) => sum + entry.nanoAiu, 0), 2_000_000_000, 'the session\'s calls and its compaction: Copilot\'s total');
+  const billed = calls.filter((entry) => entry.unrecorded);
+  assert.deepEqual(billed.map((entry) => [entry.at, entry.nanoAiu, entry.premiumRequests]), [[at(2), 400_000_000, 0]]);
+  assert.equal((await syncCopilotSessionUsage(root, { directory: sessions })).added, 0, 'read again, nothing is added twice');
+});
+
+test('a VS Code chat with no Git root is placed by the files its tools work on, and its earlier calls go with it', async () => {
+  const { root, story, sessions } = await fixture();
+  const chats = path.join(path.dirname(sessions), 'copilot-home', 'chats', 'chat-1');
+  const tool = (minutes, file) => event('tool.execution_start', { toolCallId: `t${minutes}`, toolName: 'view', arguments: { path: file } }, minutes);
+  await session(sessions, 'session-chat', [
+    start(0, { cwd: chats }),
+    call(1, { session: 'session-chat', sequence: 1, initiator: 'user', nano: 3_000_000_000 }),
+    tool(2, path.join(story, 'src', 'value.mjs')),
+    call(3, { session: 'session-chat', sequence: 2, nano: 1_000_000_000 })
+  ]);
+  await session(sessions, 'session-chat-elsewhere', [
+    start(0, { cwd: chats }),
+    call(1, { session: 'session-chat-elsewhere', sequence: 1, initiator: 'user', nano: 5_000_000_000 }),
+    tool(2, path.join(os.tmpdir(), 'not-this-repository', 'a.txt'))
+  ]);
+  await syncCopilotSessionUsage(root, { directory: sessions, now: Date.parse(at(10)) });
+  const calls = (await copilotSessionCalls(root, 'ENG-7')).calls;
+  assert.equal(calls.length, 2, 'the chat\'s first call, held until its tools showed the Story worktree, and the next');
+  assert.equal(calls.reduce((sum, entry) => sum + entry.nanoAiu, 0), 4_000_000_000, 'a chat that never touched this repository adds nothing');
+  assert.equal(JSON.stringify(calls).includes('value.mjs'), false, 'no path is kept');
+});
+
+test('a sync by the new reader replaces what an earlier reader kept under a shared key', async () => {
+  const { root, story, sessions } = await fixture();
+  await session(sessions, 'session-replaced', [start(0, { gitRoot: story, branch: 'ENG-7' }), call(1, { session: 'session-replaced', sequence: 1, initiator: 'user', nano: 1_000_000_000 })]);
+  await syncCopilotSessionUsage(root, { directory: sessions, now: Date.parse(at(10)) });
+  const branches = path.join(await gitCommonDirectory(root), 'singularity-flow', 'copilot-sessions', 'branches');
+  const [file] = await readdir(branches);
+  const kept = JSON.parse(await readFile(path.join(branches, file), 'utf8'));
+  kept.calls[0] = { ...kept.calls[0], initiator: 'sub-agent', nanoAiu: 7 };
+  await writeFile(path.join(branches, file), `${JSON.stringify(kept)}\n`);
+  const cursorFile = path.join(path.dirname(branches), 'cursor.json');
+  const cursor = JSON.parse(await readFile(cursorFile, 'utf8'));
+  await writeFile(cursorFile, `${JSON.stringify({ ...cursor, reader: 2 })}\n`);
+  await syncCopilotSessionUsage(root, { directory: sessions });
+  const calls = (await copilotSessionCalls(root, 'ENG-7')).calls;
+  assert.deepEqual(calls.map((entry) => [entry.initiator, entry.nanoAiu]), [['user', 1_000_000_000]]);
+});
+
+async function gitCommonDirectory(root) {
+  return path.resolve(root, git(root, 'rev-parse', '--git-common-dir').trim());
+}

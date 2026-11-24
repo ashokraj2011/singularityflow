@@ -438,10 +438,10 @@ test('Copilot Chat requests count in the phase being worked on when they were ma
   'Copilot Chat alone observes no quota events');
 
   const markdown = renderMarkdown(report);
-  assert.match(markdown, /1 AIU billed \(Copilot-reported\)/);
-  assert.match(markdown, /\| Premium requests \| Billed \(AIU\) \| Phase prompt \|/);
+  assert.match(markdown, /1 AI credits \(Copilot-reported\)/);
+  assert.match(markdown, /\| Premium requests \| AI credits \| Phase prompt \|/);
   assert.match(markdown, /Copilot Chat on this computer: 5 requests for this Story, counted since .*; 72% of their input tokens read from Copilot's cache\. Other people's Copilot Chat use is not included\./);
-  assert.match(renderHtml(report), /<th>Billed \(AIU\)<\/th>/);
+  assert.match(renderHtml(report), /<th>AI credits<\/th>/);
 
   // Nothing counted on this computer is different from counting nothing.
   const uncounted = deriveReport(workflow, { now: at(400), premiumMultipliers: { 'gpt-5': 1 } });

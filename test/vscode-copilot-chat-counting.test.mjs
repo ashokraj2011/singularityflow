@@ -59,8 +59,8 @@ test('Story Analytics shows Copilot Chat\'s requests and billed usage from the r
       events: [], eventsObserved: false, eventCount: 0, omittedEvents: 0, largestPrompt: null, promptsOverBudget: [], captureNotes: []
     }
   });
-  assert.match(html, /<strong>1\.25<\/strong><span>Billed usage \(AIU\) · reported by Copilot Chat<\/span>/);
-  assert.match(html, /<th>Billed \(AIU\)<\/th>/);
+  assert.match(html, /<strong>1\.25<\/strong><span>AI credits · Copilot's count \(Copilot Chat\)<\/span>/);
+  assert.match(html, /<th>AI credits<\/th>/);
   assert.match(html, /<td>1\.25<\/td>/);
   assert.match(html, /<strong>Unavailable<\/strong><span>Quota and model events<\/span>/,
     'Copilot Chat counts carry no quota events: not a zero');

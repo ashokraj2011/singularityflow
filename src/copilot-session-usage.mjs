@@ -39,10 +39,14 @@ export const DEFAULT_SYNC_BYTES = 512 * 1024 * 1024;
 // What a sync reads. Version 2 added the activity records: a cursor written by an earlier reader is
 // read again from each session's start, so turns and tool calls before the upgrade are recorded too;
 // the calls it finds again are already recorded and are not added twice. [owner, 2026-11-13]
-const READER = 2;
+// 3 (2026-11-24): sub-agent calls kept under their own key, what Copilot billed beyond its call records (compaction)
+// counted from its own totals, and a VS Code chat with no Git root placed by the files its tools work on. Every session is read again from its start, and what it reads replaces what an
+// earlier reader kept under the same key.
+const READER = 3;
 // Only these events are parsed; every other line is skipped from the bytes of its type.
 const ACTIVITY = new Set(['assistant.turn_start', 'tool.execution_complete', 'subagent.started', 'session.model_change', 'session.auto_mode_resolved', 'session.error']);
-const EVENTS = new Set(['session.start', 'session.resume', 'session.context_changed', 'session.usage_record', 'session.usage_checkpoint', ...ACTIVITY]);
+const EVENTS = new Set(['session.start', 'session.resume', 'session.context_changed', 'session.usage_record', 'session.usage_checkpoint',
+  'session.shutdown', 'tool.execution_start', ...ACTIVITY]);
 const TYPE_PREFIX = Buffer.from('{"type":"');
 const INITIATORS = new Set(['user', 'agent', 'sub-agent']);
 // A model id as Copilot writes them (`model-alpha-1.5`); anything else is kept as `unknown`.
@@ -74,6 +78,42 @@ const timestamp = (value) => (typeof value === 'string' && Number.isFinite(Date.
 
 function canonical(value) {
   try { return realpathSync.native(value); } catch { return null; }
+}
+
+/**
+ * Which of this repository's checkouts holds a file, with that checkout's branch: the deepest one, so a Story worktree
+ * inside the checkout is found before the checkout. Null for a file outside them.
+ */
+export function repositoryLocator(root) {
+  let entries = [];
+  try { entries = worktreeInventory(root).map((entry) => ({ path: entry.path, branch: entry.branch ?? null })); } catch { entries = []; }
+  if (!entries.some((entry) => path.resolve(entry.path) === path.resolve(root))) entries.push({ path: root, branch: null });
+  const roots = [];
+  for (const entry of entries) {
+    for (const form of new Set([path.resolve(entry.path), canonical(entry.path)].filter(Boolean))) roots.push({ ...entry, prefix: form.endsWith(path.sep) ? form : `${form}${path.sep}`, form });
+  }
+  roots.sort((left, right) => right.prefix.length - left.prefix.length);
+  // A file's path as written, and through its nearest existing folder resolved (a link such as /var to /private/var).
+  const forms = (file) => {
+    const resolved = path.resolve(file);
+    let folder = resolved;
+    const rest = [];
+    for (let depth = 0; depth < 64 && folder !== path.dirname(folder); depth += 1) {
+      const real = canonical(folder);
+      if (real) return [resolved, path.join(real, ...rest)];
+      rest.unshift(path.basename(folder));
+      folder = path.dirname(folder);
+    }
+    return [resolved];
+  };
+  return (file) => {
+    if (typeof file !== 'string' || !path.isAbsolute(file)) return null;
+    for (const form of forms(file)) {
+      const found = roots.find((entry) => form === entry.form || form.startsWith(entry.prefix));
+      if (found) return found.branch ? { path: found.path, branch: found.branch } : null;
+    }
+    return null;
+  };
 }
 
 /**
@@ -133,15 +173,20 @@ const modelName = (value) => (typeof value === 'string' && MODEL.test(value) ? v
 
 function callRecord(usage, event, sessionKey, offset) {
   const initiator = INITIATORS.has(usage.initiator) ? usage.initiator : 'other';
+  // Copilot's accounting ids are 424 to 496 characters, so the bounded id is null and the key is the session and the
+  // sequence. A sub-agent numbers its own calls from 1 in the same log: its calls are keyed by its own session too, or
+  // they took the keys of the session's first calls and were dropped as already kept (2026-11-24: 177 of 356 in one log).
   const usageId = bounded(usage.accounting?.usageId, 256);
   const sequence = Number.isSafeInteger(usage.accounting?.sequence) ? usage.accounting.sequence : null;
+  const source = typeof usage.accounting?.sourceSessionId === 'string' && usage.accounting.sourceSessionId ? hashed(usage.accounting.sourceSessionId, 16) : null;
+  const counted = source && source !== sessionKey ? `${sessionKey}:${source}:${sequence}` : `${sessionKey}:${sequence}`;
   const model = modelName(usage.model);
   // The model that answered, kept only when it is not the one asked for (a dated build of it is the
   // same model): the session-log form of the substitution Copilot's spans show. [owner, 2026-11-13]
   const answered = typeof usage.responseModel === 'string' && MODEL.test(usage.responseModel) ? usage.responseModel : null;
   return {
     // Opaque: Copilot's accounting id, else the session and its sequence, else where the line sits.
-    key: hashed(usageId ?? (sequence != null ? `${sessionKey}:${sequence}` : `${sessionKey}@${offset}`), 16),
+    key: hashed(usageId ?? (sequence != null ? counted : `${sessionKey}@${offset}`), 16),
     at: timestamp(event.timestamp),
     session: sessionKey,
     model,
@@ -154,6 +199,38 @@ function callRecord(usage, event, sessionKey, offset) {
     nanoAiu: count(usage.copilotUsage?.totalNanoAiu),
     ...(answered && model !== 'unknown' && !sameCopilotModel(model, answered) ? { resolvedModel: answered } : {})
   };
+}
+
+/**
+ * What Copilot billed beyond its call records, from its own running total [2026-11-24]. A compaction's model call is billed
+ * and has no `session.usage_record` (in 10 of 62 sessions the whole gap); older Copilot versions left it out of the total
+ * too. So the growth of `totalNanoAiu` between two checkpoints, less the calls recorded between them, is kept as one
+ * record: AI credits only, no tokens, no premium requests. A total that falls (a resumed count) adds nothing.
+ */
+function billedRecord(state, data, event, sessionKey, offset) {
+  const total = count(data?.accountingSnapshot?.totalNanoAiu ?? data?.totalNanoAiu);
+  if (total == null) return null;
+  const extra = total - (state.billed ?? 0) - (state.sinceBilled ?? 0);
+  state.billed = total;
+  state.sinceBilled = 0;
+  if (!(extra > 1e6)) return null;
+  return {
+    key: hashed(`${sessionKey}#billed@${offset}`, 16), at: timestamp(event.timestamp), session: sessionKey, model: 'unknown',
+    initiator: 'agent', unrecorded: true, inputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, outputTokens: null,
+    premiumRequests: 0, nanoAiu: Math.round(extra)
+  };
+}
+
+const PATH_ARGUMENTS = ['path', 'cwd', 'workdir', 'workspaceFolder'];
+
+/** The files a tool call names, by its arguments that hold absolute paths; never kept. */
+function toolPaths(data) {
+  const args = data?.arguments;
+  if (!args || typeof args !== 'object') return [];
+  const found = [];
+  for (const name of PATH_ARGUMENTS) if (typeof args[name] === 'string') found.push(args[name]);
+  if (Array.isArray(args.paths)) for (const item of args.paths.slice(0, 8)) if (typeof item === 'string') found.push(item);
+  return found.filter((value) => path.isAbsolute(value) && value.length <= 4096);
 }
 
 // Closed classes: anything else Copilot writes is kept as `other`, never as its own text.
@@ -244,10 +321,32 @@ function checkpointRecord(state, data, event, sessionKey, offset) {
  * offset of its line, and returns the record to keep for it, if any: `list` says whether it is a
  * model call (`calls`) or an activity record (`events`).
  */
-export function createSessionUsageReader(state, { belongs, sessionKey }) {
+export function createSessionUsageReader(state, { belongs, sessionKey, locate = null }) {
   return (event, offset) => {
     const data = event?.data ?? {};
-    if (event?.type === 'session.start' || event?.type === 'session.resume') { applyContext(state, data.context, belongs); return null; }
+    if (event?.type === 'session.start' || event?.type === 'session.resume') {
+      applyContext(state, data.context, belongs);
+      if (state.reason === 'no-git-context') state.placed = true;
+      return null;
+    }
+    // A VS Code chat that starts with no Git root (its folder under Copilot's home) is placed by the files its tools work
+    // on: this repository's checkout or a Story worktree, with that worktree's branch. Its calls before that are not counted.
+    if (event?.type === 'tool.execution_start') {
+      if (state.placed && locate) {
+        for (const file of toolPaths(data)) {
+          const where = locate(file);
+          if (where) { applyContext(state, { gitRoot: where.path, branch: where.branch }, belongs); break; }
+        }
+        // Placed: the calls it held go to that branch.
+        if (state.ours && state.branch && state.held?.length) {
+          const held = state.held;
+          state.held = [];
+          state.calls += held.filter((record) => !record.kind).length;
+          return held.map((record) => ({ branch: state.branch, record, list: 'calls' }));
+        }
+      }
+      return null;
+    }
     if (event?.type === 'session.context_changed') {
       if (data.pendingGitContext !== true) applyContext(state, data, belongs);
       return null;
@@ -262,10 +361,16 @@ export function createSessionUsageReader(state, { belongs, sessionKey }) {
     if (event?.type === 'session.usage_record' && data.usage && typeof data.usage === 'object') {
       state.perCall = true;
       record = callRecord(data.usage, event, sessionKey, offset);
+      state.sinceBilled = (state.sinceBilled ?? 0) + (record.nanoAiu ?? 0);
     } else if (event?.type === 'session.usage_checkpoint' && !state.perCall) {
       record = checkpointRecord(state, data, event, sessionKey, offset);
+    } else if ((event?.type === 'session.usage_checkpoint' || event?.type === 'session.shutdown') && state.perCall) {
+      record = billedRecord(state, data, event, sessionKey, offset);
     }
-    if (!record || !state.ours) return null;
+    if (!record) return null;
+    // A chat not placed yet holds its calls (at most 500) for the branch its tools then show.
+    if (!state.ours && state.placed) { state.held = [...(state.held ?? []), record].slice(-500); return null; }
+    if (!state.ours) return null;
     if (!state.branch) { state.unattributed += 1; return null; }
     state.calls += record.kind ? 0 : 1;
     return { branch: state.branch, record, list: 'calls' };
@@ -372,6 +477,7 @@ export async function syncCopilotSessionUsage(root, {
     // An earlier reader's positions are not reused: what it skipped is read again (see READER).
     const known = previous?.reader === READER ? previous.sessions ?? {} : {};
     const belongs = repositoryMatcher(root);
+    const locate = repositoryLocator(root);
     const found = [];
     let withoutLog = 0;
     for (const name of names) {
@@ -398,7 +504,8 @@ export async function syncCopilotSessionUsage(root, {
         // A session whose first line is still being written is decided by the next sync, from its start.
         if (start === undefined) { sessions[key] = state; continue; }
         if (start?.type === 'session.start') applyContext(state, start.data?.context, belongs);
-        if (!state.ours) {
+        if (state.reason === 'no-git-context') state.placed = true;
+        if (!state.ours && !state.placed) {
           // Not this repository's: skip what is written, and read only what it adds from now on.
           Object.assign(state, { offset: info.size, size: info.size, mtimeMs: info.mtimeMs, checkpoint: { base: true } });
           sessions[key] = state;
@@ -406,12 +513,13 @@ export async function syncCopilotSessionUsage(root, {
         }
       }
       if (bytesRead >= maxBytes) { pending += 1; sessions[key] = state; continue; }
-      const push = createSessionUsageReader(state, { belongs, sessionKey: key });
+      const push = createSessionUsageReader(state, { belongs, sessionKey: key, locate });
       const end = await readSessionEvents(file, state.offset, maxBytes - bytesRead, (event, offset) => {
-        const kept = push(event, offset);
-        if (!kept) return;
-        if (!fresh.has(kept.branch)) fresh.set(kept.branch, { calls: [], events: [] });
-        fresh.get(kept.branch)[kept.list].push(kept.record);
+        const result = push(event, offset);
+        for (const kept of Array.isArray(result) ? result : result ? [result] : []) {
+          if (!fresh.has(kept.branch)) fresh.set(kept.branch, { calls: [], events: [] });
+          fresh.get(kept.branch)[kept.list].push(kept.record);
+        }
       });
       bytesRead += end - state.offset;
       const complete = end >= info.size || bytesRead < maxBytes;
@@ -429,11 +537,20 @@ export async function syncCopilotSessionUsage(root, {
       let changed = false;
       for (const list of ['calls', 'events']) {
         const before = existing?.[list] ?? [];
-        const seen = new Set(before.map((record) => record.key));
-        const unseen = records[list].filter((record) => !seen.has(record.key) && seen.add(record.key));
-        if (list === 'calls') added += unseen.length; else addedEvents += unseen.length;
-        changed ||= unseen.length > 0;
-        merged[list] = unseen.length ? [...before, ...unseen].sort(byTime) : before;
+        const kept = new Map(before.map((record) => [record.key, record]));
+        let fresh = 0;
+        let replaced = 0;
+        // What this reader read replaces what an earlier one kept under the same key (READER 3 repairs sub-agent keys).
+        for (const record of records[list]) {
+          const earlier = kept.get(record.key);
+          if (!earlier) fresh += 1;
+          else if (JSON.stringify(earlier) !== JSON.stringify(record)) replaced += 1;
+          else continue;
+          kept.set(record.key, record);
+        }
+        if (list === 'calls') added += fresh; else addedEvents += fresh;
+        changed ||= fresh > 0 || replaced > 0;
+        merged[list] = fresh || replaced ? [...kept.values()].sort(byTime) : before;
       }
       if (changed) await writeCache(target, { branch, ...merged });
     }

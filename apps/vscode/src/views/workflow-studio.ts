@@ -763,7 +763,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       return;
     }
     try {
-      const result = await this.client.run<{ resultType?: string; valid?: boolean; problems?: Array<{ message?: string }>;
+      const result = await this.client.run<{ resultType?: string; valid?: boolean; problems?: Array<{ message?: string }>; updates?: unknown[];
         marketplace?: { label?: string | null; repository?: string; ref?: string | null; commit?: string; repin?: boolean; agents?: number; skills?: number } }>(
         ['marketplace', 'add', id, '--repo', repositoryText, ...(refText ? ['--ref', refText] : []), ...(labelText ? ['--label', labelText] : []), '--dry-run', '--json']);
       if (result.resultType === 'marketplace-unchanged') {
@@ -775,6 +775,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
         this.post({ type: 'studio.importFailed', message: (result.problems ?? []).map((problem) => problem.message).filter(Boolean).join(' ') || `Marketplace ${id} could not be read.` });
         return;
       }
+      // Reading a trusted marketplace's newest commit also checks the workflows made from it, from the engine's same read.
+      if (read.repin === true && Array.isArray(result.updates) && result.updates.length) this.post({ type: 'studio.importsChecked', result: { imports: result.updates } });
       this.post({ type: 'studio.marketplaceRead', id, label: read.label ?? null, repository: read.repository, ref: read.ref ?? null, commit: read.commit,
         repin: read.repin === true, agents: read.agents ?? 0, skills: read.skills ?? 0 });
     } catch (error) {

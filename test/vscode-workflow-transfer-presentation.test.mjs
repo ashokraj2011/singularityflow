@@ -91,6 +91,10 @@ test('the native import summary names consequences without the plan digest or th
   assert.doesNotMatch(summary, /agent-51/);
   assert.match(workflowMutationPlanDetail(plan), /agent-51/);
   assert.match(workflowMutationPlanSummary({}), /Destination: local working tree/);
+  // An update that moves the commit a marketplace is trusted at says so, in words (MCR:REQ-037).
+  const moved = workflowMutationPlanSummary({ ...plan, trust: [{ marketplace: 'acme', from: 'a'.repeat(40), to: 'b'.repeat(40) }] });
+  assert.match(moved, /^Trusts marketplace acme at the newest commit this update read, so Browse and Make a workflow read it too\.$/mu);
+  assert.doesNotMatch(moved, /aaaaaaaaaaaa|bbbbbbbbbbbb/u);
 });
 
 test('each import conflict offers its choices, the suggested one first, in the person\'s terms', () => {

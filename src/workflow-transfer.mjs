@@ -2857,6 +2857,14 @@ async function importPlan(root, destination, original, chosen) {
     .filter(([subject, choice]) => choice.action !== 'rename' && !used.has(subject)).map(([subject]) => subject);
   const replacedObjects = new Set(replaced.filter((item) => catalogSubjectKind(item.kind))
     .map((item) => `${item.kind}:${item.id}`));
+  // A marketplace agent's workflow written from a newer commit than the one this repository trusts moves that trust
+  // with it, so Browse and Make a workflow read what the workflow came from (MCR §8). Its record kept: nothing moves.
+  const trust = importRecords.filter(([key]) => [...additions, ...replaced].some((item) => item.kind === 'import-record' && item.id === key))
+    .flatMap(([, record]) => {
+      const pinned = record.kind === 'workflow' && record.source?.kind === 'marketplace-agent' ? values.story.marketplaces?.[record.source.marketplace] : null;
+      return pinned?.repository && pinned.repository === record.source.repository && record.source.commit && pinned.commit !== record.source.commit
+        ? [{ marketplace: record.source.marketplace, from: pinned.commit ?? null, to: record.source.commit }] : [];
+    });
   const keptAgents = new Set(Object.entries(resolutions)
     .filter(([subject, choice]) => choice.action === 'keep' && subject.startsWith('agent:'))
     .map(([subject]) => subject.slice('agent:'.length)));
@@ -2935,7 +2943,7 @@ async function importPlan(root, destination, original, chosen) {
   const storyWorkflows = [...additions, ...replaced].filter((item) => item.kind === 'story.workTypes').map((item) => item.id);
   if (!open.length && storyWorkflows.length) {
     const internal = { bundle, target, assetTargets, importRecords: importRecords.filter(([key]) => [...additions, ...replaced]
-      .some((item) => item.kind === 'import-record' && item.id === key)), replacedObjects, keptAgents, extendedAgents, extendedServers };
+      .some((item) => item.kind === 'import-record' && item.id === key)), replacedObjects, keptAgents, extendedAgents, extendedServers, trust };
     // Files the import cannot lay out are refused by apply with their own reason; the check needs them laid out.
     const outputs = await importOutputs({ add: additions, replace: replaced, remove: removals }, internal).catch(() => null);
     const relativeOf = (file) => path.relative(target.root, file).split(path.sep).join('/');
@@ -2973,6 +2981,7 @@ async function importPlan(root, destination, original, chosen) {
   if (writes.some((item) => item.kind === 'import-record')) changedPaths.add(IMPORTS_LOCK_PATH);
   if (writes.some((item) => ['workflow-skill-attachments', 'agent-skill-attachments'].includes(item.kind))) changedPaths.add(SKILL_ATTACHMENTS_PATH);
   if (writes.some((item) => item.kind === 'mcp-server-additions')) changedPaths.add(WORKFLOW_PATH);
+  if (trust.length) changedPaths.add(WORKFLOW_PATH);
   for (const item of writes) if (item.kind === 'agent-phase-additions') changedPaths.add(item.path);
   for (const item of writes) {
     if (['agent', 'template', 'vendored', 'user-defined', 'skill', 'instruction', 'constitution', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
@@ -3071,6 +3080,8 @@ async function importPlan(root, destination, original, chosen) {
     targetStateSha256: digest(state),
     // An update of a marketplace agent's workflow imported here before (MCR §8): it replaces in place, never as a copy.
     ...(earlierImports.size ? { updates: [...earlierImports.keys()].sort() } : {}),
+    // The commit of a marketplace this import makes the repository trust.
+    ...(trust.length ? { trust } : {}),
     ...(Object.keys(resolutions).length ? { resolutions } : {}),
     operations: {
       add: additions.sort(byIdentity), reuse: reuse.sort(byIdentity),
@@ -3105,7 +3116,7 @@ async function importPlan(root, destination, original, chosen) {
   // paths in JSON or binding the plan digest to a temporary approved-configuration mount.
   Object.defineProperty(result, '_internal', {
     value: {
-      bundle, target, assetTargets, unused, replacedObjects, keptAgents, extendedAgents, extendedServers, contents,
+      bundle, target, assetTargets, unused, replacedObjects, keptAgents, extendedAgents, extendedServers, contents, trust,
       importRecords: importRecords.filter(([key]) => writeKeys.has(`import-record\0${key}`))
     },
     enumerable: false, configurable: false, writable: false
@@ -3232,7 +3243,7 @@ export async function applyWorkflowImport(root, bundleOrPath, {
  * Nothing is written here.
  */
 async function importOutputs(operations, {
-  bundle, target, assetTargets, importRecords, replacedObjects, keptAgents, extendedAgents, extendedServers, contents = new Map()
+  bundle, target, assetTargets, importRecords, replacedObjects, keptAgents, extendedAgents, extendedServers, contents = new Map(), trust = []
 }) {
   const writes = new Set([...operations.add, ...(operations.replace ?? [])]
     .map((item) => `${item.kind}\0${item.id}`));
@@ -3273,6 +3284,11 @@ async function importOutputs(operations, {
         const keys = ['mcpServers', id, key];
         document.setIn(keys, document.createNode(list, { flow: Boolean(document.getIn(keys, true)?.flow) })); changed = true;
       }
+    }
+    // An update's marketplace is trusted at the commit the workflow came from (MCR §8).
+    if (governs === 'story') for (const move of trust) {
+      if (document.getIn(['marketplaces', move.marketplace]) === undefined) continue;
+      document.setIn(['marketplaces', move.marketplace, 'commit'], move.to); changed = true;
     }
     candidateDocuments[governs] = { current, document, changed };
   }

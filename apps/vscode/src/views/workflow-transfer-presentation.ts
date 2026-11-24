@@ -34,6 +34,8 @@ export type WorkflowMutationPreview = {
   addsText?: string;
   alreadyHereText?: string;
   removesText?: string;
+  /** A marketplace the import makes the repository trust at the commit its workflow came from (MCR section 8). */
+  trust?: Array<{ marketplace: string; from?: string | null; to: string }>;
   /** What SFlow added to each template the change writes, and what approval would refuse that it cannot fix (src/workflow-autofix.mjs). */
   repairs?: Array<{ path?: string; text: string }>;
   problems?: Array<{ workflow: string; title: string; fix?: string }>;
@@ -187,6 +189,11 @@ export function workflowMutationPlanDetail(plan: WorkflowMutationPreview): strin
   ].join('\n');
 }
 
+/** An update moves the commit the repository trusts; said in words, never as a commit, for a person to read. */
+function trustLines(plan: WorkflowMutationPreview): string[] {
+  return (plan.trust ?? []).map((move) => `Trusts marketplace ${move.marketplace} at the newest commit this update read, so Browse and Make a workflow read it too.`);
+}
+
 /** The native confirmation shows counts and consequences, never pages of raw dependency hashes. */
 export function workflowMutationPlanSummary(plan: WorkflowMutationPreview): string {
   const counts = (['add', 'reuse', 'replace', 'keep'] as const)
@@ -195,6 +202,7 @@ export function workflowMutationPlanSummary(plan: WorkflowMutationPreview): stri
     ...(plan.addsText ? [`Adds: ${plan.addsText}`] : []),
     ...(plan.alreadyHereText ? [`Already here: ${plan.alreadyHereText}`] : []),
     ...(plan.removesText ? [`Removes: ${plan.removesText}`] : []),
+    ...trustLines(plan),
     ...repairLines(plan),
     ...(problemLines(plan).length ? [`Approval would refuse: ${problemLines(plan).join('; ')}`] : []),
     `${plan.renamed?.length ?? 0} renamed · ${plan.changedPaths?.length ?? 0} changed files`,
@@ -211,7 +219,8 @@ export function workflowMutationPlanMarkdown(plan: WorkflowMutationPreview, titl
     `- Shared dependencies: ${markdownEscape(dependencyText(plan))}`,
     ...(plan.addsText ? [`- Adds: ${markdownEscape(plan.addsText)}`] : []),
     ...(plan.alreadyHereText ? [`- Already here: ${markdownEscape(plan.alreadyHereText)}`] : []),
-    ...(plan.removesText ? [`- Removes: ${markdownEscape(plan.removesText)}`] : []), '',
+    ...(plan.removesText ? [`- Removes: ${markdownEscape(plan.removesText)}`] : []),
+    ...trustLines(plan).map((line) => `- ${markdownEscape(line)}`), '',
     ...(repairLines(plan).length ? markdownSection('SFlow added', repairLines(plan)) : []),
     ...(problemLines(plan).length ? markdownSection('Approval would refuse', problemLines(plan)) : []),
     ...markdownSection('Predicted changed paths', plan.changedPaths ?? []),

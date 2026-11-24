@@ -379,6 +379,10 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     assert.deepEqual(shown.review.checks.map((check) => [check.id, check.ok]), [['stages', true], ['answers', true], ['walk', true]]);
     assert.equal(shown.review.ready, true);
     assert.equal(shown.review.source.commit, shown.source.commit);
+    // The review as Markdown for a Copilot turn to show as written: versions, never a commit (MCR §9).
+    assert.match(shown.review.markdown, /^# Conversion review: QA Test Automation$/mu);
+    assert.match(shown.review.markdown, /qa-test-automation-agent 1\.0\.0-pdlc, from marketplace acme, at the commit this repository trusts\./u);
+    assert.doesNotMatch(shown.review.markdown, /[a-f0-9]{12}/u);
     const reviewed = flow(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--review']).stdout;
     assert.match(reviewed, /^# Conversion review: QA Test Automation$/mu);
     assert.match(reviewed, /- Passed: Walked with no Story: \d+ paths? and \d+ routes?, no loop and no stop\./u);
@@ -476,6 +480,12 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     // The same without the commit, for Workflow Studio's row: no commit for a person to read.
     assert.equal(sourceCheck.words, 'skill web-xray-creation changed');
     assert.equal(sourceCheck.updateCommand, 'singularity-flow workflow from-agent acme/qa-test-automation-agent --update');
+    // Read its newest commit names the workflows made from it that changed there, from that same read (MCR:REQ-030).
+    const repinRead = json(root, ['marketplace', 'add', 'acme', '--repo', market, '--dry-run']);
+    assert.deepEqual(repinRead.updates.map((row) => [row.key, row.words, row.updateCommand]),
+      [['workflow:qa-test-automation', 'skill web-xray-creation changed', 'singularity-flow workflow from-agent acme/qa-test-automation-agent --update']]);
+    assert.match(flow(root, ['marketplace', 'add', 'acme', '--repo', market, '--dry-run']).stdout,
+      /^  Workflow qa-test-automation: skill web-xray-creation changed\. Review its update: singularity-flow workflow from-agent acme\/qa-test-automation-agent --update$/mu);
     const updated = json(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--update']);
     assert.deepEqual([updated.review.update.recorded, updated.review.update.from, updated.review.update.to, updated.review.update.words],
       [true, pinned, newest, 'skill web-xray-creation changed']);
@@ -484,7 +494,13 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     assert.deepEqual(updated.review.update.steps, { added: [], removed: [], reclassified: [] });
     assert.equal(updated.review.update.nothingChanged, false);
     assert.equal(updated.review.ready, true);
+    // The update moves the commit this repository trusts with it, and its review says so (MCR:REQ-037).
+    assert.deepEqual(updated.review.update.trusts, { marketplace: 'acme', from: pinned, to: newest });
+    assert.doesNotMatch(updated.review.markdown, /[a-f0-9]{12}/u);
+    assert.match(updated.review.markdown, /- Since this workflow was imported \(version 1\.0\.0-pdlc\): skill web-xray-creation changed\./u);
+    assert.match(updated.review.markdown, /- Updating it also makes this repository trust this commit of marketplace acme, so Browse and Make a workflow read it too\./u);
     const updateText = flow(root, ['workflow', 'from-agent', 'acme/qa-test-automation-agent', '--update', '--review']).stdout;
+    assert.match(updateText, /- Updating it also makes this repository trust marketplace acme at [a-f0-9]{12} \(now [a-f0-9]{12}\)/u);
     assert.match(updateText, /## What changed in the marketplace\n\n- Imported from commit [a-f0-9]{12} \(1\.0\.0-pdlc\); now [a-f0-9]{12} \(1\.0\.0-pdlc\): skill web-xray-creation changed\./u);
     assert.match(updateText, /### Skill web-xray-creation \(changed\)\n\n```diff\n\+ Always name the browser and its version in each test case\.\n```/u);
     // Its import is reviewed like any other; the record it carries names the newer commit.
@@ -502,6 +518,8 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     assert.deepEqual(updating.importPlan.operations.replace.map((item) => [item.kind, item.subject]),
       [['import-record', 'workflow:qa-test-automation'], ['skill', 'skill:web-xray-creation']]);
     assert.deepEqual(updating.importPlan.operations.add, []);
+    assert.deepEqual(updating.importPlan.trust, [{ marketplace: 'acme', from: pinned, to: newest }]);
+    assert.ok(updating.importPlan.changedPaths.includes('singularity/workflow.yml'));
     // The first import recorded what it wrote, so the update can tell an untouched file from an edited one.
     assert.match(record.written['skill:singularity/skill-library/web-xray-creation/SKILL.md'], /^sha256:[a-f0-9]{64}$/u);
     assert.ok(Object.keys(record.written).some((key) => key.startsWith('story.phases:')) && Object.keys(record.written).some((key) => key.startsWith('template:')));
@@ -524,6 +542,8 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     assert.equal(updatedRecord.source.commit, newest);
     assert.notEqual(updatedRecord.written['skill:singularity/skill-library/web-xray-creation/SKILL.md'], record.written['skill:singularity/skill-library/web-xray-creation/SKILL.md']);
     assert.equal(updatedRecord.written['agent:singularity/agents/qa-test-automation-agent.agent.md'], record.written['agent:singularity/agents/qa-test-automation-agent.agent.md'], 'what it reused keeps its digest');
+    assert.equal(YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).marketplaces.acme.commit, newest,
+      'the repository now trusts the commit the workflow came from');
     const upToDate = json(root, ['imports', 'check']).imports.find((row) => row.key === 'workflow:qa-test-automation');
     assert.deepEqual([upToDate.status, upToDate.words], ['up to date', 'nothing newer in the marketplace']);
     run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'update the QA workflow'], root);
@@ -531,10 +551,16 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     // The marketplace brings the product agent back, as it was at the pinned commit.
     run('git', ['checkout', pinned, '--', 'agents/product-agent'], market);
     run('git', ['commit', '-m', 'bring the product agent back'], market);
+    const back = run('git', ['rev-parse', 'HEAD'], market).stdout.trim();
+    // The QA update moved the trust to a commit without it, so the person reads the newest commit, which names no
+    // workflow made from the marketplace as changed, and trusts it.
+    assert.equal(json(root, ['marketplace', 'add', 'acme', '--repo', market, '--dry-run']).updates, undefined);
+    flow(root, ['marketplace', 'add', 'acme', '--repo', market]);
+    run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'trust the newest commit'], root);
     // An agent never imported here: its source was not recorded, so the update compares with the pinned commit (MCR:REQ-022).
     const unrecorded = json(root, ['workflow', 'from-agent', 'acme/product-agent', '--answer', 'product-traceability-check=review', '--answer', 'product-hand-off=report', '--update']);
     assert.equal(unrecorded.review.update.recorded, false);
-    assert.equal(unrecorded.review.update.from, pinned);
+    assert.equal(unrecorded.review.update.from, back);
     // The product workflow imported with the person's answers; then the marketplace rewrites what Traceability Check does:
     // that one answer is asked again, the other stands (MCR:REQ-033).
     const productOut = path.join(root, 'product.workflow.json');

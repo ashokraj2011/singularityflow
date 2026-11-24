@@ -45,13 +45,19 @@ export async function addRepositoryMarketplace(root, id, options, { applyImportC
   });
   const agents = catalog.packages.filter((entry) => entry.kind === 'agent').length;
   const skills = catalog.packages.filter((entry) => entry.kind === 'skill').length;
+  // Reading a trusted marketplace's newest commit also says which workflows made from its agents changed there, so
+  // their updates are reviewed now rather than found later (MCR §8). The person asked for this read.
+  const updates = repin ? (await withApprovedConfigurationRead(root, async () => (await import('../asset-import.mjs')).marketplaceWorkflowChecks(root, id),
+    { preferAuthority: true }).catch(() => [])).filter((row) => row.updateCommand) : [];
   if (!optionBoolean(options, 'json')) {
     console.log(`${catalog.name ?? id} at ${ref ?? 'its default branch'} (commit ${catalog.commit.slice(0, 12)}): ${counted(agents, 'agent')}, ${counted(skills, 'skill')}`
       + `${catalog.packages.length - agents - skills ? `, ${counted(catalog.packages.length - agents - skills, 'other package')}` : ''}.`);
     for (const problem of catalog.problems.slice(0, 10)) console.log(`  Note: ${problem}`);
+    for (const row of updates) console.log(`  Workflow ${row.key.replace(/^workflow:/u, '')}: ${row.words ?? row.detail}. Review its update: ${row.updateCommand}`);
   }
   // What Workflow Studio's Trust form queues from a dry run: the label and the commit read now, with no second read.
-  return emitImportMutation(root, { ...result, marketplace: { id, label: change.label ?? null, repository, ref, commit: catalog.commit, ...(repin ? { repin: true } : {}), agents, skills } }, options, {
+  return emitImportMutation(root, { ...result, marketplace: { id, label: change.label ?? null, repository, ref, commit: catalog.commit, ...(repin ? { repin: true } : {}), agents, skills },
+    ...(updates.length ? { updates } : {}) }, options, {
     operation: 'marketplace.add', messageId: 'marketplace.added', slots: { id }
   });
 }

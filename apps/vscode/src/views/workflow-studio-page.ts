@@ -501,7 +501,19 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function rebasedDraft(previousModel, draft, model) {
     var clashes = [];
     var next = rebaseDraft(initialDraft(previousModel), draft, initialDraft(model), [], clashes);
-    return orderedDraft(next, clashes);
+    return orderedDraft(withoutDoneTrustMoves(next, model), clashes);
+  }
+  /**
+   * A queued read of a marketplace's newest commit that the configuration now trusts (an update moved it there) is
+   * done: publishing it would change nothing (MCR:REQ-037). Dropped on a rebase and on a restored draft alike.
+   */
+  function withoutDoneTrustMoves(next, model) {
+    next.imports = (next.imports || []).filter(function (change) {
+      if (change.op !== 'marketplace.add' || change.repin !== true) return true;
+      var trusted = (model.marketplaces || []).find(function (market) { return market.id === change.id; });
+      return !(trusted && trusted.commit === change.commit);
+    });
+    return next;
   }
   // The workflow order is one list both may have added to: keep the person's order, then the others' new workflows.
   function orderedDraft(next, clashes) {
@@ -544,7 +556,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       if (!same(current, before) && !same(current, after)) clashes.push(edit.path.join(' › '));
       if (after === undefined) delete parent[last]; else parent[last] = clone(after);
     });
-    return orderedDraft(next, clashes);
+    return orderedDraft(withoutDoneTrustMoves(next, model), clashes);
   }
 
   function initialDraft(model) {
@@ -4845,7 +4857,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (!trusted.length && !pending.length) section.appendChild(el('p', { class: 'muted', text: 'None yet. A marketplace is a catalog your team publishes: a Git repository of agents and skills, read at the commit you trust, or an index link whose entries each pin their file by hash.' }));
     trusted.forEach(function (market) {
       section.appendChild(el('div', { class: 'check-row' }, el('span', { class: 'mark ok', text: '✓' }),
-        el('div', null, el('strong', { text: market.label }), el('div', { class: 'muted', text: market.repository ? market.repository + ' at ' + String(market.commit || '').slice(0, 12)
+        el('div', null, el('strong', { text: market.label }), el('div', { class: 'muted', text: market.repository ? market.repository + (market.ref ? ' (' + market.ref + ')' : '')
           : market.index + (market.allowedOrigins.length ? ' · files also from ' + market.allowedOrigins.join(', ') : '') })),
         el('div', { class: 'studio-row' },
           button(lib.busy === 'browse:' + market.id ? 'Opening…' : 'Browse', function () { lib.busy = 'browse:' + market.id; lib.market = market; lib.entries = null; lib.error = null; render(); post({ type: 'studio.marketplaceBrowse', id: market.id }); }, { class: 'secondary', 'aria-label': 'Browse ' + market.label }),
@@ -4854,7 +4866,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
           }, { class: 'secondary', disabled: Boolean(lib.busy), 'aria-label': 'Read the newest commit of ' + market.label }) : null,
           button('Stop trusting', function () { queueImport({ op: 'marketplace.remove', id: market.id }, market.label + ' will no longer be trusted once you publish.'); }, { class: 'secondary', 'aria-label': 'Stop trusting ' + market.label }))));
     });
-    pending.forEach(function (change) { section.appendChild(el('div', { class: 'check-row' }, el('span', { class: 'mark wait', text: '…' }), el('div', null, el('strong', { text: change.label || change.id }), el('div', { class: 'muted', text: (change.repository ? change.repository + ' at ' + String(change.commit || '').slice(0, 12) : change.index) + ' · trusted once you publish' })), el('span', null))); });
+    pending.forEach(function (change) { section.appendChild(el('div', { class: 'check-row' }, el('span', { class: 'mark wait', text: '…' }), el('div', null, el('strong', { text: change.label || change.id }), el('div', { class: 'muted', text: (change.repository ? change.repository + (change.repin ? ' · its newest commit' : '') : change.index) + ' · trusted once you publish' })), el('span', null))); });
     if (lib.newMarket) section.appendChild(renderNewMarketplace(lib));
     // The workflow an agent becomes shows above the entries, where the person looks after choosing it.
     if (lib.agentWorkflow) section.appendChild(renderAgentWorkflow(lib));
@@ -4882,7 +4894,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (message.ref) change.ref = message.ref;
     if (message.repin === true) change.repin = true;
     var found = [message.agents === 1 ? '1 agent' : (message.agents || 0) + ' agents', message.skills === 1 ? '1 skill' : (message.skills || 0) + ' skills'].join(', ');
+    // The engine's same read checked the workflows made from it: a changed one is named, with its Review update below.
+    var changed = message.repin === true ? (lib.check || []).filter(function (entry) { return entry.updateCommand && entry.key.indexOf('workflow:') === 0; }) : [];
     queueImport(change, message.repin === true ? 'Marketplace ' + (change.label || change.id) + ' will be read at its newest commit (' + found + ') once you publish.'
+      + (changed.length ? ' It changed what ' + changed.map(function (entry) { return entry.key.slice('workflow:'.length); }).join(', ') + (changed.length === 1 ? ' was' : ' were') + ' made from: Review update is under Imported into this repository.' : '')
       : 'Marketplace ' + (change.label || change.id) + ' (' + found + ') will be trusted once you publish.');
   }
 
@@ -5074,6 +5089,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         el('div', { text: (update.recorded ? 'Since this workflow was imported' : 'Its source was not recorded; compared with the commit this repository trusts')
           + (update.version && update.version.from && update.version.to ? (update.version.from === update.version.to ? ' (version ' + update.version.to + ')' : ' (version ' + update.version.from + ', now ' + update.version.to + ')') : '')
           + ': ' + update.words + '.' }),
+        update.trusts ? el('div', { class: 'muted', text: 'Updating it also makes this repository trust this commit of marketplace ' + update.trusts.marketplace + ', so Browse and Make a workflow read it too.' }) : null,
         update.nothingChanged ? el('div', { class: 'muted', text: 'Nothing changed for SFlow: the workflow stays as imported, and updating it records the newer commit only.' }) : null,
         (steps.added || []).length ? el('div', { text: 'New steps: ' + steps.added.join(', ') + '.' }) : null,
         (steps.removed || []).length ? el('div', { text: 'Steps no longer made: ' + steps.removed.join(', ') + '.' }) : null,
@@ -5117,15 +5133,29 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     rows.forEach(function (row) {
       var removing = (state.draft.imports || []).some(function (change) { return change.op === 'import.remove' && change.key === row.key; });
       var checked = lib.check && lib.check.find(function (entry) { return entry.key === row.key; });
+      // An update waiting, or a source gone, is never a tick: the row says it in words (real VS Code, 2026-11-24).
+      var waiting = Boolean(checked && (checked.updateCommand || checked.status === 'removed at its source'));
+      var mark = row.status === 'missing' || row.status.indexOf('edited (') === 0 ? 'bad' : row.status === 'current' && !waiting ? 'ok' : 'wait';
       section.appendChild(el('div', { class: 'check-row' },
-        el('span', { class: 'mark ' + (row.status === 'current' ? 'ok' : row.status === 'missing' || row.status.indexOf('edited (') === 0 ? 'bad' : 'wait'), text: row.status === 'current' ? '✓' : '!' }),
-        el('div', null, el('strong', { text: row.key }), el('div', { class: 'muted', text: row.source + ' · ' + row.status + (checked ? ' · ' + checked.status + ((checked.words || checked.detail) ? ' (' + (checked.words || checked.detail) + ')' : '') : '') })),
+        el('span', { class: 'mark ' + mark, text: mark === 'ok' ? '✓' : '!' }),
+        el('div', null, el('strong', { text: row.key }), el('div', { class: 'muted', text: row.source + ' · ' + importStatusWords(row.status) + (checked ? ' · ' + importCheckWords(checked) : '') })),
         el('div', { class: 'studio-row' },
           checked && checked.updateCommand ? button('Review update', function () { reviewUpdate(row, checked); }, { class: 'primary', 'aria-label': 'Review the update to ' + row.key }) : null,
           row.kind === 'mcp-server' && row.status === 'current' ? button('Add host entry', function () { post({ type: 'studio.mcpHostAdd', id: row.target.id }); }, { class: 'secondary', 'aria-label': 'Add the host entry for ' + row.target.id }) : null,
           removing ? el('span', { class: 'pill', text: 'Removed once you publish' }) : button('Remove', function () { queueImport({ op: 'import.remove', key: row.key }, row.key + ' will be removed once you publish.'); }, { class: 'secondary', 'aria-label': 'Remove ' + row.key }))));
     });
     return section;
+  }
+
+  /** What an import's status says to a person: "current" is "not edited here", never "up to date". */
+  function importStatusWords(status) {
+    return status === 'current' ? 'not edited here' : status === 'customized' ? 'edited here' : status;
+  }
+  /** What Check for updates found, in words: an update waiting says so first. */
+  function importCheckWords(checked) {
+    var words = checked.words || checked.detail || '';
+    if (checked.updateCommand) return 'update available' + (words ? ': ' + words : '');
+    return checked.status + (words ? ' (' + words + ')' : '');
   }
 
   /** An update is a fresh preview of the changed source, added with replace and the same target. */

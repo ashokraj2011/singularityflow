@@ -154,9 +154,10 @@ it opens the review as an update (§8).
 ## 8. Updates
 
 **MCR:REQ-030:** **Check for updates** reads each trusted marketplace at its newest commit and compares the provenance of
-every imported workflow. It runs on request in Workflow Studio's Library, from `singularity-flow check`, and after
-**Read its newest commit**. It reports by agent: "2 skills and 1 stage changed", "no change", or "removed from the
-marketplace".
+every imported workflow. It runs on request: Workflow Studio's Library, `singularity-flow imports check`, Copilot's
+`/sf-import`, and **Read its newest commit** (`marketplace add --repo` for a marketplace already trusted), whose same read
+names the workflows made from it that changed. `singularity-flow check` never fetches, so it does not run it. It reports by
+agent: "2 skills and 1 stage changed", "no change", or "removed from the marketplace".
 
 **MCR:REQ-031:** Network reads happen only when a person asks, or from the check they already run. Nothing polls in the
 background.
@@ -176,6 +177,9 @@ answer is reused only for a stage whose words and skills did not change.
 **MCR:REQ-034:** Approving an update is an import, through the same transfer review. Stories already running keep their
 frozen snapshot. New Stories use the update. A Story whose next step opens after the update does not change mid-Story.
 
+**MCR:REQ-037:** An update moves the commit the repository trusts for its marketplace to the one the update read, in
+the same reviewed import, so Browse and Make a workflow read what the workflow came from. The review says so first.
+
 **MCR:REQ-036:** An update imports in place, never as a copy. The import record keeps a digest of everything its import
 wrote. The update replaces, with no question, what the repository still holds exactly as written, and the record. It
 asks about anything changed here since, or used by another workflow, and suggests keeping the repository's own. Found
@@ -189,8 +193,8 @@ stays, marked "source removed", until a person retires it.
 | Surface | Review | Feedback | Updates |
 |---|---|---|---|
 | VS Code, Workflow Studio | the screen (§4) | buttons (§6) | Library: Check for updates, Update |
-| Copilot (`/sf-import`) | Markdown review | the Markdown, and the issue link for the person | `workflow updates` results with the person's route |
-| Terminal | `workflow from-agent <agent> --review` | `--feedback <file>` | `singularity-flow workflow updates [--json]`, `workflow update <workflow>` |
+| Copilot (`/sf-import`) | `review.markdown`, with versions and no commit | `--feedback`, and the issue link for the person | `imports check` rows with their `updateCommand` |
+| Terminal | `workflow from-agent <agent> --review` | `--feedback <file>` | `singularity-flow imports check [--json]`, `workflow from-agent <agent> --update` |
 
 A Copilot turn may read and prepare. Importing and updating stay the person's reviewed steps, as importing is today.
 

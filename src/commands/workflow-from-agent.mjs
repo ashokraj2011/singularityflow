@@ -230,16 +230,22 @@ export async function run(argv, { positionals, options }) {
     answers = updated.answers;
   }
   conversion = convertAgent({ marketplace: { ...marketplace, commit: read.listing.commit }, agent, skills, answers });
-  if (updated) conversion.update = updated.summary(conversion);
+  if (updated) {
+    conversion.update = updated.summary(conversion);
+    // Its import moves the commit this repository trusts to the one read now (workflow-transfer.mjs trust).
+    if (marketplace.commit !== read.listing.commit) conversion.update.trusts = { marketplace: marketplace.id, from: marketplace.commit ?? null, to: read.listing.commit };
+  }
   // What the marketplace's own listing says is wrong with this agent or the skills it uses.
   const own = [agent.name, ...skills.map((entry) => entry.name)];
   sourceProblems(conversion, (read.listing.problems ?? []).filter((problem) => own.some((name) => String(problem).startsWith(`${name}:`) || String(problem).startsWith(`${name} `))));
   }
   const { conversionReview, conversionReviewMarkdown, feedbackDocument } = await import('../conversion-review.mjs');
+  // The review as data and as the Markdown a Copilot turn shows as written (MCR §9).
+  const withMarkdown = (value) => ({ ...value, markdown: conversionReviewMarkdown(value, { forPerson: true }) });
   const reviewed = (extra = {}) => {
     const value = conversionReview({ ...conversion, ...extra });
     const document = feedbackDocument(value);
-    return document ? { ...value, feedbackDocument: document } : value;
+    return withMarkdown(document ? { ...value, feedbackDocument: document } : value);
   };
   const review = optionBoolean(options, 'review');
   const feedback = optionString(options, 'feedback') ?? null;
@@ -276,7 +282,7 @@ export async function run(argv, { positionals, options }) {
     provenance: { agent, skills, answers } });
   const { writeWorkflowBundle, readWorkflowBundle } = await import('../workflow-transfer.mjs');
   const result = { ...conversion, bundleSha256: compiled.bundle.bundleSha256, workflowYaml: compiled.workflowYaml, derived: compiled.resolved, walk: compiled.walk };
-  result.review = (() => { const value = conversionReview(result); const document = feedbackDocument(value); return document ? { ...value, feedbackDocument: document } : value; })();
+  result.review = (() => { const value = conversionReview(result); const document = feedbackDocument(value); return withMarkdown(document ? { ...value, feedbackDocument: document } : value); })();
 
   // A Story of it would loop or stop: the preview shows each stop and its fix, and nothing is written.
   if ((out || propose) && compiled.walk.stops.length) {

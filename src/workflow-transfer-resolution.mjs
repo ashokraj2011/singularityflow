@@ -309,6 +309,9 @@ export function importPlanText(plan, file, { propose = false, identity = null, r
   if (added.length) lines.push(`  Adds: ${planEntriesText(added)}`);
   if (plan.reused?.length) lines.push(`  Already here: ${planEntriesText(plan.reused)}`);
   for (const item of additions) lines.push(`  ${planAdditionSentence(item)}.`);
+  for (const move of plan.trust ?? []) {
+    lines.push(`  Trusts marketplace ${move.marketplace} at ${String(move.to).slice(0, 12)}${move.from ? ` (now ${String(move.from).slice(0, 12)})` : ''}, the commit this workflow came from.`);
+  }
   if (plan.removesText) lines.push(`  Removes: ${plan.removesText} (the replaced folder no longer has ${plan.removed.length === 1 ? 'it' : 'them'})`);
   for (const item of plan.renamed ?? []) {
     const { kind, id } = parseSubject(item.subject);

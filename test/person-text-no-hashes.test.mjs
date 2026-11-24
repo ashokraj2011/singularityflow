@@ -396,7 +396,9 @@ test('VS Code\'s configuration, capability and admin surfaces name branches, ste
   const plan = { status: 'ready', planSha256: digestOf('3a4b5c6d'),
     destinationAuthority: { kind: 'verified-state-mirror', branch: 'sflow/config', commit: commitOf('4b5c6d7e'), sourceCommit: commitOf('5c6d7e8f'), remoteFingerprint: hexOf('6d7e8f90', 64) },
     operations: { add: [{ kind: 'story.phase', id: 'release-plan', sha256: digestOf('7e8f9a0b') }], reuse: [{ kind: 'agent', id: 'developer', definitionSha256: digestOf('8f9a0b1c') }] },
-    changedPaths: ['singularity/workflow.yml'] };
+    changedPaths: ['singularity/workflow.yml'],
+    // An update that moves the commit a marketplace is trusted at says so in words (MCR:REQ-037).
+    trust: [{ marketplace: 'acme', from: commitOf('9a0b1c2d'), to: commitOf('a0b1c2d3') }] };
   check('VS Code workflow import detail', transfer.workflowMutationPlanDetail(plan));
   check('VS Code workflow import summary', transfer.workflowMutationPlanSummary(plan));
   check('VS Code workflow import review', transfer.workflowMutationPlanMarkdown(plan, 'Import workflow'));

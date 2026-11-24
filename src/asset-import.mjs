@@ -543,6 +543,17 @@ async function marketplaceAgentCheck(root, key, entry) {
     updateCommand: `singularity-flow workflow from-agent ${source.marketplace}/${source.agent} --update` };
 }
 
+/** The workflows made from marketplace `marketplaceId`'s agents, each compared with its newest commit (MCR §8). */
+export async function marketplaceWorkflowChecks(root, marketplaceId) {
+  const ledger = await loadImportsLedger(configurationReadRoot(root));
+  const rows = [];
+  for (const key of Object.keys(ledger.imports).sort()) {
+    const entry = ledger.imports[key];
+    if (entry.source?.kind === 'marketplace-agent' && entry.source.marketplace === marketplaceId) rows.push(await marketplaceAgentCheck(root, key, entry));
+  }
+  return rows;
+}
+
 /**
  * Re-read every linked source and compare it with what was imported. A changed source is staged so
  * it can be reviewed and imported deliberately; nothing in the repository changes here.

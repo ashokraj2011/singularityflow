@@ -79,11 +79,23 @@ export function conversionReview(result) {
   };
 }
 
-/** The update section's lines: what changed in the marketplace since the import, and what it changes for SFlow. */
-function updateLines(update) {
+/**
+ * The update section's lines: what changed in the marketplace since the import, and what it changes for SFlow. For a
+ * person (`forPerson`) it names versions, never a commit, as Workflow Studio does.
+ */
+function updateLines(update, { forPerson = false } = {}) {
   const short = (commit) => String(commit ?? '—').slice(0, 12);
+  const version = update.version.from && update.version.to
+    ? (update.version.from === update.version.to ? ` (version ${update.version.to})` : ` (version ${update.version.from}, now ${update.version.to})`) : '';
   const lines = ['## What changed in the marketplace', '',
-    bullet(`${update.recorded ? 'Imported from' : 'Its source was not recorded; compared with the marketplace\'s pinned'} commit ${short(update.from)}${update.version.from ? ` (${update.version.from})` : ''}; now ${short(update.to)}${update.version.to ? ` (${update.version.to})` : ''}: ${update.words}.`)];
+    bullet(forPerson
+      ? `${update.recorded ? 'Since this workflow was imported' : 'Its source was not recorded; compared with the commit this repository trusts'}${version}: ${update.words}.`
+      : `${update.recorded ? 'Imported from' : 'Its source was not recorded; compared with the marketplace\'s pinned'} commit ${short(update.from)}${update.version.from ? ` (${update.version.from})` : ''}; now ${short(update.to)}${update.version.to ? ` (${update.version.to})` : ''}: ${update.words}.`)];
+  if (update.trusts) {
+    lines.push(bullet(forPerson
+      ? `Updating it also makes this repository trust this commit of marketplace ${update.trusts.marketplace}, so Browse and Make a workflow read it too.`
+      : `Updating it also makes this repository trust marketplace ${update.trusts.marketplace} at ${short(update.trusts.to)} (now ${short(update.trusts.from)}), so Browse and Make a workflow read that commit too.`));
+  }
   if (update.nothingChanged) lines.push(bullet('Nothing changed for SFlow: the workflow stays as imported, and making it records the newer commit only.'));
   const steps = update.steps ?? {};
   if (steps.added?.length) lines.push(bullet(`New steps: ${steps.added.join(', ')}.`));
@@ -125,14 +137,19 @@ export function lineChanges(before, after, { limit = 200 } = {}) {
   return changes.length > limit ? [...changes.slice(0, limit), { op: '…', text: `${changes.length - limit} more changed lines` }] : changes;
 }
 
-/** The review as Markdown: the same sections, for Copilot and the terminal. */
-export function conversionReviewMarkdown(review) {
+/**
+ * The review as Markdown: the same sections, for Copilot and the terminal. The terminal's names each commit; for a
+ * person (`forPerson`, what a Copilot turn shows) it names versions and never a commit, as Workflow Studio does.
+ */
+export function conversionReviewMarkdown(review, { forPerson = false } = {}) {
   const { source } = review;
-  const from = source.marketplace ? `marketplace ${source.marketplace}${source.commit ? ` at commit ${String(source.commit).slice(0, 12)}` : ''}` : `folder ${source.folder}`;
+  const at = forPerson ? (review.update ? ', at its newest commit' : ', at the commit this repository trusts')
+    : source.commit ? ` at commit ${String(source.commit).slice(0, 12)}` : '';
+  const from = source.marketplace ? `marketplace ${source.marketplace}${at}` : `folder ${source.folder}`;
   const lines = [
     `# Conversion review: ${review.workflow.label ?? source.agent}`, '',
     '## Where it came from', '',
-    bullet(`${source.agent}${source.version ? ` ${source.version}` : ''}, from ${from}${source.repository ? ` (${source.repository})` : ''}.`),
+    bullet(`${source.agent}${source.version ? ` ${source.version}` : ''}, from ${from}${source.repository && !forPerson ? ` (${source.repository})` : ''}.`),
     ...(source.lifecycle ? [bullet(`Lifecycle: ${source.lifecycle}.`)] : []),
     ...(source.maintainer ? [bullet(`Maintainer: ${source.maintainer}.`)] : []),
     '', '## Agent stage → SFlow step', '',
@@ -149,7 +166,7 @@ export function conversionReviewMarkdown(review) {
     ...(review.open.length ? review.open.flatMap((entry) => [bullet(`${entry.question} (stage ${entry.stage})`), ...entry.choices.map((choice) => `  - ${choice.label}`)]) : ['Nothing.']),
     '', '## Checks', '',
     ...review.checks.flatMap((check) => [bullet(`${check.ok ? 'Passed' : 'Not yet'}: ${check.words}`), ...(check.fixes ?? []).map((fix) => `  - ${fix.title}.${fix.detail ? ` ${fix.detail}` : ''} Fix: ${fix.fix ?? '—'}`)]),
-    '', ...(review.update ? updateLines(review.update) : []),
+    '', ...(review.update ? updateLines(review.update, { forPerson }) : []),
     '## Feedback for the marketplace', '',
     ...(review.feedback.length ? review.feedback.map((entry) => bullet(`${entry.words}${entry.fix ? ` Fix: ${entry.fix}` : ''}`)) : ['Nothing to report.']),
     '', review.ready ? 'Ready to make: nothing waits for your answer and every check passed.' : 'Not ready to make yet: see Needs your answer and Checks.'

@@ -116,7 +116,9 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
     const changeSet = page.changeSetFrom(page.state().model, page.state().draft);
     assert.deepEqual(changeSet.changes, [{ op: 'marketplace.add', id: 'acme', repository: market, commit: pinned, label: 'sdlc-marketplace' }]);
     assert.equal(page.describe(changeSet.changes[0], page.state().draft), 'Trust marketplace sdlc-marketplace');
-    assert.match(text(page.renderMarketplaces(page.library())), new RegExp(`${market.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')} at ${pinned.slice(0, 12)} · trusted once you publish`, 'u'));
+    assert.match(text(page.renderMarketplaces(page.library())), new RegExp(`${market.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')} · trusted once you publish`, 'u'));
+    // No commit for a person to read on the marketplace rows either (real VS Code, 2026-11-24).
+    assert.doesNotMatch(text(page.renderMarketplaces(page.library())), /[a-f0-9]{12}/u);
     // The engine accepts it, and publishing writes the pin.
     const checked = json(root, ['workflow', 'studio', 'apply', '--change-set', '-', '--dry-run'], JSON.stringify(changeSet));
     assert.equal(checked.valid, true, JSON.stringify(checked.problems));
@@ -144,6 +146,11 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
     const movedPlan = json(root, ['workflow', 'studio', 'apply', '--change-set', '-', '--dry-run'], JSON.stringify(moved));
     assert.equal(movedPlan.valid, true, JSON.stringify(movedPlan.problems));
     assert.ok(movedPlan.summary.some((line) => line.startsWith(`Marketplace sdlc-marketplace is now read at ${newest.slice(0, 12)}`)), movedPlan.summary.join('\n'));
+    // Once the configuration trusts that commit (an update moved it there), the queued read is done and dropped, so
+    // Changes never offers to publish a change that changes nothing (real VS Code, 2026-11-24; MCR:REQ-037).
+    const trustedAt = (commit) => ({ ...page.state().model, marketplaces: page.state().model.marketplaces.map((entry) => (entry.id === 'acme' ? { ...entry, commit } : entry)) });
+    assert.deepEqual(page.rebasedDraft(page.state().model, page.state().draft, trustedAt(newest)).draft.imports, []);
+    assert.deepEqual(page.rebasedDraft(page.state().model, page.state().draft, trustedAt(pinned)).draft.imports, moved.changes, 'a read still ahead of the trust stays queued');
 
     // Browse: each agent has Make a workflow, never a command line to copy.
     ({ page, posted, send } = studio(json(root, ['workflow', 'studio'])));
@@ -234,8 +241,10 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
     const imported = page.renderImported(page.library());
     assert.match(text(imported), /workflow:product/u);
     // No commit for a person to read: the engine's words, not its terminal detail (real VS Code, 2026-11-24).
-    assert.match(text(imported), /changed at its source \(skill requirements-writer changed\)/u);
+    assert.match(text(imported), /not edited here · update available: skill requirements-writer changed/u);
     assert.doesNotMatch(text(imported), /[a-f0-9]{12}/u);
+    // An update waiting is never a tick, and "current" is never read as "up to date" (real VS Code, 2026-11-24).
+    assert.doesNotMatch(text(imported), /✓|· current ·/u);
     click(buttonNamed(imported, 'Review update'));
     assert.deepEqual(last(posted, 'studio.agentWorkflowPreview'), { type: 'studio.agentWorkflowPreview', target: 'acme/product-agent', answers: {}, update: true });
     send({ type: 'studio.agentWorkflowPreviewed', target: 'acme/product-agent', result: json(root, ['workflow', 'from-agent', 'acme/product-agent', '--update']) });
@@ -244,6 +253,7 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
     // An update reads the newest commit, which this repository does not trust yet; its short change is shown open.
     assert.match(text(updateCard), /product-agent 1\.0\.0-pdlc, marketplace acme, at its newest commit/u);
     assert.doesNotMatch(text(updateCard), /at the commit this repository trusts/u);
+    assert.match(text(updateCard), /Updating it also makes this repository trust this commit of marketplace acme, so Browse and Make a workflow read it too\./u);
     assert.match(text(updateCard), /Since this workflow was imported \(version 1\.0\.0-pdlc\): skill requirements-writer changed\./u);
     assert.doesNotMatch(text(updateCard).slice(text(updateCard).indexOf('Conversion review:')), /[a-f0-9]{12}/u, 'the review shows no commit or digest for a person to read');
     assert.match(text(updateCard), /\+ Number every assumption\./u);
@@ -292,6 +302,8 @@ test('the host reads a repository marketplace and makes an agent workflow only t
   assert.match(host, /vscode\.env\.openExternal\(url as unknown as vscode\.Uri\)/u);
   // An update (MCR §8): --update only when the page says exactly true, on the same checked arguments.
   assert.match(host, /\(message as \{ update\?: unknown \}\)\.update === true/u);
+  // Read its newest commit shows which workflows made from it changed, from the engine's same read (MCR:REQ-030).
+  assert.match(host, /if \(read\.repin === true && Array\.isArray\(result\.updates\) && result\.updates\.length\) this\.post\(\{ type: 'studio\.importsChecked', result: \{ imports: result\.updates \} \}\);/u);
   assert.doesNotMatch(host, /studio\.agentFeedbackIssue[^\n]*stringField\(message, 'url'\)/u, 'the page never hands the host an address');
   // The import's outcome goes back to Workflow Studio at once: real VS Code, 2026-11-24, the import review and Studio
   // stayed busy until someone found the "saved as an uncommitted local draft" note and clicked one of its buttons.

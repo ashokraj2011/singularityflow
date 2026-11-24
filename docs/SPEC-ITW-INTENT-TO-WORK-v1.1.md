@@ -37,6 +37,8 @@ why.
 - Progress is quiet: one line per finished step.
 - The last message says plainly what was done and what was checked.
 - Journey tests count a person's actions and keep mechanical ones at zero.
+- A code task ends with the checked change on the Story's branch. A pull request is opened only when the person asks
+  (owner, 2026-11-25).
 
 ---
 
@@ -56,11 +58,16 @@ bug understood, a spec written or code tidied should get that too, from the same
 SFlow answers with one line and starts:
 
 ```text
-Plan: code → tests → you approve the code → pull request. Say "add a design step" to change it.
+Plan: code → tests → you approve the code. Say "add a design step" to change it.
 ```
 
 It then does the work in the same chat, step after step. It stops only where a person must decide: an approval the team
-rules give a person, or a real question. After the answer it carries on by itself. The work ends with the pull request.
+rules give a person, or a real question. After the answer it carries on by itself. The work ends with the checked change
+on the task's branch:
+
+```text
+Done: the fix is checked and committed on TASK-12's branch. Say "open the pull request" when you want one.
+```
 
 The same chat can go on from one task to the next:
 
@@ -228,13 +235,16 @@ rules still applied.
 - A new, unrelated request starts a new task. It takes nothing from the earlier task's steps or approvals.
 
 **ITW:REQ-018, the end of a task, and the last message.**
-- The end point depends on the kind:
-  - a code kind ends with the pull request;
-  - `investigate` and `review` end with the report;
-  - `docs` ends with the document's pull request.
-- "Stop before the pull request" ends a code kind with the change checked and committed on the Story's branch.
+- The end point depends on the kind (owner, 2026-11-25):
+  - a code kind ends with the change checked, approved where the rules say so, and committed on the Story's branch;
+  - `docs` ends with the document committed on the Story's branch;
+  - `investigate` and `review` end with the report.
+- A pull request is opened only when the person asks:
+  - in the task's words ("… and open a pull request"), so the plan line ends with it;
+  - or afterwards ("open the pull request"), which opens it for the finished task with no new task.
 - The last message says:
-  - what was done, and where it is (the pull request link or the document's path);
+  - what was done, and where it is (the Story's branch, the document's path, or the pull request link when one was
+    asked for);
   - which checks ran and passed, and which did not run;
   - what a person approved;
   - anything left open.
@@ -293,8 +303,8 @@ These already hold in SFlow, and `/sf-task` keeps them:
 - **A7:** A proposed or beta skill needs a yes. An untrusted marketplace is never read.
 - **A8:** `use: { release: classic-delivery }` makes a release task follow that workflow unchanged.
 - **A9:** The Story's snapshot holds the composed steps and the skill texts. A second laptop resumes the same steps.
-- **A10:** A journey test walks `/sf-task` to the pull request on VS Code and the Copilot CLI. The Story fuzzer composes
-  tasks of every kind, and the invariant checks hold.
+- **A10:** A journey test walks `/sf-task` to the checked change on VS Code and the Copilot CLI, then "open the pull
+  request" opens it. The Story fuzzer composes tasks of every kind, and the invariant checks hold.
 - **A11:** A fix with no real question takes exactly two person actions: the words and the code approval.
 - **A12:** "Fix it" after an investigation starts a fix whose intake is the report. No question is asked twice.
 - **A13:** A refactor that changes the order of two errors stops at its test step and names the change. A refactor with
@@ -311,8 +321,10 @@ These already hold in SFlow, and `/sf-task` keeps them:
 - **A18:** A task with five automatic approvals and twelve passing checks shows one line per finished step and nothing
   else.
 - **A19:** An unrelated second request in the same chat starts a new task. The first task's approvals are not reused.
-- **A20:** The last message of a code task names the pull request, the checks that ran, those that did not, and what a
-  person approved.
+- **A20:** The last message of a code task names the Story's branch, the checks that ran, those that did not, and what a
+  person approved. No pull request exists unless the person asked for one.
+- **A21:** "… and open a pull request" in the task's words puts the pull request at the end of the plan line and opens
+  it. "Open the pull request" after a finished task opens it without starting a new task.
 
 ## 8. Milestones
 
@@ -328,10 +340,8 @@ About 3½ to 4 weeks.
 
 ## 9. Open questions for the owner
 
-1. **Where a code task ends.**
-   - Default: the pull request, as in v1.
-   - The other choice, from IEX: stop at the checked change on the Story's branch, and open the pull request only when
-     asked.
+1. **Where a code task ends.** Decided (owner, 2026-11-25): at the checked change on the Story's branch. A pull request
+   is opened only when asked (REQ-018).
 2. **The ID prefix** when no Jira key is given. Default `TASK`.
 3. **Default approvals.** Default: a person approves the plan (where there is one) and the delivered code; SFlow
    approves every other clean step. The rules can raise this.

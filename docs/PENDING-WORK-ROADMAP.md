@@ -490,6 +490,7 @@ matrix cell.
 | Auto v2 | Story P0/P1, model/AST optionality, direct Ad Hoc Candidate adoption, and guarded registered comparative-quality projection are implemented | Optional SGOS profile after its independent acceptance contract; execute and independently review a real qualifying comparison study | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
 | Fast onboarding and safe Git | M0–M5 code-local contracts are active. Portable delivery-state authority discovery, URL-first approved-map inspection, explicit registered-lead search, deferred proposal enumeration, exact conflict reconciliation, cross-process verified capability-catalog reuse, Smart clone defaults, and the VS Code explanation/recovery slice landed through `main@7508665e`. RDS v1's explicit model-free provider catalog and repository selection flow subsequently landed at `main@baca8ed1`; controlled release evidence remains open | Complete `CAD-WSP-PLAN-v1` M6 office/platform evidence, FOS AC-035, external M5 adapter certification, and RDS physical office/provider evidence | [Operator guide](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md), [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md), [capability/workspace extension plan](CAPABILITY-AUTHORITY-DISCOVERY-AND-WORKSPACE-PERFORMANCE-PLAN.md), and [repository discovery specification](SPEC-RDS-REPOSITORY-DISCOVERY-AND-SELECTION-v1.md) |
 | Story storage (SSB) | Proposed, not built. The spec and [ADR 0019](adr/0019-story-state-off-the-code-branch.md) landed at `main@fca4d3c78` | The owner's go and four decisions, then the M0 probes | [SSB-v1](SPEC-SSB-STORY-STATE-BRANCH-v1.md) and `SSB-001` below |
+| Story lessons (LRN) | Proposed, not built. The spec landed on 2026-11-24 | The owner's go and four decisions | [LRN-v1](SPEC-LRN-STORY-LESSONS-v1.md) and `LRN-001` below |
 
 Completed work is not repeated in this tracker. In particular, the
 [VS Code UI remediation contract](history/completed-fixes.md#vs-code-ui-remediation-plan) is implemented and regression-backed; a
@@ -968,6 +969,47 @@ changes the spec before M1 starts. The size was measured on `main@99b0b01f8`:
 - a Story started on today's layout finishes unchanged.
 
 SSB is independent of the dependency order above.
+
+## Story lessons (LRN)
+
+### [ ] LRN-001 — Every Story leaves lessons, and the next Story reads them
+
+**Added:** 2026-11-24.
+
+**Owner, 2026-11-24:** "how we make sure that this is part of the learning and next story it will not have the same
+mistake ..kind of countinous learning".
+
+**Contract:** [LRN-v1](SPEC-LRN-STORY-LESSONS-v1.md).
+
+**What it delivers:**
+- SFlow notices lessons from a Story's own records, with no model:
+  - the test command that worked;
+  - a refusal that kept coming back;
+  - a reviewer's finding;
+  - a file that had to change with another;
+  - the environment a run needed.
+- It keeps them in the existing knowledge store with no stop, and a person can drop any of them.
+- Each later Story step gets the lessons for the files it touches, as guidance only.
+- Each Story's closing summary says whether an earlier mistake happened again.
+
+**Parked until the owner says go and settles four questions** (the spec's §7 has the defaults):
+1. keeping lessons without a confirmation;
+2. shared with the team or private;
+3. an abandoned Story's lessons;
+4. how much a step is given.
+
+| Milestone | Scope | Size |
+|---|---|---|
+| M1 | Noticing from records, the agent's own section, Story provenance, the `steps` scope, secrets | about 4 days |
+| M2 | Recall into Story steps, test command suggestions, staying true | about 3 days |
+| M3 | Drop and Keep, the end line, VS Code's Lessons list and the Code Explainer section, `singularity-flow lessons` | about 3 days |
+| M4 | Repeats and the closing summary, journeys, the fuzzer, one real two-Story run | about 2 days |
+
+About two weeks.
+
+**Exit gate (`[x]`):**
+- the spec's acceptance A1 to A11 pass;
+- a real second Story in VS Code is given the first Story's lesson and does not repeat its mistake.
 
 ## Pickup checklist
 

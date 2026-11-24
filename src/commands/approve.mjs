@@ -313,6 +313,12 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   if (receiptsLine && !quiet) console.log(receiptsLine);
   const usageLine = await recordSpecUsageAfterTransition(root, config, workflow, { phase: result.phase.id, ended: !result.next });
   if (usageLine && !quiet) console.log(usageLine);
+  // The lessons this step left, one line and never a question [LRN:REQ-003]; how the Story used lessons, at its end.
+  const lessonsModule = result.reached !== false ? await import('../story-lessons-notice.mjs') : null;
+  const keptLessons = lessonsModule ? await lessonsModule.lessonsAfterApproval(root, workflow.workItem.id, result.phase.id) : null;
+  if (keptLessons && !quiet) console.log(keptLessons.line);
+  const lessonsUse = lessonsModule && !result.next ? await lessonsModule.storyLessonsUse(root, workflow.workItem.id) : null;
+  const lessonsUseLine = lessonsUse ? lessonsModule.storyLessonsLine(lessonsUse) : null;
   // The Story reached a test step whose failing tests SFlow returned to the code step, and the fix is approved: its tests
   // run again, its next version started by SFlow with an undo (failing-tests-opening.mjs, owner 2026-11-20, D1).
   const rerun = result.reached !== false && result.next && (workflow.settledDecisions ?? []).some((entry) => entry?.kind === 'failing-tests')
@@ -330,6 +336,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   // The last approval ends the Story only after its transaction passed the final evaluation.
   const completion = result.next ? null : recordedCompletion(workflow);
   if (completion && !quiet) printCompletionVerdict(completion);
+  if (lessonsUseLine && !quiet) console.log(lessonsUseLine);
   // SFlow never merges (owner, 2026-11-19): after a person's Yes to the delivered code, finalizing and opening the pull
   // request follow once the remaining steps pass; merging stays the person's click on the Git host (story-landing.mjs).
   const landing = completion ? (await postPublicationStep('finalizing and the pull request', workflow.workItem.id,
@@ -354,6 +361,8 @@ export async function approveCommand(positionals, options, dependencies = {}) {
       ...(result.decisions ? { decisions: result.decisions } : {}),
       artifactSetSha256: result.approval.artifactSetSha256,
       ...(rerun ? { testsRerun: rerun } : {}),
+      ...(keptLessons ? { lessons: keptLessons.lessons } : {}),
+      ...(lessonsUseLine ? { lessonsUse: { ...lessonsUse, repeats: undefined, line: lessonsUseLine } } : {}),
       ...(landing ? { landing: { finalized: landing.finalized, pullRequest: landing.pullRequest, next: landing.next } } : {}),
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }

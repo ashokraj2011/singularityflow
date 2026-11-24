@@ -6,11 +6,11 @@ import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowE
 import { REMOVED_WORLD_MODEL_SUBCOMMANDS, removedWorldModelError } from './removed-features.mjs';
 
 const READ_ONLY = new Set(['outcome', 'result', 'specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'gate', 'explain', 'comprehension', 'precheck', 'index', 'prompts']);
-const STRUCTURED = new Set(['git-policy', 'outcome', 'result', 'confirm', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock', 'backup', 'guard', 'findings', 'prompts', 'update']);
+const STRUCTURED = new Set(['git-policy', 'outcome', 'result', 'confirm', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock', 'backup', 'guard', 'findings', 'prompts', 'update', 'lessons']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['git-policy', 'skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'lock', 'backup', 'guard', 'findings']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['git-policy', 'skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'lock', 'backup', 'guard', 'findings', 'lessons']);
 // Run and test from a capability [RUN]: plan, status and summary read; start, stop and run execute code.
 const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
 const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config', 'connections']);
@@ -188,6 +188,8 @@ const LAZY_MODULES = Object.freeze({
   guard: './commands/guard.mjs',
   findings: './commands/findings.mjs',
   prompts: './commands/prompts.mjs',
+  // Story lessons: a person's view, Drop, Keep and Edit [LRN:REQ-014].
+  lessons: './commands/lessons.mjs',
   // Machine-level like `reinstall`: product surfaces, never a repository or workspace.
   product: './commands/product.mjs',
   update: './commands/update.mjs',
@@ -258,7 +260,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
   ['approve'], ['reject'], ['decision'], ['decisions'], ['upstream-issue'], ['departure'], ['app'], ['tests'], ['apm'], ['app-review'], ['git-policy'], ['outcome'], ['result'], ['call'], ['gateway'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm', ['world-model']], ['jira'], ['plugin'], ['snapshot'], ['configuration', ['config']], ['constitution'], ['initiative'], ['epic'],
-  ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['repositories', ['repos']], ['revision'], ['revise'], ['hook'], ['bootstrap'], ['secrets'], ['env'],
+  ['story'], ['workspace'], ['copilot'], ['knowledge'], ['lessons'], ['capability'], ['repositories', ['repos']], ['revision'], ['revise'], ['hook'], ['bootstrap'], ['secrets'], ['env'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
   // in the product, buried behind a flag on a verb that also means something else. This is the front
   // door; the flag still works.
@@ -1646,6 +1648,10 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   }
   // The decision list reads; only `decisions record` and a person's `decisions undo` write (its second word may be a Story ID).
   // `decisions learn` reads the advice records only [Q13].
+  // Lessons read; a person's drop, keep and edit write [LRN:REQ-004].
+  if (definition.name === 'lessons') {
+    return ['drop', 'keep', 'edit'].includes(positionals[1]) ? never(`lessons.${positionals[1]}`, definition, 'mutation') : never('lessons.list', definition, 'read');
+  }
   if (definition.name === 'decisions') {
     if (positionals[1] === 'undo') return never('decisions.undo', definition, 'mutation');
     if (positionals[1] === 'learn') return never('decisions.learn', definition, 'read');
@@ -1988,6 +1994,8 @@ export function operationCatalog() {
     never('decisions.show', commandDefinition('decisions'), 'read'),
     never('decisions.record', commandDefinition('decisions'), 'mutation'),
     never('decisions.undo', commandDefinition('decisions'), 'mutation'),
+    never('lessons.list', commandDefinition('lessons'), 'read'),
+    ...['drop', 'keep', 'edit'].map((name) => never(`lessons.${name}`, commandDefinition('lessons'), 'mutation')),
     ...['add.preview', 'list', 'show'].map(name => never(`call.${name}`, commandDefinition('call'), 'read')),
     never('call.add', commandDefinition('call'), 'mutation'),
     ...GATEWAY_ACTIONS.map(name => gatewayOperation(commandDefinition('gateway'), name)),

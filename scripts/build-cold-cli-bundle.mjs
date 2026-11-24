@@ -27,7 +27,10 @@ const FAMILIES = Object.freeze([
     // any one of their families, the others would import that family's chunk for it.
     'copilot-home.mjs',
     // The laptop's last activity, stamped by root dispatch and the prompt hook alike (machine-activity.mjs).
-    'machine-activity.mjs']],
+    'machine-activity.mjs',
+    // A Story step's refusal, noted for its lessons on every refused command (lesson-refusals.mjs, LRN-v1): in the startup
+    // chunk, so a refusal loads no other family for it.
+    'lesson-refusals.mjs']],
   ['status', ['commands/status.mjs', 'commands/progress.mjs', 'commands/report.mjs',
     'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs',
     // The Story report's change impact counts, imported only by `report` and its read [CIC:REQ-017].
@@ -152,6 +155,9 @@ const FAMILIES = Object.freeze([
     // What the plan already answered, imported only when a convergence step reads its inputs. Unclaimed,
     // every prepare, submit and approval of that step loaded compatibility and models.
     'plan-accounts.mjs',
+    // Story lessons [LRN-v1]: the step prompt's lessons and the approval's noticing. Unclaimed, every compose and
+    // approval would load compatibility and models.
+    'story-lessons.mjs', 'story-lessons-notice.mjs',
     // The one pending list that nextsteps and readiness count from, and the approval check it
     // previews. Unclaimed, they fell into compatibility, so nextsteps on an open step loaded it and models.
     'decision-list-reads.mjs', 'decision-list.mjs', 'step-sheet.mjs', 'approval-check.mjs', 'visual-profile-decisions.mjs', 'commands/decision-plan-amendment.mjs', 'commands/decision-obligation-risk.mjs', 'commands/decision-story-records.mjs', 'commands/story-adjudicate-terminal.mjs', '../plugin/extensions/decisions/decisions.mjs', '../plugin/extensions/decisions/form-rounds.mjs',

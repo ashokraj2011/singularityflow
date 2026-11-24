@@ -20,6 +20,9 @@ export function approvalAgentResult(result) {
       reviewPacketSha256: result.data?.reviewPacketSha256,
       artifactSetSha256: result.data?.artifactSetSha256 },
     finalCheck: result.data?.finalCheck ?? null,
+    // The lessons the step left [LRN:REQ-014]: said to the person in one line, numbered, so "drop 2" names one.
+    ...(Array.isArray(result.data?.lessons) && result.data.lessons.length ? { lessons: result.data.lessons } : {}),
+    ...(result.data?.lessonsUse?.line ? { lessonsUse: result.data.lessonsUse.line } : {}),
     // Said plainly: "recorded under quality-reviewers, but self-approved" read as a fault (anu-bin, 2026-11-11).
     warnings: result.data?.selfApproval === true ? ['You approved a step you also worked on. This Story allows it, but it is not independent review.'] : [],
     personalization: result.data?.personalization,

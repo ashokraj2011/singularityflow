@@ -14,7 +14,7 @@ import {
   verifyInitiativePhaseInputs
 } from './state-stores.mjs';
 import { initiativeCheckRequirement, initiativeOutputRequired } from './initiative-policy.mjs';
-import { readKnowledge, recallKnowledge } from './knowledge.mjs';
+import { readKnowledge, recallKnowledge, provenanceWords } from './knowledge.mjs';
 import { loadSession } from './session.mjs';
 import {
   secureRepositoryPath,
@@ -171,7 +171,7 @@ const KNOWLEDGE_ORDER = { uncertainty: 0, constraint: 1, gotcha: 2, decision: 3,
 function knowledgeLine(entry) {
   const { sha256, record } = entry;
   // The source by its work, artifact and approved revision, never its digest: this text can reach a person.
-  const origin = record.provenance.map((item) => `${item.workId}:${item.artifact} revision ${item.approvedRevision}`).join(', ');
+  const origin = record.provenance.map(provenanceWords).join(', ');
   return `- **${record.type}${record.type === 'uncertainty' ? ` (${record.status})` : ''}** ${record.text}\n  \`${record.id}\` · ${origin}`;
 }
 

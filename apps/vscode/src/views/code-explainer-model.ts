@@ -307,7 +307,19 @@ export interface CxTrace {
   counts: { requirements: number; tagged: number; declared: number; gaps: number; tests: number; runs: number; passed: number; failed: number };
 }
 
+/** A lesson an earlier Story left about some files [LRN:REQ-014]: its words and origin, as `lessons --json` gives them. */
+export interface CxLesson {
+  id: string;
+  text: string;
+  from: string;
+  paths: string[];
+  kind: string;
+  mayBeOutOfDate: boolean;
+}
+
 export interface CxModel {
+  /** Lessons from earlier Stories, matched to a file by the page. */
+  lessons?: CxLesson[];
   schema: number;
   id: string;
   mode: 'change' | 'source';

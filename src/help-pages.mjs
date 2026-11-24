@@ -484,6 +484,30 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['initiative', 'story', 'artifact']
   },
+  lessons: {
+    summary: 'Read, drop, keep or edit the lessons earlier Stories left for the files they touched.',
+    description: [
+      'When a Story step is approved, SFlow notices lessons from its own records with no model: a',
+      'test run that stopped on its environment, a refusal that kept coming back, a reviewer\'s finding',
+      'that was fixed, a check a person overrode, failing tests that sent the work back, and a file',
+      'outside the plan that the work needed. It keeps them with no question, in the repository with',
+      'the Story, and each later step is given the ones for the files it touches, as guidance only.',
+      '',
+      'Drop resolves a lesson for good; Keep confirms it, so it comes first; Edit puts your words in',
+      'its place. Each is committed on the checked-out branch. Nothing here approves or blocks work.'
+    ],
+    options: [
+      ['--path PATH', 'Only the lessons about this file or folder.'],
+      ['--story WORK-ID', 'Only the lessons this Story left.'],
+      ['--text TEXT', 'The new words, for edit.'],
+      ['--json', 'Emit the lessons, or the change, as JSON.']
+    ],
+    examples: [
+      ['singularity-flow lessons --path src/workflow-transfer.mjs', 'What earlier Stories learned about this file.'],
+      ['singularity-flow lessons drop K-0123456789ab', 'Never give this lesson to a step again.']
+    ],
+    seeAlso: ['knowledge', 'story', 'approve']
+  },
   intent: {
     summary: 'Capture, confirm, create, ratify, and compile intent without letting proposals become authority.',
     description: [

@@ -1047,11 +1047,25 @@ export async function compose(root, options, {
   // One repository brief for this phase's reader: repository knowledge and docs, ranked by the
   // Story and cut to the phase's budget, each line with its file and line. `wm brief --polish`
   // (only) asks a model to phrase it; every other compose reuses a saved phrasing or none.
-  const repositoryBrief = await phaseRepositoryBrief(root, {
+  let repositoryBrief = await phaseRepositoryBrief(root, {
     definition, workflow, phase: signals.phase, changedPaths: signals.changedPaths ?? [],
     polish: options['brief-polish'] === 'write' ? 'write' : 'cached', refresh: options['brief-polish-refresh'] === true
   });
   if (typeof options['brief-observer'] === 'function') options['brief-observer'](repositoryBrief);
+  // Lessons from earlier Stories for the files this step names or touches [LRN:REQ-008]. They ride the brief's optional
+  // section, so a short budget evicts them with it, whole; with the World Model off they are the section's only text.
+  if (workflow && signals.phase) {
+    try {
+      const lessons = await (await import('./story-lessons.mjs')).phaseLessons(root, {
+        workflow, phase: signals.phase, record: !dryRun && !renderOnly,
+        paths: [...(signals.changedPaths ?? []), ...await workflowPlannedPaths(root, workItemRoot, workflow)]
+      });
+      lessons.warnings.forEach((warning) => console.error(`Lessons warning: ${warning}`));
+      if (lessons.text) repositoryBrief = { ...repositoryBrief, text: repositoryBrief.text ? `${repositoryBrief.text}\n\n${lessons.text}` : lessons.text };
+    } catch (error) {
+      console.error(`Lessons warning: earlier lessons were left out (${String(error?.message ?? error).split('\n')[0]}).`);
+    }
+  }
   const structural = workflow
     ? await requiredStructuralPromptContext(root, workflow)
     : { text: '', record: null, warnings: [] };

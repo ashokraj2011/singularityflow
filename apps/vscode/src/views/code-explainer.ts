@@ -25,7 +25,7 @@ import { containedWorkingPath, readExactSource } from './change-explorer-source.
 import {
   analysisCalls, buildCodeExplainerModel, changePrompt, codeAreas, convertSymbols, copilotPrompt, CX_LIMITS, CX_OUTPUT_FOLDERS, explanationText, exportDocument,
   externalLabel, fairSample, hoverParts, inArea, isCodeLanguage, isExplainableRepositoryPath, isTestPath, languageOf, repositoryPath, symbolKey, workingDiff,
-  type CxAnalysisCall, type CxArea, type CxBuildInput, type CxDiffHunk, type CxCallEnd, type CxCallInput, type CxChangeView, type CxFileInput, type CxModel, type CxRawSymbol,
+  type CxAnalysisCall, type CxArea, type CxBuildInput, type CxDiffHunk, type CxCallEnd, type CxCallInput, type CxChangeView, type CxFileInput, type CxLesson, type CxModel, type CxRawSymbol,
   type CxView
 } from './code-explainer-model.ts';
 import { buildLenses } from './code-explainer-lenses.ts';
@@ -179,6 +179,7 @@ export class CodeExplainerPanel {
   private static current: CodeExplainerPanel | null = null;
   private readonly subscriptions: vscode.Disposable[] = [];
   private model: CxModel | null = null;
+  private lessonsList: CxLesson[] = [];
   private locations: Locations | null = null;
   private slice: ComprehensionIdeSnapshot | null = null;
   private builtRevision: string | null = null;
@@ -325,8 +326,12 @@ export class CodeExplainerPanel {
     },
     'cx.story': (message) => {
       if (!this.accept(message, { allowStale: true })) return;
-      const to = enumField(message, 'to', ['journey', 'approvals'] as const);
-      if (to) void vscode.commands.executeCommand(to === 'journey' ? 'singularityFlow.openJourney' : 'singularityFlow.openApprovals');
+      const to = enumField(message, 'to', ['journey', 'approvals', 'lessons'] as const);
+      // Lessons about a file open on that file: named by the model's module ID, never a path the page sends.
+      if (to === 'lessons') {
+        const module = this.model?.modules.find((entry) => entry.id === stringField(message, 'module'));
+        void vscode.commands.executeCommand('singularityFlow.lessons', module && !module.external ? module.path : null);
+      } else if (to) void vscode.commands.executeCommand(to === 'journey' ? 'singularityFlow.openJourney' : 'singularityFlow.openApprovals');
     }
   });
 
@@ -462,6 +467,12 @@ export class CodeExplainerPanel {
 
   private async harvest(generation: number): Promise<void> {
     const started = Date.now();
+    // What earlier Stories learned, read once a build beside the harvest; none when the engine cannot say [LRN:REQ-014].
+    void this.client.run<unknown>(['lessons', '--json']).then((reply) => {
+      const data = (reply && typeof reply === 'object' && 'data' in reply ? (reply as { data: unknown }).data : reply) as { lessons?: CxLesson[] } | null;
+      this.lessonsList = (data?.lessons ?? []).slice(0, 400).map((lesson) => ({ id: String(lesson.id), text: String(lesson.text), from: String(lesson.from ?? ''),
+        paths: Array.isArray(lesson.paths) ? lesson.paths.map(String) : [], kind: String(lesson.kind ?? ''), mayBeOutOfDate: lesson.mayBeOutOfDate === true }));
+    }).catch(() => { this.lessonsList = []; });
     const current = () => generation === this.generation && !this.disposed;
     const root = this.store.current.snapshot?.repository?.root ?? this.client.repository;
     if (!root) {
@@ -649,6 +660,7 @@ export class CodeExplainerPanel {
       if (input.story) input.story.gates = this.services.gates?.() ?? null;
       const built = { ...input, durationMs: input.status === 'pending' ? null : Date.now() - started };
       this.model = buildCodeExplainerModel(built, `cx-${generation}`);
+      this.model.lessons = this.lessonsList;
       // The other lenses read the same harvest; one that fails leaves the Code lens as it is.
       try { this.model.lenses = buildLenses(built, this.model); }
       catch (error) { this.model.intelligence.notes.push(`The concept, entity, data-flow and logic lenses could not be built: ${error instanceof Error ? error.message : String(error)}`); }

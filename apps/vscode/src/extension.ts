@@ -1279,7 +1279,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.guideDeliveryValidation', 'singularityFlow.applicationReview', 'singularityFlow.openApmPackages',
     'singularityFlow.showImpact', 'singularityFlow.showPrompts', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.reviewWitness', 'singularityFlow.adjudicate', 'singularityFlow.decide', 'singularityFlow.sfGuard',
-    'singularityFlow.findings', 'singularityFlow.uploadFindings',
+    'singularityFlow.findings', 'singularityFlow.uploadFindings', 'singularityFlow.lessons',
     'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
     'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
@@ -10049,6 +10049,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.sfGuard': async () => lazyPanels().SfGuardPanel.show(client, { memento: context.globalState, output, refresh: refreshAfterKnownMutation }),
     // Security team and TLM findings: the register's Security and TLM tabs, and the upload that imports a workbook (CQF M6).
     'singularityFlow.findings': async () => lazyPanels().FindingsPanel.show(client, { output, refresh: refreshAfterKnownMutation }),
+    // What earlier Stories learned, with Drop, Keep and Edit [LRN:REQ-014]; a path opens it on that file's lessons.
+    'singularityFlow.lessons': async (filter?: unknown) => lazyPanels().LessonsPanel.show(client, typeof filter === 'string' ? filter : null),
     'singularityFlow.uploadFindings': async () => {
       const { uploadFindings, FindingsPanel, findingsImportSummary } = lazyPanels();
       const result = await uploadFindings(client, { output, refresh: refreshAfterKnownMutation });

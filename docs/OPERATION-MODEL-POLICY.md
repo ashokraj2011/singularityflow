@@ -549,6 +549,10 @@ Every public operation is classified before its implementation module is importe
 | learn.teach-back | read | never | — | — |
 | learn.workspace | read | never | — | — |
 | ledger | mutation | never | — | — |
+| lessons.drop | mutation | never | — | — |
+| lessons.edit | mutation | never | — | — |
+| lessons.keep | mutation | never | — | — |
+| lessons.list | read | never | — | — |
 | local-reset | mutation | never | — | — |
 | local.audit | read | never | — | — |
 | local.freeze | mutation | never | — | — |

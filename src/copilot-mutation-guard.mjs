@@ -1850,7 +1850,7 @@ const NO_STORY_COMMANDS = Object.freeze({
   impact: ['impact'], import: ['import', 'imports', 'marketplace', 'workflow import'],
   'initiative-approve': ['initiative'], 'initiative-evidence': ['initiative'], 'initiative-materialize': ['initiative'],
   'initiative-phase': ['initiative'], 'initiative-start': ['initiative'], 'jira-initiative': ['initiative'],
-  'jira-update': ['jira'], integrations: ['integrations'], journal: ['journal'], knowledge: ['knowledge'], learn: ['learn'],
+  'jira-update': ['jira'], integrations: ['integrations'], journal: ['journal'], knowledge: ['knowledge', 'lessons'], learn: ['learn'],
   ledger: ['ledger'], local: ['local'], 'local-reset': ['local-reset'], mcp: ['mcp'], plugin: ['plugin'],
   product: ['product'], 'prompt-log': ['prompt-log'], push: ['push', 'sync'], quickstart: ['quickstart'],
   ready: ['precheck'], reinstall: ['reinstall'],

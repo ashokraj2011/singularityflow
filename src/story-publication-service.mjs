@@ -217,6 +217,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   // blamed the operator) and a complete approved decision on disk for an approval that was undone —
   // which the next successful governed commit would then sweep into signed, pushed, attested history.
   const workDirectory = workDirRelative(config, workflow.workItem.id);
+  const lessonPaths = event?.type === 'phase-approved' ? ['singularity/knowledge/records'] : [];
   // Narrow evidence/appeal transactions must not sweep an unfinished phase draft into a commit.
   // The subject state and status projection remain mandatory owned paths; callers cannot use this
   // internal option to commit application code or another Story's files.
@@ -256,8 +257,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   const result = await lifecycleAuthority(root).publish({
     subject: envelope.subject,
     expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
-    allowedPaths: exactWorkItemPaths === null ? [workDirectory, ...extraPaths]
-      : [...new Set([`${workDirectory}/workflow.json`, `${workDirectory}/STATUS.md`, ...exactWorkItemPaths, ...extraPaths])],
+    // An approved step's lessons are committed with its approval [LRN:REQ-005].
+    allowedPaths: exactWorkItemPaths === null ? [workDirectory, ...extraPaths, ...lessonPaths]
+      : [...new Set([`${workDirectory}/workflow.json`, `${workDirectory}/STATUS.md`, ...exactWorkItemPaths, ...extraPaths, ...lessonPaths])],
     event: envelope,
     commit: { message },
     state: {
@@ -386,6 +388,11 @@ export async function commitAndPublish(root, config, workflow, event, message, e
                 itemDirectory: workDir(root, config, workflow.workItem.id),
                 itemRelative: workDirRelative(config, workflow.workItem.id)
               });
+              // The step's lessons, noticed from its own records and kept with no stop [LRN:REQ-001, REQ-003]. Guidance
+              // only: a lesson that cannot be kept never costs the approval [LRN:REQ-009].
+              try {
+                await (await import('./story-lessons-notice.mjs')).noticeStepLessons(root, config, workflow, requestedPhase.id);
+              } catch { /* no lesson, same approval */ }
             }
           }
         }

@@ -948,6 +948,11 @@
         "icon": "$(shield)"
       },
       {
+        "command": "singularityFlow.lessons",
+        "title": "Singularity Flow: Lessons",
+        "icon": "$(lightbulb)"
+      },
+      {
         "command": "singularityFlow.findings",
         "title": "Singularity Flow: Findings",
         "icon": "$(bug)"

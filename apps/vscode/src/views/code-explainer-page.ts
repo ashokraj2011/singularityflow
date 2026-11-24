@@ -77,6 +77,7 @@ export const CX_STYLE = `
   .cx-q .cx-count:empty { display: none; }
   .cx-crumb { flex: 1 1 12rem; text-align: right; padding-left: .8rem; color: var(--cx-dim); font-family: var(--cx-mono); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .cx-crumb strong { color: var(--cx-text); font-weight: 600; }
+  .cx-lessons { list-style: none; padding: 0; margin: 0 0 .5rem; } .cx-lessons li { margin: 0 0 .55rem; } .cx-lessons p { margin: 0 0 .15rem; }
   .cx-context { display: inline-flex; flex: none; flex-wrap: nowrap; align-items: center; gap: .3rem .9rem; margin: 0; color: var(--cx-dim); font-family: var(--cx-mono); font-size: 11px; }
   .cx-context span { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
   .cx-context strong { color: var(--cx-text); font-weight: 600; }
@@ -2015,6 +2016,35 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       tests.appendChild(list);
     } else tests.appendChild(el('p', 'cx-muted', symbol.testStatus === 'complete' ? 'No test file refers to it.' : 'Not asked for this symbol.'));
     inspector.appendChild(tests);
+    renderLessons(model.moduleById[symbol.moduleId]);
+  }
+
+  // What earlier Stories learned about this file [LRN:REQ-014]: their words and where they came from, never a digest.
+  function lessonsAbout(module) {
+    if (!module || module.external || !module.path) return [];
+    const file = module.path;
+    return (model.lessons || []).filter(function (lesson) {
+      return (lesson.paths || []).some(function (item) {
+        const folder = item.replace(/\/$/, '') + '/';
+        return item === file || file.indexOf(folder) === 0;
+      });
+    });
+  }
+  function renderLessons(module) {
+    const found = lessonsAbout(module);
+    if (!found.length) return;
+    const lessons = box('Lessons about this file', 'from earlier Stories, guidance only');
+    lessons.dataset.section = 'lessons';
+    const list = el('ul', 'cx-lessons');
+    found.slice(0, 6).forEach(function (lesson) {
+      const li = el('li');
+      li.appendChild(el('p', '', lesson.text));
+      li.appendChild(el('small', 'cx-muted', 'From ' + lesson.from + (lesson.mayBeOutOfDate ? ' · may be out of date' : '')));
+      list.appendChild(li);
+    });
+    lessons.appendChild(list);
+    lessons.appendChild(button('cx-btn', found.length > 6 ? 'All ' + found.length + ' lessons' : 'Open Lessons', function () { post('cx.story', { to: 'lessons', module: module.id }); }, 'Drop, keep or edit them'));
+    inspector.appendChild(lessons);
   }
 
   function renderModuleInspector() {
@@ -2028,6 +2058,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     inspector.appendChild(el('div', 'cx-ins-path', module.external ? 'Outside this repository' : module.path));
     const badges = el('div', 'cx-badges');
     badges.appendChild(chip(module.language, 'dim'));
+    if (lessonsAbout(module).length) badges.appendChild(chip(lessonsAbout(module).length + ' lesson' + (lessonsAbout(module).length === 1 ? '' : 's'), 'info'));
     badges.appendChild(chip(module.status, module.status === 'added' ? 'ok' : module.status === 'deleted' ? 'bad' : module.status === 'modified' ? 'warn' : 'dim'));
     if (module.added || module.removed) badges.appendChild(chip('+' + module.added + ' −' + module.removed, 'warn'));
     module.tagged.forEach(function (clause) { badges.appendChild(chip('@clause ' + clause, 'ok')); });

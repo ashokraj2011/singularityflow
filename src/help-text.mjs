@@ -1120,6 +1120,9 @@ Usage:
   singularity-flow knowledge import <REPOSITORY-RELATIVE-MANIFEST.json|yaml|yml> [--dry-run] [--json]
   singularity-flow knowledge harvest [--initiative INIT-ID] [--phase PHASE] [--dry-run] [--json]
   singularity-flow knowledge resolve <K-ID> --resolution TEXT [--json]
+  singularity-flow lessons [list] [--path PATH] [--story WORK-ID] [--json]
+  singularity-flow lessons drop|keep <K-ID> [--json]
+  singularity-flow lessons edit <K-ID> --text TEXT [--json]
 
   singularity-flow initiative status [INIT-ID] [--json]
   singularity-flow initiative next [INIT-ID] [--json]

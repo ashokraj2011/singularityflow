@@ -218,6 +218,7 @@ const entries = {
   ],
   copilot: ['sf-workspace-session'],
   knowledge: ['sf-knowledge'],
+  lessons: ['sf-knowledge'],
   capability: [
     'sf-capability-map', 'sf-capabilities', 'sf-capability-doctor',
     'sf-capability-add', 'sf-capability-protect', 'sf-capability-depend', 'sf-test-setup'

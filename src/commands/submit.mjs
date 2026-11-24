@@ -272,6 +272,11 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
     else if (returned) console.log(`\nSubmitted ${phase.id}.`);
     else console.log(`\nSubmitted ${phase.id} phase for approval.`);
+    // The lessons the step left, as after a person's approval [LRN:REQ-003].
+    if (automaticApproval?.approved) {
+      const kept = await (await import('../story-lessons-notice.mjs')).lessonsAfterApproval(root, workflow.workItem.id, phase.id);
+      if (kept) console.log(kept.line);
+    }
     if (automaticApproval?.applies && !automaticApproval.approved) console.log((await import('../automatic-approval.mjs')).needsPersonWords(phase, automaticApproval));
     // The return, or at the brake why SFlow did not make it and the person's filled choices; the test step's run again.
     for (const line of [...(automaticReturn?.lines ?? []), ...(rerun?.line ? [rerun.line] : [])]) console.log(line);

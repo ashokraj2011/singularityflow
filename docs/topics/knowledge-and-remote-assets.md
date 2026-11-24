@@ -7,12 +7,13 @@ aliases:
   - artifact
 commands:
   - knowledge
+  - lessons
   - artifact
 related:
   - artifacts-and-generation
   - world-model
   - evidence-and-ledger
-version: 4
+version: 5
 ---
 Remote templates, generated artifacts, and knowledge are copied or pinned by exact content. Changed remote bytes require an explicit trust or replacement decision.
 
@@ -22,7 +23,7 @@ Use this topic when the current goal matches **knowledge and remote assets**. St
 
 ## Use it from each surface
 
-- **Shell:** `sflow knowledge`, `sflow artifact`. Run `singularity-flow knowledge --help` for the exact forms supported by this build.
+- **Shell:** `sflow knowledge`, `sflow lessons`, `sflow artifact`. Run `singularity-flow knowledge --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
@@ -42,9 +43,19 @@ manifest. Unknown keys, aliases, duplicate claims, and unsafe or non-repository 
 The manifest never substitutes for approved provenance, and re-importing unchanged entries is a
 no-op.
 
+### Story lessons
+
+Every approved Story step leaves lessons that SFlow notices from its own records, with no model and no question: a
+test run that stopped on its environment, a refusal that kept coming back, a reviewer's finding that was fixed, a check a
+person overrode, failing tests that sent the work back, a file outside the plan the work needed, and the agent's own
+`Learnings to carry forward`. They are knowledge records with a lesson part, committed with the approval, and copied
+on this machine so this person's other Stories get them too. Each later step's prompt carries the ones for the files it
+names or touches (at most 10 and 2 KB), as quoted data, never as instructions; nothing blocks or approves because of a
+lesson. `singularity-flow lessons` lists them, and `lessons drop`, `keep` and `edit` change one.
+
 ## State and safety
 
-These commands can change repository or machine-local state: `knowledge`, `artifact`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `knowledge`, `lessons`, `artifact`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

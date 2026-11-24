@@ -369,6 +369,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'upkeep' | '
     return ['status', 'next', 'journey'].includes(action) ? 'read' : 'mutation';
   }
   if (args[0] === 'knowledge') return ['list', 'show'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'lessons') return ['drop', 'keep', 'edit'].includes(args[1] ?? 'list') ? 'mutation' : 'read';
   if (args[0] === 'harness') return (args[1] ?? 'report') === 'report' ? 'read' : 'mutation';
   if (args[0] === 'regression') return (args[1] ?? 'analyze') === 'analyze' && !enabledBooleanOption(args, 'fetch') ? 'read' : 'mutation';
   // Inspect pending uploads; retry spends a transport attempt.

@@ -19,7 +19,19 @@ import { normalizeWorkItemRoot } from './work-item-location.mjs';
 export const KNOWLEDGE_ROOT = 'singularity/knowledge';
 export const KNOWLEDGE_TYPES = new Set(['insight', 'decision', 'gotcha', 'constraint', 'uncertainty']);
 const STATUS = new Set(['active', 'resolved', 'superseded']);
-const SCOPE_KEYS = ['capabilities', 'repositories', 'paths', 'environments'];
+// `steps` names the step intents a Story lesson helps [LRN:REQ-007]. A record that declares none applies to every step;
+// a context that names none (an Initiative's) never recalls a record that declares some.
+const SCOPE_KEYS = ['capabilities', 'repositories', 'paths', 'environments', 'steps'];
+export const LESSON_KINDS = new Set(['test-command', 'refusal', 'finding', 'override', 'failing-test', 'coupling', 'environment', 'agent', 'person']);
+export const LESSON_TRUST = new Set(['noticed', 'agent', 'confirmed']);
+
+/** A lesson SFlow could not keep as given: its code, and where the lessons are listed. */
+function lessonRefusal(message) {
+  return new SingularityFlowError(message, {
+    code: 'KNOWLEDGE_LESSON_INVALID',
+    details: { nextAction: { command: 'singularity-flow lessons', label: 'See the lessons this repository keeps.' } }
+  });
+}
 const KNOWLEDGE_SCHEMA_VERSION = currentSchemaVersion('knowledge-record');
 
 const HARVEST_SECTIONS = new Map([
@@ -44,7 +56,7 @@ function normalizeScope(scope) {
     throw new SingularityFlowError('Knowledge requires an explicit scope object.');
   }
   const result = Object.fromEntries(SCOPE_KEYS.map((key) => [key, values(scope[key])]).filter(([, list]) => list.length));
-  if (!Object.keys(result).length) throw new SingularityFlowError('Knowledge scope must name at least one capability, repository, path, or environment.');
+  if (!Object.keys(result).length) throw new SingularityFlowError('Knowledge scope must name at least one capability, repository, path, environment, or step.');
   return result;
 }
 
@@ -52,6 +64,17 @@ function normalizeProvenance(provenance) {
   const items = Array.isArray(provenance) ? provenance : provenance ? [provenance] : [];
   if (!items.length) throw new SingularityFlowError('Knowledge requires approved artifact provenance.');
   return items.map((item) => {
+    // A Story record a lesson was noticed from [LRN:REQ-006]: the Story, its step, the record's name and its digest.
+    if (item?.kind === 'story-record') {
+      const record = {
+        kind: 'story-record', workId: String(item.workId ?? '').trim(), phase: String(item.phase ?? '').trim(),
+        artifact: String(item.artifact ?? '').trim(), sha256: String(item.sha256 ?? '').trim()
+      };
+      if (!record.workId || !record.phase || !record.artifact || !/^[a-f0-9]{64}$/.test(record.sha256)) {
+        throw lessonRefusal('A lesson noticed from a Story record names the Story, its step, the record and the record\'s full SHA-256.');
+      }
+      return record;
+    }
     const normalized = {
       workId: String(item.workId ?? '').trim(), artifact: String(item.artifact ?? '').trim(),
       sha256: String(item.sha256 ?? '').trim(), approvedRevision: Number(item.approvedRevision)
@@ -70,6 +93,8 @@ async function approvedProvenance(root, provenance) {
     loadPortfolio(root, { required: false }).catch(() => null)
   ]);
   for (const item of provenance) {
+    // Only SFlow's own lessons write a Story record as their source, having read it at that digest; an import never may.
+    if (item.kind === 'story-record') throw lessonRefusal(`'${item.workId} step ${item.phase}' is a Story record: only SFlow's own lessons may name one as their source.`);
     const storyBase = path.posix.join(normalizeWorkItemRoot(definition?.workItemRoot), item.workId);
     const initiativeBase = portfolio
       ? initiativeRelative(portfolio, item.workId)
@@ -119,9 +144,41 @@ function knowledgeCore(record) {
   return core;
 }
 
+/**
+ * What makes a knowledge record a Story lesson [LRN-v1]: how it was found, how far it is trusted, the mistake it is about
+ * (its signature, so the same lesson is kept once and a repeat is counted), where it came from and the commit it was
+ * kept at. Optional: a record without it is the knowledge it always was, and hashes exactly as before.
+ */
+function normalizeLesson(lesson) {
+  if (lesson == null) return null;
+  if (typeof lesson !== 'object' || Array.isArray(lesson)) throw lessonRefusal('A lesson must be an object.');
+  const kind = String(lesson.kind ?? '');
+  const trust = String(lesson.trust ?? 'noticed');
+  if (!LESSON_KINDS.has(kind)) throw lessonRefusal(`A lesson's kind must be one of ${[...LESSON_KINDS].join(', ')}.`);
+  if (!LESSON_TRUST.has(trust)) throw lessonRefusal(`A lesson's trust must be one of ${[...LESSON_TRUST].join(', ')}.`);
+  const signature = String(lesson.signature ?? '').trim();
+  if (!signature) throw lessonRefusal('A lesson requires the signature of the mistake it is about.');
+  const repeats = Number(lesson.repeats ?? 0);
+  if (!Number.isSafeInteger(repeats) || repeats < 0) throw lessonRefusal('A lesson\'s repeats must be a non-negative integer.');
+  const at = lesson.at == null ? null : String(lesson.at);
+  if (at !== null && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(at)) throw lessonRefusal('A lesson\'s commit must be a full commit ID.');
+  return {
+    kind, trust, signature,
+    origin: { workId: String(lesson.origin?.workId ?? '').trim() || null, phase: String(lesson.origin?.phase ?? '').trim() || null },
+    at, repeats, pinned: lesson.pinned === true,
+    ...(lesson.dropped ? { dropped: { at: String(lesson.dropped.at ?? nowIso()), by: lesson.dropped.by ? String(lesson.dropped.by) : null } } : {})
+  };
+}
+
+/** Where a record came from, in words a person reads: never a digest. */
+export function provenanceWords(item) {
+  if (item?.kind === 'story-record') return `${item.workId} step ${item.phase}`;
+  return `${item.workId}:${item.artifact} revision ${item.approvedRevision}`;
+}
+
 function normalizeKnowledgeInput({
   type, text = null, title = null, detail = null, provenance, scope,
-  status = 'active', validFrom = null, validUntil = null, supersedes = null
+  status = 'active', validFrom = null, validUntil = null, supersedes = null, lesson = null
 } = {}) {
   if (!KNOWLEDGE_TYPES.has(type)) throw new SingularityFlowError(`Knowledge type must be one of ${[...KNOWLEDGE_TYPES].join(', ')}.`);
   const cleanText = String(text ?? [title, detail].filter(Boolean).join(' — ')).trim();
@@ -130,7 +187,7 @@ function normalizeKnowledgeInput({
   if (supersedes != null && !/^[a-f0-9]{64}$/.test(supersedes)) throw new SingularityFlowError('Knowledge supersedes must be a full record SHA-256.');
   return {
     type, text: cleanText, provenance: normalizeProvenance(provenance), scope: normalizeScope(scope),
-    status, validFrom, validUntil, supersedes
+    status, validFrom, validUntil, supersedes, lesson: normalizeLesson(lesson)
   };
 }
 
@@ -139,7 +196,8 @@ async function plannedKnowledgeRecord(root, normalized) {
     schemaVersion: KNOWLEDGE_SCHEMA_VERSION, type: normalized.type, text: normalized.text,
     provenance: normalized.provenance, scope: normalized.scope, status: normalized.status,
     validFrom: normalized.validFrom ?? nowIso(), validUntil: normalized.validUntil ?? null,
-    createdBy: actorKey(identity(root)), supersedes: normalized.supersedes ?? null
+    createdBy: actorKey(identity(root)), supersedes: normalized.supersedes ?? null,
+    ...(normalized.lesson ? { lesson: normalized.lesson } : {})
   };
   const sha256 = recordSha256(knowledgeCore(core));
   const record = { ...core, id: `K-${sha256.slice(0, 12)}`, createdAt: nowIso() };
@@ -174,6 +232,28 @@ export async function recordKnowledge(root, input = {}) {
   return result;
 }
 
+/**
+ * One stored record, from its file name and bytes: migrated, and checked against the content hash its name carries.
+ * Lessons read the same records from the base branch and from this machine's copies (story-lessons.mjs).
+ */
+export function knowledgeEntryFrom(name, bytes) {
+  let migrated;
+  try { migrated = readRecord('knowledge-record', bytes); }
+  catch (error) {
+    if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
+    throw new SingularityFlowError(`Invalid knowledge record ${name}: ${error.message}`);
+  }
+  const record = migrated.record;
+  const expected = migrated.storedVersion === 1
+    ? recordSha256(record.legacy.claim)
+    : recordSha256(knowledgeCore(record));
+  const idValid = migrated.storedVersion === 1 || record.id === `K-${expected.slice(0, 12)}`;
+  if (expected !== String(name).slice(0, 64) || !idValid) {
+    throw new SingularityFlowError(`Knowledge record ${name} failed its content-hash check.`);
+  }
+  return { sha256: expected, record };
+}
+
 export async function readKnowledgeWithDiagnostics(root) {
   const directory = await recordsDirectory(root);
   if (!directory.exists) return { entries: [], diagnostics: [] };
@@ -181,21 +261,7 @@ export async function readKnowledgeWithDiagnostics(root) {
   for (const file of await readdir(directory.absolute, { withFileTypes: true })) {
     if (!file.isFile() || !/^[a-f0-9]{64}\.json$/.test(file.name)) continue;
     const target = await secureRepositoryPath(root, path.join(directory.relative, file.name), { label: 'Knowledge record', mustExist: true, type: 'file' });
-    let migrated;
-    try { migrated = readRecord('knowledge-record', await readFile(target.absolute)); }
-    catch (error) {
-      if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
-      throw new SingularityFlowError(`Invalid knowledge record ${file.name}: ${error.message}`);
-    }
-    const record = migrated.record;
-    const expected = migrated.storedVersion === 1
-      ? recordSha256(record.legacy.claim)
-      : recordSha256(knowledgeCore(record));
-    const idValid = migrated.storedVersion === 1 || record.id === `K-${expected.slice(0, 12)}`;
-    if (expected !== file.name.slice(0, 64) || !idValid) {
-      throw new SingularityFlowError(`Knowledge record ${file.name} failed its content-hash check.`);
-    }
-    entries.push({ sha256: expected, record });
+    entries.push(knowledgeEntryFrom(file.name, await readFile(target.absolute)));
   }
   entries.sort((left, right) => String(left.record.createdAt).localeCompare(String(right.record.createdAt)));
   return { entries, diagnostics };

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "eb189c245cdae67f254c0aacaed8b2db37a45bd9",
+  "sourceCommit": "6fb0aaa4f90c58c1dcaa4d3bf265bbd6a98f0b34",
   "topicCount": 94,
-  "contentSha256": "179e25298af58761b4fa7180274d0494c949691687ab40f47b5b950aa6f66316",
+  "contentSha256": "9e91fefc24239d0230702e10364ba1d1eafcec21f01d59b83d1e9986737956f8",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -368,9 +368,9 @@
     {
       "id": "knowledge-and-remote-assets",
       "title": "Knowledge, artifacts, and remote assets",
-      "version": 4,
-      "sha256": "101096833e4b54cc8b2cdfa0ffefdea693e5e8863e605d18796fadc0c8596f10",
-      "routingSha256": "5de7ecfacea848dfccdd7f9c2771989a9c24812024081eb515b4f8c73383eaf0",
+      "version": 5,
+      "sha256": "2490f50b1e731c3638a1fcbc8736e5dc8352f17f289d92a4c68047cb48b19aaf",
+      "routingSha256": "66196aec62b74341f0604759e3bceb5b05f404c71825eb8811827655383d5685",
       "file": "knowledge-and-remote-assets.md"
     },
     {

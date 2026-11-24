@@ -98,6 +98,8 @@ export async function reportCliFailure(error, argv = []) {
       : (await import('./finding-escalation.mjs')).escalateRefusalEnvelope(plain, error, process.cwd(), {
         waits: error?.code === 'CODE_TEST_FAILED'
           && ['waiting-person', 'waiting-environment'].includes((await import('./workflow-task-outcome.mjs')).refusalOutcome(error)) });
+    // A Story step's refusal is a lesson's source when it keeps coming back [LRN:REQ-001]; kept on this machine.
+    if (plain?.remediationPlan?.context?.scope === 'phase') await (await import('./lesson-refusals.mjs')).rememberRefusal(process.cwd(), error, plain.remediationPlan);
     if (json) await printJson(JSON.stringify(envelope, null, 2));
     else {
       console.error(`\nSingularity Flow error: ${redactDiagnosticText(error?.message ?? String(error), { multiline: true })}`);

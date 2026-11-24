@@ -2,7 +2,9 @@
 
 **Specification ID:** `LRN-v1`
 
-**Status:** Proposed, not built.
+**Status:** Built on 2026-11-24 with the owner's defaults (§7). Still open:
+- REQ-010, a test command lesson among the suggestions a missing or failing test command offers;
+- offering a repeated lesson as a team rule, which waits for ITW's team rules (a lesson repeated twice is pinned now).
 
 **Owner, 2026-11-24:** "We have so many learning in each run about the code base, testing methods what work and what
 doesnt ..how we make sure that this is part of the learning and next story it will not have the same mistake ..kind of
@@ -77,9 +79,10 @@ records and notices lessons with no model:
 Each lesson is one or two lines of plain words. It names the files or folders it is about, the steps it helps (code,
 test, review and so on), and the Story and step it came from.
 
-**LRN:REQ-002, the agent's own lessons.** A Story's code and test summaries may end with a `Learnings to carry forward`
-section of at most three lines. When the step is approved, SFlow harvests it with the store's own harvest of approved
-documents (`harvestableEntries`), and marks it as the agent's words. A missing section adds nothing.
+**LRN:REQ-002, the agent's own lessons.** A step's approved Markdown documents may hold a `Learnings to carry forward`
+or `What we got wrong` section: bullets or table rows, of which SFlow takes at most three. When the step is approved, it
+keeps them with the document's approved revision as their source, and marks them as the agent's words. A missing section
+adds nothing.
 
 **LRN:REQ-003, kept without a stop.**
 - Noticed lessons are kept as soon as they are noticed, with the trust `noticed`.
@@ -96,8 +99,12 @@ documents (`harvestableEntries`), and marks it as the agent's words. A missing s
 - The same lesson noticed again later is not kept again.
 
 **LRN:REQ-005, where lessons live.**
-- Lessons live in `singularity/knowledge/` on the Story's branch, in the Story's own commits, so they reach the team
+- Lessons live in `singularity/knowledge/` on the Story's branch, in the approval's own commit, so they reach the team
   with the Story's pull request.
+- A copy stays on this machine, under Git's common directory, so this person's other open Stories and an abandoned
+  Story's lessons are recalled too.
+- A refusal is noted on this machine only: a refused command's transaction rolls back, so nothing it writes may live in
+  the work tree.
 - With [SSB](SPEC-SSB-STORY-STATE-BRANCH-v1.md), lessons stay on the code branch: they are for people, like
   `docs/stories/`.
 
@@ -108,7 +115,9 @@ record that exists at that digest, or it is refused.
 **LRN:REQ-007, scope.**
 - A lesson's scope names its paths and the repository, as the store's scopes do.
 - LRN adds `steps`: the step intents the lesson helps.
-- This is a schema version of the knowledge record. Older records read as scoped to every step.
+- The `lesson` part and `steps` are optional fields of the same record version. A record without them hashes and reads
+  exactly as before, and applies to every step. An Initiative's recall, which names no step, never takes a lesson that
+  names one.
 
 **LRN:REQ-008, what a step is given.**
 - Each Story step's prompt gets the active lessons whose paths meet the files its plan names or its changes touch, and

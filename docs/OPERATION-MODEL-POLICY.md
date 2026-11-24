@@ -553,6 +553,7 @@ Every public operation is classified before its implementation module is importe
 | lessons.edit | mutation | never | — | — |
 | lessons.keep | mutation | never | — | — |
 | lessons.list | read | never | — | — |
+| lessons.rule | mutation | never | — | — |
 | local-reset | mutation | never | — | — |
 | local.audit | read | never | — | — |
 | local.freeze | mutation | never | — | — |

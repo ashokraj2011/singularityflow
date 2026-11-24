@@ -14,10 +14,20 @@ export async function testCommandRequiredRefusal(root, phase, { workId = null, p
     const { inspectRepositoryTestSetup } = await import('./repository-test-setup.mjs');
     const sourceRoots = folders.length ? folders : ['.'];
     const inspection = await inspectRepositoryTestSetup(root, { sourceRoots });
+    // What earlier Stories ran on these folders [LRN:REQ-010]: the suggestion it matches comes first and says so; a lesson
+    // whose command SFlow cannot offer by ID is named in words. A lesson never sets the command by itself.
+    const lessons = await (await import('./story-lessons.mjs')).testCommandLessons(root, sourceRoots);
+    const ran = (argv) => lessons.find((lesson) => lesson.command === argv.join(' '));
     const offered = [...inspection.suggestions, ...inspection.instructionCandidates.filter((entry) => entry.command)]
-      .filter((entry) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(entry.id ?? '')).slice(0, 3);
-    if (offered.length) error.details.testSuggestions = offered.map((entry) => ({ id: entry.id,
-      label: (entry.command?.argv ?? entry.argv ?? []).join(' ').slice(0, 200), sourceRoots: sourceRoots.filter((folder) => folder !== '.') }));
+      .filter((entry) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(entry.id ?? ''))
+      .map((entry, index) => ({ entry, index, lesson: ran(entry.command?.argv ?? entry.argv ?? []) }))
+      .sort((left, right) => Number(Boolean(right.lesson)) - Number(Boolean(left.lesson)) || left.index - right.index)
+      .slice(0, 3);
+    if (offered.length) error.details.testSuggestions = offered.map(({ entry, lesson }) => ({ id: entry.id,
+      label: (entry.command?.argv ?? entry.argv ?? []).join(' ').slice(0, 200), sourceRoots: sourceRoots.filter((folder) => folder !== '.'),
+      ...(lesson ? { ranHere: `an earlier Story ran it here, ${lesson.from}` } : {}) }));
+    const unmatched = lessons.filter((lesson) => !offered.some(({ lesson: used }) => used === lesson)).slice(0, 2);
+    if (unmatched.length) error.details.testLessons = unmatched.map((lesson) => ({ command: lesson.command.slice(0, 200), from: lesson.from }));
   } catch { /* The refusal stands without suggestions; inspecting them is the person's next read. */ }
   return error;
 }

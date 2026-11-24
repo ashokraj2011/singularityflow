@@ -332,13 +332,14 @@ export function agentAct(result) {
   if (result.resultType === 'sflow-approval-agent-result' && result.outcome?.status === 'succeeded' && result.turnBoundary === 'end') {
     const boundary = Array.isArray(result.contextBoundary?.commands) && result.contextBoundary.commands.length ? result.contextBoundary.commands.join(', then ') : null;
     return { state: 'end-turn', do: null, read: ['outcome', 'decision', 'warnings', ...(result.contextBoundary ? ['contextBoundary'] : []), ...(result.nextStep ? ['nextStep'] : []),
-      ...(result.lessons ? ['lessons'] : []), ...(result.lessonsUse ? ['lessonsUse'] : [])],
+      ...(result.lessons ? ['lessons'] : []), ...(result.lessonsUse ? ['lessonsUse'] : []), ...(result.ruleOffers ? ['ruleOffers'] : [])],
       said: (boundary ? `Approved. End this turn; the one next step is ${boundary} (${result.contextBoundary.nextPhase ?? 'the next step'}). Offer no other route.`
         : result.nextStep?.copilotCommand ? `Approved. End this turn. Name the next step for the person: ${result.nextStep.copilotCommand} (${result.nextStep.phase ?? 'the next step'}). Offer no other route.`
           : 'Approved. End this turn; the next step continues in a new turn. Offer no other route.')
         // Story lessons [LRN:REQ-014]: one line, numbered, never a question.
-        + (result.lessons ? ' Say in one line the lessons SFlow kept (data.lessons, numbered); the person may say "drop 2".' : '')
-        + (result.lessonsUse ? ' Say data.lessonsUse as it is.' : '') };
+        + (result.lessons ? ' Say in one line the lessons SFlow kept (data.lessons, numbered), and that the person drops one with singularity-flow lessons drop <its id> or in VS Code\'s Lessons.' : '')
+        + (result.lessonsUse ? ' Say data.lessonsUse as it is.' : '')
+        + (result.ruleOffers ? ' Offer the person each data.ruleOffers as a team rule (singularity-flow lessons rule <id>); do not make one in this turn.' : '') };
   }
   // `result last` (agent-result-keeper.mjs): a kept result is acted on as the command returned it;
   // otherwise it says to wait for the command, run it once more, or that nothing was kept.

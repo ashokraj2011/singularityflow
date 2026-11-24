@@ -25,6 +25,15 @@ function clip(text, limit = 200) {
   return clean.length > limit ? `${clean.slice(0, limit - 1).trimEnd()}…` : clean;
 }
 
+/**
+ * A command as a lesson keeps it: an absolute path keeps only its last part, so no home folder or machine path is
+ * committed with a lesson ("/opt/node/bin/node checks/x.mjs" is "node checks/x.mjs").
+ */
+export function commandWords(command) {
+  return String(command ?? '').split(/\s+/u).filter(Boolean)
+    .map((word) => (/^(?:[A-Za-z]:[\\/]|\/)/u.test(word) ? word.split(/[\\/]/u).filter(Boolean).at(-1) ?? word : word)).join(' ');
+}
+
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
@@ -69,7 +78,8 @@ async function environmentLessons(root, config, workflow, phase, intent) {
     seen.add(signature);
     found.push({
       type: 'constraint', kind: 'environment', signature,
-      text: `Tests run with \`${clip(commandText(attempt.commandId), 120)}\` stopped on ${what} before they passed. Set that up first.`,
+      text: `Tests run with \`${clip(commandWords(commandText(attempt.commandId)), 120)}\` stopped on ${what} before they passed. Set that up first.`,
+      command: commandWords(commandText(attempt.commandId)),
       paths: files.length ? unique(files.map(folderOf)).slice(0, PATHS_PER_LESSON) : [],
       steps: unique([intent, 'test']),
       source: sourceOf(workId, phase.id, `test attempt ${attempt.attemptId}`, attempt)
@@ -88,9 +98,14 @@ async function testCommandLessons(root, workflow, phase, intent) {
     const decision = summary.decisionPath ? await readJson(path.join(root, summary.decisionPath)) : null;
     const reason = clip(decision?.reason ?? decision?.decision?.reason ?? '', 200);
     if (!reason) continue;
+    // The command the step runs now, from the Story's own workflow: the one that replaced the first [LRN:REQ-010].
+    const tests = ((workflow.resolution?.phases ?? []).find((entry) => entry?.id === phase.id)?.qualityCommands ?? [])
+      .filter((command) => command?.kind === 'test' && Array.isArray(command.argv) && command.argv.length);
+    const command = tests.length ? commandWords(tests[0].argv.join(' ')) : null;
     found.push({
       type: 'insight', kind: 'test-command', signature: `test-command:${unique(files.map(folderOf))[0] ?? phase.id}`,
-      text: `The test command for this work was changed: ${reason}`,
+      text: command ? `Tests for this code run with \`${clip(command, 120)}\`; the first command was changed because: ${reason}` : `The test command for this work was changed: ${reason}`,
+      command,
       paths: unique(files.map(folderOf)).slice(0, PATHS_PER_LESSON), steps: unique([intent, 'test']),
       source: sourceOf(workId, phase.id, `test command amendment ${summary.id}`, summary)
     });
@@ -217,7 +232,8 @@ function failingTestLessons(workflow, phase, intent) {
   const found = [];
   for (const request of workflow.changeRequests ?? []) {
     if (request?.targetPhase !== phase.id || request.automatic?.kind !== 'failing-tests') continue;
-    for (const test of (request.automatic.tests ?? []).slice(0, 3)) {
+    const tests = (request.automatic.tests ?? []).slice(0, 3);
+    for (const test of tests) {
       const name = clip(test?.name ?? test?.command ?? 'a test', 100);
       const file = test?.file ? String(test.file) : null;
       found.push({
@@ -226,6 +242,17 @@ function failingTestLessons(workflow, phase, intent) {
         paths: unique([...(file ? [file] : []), ...fix]).slice(0, PATHS_PER_LESSON), steps: unique([intent, 'code']),
         source: sourceOf(workId, phase.id, `change request ${request.id}`, request)
       });
+    }
+    // A check with no named tests (a script that exits 1): its command and what it said are the lesson.
+    if (!tests.length) {
+      for (const command of (request.automatic.commands ?? []).slice(0, 2)) {
+        const words = clip(commandWords((command?.said ?? []).find(Boolean) ?? `exit ${command?.exitCode ?? 'non-zero'}`), 140);
+        found.push({
+          type: 'gotcha', kind: 'failing-test', signature: `failing-test:command:${command?.id ?? clip(command?.command, 60)}`,
+          text: `The check \`${clip(commandWords(command?.command ?? command?.id ?? 'a test command'), 100)}\` failed (${words}) and sent the work back${fix.length ? `; the fix changed ${fix.slice(0, 3).join(', ')}` : ''}.`,
+          paths: fix, steps: unique([intent, 'code']), source: sourceOf(workId, phase.id, `change request ${request.id}`, request)
+        });
+      }
     }
   }
   return found;
@@ -343,7 +370,7 @@ export async function noticeStepLessons(root, config, workflow, phaseId, { write
     const current = earlier.find((entry) => !superseded.has(entry.sha256) && entry.record.status === 'active');
     const lesson = {
       kind: candidate.kind, trust: candidate.trust ?? 'noticed', signature: candidate.signature,
-      origin: { workId, phase: phaseId }, at, repeats: 0, pinned: false
+      origin: { workId, phase: phaseId }, at, repeats: 0, pinned: false, ...(candidate.command ? { command: candidate.command } : {})
     };
     const input = {
       type: candidate.type, text: candidate.text, provenance: [candidate.source],
@@ -358,7 +385,7 @@ export async function noticeStepLessons(root, config, workflow, phaseId, { write
       action = { kind: 'repeat', input: {
         type: current.record.type, text: current.record.text, provenance: current.record.provenance, scope: current.record.scope,
         status: 'active', supersedes: current.sha256, approvedSourceVerified: true,
-        lesson: { ...current.record.lesson, repeats, pinned: current.record.lesson.pinned === true || repeats >= 2 }
+        lesson: { ...current.record.lesson, repeats, pinned: current.record.lesson.pinned === true || repeats >= 2, lastRepeat: { workId, phase: phaseId } }
       }, entry: current };
     } else if (current && ['environment', 'test-command'].includes(candidate.kind) && current.record.text !== candidate.text) {
       // A newer run says otherwise: the new lesson replaces the old [LRN:REQ-011].
@@ -395,13 +422,30 @@ export async function lessonsKeptBy(root, workId, phaseId) {
  */
 export async function lessonsAfterApproval(root, workId, phaseId) {
   const kept = await lessonsKeptBy(root, workId, phaseId);
-  if (!kept.length) return null;
+  const offers = await ruleOffersFrom(root, workId, phaseId);
+  if (!kept.length && !offers.length) return null;
   const listed = kept.map((entry, index) => ({ number: index + 1, id: entry.record.id, text: entry.record.text }));
-  return {
-    lessons: listed,
-    line: `SFlow kept ${kept.length} lesson${kept.length === 1 ? '' : 's'} from this step: ${listed.slice(0, 5).map((entry) => `${entry.number}. ${clip(entry.text, 90)}`).join(' · ')}${kept.length > 5 ? ' · …' : ''}. `
+  const ruleOffers = offers.map((entry) => ({ id: entry.record.id, text: entry.record.text, repeats: entry.record.lesson.repeats }));
+  const keptLine = kept.length
+    ? `SFlow kept ${kept.length} lesson${kept.length === 1 ? '' : 's'} from this step: ${listed.slice(0, 5).map((entry) => `${entry.number}. ${clip(entry.text, 90)}`).join(' · ')}${kept.length > 5 ? ' · …' : ''}. `
       + 'Drop any you don\'t want: singularity-flow lessons drop <K-ID> (singularity-flow lessons lists them).'
-  };
+    : null;
+  // A mistake that happened again although its lesson was in the step's prompt, twice: offered as a team rule [LRN:REQ-012].
+  const offerLines = ruleOffers.map((entry) => `This happened again ${entry.repeats} times although its lesson was given: "${clip(entry.text, 90)}". `
+    + `Make it a team rule, first for every step on these files: singularity-flow lessons rule ${entry.id}`);
+  return { lessons: listed, ruleOffers, line: [keptLine, ...offerLines].filter(Boolean).join('\n') };
+}
+
+/** Lessons this step repeated for at least the second time, not yet a team rule. */
+async function ruleOffersFrom(root, workId, phaseId) {
+  try {
+    const { readAllLessons } = await import('./story-lessons.mjs');
+    const { entries } = await readAllLessons(root, { base: false });
+    const superseded = new Set(entries.map(({ record }) => record.supersedes).filter(Boolean));
+    return entries.filter((entry) => !superseded.has(entry.sha256) && entry.record.status === 'active'
+      && entry.record.lesson?.trust !== 'rule' && Number(entry.record.lesson?.repeats ?? 0) >= 2
+      && entry.record.lesson.lastRepeat?.workId === workId && entry.record.lesson.lastRepeat.phase === phaseId);
+  } catch { return []; }
 }
 
 /** How a Story used lessons: the lessons its steps were given, and the earlier mistakes that happened again. */

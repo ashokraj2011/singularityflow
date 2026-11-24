@@ -1650,7 +1650,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   // `decisions learn` reads the advice records only [Q13].
   // Lessons read; a person's drop, keep and edit write [LRN:REQ-004].
   if (definition.name === 'lessons') {
-    return ['drop', 'keep', 'edit'].includes(positionals[1]) ? never(`lessons.${positionals[1]}`, definition, 'mutation') : never('lessons.list', definition, 'read');
+    return ['drop', 'keep', 'edit', 'rule'].includes(positionals[1]) ? never(`lessons.${positionals[1]}`, definition, 'mutation') : never('lessons.list', definition, 'read');
   }
   if (definition.name === 'decisions') {
     if (positionals[1] === 'undo') return never('decisions.undo', definition, 'mutation');
@@ -1995,7 +1995,7 @@ export function operationCatalog() {
     never('decisions.record', commandDefinition('decisions'), 'mutation'),
     never('decisions.undo', commandDefinition('decisions'), 'mutation'),
     never('lessons.list', commandDefinition('lessons'), 'read'),
-    ...['drop', 'keep', 'edit'].map((name) => never(`lessons.${name}`, commandDefinition('lessons'), 'mutation')),
+    ...['drop', 'keep', 'edit', 'rule'].map((name) => never(`lessons.${name}`, commandDefinition('lessons'), 'mutation')),
     ...['add.preview', 'list', 'show'].map(name => never(`call.${name}`, commandDefinition('call'), 'read')),
     never('call.add', commandDefinition('call'), 'mutation'),
     ...GATEWAY_ACTIONS.map(name => gatewayOperation(commandDefinition('gateway'), name)),

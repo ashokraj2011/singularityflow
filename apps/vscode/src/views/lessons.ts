@@ -43,7 +43,8 @@ export function lessonsListFrom(value: unknown): LessonsList | null {
 
 export function lessonsPageHtml({ list, busy, error, notice, filter }: { list: LessonsList | null; busy: boolean; error: string | null; notice: string | null; filter: string | null }): string {
   const rows = (list?.lessons ?? []).map((lesson) => {
-    const marks = [lesson.pinned ? 'pinned' : '', lesson.trust === 'confirmed' ? 'confirmed' : lesson.trust === 'agent' ? "agent's words" : '', lesson.mayBeOutOfDate ? 'may be out of date' : '']
+    const marks = [lesson.trust === 'rule' ? 'team rule' : lesson.pinned ? 'pinned' : '', lesson.trust === 'confirmed' ? 'confirmed' : lesson.trust === 'agent' ? "agent's words" : '', lesson.mayBeOutOfDate ? 'may be out of date' : '',
+      lesson.repeats ? `happened again ${lesson.repeats}×` : '']
       .filter(Boolean).map((mark) => `<span class="lsn-mark">${escape(mark)}</span>`).join('');
     const paths = lesson.paths.length ? `<div class="lsn-paths">${lesson.paths.slice(0, 4).map((item) => `<code>${escape(item)}</code>`).join(' ')}${lesson.paths.length > 4 ? ' …' : ''}</div>` : '';
     return `<li class="lsn-row">
@@ -52,7 +53,8 @@ export function lessonsPageHtml({ list, busy, error, notice, filter }: { list: L
   ${paths}
   <div class="lsn-foot"><span class="lsn-from">From ${escape(lesson.from)}</span>
     <span class="lsn-actions">
-      ${lesson.trust === 'confirmed' ? '' : `<button type="button" data-keep="${escape(lesson.id)}" title="Confirm it: it comes first">Keep</button>`}
+      ${lesson.trust === 'confirmed' || lesson.trust === 'rule' ? '' : `<button type="button" data-keep="${escape(lesson.id)}" title="Confirm it: it comes first">Keep</button>`}
+      ${lesson.trust === 'rule' ? '' : `<button type="button" data-rule="${escape(lesson.id)}" title="First for every step on these files, for the whole team">Team rule</button>`}
       <button type="button" data-edit="${escape(lesson.id)}" title="Put it in your words">Edit</button>
       <button type="button" data-drop="${escape(lesson.id)}" title="Never give it to a step again">Drop</button>
     </span></div>
@@ -96,10 +98,11 @@ export const LESSONS_SCRIPT = `
 (() => {
   const api = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-drop],[data-keep],[data-edit],[data-refresh]');
+    const target = event.target.closest('[data-drop],[data-keep],[data-rule],[data-edit],[data-refresh]');
     if (!target || target.disabled) return;
     if (target.dataset.drop) api.postMessage({ type: 'lessons.drop', id: target.dataset.drop });
     else if (target.dataset.keep) api.postMessage({ type: 'lessons.keep', id: target.dataset.keep });
+    else if (target.dataset.rule) api.postMessage({ type: 'lessons.rule', id: target.dataset.rule });
     else if (target.dataset.edit) api.postMessage({ type: 'lessons.edit', id: target.dataset.edit });
     else api.postMessage({ type: 'lessons.refresh' });
   });
@@ -151,6 +154,7 @@ export class LessonsPanel implements vscode.Disposable {
     'lessons.filter': (message) => { this.filter = stringField(message, 'path')?.trim() || null; return this.load(); },
     'lessons.drop': (message) => this.change('drop', stringField(message, 'id')),
     'lessons.keep': (message) => this.change('keep', stringField(message, 'id')),
+    'lessons.rule': (message) => this.change('rule', stringField(message, 'id')),
     'lessons.edit': (message) => this.edit(stringField(message, 'id'))
   });
 
@@ -170,11 +174,11 @@ export class LessonsPanel implements vscode.Disposable {
     }
   }
 
-  private async change(action: 'drop' | 'keep', id: string | null | undefined): Promise<void> {
+  private async change(action: 'drop' | 'keep' | 'rule', id: string | null | undefined): Promise<void> {
     if (!id || !/^K-[0-9a-f]{12}$/iu.test(id)) return;
     try {
       const result = await this.client.run<{ words?: string }>(['lessons', action, id, '--json']);
-      this.notice = String(result?.words ?? `${action === 'drop' ? 'Dropped' : 'Kept'} ${id}.`);
+      this.notice = String(result?.words ?? `${action === 'drop' ? 'Dropped' : action === 'rule' ? 'Made a team rule:' : 'Kept'} ${id}.`);
     } catch (error) {
       this.notice = null;
       this.error = errorText(error);

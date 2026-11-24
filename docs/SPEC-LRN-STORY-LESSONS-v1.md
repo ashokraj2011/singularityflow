@@ -2,9 +2,9 @@
 
 **Specification ID:** `LRN-v1`
 
-**Status:** Built on 2026-11-24 with the owner's defaults (§7). Still open:
-- REQ-010, a test command lesson among the suggestions a missing or failing test command offers;
-- offering a repeated lesson as a team rule, which waits for ITW's team rules (a lesson repeated twice is pinned now).
+**Status:** Built on 2026-11-24 with the owner's defaults (§7), and its follow-ups the same day ("do all"): REQ-010's
+test command suggestions, and team rules as a lesson a person promotes (REQ-012). ITW's `tasks:` rules, which add steps
+rather than guidance, stay ITW's.
 
 **Owner, 2026-11-24:** "We have so many learning in each run about the code base, testing methods what work and what
 doesnt ..how we make sure that this is part of the learning and next story it will not have the same mistake ..kind of
@@ -94,7 +94,7 @@ adds nothing.
   - in the Story's end line;
   - in VS Code's Lessons list;
   - as `singularity-flow lessons drop <K-ID>`;
-  - in Copilot by number ("drop 2").
+  - in Copilot, whose line names the lesson's ID and that command (checked in a real Copilot CLI turn, 2026-11-24).
 - A dropped lesson is resolved, never deleted. It records who dropped it and when, and is never recalled again.
 - The same lesson noticed again later is not kept again.
 
@@ -136,8 +136,10 @@ record that exists at that digest, or it is refused.
 - Lessons reach the agent as quoted data in the store's untrusted form (`untrusted-knowledge-json-lines-v1`), never as
   instructions.
 
-**LRN:REQ-010, a test command lesson.** A test command lesson for a folder joins the suggestions a missing or failing
-test command offers. It never changes the repository's configured test command by itself.
+**LRN:REQ-010, a test command lesson.** A test command lesson carries the command an earlier Story ran on a folder. When
+a missing test command is refused for that folder, the suggestion running the same command comes first and says "an
+earlier Story ran it here"; a lesson whose command SFlow cannot offer as a suggestion is named in words. It never changes
+the repository's configured test command by itself.
 
 **LRN:REQ-011, staying true.**
 - A lesson is marked out of date when any of these happens:
@@ -152,8 +154,11 @@ test command offers. It never changes the repository's configured test command b
   the finding and its files, or the environment stop.
 - When a later Story makes the same mistake while the lesson was in its prompt, the lesson counts a repeat.
 - The Story's closing summary says how many lessons it used and how many earlier mistakes happened again.
-- A lesson repeated twice is offered to the person as a team rule ([ITW](SPEC-ITW-INTENT-TO-WORK-v1.md) REQ-004) once
-  team rules exist. Until then it is pinned: always recalled for its files.
+- A lesson repeated twice is pinned, and the approval's line offers it to the person as a team rule:
+  `singularity-flow lessons rule <K-ID>`, or Team rule in VS Code's Lessons. A team rule comes first for every step on
+  its files, is never marked out of date by a rewrite, and reaches the team with the change that holds it. It stays
+  guidance (REQ-009). ITW's `tasks:` rules ([ITW](SPEC-ITW-INTENT-TO-WORK-v1.md) REQ-004) add steps, not guidance, and
+  are separate.
 
 **LRN:REQ-013, safety.**
 - A lesson is scanned for secrets with `src/secrets.mjs` before it is kept. One that holds a secret is refused, and the
@@ -167,7 +172,7 @@ test command offers. It never changes the repository's configured test command b
     Keep and Edit;
   - the Story's end line;
   - in the Code Explainer's Explore mode, "Lessons about this file" in the inspector.
-- **Copilot (VS Code, Copilot CLI, IntelliJ):** the end line, with numbers to drop by.
+- **Copilot (VS Code, Copilot CLI, IntelliJ):** the approval's line, numbered, with the command that drops one.
 - **Terminal:**
   - `singularity-flow lessons [--path P] [--story ID] [--json]` reads them;
   - `lessons drop`, `lessons keep` and `lessons edit` change one.

@@ -494,7 +494,9 @@ const PAGES = Object.freeze({
       'the Story, and each later step is given the ones for the files it touches, as guidance only.',
       '',
       'Drop resolves a lesson for good; Keep confirms it, so it comes first; Edit puts your words in',
-      'its place. Each is committed on the checked-out branch. Nothing here approves or blocks work.'
+      'its place; Rule makes it a team rule, first for every step on its files. SFlow offers that when',
+      'a mistake happens again twice although its lesson was given. Each is committed on the checked-out',
+      'branch. Nothing here approves or blocks work.'
     ],
     options: [
       ['--path PATH', 'Only the lessons about this file or folder.'],

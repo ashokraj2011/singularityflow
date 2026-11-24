@@ -10,7 +10,7 @@ import { add, changes, commit } from '../git.mjs';
 import { repoRoot } from '../git-execution.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-const WRITES = ['drop', 'keep', 'edit'];
+const WRITES = ['drop', 'keep', 'edit', 'rule'];
 
 function commitLessons(root, message) {
   add(root, ['singularity/knowledge']);
@@ -55,11 +55,13 @@ export async function lessonsCommand(positionals = [], options = {}, { cwd = pro
     }
     const done = action === 'drop' ? await lessons.dropLesson(root, wanted)
       : action === 'keep' ? await lessons.keepLesson(root, wanted)
-        : await lessons.editLesson(root, wanted, optionString(options, 'text') ?? positionals.slice(3).join(' '));
-    const entry = done.dropped ?? done.kept ?? done.edited;
+        : action === 'rule' ? await lessons.ruleLesson(root, wanted)
+          : await lessons.editLesson(root, wanted, optionString(options, 'text') ?? positionals.slice(3).join(' '));
+    const entry = done.dropped ?? done.kept ?? done.ruled ?? done.edited;
     const committedAs = done.result.created ? commitLessons(root, `[lessons][${action}] ${entry.record.id}`) : null;
     const words = action === 'drop' ? `Dropped lesson ${entry.record.id}: it is never given to a step again.`
       : action === 'keep' ? `Kept lesson ${done.result.record.id}: a person confirmed it, so it comes first.`
+        : action === 'rule' ? `Lesson ${done.result.record.id} is a team rule now: it comes first for every step on its files, and reaches the team with this change.`
         : `Edited lesson ${entry.record.id}; it is ${done.result.record.id} now, in your words.`;
     return { schemaVersion: 1, resultType: 'sflow-lessons-change', action, lesson: entry.record.id, now: done.result.record.id, committed: Boolean(committedAs), words };
   }
@@ -83,7 +85,8 @@ export async function lessonsCommand(positionals = [], options = {}, { cwd = pro
   let stale = new Set();
   try { stale = lessons.staleLessons(root, active); } catch { stale = new Set(); }
   const shown = active.map((entry) => ({ ...lessonView(entry, stale), from: lessons.lessonOrigin(entry.record) }))
-    .sort((left, right) => Number(right.pinned) - Number(left.pinned) || String(right.createdAt).localeCompare(String(left.createdAt)));
+    .sort((left, right) => Number(right.trust === 'rule') - Number(left.trust === 'rule') || Number(right.pinned) - Number(left.pinned)
+      || String(right.createdAt).localeCompare(String(left.createdAt)));
   return {
     schemaVersion: 1, resultType: 'sflow-lessons', path: wantedPath ?? null, story: story ?? null, warnings,
     words: 'What earlier Stories learned in this repository. Each step is given the ones for the files it touches, as guidance only.',
@@ -100,12 +103,12 @@ function printResult(result) {
     return;
   }
   for (const lesson of result.lessons) {
-    const marks = [lesson.pinned ? 'pinned' : null, lesson.trust === 'confirmed' ? 'confirmed' : lesson.trust === 'agent' ? "the agent's words" : null,
+    const marks = [lesson.trust === 'rule' ? 'team rule' : lesson.pinned ? 'pinned' : null, lesson.trust === 'confirmed' ? 'confirmed' : lesson.trust === 'agent' ? "the agent's words" : null,
       lesson.mayBeOutOfDate ? 'may be out of date' : null].filter(Boolean);
     console.log(`\n${lesson.id}  ${lesson.text}`);
     console.log(`  from ${lesson.from}${lesson.paths.length ? ` · ${lesson.paths.slice(0, 3).join(', ')}${lesson.paths.length > 3 ? ' …' : ''}` : ''}${marks.length ? ` · ${marks.join(' · ')}` : ''}`);
   }
-  console.log('\nDrop one with singularity-flow lessons drop <K-ID>; keep one with singularity-flow lessons keep <K-ID>.');
+  console.log('\nDrop one with singularity-flow lessons drop <K-ID>; keep one with lessons keep <K-ID>; make one a team rule with lessons rule <K-ID>.');
 }
 
 export async function run(_argv, { positionals = ['lessons'], options = {} } = {}) {

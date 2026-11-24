@@ -13,9 +13,11 @@ import { readKnowledgeWithDiagnostics, recordKnowledge } from '../src/knowledge.
 import { rememberRefusal, storyRefusals } from '../src/lesson-refusals.mjs';
 import {
   LESSON_LIMIT, agentLessonLines, dropLesson, editLesson, keepLesson, lessonsFor, lessonsPromptText, noteGivenLessons,
-  phaseLessons, readAllLessons, staleLessons
+  phaseLessons, readAllLessons, ruleLesson, staleLessons, testCommandLessons
 } from '../src/story-lessons.mjs';
-import { noticeStepLessons, storyLessonsLine, storyLessonsUse } from '../src/story-lessons-notice.mjs';
+import { lessonsAfterApproval, noticeStepLessons, storyLessonsLine, storyLessonsUse } from '../src/story-lessons-notice.mjs';
+import { testCommandRequiredRefusal } from '../src/test-command-suggestions.mjs';
+import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { run } from '../src/util.mjs';
 import { inventedValue } from './helpers/invented-secrets.mjs';
 
@@ -258,4 +260,57 @@ test('a person\'s approval commits the step\'s lessons with it, says them in one
   const dropped = JSON.parse(cli('lessons', 'drop', listed.lessons[0].id, '--json').stdout);
   assert.equal(dropped.committed, true);
   assert.equal(JSON.parse(cli('lessons', '--json').stdout).lessons.length, 0);
+});
+
+test('a mistake repeated twice is offered as a team rule; a team rule comes first and is never marked out of date', async () => {
+  const root = await repository();
+  await noticeStepLessons(root, CONFIG, workflow(), 'implementation');
+  for (const story of ['LRN-2', 'LRN-3']) {
+    const next = workflow({ workItem: { id: story }, departures: [], findingOverrides: [] });
+    await phaseLessons(root, { workflow: next, phase: 'implementation', paths: ['src/transfer.mjs'], record: true });
+    await noticeStepLessons(root, CONFIG, next, 'implementation');
+  }
+  const after = await lessonsAfterApproval(root, 'LRN-3', 'implementation');
+  assert.equal(after.ruleOffers.length, 1);
+  assert.match(after.line, /This happened again 2 times although its lesson was given: "Test "imports keep the trusted commit"/u);
+  assert.match(after.line, /Make it a team rule, first for every step on these files: singularity-flow lessons rule K-[0-9a-f]{12}$/u);
+  assert.equal(await lessonsAfterApproval(root, 'LRN-2', 'implementation'), null, 'the first repeat offers nothing yet');
+  const ruled = await ruleLesson(root, after.ruleOffers[0].id);
+  assert.equal(ruled.result.record.lesson.trust, 'rule');
+  assert.equal(ruled.result.record.lesson.pinned, true);
+  assert.equal((await lessonsAfterApproval(root, 'LRN-3', 'implementation')), null, 'a team rule is not offered again');
+  const { entries } = await readAllLessons(root, { base: false });
+  const chosen = lessonsFor(entries, { paths: ['src/transfer.mjs'], step: 'code' });
+  assert.equal(chosen[0].record.lesson.trust, 'rule', 'a team rule comes first');
+  assert.match(lessonsPromptText(chosen), /"teamRule":true/u);
+  await writeFile(path.join(root, 'src', 'transfer.mjs'), 'export const rewritten = true;\n');
+  assert.ok(!staleLessons(root, chosen).has(chosen[0].sha256), 'a rewrite never marks a team rule out of date');
+  const kept = await keepLesson(root, ruled.result.record.id);
+  assert.equal(kept.result.created, false, 'keeping a team rule never makes it less');
+});
+
+test('a missing test command puts first the suggestion an earlier Story ran here, and names one it cannot offer', async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'fixture', scripts: { test: 'node --test', 'test:unit': 'node --test test/unit' } }));
+  const changed = workflow({
+    departures: [], findingOverrides: [], changeRequests: [],
+    testCommandAmendments: [{ id: 'TCA-001', phaseId: 'implementation', status: 'approved', decisionPath: 'decision.json' }]
+  });
+  changed.resolution.phases[0].qualityCommands = [{ id: 'unit', kind: 'test', argv: ['npm', 'run', 'test:unit'] }];
+  await writeFile(path.join(root, 'decision.json'), JSON.stringify({ reason: 'npm test runs the slow browser suite too' }));
+  const kept = await noticeStepLessons(root, CONFIG, changed, 'implementation');
+  const lesson = kept.kept.find((entry) => entry.record.lesson.kind === 'test-command').record;
+  assert.equal(lesson.lesson.command, 'npm run test:unit');
+  assert.match(lesson.text, /^Tests for this code run with `npm run test:unit`; the first command was changed because: npm test runs the slow browser suite too$/u);
+  assert.deepEqual((await testCommandLessons(root, ['src'])).map((entry) => entry.command), ['npm run test:unit']);
+  const refusal = await testCommandRequiredRefusal(root, { id: 'implementation' }, { workId: 'LRN-2', paths: ['src/transfer.mjs'] });
+  const suggestions = refusal.details.testSuggestions ?? [];
+  const lessons = refusal.details.testLessons ?? [];
+  assert.ok(suggestions.length || lessons.length, 'the lesson reaches the refusal one way or the other');
+  if (suggestions.some((entry) => entry.label === 'npm run test:unit')) {
+    assert.equal(suggestions[0].label, 'npm run test:unit', 'the command an earlier Story ran comes first');
+    assert.equal(suggestions[0].ranHere, 'an earlier Story ran it here, LRN-1 step implementation');
+  } else assert.deepEqual(lessons, [{ command: 'npm run test:unit', from: 'LRN-1 step implementation' }]);
+  const plan = refusalEnvelope(refusal, ['phase', 'publish']).remediationPlan;
+  assert.match(JSON.stringify(plan.steps), /an earlier Story ran (it here, LRN-1 step implementation|`npm run test:unit` here \(LRN-1 step implementation\))/iu);
 });

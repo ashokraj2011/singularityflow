@@ -361,7 +361,8 @@ export async function approveCommand(positionals, options, dependencies = {}) {
       ...(result.decisions ? { decisions: result.decisions } : {}),
       artifactSetSha256: result.approval.artifactSetSha256,
       ...(rerun ? { testsRerun: rerun } : {}),
-      ...(keptLessons ? { lessons: keptLessons.lessons } : {}),
+      ...(keptLessons?.lessons.length ? { lessons: keptLessons.lessons } : {}),
+      ...(keptLessons?.ruleOffers.length ? { ruleOffers: keptLessons.ruleOffers } : {}),
       ...(lessonsUseLine ? { lessonsUse: { ...lessonsUse, repeats: undefined, line: lessonsUseLine } } : {}),
       ...(landing ? { landing: { finalized: landing.finalized, pullRequest: landing.pullRequest, next: landing.next } } : {}),
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})

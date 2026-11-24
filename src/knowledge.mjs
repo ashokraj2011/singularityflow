@@ -23,7 +23,7 @@ const STATUS = new Set(['active', 'resolved', 'superseded']);
 // a context that names none (an Initiative's) never recalls a record that declares some.
 const SCOPE_KEYS = ['capabilities', 'repositories', 'paths', 'environments', 'steps'];
 export const LESSON_KINDS = new Set(['test-command', 'refusal', 'finding', 'override', 'failing-test', 'coupling', 'environment', 'agent', 'person']);
-export const LESSON_TRUST = new Set(['noticed', 'agent', 'confirmed']);
+export const LESSON_TRUST = new Set(['noticed', 'agent', 'confirmed', 'rule']);
 
 /** A lesson SFlow could not keep as given: its code, and where the lessons are listed. */
 function lessonRefusal(message) {
@@ -161,11 +161,15 @@ function normalizeLesson(lesson) {
   const repeats = Number(lesson.repeats ?? 0);
   if (!Number.isSafeInteger(repeats) || repeats < 0) throw lessonRefusal('A lesson\'s repeats must be a non-negative integer.');
   const at = lesson.at == null ? null : String(lesson.at);
+  // The command a test lesson is about, as it was run: offered again where a later Story has none [LRN:REQ-010].
+  const command = lesson.command == null ? null : String(lesson.command).trim().slice(0, 300) || null;
   if (at !== null && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(at)) throw lessonRefusal('A lesson\'s commit must be a full commit ID.');
   return {
     kind, trust, signature,
     origin: { workId: String(lesson.origin?.workId ?? '').trim() || null, phase: String(lesson.origin?.phase ?? '').trim() || null },
     at, repeats, pinned: lesson.pinned === true,
+    ...(command ? { command } : {}),
+    ...(lesson.lastRepeat?.workId ? { lastRepeat: { workId: String(lesson.lastRepeat.workId), phase: lesson.lastRepeat.phase ? String(lesson.lastRepeat.phase) : null } } : {}),
     ...(lesson.dropped ? { dropped: { at: String(lesson.dropped.at ?? nowIso()), by: lesson.dropped.by ? String(lesson.dropped.by) : null } } : {})
   };
 }

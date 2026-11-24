@@ -353,7 +353,15 @@ function testSuggestionsOf(error) {
   return (Array.isArray(error?.details?.testSuggestions) ? error.details.testSuggestions : []).slice(0, 3)
     .filter((entry) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(entry?.id ?? ''))
     .map((entry) => ({ id: entry.id, label: typeof entry.label === 'string' ? redactDiagnosticText(entry.label).replace(/[`\u0000-\u001f]/gu, ' ').slice(0, 200) : null,
+      ranHere: typeof entry.ranHere === 'string' ? redactDiagnosticText(entry.ranHere).replace(/[`\u0000-\u001f]/gu, ' ').slice(0, 160) : null,
       sourceRoots: (Array.isArray(entry.sourceRoots) ? entry.sourceRoots : []).filter((folder) => /^[A-Za-z0-9._][A-Za-z0-9._/-]{0,199}$/u.test(String(folder)) && !String(folder).split('/').includes('..')).slice(0, 3) }));
+}
+
+/** Test commands earlier Stories ran here that SFlow cannot offer by ID [LRN:REQ-010]: words only, never a route. */
+function testLessonsOf(error) {
+  return (Array.isArray(error?.details?.testLessons) ? error.details.testLessons : []).slice(0, 2)
+    .filter((entry) => typeof entry?.command === 'string' && entry.command.trim())
+    .map((entry) => ({ command: redactDiagnosticText(entry.command).replace(/[`\u0000-\u001f]/gu, ' ').slice(0, 200), from: redactDiagnosticText(String(entry.from ?? 'an earlier Story')).replace(/[`\u0000-\u001f]/gu, ' ').slice(0, 120) }));
 }
 
 /** What an appeal still needs, from what was typed; a person's list where it holds the same question. */
@@ -1738,11 +1746,15 @@ const KNOWN = Object.freeze({
       // One whole request per runner SFlow suggests for the changed code (code-delivery-tests.mjs testCommandRequiredRefusal),
       // never `--use <SUGGESTION-ID>` to look up first [audit 2026-11-19, entry 8].
       ...(workId && phase && testSuggestionsOf(error).length ? testSuggestionsOf(error).map((suggestion, index) => step(`request-story-test-command${index ? `-${index + 1}` : ''}`,
-        `Or request ${suggestion.label ? `\`${suggestion.label}\`` : suggestion.id} as this step's test command, for this Story only. A person who approves the step accepts it from the decision list (/sf-decide); an agent never accepts it.`,
+        `Or request ${suggestion.label ? `\`${suggestion.label}\`` : suggestion.id} as this step's test command${suggestion.ranHere ? ` (${suggestion.ranHere})` : ''}, for this Story only. A person who approves the step accepts it from the decision list (/sf-decide); an agent never accepts it.`,
         `singularity-flow decision test-command ${workId} --phase ${phase} --use ${suggestion.id}${suggestion.sourceRoots.map((folder) => ` --source-root ${shellWord(folder)}`).join('')} --reason "<why this command tests the step>"`,
         'remediation'))
         // No runner suggested: the command is the person's own, given in full; nothing is offered with a placeholder in it.
         : [step('request-story-test-command', 'Or request the exact command that runs its tests, for this Story only, given in full with decision test-command (help decision); a person who approves the step accepts it.', null, 'remediation')]),
+      // A test command an earlier Story ran here that SFlow cannot offer by ID [LRN:REQ-010]: in words, requested in full.
+      ...testLessonsOf(error).map((lesson, index) => step(`earlier-story-test-command${index ? `-${index + 1}` : ''}`,
+        `An earlier Story ran \`${lesson.command}\` here (${lesson.from}). To use it, request it in full with decision test-command (help decision); a person who approves the step accepts it.`,
+        null, 'remediation')),
       step('recheck-structured-test-contract',
         'After an accepted Story-only command, an adopted amendment or a real repository/runtime repair, recheck: this read-only check names the resolved runner and does not republish unchanged code. Do not retry publication against unchanged inputs.',
         `singularity-flow phase prepublish${phase ? ` ${phase}` : ''} --json`, 'diagnostic', '/sf-code')

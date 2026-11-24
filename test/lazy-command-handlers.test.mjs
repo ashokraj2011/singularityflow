@@ -992,7 +992,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,870,456 (measured for submit.mjs, +1,877, 2026-11-24): Story lessons [LRN-v1]: `lessons` registered and routed
     // (command-registry.mjs, command-skills.mjs), a step refusal noted for its lessons (cli-failure.mjs) and the lessons a
     // step left said after its automatic approval (submit.mjs); the lesson modules load lazily. No new eager file.
-    assert.ok(closure.bytes <= 9_870_456, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,870,721 (+265, 2026-11-24): `lessons rule`, a team rule a person makes of a lesson (command-registry.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_870_721, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1154,7 +1155,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 874,729 (measured, +20, 2026-11-23): `decision override-finding` registered (command-registry.mjs). No new eager file.
   // 875,334 (measured, +605, 2026-11-24): `lessons` registered with its read and its three writes, and a step refusal
   // noted for its lessons (command-registry.mjs, command-loaders.mjs, cli-failure.mjs). No new eager file.
-  assert.ok(root.bytes <= 875_334, `root dispatch loads ${root.bytes} source bytes`);
+  // 875,350 (+16, 2026-11-24): `lessons rule` (command-registry.mjs). No new eager file.
+  assert.ok(root.bytes <= 875_350, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1535,7 +1537,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,342,348 (+997, measured 2026-11-23): the skill catalog's words for a pinned procedure's file (skill-library.mjs).
   // 4,342,982 (+634, measured 2026-11-24): `lessons` in the tables the guard reads (command-registry.mjs, command-skills.mjs,
   // copilot-mutation-guard.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_342_982, `session current loads ${current.bytes} source bytes`);
+  // 4,342,998 (+16, 2026-11-24): `lessons rule` (command-registry.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_342_998, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

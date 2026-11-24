@@ -77,6 +77,7 @@ test('paths, framing and folding', () => {
   const rows = moduleRows(model, module, view);
   assert.equal(rows.rows.length, 12, 'twelve rows are drawn first');
   assert.equal(rows.hidden, 3, 'the rest are counted, the selected one among the shown');
+  assert.equal(rows.rows[11].id, 's14', 'the selected function is drawn, in the last place, without opening the whole card');
   assert.equal(moduleRows(model, module, { ...view, expanded: { m: true } }).rows.length, 15, 'expanded, every symbol is a row');
   assert.equal(isCollapsed({ id: 'r', collapsed: true }, { collapsed: {} }), true, 'a card can start folded');
   assert.equal(isCollapsed({ id: 'r', collapsed: true }, { collapsed: { r: false } }), false, 'and a person can open it');
@@ -127,7 +128,7 @@ test('the graph offers a delta and a full view, and the page asks the host for t
   // Only a different view is asked for, and the pressed state follows the model the host built.
   assert.match(CODE_EXPLAINER_SCRIPT, /if \(viewButton\.dataset\.view !== model\.view\) post\('cx\.view', \{ view: viewButton\.dataset\.view \}\);/);
   assert.match(CODE_EXPLAINER_SCRIPT, /node\.setAttribute\('aria-pressed', String\(node\.dataset\.view === model\.view\)\)/);
-  assert.match(CODE_EXPLAINER_SCRIPT, /Choose Full to map every function in the current worktree/, 'an empty delta says where the map is');
+  assert.match(CODE_EXPLAINER_SCRIPT, /Open Map, then Every call, to map every function in the current worktree/, 'an empty delta says where the map is, by the names on the panel');
   assert.match(CODE_EXPLAINER_SCRIPT, /if \(fresh && !viewChosen && view\.lens === 'code' && model\.view !== 'full' && model\.change\.status === 'empty'/, 'the full view stays on its map instead of jumping to Repository, and another lens stays where it is');
   assert.match(CODE_EXPLAINER_SCRIPT, /if \(view\.tab !== 'graph'\) setTab\('graph'\);/, 'choosing a view shows the graph');
   assert.match(CODE_EXPLAINER_SCRIPT, /view\.filters = Object\.assign\(\{\}, DEFAULT_FILTERS, view\.filters \|\| \{\}\);/, 'a role added after state was saved is not hidden');
@@ -140,18 +141,64 @@ test('the graph offers a delta and a full view, and the page asks the host for t
   assert.match(host, /hasScriptProject\(root\)/, 'a project-less JavaScript service is given the rest of the code before callers are asked for');
 });
 
-test('the lens bar offers Code and four more lenses, each with its own view', () => {
+test('no click is swallowed by the panel itself: the root carries no attribute a click looks for', () => {
+  // Real VS Code, 2026-11-24: the root carried data-mode, so every click inside it matched the search for a mode
+  // button and only switched mode: no question, menu, note or toolbar button answered.
+  const looked = [...CODE_EXPLAINER_SCRIPT.matchAll(/closest\('[^']*\[data-([a-z-]+)\]'\)/g)].map((match) => match[1]);
+  assert.ok(looked.includes('mode') && looked.includes('question') && looked.includes('action'), looked.join(', '));
   const body = codeExplainerBody('nonce');
-  assert.match(body, /<nav class="cx-lenses" role="tablist" aria-label="Lenses">/);
-  const lenses = [...body.matchAll(/data-lens="([a-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(lenses, ['code', 'concepts', 'entities', 'flow', 'logic']);
-  for (const id of ['cx-view-concepts', 'cx-view-entities', 'cx-view-flow', 'cx-view-logic', 'cx-flow-entry', 'cx-logic-fn', 'cx-tabs-row']) {
+  const rootTag = body.match(/<[a-z]+[^>]*id="cx-root"[^>]*>/)[0];
+  for (const name of new Set(looked)) {
+    const camel = name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+    assert.doesNotMatch(CODE_EXPLAINER_SCRIPT, new RegExp(`root\\.dataset\\.${camel}\\b`), `the script sets root.dataset.${camel}`);
+    assert.doesNotMatch(CODE_EXPLAINER_SCRIPT, new RegExp(`root\\.setAttribute\\('data-${name}'`), `the script sets data-${name} on the root`);
+    assert.ok(!rootTag.includes(`data-${name}=`), `the root's markup carries data-${name}`);
+  }
+  assert.match(CODE_EXPLAINER_SCRIPT, /root\.dataset\.place = mode;/);
+  // The note under the bar shows two lines; the rest opens on a click or a key.
+  assert.match(CX_STYLE, /\.cx-note-text \{ display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; \}/);
+  assert.match(body, /id="cx-canvas-note" role="note" tabindex="0" aria-expanded="false"/);
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(event\.target\.closest\('#cx-canvas-note'\)\) \{ toggleNote\(\); return; \}/);
+  // The status bar is one line: what needs the person first, and nothing said twice.
+  assert.match(CX_STYLE, /\.cx-status-bar \{[^}]*flex-wrap: nowrap;/);
+  assert.ok(body.indexOf('id="cx-status"') < body.indexOf('id="cx-context"'));
+  assert.doesNotMatch(CODE_EXPLAINER_SCRIPT, /seg\('compared with '/);
+  assert.doesNotMatch(CODE_EXPLAINER_SCRIPT, /chip\(live \? 'Live language service'/);
+});
+
+test('three modes hold every view the panel had: Explore asks about one function, Map the repository, My change the change', () => {
+  // The owner, 2026-11-24: "very congested in vscode … should have all the functionalities". Eight layers of controls
+  // above the code became one bar and one row.
+  const body = codeExplainerBody('nonce');
+  assert.match(body, /<nav class="cx-modes" role="tablist" aria-label="What to look at">/);
+  assert.deepEqual([...body.matchAll(/data-mode="([a-z]+)"/g)].map((match) => match[1]), ['explore', 'map', 'change']);
+  // Every lens and every tab is still reached, each from the mode that asks its question.
+  assert.deepEqual([...body.matchAll(/data-question="([a-z]+)"/g)].map((match) => match[1]), ['about', 'callers', 'callees', 'tests', 'changed', 'logic', 'flow']);
+  assert.deepEqual([...body.matchAll(/data-lens="([a-z]+)"/g)].map((match) => match[1]), ['logic', 'flow', 'concepts', 'entities']);
+  assert.deepEqual([...body.matchAll(/data-tab="([a-z]+)"/g)].map((match) => match[1]), ['repo', 'graph', 'graph', 'trace', 'walk']);
+  for (const id of ['cx-view-graph', 'cx-view-trace', 'cx-view-walk', 'cx-view-repo', 'cx-view-concepts', 'cx-view-entities', 'cx-view-flow', 'cx-view-logic', 'cx-flow-entry', 'cx-logic-fn', 'cx-outline', 'cx-inspector', 'cx-minimap']) {
     assert.match(body, new RegExp(`id="${id}"`), id);
   }
-  // The Code lens keeps its own tabs; another lens hides them and keeps its own selection.
-  assert.match(CODE_EXPLAINER_SCRIPT, /\$\('cx-tabs-row'\)\.hidden = !code;/);
+  // The rest is in the bar's menu, not on the page: depth, view, folder, re-index, outline, export, Change Explorer, how it was built.
+  const menu = body.slice(body.indexOf('id="cx-menu"'), body.indexOf('<div class="cx-sub"'));
+  for (const control of ['data-depth="1"', 'data-depth="3"', 'data-view="delta"', 'data-view="full"', 'id="cx-scope"', 'data-action="reindex"', 'data-action="outline"',
+    'data-action="export"', 'data-action="change-explorer"', 'data-action="build-info"']) assert.ok(menu.includes(control), control);
+  assert.match(CODE_EXPLAINER_SCRIPT, /case 'export': closeMenu\(\); post\('cx\.export'\); break;/);
+  assert.match(CODE_EXPLAINER_SCRIPT, /case 'change-explorer': closeMenu\(\); post\('cx\.changeExplorer', \{ symbol: view\.selected \}\); break;/);
+  // What the graph cannot show is a strip above it, never laid over it.
+  assert.ok(body.indexOf('id="cx-canvas-note"') < body.indexOf('id="cx-canvas"'));
+  assert.match(CX_STYLE, /\.cx-canvas-note \{ padding:/);
+  // Explore always has a function in front of it, and reads it isolated with its neighbours, so names stay readable.
+  assert.match(CODE_EXPLAINER_SCRIPT, /function ensureSelection\(\) \{/);
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(changed\) view\.isolate = true;/);
+  // Back and Forward retrace the functions looked at.
+  assert.match(CODE_EXPLAINER_SCRIPT, /view\.history = \(view\.history \|\| \[\]\)\.concat\(\[from\]\)\.slice\(-50\);/);
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(event\.altKey && \(key === 'ArrowLeft' \|\| key === 'ArrowRight'\)\) \{ travel\(key === 'ArrowLeft'\);/);
+  // A Code lens tab asked for from anywhere shows the Code lens; another lens keeps its own selection.
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(view\.lens !== 'code'\) \{ view\.lens = 'code'; paintLensBar\(\); \}/);
   assert.match(CODE_EXPLAINER_SCRIPT, /if \(next !== view\.lens\) view\.lensItem = null;/);
-  assert.match(CODE_EXPLAINER_SCRIPT, /if \(view\.lens !== 'code'\) \{ view\.lens = 'code'; paintLensBar\(\); \}/, 'a Code tab asked for from anywhere shows the Code lens');
+  // Where it starts: the function under the cursor, a change, else the repository's map.
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(fresh && !view\.mode\) setMode\(message\.focus \|\| model\.focus \? 'explore' : model\.change\.status === 'available' \? 'change' : 'map'\);/);
 });
 
 test('lens layouts: stacked top-down and wrapped to the panel; flowcharts never overlap and long switches grow downwards', () => {

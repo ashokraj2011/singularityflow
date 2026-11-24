@@ -24,7 +24,7 @@ export const CX_STYLE = `
     --cx-text: var(--sf-text, var(--vscode-foreground)); --cx-mono: var(--sf-font-mono, var(--vscode-editor-font-family, monospace));
     --cx-edge: color-mix(in srgb, var(--cx-text) 30%, transparent); --cx-grid: color-mix(in srgb, var(--cx-text) 9%, transparent);
     --cx-inspector-w: 380px; --cx-outline-w: 250px;
-    display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; height: calc(100vh - var(--cx-footer, 38px));
+    display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; height: calc(100vh - var(--cx-footer, 38px));
     color: var(--cx-text); background: var(--sf-bg, var(--vscode-editor-background)); font-size: 13px; min-width: 0;
   }
   body.vscode-light #cx-root { --cx-caller: #2f6fbf; --cx-callee: #7a4fc0; --cx-test: #9a6700; --cx-added: #1a7f37; --cx-modified: #9a6700; --cx-removed: #cf222e; --cx-focus: #12877a; --cx-repository: #46698a; }
@@ -47,39 +47,55 @@ export const CX_STYLE = `
   #cx-root code, #cx-root .mono { font-family: var(--cx-mono); }
   #cx-root [hidden] { display: none !important; }
 
-  .cx-head { display: flex; align-items: center; gap: 1rem; padding: .75rem 1rem .6rem; border-bottom: 1px solid var(--cx-line); min-width: 0; }
-  .cx-logo { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid var(--cx-line-strong); border-radius: 6px; color: var(--cx-changed); background: var(--cx-card); }
-  .cx-heading { min-width: 0; flex: 1 1 auto; }
-  .cx-heading h1 { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; margin: 0; font-size: 15px; font-weight: 650; letter-spacing: .01em; }
-  .cx-chip { display: inline-flex; align-items: center; gap: .3rem; height: 19px; padding: 0 .45rem; border: 1px solid currentColor; border-radius: 3px;
-    font-family: var(--cx-mono); font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
-  .cx-chip.ok { color: var(--cx-changed); } .cx-chip.info { color: var(--cx-caller); } .cx-chip.warn { color: var(--cx-modified); } .cx-chip.bad { color: var(--cx-removed); } .cx-chip.dim { color: var(--cx-dim); }
-  .cx-context { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .9rem; margin: .3rem 0 0; color: var(--cx-dim); font-family: var(--cx-mono); font-size: 11.5px; }
+  /* One bar: the three modes, history, find, Ask Copilot and a menu for everything else. */
+  .cx-bar { display: flex; align-items: center; gap: .5rem; padding: .5rem .8rem; border-bottom: 1px solid var(--cx-line); min-width: 0; flex-wrap: wrap; }
+  .cx-modes { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--cx-line); border-radius: 6px; background: var(--cx-card); }
+  #cx-root .cx-mode { gap: .4rem; height: 26px; padding: 0 .8rem; border-radius: 4px; color: var(--cx-dim); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+  #cx-root .cx-mode:hover:not(:disabled) { color: var(--cx-text); }
+  #cx-root .cx-mode[aria-selected="true"] { background: color-mix(in srgb, var(--cx-changed) 18%, var(--cx-card)); color: var(--cx-text); }
+  .cx-mode .cx-count:empty { display: none; }
+  .cx-history { display: inline-flex; gap: .25rem; }
+  #cx-root .cx-history button:disabled { opacity: .35; cursor: default; }
+  .cx-bar .cx-search { flex: 1 1 160px; width: auto; max-width: 320px; }
+  .cx-bar .cx-search:focus-within { width: auto; }
+  .cx-more-wrap { position: relative; margin-left: auto; }
+  .cx-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; display: grid; gap: .45rem; min-width: 260px; padding: .6rem; border: 1px solid var(--cx-line-strong);
+    border-radius: 6px; background: var(--cx-card-head); box-shadow: 0 16px 40px -18px rgba(0,0,0,.8); }
+  .cx-menu .cx-depth { justify-content: space-between; }
+  .cx-menu .cx-scope-pick { display: grid; gap: .25rem; } .cx-menu .cx-scope-pick[hidden] { display: none; } .cx-menu .cx-scope-pick .cx-select { max-width: 100%; }
+  #cx-root .cx-menu-item { gap: .5rem; height: 28px; padding: 0 .5rem; border-radius: 4px; font-size: 12.5px; color: var(--cx-text); }
+  #cx-root .cx-menu-item:hover:not(:disabled) { background: color-mix(in srgb, var(--cx-changed) 12%, transparent); }
+  #cx-root .cx-menu-item[aria-pressed="false"] { color: var(--cx-dim); }
+  /* The row under the bar: questions in Explore, the parts of the repository in Map, of the change in My change. */
+  .cx-sub { border-bottom: 1px solid var(--cx-line); min-width: 0; }
+  .cx-sub-row { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; padding: .4rem .8rem; min-width: 0; }
+  .cx-sub-row::-webkit-scrollbar { display: none; }
+  #cx-root .cx-q { flex: none; gap: .35rem; height: 26px; padding: 0 .7rem; border: 1px solid var(--cx-line-strong); border-radius: 999px; font-size: 12px; color: var(--cx-dim); white-space: nowrap; }
+  #cx-root .cx-q:hover:not(:disabled) { color: var(--cx-text); border-color: var(--cx-changed); }
+  #cx-root .cx-q[aria-pressed="true"] { color: var(--cx-text); border-color: var(--cx-changed); background: color-mix(in srgb, var(--cx-changed) 14%, transparent); }
+  .cx-q .cx-count, .cx-tab .cx-count { padding: 0 .35rem; border: 1px solid var(--cx-line-strong); border-radius: 3px; font-family: var(--cx-mono); font-size: 10px; color: var(--cx-dim); }
+  .cx-q .cx-count:empty { display: none; }
+  .cx-crumb { flex: 1 1 12rem; text-align: right; padding-left: .8rem; color: var(--cx-dim); font-family: var(--cx-mono); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .cx-crumb strong { color: var(--cx-text); font-weight: 600; }
+  .cx-context { display: inline-flex; flex: none; flex-wrap: nowrap; align-items: center; gap: .3rem .9rem; margin: 0; color: var(--cx-dim); font-family: var(--cx-mono); font-size: 11px; }
   .cx-context span { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
   .cx-context strong { color: var(--cx-text); font-weight: 600; }
   .cx-context .gate-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cx-changed); display: inline-block; }
   .cx-context .gate-dot.warn { background: var(--cx-modified); }
-  .cx-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; }
   .cx-depth { display: inline-flex; align-items: center; height: 28px; border: 1px solid var(--cx-line-strong); border-radius: 4px; overflow: hidden; font-family: var(--cx-mono); font-size: 11.5px; }
   .cx-depth > span { padding: 0 .55rem; color: var(--cx-dim); }
   #cx-root .cx-depth button { width: 26px; height: 26px; justify-content: center; border-left: 1px solid var(--cx-line); }
   #cx-root .cx-view-mode button { width: auto; padding: 0 .6rem; }
-  .cx-scope-pick { display: inline-flex; align-items: center; gap: .4rem; font-family: var(--cx-mono); font-size: 11.5px; color: var(--cx-dim); }
-  .cx-scope-pick[hidden] { display: none; }
-  .cx-scope-pick .cx-select { max-width: 280px; }
+  .cx-scope-pick { font-family: var(--cx-mono); font-size: 11.5px; color: var(--cx-dim); }
   .cx-lang { display: inline-grid; place-items: center; width: 16px; height: 16px; flex: none; vertical-align: -3px; }
   .cx-lang svg { width: 16px; height: 16px; display: block; }
   .cx-repo-entry strong .cx-lang, .cx-repo-file .head .cx-lang { margin-right: .35rem; }
   .cx-lang-list { display: inline-flex; gap: .3rem; align-items: center; margin-right: .35rem; vertical-align: -3px; }
   #cx-root .cx-depth button[aria-pressed="true"] { background: color-mix(in srgb, var(--cx-changed) 22%, transparent); color: var(--cx-changed); font-weight: 700; }
 
-  .cx-tabs { display: flex; align-items: stretch; gap: .25rem; padding: 0 1rem; border-bottom: 1px solid var(--cx-line); min-width: 0; overflow-x: auto; }
-  #cx-root .cx-tab { gap: .55rem; padding: .55rem .8rem .5rem; border-bottom: 2px solid transparent; color: var(--cx-dim); font-family: var(--cx-mono); font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+  #cx-root .cx-tab { flex: none; gap: .45rem; height: 26px; padding: 0 .6rem; border-bottom: 2px solid transparent; color: var(--cx-dim); font-size: 12.5px; white-space: nowrap; }
   #cx-root .cx-tab:hover:not(:disabled) { color: var(--cx-text); }
   #cx-root .cx-tab[aria-selected="true"] { color: var(--cx-text); border-bottom-color: var(--cx-changed); }
-  .cx-tab .cx-count { padding: 0 .35rem; border: 1px solid var(--cx-line-strong); border-radius: 3px; font-size: 10px; color: var(--cx-dim); }
-  .cx-legend { margin-left: auto; display: flex; align-items: center; gap: .9rem; color: var(--cx-dim); font-family: var(--cx-mono); font-size: 10.5px; white-space: nowrap; }
-  .cx-legend span { display: inline-flex; align-items: center; gap: .35rem; }
   .cx-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; background: var(--cx-other); }
   .cx-dot.changed { background: var(--cx-changed); } .cx-dot.caller { background: var(--cx-caller); } .cx-dot.callee { background: var(--cx-callee); }
   .cx-dot.test { background: var(--cx-test); } .cx-dot.external { background: var(--cx-external); } .cx-dot.focus { background: var(--cx-focus); } .cx-dot.repository { background: var(--cx-repository); } .cx-dot.context { background: var(--cx-faint); }
@@ -195,8 +211,10 @@ export const CX_STYLE = `
   .cx-minimap rect.mm-node { fill: color-mix(in srgb, var(--cx-text) 25%, transparent); }
   .cx-minimap rect.mm-node.changed { fill: var(--cx-changed); } .cx-minimap rect.mm-node.caller { fill: var(--cx-caller); } .cx-minimap rect.mm-node.callee { fill: var(--cx-callee); } .cx-minimap rect.mm-node.test { fill: var(--cx-test); }
   .cx-minimap rect.mm-view { fill: color-mix(in srgb, var(--cx-changed) 10%, transparent); stroke: var(--cx-changed); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-  .cx-canvas-note { position: absolute; left: 12px; bottom: 10px; max-width: min(520px, 70%); padding: .45rem .6rem; border: 1px solid var(--cx-line-strong); border-radius: 4px;
-    background: color-mix(in srgb, var(--cx-card) 94%, transparent); color: var(--cx-dim); font-size: 11.5px; }
+  #cx-view-graph { grid-template-rows: auto auto minmax(0, 1fr); }
+  .cx-canvas-note { padding: .4rem .8rem; border-bottom: 1px solid var(--cx-line); background: var(--cx-card); color: var(--cx-dim); font-size: 11.5px; cursor: pointer; }
+  .cx-note-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .cx-canvas-note[aria-expanded="true"] .cx-note-text { display: block; }
   .cx-progress { position: absolute; left: 0; right: 0; top: 0; height: 2px; overflow: hidden; }
   .cx-progress::after { content: ''; position: absolute; top: 0; bottom: 0; width: 30%; background: var(--cx-changed); animation: cx-slide 1.1s ease-in-out infinite; }
   @keyframes cx-slide { from { left: -30%; } to { left: 100%; } }
@@ -315,12 +333,16 @@ export const CX_STYLE = `
   .cx-walk-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: .9rem; margin-top: .8rem; }
   @media (max-width: 1100px) { .cx-walk-grid { grid-template-columns: minmax(0, 1fr); } }
 
-  .cx-status { display: flex; align-items: center; gap: .9rem; padding: .4rem 1rem; border-top: 1px solid var(--cx-line); font-family: var(--cx-mono); font-size: 11px; color: var(--cx-dim); min-width: 0; flex-wrap: wrap; }
+  .cx-status-bar { display: flex; align-items: center; gap: .9rem; padding: .3rem .8rem; border-top: 1px solid var(--cx-line); min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+  .cx-status-bar::-webkit-scrollbar { display: none; }
+  .cx-status-bar .cx-badges:empty { display: none; }
+  .cx-status-bar .cx-badges { margin: 0; }
+  .cx-status { display: inline-flex; align-items: center; gap: .9rem; flex: none; font-family: var(--cx-mono); font-size: 11px; color: var(--cx-dim); flex-wrap: nowrap; }
   .cx-status .seg { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; }
   .cx-status .seg.ok { color: var(--cx-changed); } .cx-status .seg.warn { color: var(--cx-modified); }
   #cx-root .cx-status .cx-attn { gap: .35rem; color: var(--cx-modified); text-decoration: underline dotted; text-underline-offset: 3px; }
   #cx-root .cx-status .cx-engine, #cx-root .cx-status .cx-attn.quiet { color: var(--cx-dim); }
-  .cx-status .cx-btns { margin-left: auto; display: flex; gap: .4rem; flex-wrap: wrap; }
+  .cx-status .cx-btns { margin-left: auto; display: flex; gap: .4rem; flex-wrap: nowrap; }
   .cx-popover { position: absolute; right: 1rem; bottom: 2.6rem; z-index: 30; width: min(520px, calc(100vw - 2rem)); max-height: 50vh; overflow: auto; padding: .7rem .8rem;
     border: 1px solid var(--cx-line-strong); border-radius: 6px; background: var(--cx-card-head); box-shadow: 0 16px 40px -20px rgba(0,0,0,.8); }
   .cx-popover h3 { margin: 0 0 .4rem; font-family: var(--cx-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--cx-dim); }
@@ -333,18 +355,10 @@ export const CX_STYLE = `
     #cx-root { --cx-inspector-w: 300px; --cx-outline-w: 0px; }
     .cx-main { grid-template-columns: 0 minmax(0, 1fr) 6px var(--cx-inspector-w); }
     .cx-outline { visibility: hidden; }
-    .cx-legend { display: none; }
   }
 
   /* Lenses: the bar, and the four lens views. */
-  .cx-head { grid-row: 1; } .cx-lenses { grid-row: 2; } .cx-tabs { grid-row: 3; } .cx-main { grid-row: 4; } .cx-status { grid-row: 5; }
-  .cx-lenses { display: flex; gap: .4rem; padding: .45rem 1rem; border-bottom: 1px solid var(--cx-line); overflow-x: auto; min-width: 0; }
-  #cx-root .cx-lens { flex: none; display: grid; gap: .05rem; justify-items: start; padding: .3rem .75rem; border: 1px solid var(--cx-line); border-radius: 6px; background: var(--cx-card); color: var(--cx-dim); }
-  #cx-root .cx-lens b { font-size: 12.5px; font-weight: 650; color: var(--cx-text); }
-  #cx-root .cx-lens small { font-size: 10.5px; color: var(--cx-faint); }
-  #cx-root .cx-lens:hover:not(:disabled) { border-color: var(--cx-line-strong); }
-  #cx-root .cx-lens[aria-selected="true"] { border-color: var(--cx-changed); background: color-mix(in srgb, var(--cx-changed) 10%, var(--cx-card)); }
-  #cx-root .cx-lens[aria-selected="true"] small { color: var(--cx-dim); }
+  .cx-bar { grid-row: 1; } .cx-sub { grid-row: 2; } .cx-main { grid-row: 3; } .cx-status-bar { grid-row: 4; }
   .cx-main.lens-mode { grid-template-columns: 0 minmax(0, 1fr) 6px var(--cx-inspector-w); }
   .cx-main.lens-mode .cx-outline { visibility: hidden; }
   .cx-select { height: 26px; min-width: 0; max-width: min(520px, 60%); padding: 0 .4rem; border: 1px solid var(--cx-line-strong); border-radius: 4px; background: var(--cx-card); color: var(--cx-text); font-family: var(--cx-mono); font-size: 11.5px; }
@@ -446,41 +460,62 @@ export const CX_STYLE = `
 export function codeExplainerBody(token: string): string {
   return `<style nonce="${escape(token)}">${CX_STYLE}</style>
   <div id="cx-root" class="cx" data-loading="true">
-    <header class="cx-head">
-      <span class="cx-logo" aria-hidden="true">${icon('code', { size: 20 })}</span>
-      <div class="cx-heading">
-        <h1><span>Code Explainer</span><span id="cx-badges" class="cx-badges"></span></h1>
-        <p class="cx-context" id="cx-context"><span>Reading the change and asking the language services…</span></p>
+    <header class="cx-bar">
+      <nav class="cx-modes" role="tablist" aria-label="What to look at">
+        <button class="cx-mode" type="button" role="tab" id="cx-mode-explore" data-mode="explore" aria-selected="true" title="The function you are on: what it does, who calls it, what it calls, its tests">Explore</button>
+        <button class="cx-mode" type="button" role="tab" id="cx-mode-map" data-mode="map" aria-selected="false" tabindex="-1" title="The whole repository: its folders, what it is about, the data it holds, every call">Map</button>
+        <button class="cx-mode" type="button" role="tab" id="cx-mode-change" data-mode="change" aria-selected="false" tabindex="-1" title="What this change touches, the requirements and tests it answers, and a walk through it">My change <span class="cx-count" id="cx-count-change"></span></button>
+      </nav>
+      <div class="cx-history" role="group" aria-label="History">
+        <button class="cx-icon-btn" type="button" data-action="back" id="cx-back" aria-label="Back" title="Back to the last function you looked at (Alt+←)" disabled>←</button>
+        <button class="cx-icon-btn" type="button" data-action="forward" id="cx-forward" aria-label="Forward" title="Forward (Alt+→)" disabled>→</button>
       </div>
-      <div class="cx-actions">
-        <button class="cx-btn cx-primary" type="button" id="cx-ask" data-action="ask" title="Open Copilot Chat with a prompt about the selected code. You review it before sending.">${icon('skill', { size: 14 })}<span>Ask Copilot</span></button>
-        <div class="cx-depth" role="group" aria-label="Call depth"><span>Call depth</span>
-          <button type="button" data-depth="1" aria-pressed="true" title="Direct callers and callees">1</button>
-          <button type="button" data-depth="2" aria-pressed="false" title="Two calls away">2</button>
-          <button type="button" data-depth="3" aria-pressed="false" title="Three calls away">3</button>
+      <label class="cx-search">${icon('search', { size: 14 })}<input id="cx-search" type="search" placeholder="Find a function…  /" aria-label="Find a function" autocomplete="off" spellcheck="false"></label>
+      <button class="cx-btn cx-primary" type="button" id="cx-ask" data-action="ask" title="Open Copilot Chat with a prompt about the selected code. You review it before sending.">${icon('skill', { size: 14 })}<span>Ask Copilot</span></button>
+      <div class="cx-more-wrap">
+        <button class="cx-icon-btn" type="button" id="cx-more" data-action="more" aria-haspopup="true" aria-expanded="false" aria-controls="cx-menu" aria-label="More" title="Call depth, view, folder, re-index, export">⋯</button>
+        <div class="cx-menu" id="cx-menu" role="group" aria-label="More" hidden>
+          <div class="cx-depth" role="group" aria-label="Call depth"><span>Call depth</span>
+            <button type="button" data-depth="1" aria-pressed="true" title="Direct callers and callees">1</button>
+            <button type="button" data-depth="2" aria-pressed="false" title="Two calls away">2</button>
+            <button type="button" data-depth="3" aria-pressed="false" title="Three calls away">3</button>
+          </div>
+          <div class="cx-depth cx-view-mode" role="group" aria-label="Graph view"><span>View</span>
+            <button type="button" data-view="delta" aria-pressed="true" title="What this Story changed, and the code it calls or is called by">Delta</button>
+            <button type="button" data-view="full" aria-pressed="false" title="Every function in the current worktree's code, and how they call each other">Full</button>
+          </div>
+          <label class="cx-scope-pick" id="cx-scope-pick" hidden><span>Folder</span><select id="cx-scope" class="cx-select" aria-label="Folder the full view maps"></select></label>
+          <button class="cx-menu-item" type="button" data-action="reindex">${icon('refresh', { size: 14 })}<span>Re-index</span></button>
+          <button class="cx-menu-item" type="button" data-action="outline" aria-pressed="true">${icon('collection', { size: 14 })}<span>Outline</span></button>
+          <button class="cx-menu-item" type="button" data-action="export"><span>Export JSON</span></button>
+          <button class="cx-menu-item" type="button" data-action="change-explorer"><span>Change Explorer</span></button>
+          <button class="cx-menu-item" type="button" data-action="build-info"><span>How this view was built</span></button>
         </div>
-        <div class="cx-depth cx-view-mode" role="group" aria-label="Graph view"><span>View</span>
-          <button type="button" data-view="delta" aria-pressed="true" title="What this Story changed, and the code it calls or is called by">Delta</button>
-          <button type="button" data-view="full" aria-pressed="false" title="Every function in the current worktree's code, and how they call each other">Full</button>
-        </div>
-        <label class="cx-scope-pick" id="cx-scope-pick" hidden><span>Folder</span><select id="cx-scope" class="cx-select" aria-label="Folder the full view maps"></select></label>
-        <button class="cx-btn" type="button" data-action="reindex" title="Read the change and ask the language services again">${icon('refresh', { size: 14 })}<span>Re-index</span></button>
       </div>
     </header>
-    <nav class="cx-lenses" role="tablist" aria-label="Lenses">
-      <button class="cx-lens" type="button" role="tab" id="cx-lens-code" data-lens="code" aria-selected="true" aria-controls="cx-tabs-row"><b>Code</b><small>functions and calls</small></button>
-      <button class="cx-lens" type="button" role="tab" id="cx-lens-concepts" data-lens="concepts" aria-selected="false" aria-controls="cx-view-concepts" tabindex="-1"><b>Concepts</b><small>what it is about</small></button>
-      <button class="cx-lens" type="button" role="tab" id="cx-lens-entities" data-lens="entities" aria-selected="false" aria-controls="cx-view-entities" tabindex="-1"><b>Entities</b><small>the data it holds</small></button>
-      <button class="cx-lens" type="button" role="tab" id="cx-lens-flow" data-lens="flow" aria-selected="false" aria-controls="cx-view-flow" tabindex="-1"><b>Data flow</b><small>in, through, out</small></button>
-      <button class="cx-lens" type="button" role="tab" id="cx-lens-logic" data-lens="logic" aria-selected="false" aria-controls="cx-view-logic" tabindex="-1"><b>Logic</b><small>steps and decisions</small></button>
-    </nav>
-    <nav class="cx-tabs" id="cx-tabs-row" role="tablist" aria-label="Explainer views">
-      <button class="cx-tab" type="button" role="tab" id="cx-tab-graph" data-tab="graph" aria-selected="true" aria-controls="cx-view-graph">Dependency graph <span class="cx-count" id="cx-count-graph">0</span></button>
-      <button class="cx-tab" type="button" role="tab" id="cx-tab-trace" data-tab="trace" aria-selected="false" aria-controls="cx-view-trace" tabindex="-1">Requirement → test trace <span class="cx-count" id="cx-count-trace">0</span></button>
-      <button class="cx-tab" type="button" role="tab" id="cx-tab-walk" data-tab="walk" aria-selected="false" aria-controls="cx-view-walk" tabindex="-1">Walkthrough <span class="cx-count" id="cx-count-walk">0</span></button>
-      <button class="cx-tab" type="button" role="tab" id="cx-tab-repo" data-tab="repo" aria-selected="false" aria-controls="cx-view-repo" tabindex="-1">Repository <span class="cx-count" id="cx-count-repo"></span></button>
-      <div class="cx-legend" aria-hidden="true"><span><i class="cx-dot changed"></i>Changed</span><span><i class="cx-dot caller"></i>Caller</span><span><i class="cx-dot callee"></i>Callee</span><span><i class="cx-dot test"></i>Test</span><span><i class="cx-dot external"></i>External</span></div>
-    </nav>
+    <div class="cx-sub" id="cx-sub">
+      <div class="cx-sub-row" id="cx-sub-explore" role="group" aria-label="Questions about the selected function">
+        <button class="cx-q" type="button" data-question="about" aria-pressed="true">What it does</button>
+        <button class="cx-q" type="button" data-question="callers" aria-pressed="false">Who calls it <span class="cx-count" id="cx-q-callers"></span></button>
+        <button class="cx-q" type="button" data-question="callees" aria-pressed="false">What it calls <span class="cx-count" id="cx-q-callees"></span></button>
+        <button class="cx-q" type="button" data-question="tests" aria-pressed="false">Tests <span class="cx-count" id="cx-q-tests"></span></button>
+        <button class="cx-q" type="button" data-question="changed" aria-pressed="false">What changed</button>
+        <button class="cx-q" type="button" data-question="logic" data-lens="logic" aria-pressed="false">Steps and decisions</button>
+        <button class="cx-q" type="button" data-question="flow" data-lens="flow" aria-pressed="false">Data in and out</button>
+        <span class="cx-crumb" id="cx-crumb"></span>
+      </div>
+      <nav class="cx-sub-row" id="cx-sub-map" role="tablist" aria-label="The repository" hidden>
+        <button class="cx-tab" type="button" role="tab" id="cx-tab-repo" data-tab="repo" aria-selected="true" aria-controls="cx-view-repo">Folders <span class="cx-count" id="cx-count-repo"></span></button>
+        <button class="cx-tab" type="button" role="tab" id="cx-lens-concepts" data-lens="concepts" aria-selected="false" aria-controls="cx-view-concepts" tabindex="-1">What it is about</button>
+        <button class="cx-tab" type="button" role="tab" id="cx-lens-entities" data-lens="entities" aria-selected="false" aria-controls="cx-view-entities" tabindex="-1">The data it holds</button>
+        <button class="cx-tab" type="button" role="tab" id="cx-tab-whole" data-tab="graph" data-whole="true" aria-selected="false" aria-controls="cx-view-graph" tabindex="-1">Every call <span class="cx-count" id="cx-count-graph">0</span></button>
+      </nav>
+      <nav class="cx-sub-row" id="cx-sub-change" role="tablist" aria-label="This change" hidden>
+        <button class="cx-tab" type="button" role="tab" id="cx-tab-graph" data-tab="graph" aria-selected="true" aria-controls="cx-view-graph">Changed code</button>
+        <button class="cx-tab" type="button" role="tab" id="cx-tab-trace" data-tab="trace" aria-selected="false" aria-controls="cx-view-trace" tabindex="-1">Requirements → tests <span class="cx-count" id="cx-count-trace">0</span></button>
+        <button class="cx-tab" type="button" role="tab" id="cx-tab-walk" data-tab="walk" aria-selected="false" aria-controls="cx-view-walk" tabindex="-1">Walk through it <span class="cx-count" id="cx-count-walk">0</span></button>
+      </nav>
+    </div>
     <div class="cx-main" id="cx-main">
       <aside class="cx-outline" id="cx-outline" aria-label="Changed code outline">
         <div class="cx-tree" id="cx-tree" role="tree" aria-label="Modules and functions"></div>
@@ -488,9 +523,6 @@ export function codeExplainerBody(token: string): string {
       <div class="cx-stage">
         <section class="cx-view" id="cx-view-graph" role="tabpanel" aria-labelledby="cx-tab-graph">
           <div class="cx-toolbar">
-            <button class="cx-icon-btn" type="button" data-action="outline" aria-pressed="true" title="Show or hide the outline">${icon('collection', { size: 14 })}</button>
-            <label class="cx-search">${icon('search', { size: 14 })}<input id="cx-search" type="search" placeholder="Find…  /" aria-label="Find a function" autocomplete="off" spellcheck="false"></label>
-            <span class="cx-label">Canvas · <b>layered call layout</b></span>
             <div class="cx-filters" id="cx-filters" role="group" aria-label="Show"></div>
             <span class="cx-spacer"></span>
             <button class="cx-icon-btn" type="button" data-action="isolate" aria-pressed="false" title="Isolate the selection and its neighbours (I)">${icon('capability', { size: 14 })}</button>
@@ -503,10 +535,10 @@ export function codeExplainerBody(token: string): string {
               <button class="cx-icon-btn" type="button" data-action="fit" title="Fit to view (F)">${icon('impact', { size: 14 })}</button>
             </div>
           </div>
+          <div class="cx-canvas-note" id="cx-canvas-note" role="note" tabindex="0" aria-expanded="false" title="Show all of this note" hidden></div>
           <div class="cx-canvas" id="cx-canvas" tabindex="0" role="application" aria-label="Dependency graph. Arrow keys move between functions, Enter opens, Escape clears.">
             <div class="cx-progress" id="cx-progress"></div>
             <div class="cx-world" id="cx-world"><svg class="cx-edges" id="cx-edges" aria-hidden="true"></svg><div id="cx-nodes"></div></div>
-            <div class="cx-canvas-note" id="cx-canvas-note" hidden></div>
             <div class="cx-minimap" id="cx-minimap" title="Overview: click to move there"></div>
           </div>
         </section>
@@ -545,7 +577,7 @@ export function codeExplainerBody(token: string): string {
       <div class="cx-splitter" id="cx-splitter" role="separator" aria-orientation="vertical" aria-label="Resize the inspector" tabindex="0"></div>
       <aside class="cx-inspector" id="cx-inspector" aria-label="Inspector" aria-live="polite"></aside>
     </div>
-    <footer class="cx-status" id="cx-status"></footer>
+    <footer class="cx-status-bar"><span class="cx-status" id="cx-status"></span><span class="cx-badges" id="cx-badges"></span><span class="cx-context" id="cx-context"><span>Reading the code and asking the language services…</span></span></footer>
   </div>`;
 }
 
@@ -579,8 +611,11 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       (shown ? visible : hidden).push(symbol);
     }
     const limit = view.expanded[module.id] ? Infinity : 12;
-    const rows = visible.slice(0, limit);
-    const overflow = visible.slice(limit).length + hidden.length;
+    let rows = visible.slice(0, limit);
+    // The selected function is always a row: past the first twelve it takes the last place, never the whole card.
+    const chosen = visible.find(function (symbol) { return symbol.id === view.selected; });
+    if (chosen && rows.indexOf(chosen) < 0) rows = rows.slice(0, limit - 1).concat([chosen]);
+    const overflow = visible.length - rows.length + hidden.length;
     const folded = isCollapsed(module, view);
     return { rows: folded ? [] : rows, hidden: folded ? ids.length : overflow };
   }
@@ -1032,7 +1067,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     tab: 'graph', zoom: 1, x: 40, y: 40, selected: null, selectedModule: null, selectedEdge: null, manual: {},
     collapsed: {}, expanded: {}, filters: Object.assign({}, DEFAULT_FILTERS),
     isolate: false, outline: null, minimap: true, inspectorWidth: null, gapsOnly: false, walk: 0, fitted: false, modelId: null, query: '',
-    lens: 'code', lensItem: null, flowEntry: null, logicSymbol: null
+    lens: 'code', lensItem: null, flowEntry: null, logicSymbol: null,
+    mode: null, question: 'about', history: [], future: []
   }, saved.view || {});
   // Saved filters predate any role added since; a new role starts at its default instead of hidden.
   view.filters = Object.assign({}, DEFAULT_FILTERS, view.filters || {});
@@ -1140,6 +1176,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     return node;
   }
   function chip(text, tone) { return el('span', 'cx-chip ' + (tone || 'dim'), text); }
+  function plural(count, noun) { return count + ' ' + noun + (count === 1 ? '' : 's'); }
   function delta(added, removed) {
     const span = el('span', 'cx-delta');
     if (added) span.appendChild(el('span', 'add', '+' + added));
@@ -1199,7 +1236,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const languages = model.intelligence.languages;
     const live = languages.some(function (entry) { return entry.symbols === 'language-service'; });
     const text = languages.some(function (entry) { return entry.symbols === 'text'; });
-    badges.appendChild(chip(live ? 'Live language service' : text ? 'Text outline' : 'File level', live ? 'ok' : 'dim'));
+    if (!live) badges.appendChild(chip(text ? 'Text outline' : 'File level', 'dim'));
     if (model.story) badges.appendChild(chip('Story ' + model.story.workId, 'info'));
     if (model.view === 'full') badges.appendChild(chip('Full worktree', 'info'));
     else if (model.mode === 'source') badges.appendChild(chip('Source', 'dim'));
@@ -1227,7 +1264,6 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       }
       if (story.phaseLabel) item('', 'phase', story.phaseLabel + (story.phases.index ? ' (' + story.phases.index + ' of ' + story.phases.total + ')' : '') + (story.phaseStatus ? ' · ' + story.phaseStatus.replace(/_/g, ' ') : ''));
     }
-    if (model.change.status === 'available') item('', '', model.change.codeFiles + ' code files of ' + model.change.files + ' changed · ' + model.change.symbols + ' changed symbols');
     $('cx-ask').hidden = !model.modelEnabled;
     root.querySelectorAll('[data-depth]').forEach(function (node) { node.setAttribute('aria-pressed', String(Number(node.dataset.depth) === model.intelligence.depth)); });
     root.querySelectorAll('[data-view]').forEach(function (node) { node.setAttribute('aria-pressed', String(node.dataset.view === model.view)); });
@@ -1235,6 +1271,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     $('cx-count-graph').textContent = String(model.modules.filter(function (module) { return module.role !== 'context' || module.symbolIds.length; }).length);
     $('cx-count-trace').textContent = String(model.trace.counts.requirements || model.trace.code.length);
     $('cx-count-walk').textContent = String(model.walkthrough.length);
+    $('cx-count-change').textContent = model.change.status === 'available' ? String(model.change.files) : '';
+    $('cx-mode-change').title = model.change.status === 'available' ? plural(model.change.files, 'changed file') + ', ' + plural(model.change.symbols, 'changed function') + ': what they touch, the requirements and tests they answer, and a walk through them' : 'What this change touches, the requirements and tests it answers, and a walk through it';
   }
 
   // The folders the full view can map. Options carry indexes into the host's own list, never paths.
@@ -1262,15 +1300,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     status.replaceChildren();
     const seg = function (text, tone) { const span = el('span', 'seg' + (tone ? ' ' + tone : ''), text); status.appendChild(span); return span; };
     if (progress) seg('◌ ' + progress, 'warn');
-    else if (model) seg('● ' + model.change.files + ' changed files · ' + model.change.symbols + ' changed symbols · ' + model.edges.length + ' calls', 'ok');
+    else if (model) seg('● ' + plural(model.change.files, 'file') + ', ' + plural(model.change.symbols, 'function') + ' changed · ' + plural(model.edges.length, 'call'), 'ok');
     if (model) {
-      const engines = model.intelligence.languages.map(function (entry) {
-        return entry.language + (entry.calls === 'available' ? ' (calls)' : entry.calls === 'analysis' ? ' (calls from code analysis)' : entry.symbols === 'language-service' ? ' (symbols)' : entry.symbols === 'text' ? ' (text outline)' : ' (file level)');
-      });
-      const engine = button('cx-attn cx-engine', 'ⓘ engine: ' + (engines.length ? engines.join(', ') : 'no code files'), function () { toggleBuildInfo(); }, 'How this view was built');
-      status.appendChild(engine);
-      if (model.intelligence.durationMs !== null) seg('indexed in ' + (model.intelligence.durationMs / 1000).toFixed(1) + ' s');
-      if (model.repository.base) seg('compared with ' + refWords(model.repository.base));
       if (model.attention.length) {
         const pressing = model.attention.filter(function (group) { return group.category === 'blocker' || group.category === 'missing-explanation'; })
           .reduce(function (sum, group) { return sum + group.count; }, 0);
@@ -1286,16 +1317,23 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
         status.appendChild(span);
       }
     }
+    let engine = null;
+    if (model) {
+      const engines = model.intelligence.languages.map(function (entry) {
+        return entry.language + (entry.calls === 'available' ? ' (calls)' : entry.calls === 'analysis' ? ' (calls from code analysis)' : entry.symbols === 'language-service' ? ' (symbols)' : entry.symbols === 'text' ? ' (text outline)' : ' (file level)');
+      });
+      const took = model.intelligence.durationMs !== null ? ' · ' + (model.intelligence.durationMs / 1000).toFixed(1) + ' s' : '';
+      engine = button('cx-attn cx-engine', 'ⓘ ' + (engines.length ? engines.join(', ') : 'no code files') + took, function () { toggleBuildInfo(); }, 'How this view was built' + (took ? ', indexed in' + took.slice(2) : ''));
+    }
     const buttons = el('div', 'cx-btns');
-    buttons.appendChild(button('cx-btn', 'Export JSON', function () { post('cx.export'); }, 'Save this explanation as JSON'));
-    buttons.appendChild(button('cx-btn', 'Change Explorer', function () { post('cx.changeExplorer', { symbol: view.selected }); }, 'Open the evidence view of this change'));
     if (model && model.story) {
       const approvals = model.story.approval;
       buttons.appendChild(button('cx-btn' + (approvals && !approvals.met ? ' cx-primary' : ''), approvals && !approvals.met ? 'Review approval' : 'Story journey',
         function () { post('cx.story', { to: approvals && !approvals.met ? 'approvals' : 'journey' }); },
         approvals ? approvals.distinct + ' of ' + approvals.minimum + ' approvals' : 'Phases and approvals'));
     }
-    status.appendChild(buttons);
+    if (buttons.childNodes.length) status.appendChild(buttons);
+    if (engine) status.appendChild(engine);
   }
 
   function toggleBuildInfo() {
@@ -1690,13 +1728,13 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const lines = [];
     if (!modules.length) {
       if (model.view === 'full') lines.push("No functions were found in the current worktree's code files.");
-      else if (!model.change.codeFiles && !model.focus) lines.push('This Story has not changed any code yet. Choose Full to map every function in the current worktree, or click a function under Repository to see its callers and what it calls.');
+      else if (!model.change.codeFiles && !model.focus) lines.push('This Story has not changed any code yet. Open Map, then Every call, to map every function in the current worktree, or Folders to read the repository by area.');
       else lines.push('Nothing to draw with the current filters.');
     }
     else if (!model.edges.length && model.intelligence.status !== 'pending') lines.push(anyCalls ? (model.view === 'full' ? 'The language service found no calls between these functions.' : 'No calls connect the changed code to the rest of the workspace at this depth.') : 'No call hierarchy is available for these languages, so the cards show what changed without call edges. Install a language extension that provides “Call Hierarchy” to see callers and callees.');
     if (model.intelligence.truncated.length) lines.push('Bounded: ' + model.intelligence.truncated.join('; ') + '.');
     note.hidden = !lines.length;
-    note.textContent = lines.join(' ');
+    if (note.textContent !== lines.join(' ')) { note.replaceChildren(el('span', 'cx-note-text', lines.join(' '))); note.setAttribute('aria-expanded', 'false'); }
     applyTransform();
   }
 
@@ -1725,8 +1763,14 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     return nodesLayer.querySelector('.cx-row[data-symbol="' + CSS.escape(symbolId) + '"]');
   }
 
-  function select(symbolId, centre) {
+  function select(symbolId, centre, options) {
     if (!model || !model.byId[symbolId]) return;
+    // Back and Forward retrace the functions looked at; following a link or a row starts a new path.
+    const from = view.selected;
+    if (from && from !== symbolId && !(options && (options.history || options.quiet))) {
+      view.history = (view.history || []).concat([from]).slice(-50);
+      view.future = [];
+    }
     view.selected = symbolId;
     view.selectedModule = null;
     view.selectedEdge = null;
@@ -1736,18 +1780,22 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       const module = model.moduleById[symbol.moduleId];
       let rebuild = Boolean(view.isolate);
       if (module && !view.filters[module.role]) { view.filters[module.role] = true; renderFilters(); rebuild = true; }
-      if (!rowElement(symbolId)) { view.expanded[symbol.moduleId] = view.expanded[symbol.moduleId] || !symbol.primary; view.collapsed[symbol.moduleId] = false; rebuild = true; }
+      if (!rowElement(symbolId)) { view.collapsed[symbol.moduleId] = false; rebuild = true; }
       if (rebuild) { computeLayout(); renderNodes(); renderEdges(); }
       else paintSelection();
       const element = rowElement(symbolId);
       if (element && document.activeElement !== search) element.focus({ preventScroll: true });
-      if (centre) {
+      // An isolated graph redrawn around a new function is framed again: the old zoom belonged to other cards.
+      if (centre && rebuild && view.isolate) frame();
+      else if (centre) {
         const rows = moduleRows(model, module, view).rows;
         centreOn(symbol.moduleId, rows.findIndex(function (row) { return row.id === symbolId; }));
       }
     }
     renderInspector();
     renderOutline();
+    paintQuestions();
+    paintHistory();
     const walkAt = model.walkthrough.indexOf(symbolId);
     if (walkAt >= 0) view.walk = walkAt;
     if (view.tab === 'walk') renderWalk();
@@ -1912,6 +1960,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     inspector.appendChild(actionsFor(symbol));
 
     const explain = box('Explanation', 'from code facts · no model');
+    explain.dataset.section = 'about';
     const prose = el('div', 'cx-explain');
     symbol.explanation.forEach(function (sentence) { prose.appendChild(segmentNodes(sentence)); });
     explain.appendChild(prose);
@@ -1937,19 +1986,23 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     }
     if (symbol.diff.length) {
       const change = box('What changed here', symbol.diffTruncated ? 'first lines only' : 'captured patch');
+      change.dataset.section = 'changed';
       change.appendChild(diffBlock(symbol.diff));
       inspector.appendChild(change);
     }
     const callers = box('Called by', symbol.callStatus === 'unavailable' ? 'call hierarchy unavailable' : '');
+    callers.dataset.section = 'callers';
     callers.appendChild(linkList(symbol.callers, symbol.callStatus === 'complete' ? 'No callers in this workspace.' : symbol.callStatus === 'analysis' ? 'No callers found in the code.' : 'Not known.', function (id) {
       const edge = model.edges.find(function (entry) { return entry.from === id && entry.to === symbol.id; });
       return edge && edge.sites.length ? ':' + edge.sites.join(', ') : '';
     }));
     inspector.appendChild(callers);
     const callees = box('Calls');
+    callees.dataset.section = 'callees';
     callees.appendChild(linkList(symbol.callees, symbol.callStatus === 'complete' ? 'Calls nothing the language service resolved.' : symbol.callStatus === 'analysis' ? 'Calls nothing the code analysis found.' : 'Not known.'));
     inspector.appendChild(callees);
     const tests = box('Tests that name it', 'references, not coverage');
+    tests.dataset.section = 'tests';
     if (symbol.tests.length) {
       const list = el('ul', 'cx-links');
       symbol.tests.forEach(function (reference, at) {
@@ -2393,13 +2446,11 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   const FLOW_KIND = { entry: 'enters', step: 'step', state: 'state', sink: 'leaves', source: 'read from' };
   function lenses() { return model && model.lenses ? model.lenses : null; }
   function paintLensBar() {
-    LENSES.forEach(function (name) {
-      const tab = $('cx-lens-' + name);
-      tab.setAttribute('aria-selected', String(name === view.lens));
-      tab.tabIndex = name === view.lens ? 0 : -1;
-    });
     const code = view.lens === 'code';
-    $('cx-tabs-row').hidden = !code;
+    // Each lens belongs to a mode: what the code is about and the data it holds are the map; its steps and its data in and out are questions about a function.
+    if (view.lens === 'concepts' || view.lens === 'entities') view.mode = 'map';
+    if (view.lens === 'logic' || view.lens === 'flow') view.mode = 'explore';
+    paintModes();
     $('cx-main').classList.toggle('lens-mode', !code);
     ['concepts', 'entities', 'flow', 'logic'].forEach(function (name) { $('cx-view-' + name).hidden = name !== view.lens; });
     if (!code) {
@@ -2801,7 +2852,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (!chosen) {
       const empty = el('div', 'cx-empty');
       empty.appendChild(el('h2', '', 'No function to draw'));
-      empty.appendChild(el('p', '', 'Steps are drawn for functions whose text was read in this view. Choose Full to map the whole worktree.'));
+      empty.appendChild(el('p', '', 'Steps are drawn for functions whose text was read in this view. Open Map, then Every call, to read the whole worktree.'));
       holder.appendChild(empty);
       return;
     }
@@ -3179,23 +3230,140 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   // ---- Tabs --------------------------------------------------------------------------------
   function setTab(tab) {
     view.tab = tab;
+    // Each tab belongs to a mode: the folders to Map, the trace and the walk to My change; the graph to any.
+    if (tab === 'repo') view.mode = 'map';
+    if (tab === 'trace' || tab === 'walk') view.mode = 'change';
     // A Code lens tab is asked for (by a click, a message or a link): the Code lens shows it.
     if (view.lens !== 'code') { view.lens = 'code'; paintLensBar(); }
     // The walkthrough is its own reading view: it takes the inspector's room and starts at the selection.
     $('cx-main').classList.toggle('walk-mode', tab === 'walk');
     if (tab === 'walk' && model && model.walkthrough.indexOf(view.selected) >= 0) view.walk = model.walkthrough.indexOf(view.selected);
     save();
-    ['graph', 'trace', 'walk', 'repo'].forEach(function (name) {
-      $('cx-view-' + name).hidden = name !== tab;
-      const tabButton = $('cx-tab-' + name);
-      tabButton.setAttribute('aria-selected', String(name === tab));
-      tabButton.tabIndex = name === tab ? 0 : -1;
-    });
+    ['graph', 'trace', 'walk', 'repo'].forEach(function (name) { $('cx-view-' + name).hidden = name !== tab; });
+    paintModes();
     if (tab === 'repo') { if (!repo.explanation && !repo.loading && !repo.error) askRepository(repo.path ? 'refresh' : 'root'); else renderRepo(); }
     if (!model) return;
     if (tab === 'graph') { renderGraph(false); }
     if (tab === 'trace') renderTrace();
     if (tab === 'walk') renderWalk();
+  }
+
+  // ---- Modes: Explore, Map, My change ------------------------------------------------------
+  // One row under the bar per mode. Every view the panel had is still here, each in the mode that asks its question.
+  const MODES = ['explore', 'map', 'change'];
+  function paintModes() {
+    const mode = MODES.indexOf(view.mode) >= 0 ? view.mode : 'explore';
+    // The root names its place in data-place: a data-mode on it would answer every click's search for a mode button.
+    root.dataset.place = mode;
+    MODES.forEach(function (name) {
+      const tab = $('cx-mode-' + name);
+      tab.setAttribute('aria-selected', String(name === mode));
+      tab.tabIndex = name === mode ? 0 : -1;
+      $('cx-sub-' + name).hidden = name !== mode;
+    });
+    root.querySelectorAll('.cx-sub-row [role="tab"]').forEach(function (node) {
+      const on = node.dataset.lens ? view.lens === node.dataset.lens : view.lens === 'code' && view.tab === node.dataset.tab;
+      node.setAttribute('aria-selected', String(on));
+      node.tabIndex = on ? 0 : -1;
+    });
+    const isolate = root.querySelector('[data-action="isolate"]');
+    if (isolate) isolate.setAttribute('aria-pressed', String(Boolean(view.isolate)));
+    const question = view.lens === 'logic' || view.lens === 'flow' ? view.lens : view.question || 'about';
+    root.querySelectorAll('[data-question]').forEach(function (node) { node.setAttribute('aria-pressed', String(node.dataset.question === question)); });
+  }
+  function setMode(mode) {
+    const next = MODES.indexOf(mode) >= 0 ? mode : 'explore';
+    const changed = next !== view.mode;
+    const wasIsolated = Boolean(view.isolate);
+    view.mode = next;
+    if (next === 'explore') {
+      // Explore reads one function and its neighbours, readable at any size of repository.
+      if (changed) view.isolate = true;
+      if (view.lens === 'concepts' || view.lens === 'entities') view.lens = 'code';
+      if (view.lens === 'code') view.tab = 'graph';
+    } else if (next === 'map') {
+      if (view.lens === 'logic' || view.lens === 'flow') view.lens = 'code';
+      if (view.lens === 'code' && (view.tab !== 'graph' || !model || model.view !== 'full')) view.tab = 'repo';
+      if (changed) view.isolate = false;
+    } else {
+      view.lens = 'code';
+      if (view.tab !== 'trace' && view.tab !== 'walk') view.tab = 'graph';
+      if (changed) view.isolate = false;
+      if (model && model.view !== 'delta' && model.change.status === 'available') post('cx.view', { view: 'delta' });
+    }
+    save();
+    setLens(view.lens);
+    paintModes();
+    // A mode that isolates, or stops isolating, redraws the graph already on screen.
+    if (model && Boolean(view.isolate) !== wasIsolated && view.lens === 'code' && view.tab === 'graph') { renderGraph(true); if (view.isolate && view.selected) fit(); }
+    if (next === 'explore') ensureSelection();
+  }
+  // Explore always has a function in front of it: the one under the cursor, else the change's first, else the first there is.
+  function ensureSelection() {
+    if (!model || view.selected || view.selectedModule || view.selectedEdge) return;
+    const changed = model.symbols.find(function (symbol) { return symbol.status !== 'unchanged'; });
+    const first = model.focus || model.walkthrough[0] || (changed && changed.id) || (model.symbols[0] && model.symbols[0].id);
+    if (first && model.byId[first]) select(first, true, { quiet: true });
+  }
+  function paintQuestions() {
+    const symbol = model && view.selected ? model.byId[view.selected] : null;
+    $('cx-q-callers').textContent = symbol ? String(symbol.callers.length) : '';
+    $('cx-q-callees').textContent = symbol ? String(symbol.callees.length) : '';
+    $('cx-q-tests').textContent = symbol ? String(symbol.tests.length) : '';
+    const crumb = $('cx-crumb');
+    crumb.replaceChildren();
+    if (!symbol) return;
+    const module = model.moduleById[symbol.moduleId];
+    crumb.appendChild(document.createTextNode((module ? (module.external ? (module.label || module.name) : module.path || module.name) : '') + ' › '));
+    crumb.appendChild(el('strong', '', symbol.qualifiedName));
+  }
+  // A question about the selected function: its part of the inspector, or the lens that answers it.
+  function ask(question) {
+    view.question = question;
+    if (question === 'logic' || question === 'flow') {
+      const data = lenses();
+      if (question === 'logic' && view.selected) view.logicSymbol = view.selected;
+      if (question === 'flow' && data && view.selected) {
+        const entry = data.flow.entries.find(function (item) { return item.symbol === view.selected; });
+        if (entry) view.flowEntry = entry.id;
+      }
+      save();
+      setLens(question);
+      return;
+    }
+    if (view.lens !== 'code') setLens('code');
+    if (view.tab !== 'graph') setTab('graph');
+    ensureSelection();
+    paintModes();
+    save();
+    const section = question === 'about' ? null : inspector.querySelector('[data-section="' + question + '"]');
+    if (section) section.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    else inspector.scrollTop = 0;
+  }
+  function toggleNote() {
+    const note = $('cx-canvas-note');
+    const open = note.getAttribute('aria-expanded') !== 'true';
+    note.setAttribute('aria-expanded', String(open));
+    note.title = open ? 'Show less of this note' : 'Show all of this note';
+  }
+  function paintHistory() {
+    $('cx-back').disabled = !(view.history || []).length;
+    $('cx-forward').disabled = !(view.future || []).length;
+  }
+  function travel(back) {
+    const from = back ? view.history || [] : view.future || [];
+    if (!model || !from.length) return;
+    const to = from[from.length - 1];
+    if (back) { view.history = from.slice(0, -1); if (view.selected) view.future = (view.future || []).concat([view.selected]); }
+    else { view.future = from.slice(0, -1); if (view.selected) view.history = (view.history || []).concat([view.selected]); }
+    if (!model.byId[to]) { paintHistory(); save(); return; }
+    if (view.lens !== 'code') setLens('code');
+    if (view.tab !== 'graph' && view.tab !== 'walk') setTab('graph');
+    select(to, true, { history: true });
+  }
+  function closeMenu() {
+    $('cx-menu').hidden = true;
+    $('cx-more').setAttribute('aria-expanded', 'false');
   }
 
   // ---- Full render -------------------------------------------------------------------------
@@ -3216,6 +3384,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     root.querySelector('[data-action="gaps"]').setAttribute('aria-pressed', String(view.gapsOnly));
     $('cx-progress').hidden = !progress;
     root.style.setProperty('--cx-inspector-w', view.inspectorWidth + 'px');
+    paintQuestions();
+    paintHistory();
+    paintModes();
   }
 
   // ---- Messages from the host --------------------------------------------------------------
@@ -3235,8 +3406,11 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       else if (!view.selected && !view.selectedModule && model.focus) view.selected = model.focus;
       render(fresh);
       // With no change to explain, the repository itself is what there is to read; the full view is its map.
-      if (fresh && !viewChosen && view.lens === 'code' && model.view !== 'full' && model.change.status === 'empty' && !model.focus && view.tab !== 'repo') setTab('repo');
+      // Where to start: the function under the cursor in Explore, a change in My change, otherwise the repository's map.
+      if (fresh && !view.mode) setMode(message.focus || model.focus ? 'explore' : model.change.status === 'available' ? 'change' : 'map');
+      else if (fresh && !viewChosen && view.lens === 'code' && model.view !== 'full' && model.change.status === 'empty' && !model.focus && view.tab !== 'repo' && view.mode !== 'explore') setTab('repo');
       else if (view.tab === 'repo' && !repo.explanation && !repo.loading && !repo.error) askRepository(repo.path ? 'refresh' : 'root');
+      if (view.mode === 'explore' && view.lens === 'code') ensureSelection();
       if (message.focus && model.byId[message.focus]) { const symbol = model.byId[message.focus]; const rows = moduleRows(model, model.moduleById[symbol.moduleId], view).rows; centreOn(symbol.moduleId, rows.findIndex(function (row) { return row.id === symbol.id; })); }
       save();
     } else if (message.type === 'cx.progress') {
@@ -3250,7 +3424,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     } else if (message.type === 'cx.notice') {
       showNotice(String(message.text || ''), message.tone);
     } else if (message.type === 'cx.focus') {
-      if (model && model.byId[message.symbol]) { setTab('graph'); select(message.symbol, true); }
+      if (model && model.byId[message.symbol]) { view.mode = 'explore'; view.isolate = true; setTab('graph'); select(message.symbol, true); }
     } else if (message.type === 'cx.repository') {
       // The host names the scope it is reading; the page only shows it.
       repo.path = message.path || null;
@@ -3404,18 +3578,32 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   });
 
   root.addEventListener('click', function (event) {
+    if (!event.target.closest('#cx-menu, #cx-more')) closeMenu();
+    const modeButton = event.target.closest('.cx-mode[data-mode]');
+    const question = event.target.closest('[data-question]');
+    if (modeButton) { setMode(modeButton.dataset.mode); return; }
+    if (question) { ask(question.dataset.question); return; }
+    if (event.target.closest('#cx-canvas-note')) { toggleNote(); return; }
     const action = event.target.closest('[data-action]');
     const depth = event.target.closest('[data-depth]');
     const viewButton = event.target.closest('[data-view]');
     const tab = event.target.closest('[data-tab]');
     const lensButton = event.target.closest('[data-lens]');
     if (lensButton) { setLens(lensButton.dataset.lens); return; }
-    if (tab) { setTab(tab.dataset.tab); return; }
+    if (tab) {
+      // Every call is the whole map: the full view, nothing isolated. The changed code is the change's own view.
+      if (model && tab.dataset.whole === 'true') { view.isolate = false; if (model.view !== 'full') { viewChosen = true; post('cx.view', { view: 'full' }); } }
+      if (model && tab.closest('#cx-sub-change') && tab.dataset.tab === 'graph') { view.isolate = false; if (model.view !== 'delta' && model.change.status === 'available') { viewChosen = true; post('cx.view', { view: 'delta' }); } }
+      setTab(tab.dataset.tab);
+      return;
+    }
     if (viewButton && model) {
       if (viewButton.dataset.view !== model.view) post('cx.view', { view: viewButton.dataset.view });
       viewChosen = true;
-      // Choosing a view is asking to see the graph.
-      if (view.tab !== 'graph') setTab('graph');
+      // Choosing a view is asking to see the graph: every call is the map, the delta is the change.
+      view.mode = viewButton.dataset.view === 'full' ? 'map' : 'change';
+      view.isolate = false;
+      if (view.tab !== 'graph') setTab('graph'); else paintModes();
       return;
     }
     if (depth && model) {
@@ -3429,7 +3617,13 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     }
     switch (action.dataset.action) {
       case 'ask': if (model) post('cx.ask', { symbol: view.selected }); break;
-      case 'reindex': post('cx.reindex'); break;
+      case 'more': { const menu = $('cx-menu'); menu.hidden = !menu.hidden; action.setAttribute('aria-expanded', String(!menu.hidden)); break; }
+      case 'back': travel(true); break;
+      case 'forward': travel(false); break;
+      case 'export': closeMenu(); post('cx.export'); break;
+      case 'change-explorer': closeMenu(); post('cx.changeExplorer', { symbol: view.selected }); break;
+      case 'build-info': closeMenu(); if (model) toggleBuildInfo(); break;
+      case 'reindex': closeMenu(); post('cx.reindex'); break;
       case 'zoom-in': zoomAt(1.2); break;
       case 'zoom-out': zoomAt(1 / 1.2); break;
       case 'fit': fit(); break;
@@ -3441,7 +3635,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       case 'repo-up': if (repo.path) askRepository('up'); break;
       case 'repo-refresh': askRepository('refresh'); break;
       case 'repo-scope': askRepository('entry', Number(action.dataset.index)); break;
-      case 'repo-open': setTab('graph'); post('cx.repoOpen', { index: Number(action.dataset.index), line: Number(action.dataset.line) }); break;
+      case 'repo-open': view.mode = 'explore'; view.isolate = true; setTab('graph'); post('cx.repoOpen', { index: Number(action.dataset.index), line: Number(action.dataset.line) }); break;
     }
   });
 
@@ -3450,7 +3644,10 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (!model || !Number.isInteger(index)) return;
     viewChosen = true;
     post('cx.scope', { index: index });
-    if (view.tab !== 'graph') setTab('graph');
+    closeMenu();
+    view.mode = 'map';
+    view.isolate = false;
+    if (view.tab !== 'graph') setTab('graph'); else paintModes();
   });
   $('cx-flow-entry').addEventListener('change', function (event) { view.flowEntry = event.target.value; view.lensItem = null; save(); renderFlow(); renderInspector(); });
   $('cx-logic-fn').addEventListener('change', function (event) { view.logicSymbol = event.target.value; view.lensItem = null; save(); renderLogic(); renderInspector(); });
@@ -3464,9 +3661,14 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (view.tab === 'graph') { renderNodes(); renderEdges(); }
   });
   search.addEventListener('keydown', function (event) {
-    if (event.key === 'Enter' && matches.length) {
-      matchAt = (matchAt + 1) % matches.length;
-      select(matches[matchAt], true);
+    // Find a function: any function this view read, not only the rows a card shows. A match behind "+ N more"
+    // opens its card; one asked for from a view without the graph is explored.
+    const query = (view.query || '').trim().toLowerCase();
+    const found = !model || !query ? [] : matches.length ? matches : model.symbols.filter(function (symbol) { return symbol.qualifiedName.toLowerCase().indexOf(query) >= 0; }).map(function (symbol) { return symbol.id; });
+    if (event.key === 'Enter' && found.length) {
+      matchAt = (matchAt + 1) % found.length;
+      if (view.lens !== 'code' || view.tab !== 'graph') { view.lens = 'code'; view.tab = 'graph'; setMode('explore'); }
+      select(found[matchAt], true);
       event.preventDefault();
     } else if (event.key === 'Escape') {
       search.value = ''; view.query = ''; save(); renderOutline(); renderNodes(); renderEdges(); canvas.focus();
@@ -3479,18 +3681,16 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (typing) return;
     const key = event.key;
     if (key === '/') { search.focus(); search.select(); event.preventDefault(); return; }
-    if (event.target.closest('[data-lens]') && (key === 'ArrowLeft' || key === 'ArrowRight')) {
-      const nextLens = LENSES[(LENSES.indexOf(view.lens) + (key === 'ArrowRight' ? 1 : LENSES.length - 1)) % LENSES.length];
-      setLens(nextLens);
-      $('cx-lens-' + nextLens).focus();
-      event.preventDefault();
-      return;
-    }
-    if (event.target.closest('[role="tab"]') && (key === 'ArrowLeft' || key === 'ArrowRight')) {
-      const order = ['graph', 'trace', 'walk', 'repo'];
-      const next = order[(order.indexOf(view.tab) + (key === 'ArrowRight' ? 1 : order.length - 1)) % order.length];
-      setTab(next);
-      $('cx-tab-' + next).focus();
+    if ((key === 'Enter' || key === ' ') && event.target.id === 'cx-canvas-note') { toggleNote(); event.preventDefault(); return; }
+    if (key === 'Escape' && !$('cx-menu').hidden) { closeMenu(); $('cx-more').focus(); event.preventDefault(); return; }
+    if (event.altKey && (key === 'ArrowLeft' || key === 'ArrowRight')) { travel(key === 'ArrowLeft'); event.preventDefault(); return; }
+    // In any row of tabs, the arrows move along it.
+    const tabNode = event.target.closest('[role="tab"]');
+    if (tabNode && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+      const tabs = Array.from(tabNode.parentElement.querySelectorAll('[role="tab"]'));
+      const next = tabs[(tabs.indexOf(tabNode) + (key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+      next.click();
+      next.focus();
       event.preventDefault();
       return;
     }
@@ -3553,6 +3753,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   measureFooter();
   window.addEventListener('resize', function () { measureFooter(); renderMinimap(); if (view.tab === 'trace') renderTrace(); });
   setLens(view.lens);
+  paintModes();
+  paintHistory();
   vscode.postMessage({ type: 'cx.ready' });
 })();
 `;

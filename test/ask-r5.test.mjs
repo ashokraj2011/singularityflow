@@ -45,10 +45,10 @@ async function fixture(t) {
   t.after(() => service.close());
   const endpoint = () => 'http://127.0.0.1:' + service.port;
   async function clientConfiguration(env, token, { workspace = 'test-workspace', provider = 'portable-fixture' } = {}) {
-    const tokenPath = env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG + '.token';
-    await file(tokenPath, token + '\n');
+    const grantPath = env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG + '.token';
+    await file(grantPath, token + '\n');
     await file(env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG, { schemaVersion: 1, bindings: [
-      { provider, workspace, endpoint: endpoint(), tokenFile: tokenPath, repository: repo.remote }
+      { provider, workspace, endpoint: endpoint(), tokenFile: grantPath, repository: repo.remote }
     ] });
   }
   await clientConfiguration(repo.env, tokenA);
@@ -64,7 +64,7 @@ async function fixture(t) {
   return { repo, rootB, envB, providerStore, serverFile, configure, grants, advanceClock: () => { clock += RETENTION_MS + 1; },
     restart: async () => { const port = service.port; await service.close(); await configure(grants, port); service = await serveAskProvider(serverFile, { now: () => clock }); },
     connectB: async () => { repo.must('git', ['clone', '-q', repo.remote, rootB], { cwd: repo.base }); await clientConfiguration(envB, tokenB); },
-    configureB: (options, token = tokenB) => clientConfiguration(envB, token, options),
+    configureB: (options, bearer = tokenB) => clientConfiguration(envB, bearer, options),
     useOtherOwner: () => clientConfiguration(envB, tokenOther),
     gitB: (...args) => repo.must('git', args, { cwd: rootB, environment: envB }).trim(),
     async providerRequest(operation, fields) {

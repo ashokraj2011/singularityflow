@@ -65,9 +65,9 @@ async function bindingFor(root, env) {
       (endpoint.protocol !== 'https:' && !(loopback && endpoint.protocol === 'http:'))) {
     throw failure('ASK_PROVIDER_CONFIGURATION_INVALID', 'Configure an HTTPS origin for the Ask provider.');
   }
-  const tokenFile = path.resolve(path.dirname(file), binding.tokenFile);
-  await outsideCheckout(actualRoot, tokenFile);
-  const token = (await readPrivateText(tokenFile, 160))?.trim();
+  const grantFile = path.resolve(path.dirname(file), binding.tokenFile);
+  await outsideCheckout(actualRoot, grantFile);
+  const token = (await readPrivateText(grantFile, 160))?.trim();
   if (!/^[A-Za-z0-9_-]{43,64}$/u.test(token ?? '')) throw accessDenied();
   return { ...binding, endpoint: new URL(PROVIDER_ROUTE, endpoint).href, token };
 }

@@ -28,6 +28,8 @@ import { childTimeout } from './helpers/child-timeout.mjs';
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 const DAY = 24 * 60 * 60 * 1000;
+/** The shell's own folder variable, as a terminal sets it. */
+const shellIn = (folder) => Object.fromEntries([['PWD', folder]]);
 
 /**
  * A machine of its own: SFlow's state, Copilot's session records and VS Code's storage under one folder, a repository
@@ -149,8 +151,8 @@ test('VS Code\'s linked openings: only folders reached through a link, the most 
 
 test('a terminal that reached its folder through a link is told so; one standing in it by its real path is not', async (t) => {
   const { repository, link } = await machine(t);
-  assert.deepEqual(linkedTerminalFolder({ env: { PWD: link }, cwd: repository }), { opened: link, real: repository });
-  assert.equal(linkedTerminalFolder({ env: { PWD: repository }, cwd: repository }), null);
+  assert.deepEqual(linkedTerminalFolder({ env: shellIn(link), cwd: repository }), { opened: link, real: repository });
+  assert.equal(linkedTerminalFolder({ env: shellIn(repository), cwd: repository }), null);
   assert.equal(linkedTerminalFolder({ env: {}, cwd: repository }), null);
   const notice = linkedFolderNotice({ opened: '/tmp/my repo', real: '/private/tmp/my repo' }, 'darwin');
   assert.equal(notice.command, "code '/private/tmp/my repo'");
@@ -225,14 +227,14 @@ test('in such a chat a skill\'s first command, every --for-agent result and ever
 test('doctor in a VS Code terminal of a window opened through a link fails, and warns about such a window otherwise', async (t) => {
   const { env, repository, link } = await machine(t);
   const outside = { ...env, COPILOT_AGENT_SESSION_ID: '' };
-  const terminal = sflow({ ...outside, TERM_PROGRAM: 'vscode', PWD: link }, repository, ['doctor', '--json']);
+  const terminal = sflow({ ...outside, TERM_PROGRAM: 'vscode', ...shellIn(link) }, repository, ['doctor', '--json']);
   const failed = JSON.parse(terminal.stdout).checks.find((entry) => entry.id === 'copilot-chat-hooks');
   assert.equal(failed.status, 'fail');
   assert.match(failed.message, /^SFlow's guard is off in Copilot chats in that window: VS Code opened this folder as /u);
-  const elsewhere = sflow({ ...outside, TERM_PROGRAM: 'Apple_Terminal', PWD: repository }, repository, ['doctor', '--json']);
+  const elsewhere = sflow({ ...outside, TERM_PROGRAM: 'Apple_Terminal', ...shellIn(repository) }, repository, ['doctor', '--json']);
   assert.equal(JSON.parse(elsewhere.stdout).checks.find((entry) => entry.id === 'copilot-chat-hooks')?.status, 'warn');
   const clean = await machine(t, { openedThroughLink: false });
-  const none = sflow({ ...clean.env, COPILOT_AGENT_SESSION_ID: '', PWD: clean.repository }, clean.repository, ['doctor', '--json']);
+  const none = sflow({ ...clean.env, COPILOT_AGENT_SESSION_ID: '', ...shellIn(clean.repository) }, clean.repository, ['doctor', '--json']);
   assert.equal(JSON.parse(none.stdout).checks.find((entry) => entry.id === 'copilot-chat-hooks'), undefined);
 });
 

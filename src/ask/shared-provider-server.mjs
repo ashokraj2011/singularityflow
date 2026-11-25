@@ -69,9 +69,9 @@ export async function serveAskProvider(configFile, { now = Date.now } = {}) {
   const handler = async (req, res) => {
     try {
       if (req.method !== 'POST' || req.url !== PROVIDER_ROUTE) { response(res, 404, {}); return; }
-      const token = /^Bearer ([A-Za-z0-9_-]{43,64})$/u.exec(req.headers.authorization ?? '')?.[1];
-      if (!token) throw forbidden();
-      const digest = tokenDigest(token);
+      const bearer = /^Bearer ([A-Za-z0-9_-]{43,64})$/u.exec(req.headers.authorization ?? '')?.[1];
+      if (!bearer) throw forbidden();
+      const digest = tokenDigest(bearer);
       const input = await requestBody(req);
       const scope = await lookup(digest, input);
       const authorize = async () => { if (await lookup(digest, input) !== scope) throw forbidden(); };

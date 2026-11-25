@@ -113,9 +113,9 @@ test('R2 paginates committer dates across a skewed ancestry and a moved HEAD', a
   assert.deepEqual(seen, qualifying.reverse());
   assert.ok(!seen.includes(later) && !seen.includes(skew));
   assert.equal(page2.continuation, undefined);
-  const token = page1.continuation.cursor;
-  const tampered = token.slice(0, -1) + (token.endsWith('a') ? 'b' : 'a');
-  for (const result of [await ask('continue', 'person', tampered), await ask('continue', 'model', token)]) {
+  const cursor = page1.continuation.cursor;
+  const tampered = cursor.slice(0, -1) + (cursor.endsWith('a') ? 'b' : 'a');
+  for (const result of [await ask('continue', 'person', tampered), await ask('continue', 'model', cursor)]) {
     assert.equal(result.diagnostics[0].code, 'ASK_CONTINUATION_INVALID');
   }
 
@@ -145,7 +145,7 @@ test('R2 paginates committer dates across a skewed ancestry and a moved HEAD', a
   const missing = path.join(root, '.git', 'objects', first.slice(0, 2), first.slice(2));
   const contents = await readFile(missing);
   await rm(missing);
-  const failed = cli('--cursor=' + token, '--for-person');
+  const failed = cli('--cursor=' + cursor, '--for-person');
   assert.equal(failed.coverage.status, 'partial', JSON.stringify(failed));
   assert.deepEqual(failed.coverage.count, { unit: 'commits', retrieved: 20, total: null });
   assert.equal(failed.history.scope.revision, end);

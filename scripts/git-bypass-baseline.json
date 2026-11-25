@@ -1865,7 +1865,7 @@
       "counts": {
         "command-run": 2
       },
-      "digest": "dc497e979fc30f9f109f83a1ae921ebf678ffcbecd723251d76824661fec3562"
+      "digest": "173c4a7dc4e535f9f1d284c8b2e2adae8dbe29752934d6b3e5d2a7bb4b4faefd"
     },
     "src/commands/app-review.mjs": {
       "counts": {

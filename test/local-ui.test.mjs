@@ -930,3 +930,52 @@ test('Ask SFlow agrees across CLI, browser and Copilot reads and reopens the iss
   await page.getByRole('heading', { name: 'Checkout pricing', exact: true, level: 2 }).waitFor();
   assert.equal(mustGit('status', '--porcelain'), '');
 });
+
+test('Ask SFlow history follows its pinned next page in the browser', { timeout: 60_000 }, async t => {
+  const { root, directory, mustGit, cleanup } = await fixture(t);
+  for (let index = 0; index < 20; index++) mustGit('commit', '--allow-empty', '-qm', 'History row ' + index);
+  const pinned = mustGit('rev-parse', 'HEAD');
+  const initial = mustGit('rev-list', '--max-parents=0', 'HEAD');
+  const service = await startService({ directory });
+  cleanup(() => service.close());
+  const tab = await connect(service, root);
+  const otherTab = await connect(service, root, { clientId: tab.clientId, cookie: tab.cookie });
+  const query = 'commits from 2000-01-01 to 2099-12-31 in UTC on HEAD';
+  const first = await tab.api('/api/ask', { contextId: tab.session.context.id, interaction: 'submit', query });
+  assert.equal(first.status, 200);
+  assert.equal(first.value.history.scope.revision, pinned);
+  assert.equal(first.value.continuation.cursor, undefined);
+  const selection = first.value.continuation.selection;
+  assert.equal((await otherTab.api('/api/ask', { contextId: otherTab.session.context.id, interaction: 'continue', selection })).status, 409);
+  assert.equal((await tab.api('/api/ask', { contextId: tab.session.context.id, interaction: 'activate', selection })).status, 409);
+
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ headless: true });
+  cleanup(() => browser.close());
+  const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID() });
+  const page = await browser.newPage();
+  await page.goto(launch.url);
+  await page.getByRole('link', { name: 'Ask SFlow', exact: true }).click();
+  const field = page.getByRole('searchbox', { name: 'Ask a question' });
+  await field.fill(query);
+  const submitted = page.waitForResponse(response => new URL(response.url()).pathname === '/api/ask');
+  await field.press('Enter');
+  const response = await submitted;
+  const browserValue = await response.json();
+  assert.equal(browserValue.history?.scope?.revision, pinned, JSON.stringify(browserValue));
+  await page.waitForFunction(() => document.querySelector('#ask-status')?.textContent !== 'Reading…');
+  assert.equal(await page.locator('#ask-status').textContent(), 'Answer ready.');
+  await page.getByRole('heading', { name: 'Git commits by committer date' }).waitFor({ timeout: 5000 });
+  await page.getByText('20 commits retrieved so far · Partial coverage').waitFor();
+  mustGit('commit', '--allow-empty', '-qm', 'New after pinned history');
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await page.getByText('21 commits · Complete coverage', { exact: true }).waitFor();
+  assert.equal(await page.getByText('New after pinned history').count(), 0);
+  assert.equal(await page.getByText(new RegExp(initial)).count(), 1);
+
+  await field.fill('compare ' + initial + ' with ' + pinned);
+  await field.press('Enter');
+  await page.getByRole('heading', { name: 'Revision comparison' }).waitFor();
+  await page.getByText('No matching paths · Complete coverage').waitFor();
+  assert.equal(mustGit('status', '--porcelain'), '');
+});

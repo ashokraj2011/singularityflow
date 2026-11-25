@@ -27,8 +27,8 @@ import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { storyPointersFromLedger } from './story-state-index.mjs';
 import { compactCanonicalJson } from './records.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
-import { inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
-import { sourceRevision } from './source-inspection.mjs';
+import { inheritEnterpriseGitEnvironment, withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
+import { sourceFileAt, sourceRevision } from './source-inspection.mjs';
 import {
   classifyGitRemoteFailure, configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
   safeGitDiagnosticReference, stateRefreshError
@@ -362,12 +362,12 @@ function hasRemoteInEnvironment(root, remote, env = process.env) {
   return git(root, ['config', '--get', `remote.${remote}.url`], { allowFailure: true, env }).status === 0;
 }
 
-function ledgerHead(root, config, { env = process.env } = {}) {
+function directLedgerHead(root, config, env) {
   const refs = [remoteRef(config), localRef(config)];
   const observations = directRefObservations(root, refs, env);
   for (const ref of refs) {
     const observed = observations.get(ref);
-    if (observed.status === 'direct') return ref;
+    if (observed.status === 'direct') return { ref, commit: observed.commit };
     if (observed.status === 'symbolic' || observed.status === 'unavailable') {
       throw new SingularityFlowError(
         `The ${config.branch} authority ref '${ref}' cannot be verified as a direct Git ref.`,
@@ -379,6 +379,10 @@ function ledgerHead(root, config, { env = process.env } = {}) {
     }
   }
   return null;
+}
+
+function ledgerHead(root, config, { env = process.env } = {}) {
+  return directLedgerHead(root, config, env)?.ref ?? null;
 }
 
 /**
@@ -3831,17 +3835,33 @@ export async function ledgerLog(root, rawConfig, { limit = 20, offline = false }
  */
 export async function ledgerSnapshotCommit(root, rawConfig, { offline = false } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
+  if (offline) return directLedgerHead(root, config, localLedgerReadEnvironment())?.commit ?? null;
   await ensureRemoteBranchFetchedAsync(root, config, { offline });
   const ref = ledgerHead(root, config);
   return ref ? git(root, ['rev-parse', '--verify', `${ref}^{commit}`]).stdout.trim() : null;
 }
 
+function localLedgerReadEnvironment() {
+  return {
+    ...withoutGitProcessOverrides(process.env), GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_ALLOW_PROTOCOL: '', GIT_OPTIONAL_LOCKS: '0'
+  };
+}
+
 /** The head record and the entry files at one snapshot commit; a null head when it is not held here. */
-export function ledgerAtSnapshot(root, snapshot) {
-  const head = readRefFile(root, snapshot, HEAD_PATH);
+export function ledgerAtSnapshot(root, snapshot, { offline = false } = {}) {
+  const env = offline ? localLedgerReadEnvironment() : process.env;
+  let head;
+  if (offline) {
+    const observed = sourceFileAt(root, snapshot, HEAD_PATH, { env, offline, maxBytes: 1024 * 1024 });
+    if (observed.status === 'unavailable') gitReadOutput(observed.result, 'The retained ledger head');
+    head = observed.value ?? null;
+  } else {
+    head = readRefFile(root, snapshot, HEAD_PATH);
+  }
   return {
     head: head === null ? null : readRecord('ledger-entry', head).record,
-    entries: head === null ? new Map() : readRefTree(root, snapshot, 'ledger/entries')
+    entries: head === null ? new Map() : readRefTreeShared(root, snapshot, ['ledger/entries'], { env })
   };
 }
 

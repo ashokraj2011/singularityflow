@@ -80,17 +80,21 @@ export function synopsisFor(command) {
  */
 const PAGES = Object.freeze({
   ask: {
-    summary: 'Find a screen, inspect current work and blockers, or open a published specification.',
+    summary: 'Find work, open an exact specification, inspect retained history, or compare revisions.',
     options: [
       ['--suggest', 'Find matching menu entries using local metadata.'],
       ['--work-id ID', 'Read the named work in the selected checkout.'],
       ['--open-spec', 'Open the published revision verified by the specification reader.'],
-      ['--for-person', 'Use your own terminal or viewer to read the exact specification bytes.']
+      ['--for-person', 'Use your own terminal or viewer for full specification text or a bounded patch.'],
+      ['--cursor TOKEN', 'Continue a history read with its original dates and revisions.']
     ],
     examples: [
       ['singularity-flow ask "What is blocking me?"', 'Show current work and its recorded blockers.'],
       ['singularity-flow ask "spec used for this Story"', 'Inspect the published revision pinned to the current Story.'],
-      ['singularity-flow ask SPEC-CHK-004@3 --open-spec --for-person', 'Read the exact revision.']
+      ['singularity-flow ask SPEC-CHK-004@3 --open-spec --for-person', 'Read the exact revision.'],
+      ['singularity-flow ask "history for story STORY-1"', 'Read retained Story events.'],
+      ['singularity-flow ask "commits last week in UTC on main"', 'Filter reachable Git commits by committer date.'],
+      ['singularity-flow ask "compare main with release/v1"', 'Compare the two exact endpoint trees.']
     ],
     seeAlso: ['help', 'home', 'spec']
   },

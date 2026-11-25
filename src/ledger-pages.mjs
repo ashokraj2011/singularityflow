@@ -55,10 +55,15 @@ export const LEDGER_VERIFY_COMMAND = 'singularity-flow ledger verify';
  * missing or corrupt one and `damaged` naming it, instead of the refusal; the chain cannot be
  * followed past it, so the listing ends there (sweep B3).
  */
-export async function ledgerPage(root, rawConfig, { limit = 100, continuation = null, offline = false, stopAtDamage = false } = {}) {
+export async function ledgerPage(root, rawConfig, {
+  limit = 100, continuation = null, snapshot: pinned = null, offline = false, stopAtDamage = false
+} = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   if (!Number.isInteger(limit) || limit < 1 || limit > LEDGER_PAGE_MAX) {
     throw new SingularityFlowError(`A ledger page holds 1 to ${LEDGER_PAGE_MAX} entries.`, { code: 'LEDGER_PAGE_LIMIT_INVALID' });
+  }
+  if (pinned != null && (continuation != null || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(pinned))) {
+    throw new SingularityFlowError('Supply a ledger continuation or one exact snapshot commit.', { code: 'LEDGER_CONTINUATION_INVALID' });
   }
   const namespace = `${config.remote}/${config.branch}`;
   let snapshot;
@@ -67,10 +72,10 @@ export async function ledgerPage(root, rawConfig, { limit = 100, continuation = 
   if (continuation != null) {
     ({ snapshot, cursor, served } = readContinuation(continuation, namespace));
   } else {
-    snapshot = await ledgerSnapshotCommit(root, config, { offline });
+    snapshot = pinned ?? await ledgerSnapshotCommit(root, config, { offline });
     if (!snapshot) return Object.freeze({ namespace, snapshot: null, entries: Object.freeze([]), complete: true, continuation: null });
   }
-  const held = ledgerAtSnapshot(root, snapshot);
+  const held = ledgerAtSnapshot(root, snapshot, { offline });
   const damage = (message, entryHash = null) => new SingularityFlowError(`${message} Run ${LEDGER_VERIFY_COMMAND} to see every damaged or missing entry; nothing was changed.`, {
     code: 'LEDGER_CHAIN_INVALID', details: { namespace, snapshot, ...(entryHash ? { entryHash } : {}), nextAction: LEDGER_VERIFY_COMMAND }
   });
@@ -79,12 +84,17 @@ export async function ledgerPage(root, rawConfig, { limit = 100, continuation = 
     damaged: Object.freeze({ code: error.code, message: error.message, entryHash: error.details.entryHash ?? null, nextAction: LEDGER_VERIFY_COMMAND })
   });
   if (!held.head) {
-    if (continuation != null) {
+    if (continuation != null || pinned != null) {
       throw new SingularityFlowError(`Ledger snapshot ${snapshot} is no longer held here. Start the listing again.`, {
         code: 'LEDGER_CONTINUATION_UNAVAILABLE', details: { namespace, snapshot }
       });
     }
     const error = damage(`Ledger snapshot ${snapshot} is missing its head record.`);
+    if (stopAtDamage) return stopped(error, []);
+    throw error;
+  }
+  if (offline && (!Number.isSafeInteger(held.head.sequence) || held.head.sequence < 0)) {
+    const error = damage('The ledger head does not provide a valid sequence.');
     if (stopAtDamage) return stopped(error, []);
     throw error;
   }
@@ -112,6 +122,11 @@ export async function ledgerPage(root, rawConfig, { limit = 100, continuation = 
     cursor = entry.parentEntryHash ?? null;
   }
   served += page.length;
+  if (!cursor && offline && served !== held.head.sequence) {
+    const error = damage('The reachable entries do not match the ledger head sequence.');
+    if (stopAtDamage) return stopped(error, page);
+    throw error;
+  }
   return Object.freeze({
     namespace, snapshot, entries: Object.freeze(page), complete: !cursor,
     continuation: cursor ? continuationFor(namespace, snapshot, cursor, served) : null

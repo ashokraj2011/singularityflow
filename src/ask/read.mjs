@@ -15,7 +15,9 @@ function ownerFinding(error) {
     SPEC_LIBRARY_REVISION_INVALID: 'invalid',
     SPEC_REFERENCE_INVALID: 'invalid',
     SPEC_ID_INVALID: 'invalid',
-    SPEC_SHARE_DENIED: 'access-restricted'
+    SPEC_SHARE_DENIED: 'access-restricted',
+    ASK_REQUEST_INVALID: 'clarification',
+    ASK_TIME_WINDOW_INVALID: 'clarification'
   };
   return finding(code, error.message ?? 'The source could not be read.', categories[code]);
 }
@@ -74,17 +76,24 @@ async function reviewedHelp(query) {
   } };
 }
 
-/** ASK R1 projection. Exact owner reads are the only operations that use a repository. */
+/** Exact owner reads are the only Ask operations that use a repository. */
 export async function readAsk({ root = null, context = {}, arguments: proposed, audience = 'model' }) {
-  const { query, workId } = validateArguments('ask-query-v1', proposed);
-  const intent = askIntent(query, workId);
+  const { query, workId, cursor } = validateArguments('ask-query-v1', proposed);
+  const intent = cursor ? { kind: 'continuation' } : askIntent(query, workId);
   const effectiveScope = { workspaceId: context.workspace?.id ?? null, repositoryId: context.repositoryId ?? repositoryReference(root) };
   const data = {
     capability: 'ask-r1', answeredBy: 'deterministic', effectiveScope,
     status: 'resolved', kind: intent.kind, items: [], diagnostics: []
   };
   try {
-    if (intent.kind === 'discovery') {
+    if (cursor && (query !== 'continue' || workId)) {
+      data.diagnostics = [finding('ASK_REQUEST_INVALID', 'Continue the previous results or submit a new question.', 'clarification')];
+    } else if (workId && ['work-history', 'work', 'story-spec'].includes(intent.kind) &&
+        intent.workId?.toLowerCase() !== workId.toLowerCase()) {
+      data.diagnostics = [finding('ASK_REQUEST_INVALID', 'Name one work ID per Ask SFlow query.', 'clarification')];
+    } else if (intent.kind === 'clarification') {
+      data.diagnostics = [finding('ASK_REQUEST_INVALID', intent.message, 'clarification')];
+    } else if (intent.kind === 'discovery') {
       data.items = askSuggestions(query).map(({ id, label, detail, topic }) => ({ id, label, detail, topic }));
       // A destination name is navigation. A question can also use the reviewed help owner.
       if (!data.items.some(({ id, label }) => [id, label.toLowerCase()].includes(query.trim().toLowerCase()))) {
@@ -93,11 +102,17 @@ export async function readAsk({ root = null, context = {}, arguments: proposed, 
       if (data.help) data.answeredBy = 'reviewed-help';
       if (!data.help && !data.items.length) data.status = data.candidates?.length ? 'clarification' : 'empty';
     } else if (intent.kind === 'unsupported') {
-      data.diagnostics = [finding('ASK_PREDICATE_UNSUPPORTED', intent.feature === 'history'
-        ? 'Ask SFlow currently reads current work and published specifications. History queries are a later release.'
-        : 'Ask SFlow currently answers questions. Use Start a Task to request new work.', 'unsupported')];
+      const help = {
+        'change-basis': 'Git committer-date history is available. Ask for commits from YYYY-MM-DD to YYYY-MM-DD on a branch. Authored, integrated, merged PR and deployed activity require their own evidence.',
+        'knowledge-time': 'Retained history can show the recorded state as of a date. It cannot establish what was known at that time.',
+        task: 'Ask SFlow answers questions. Use Start a Task to request new work.'
+      };
+      data.diagnostics = [finding('ASK_PREDICATE_UNSUPPORTED', help[intent.feature], 'unsupported')];
     } else if (!root) {
       data.diagnostics = [finding('ASK_REPOSITORY_REQUIRED', 'Open the checkout whose work or specification you want to read.')];
+    } else if (['continuation', 'commits', 'comparison', 'work-history'].includes(intent.kind)) {
+      const { readAskHistory } = await import('./history.mjs');
+      Object.assign(data, await readAskHistory({ root, context, audience, intent, cursor }));
     } else if (intent.kind === 'spec') {
       const { readPublishedSpecification } = await import('../spec-library/library.mjs');
       data.specifications = [specificationResult(await readPublishedSpecification(root, intent.reference))];
@@ -126,11 +141,14 @@ export async function readAsk({ root = null, context = {}, arguments: proposed, 
   } catch (error) {
     data.diagnostics.push(ownerFinding(error));
   }
-  if (data.diagnostics.length) {
-    data.status = data.choices?.length ? 'clarification' : data.work || data.specifications?.length ? 'partial'
-      : data.diagnostics[0].category === 'absent' ? 'empty' : 'unavailable';
+  if (!data.coverage && data.diagnostics.length) {
+    const category = data.diagnostics[0].category;
+    data.status = data.choices?.length || category === 'clarification' ? 'clarification'
+      : data.work || data.specifications?.length ? 'partial' : category === 'absent' ? 'empty' : 'unavailable';
   }
-  data.resultSetId = 'ask-' + hash([query, effectiveScope, data.items, data.work, data.specifications, data.help?.handle]).slice(0, 32);
+  data.resultSetId = 'ask-' + hash([
+    query, effectiveScope, data.items, data.work, data.specifications, data.help?.handle, data.history, data.comparison
+  ]).slice(0, 32);
   if (audience !== 'person') {
     const { withholdForModel } = await import('../spec-library/share-check.mjs');
     return withholdForModel(data).value;

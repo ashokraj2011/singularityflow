@@ -1,8 +1,25 @@
+import { askHistoryDisplay } from './ask-history-display.js';
 import { ASK_HINT, askSuggestions } from './ask-navigation.js';
 import { escape, heading, icon, markdown, words } from './views.js';
 
 const routes = new Set(['home', 'specs', 'stories', 'workflows', 'agents', 'skills', 'instructions', 'code', 'run', 'decisions', 'about']);
 const chip = (text, key, value) => `<button type="button" class="button" data-${key}="${escape(value)}">${escape(text)}</button>`;
+
+function historyView(value) {
+  const display = askHistoryDisplay(value);
+  if (!display) return '';
+  const { title, summary, rows, patch } = display;
+  const next = value.continuation;
+  return `<section class="card ask-answer">
+    <h2>${escape(title)}</h2>
+    <ul class="ask-history-scope">${summary.map(detail => `<li>${escape(detail)}</li>`).join('')}</ul>
+    ${rows.length ? `<ol class="ask-history-rows">${rows.map(row =>
+      `<li><strong>${escape(row.label)}</strong><small>${escape(row.detail)}</small></li>`).join('')}</ol>` : ''}
+    ${patch?.text ? `<details><summary>View patch</summary><pre class="section-output">${escape(patch.text)}</pre></details>` : ''}
+    ${patch?.status === 'binary' ? '<p class="muted">Binary files have no text patch.</p>' : ''}
+    ${next?.selection ? chip(next.behavior === 'retry' ? 'Retry this page' : 'Next page', 'continue', next.selection) : ''}
+  </section>`;
+}
 
 function answerView(value) {
   const { work, help, artifact, diagnostics = [], specifications = [], choices = [], items = [], candidates = [] } = value;
@@ -24,8 +41,9 @@ function answerView(value) {
     chip(item.label, item.id === 'help' ? 'query' : 'route', item.id === 'help' ? item.topic : item.id)).join('')}</div></section>` : ''}
   ${choices.length || candidates.length ? `<section class="card ask-answer"><h2>Choose what to look up</h2><div class="ask-actions">${choices.map(item =>
     chip(item.id + ' · ' + words(item.kind), 'query', item.kind + ' ' + item.id)).join('')}${candidates.map(item => chip(item.title, 'query', item.id)).join('')}</div></section>` : ''}
+  ${historyView(value)}
   ${diagnostics.map(item => `<p class="card ask-answer" role="status">${escape(item.message)}</p>`).join('')}
-  ${value.status === 'empty' && !diagnostics.length ? '<p class="muted">Enter a screen name, a work question, or a specification ID.</p>' : ''}`;
+  ${value.status === 'empty' && !value.coverage && !diagnostics.length ? '<p class="muted">Enter a screen name, a work question, or a specification ID.</p>' : ''}`;
 }
 
 export function mountAsk(root, { checkout, navigate, read }) {
@@ -80,10 +98,11 @@ export function mountAsk(root, { checkout, navigate, read }) {
   function interact(event) {
     const action = event.target.closest('button');
     if (!action) return;
-    const { query, route, selection } = action.dataset;
+    const { query, route, selection, continue: continuation } = action.dataset;
     if (query) submit(query);
     else if (routes.has(route)) navigate(route);
     else if (selection) void show({ interaction: 'activate', selection });
+    else if (continuation) void show({ interaction: 'continue', selection: continuation });
   }
 
   field.addEventListener('input', draw);

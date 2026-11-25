@@ -16,7 +16,7 @@ const text = (value) => typeof value === 'string' && value ? value : null;
  * Only a summary whose canonical branch is the ledger location is used: a publication from a
  * child branch, or one older than these fields, is still proven from the Story's committed state.
  */
-function storySummaryFromSubject(entry, id, branch, commit) {
+export function storySummaryFromSubject(entry, id, branch, commit) {
   const subject = entry?.subject;
   if (!subject || typeof subject !== 'object' || Array.isArray(subject)) return null;
   // Historical summaries omitted creation metadata. Prove those from the exact Story object

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "f6d78043a214c52ec5b665c88874180fe9b65014",
+  "sourceCommit": "bdb50615eb5cd9de31bfe42f3c36d9651c22bd9c",
   "topicCount": 95,
-  "contentSha256": "84f80c3707378defc2bf45eea21d956829d16afc8cd5ef4fbb25b879b703983e",
+  "contentSha256": "be1e6a91b35ad48cc42e2ce7cdbb31508403fb764d70d7f02c10d2e9d7250d66",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -312,8 +312,8 @@
     {
       "id": "help-and-docs",
       "title": "Getting help",
-      "version": 9,
-      "sha256": "83655b84c337e7803d8595dd1cff9c3f61bb6635a875ee069b06562243d2a86e",
+      "version": 10,
+      "sha256": "dc04ccfb22021bf680bdc8395b7836f4ab3830a1770cb2964f48bce2548f542e",
       "routingSha256": "04185743a3f29ebcea471ec4c6a7ff6b1191b8dfea8c12f8173850ba45b4b20b",
       "file": "help-and-docs.md"
     },

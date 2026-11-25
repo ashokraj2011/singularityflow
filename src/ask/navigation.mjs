@@ -18,7 +18,7 @@ export const ASK_DESTINATIONS = Object.freeze([
   { id: 'about', label: 'About', detail: 'See SFlow version and build information', topic: 'installation-and-upgrades', aliases: ['version', 'build date', 'installation version'] }
 ].map(entry => Object.freeze({ ...entry, aliases: Object.freeze(entry.aliases) })));
 
-export const ASK_HINT = 'Find a screen, check current work, or open a specification';
+export const ASK_HINT = 'Find a screen, check work, open a specification, or compare revisions';
 
 const normalize = text => text.toLowerCase().replace(/[^a-z0-9]+/gu, ' ').trim();
 const stopWords = new Set(['a', 'an', 'and', 'can', 'do', 'find', 'for', 'i', 'in', 'is', 'me', 'open',

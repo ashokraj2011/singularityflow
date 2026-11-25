@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ASK_HINT, askSuggestions } from '../../../src/ask/navigation.mjs';
-import { askIntent } from '../../../src/ask/query.mjs';
+import { askIntent, askNeedsRepository } from '../../../src/ask/query.mjs';
+import { askHistoryDisplay } from '../../../src/ask/history-display.mjs';
 import { escape } from './views/webview.ts';
 
 const destinations = new Map([
@@ -41,6 +42,7 @@ interface Answer {
   candidates?: Array<{ id: string; title: string }>;
   specifications?: Specification[];
   artifact?: Specification & { content: string };
+  continuation?: { cursor: string; behavior: string };
 }
 interface Scope { root: string; workspaceId: string | null; repositoryId: string | null }
 interface Pick extends vscode.QuickPickItem {
@@ -48,6 +50,8 @@ interface Pick extends vscode.QuickPickItem {
   destination?: string;
   topic?: string;
   specification?: Specification;
+  cursor?: string;
+  patch?: string;
 }
 type Run = (root: string | null, args: string[]) => Promise<Answer>;
 
@@ -95,6 +99,17 @@ function choices(value: Answer): Pick[] {
   }
   for (const option of value.choices ?? []) items.push({ label: option.id + ' · ' + option.kind, query: option.kind + ' ' + option.id });
   for (const topic of value.candidates ?? []) items.push({ label: topic.title, topic: topic.id });
+  const display = askHistoryDisplay(value);
+  if (display) {
+    items.push({ label: display.title, description: display.summary[0], detail: display.summary.slice(1).join(' · ') });
+    items.push(...display.rows);
+    if (display.patch?.text) items.push({ label: 'View patch', patch: display.patch.text });
+    else if (display.patch?.status === 'binary') items.push({ label: 'Binary files have no text patch.' });
+  }
+  if (value.continuation) items.push({
+    label: value.continuation.behavior === 'retry' ? 'Retry this page' : 'Next page',
+    cursor: value.continuation.cursor
+  });
   for (const finding of value.diagnostics ?? []) items.push({ label: finding.message, description: finding.code });
   return items;
 }
@@ -143,12 +158,20 @@ export async function openAskSFlow(active: () => Scope | null, readAnswer: Run):
       showArtifact(result.artifact);
       return;
     }
-    if (!picked.query) return;
-    if (!root && ['work', 'story-spec', 'spec'].includes(askIntent(picked.query).kind)) {
-      await vscode.window.showInformationMessage('Open a checkout to inspect its work or specifications.');
+    if (picked.patch) {
+      const document = await vscode.workspace.openTextDocument({ content: picked.patch, language: 'diff' });
+      ensureScope();
+      await vscode.window.showTextDocument(document);
       return;
     }
-    const result = await readAnswer(root, askLookupArguments(picked.query));
+    if (!picked.query && !picked.cursor) return;
+    const query = picked.query ?? '';
+    if (!root && (picked.cursor || askNeedsRepository(askIntent(query)))) {
+      await vscode.window.showInformationMessage('Open a checkout to inspect its work, source history, or specifications.');
+      return;
+    }
+    const args = picked.cursor ? ['ask', '--cursor=' + picked.cursor, '--no-model', '--for-person', '--json'] : askLookupArguments(query);
+    const result = await readAnswer(root, args);
     ensureScope();
     if (result.resultType !== 'sflow-ask' || result.schemaVersion !== 1) throw new Error('The selected SFlow CLI needs an update to use Ask SFlow.');
     const results = choices(result);

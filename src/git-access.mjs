@@ -22,6 +22,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { isFullyQualifiedWindowsPath } from './platform-process.mjs';
 import { gitHostSearchDirectories, isAppleDeveloperGit } from './git-host-selection.mjs';
+import { literalPathspec, repositoryRelative, typedGit, typedOutput } from './source-inspection.mjs';
 import { processResultCompleted } from './process-result.mjs';
 import { gitReadOutput, isGitRefName, networkDisabled, run, SingularityFlowError } from './util.mjs';
 
@@ -1074,8 +1075,8 @@ export async function createGitRuntime(options = {}) {
 // ---------------------------------------------------------------------------------------------------
 // Typed repository reads for the gateway. `[INT:CON-081]` `[INT:IFC-040]` `[INT:REQ-080]`
 //
-// Here rather than in git.mjs because only gateway planners use them, and git.mjs is on the eager
-// path of every lifecycle command; this facade is not.
+// Gateway planners and Ask SFlow load these readers on demand. The lifecycle Git module stays
+// focused on the commands and authority its callers need.
 //
 // The gateway asks Git typed questions and never forwards argv. Each read below takes values that
 // have already been through an argument schema, re-checks the ones that reach argv, runs one local
@@ -1085,18 +1086,8 @@ export async function createGitRuntime(options = {}) {
 // repository-relative value cannot widen a read past what the caller named.
 // ---------------------------------------------------------------------------------------------------
 
-export const TYPED_GIT_TIMEOUT_MS = 15_000;
-const TYPED_GIT_MAX_BUFFER = 8 * 1024 * 1024;
+export { TYPED_GIT_TIMEOUT_MS } from './source-inspection.mjs';
 const TYPED_TEXT_PREVIEW = 240;
-
-function typedGit(root, args, { maxBuffer = TYPED_GIT_MAX_BUFFER } = {}) {
-  // No replace objects, no lazy fetch, and GIT_OPTIONAL_LOCKS=0 so even `status` cannot refresh the
-  // index: a read must not write anything.
-  return run('git', ['-c', 'core.quotePath=false', '-c', 'core.fsmonitor=false', ...args], {
-    cwd: root, allowFailure: true, timeoutMs: TYPED_GIT_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer,
-    env: { ...withoutGitProcessOverrides(process.env), GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1', GIT_OPTIONAL_LOCKS: '0' }
-  });
-}
 
 const nullList = (value) => value.split('\0').filter(Boolean);
 
@@ -1105,25 +1096,6 @@ function exactCommit(root, name) {
   if (!name || name.startsWith('-') || !/^[\w./@{}^~+-]+$/u.test(name)) return null;
   const result = typedGit(root, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${name}^{commit}`]);
   return gitReadOutput(result, `The commit of '${name}'`, { absentStatus: 1, code: 'TYPED_GIT_READ_UNAVAILABLE' })?.trim() || null;
-}
-
-function typedOutput(result, label) {
-  return gitReadOutput(result, label, { code: 'TYPED_GIT_READ_UNAVAILABLE' });
-}
-
-/** A repository-relative path, or a refusal before anything reaches argv. */
-function repositoryRelative(relative) {
-  const value = String(relative ?? '');
-  if (!value || value.startsWith('/') || value.startsWith('\\') || /^[A-Za-z]:/u.test(value)
-      || value.split(/[/\\]/u).includes('..') || /[\u0000-\u001f\u007f]/u.test(value)) {
-    throw new SingularityFlowError(`'${value}' is not a repository-relative path.`, { code: 'TYPED_GIT_PATH_INVALID' });
-  }
-  return value.replace(/\\/gu, '/');
-}
-
-/** The same path as a literal pathspec, so pathspec magic in the value cannot widen the read. */
-function literalPathspec(relative) {
-  return `:(literal)${repositoryRelative(relative)}`;
 }
 
 /** An exact commit for a ref or object name, or null when Git does not know it. Never an option. */
@@ -1336,9 +1308,11 @@ export function typedStatus(root, { max = 200 } = {}) {
  * One path's patch between two commits, bounded. A binary path yields no text, and a patch past
  * `maxBytes` is cut and says so, so a diff can be shown without handing a model a whole file.
  */
-export function typedPatch(root, left, right, relative, { maxBytes = 16 * 1024 } = {}) {
+export function typedPatch(root, left, right, relative, { maxBytes = 16 * 1024, previousPath = null } = {}) {
+  const paths = previousPath ? [literalPathspec(previousPath), literalPathspec(relative)] : [literalPathspec(relative)];
   const output = typedOutput(typedGit(root, [
-    'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--unified=3', left, right, '--', literalPathspec(relative)
+    'diff', '--no-ext-diff', '--no-textconv', '--no-color', previousPath ? '--find-renames' : '--no-renames',
+    '--unified=3', left, right, '--', ...paths
   ], { maxBuffer: Math.max(maxBytes * 4, 256 * 1024) }), 'The patch');
   if (/^Binary files .* differ$/mu.test(output)) return { binary: true, text: null, bytes: 0, truncated: false };
   const bytes = Buffer.byteLength(output, 'utf8');

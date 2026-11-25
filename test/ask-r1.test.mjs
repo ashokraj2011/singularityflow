@@ -46,7 +46,7 @@ test('Ask SFlow uses a closed read contract and distinguishes exact references a
   assert.deepEqual(askIntent('Open the spec spec-price-5@2'), { kind: 'spec', reference: 'SPEC-PRICE-5@2' });
   assert.deepEqual(askIntent('Show the spec used for story CHECKOUT'), { kind: 'story-spec', workId: 'CHECKOUT', workKind: 'story' });
   assert.equal(askIntent('How do I publish?').kind, 'discovery');
-  assert.deepEqual(askIntent('What changed last week?'), { kind: 'unsupported', feature: 'history' });
+  assert.deepEqual(askIntent('What changed last week?'), { kind: 'unsupported', feature: 'change-basis' });
   assert.deepEqual(askIntent('Start a Story for a checkout change'), { kind: 'unsupported', feature: 'task' });
   assert.throws(() => validateArguments('ask-query-v1', { query: 'publish', execute: true }),
     error => error.code === 'UNKNOWN_OPERATION_ARGUMENT');

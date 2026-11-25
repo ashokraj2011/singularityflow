@@ -18,6 +18,7 @@ const publicFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/ask-navigation.js', ['../../ask/navigation.mjs', 'text/javascript; charset=utf-8']],
+  ['/ask-history-display.js', ['../../ask/history-display.mjs', 'text/javascript; charset=utf-8']],
   ['/ask.js', ['ask.js', 'text/javascript; charset=utf-8']],
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
   ['/views.js', ['views.js', 'text/javascript; charset=utf-8']],
@@ -412,20 +413,26 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           capabilities: capabilitiesFor(session) });
         if (route === '/api/ask' && req.method === 'POST') {
           const request = await body(req);
-          const opening = request?.interaction === 'activate';
-          const input = record(request, opening ? ['contextId', 'interaction', 'selection'] : ['contextId', 'interaction', 'query']);
-          insist(opening || input.interaction === 'submit', 'UI_REQUEST_INVALID', 'Choose an Ask SFlow read.');
+          const interaction = request?.interaction;
+          insist(['activate', 'submit', 'continue'].includes(interaction), 'UI_REQUEST_INVALID', 'Choose an Ask SFlow read.');
+          const input = record(request, ['contextId', 'interaction', interaction === 'submit' ? 'query' : 'selection']);
           const context = selected(session, text(input.contextId, 'Context ID', 128));
           insist(context.id === session.contextId, 'UI_ASK_CONTEXT_CHANGED', 'Switch to the original checkout or search here again.', 409);
           let args;
-          if (opening) {
-            const selection = session.askSelections.get(text(input.selection, 'Selection', 36));
-            insist(selection && selection.contextId === context.id && selection.expiresAt > Date.now(),
-              'UI_ASK_SELECTION_EXPIRED', 'Search for this specification again from this tab.', 409);
-            const { reference, stateCommit, manifestSha256 } = selection.specification;
-            args = ['ask', `--question=${reference}`, '--open-spec', `--state-commit=${stateCommit}`, `--manifest-sha256=${manifestSha256}`, '--for-person'];
+          if (interaction === 'submit') {
+            args = ['ask', '--question=' + text(input.query, 'Question', 2000), '--for-person'];
           } else {
-            args = ['ask', `--question=${text(input.query, 'Question', 2000)}`, '--for-person'];
+            const selection = session.askSelections.get(text(input.selection, 'Selection', 36));
+            insist(selection && selection.contextId === context.id && selection.expiresAt > Date.now()
+                && interaction === selection.interaction,
+              'UI_ASK_SELECTION_EXPIRED', 'Submit the original question again from this tab.', 409);
+            if (interaction === 'continue') {
+              args = ['ask', '--cursor=' + selection.cursor, '--for-person'];
+            } else {
+              const { reference, stateCommit, manifestSha256 } = selection.specification;
+              args = ['ask', '--question=' + reference, '--open-spec', '--state-commit=' + stateCommit,
+                '--manifest-sha256=' + manifestSha256, '--for-person'];
+            }
           }
           insist(!draining && running < MAX_RUNNING && !session.askReading, 'UI_ASK_BUSY', 'Wait for the current read or cancel it, then try again.', 429);
           const controller = new AbortController();
@@ -442,8 +449,14 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             for (const specification of value.specifications ?? []) {
               const id = randomUUID();
               // The input to activation is opaque. Only an exact revision issued to this tab can open.
-              session.askSelections.set(id, { specification: { ...specification }, contextId: context.id, expiresAt: Date.now() + ASK_SELECTION_MS });
+              session.askSelections.set(id, { interaction: 'activate', specification: { ...specification }, contextId: context.id, expiresAt: Date.now() + ASK_SELECTION_MS });
               specification.selection = id;
+            }
+            if (value.continuation?.cursor) {
+              const id = randomUUID();
+              session.askSelections.set(id, { interaction: 'continue', cursor: value.continuation.cursor,
+                contextId: context.id, expiresAt: Date.now() + ASK_SELECTION_MS });
+              value.continuation = { selection: id, behavior: value.continuation.behavior };
             }
             while (session.askSelections.size > 32) session.askSelections.delete(session.askSelections.keys().next().value);
             return send(res, 200, value);

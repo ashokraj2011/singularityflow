@@ -1664,6 +1664,48 @@ test('Ask SFlow opens from Navigator and uses offline suggestions and reviewed h
   assert.ok(results?.some(item => item.label === 'Artifacts, templates, and publication'), JSON.stringify(registered.infos));
 });
 
+test('Ask SFlow shows and pages through pinned Git history from the VS Code Navigator', async t => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  t.after(() => rm(path.dirname(root), { recursive: true, force: true }));
+  const query = 'commits from 2000-01-01 to 2099-12-31 on HEAD';
+  for (let index = 0; index < 21; index++) run('git', ['commit', '--allow-empty', '-qm', 'Editor history ' + index], { cwd: root });
+  const pinned = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  await loadExtension(api).activate(context());
+  api.window.createQuickPick = () => {
+    let changed, accept, hidden;
+    const dispose = () => {};
+    return {
+      value: '', items: [], activeItems: [], selectedItems: [], dispose,
+      onDidChangeValue(callback) { changed = callback; return { dispose }; },
+      onDidAccept(callback) { accept = callback; return { dispose }; },
+      onDidHide(callback) { hidden = callback; return { dispose }; },
+      show() {
+        this.value = query;
+        changed();
+        this.selectedItems = this.items.slice(0, 1);
+        accept();
+      },
+      hide() { hidden(); }
+    };
+  };
+  const pages = [];
+  api.window.showQuickPick = async items => {
+    pages.push(items);
+    if (pages.length > 1) return undefined;
+    run('git', ['commit', '--allow-empty', '-qm', 'Later than the editor selection'], { cwd: root });
+    return items.find(item => item.label === 'Next page');
+  };
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.equal(pages.length, 2, JSON.stringify(registered.infos));
+  assert.ok(pages[0].some(item => item.label === 'Git commits by committer date' && item.detail.includes(pinned)));
+  assert.ok(pages[1].some(item => item.label === 'Git commits by committer date' && item.detail.includes(pinned)));
+  assert.ok(pages[1].some(item => item.label === 'Editor history 0'));
+  assert.ok(pages[1].every(item => item.label !== 'Later than the editor selection'));
+});
+
 test('@sflow and Help Center share model-free cited resolution and only prefill actions', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();

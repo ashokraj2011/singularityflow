@@ -1,15 +1,16 @@
 import { operationContext } from '../operation-context.mjs';
 import { optionBoolean, SingularityFlowError } from '../util.mjs';
 import { ASK_HINT, askSuggestions } from '../ask/navigation.mjs';
-import { askIntent } from '../ask/query.mjs';
+import { askIntent, askNeedsRepository } from '../ask/query.mjs';
+import { askHistoryDisplay } from '../ask/history-display.mjs';
 
-const OPTIONS = new Set(['json', 'for-agent', 'for-person', 'model', 'suggest', 'open-spec', 'manifest-sha256', 'state-commit', 'work-id', 'question', 'timings']);
+const OPTIONS = new Set(['json', 'for-agent', 'for-person', 'model', 'suggest', 'open-spec', 'manifest-sha256', 'state-commit', 'work-id', 'question', 'cursor', 'timings']);
 const invalid = (message, code = 'ASK_REQUEST_INVALID') => { throw new SingularityFlowError(message, { code }); };
 
 export function validateAskCliRequest(positionals, options) {
   for (const [flag, value] of Object.entries(options)) {
     if (!OPTIONS.has(flag) || Array.isArray(value)) invalid('Use one value for each supported Ask SFlow option. See singularity-flow ask --help.');
-    const boolean = !['manifest-sha256', 'state-commit', 'work-id', 'question'].includes(flag);
+    const boolean = !['manifest-sha256', 'state-commit', 'work-id', 'question', 'cursor'].includes(flag);
     if (boolean && typeof value !== 'boolean') invalid('Use Ask SFlow switches without a value.');
   }
   if (options['for-agent'] !== undefined && options['for-person'] !== undefined) {
@@ -19,6 +20,14 @@ export function validateAskCliRequest(positionals, options) {
   if (question !== undefined && (typeof question !== 'string' || positionals.length > 1)) invalid('Provide one question.');
   const query = (question ?? positionals.slice(1).join(' ')).trim();
   const { 'open-spec': open, 'work-id': workId, 'state-commit': stateCommit, 'manifest-sha256': manifestSha256, suggest } = options;
+  const cursor = options.cursor;
+  if (cursor !== undefined) {
+    if (typeof cursor !== 'string' || cursor.length > 3700 || query || open || suggest ||
+        workId !== undefined || stateCommit !== undefined || manifestSha256 !== undefined) {
+      invalid('Provide one Ask continuation without a new question or selection.');
+    }
+    return { query: 'continue', cursor, repository: true };
+  }
   if (query.length > 2000) invalid('Keep Ask SFlow questions to 2,000 characters.');
   if (workId !== undefined && (typeof workId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(workId))) {
     invalid('Enter a Story or Initiative ID after --work-id.');
@@ -38,12 +47,12 @@ export function validateAskCliRequest(positionals, options) {
     if (options['for-person'] !== true) invalid('Open a saved specification selection in your own viewer.', 'ASK_AUDIENCE_DENIED');
     pin = { stateCommit, manifestSha256 };
   }
-  if (!suggest && workId !== undefined && !['work', 'story-spec'].includes(intent.kind)) invalid('--work-id applies to a work question.');
+  if (!suggest && workId !== undefined && !['work', 'story-spec', 'work-history'].includes(intent.kind)) invalid('--work-id applies to a work question.');
   if (workId !== undefined && intent.workId?.toLowerCase() !== workId.toLowerCase()) invalid('Name one work ID per Ask SFlow query.');
-  return { query: query || (workId ? 'current work' : ''), workId, suggest, open, intent, pin, repository: !suggest && ['work', 'story-spec', 'spec'].includes(intent.kind) };
+  return { query: query || (workId ? 'current work' : ''), workId, suggest, open, intent, pin, repository: !suggest && askNeedsRepository(intent) };
 }
 
-function renderText(data) {
+function renderText(data, audience) {
   const lines = [];
   if (data.effectiveScope?.repositoryId) lines.push('Repository: ' + data.effectiveScope.repositoryId);
   if (data.work) {
@@ -61,6 +70,16 @@ function renderText(data) {
   for (const item of data.items ?? []) lines.push(item.label + ' — ' + item.detail);
   for (const option of data.choices ?? []) lines.push('Choose: ' + option.kind + ' ' + option.id);
   if (!data.help && data.candidates?.length) lines.push('Related help: ' + data.candidates.map(item => item.id).join(', '));
+  const display = askHistoryDisplay(data);
+  if (display) {
+    lines.push(display.title, ...display.summary, ...display.rows.map(row => '- ' + row.label + ' · ' + row.detail));
+    if (display.patch?.text) lines.push(display.patch.text);
+    else if (display.patch?.status === 'binary') lines.push('Binary files have no text patch.');
+  }
+  if (data.continuation) {
+    const route = 'singularity-flow ask --cursor=' + data.continuation.cursor + (audience === 'person' ? ' --for-person' : '');
+    lines.push((data.continuation.behavior === 'retry' ? 'Retry this page' : 'Read the next page') + ' · ' + route);
+  }
   for (const diagnostic of data.diagnostics ?? []) lines.push(diagnostic.message);
   return lines.filter(Boolean).join('\n') || ASK_HINT + '.';
 }
@@ -82,9 +101,9 @@ export async function run(_argv, { positionals, options }) {
   } else {
     const { readAsk } = await import('../ask/read.mjs');
     value = await readAsk({ root, audience, arguments: {
-      query: request.query, ...(request.workId ? { workId: request.workId } : {})
+      query: request.query, ...(request.workId ? { workId: request.workId } : {}), ...(request.cursor ? { cursor: request.cursor } : {})
     } });
   }
   if (optionBoolean(options, 'json')) console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-ask', ...value })); // schema-transient: ASK response
-  else console.log(renderText(value));
+  else console.log(renderText(value, audience));
 }

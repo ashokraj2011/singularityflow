@@ -24,7 +24,7 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 9
+version: 10
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -62,6 +62,24 @@ Open **Ask SFlow** in the browser workspace or VS Code Navigator. Type to find a
 - Inspect recorded blockers with `singularity-flow ask "What is blocking me?"`.
 - Resolve a Story’s recorded spec revision with `singularity-flow ask "spec used for this Story"`.
 - In the existing Copilot tool session, use `sflow_resolve` with utterance `ask sflow` and the question in `arguments.query`, then pass the returned read handle to `sflow_read`.
+
+### Work and source history
+
+Ask in the same browser workspace, VS Code Navigator, shell, or Copilot tool. The checkout identifies the repository. These are read-only requests.
+
+| Question | What it reads |
+| --- | --- |
+| `history for story STORY-1` or `history for initiative INITIATIVE-1` | Retained events from the configured state ledger, including work whose branch has been deleted. |
+| `currently completed stories` | The latest retained states that are complete. |
+| `stories completed last week` | Work with a retained transition to complete during the period. |
+| `initiatives with activity last week` | Work with a retained event during the period. |
+| `story STORY-1 as of 2026-11-07 in UTC` | The latest state before the next local midnight, when the ledger holds enough history. |
+| `commits from 2026-11-01 to 2026-11-07 in Asia/Kolkata on main` | Reachable commits filtered by committer timestamp from the exact revision resolved for `main`. |
+| `compare main with release/v1` | The direct tree difference between the two resolved revisions. Add `patch src/app.js` to view a bounded patch in your own viewer or with `--for-person`. |
+
+Both dates in a range are inclusive in the selected timezone. UTC is the default. A relative query uses the recorded query time and Monday as the start of the week. Author, integration, PR merge, deployment, and knowledge-time queries need separate evidence.
+
+Use **Next page** to keep the original revisions and dates. In the shell, pass the issued token to `singularity-flow ask --cursor TOKEN`. On the Copilot tool, resolve `ask sflow` with `arguments.query` set to `continue` and the issued token in `arguments.cursor`. Missing records, shallow ancestry, and scan limits report partial or unavailable coverage. An exact zero is shown only when the available provider completed the requested read without gaps.
 
 ## Purpose and prerequisites
 

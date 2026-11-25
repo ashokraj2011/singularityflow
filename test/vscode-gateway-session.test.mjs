@@ -149,7 +149,8 @@ test('the bundled editor gateway loads Ask SFlow from the staged engine on deman
   assert.equal(answer.operation.id, 'ask.lookup');
   assert.equal(answer.data.help.id, 'artifacts-and-generation');
   const map = JSON.parse(await readFile(path.join(isolatedBundle, 'gateway-runtime.cjs.map'), 'utf8'));
-  assert.ok(map.sources.every(source => !source.endsWith('/src/ask/read.mjs')));
+  const deferred = ['/src/ask/read.mjs', '/src/ask/history.mjs', '/src/git-access-history.mjs'];
+  assert.ok(map.sources.every(source => deferred.every(module => !source.endsWith(module))));
 });
 
 test('compact packaged locals preserve public function names and their behavior', () => {

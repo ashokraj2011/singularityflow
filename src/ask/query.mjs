@@ -1,3 +1,5 @@
+import { askHistoryIntent } from './history-intent.mjs';
+
 // A closed lexical resolver. Verbs in free text never acquire execution meaning.
 const prefix = /^(?:(?:open|show|read|find|get)\s+)?(?:the\s+)?/iu;
 const specRef = /^spec-[a-z0-9]+(?:-[a-z0-9]+)*(?:@[1-9][0-9]*)?$/iu;
@@ -14,16 +16,19 @@ export function askIntent(query, workId = null) {
   if (specRef.test(preciseSpec)) return { kind: 'spec', reference: preciseSpec.toUpperCase() };
   const usage = storySpec.exec(request);
   if (usage) return { kind: 'story-spec', workId: usage[2] ?? usage[3] ?? workId, workKind: 'story' };
+  const history = askHistoryIntent(request, workId);
+  if (history) return history;
   const explicit = namedWork.exec(request);
   if (explicit) return { kind: 'work', workId: explicit[2], workKind: explicit[1].toLowerCase() };
   if (workId || /^(?:my work|current work|active (?:work|story)|(?:this|current) (?:work|story)(?: status)?|what (?:am i working on|is (?:my current work|blocking (?:me|(?:this|my) (?:story|work)|progress)))|what['’]s blocking (?:me|(?:this|my) (?:story|work)|progress)|(?:my |current )?blockers|work status)$/iu.test(request)) {
     return { kind: 'work', workId, workKind: null };
   }
-  if (/^(?:what changed|change history|which (?:stories|initiatives) (?:finished|completed)|what did (?:we|i) (?:finish|complete)|(?:work|story) history)\b/iu.test(request)) {
-    return { kind: 'unsupported', feature: 'history' };
-  }
   if (/^(?:implement|investigate|start a (?:story|task))\b/iu.test(request)) {
     return { kind: 'unsupported', feature: 'task' };
   }
   return { kind: 'discovery' };
+}
+
+export function askNeedsRepository(intent) {
+  return ['work', 'story-spec', 'spec', 'work-history', 'commits', 'comparison'].includes(intent.kind);
 }

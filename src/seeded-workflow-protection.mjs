@@ -52,13 +52,19 @@ export async function seededWorkflowProtection(story, initiative = {}, agents = 
   templates.forEach((id) => { const file = story.templates?.[id]?.path; if (file) templateFiles.add(`${root}/${file}`); });
   const skills = agents.filter((agent) => agentIds.has(agent.id)).flatMap((agent) => (agent.librarySkills ?? []).map((skill) => skill.id));
   const instructions = new Set();
+  // A protected skill written back exactly as SFlow ships it (`skill restore`) customizes nothing.
+  const packagedFiles = {};
   for (const id of new Set(skills)) {
     const text = await readFile(path.join(PACKAGE_ROOT, 'templates/skill-library', id, 'SKILL.md'), 'utf8')
       .catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
-    if (text) for (const reference of parseLibrarySkill(text, { id }).instructionRefs) instructions.add(reference);
+    if (text) {
+      packagedFiles[librarySkillPath(id)] = text;
+      for (const reference of parseLibrarySkill(text, { id }).instructionRefs) instructions.add(reference);
+    }
   }
   return { workflows, epics, phases: [...phases], epicPhases: [...epicPhases], agents: [...agentIds], skills: [...new Set(skills)],
-    instructions: [...instructions], artifactSets: [...artifactSets], templates: [...templates], templateFiles: [...templateFiles], integrationTargets: [...integrationTargets] };
+    instructions: [...instructions], artifactSets: [...artifactSets], templates: [...templates], templateFiles: [...templateFiles], integrationTargets: [...integrationTargets],
+    packagedFiles };
 }
 
 /**
@@ -102,6 +108,8 @@ export function assertSeededWorkflowsUnchanged(protectedIds, before, after, { be
     defaults: agent.defaultFor?.filter((id) => protectedIds.phases.includes(id) || protectedIds.epicPhases.includes(id)), phases: agent.phases?.filter((id) => protectedIds.phases.includes(id) || protectedIds.epicPhases.includes(id)) });
   for (const id of protectedIds.agents) if (!same(signature(beforeAgents.find((agent) => agent.id === id)), signature(afterAgents.find((agent) => agent.id === id)))) refuse(`agent '${id}'`);
   const paths = new Set([...protectedIds.templateFiles, ...protectedIds.skills.map(librarySkillPath), ...(protectedIds.instructions ?? []).map(instructionPath)]);
-  for (const file of files) if (paths.has(file.path) && (file.before == null || file.after == null
+  const restored = (file) => file.after != null && protectedIds.packagedFiles?.[file.path] != null
+    && Buffer.from(file.after).equals(Buffer.from(protectedIds.packagedFiles[file.path]));
+  for (const file of files) if (paths.has(file.path) && !restored(file) && (file.before == null || file.after == null
     ? file.before !== file.after : !Buffer.from(file.before).equals(Buffer.from(file.after)))) refuse(`dependency '${file.path}'`);
 }

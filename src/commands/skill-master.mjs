@@ -1,6 +1,6 @@
 /**
- * The skill master from the command line: list, show, create, edit, attach, detach and remove the
- * named skills any agent can use. Each change is a Workflow Studio change set, checked the same
+ * The skill master from the command line: list, show, create, edit, attach, detach, remove and restore
+ * the named skills any agent can use (restore writes a skill this build ships back as it ships). Each change is a Workflow Studio change set, checked the same
  * way and applied through the repository's configuration authority: a reviewed proposal with
  * `--propose`, a local edit where local authoring is allowed, or only a preview with `--dry-run`.
  */
@@ -40,6 +40,7 @@ async function changeFor(action, id, options) {
     return { op: 'skill.attach', skill: id, ...(text(options, 'workflow') ? { workflow: text(options, 'workflow') } : { agent: text(options, 'agent') }), phases, use: text(options, 'use') ?? '' };
   }
   if (action === 'detach') return { op: 'skill.detach', skill: id, ...(text(options, 'workflow') ? { workflow: text(options, 'workflow') } : { agent: text(options, 'agent') }) };
+  if (action === 'restore') return { op: 'skill.restore', id, ...(options['discard-edits'] === true ? { discardEdits: true } : {}) };
   return { op: 'skill.remove', id };
 }
 
@@ -69,6 +70,22 @@ function printSkill(model, skill) {
     console.log(`Used by ${use.workflow ? `workflow ${use.workflow}` : labels.get(use.agent) ?? use.agent} ${use.phases.length ? `in ${use.phases.join(', ')}` : use.workflow ? 'in every workflow step' : 'in every step it drafts'}${use.use ? `: ${use.use}` : ''}`
       + (use.origin === 'attachments' ? ` (kept in ${model.skillAttachmentsPath})` : ''));
   }
+}
+
+/**
+ * `skill restore` asks before it replaces an edit: read as the change will be (the approved configuration where one is
+ * known), a text here SFlow never shipped is refused with the same command and --discard-edits, the person's yes. The
+ * Studio change checks the same again; this refusal names the person's own options.
+ */
+async function assertRestorable(root, id, options, withApprovedConfigurationRead) {
+  const [{ configurationReadRoot }, { packagedSkillState }] = await Promise.all([import('../configuration-read-scope.mjs'), import('../skill-library-problems.mjs')]);
+  const state = await withApprovedConfigurationRead(root, () => packagedSkillState(configurationReadRoot(root), id), { preferAuthority: true });
+  if (!state.edited || options['discard-edits'] === true) return;
+  const lines = state.current.toString('utf8').split(/\r?\n/u).length;
+  const command = ['singularity-flow skill restore', id, '--discard-edits', options['dry-run'] === true ? '--dry-run' : null,
+    options.propose === true ? '--propose' : null, options.json === true ? '--json' : null].filter(Boolean).join(' ');
+  throw new SingularityFlowError(`Skill '${id}' here is not a text SFlow shipped: it was edited in this repository (${lines} lines), and restoring replaces that edit with SFlow's packaged text. Nothing was changed. To replace it, run ${command}.`,
+    { code: 'SKILL_RESTORE_EDITED', details: { skillId: id, nextAction: { command, label: 'Replace the edited text with SFlow\'s packaged skill.' } } });
 }
 
 /**
@@ -125,6 +142,7 @@ export async function runSkillMaster({ positionals, options, applyChangeSet, pri
     return printSkill(model, { ...skill, instructions: skill.composedText });
   }
   const id = positionals[2];
+  if (action === 'restore') await assertRestorable(root, id, options, withApprovedConfigurationRead);
   const { STUDIO_CHANGE_SET_SCHEMA } = await import('../workflow-studio.mjs');
   const changeSet = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [await changeFor(action, id, options)] };
   const result = await applyChangeSet(root, changeSet, { subject: id, message: `[configuration] skill ${action}: ${id}` });

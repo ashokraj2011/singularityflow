@@ -1,7 +1,7 @@
 /** Pure argv contracts: no catalog, authoring service, repository or provider lookups. */
 import { SingularityFlowError } from '../util.mjs';
 export const SKILL_MASTER_READS = Object.freeze(['list', 'show']);
-export const SKILL_MASTER_CHANGES = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove']);
+export const SKILL_MASTER_CHANGES = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove', 'restore']);
 const AUTHORING = ['json', 'dry-run', 'propose', 'expected-authority-kind', 'expected-authority-commit',
   'expected-authority-remote-fingerprint', 'expected-authority-source-commit', 'operation-id'];
 const RETAINED = ['work-id', 'phase', 'agent', 'generation', 'snapshot-sha256', 'expected-sha256'];
@@ -11,7 +11,9 @@ const OPTIONS = Object.freeze({
   edit: [...AUTHORING, 'label', 'description', 'instructions', 'from', 'loading', 'instruction-refs'],
   attach: [...AUTHORING, 'agent', 'workflow', 'phases', 'use'],
   detach: [...AUTHORING, 'agent', 'workflow'],
-  remove: AUTHORING
+  remove: AUTHORING,
+  // A skill this build ships, written back as it ships; --discard-edits is the person's yes to replace an edit.
+  restore: [...AUTHORING, 'discard-edits']
 });
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -34,7 +36,7 @@ export function validateSkillMasterRequest({ positionals, options }) {
   for (const key of Object.keys(options)) {
     if (!OPTIONS[action].includes(key)) fail(`skill ${action} does not support '--${key}'.`, 'SKILL_MASTER_OPTION_UNSUPPORTED');
   }
-  for (const key of ['json', 'dry-run', 'propose']) {
+  for (const key of ['json', 'dry-run', 'propose', 'discard-edits']) {
     if (options[key] !== undefined && options[key] !== true) fail(`--${key} does not take a value.`, 'SKILL_MASTER_OPTION_UNSUPPORTED');
   }
   if (['attach', 'detach'].includes(action) && Boolean(text(options, 'agent')) === Boolean(text(options, 'workflow'))) fail(`skill ${action} needs exactly one --agent <AGENT> or --workflow <WORKFLOW>.`, 'SKILL_MASTER_AGENT_REQUIRED');

@@ -17,7 +17,7 @@ related:
   - agents-and-routing
   - importing-assets
   - workflow-authoring
-version: 13
+version: 14
 ---
 The skill master is the repository's collection of named skills. Attach a skill to a **workflow** to apply it only within that workflow, or to an **agent** to apply it wherever that agent is selected. Each attachment can restrict its steps and say when to use it. Both scopes eagerly inject exact instructions by default; explicitly optional procedures can instead use a retained catalog.
 
@@ -223,6 +223,7 @@ The summary counts the skills, names skills that look alike (two skills for the 
 
 - **"attaches skill … but it is not in the skill master"**: the refusal names the command that fixes it.
   - A skill SFlow ships comes back as it shipped. Run `singularity-flow workspace refresh-configuration` when the repository has an approved configuration (`sflow/config`). Otherwise run `singularity-flow init --repair` and commit the restored file. Your own changes are kept.
+  - A skill SFlow ships that is there but does not parse is not restored by a refresh, which keeps it in case it is an edit. Run `singularity-flow skill restore <ID>` (add `--propose` when changes go through `sflow/config`): it writes the packaged text back through the same review as any skill change. When the text there is none SFlow ever shipped, it was edited in this repository, and restore refuses until you add `--discard-edits`, which replaces that edit. `--dry-run` shows the change first.
   - Any other skill: write it again with `skill create`, or detach it with `skill detach`. Add `--propose` when changes go through `sflow/config`.
   - Stories and steps of other workflows go on meanwhile.
 - **"attaches skill … to agent …, which is not an agent here"**: an agent named in `singularity/skill-library/attachments.yml` was removed or renamed. Detach the skill from it, or fix the agent ID in that file.

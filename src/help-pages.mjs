@@ -598,7 +598,10 @@ const PAGES = Object.freeze({
     description: [
       'list and show read the skill master: the SKILL.md files under singularity/skill-library and the',
       'workflows and agents that use each one. create, edit, attach, detach and remove change it through',
-      'the configuration review (--dry-run previews, --propose proposes).',
+      'the configuration review (--dry-run previews, --propose proposes). restore writes a skill SFlow ships',
+      'back as it ships, through the same review: the way out of one that is there but does not parse, which',
+      'a configuration refresh keeps because it may be an edit. Text SFlow never shipped is an edit made here,',
+      'and restore replaces it only with --discard-edits.',
       '',
       'catalog shows every skill this repository can use on one page: the skill library and each marketplace',
       'it trusts, a Git repository read at the commit it trusts and an index read through its index. Each',
@@ -612,6 +615,7 @@ const PAGES = Object.freeze({
     ],
     options: [
       ['--marketplace ID', 'catalog: read only this trusted marketplace, with the library.'],
+      ['--discard-edits', 'restore: replace the text here even though it was edited in this repository.'],
       ['--dry-run', 'A change: show it on top of your drafts, and change nothing.'],
       ['--propose', 'A change: propose your drafts and this change for review together.'],
       ['--json', 'Emit the result as JSON.']
@@ -619,7 +623,8 @@ const PAGES = Object.freeze({
     examples: [
       ['singularity-flow skill catalog', 'Every skill in the library and the trusted marketplaces, with look-alikes and the steps none covers.'],
       ['singularity-flow skill catalog --marketplace acme --json', 'The library and marketplace acme only, as JSON.'],
-      ['singularity-flow skill list', 'The skill master and who uses each skill.']
+      ['singularity-flow skill list', 'The skill master and who uses each skill.'],
+      ['singularity-flow skill restore demo-code-acceptance-check --propose', 'Propose SFlow\'s packaged text for a skill that does not parse.']
     ],
     seeAlso: ['marketplace', 'import', 'work']
   },

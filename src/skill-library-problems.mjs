@@ -10,6 +10,7 @@
  * (configurationSkillProblems before and after, addedSkillProblem). doctor and `workflow check` list
  * every one. Only those paths load this module; the commands a Story runs at each step do not.
  */
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -118,6 +119,25 @@ export function shipsLibrarySkill(id) {
 }
 
 /**
+ * A skill this build ships, against its file in the configuration at `configRoot`: `{ packaged, current, same, edited }`.
+ * `packaged` is the text SFlow ships (null when it ships none), `current` the bytes here (null when missing). `edited`
+ * says the bytes here are none SFlow ever shipped for that path (packaged-asset-history.mjs), line endings aside: a
+ * deliberate edit in this repository, which `skill restore` replaces only when the person says so (--discard-edits).
+ */
+export async function packagedSkillState(configRoot, id) {
+  const packaged = await readFile(path.join(PACKAGE_ROOT, 'templates', 'skill-library', id, SKILL_FILE), 'utf8')
+    .catch((error) => (error.code === 'ENOENT' ? null : Promise.reject(error)));
+  const relative = librarySkillPath(id);
+  const secured = await secureRepositoryPath(configRoot, relative, { label: `Skill '${id}'`, type: 'file' });
+  const current = secured.exists ? await readFile(secured.absolute) : null;
+  if (packaged == null || current == null) return { packaged, current, same: false, edited: false };
+  const { isKnownPackagedAssetHash } = await import('./packaged-asset-history.mjs');
+  const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+  const shipped = [current, Buffer.from(current.toString('utf8').replace(/\r\n/gu, '\n'), 'utf8')].some((bytes) => isKnownPackagedAssetHash(relative, digest(bytes)));
+  return { packaged, current, same: current.equals(Buffer.from(packaged, 'utf8')), edited: !shipped };
+}
+
+/**
  * Whether `root`'s configuration is an approved one (sflow/config): read through its overlay, or
  * materialized onto a Story from it. Its changes are then proposals; otherwise they are the
  * repository's own file edits.
@@ -129,8 +149,11 @@ export function approvedConfigurationIn(root) {
 
 /**
  * The way out of one skill problem, as complete commands a person runs. A skill this build ships
- * comes back as it shipped: the packaged configuration refresh restores it to the approved
- * configuration (sflow/config), or `init --repair` to the repository's own files; edits are kept.
+ * comes back as it shipped: missing, the packaged configuration refresh restores it to the approved
+ * configuration (sflow/config), or `init --repair` to the repository's own files, keeping edits;
+ * there but not a valid skill, which a refresh keeps as an edit, `skill restore` replaces it with
+ * the packaged text through the reviewed configuration path (a proposal with an approved
+ * configuration), and asks the person first when the text here is an edit (packagedSkillState).
  * Any other is written again, or detached from what attaches it; with an approved configuration
  * each is a proposal.
  */
@@ -145,11 +168,16 @@ export function librarySkillRepairs(problem, { approved = false } = {}) {
   }
   const propose = approved ? ' --propose' : '';
   const target = problem.workflowId ? `--workflow ${problem.workflowId}` : `--agent ${problem.agentId}`;
+  const detach = problem.workflowId || problem.detachable !== false ? [{ command: `singularity-flow skill detach ${id} ${target}${propose}`,
+    label: `Or stop using it: detach it from ${problem.workflowId ? `workflow ${problem.workflowId}` : `agent ${problem.agentId}`}.` }] : [];
+  if (problem.reason === 'unreadable' && shipsLibrarySkill(id)) {
+    return [{ command: `singularity-flow skill restore ${id}${propose}`,
+      label: `Replace its text here with SFlow's packaged skill ${id}${approved ? ', as a configuration proposal' : ''}.` }, ...detach];
+  }
   return [
     { command: `singularity-flow skill create ${id} --description "<what it does and when to use it>" --instructions "<the steps the agent follows>"${propose}`,
       label: `Write skill ${id} again in the skill master${approved ? ', as a configuration proposal' : ''}.` },
-    ...(problem.workflowId || problem.detachable !== false ? [{ command: `singularity-flow skill detach ${id} ${target}${propose}`,
-      label: `Or stop using it: detach it from ${problem.workflowId ? `workflow ${problem.workflowId}` : `agent ${problem.agentId}`}.` }] : [])
+    ...detach
   ];
 }
 

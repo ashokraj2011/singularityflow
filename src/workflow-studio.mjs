@@ -776,7 +776,7 @@ const RANK = Object.freeze({
   'import.template': 3.5, 'template.create': 3.6, 'template.update': 3.6, 'artifactSet.create': 3.7, 'artifactSet.update': 3.7,
   'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7, 'workflow.intents': 7.1, 'artifactSet.remove': 11.6,
   'epicStep.create': 4.2, 'epicWorkflow.create': 4.7, 'epicStep.update': 5.2, 'epicOutput.set': 5.3, 'epicOutput.remove': 5.4, 'epicWorkflow.update': 7.2,
-  'skill.create': 2.2, 'import.librarySkill': 2.3, 'skill.update': 2.4,
+  'skill.create': 2.2, 'import.librarySkill': 2.3, 'skill.update': 2.4, 'skill.restore': 2.4,
   'instruction.create': 2.05, 'instruction.update': 2.1, 'instruction.remove': 11.2, 'presence.set': 0,
   // Last, so an agent another change touched is stamped beside that change, never over it.
   'agent.stamp': 12,
@@ -1351,6 +1351,7 @@ class StudioCandidate {
         return;
       }
       case 'skill.update': return this.updateSkill(change);
+      case 'skill.restore': return this.restoreSkill(change);
       case 'skill.remove': return this.removeSkill(change);
       case 'skill.attach': return this.attachSkill(change);
       case 'skill.detach': return this.detachSkill(change);
@@ -1435,6 +1436,35 @@ class StudioCandidate {
     });
     // The agents that use the new text are known once every change is applied.
     this.updatedSkills.set(skill.id, this.summary.push(`Skill ${skill.label} updated.`) - 1);
+  }
+
+  /**
+   * A skill this build ships, written back as it ships (`skill restore`): the way out of one that is here but not a valid
+   * skill, which a configuration refresh keeps because it may be an edit. Text here that SFlow never shipped is replaced
+   * only with `discardEdits`, the person's yes; the seeded-workflow check accepts the packaged bytes unchanged.
+   */
+  async restoreSkill({ id, discardEdits = false }) {
+    const skillId = requireId(id, 'A skill ID');
+    const { packagedSkillState } = await import('./skill-library-problems.mjs');
+    const state = await packagedSkillState(this.sources.configRoot, skillId);
+    if (state.packaged == null) {
+      throw new SingularityFlowError(`SFlow does not ship a skill called '${skillId}', so there is nothing to restore. See the skill master with singularity-flow skill list.`,
+        { code: 'STUDIO_SKILL_NOT_PACKAGED', details: { nextAction: { command: 'singularity-flow skill list', label: 'See the skills in the skill master.' } } });
+    }
+    if (state.same) {
+      throw new SingularityFlowError(`Skill '${skillId}' is already as SFlow ships it, so there is nothing to restore. See it with singularity-flow skill show ${skillId}.`,
+        { code: 'STUDIO_SKILL_ALREADY_PACKAGED', details: { nextAction: { command: `singularity-flow skill show ${skillId}`, label: 'Show the skill and who uses it.' } } });
+    }
+    if (state.edited && discardEdits !== true) {
+      const command = `singularity-flow skill restore ${skillId} --discard-edits`;
+      throw new SingularityFlowError(`Skill '${skillId}' here is not a text SFlow shipped: it was edited in this repository, and restoring replaces that edit with SFlow's packaged text. To replace it, run ${command}.`,
+        { code: 'STUDIO_SKILL_RESTORE_EDITED', details: { skillId, nextAction: { command, label: 'Replace the edited text with SFlow\'s packaged skill.' } } });
+    }
+    const skill = parseLibrarySkill(state.packaged, { id: skillId });
+    this.skills.set(skillId, skill);
+    this.skillFiles.set(librarySkillPath(skillId), state.packaged);
+    this.forgetImport(`library-skill:${skillId}`);
+    this.summary.push(`Skill ${skill.label} restored as SFlow ships it${state.current == null ? '' : state.edited ? ', replacing the text edited here' : ', replacing an earlier packaged text'}.`);
   }
 
   removeSkill({ id }) {

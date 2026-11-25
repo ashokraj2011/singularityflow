@@ -426,6 +426,9 @@ Usage:
   singularity-flow skill detach <ID> --agent AGENT [--operation-id ID] [--dry-run] [--propose] [--json]
   singularity-flow skill detach <ID> --workflow WORKFLOW [--operation-id ID] [--dry-run] [--propose] [--json]
   singularity-flow skill remove <ID> [--operation-id ID] [--dry-run] [--propose] [--json]    also detaches it from every agent
+  singularity-flow skill restore <ID> [--discard-edits] [--dry-run] [--propose] [--json]
+                                                        a skill SFlow ships, written back as it ships (one that does not
+                                                        parse); --discard-edits replaces text edited here
                                                         --operation-id names a draft save: the same ID again returns that draft;
                                                         without it, repeating the latest save of a subject is the same save
   singularity-flow workflow skills-recipe <ID> --label TEXT --phases a,b,c [--planned-claims required --clause-phases CRITERIA --claim-owners CODE=PLAN] [--json]

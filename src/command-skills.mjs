@@ -320,7 +320,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   delivery: route('sf-inspect', {
     'promotion-apply': null, 'local-runner-create': null, 'local-runner-run': null, select: null
   }),
-  skill: route('sf-skill', { create: null, edit: null, attach: null, detach: null, remove: null }),
+  skill: route('sf-skill', { create: null, edit: null, attach: null, detach: null, remove: null, restore: null }),
   // /sf-auto never names `auto recover`: the recovery Auto's own checkout refusal routes to (sweep E7 class).
   auto: route('sf-auto', { recover: null }),
   cache: route('sf-doctor', { clear: null }),

@@ -792,6 +792,8 @@ Every public operation is classified before its implementation module is importe
 | skill.list | read | never | — | — |
 | skill.remove | mutation | never | — | — |
 | skill.remove.preview | read | never | — | — |
+| skill.restore | mutation | never | — | — |
+| skill.restore.preview | read | never | — | — |
 | skill.show | read | never | — | — |
 | snapshot | read | never | — | — |
 | spec.acceptance | mutation | never | — | — |

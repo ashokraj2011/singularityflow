@@ -235,6 +235,8 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'verbose', 'show-artifact', 'brief', 'table', 'commentary',
   // Imports; marketplace catalog --newest reads each Git repository marketplace's newest commit.
   'without-defaults', 'launch', 'allow-not-ready', 'newest',
+  // skill restore --discard-edits: the person's yes to replace an edited packaged skill.
+  'discard-edits',
   // Run and test: app start --debug, tests summary --latest. Environment files: env files add|remove --personal, create --from-template, root|link --clear.
   'debug', 'latest', 'personal', 'from-template', 'clear',
   // doctor --repair-hooks [PCR:REQ-030].

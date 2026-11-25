@@ -44,7 +44,7 @@ const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
 const PHASE_READ_SUBCOMMANDS = Object.freeze(['show', 'draft-check', 'prepublish', 'enter', 'opening']);
 // Skill packages are only inspected; the skill master also has edits, which --dry-run previews.
 const SKILL_READ_SUBCOMMANDS = Object.freeze(['inspect', 'approved', 'doctor', 'list', 'show', 'catalog']);
-const SKILL_MUTATION_SUBCOMMANDS = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove']);
+const SKILL_MUTATION_SUBCOMMANDS = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove', 'restore']);
 const AGENT_READ_SUBCOMMANDS = Object.freeze(['list', 'mappings', 'status']);
 const PROMPT_LOG_READ_SUBCOMMANDS = Object.freeze(['status', 'list', 'view']);
 // Subcommands of commands named as mutations whose handlers write nothing (read 2026-10-23): Jira

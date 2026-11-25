@@ -4092,6 +4092,8 @@ async function importsCommand(positionals, options) {
 
 async function marketplaceCommand(positionals, options) {
   const action = positionals[1] ?? 'list';
+  // The marketplace page: commands/marketplace.mjs answers it without this module, and here too.
+  if (action === 'catalog') return (await import('./commands/marketplace.mjs')).runMarketplaceCatalog({ positionals, options });
   const root = repoRoot();
   const json = optionBoolean(options, 'json');
   const { configuredMarketplaces, fetchMarketplaceIndex, marketplaceEntriesView, requireMarketplace } = await import('./marketplace.mjs');
@@ -4144,7 +4146,7 @@ async function marketplaceCommand(positionals, options) {
       operation: `marketplace.${action}`, messageId: action === 'add' ? 'marketplace.added' : 'marketplace.removed', slots: { id }
     });
   }
-  throw new SingularityFlowError(`Unknown marketplace action '${action}'. Use marketplace list, browse <ID>, add <ID> --index <URL>, or remove <ID>.`, { code: 'COMMAND_UNKNOWN' });
+  throw new SingularityFlowError(`Unknown marketplace action '${action}'. Use marketplace list, catalog, browse <ID>, add <ID> --index <URL>, or remove <ID>.`, { code: 'COMMAND_UNKNOWN' });
 }
 
 async function decisionCommand(positionals, options) {

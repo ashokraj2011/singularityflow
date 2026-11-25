@@ -125,7 +125,10 @@ const FAMILIES = Object.freeze([
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs',
     // `skill catalog`, VS Code's All skills page: a broad read over the library, the trusted marketplaces and the task
     // chooser (intake, which this slot already imports). Unclaimed, each read loaded compatibility and models.
-    'commands/skill-catalog.mjs', 'skill-catalog.mjs']],
+    'commands/skill-catalog.mjs', 'skill-catalog.mjs',
+    // `marketplace catalog`, VS Code's Marketplace page: the same reads (the trusted marketplaces' listings, the library, the
+    // import record) and what changed in a workflow made from an agent. Unclaimed, each read loaded compatibility and models.
+    'commands/marketplace.mjs', 'marketplace-catalog.mjs']],
   ['phases', ['phase-entry-authoring.mjs', 'phase-prompt-composer.mjs', 'document-runtime.mjs',
     'copilot-story-follow.mjs',
     // A step's version opening: the one operation and the commands that open a version through it (SPEC-OSA Stage 2).

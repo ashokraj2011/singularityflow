@@ -176,20 +176,44 @@ export type StudioAgentFocus = { agent: string } | { newAgent: true };
 const STUDIO_AGENT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /**
- * What All skills opens Studio at: the Library's import preview of one marketplace skill, into the skill master (an
- * update when the library has it), or the Skill master searched for one skill.
+ * What All skills and the Marketplace open Studio at: the Library's import preview of one marketplace skill, into the
+ * skill master (an update when the library has it), or of an index marketplace's agent or template; the Skill master
+ * searched for one skill, or asking to delete it; a marketplace agent's conversion review (to make its workflow, or its
+ * update); the Library's Remove of one import; or a workflow's Archive or Restore. Each is Studio's own route, checked
+ * here; the change is published from Studio as a reviewed proposal.
  */
-export type StudioSkillFocus = { preview: { reference?: unknown; replace?: unknown } } | { skill: string };
+export type StudioSkillFocus = { preview: { reference?: unknown; replace?: unknown; as?: unknown } } | { skill: string; remove?: boolean }
+  | { agentWorkflow: { target?: unknown; update?: unknown } } | { removeImport: unknown } | { retire: { action?: unknown; selector?: unknown } };
 const MARKET_SKILL_REFERENCE = /^market:[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*(?:@[0-9A-Za-z][0-9A-Za-z.+-]{0,63})?$/;
+/** An import's key, as `imports` lists it: kind, then the agent's and the item's IDs. */
+const IMPORT_KEY = /^(?:skill|library-skill|template|agent|mcp-server|generated):[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)?$/;
 
-function skillFocus(requested: StudioSkillFocus | null): Record<string, unknown> | null {
+function skillFocus(raw: unknown): Record<string, unknown> | null {
+  const requested = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
   if (!requested) return null;
+  const record = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {});
   if ('preview' in requested) {
-    const reference = requested.preview?.reference;
+    const preview = record(requested.preview);
+    const reference = preview.reference;
+    const as = preview.as === 'agent' || preview.as === 'template' ? { as: preview.as } : {};
     return typeof reference === 'string' && reference.length <= MAX_REFERENCE_LENGTH && MARKET_SKILL_REFERENCE.test(reference)
-      ? { view: 'library', preview: { reference, replace: requested.preview.replace === true } } : null;
+      ? { view: 'library', preview: { reference, replace: preview.replace === true, ...as } } : null;
   }
-  return typeof requested.skill === 'string' && requested.skill.length <= 64 && STUDIO_AGENT_ID.test(requested.skill) ? { view: 'skills', skill: requested.skill } : null;
+  if ('agentWorkflow' in requested) {
+    const flow = record(requested.agentWorkflow);
+    return typeof flow.target === 'string' && MARKETPLACE_AGENT.test(flow.target) ? { view: 'library', agentWorkflow: { target: flow.target, update: flow.update === true } } : null;
+  }
+  if ('removeImport' in requested) {
+    return typeof requested.removeImport === 'string' && requested.removeImport.length <= 200 && IMPORT_KEY.test(requested.removeImport)
+      ? { view: 'library', removeImport: requested.removeImport } : null;
+  }
+  if ('retire' in requested) {
+    const retire = record(requested.retire);
+    return (retire.action === 'archive' || retire.action === 'restore') && typeof retire.selector === 'string' && WORKFLOW_SELECTOR.test(retire.selector)
+      ? { retire: { action: retire.action, selector: retire.selector } } : null;
+  }
+  return typeof requested.skill === 'string' && requested.skill.length <= 64 && STUDIO_AGENT_ID.test(requested.skill)
+    ? { view: 'skills', skill: requested.skill, ...(requested.remove === true ? { remove: true } : {}) } : null;
 }
 
 function agentFocus(requested: StudioAgentFocus | null): StudioAgentFocus | null {
@@ -236,7 +260,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       contentSecurityPolicy(panel.webview, token), token, WORKFLOW_STUDIO_SCRIPT);
   }
 
-  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions, focus: StudioFocusView | null = null, workflowId: string | null = null, importBundle: string | null = null, agent: StudioAgentFocus | null = null, skill: StudioSkillFocus | null = null): WorkflowStudioPanel {
+  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions, focus: StudioFocusView | null = null, workflowId: string | null = null, importBundle: string | null = null, agent: StudioAgentFocus | null = null, skill: StudioSkillFocus | object | null = null): WorkflowStudioPanel {
     const canvasWorkflow = workflowId && /^(?:initiative:)?[a-z0-9]+(?:-[a-z0-9]+)*$/.test(workflowId) && workflowId.length <= 139 ? workflowId : null;
     const agentToOpen = agentFocus(agent);
     const skillToOpen = skillFocus(skill);
@@ -334,6 +358,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.checkSignIn': (message) => this.checkSignIn(stringField(message, 'intentId')),
     'studio.importTeam': () => this.actions.importTeam?.(),
     'studio.allSkills': () => vscode.commands.executeCommand('singularityFlow.allSkills'),
+    'studio.marketplace': () => vscode.commands.executeCommand('singularityFlow.marketplace'),
     'studio.addUserAgent': () => this.actions.addUserAgent?.(),
     'studio.markup': async () => {
       // CommonJS cannot split import() automatically; load this editor only on explicit use.

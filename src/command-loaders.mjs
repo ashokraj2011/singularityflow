@@ -73,6 +73,7 @@ export const COMMAND_LOADERS = Object.freeze({
   './commands/sgos-policy.mjs': () => import('./commands/sgos-policy.mjs'),
   './commands/sgos.mjs': () => import('./commands/sgos.mjs'),
   './commands/skill.mjs': () => import('./commands/skill.mjs'),
+  './commands/marketplace.mjs': () => import('./commands/marketplace.mjs'),
   './commands/snapshot.mjs': () => import('./commands/snapshot.mjs'),
   './commands/status.mjs': () => import('./commands/status.mjs'),
   './commands/story-entry.mjs': () => import('./commands/story-entry.mjs'),

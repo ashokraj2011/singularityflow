@@ -169,6 +169,7 @@ const LAZY_MODULES = Object.freeze({
   revision: './commands/revision.mjs',
   revise: './commands/revise.mjs',
   skill: './commands/skill.mjs',
+  marketplace: './commands/marketplace.mjs',
   instruction: './commands/instruction.mjs',
   'upstream-issue': './commands/upstream-issue.mjs',
   departure: './commands/departure.mjs',
@@ -425,7 +426,7 @@ const IMPORT_SUBCOMMANDS = Object.freeze([...IMPORT_READ_SUBCOMMANDS, ...IMPORT_
 const IMPORTS_READ_SUBCOMMANDS = Object.freeze(['list', 'check']);
 const IMPORTS_MUTATION_SUBCOMMANDS = Object.freeze(['remove']);
 const IMPORTS_SUBCOMMANDS = Object.freeze([...IMPORTS_READ_SUBCOMMANDS, ...IMPORTS_MUTATION_SUBCOMMANDS]);
-const MARKETPLACE_READ_SUBCOMMANDS = Object.freeze(['list', 'browse']);
+const MARKETPLACE_READ_SUBCOMMANDS = Object.freeze(['list', 'browse', 'catalog']);
 const MARKETPLACE_MUTATION_SUBCOMMANDS = Object.freeze(['add', 'remove']);
 const MARKETPLACE_SUBCOMMANDS = Object.freeze([...MARKETPLACE_READ_SUBCOMMANDS, ...MARKETPLACE_MUTATION_SUBCOMMANDS]);
 const REVISION_ATTACHMENT_ACTIONS = Object.freeze([

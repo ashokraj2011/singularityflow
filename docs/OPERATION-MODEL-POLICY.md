@@ -575,6 +575,7 @@ Every public operation is classified before its implementation module is importe
 | logs | read | never | — | — |
 | marketplace.add | mutation | never | — | — |
 | marketplace.browse | read | never | — | — |
+| marketplace.catalog | read | never | — | — |
 | marketplace.list | read | never | — | — |
 | marketplace.remove | mutation | never | — | — |
 | mcp.attest | mutation | never | — | — |

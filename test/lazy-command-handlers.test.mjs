@@ -1030,6 +1030,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (action-command-map.mjs personCommand), the context boundary's one route its reset, and the approval receipt's command
     // marked as a private run (choices.mjs). No new eager file.
     // 9,895,191 (measured on itw-all with itw-route merged, 2026-11-25): the rises above together. No new eager file.
+    // 9,886,741 (measured for submit.mjs, +56, 2026-11-25 on itw-store): `marketplace catalog`, the Marketplace page, a
+    // marketplace read with its own command module (command-registry.mjs); the page engine loads only for it. No new eager file.
     assert.ok(closure.bytes <= 9_895_191, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
@@ -1206,7 +1208,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 879,086 (+156, measured on itw-all, 2026-11-25): the Ask handoff's for-agent refusal names `help work` (cli-entry.mjs) and
   // `work` refuses a skill's name as a task's words (command-registry help). No new eager file.
   // 879,110 (measured at f4427ddba, the merge of itw-grow and itw-agentplan, unrecorded there; itw-route adds nothing here).
-  assert.ok(root.bytes <= 879_086, `root dispatch loads ${root.bytes} source bytes`);
+  // 879,142 (+56, measured on itw-store, 2026-11-25): `marketplace catalog`, the Marketplace page, a marketplace read with its
+  // own command module (command-registry.mjs; command-loaders.mjs names it in an import the root does not follow). No new eager file.
+  // 879,142 (measured on itw-all with itw-store, 2026-11-25): `marketplace catalog` registered (command-registry.mjs). No new eager file.
+  assert.ok(root.bytes <= 879_142, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1608,6 +1613,7 @@ test('the common session projection does not import attach, state stores or publ
   // 4,359,058 (+1,377, 2026-11-25 on itw-route): a closed task's last message as its next action and the context boundary's
   // one route its reset (safe-command-guidance.mjs, context-policy.mjs). No new eager file.
   // 4,359,202 (measured on itw-all with itw-route merged, 2026-11-25): the rises above together. No new eager file.
+  // 4,353,587 (+56, measured on itw-store, 2026-11-25): `marketplace catalog` registered (command-registry.mjs). No new eager file.
   assert.ok(current.bytes <= 4_359_202, `session current loads ${current.bytes} source bytes`);
 });
 

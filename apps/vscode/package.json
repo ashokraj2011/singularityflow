@@ -963,6 +963,11 @@
         "icon": "$(library)"
       },
       {
+        "command": "singularityFlow.marketplace",
+        "title": "Singularity Flow: Marketplace",
+        "icon": "$(extensions)"
+      },
+      {
         "command": "singularityFlow.findings",
         "title": "Singularity Flow: Findings",
         "icon": "$(bug)"

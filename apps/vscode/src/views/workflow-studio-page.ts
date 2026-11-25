@@ -5940,6 +5940,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         el('p', { class: 'studio-lede', text: 'Attach skills to workflow steps for that workflow only, or to agents wherever they are used. Both are included in the phase prompt. Running Stories keep the exact skill text they started with.' })),
       el('div', { class: 'studio-row' },
         button('All skills', function () { post({ type: 'studio.allSkills' }); }, { class: 'secondary', title: 'Every skill here and in the trusted marketplaces: what each is for, look-alikes and gaps' }),
+        button('Marketplace', function () { post({ type: 'studio.marketplace' }); }, { class: 'secondary', title: 'Install, update and remove skills, agents and workflows from the trusted marketplaces' }),
         button('Add from a link', function () { var lib = library(); lib.as = 'library-skill'; lib.attachTo = null; lib.preview = null; lib.target = null; lib.replace = false; state.returnTo = { view: 'skills' }; state.view = 'library'; render(); }, { class: 'secondary' }),
         button('New skill', function () { openSkillForm(null); }, { class: 'primary' }))));
     if (view.form) main.appendChild(renderSkillForm(view.form));
@@ -6182,8 +6183,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function renderLibrary(main) {
     var lib = library();
     backLink(main);
-    main.appendChild(el('header', null, el('h1', { text: 'Library' }),
-      el('p', { class: 'studio-lede', text: 'Add skills, document templates, agents and MCP servers from a link, a marketplace your repository trusts, or an approved MCP server. You see the exact content before it is added; it is copied into your configuration and published with your other changes.' })));
+    main.appendChild(el('header', { class: 'studio-row spread' }, el('div', null, el('h1', { text: 'Library' }),
+      el('p', { class: 'studio-lede', text: 'Add skills, document templates, agents and MCP servers from a link, a marketplace your repository trusts, or an approved MCP server. You see the exact content before it is added; it is copied into your configuration and published with your other changes.' })),
+      button('Marketplace', function () { post({ type: 'studio.marketplace' }); }, { class: 'secondary', title: 'Every item of every trusted marketplace and what is installed here, with Install, Update and Remove' })));
     var form = el('section', { class: 'studio-card', 'aria-label': 'Add from a link' });
     form.appendChild(el('h2', { text: 'Add from a link' }));
     form.appendChild(el('div', { class: 'grid-2' },
@@ -7560,7 +7562,27 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       else if (message.view === 'build') openBuilds();
       else if (typeof message.workflowId === 'string') openWorkflowCanvas(message.workflowId);
       else if (message.view === 'agents' && (message.newAgent === true || typeof message.agent === 'string')) focusAgent(message.newAgent === true ? null : message.agent);
-      else if (message.view === 'library' && message.preview && typeof message.preview.reference === 'string') {
+      else if (message.view === 'library' && message.preview && typeof message.preview.reference === 'string' && (message.preview.as === 'agent' || message.preview.as === 'template')) {
+        // Marketplace: an index marketplace's agent or template, its exact text previewed for its import (an update when it is installed).
+        var entryLibrary = library(); entryLibrary.as = message.preview.as; entryLibrary.attachTo = null; entryLibrary.target = null; entryLibrary.replace = message.preview.replace === true;
+        state.view = 'library'; state.returnTo = null; previewImport(message.preview.reference, message.preview.as, null);
+      } else if (message.view === 'library' && message.agentWorkflow && typeof message.agentWorkflow.target === 'string') {
+        // Marketplace: an agent's conversion review, to make its workflow or to review its update.
+        state.view = 'library'; state.returnTo = null;
+        previewAgentWorkflow(message.agentWorkflow.target, message.agentWorkflow.target.split('/')[1], {}, message.agentWorkflow.update === true);
+      } else if (message.view === 'library' && typeof message.removeImport === 'string') {
+        // Marketplace: Remove on one import, as the Library's own Remove queues it; it is removed once published.
+        state.view = 'library'; state.returnTo = null;
+        if ((state.model.imports || []).some(function (row) { return row.key === message.removeImport; })) queueImport({ op: 'import.remove', key: message.removeImport }, message.removeImport + ' will be removed once you publish.');
+        else { setStatus(message.removeImport + ' is no longer imported here.'); render(); }
+      } else if (message.view === 'skills' && typeof message.skill === 'string' && message.remove === true) {
+        // Marketplace: Remove on a library skill asks here, as the Skill master's own Delete does.
+        state.searches.skills = message.skill; state.view = 'skills'; state.returnTo = null; render();
+        if (state.draft.skills && state.draft.skills[message.skill]) askRemoveSkill(message.skill);
+      } else if (message.retire && typeof message.retire.selector === 'string') {
+        // Marketplace: a workflow made from an agent, archived or restored as its own Archive… and Restore do.
+        retireWorkflow(message.retire.action === 'restore' ? 'restore' : 'archive', message.retire.selector);
+      } else if (message.view === 'library' && message.preview && typeof message.preview.reference === 'string') {
         // All skills: a marketplace skill's exact text, previewed for the skill master (an update when the library has it).
         var skillLibrary = library(); skillLibrary.as = 'library-skill'; skillLibrary.attachTo = null; skillLibrary.target = null; skillLibrary.replace = message.preview.replace === true;
         state.view = 'library'; state.returnTo = null; previewImport(message.preview.reference, 'library-skill', null);

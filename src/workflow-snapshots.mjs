@@ -319,14 +319,34 @@ async function captureAgentExecutionDependencies(root, config, workId, agent, ph
   return { assets: [...remote.assets, ...library.assets], dependencies: [...remote.dependencies, ...library.dependencies] };
 }
 
+/**
+ * The skills a task's composed workflow chose for its steps [ITW:REQ-010]: attached to that workflow as attachments.yml
+ * attaches a skill to one, since attachments.yml cannot name a composed work type. Each names the bytes its plan read.
+ */
+function composedTaskSkills(workflow) {
+  const composition = workflow.resolution?.composition;
+  if (!/^task-[a-z]+$/u.test(workflow.workItem.workType ?? '') || composition?.workType !== workflow.workItem.workType || !Array.isArray(composition.skills)) return [];
+  return composition.skills.map((entry) => ({ id: entry.id, phases: [...(entry.steps ?? [])], use: '', planned: entry.sha256 ?? null }));
+}
+
 async function captureWorkflowLibrarySkills(root, config, workflow) {
   const assets = []; const attachments = [];
   const workflowId = workflow.workItem.workType;
-  for (const entry of (await readSkillAttachments(configurationReadRoot(root))).filter((item) => item.workflow === workflowId)) {
+  const entries = [...(await readSkillAttachments(configurationReadRoot(root))).filter((item) => item.workflow === workflowId), ...composedTaskSkills(workflow)];
+  for (const entry of entries) {
     const logicalId = `workflow:${workflowId}:skill:${entry.id}`;
     // installBlob must target the Story repository, not an approved-configuration read checkout.
-    const source = await secureRepositoryPath(configurationReadRoot(root), librarySkillPath(entry.id), { mustExist: true, type: 'file' });
+    const source = await secureRepositoryPath(configurationReadRoot(root), librarySkillPath(entry.id), { mustExist: !entry.planned, type: 'file' });
+    if (entry.planned && !source.exists) {
+      throw new SingularityFlowError(`The task's plan uses skill ${entry.id}, which is not in the skill library the Story starts from (its base branch, or the approved configuration). Push the change that adds it, or start without it.`,
+        { code: 'TASK_SKILL_CHANGED', details: { skill: entry.id, nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Show the task\'s plan again.' } } });
+    }
     const captured = await stableFile(source.absolute, `Workflow skill '${entry.id}'`);
+    // The exact text the plan named, or the plan is shown again: a skill edited since is not used unseen.
+    if (entry.planned && captured.sha256 !== String(entry.planned).replace(/^sha256:/u, '')) {
+      throw new SingularityFlowError(`Skill ${entry.id} in the plan differs from the one the Story starts from (its base branch, or the approved configuration). Push the change, or start without it.`,
+        { code: 'TASK_SKILL_CHANGED', details: { skill: entry.id, nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Show the task\'s plan again.' } } });
+    }
     parseLibrarySkill(captured.bytes.toString('utf8'), { id: entry.id });
     const blob = await installBlob(root, config, workflow.workItem.id, { ...captured, mediaType: 'text/markdown; charset=utf-8' });
     assets.push({ logicalId, purpose: 'workflow-skill', dependencies: [], blob,

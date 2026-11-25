@@ -3905,7 +3905,8 @@ function printImportResult(result, { dryRun }) {
 
 function importAddCommandLine(reference, { as, agent, id, phases, sha256 }) {
   return ['singularity-flow import add', JSON.stringify(reference), `--as ${as}`,
-    as === 'skill' ? `--agent ${agent ?? '<AGENT>'}` : null,
+    // A skill with no agent goes to the skill master, where any agent or task can use it.
+    as === 'skill' && agent ? `--agent ${agent}` : null,
     id ? `--id ${id}` : null,
     phases?.length ? `--phases ${phases.join(',')}` : null,
     `--sha256 ${sha256}`].filter(Boolean).join(' ');

@@ -998,7 +998,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // start.mjs, configuration-branch.mjs) [ITW M1]; the composer itself loads only for a task. No new eager file.
     // 9,872,488 (+256, 2026-11-25): --new, a task started over one open on its checkout (util.mjs), and /sf-task as the
     // route `nextsteps` names (safe-command-guidance.mjs) [ITW M2]. No new eager file.
-    assert.ok(closure.bytes <= 9_872_488, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,874,991 (measured for submit.mjs, +2,503, 2026-11-25): a task's chosen skills frozen into its Story's snapshot with
+    // the exact text its plan read (workflow-snapshots.mjs), and a loaded definition's marketplaces validated again unchanged
+    // (marketplace.mjs) [ITW:REQ-010]; the chooser loads only for a task. No new eager file.
+    assert.ok(closure.bytes <= 9_874_991, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1550,7 +1553,9 @@ test('the common session projection does not import attach, state stores or publ
   // copilot-mutation-guard.mjs, phase-mutation-contract.mjs, util.mjs) [ITW M1]. No new eager file.
   // 4,343,915 (+256, 2026-11-25): --new (util.mjs) and /sf-task as `nextsteps`' route (safe-command-guidance.mjs) [ITW M2].
   // No new eager file.
-  assert.ok(current.bytes <= 4_343_915, `session current loads ${current.bytes} source bytes`);
+  // 4,346,418 (+2,503, 2026-11-25): a task's skills frozen into its snapshot (workflow-snapshots.mjs) and marketplaces
+  // validated again unchanged (marketplace.mjs) [ITW:REQ-010]. No new eager file.
+  assert.ok(current.bytes <= 4_346_418, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

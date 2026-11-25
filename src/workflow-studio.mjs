@@ -3448,6 +3448,7 @@ function templateLabel(heading, id) {
 
 function sourceText(source) {
   if (source?.kind === 'marketplace') return `marketplace ${source.marketplace} (${source.entry} ${source.version})`;
+  if (source?.kind === 'marketplace-skill') return `marketplace ${source.marketplace} (${source.entry}${source.version ? ` ${source.version}` : ''})`;
   if (source?.kind === 'mcp') return `MCP server ${source.server} (${source.method} ${source.name})`;
   return source?.url ?? source?.urlTemplate ?? 'its source';
 }

@@ -108,6 +108,44 @@ export async function resolveMarketplaceReference(root, reference, { fetchImpl =
   return { marketplace, index, entry: selectMarketplaceEntry(index, marketplace.id, reference.entry, reference.version) };
 }
 
+/**
+ * A skill of a marketplace that is a Git repository, read at the commit the repository trusts: its SKILL.md's exact bytes,
+ * and, recorded with the import, the tasks, tags and lifecycle its own apm.yml gives it, so a task finds it for the same
+ * step the next time (task-skills.mjs) [ITW:REQ-010]. An agent is made a workflow instead (workflow from-agent).
+ */
+async function repositoryMarketplaceSkill(marketplace, reference) {
+  const { readMarketplaceRepository } = await import('./marketplace-repository.mjs');
+  const listing = await readMarketplaceRepository(marketplace, { documents: [reference.entry] });
+  const entry = listing.packages.find((item) => item.name === reference.entry);
+  if (!entry) {
+    throw fail(`Marketplace '${marketplace.id}' lists no skill '${reference.entry}'.`, 'MARKETPLACE_ENTRY_UNKNOWN',
+      { nextAction: { command: `singularity-flow marketplace browse ${marketplace.id} --kind skill`, label: `See the skills marketplace ${marketplace.id} lists.` } });
+  }
+  if (entry.kind !== 'skill') {
+    throw fail(`${reference.entry} in marketplace '${marketplace.id}' is ${entry.kind === 'agent' ? 'an agent' : `a ${entry.type ?? 'package with no type'}`}, not a skill.`, 'IMPORT_KIND_INVALID',
+      { nextAction: entry.kind === 'agent'
+        ? { command: `singularity-flow workflow from-agent ${marketplace.id}/${reference.entry}`, label: 'Make the agent a workflow instead.' }
+        : { command: `singularity-flow marketplace browse ${marketplace.id} --kind skill`, label: `See the skills marketplace ${marketplace.id} lists.` } });
+  }
+  if (reference.version && entry.version !== reference.version) {
+    throw fail(`Marketplace '${marketplace.id}' has ${reference.entry} at version ${entry.version ?? 'with no version'} at the commit it is trusted at, not ${reference.version}.`, 'MARKETPLACE_ENTRY_UNKNOWN',
+      { nextAction: { command: `singularity-flow import preview "market:${marketplace.id}/${reference.entry}" --as skill`, label: 'Preview the version it has.' } });
+  }
+  if (entry.text == null) {
+    throw fail(`${reference.entry} in marketplace '${marketplace.id}' has no readable SKILL.md in ${entry.source}.`, 'IMPORT_CONTENT_EMPTY',
+      { nextAction: { command: `singularity-flow marketplace browse ${marketplace.id} --kind skill`, label: `See the skills marketplace ${marketplace.id} lists.` } });
+  }
+  return {
+    bytes: Buffer.from(entry.text, 'utf8'),
+    entry: { id: entry.name, kind: 'skill', version: entry.version ?? null, label: entry.name, description: entry.description ?? null, phases: entry.pdlcPhases ?? [] },
+    source: {
+      kind: 'marketplace-skill', marketplace: marketplace.id, repository: marketplace.repository, commit: listing.commit, entry: entry.name,
+      version: entry.version ?? null, path: entry.document, tasks: [...(entry.pdlcTasks ?? [])], tags: [...(entry.tags ?? [])],
+      lifecycleState: entry.lifecycleState ?? null
+    }
+  };
+}
+
 async function fetchReference(root, reference, { fetchImpl = globalThis.fetch, maxBytes = DEFAULT_REMOTE_MAX_BYTES, launch = false, arguments: args = {}, sessionOptions = {} } = {}) {
   if (reference.kind === 'mcp') {
     const fetched = await fetchMcpContent(root, reference, { launch, arguments: args, sessionOptions });
@@ -115,6 +153,8 @@ async function fetchReference(root, reference, { fetchImpl = globalThis.fetch, m
     return fetched;
   }
   if (reference.kind === 'marketplace') {
+    const trusted = (await configuredMarketplaces(root))[reference.marketplace];
+    if (trusted?.repository) return repositoryMarketplaceSkill(trusted, reference);
     const { marketplace, index, entry } = await resolveMarketplaceReference(root, reference, { fetchImpl });
     if (!entry.url) {
       throw fail(`Marketplace entry '${entry.id}' is a ${entry.kind} source, not content; add it with --as ${entry.kind}.`, 'IMPORT_KIND_INVALID');
@@ -469,6 +509,7 @@ async function fileState(root, relative) {
 
 function sourceLabel(source) {
   if (source?.kind === 'marketplace') return `market:${source.marketplace}/${source.entry}@${source.version}`;
+  if (source?.kind === 'marketplace-skill') return `market:${source.marketplace}/${source.entry}@${source.version ?? String(source.commit ?? '').slice(0, 12)}`;
   if (source?.kind === 'marketplace-agent') return `agent:${source.marketplace}/${source.agent}@${source.version ?? String(source.commit ?? '').slice(0, 12)}`;
   if (source?.kind === 'mcp') return `mcp:${source.server}/${source.method}/${source.method === 'resource' ? encodeURIComponent(source.name) : source.name}`;
   return source?.url ?? source?.urlTemplate ?? source?.kind ?? 'unknown';

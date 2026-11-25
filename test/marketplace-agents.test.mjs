@@ -356,8 +356,12 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     const moved = json(root, ['marketplace', 'add', 'acme', '--repo', market, '--dry-run']);
     assert.equal(moved.valid, true, JSON.stringify(moved.problems));
     assert.ok(moved.summary.some((line) => line.startsWith(`Marketplace sdlc-marketplace is now read at ${run('git', ['rev-parse', 'HEAD'], market).stdout.trim().slice(0, 12)}`)), moved.summary.join('\n'));
-    // A repository marketplace has no index of files to import one by one, and says where to go instead.
-    assert.match(refused(root, ['import', 'preview', 'market:acme/web-xray-creation']), /MARKETPLACE_REPOSITORY_NOT_INDEX|singularity-flow marketplace browse acme/u);
+    // A repository marketplace's skill is imported as any import, read at the commit the repository trusts, with what its
+    // apm.yml says about it [ITW:REQ-010]; an agent is made a workflow instead.
+    const skillPreview = json(root, ['import', 'preview', 'market:acme/web-xray-creation', '--as', 'skill']);
+    assert.deepEqual([skillPreview.source.kind, skillPreview.source.commit, skillPreview.source.lifecycleState, skillPreview.source.tasks],
+      ['marketplace-skill', pinned, 'proposed', ['test-case-creation']]);
+    assert.match(refused(root, ['import', 'preview', 'market:acme/qa-test-automation-agent', '--as', 'skill']), /singularity-flow workflow from-agent acme\/qa-test-automation-agent/u);
 
     // A stage SFlow asks about: nothing is written, and each answer is a whole command.
     const open = refused(root, ['workflow', 'from-agent', 'acme/product-agent', '--out', 'product.json']);

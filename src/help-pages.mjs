@@ -496,7 +496,14 @@ const PAGES = Object.freeze({
       'Without --start it shows the plan and writes nothing. With --start it starts the Story: its ID is',
       'a Jira key the words or --work-id name, else the next free TASK-<n> (tasks.idPrefix); its base is',
       'the default branch; its intake is your words. The composed workflow is recorded with the Story and',
-      'never written to workflow.yml. In Copilot, /sf-task does this and names the kind for you.'
+      'never written to workflow.yml. In Copilot, /sf-task does this and names the kind for you.',
+      '',
+      'Each step gets the skills that fit it: a skill from the repository\'s skill library whose task is',
+      'what the step is for, and that is for the kind of software this repository is or that your words',
+      'name. A step the library has nothing for may be offered a skill from a marketplace the repository',
+      'trusts, read at the commit it trusts. The plan line names them. A marketplace skill new here, or',
+      'one marked proposed or beta, needs your yes before the task starts; the Story keeps the exact text',
+      'of every skill it uses.'
     ],
     options: [
       ['--kind KIND', 'The kind of task; without it SFlow reads it from the words.'],
@@ -509,6 +516,8 @@ const PAGES = Object.freeze({
       ['--new', 'Start another task even though one is open on this checkout.'],
       ['--add STEP', 'Add a requirements, design, plan or review step before the task starts (repeatable).'],
       ['--skip STEP', 'Take a step out before the task starts; a team rule\'s step, the intake and a code task\'s tests stay.'],
+      ['--use-skill ID', 'Yes to a skill the plan offers: a library skill marked proposed or beta, or one imported for it (repeatable).'],
+      ['--without-skill ID', 'No to a skill the plan offers or uses: the task starts without it (repeatable).'],
       ['--json', 'Emit the plan, or the started Story, as JSON.']
     ],
     examples: [

@@ -67,9 +67,15 @@ function groupsOf(definition) {
 const approvalOf = (phase) => phase.approval?.mode === 'none' ? 'none'
   : phase.approval?.automatic === 'when-ready' ? 'sflow' : 'person';
 
-/** The task's plan: composed, checked and walked as a Story start would, with nothing written. */
-export async function taskPlan(definition, { kind, touchedPaths = [], pullRequest = false, add = [], skip = [] } = {}) {
-  const composition = { ...composeTask(definition, { kind, touchedPaths, add, skip }), ...(pullRequest ? { pullRequest: true } : {}) };
+/**
+ * The task's plan: composed, checked and walked as a Story start would, with nothing written. `chooseSkills`, given the
+ * composed steps, returns the skills each step uses and offers (task-skills.mjs taskSkillChooser) [ITW:REQ-010].
+ */
+export async function taskPlan(definition, { kind, touchedPaths = [], pullRequest = false, add = [], skip = [], chooseSkills = null } = {}) {
+  const composed = composeTask(definition, { kind, touchedPaths, add, skip });
+  const chosen = chooseSkills ? await chooseSkills(composed) : null;
+  // The skills a Story uses are part of its composition, so its snapshot freezes their exact text with its steps.
+  const composition = { ...composed, ...(chosen?.skills.length ? { skills: chosen.skills } : {}), ...(pullRequest ? { pullRequest: true } : {}) };
   const overlaid = validateDefinition(structuredClone(taskDefinition(definition, composition)));
   const resolved = assertWorkTypeStartable(resolveWorkType(overlaid, composition.workType));
   const { quickWalkResolved, walkHosts } = await import('../workflow-walk/quick.mjs');
@@ -82,11 +88,15 @@ export async function taskPlan(definition, { kind, touchedPaths = [], pullReques
     });
   }
   const approvals = Object.fromEntries(resolved.phases.map((phase) => [phase.id, approvalOf(phase)]));
+  const byStep = chosen?.byStep ?? {};
+  const skillWords = Object.keys(byStep).length ? (await import('../task-skills.mjs')).planSkillWords : null;
   return {
     composition,
-    plan: planLine(composition, { approvals, pullRequest }),
-    steps: composition.steps.map((step) => ({ id: step.id, intent: step.intent, label: step.label, approvedBy: approvals[step.id] })),
-    walk: walk.outcome
+    plan: planLine(composition, { approvals, pullRequest, skills: byStep, skillWords }),
+    steps: composition.steps.map((step) => ({ id: step.id, intent: step.intent, label: step.label, approvedBy: approvals[step.id],
+      ...(byStep[step.id]?.length ? { skills: byStep[step.id].map((entry) => entry.id) } : {}) })),
+    walk: walk.outcome,
+    ...(chosen ? { skills: chosen.skills, offers: chosen.offers, ...(chosen.notes?.length ? { notes: chosen.notes } : {}) } : {})
   };
 }
 
@@ -236,6 +246,30 @@ export function taskStatus(root, id, { remote = 'origin' } = {}) {
   };
 }
 
+/** The command that starts this task with the options the person gave, and `extra` after them. */
+function startCommand(words, kind, options, extra = []) {
+  const repeated = (name) => optionStrings(options, name).map((value) => `--${name} ${/^[\w./@:-]+$/u.test(value) ? value : quoted(value)}`);
+  const single = (name) => { const value = optionString(options, name); return value ? [`--${name} ${/^[\w./@:-]+$/u.test(value) ? value : quoted(value)}`] : []; };
+  return ['singularity-flow work', quoted(words), `--kind ${kind}`, '--start', ...single('work-id'), ...single('base'), ...single('from'),
+    ...repeated('path'), ...repeated('document'), ...repeated('add'), ...repeated('skip'), ...(optionBoolean(options, 'new') ? ['--new'] : []),
+    ...repeated('use-skill'), ...repeated('without-skill'), ...extra].join(' ');
+}
+
+/** What the person is asked about a skill offered for a step, and the option each answer adds to the start. */
+function skillOffer(offer, composition) {
+  const steps = offer.steps.map((id) => composition.steps.find((step) => step.id === id)?.label ?? id).map((label) => label.toLowerCase());
+  const where = `for the ${steps.join(' and ')} step${steps.length > 1 ? 's' : ''}`;
+  const ask = offer.new
+    ? `Add ${offer.id} from ${offer.marketplace} to this repository's skills and use it ${where}${offer.state ? ` (the marketplace marks it ${offer.state})` : ''}?`
+    : `Use ${offer.id} ${where}? It is marked ${offer.state}.`;
+  return {
+    id: offer.id, steps: offer.steps, source: offer.source, marketplace: offer.marketplace, new: offer.new, state: offer.state, why: offer.why, ask,
+    // A new one's text is shown before the yes, and the yes imports it as any import is added (its addCommand).
+    ...(offer.new ? { show: `singularity-flow import preview ${quoted(`market:${offer.marketplace}/${offer.id}`)} --as skill --json` } : {}),
+    yes: `--use-skill ${offer.id}`, no: `--without-skill ${offer.id}`
+  };
+}
+
 function titleOf(words) {
   const line = words.split(/\r?\n/u)[0].trim();
   return line.length > 120 ? `${line.slice(0, 117).trimEnd()}…` : line;
@@ -259,13 +293,30 @@ export async function workCommand(positionals = [], options = {}) {
   }
   const definition = await loadConfig(root);
   const touchedPaths = optionStrings(options, 'path');
+  const use = optionStrings(options, 'use-skill');
+  const without = optionStrings(options, 'without-skill');
+  const { taskSkillChooser } = await import('../task-skills.mjs');
   const preview = await taskPlan(definition, { kind, touchedPaths, pullRequest: ASKS_FOR_PULL_REQUEST.test(words),
-    add: optionStrings(options, 'add'), skip: optionStrings(options, 'skip') });
+    add: optionStrings(options, 'add'), skip: optionStrings(options, 'skip'),
+    chooseSkills: taskSkillChooser(root, definition, { words, touchedPaths, use, without }) }).catch((error) => {
+    // A yes to a marketplace skill whose import is not in the library yet (it waits for its review): this task starts
+    // without it, and the next one finds it there.
+    if (error?.code === 'TASK_SKILL_NOT_IN_LIBRARY') {
+      const skill = error.details.skill;
+      const rest = { ...options, 'use-skill': use.filter((id) => id !== skill), 'without-skill': [...without, skill] };
+      error.details.nextAction = { command: startCommand(words, kind, rest), label: `Start the task without ${skill} for now.` };
+    }
+    throw error;
+  });
+  const start = startCommand(words, kind, options);
+  const offers = preview.offers.map((offer) => skillOffer(offer, preview.composition));
   if (!optionBoolean(options, 'start')) {
     return {
       schemaVersion: 1, resultType: 'sflow-task-plan', kind, words, plan: preview.plan, steps: preview.steps,
       rules: preview.composition.rules, added: preview.composition.added,
-      next: { command: `singularity-flow work ${quoted(words)} --kind ${kind} --start`, label: 'Start the task.' }
+      ...(preview.skills.length ? { skills: preview.skills } : {}), ...(offers.length ? { offers } : {}),
+      ...(preview.notes?.length ? { notes: preview.notes } : {}),
+      next: { command: start, label: offers.length ? 'Start the task after a yes or no to each skill offered.' : 'Start the task.' }
     };
   }
   // A task open on this checkout takes the words as its own: an answer, or the change wanted. Only "new task" (--new)
@@ -276,6 +327,18 @@ export async function workCommand(positionals = [], options = {}) {
       code: 'TASK_OPEN_HERE',
       details: { openTask: open, newTask: `singularity-flow work ${quoted(words)} --kind ${kind} --start --new`,
         nextAction: { command: `singularity-flow nextsteps ${open} --for-agent --json`, label: `Carry ${open} on with the person's words.` } }
+    });
+  }
+  // A skill that needs the person's yes is asked before the Story starts: its snapshot then freezes what they chose
+  // [ITW:REQ-010]. The question names each skill and the step it is for; a no starts the task without it.
+  if (offers.length) {
+    const [first] = offers;
+    throw new SingularityFlowError(`${preview.plan} The task starts once you say yes or no to ${offers.length > 1 ? 'each skill it offers' : `${first.id}`}: ${offers.map((offer) => offer.ask).join(' ')}`, {
+      code: 'TASK_SKILL_YES_NEEDED',
+      details: { plan: preview.plan, offers, start,
+        nextAction: first.show
+          ? { command: first.show, label: `Show ${first.id}'s text, then ask the person: ${first.ask}` }
+          : { command: `${start} ${first.yes}`, label: `If the person says yes to: ${first.ask} (if no, add ${first.no} instead)` } }
     });
   }
   const id = workIdFor(root, words, definition, options);
@@ -297,15 +360,29 @@ export async function workCommand(positionals = [], options = {}) {
   };
   if (!optionBoolean(options, 'json')) console.log(preview.plan);
   const { startTaskStory } = await import('./start.mjs');
-  return startTaskStory(['start', id], startOptions, preview.composition, { plan: preview.plan });
+  return startTaskStory(['start', id], startOptions, preview.composition, { plan: preview.plan }).catch((error) => {
+    // The plan read a skill this checkout has but the Story's base does not, or has otherwise: started without it.
+    if (error?.code === 'TASK_SKILL_CHANGED' && error.details?.skill) {
+      error.details.nextAction = { command: startCommand(words, kind, { ...options, 'use-skill': use.filter((skill) => skill !== error.details.skill),
+        'without-skill': [...without, error.details.skill] }), label: `Start the task without ${error.details.skill}.` };
+    }
+    throw error;
+  });
 }
 
 function printPlan(result) {
   console.log(result.plan);
   for (const step of result.steps) {
-    console.log(`  ${step.label}${step.approvedBy === 'person' ? ' — you approve it' : step.approvedBy === 'sflow' ? ' — SFlow approves it when clean' : ''}`);
+    console.log(`  ${step.label}${step.approvedBy === 'person' ? ' — you approve it' : step.approvedBy === 'sflow' ? ' — SFlow approves it when clean' : ''}${step.skills?.length ? `; skills: ${step.skills.join(', ')}` : ''}`);
   }
   for (const added of result.added ?? []) console.log(`Added by the team's rules: ${added.intent} (${added.because})`);
+  for (const skill of result.skills ?? []) console.log(`Skill ${skill.id}: ${skill.why}.`);
+  for (const offer of result.offers ?? []) {
+    console.log(`${offer.ask} ${offer.why}.`);
+    if (offer.show) console.log(`  Read its text first: ${offer.show}`);
+    console.log(`  Yes: add ${offer.yes} to the start. No: add ${offer.no}.`);
+  }
+  for (const note of result.notes ?? []) console.log(`Note: ${note}`);
   console.log(`\nStart it: ${result.next.command}`);
 }
 

@@ -2055,6 +2055,8 @@ async function startCommandAtRoot(positionals, options) {
       // The task this Story does, as its plan line said it [ITW:REQ-012].
       ...(taskComposition ? { task: { kind: taskComposition.kind, plan: taskPlan,
         steps: taskComposition.steps.map((step) => ({ id: step.id, intent: step.intent, label: step.label })),
+        // The skills its steps use, frozen with the Story [ITW:REQ-010].
+        ...(taskComposition.skills?.length ? { skills: taskComposition.skills.map(({ id, steps }) => ({ id, steps })) } : {}),
         // A refactor runs its checks on the base before any edit [ITW:REQ-015]: what already fails there is a finding,
         // never a behaviour the refactor changed (tests base: a fact for a person, never evidence).
         ...(taskComposition.kind === 'refactor' && taskComposition.steps.some((step) => step.intent === 'test') ? {

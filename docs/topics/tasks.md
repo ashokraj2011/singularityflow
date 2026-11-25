@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 7
+version: 8
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -48,6 +48,20 @@ tasks:
 
 `always` applies to every task of the kinds it names (or `all`); `paths` applies when the task touches those files (`sflow work "<words>" --path src/auth/login.js`); `use` sends a kind to one of the repository's workflows, unchanged. A step is one of intake, requirements, design, plan, code, test or review. Each rule needs a `because`, which the plan shows when the rule adds a step.
 
+**Skills for each step.** Each step gets the skills that fit it, the same way every time. A skill fits a step when one of its tasks is what the step is for (the marketplace's task list, as `workflow from-agent` reads it: `e2e-testing` and `unit-testing` are a code step's, `test-case-creation` a requirements step's) and the task touches it: the skill is for the kind of software this repository is (web, backend, mobile and so on, as `sflow capability kind` shows them), or your words name one of its tags. A skill for another kind of software is never chosen. At most two per step.
+
+- **The repository's skill library first.** A library skill names its tasks in its tags:
+
+  ```yaml
+  metadata:
+    sflow-tags: [task:e2e-testing, web, playwright]
+  ```
+
+  `intent:<step>` names a step directly (`intent:test`). A skill tagged `beta` or `proposed` (or `lifecycle:proposed`) needs your yes.
+- **Then the marketplaces the repository trusts**, for a step the library has nothing for, each read at the commit `marketplaces:` in `singularity/workflow.yml` pins. A marketplace the repository does not trust is never read. A skill offered from one is new here: the plan line says "code (with web-e2e-test-generation from acme, new here: add it?) → tests". Your yes reads its exact text (`sflow import preview "market:acme/web-e2e-test-generation" --as skill`) and adds it to the library like any import, with what its marketplace says about it (its tasks, tags and lifecycle). The next task finds it there and asks nothing.
+
+A task with a skill that needs your yes does not start until you answer: `--use-skill <ID>` is yes, `--without-skill <ID>` is no. The Story keeps the exact text of each skill it uses with its steps, so a later change to the library, or a second laptop, uses the same text.
+
 `/sf-start` stays the route for choosing the base, the intake and the workflow by hand.
 
 ## Purpose and prerequisites
@@ -80,13 +94,15 @@ task keeps its steps.
 
 ## State and safety
 
-`work` without `--start` reads only. `--start` creates the Story's branch and its record, as `start` does, under the same identity, authority, branch and publication checks. The composed steps are recorded with the Story; `singularity/workflow.yml` is never written.
+`work` without `--start` reads only; it keeps the list of a trusted marketplace's skills at the commit it reads, in the clone's Git folder, so the same commit is not fetched again. `--start` creates the Story's branch and its record, as `start` does, under the same identity, authority, branch and publication checks. The composed steps are recorded with the Story; `singularity/workflow.yml` is never written.
 
 ## Troubleshooting
 
 - If the words fit no kind, name one with `--kind`; the refusal lists the kinds.
 - If the repository's workflow has no step for a purpose the task needs, add one in Workflow Studio, or start the Story with `sflow start` and a workflow of your own.
 - If a `tasks:` rule is refused, fix the rule its words name; the plan is shown again once it is valid.
+- If the start says a skill needs your yes, read the skill (a marketplace one's text is shown), then start again with `--use-skill <ID>` or `--without-skill <ID>`.
+- If the start says a skill changed since the plan was shown, show the plan again: it chooses from the library as it is now.
 
 ## Related topics
 

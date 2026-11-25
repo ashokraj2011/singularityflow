@@ -53,6 +53,19 @@ export function marketplaceRepositoryValue(value, label) {
   return remote;
 }
 
+/**
+ * The keys a normalized entry carries beyond what workflow.yml says (its `id`, and a repository's empty
+ * `allowedOrigins`), so a definition already loaded validates again unchanged: a task's plan validates its
+ * composed copy of one.
+ */
+function withoutNormalizedKeys(id, entry) {
+  if (!Object.hasOwn(entry, 'id')) return entry;
+  const { id: own, allowedOrigins, ...rest } = entry;
+  if (own !== id) throw fail(`Marketplace '${id}' contains unknown field 'id'.`);
+  return Object.hasOwn(entry, 'repository') && Array.isArray(allowedOrigins) && !allowedOrigins.length ? rest
+    : { ...rest, ...(allowedOrigins === undefined ? {} : { allowedOrigins }) };
+}
+
 function repositoryMarketplace(id, entry) {
   for (const key of Object.keys(entry)) {
     if (!['label', 'repository', 'ref', 'commit'].includes(key)) throw fail(`Marketplace '${id}' contains unknown field '${key}'${key === 'index' ? ': it is a repository or an index, not both' : ''}.`);
@@ -75,9 +88,10 @@ export function normalizeMarketplaces(value = {}) {
   if (value == null) return {};
   if (typeof value !== 'object' || Array.isArray(value)) throw fail('marketplaces must be an object of marketplace ID to its index or repository.');
   const normalized = {};
-  for (const [id, entry] of Object.entries(value)) {
+  for (let [id, entry] of Object.entries(value)) {
     if (!ID.test(id)) throw fail(`Marketplace '${id}' must use lower-case kebab-case.`);
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw fail(`Marketplace '${id}' must be an object.`);
+    entry = withoutNormalizedKeys(id, entry);
     if (Object.hasOwn(entry, 'repository')) { normalized[id] = repositoryMarketplace(id, entry); continue; }
     for (const key of Object.keys(entry)) {
       if (!['label', 'index', 'allowedOrigins'].includes(key)) throw fail(`Marketplace '${id}' contains unknown field '${key}'.`);

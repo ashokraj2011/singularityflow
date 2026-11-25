@@ -299,7 +299,8 @@ These already hold in SFlow, and `/sf-task` keeps them:
 - **A4:** "Skip the tests" on a code change is refused with the rule's words. No rule is ever removed by a task.
 - **A5:** A `docs` task has no code step. An `investigate` task ends with a report, and no source file changed.
 - **A6:** In a web project with a trusted marketplace:
-  - the test step offers `web-e2e-test-generation`;
+  - the code step offers `web-e2e-test-generation` (in SFlow the code step writes the tests and the test step runs
+    them, so a skill that writes tests belongs to the code step; built so 2026-11-25);
   - its first use asks one yes with its text shown;
   - the next task uses it without asking.
 - **A7:** A proposed or beta skill needs a yes. An untrusted marketplace is never read.

@@ -284,6 +284,77 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
   }
 });
 
+/** A repository that trusts a copy of the fixture marketplace at its first commit, with one of its skills in the skill master. */
+async function repositoryWithMarketplaceSkill(prefix) {
+  const market = await gitRepository(`${prefix}-mkt-`);
+  await cp(FIXTURE, market, { recursive: true });
+  run('git', ['add', '-A'], market); run('git', ['commit', '-m', 'catalog'], market);
+  const pinned = run('git', ['rev-parse', 'HEAD'], market).stdout.trim();
+  const root = await gitRepository(`${prefix}-repo-`);
+  await writeFile(path.join(root, 'README.md'), '# Shop\n');
+  flow(root, ['init']);
+  const workflowFile = path.join(root, 'singularity', 'workflow.yml');
+  const document = YAML.parseDocument(await readFile(workflowFile, 'utf8'));
+  document.set('marketplaces', document.createNode({ acme: { label: 'Acme', repository: market, commit: pinned } }));
+  await writeFile(workflowFile, document.toString());
+  run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'initialize and trust acme'], root);
+  return { market, root, pinned };
+}
+const shellRun = (root, command) => run('sh', ['-c', command.replace(/^singularity-flow /u, `"${process.execPath}" "${bin}" `)], root);
+
+test('Check for updates on a skill from a Git repository marketplace: its newest commit is trusted first, then the skill master imports it again', async () => {
+  const { market, root } = await repositoryWithMarketplaceSkill('sflow-studio-skill-update');
+  try {
+    shellRun(root, json(root, ['import', 'preview', 'market:acme/web-e2e-test-generation', '--as', 'skill']).addCommand);
+    run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'add the web e2e skill'], root);
+    // The marketplace publishes version 1.1.0 at a newer commit than the one this repository trusts.
+    const skillFile = path.join(market, 'skills/web-e2e-test-generation/SKILL.md');
+    const manifestFile = path.join(market, 'skills/web-e2e-test-generation/apm.yml');
+    await writeFile(skillFile, `${await readFile(skillFile, 'utf8')}\nRun every new test twice.\n`);
+    await writeFile(manifestFile, (await readFile(manifestFile, 'utf8')).replace('version: 1.0.0-pdlc', 'version: 1.1.0'));
+    run('git', ['commit', '-qam', 'web e2e 1.1.0'], market);
+
+    let { page, posted, send } = studio(json(root, ['workflow', 'studio']));
+    send({ type: 'studio.importsChecked', result: json(root, ['imports', 'check']) });
+    let imported = page.renderImported(page.library());
+    assert.match(text(imported), /library-skill:web-e2e-test-generation/u);
+    assert.match(text(imported), /update available: version 1\.1\.0 \(imported 1\.0\.0-pdlc\) at the marketplace's newest commit: trust that commit first/u);
+    assert.doesNotMatch(text(imported), /[a-f0-9]{12}/u, 'no commit for a person to read');
+    // Review update reads the marketplace's newest commit, as Read its newest commit does: the trust moves first.
+    click(buttonNamed(imported, 'Review update'));
+    assert.deepEqual(last(posted, 'studio.marketplaceRead'), { type: 'studio.marketplaceRead', id: 'acme', label: 'Acme', repository: market, ref: '' });
+    assert.equal(last(posted, 'studio.importPreview'), undefined, 'nothing is previewed at a commit the repository does not trust');
+    send(hostRead(root, { id: 'acme', repository: market, label: 'Acme' }));
+    const moved = page.changeSetFrom(page.state().model, page.state().draft);
+    assert.equal(moved.changes.length, 1);
+    assert.deepEqual([moved.changes[0].op, moved.changes[0].id, moved.changes[0].repin], ['marketplace.add', 'acme', true]);
+    flow(root, ['workflow', 'studio', 'apply', '--change-set', '-'], JSON.stringify(moved));
+    run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'trust the newest commit of acme'], root);
+
+    // Checked again, the skill's import is reviewed for the skill master, never for an agent's own table.
+    ({ page, posted, send } = studio(json(root, ['workflow', 'studio'])));
+    page.library().as = 'skill';
+    send({ type: 'studio.importsChecked', result: json(root, ['imports', 'check']) });
+    imported = page.renderImported(page.library());
+    assert.match(text(imported), /update available: version 1\.1\.0 \(imported 1\.0\.0-pdlc\) at the commit this repository trusts/u);
+    click(buttonNamed(imported, 'Review update'));
+    assert.deepEqual(last(posted, 'studio.importPreview'), { type: 'studio.importPreview', reference: 'market:acme/web-e2e-test-generation', as: 'skill' });
+    assert.deepEqual([page.library().as, page.library().replace], ['library-skill', true]);
+    const preview = json(root, ['import', 'preview', 'market:acme/web-e2e-test-generation', '--as', 'skill']);
+    send({ type: 'studio.importPreviewed', preview });
+    assert.match(text(page.renderPreviewCard(page.library())), /Run every new test twice\./u);
+    assert.doesNotMatch(text(page.renderPreviewCard(page.library())), /Which agent uses it/u);
+    page.addPreviewedImport();
+    const update = page.changeSetFrom(page.state().model, page.state().draft);
+    assert.deepEqual(update.changes, [{ op: 'import.librarySkill', id: 'web-e2e-test-generation', source: 'market:acme/web-e2e-test-generation', sha256: preview.sha256, replace: true }]);
+    const planned = json(root, ['workflow', 'studio', 'apply', '--change-set', '-', '--dry-run'], JSON.stringify(update));
+    assert.equal(planned.valid, true, JSON.stringify(planned.problems));
+  } finally {
+    await rm(market, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('the host reads a repository marketplace and makes an agent workflow only through engine commands, with checked arguments', async () => {
   const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
   assert.match(host, /\['marketplace', 'add', id, '--repo', repositoryText, \.\.\.\(refText \? \['--ref', refText\] : \[\]\), \.\.\.\(labelText \? \['--label', labelText\] : \[\]\), '--dry-run', '--json'\]/u);

@@ -286,3 +286,75 @@ test('ITW A6, A7: a trusted marketplace\'s skill is offered new here; one yes wi
   const untrusted = refused(story, ['import', 'preview', 'market:elsewhere/web-e2e-test-generation', '--as', 'skill']);
   assert.match(untrusted.code ?? '', /MARKETPLACE_UNKNOWN/u);
 });
+
+test('ITW REQ-010: imports check re-checks a skill imported from a Git-repository marketplace: still the same, newer, its trust moved, gone', async (t) => {
+  const acme = await marketplaceRepository(t);
+  const story = await journeyRepository(t, {
+    files: { 'package.json': WEB_PACKAGE },
+    configure: (configuration) => { configuration.marketplaces = { acme: { label: 'Acme', repository: acme.repository, commit: acme.commit } }; }
+  });
+  const marketGit = (...args) => {
+    const result = spawnSync('git', ['-c', 'user.name=Market Maintainer', '-c', 'user.email=maintainers@example.com', ...args], { cwd: acme.repository, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const KEY = 'library-skill:web-e2e-test-generation';
+  const checked = () => JSON.parse(story.cli('imports', 'check', '--json')).imports.find((row) => row.key === KEY);
+  const run = (command) => story.must('sh', ['-c', command.replace(/^singularity-flow /u, `"${process.execPath}" "${path.join(ROOT, 'bin/singularity-flow.mjs')}" `)]);
+  const preview = JSON.parse(story.cli('import', 'preview', 'market:acme/web-e2e-test-generation', '--as', 'skill', '--json'));
+  run(preview.addCommand);
+  story.git('add', 'singularity');
+  story.git('commit', '-qm', 'Add the web end-to-end test skill');
+
+  // Before: the commit the repository trusts is the marketplace's newest, and it still gives the same text.
+  let row = checked();
+  assert.deepEqual([row.status, row.words, row.updateCommand], ['up to date', 'nothing newer in the marketplace', undefined]);
+
+  // The marketplace moves on: version 1.1.0 at its newest commit. Trusting that commit is the update's first step.
+  const skillFile = path.join(acme.repository, 'skills/web-e2e-test-generation/SKILL.md');
+  const manifestFile = path.join(acme.repository, 'skills/web-e2e-test-generation/apm.yml');
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(skillFile, `${await readFile(skillFile, 'utf8')}\nRun every new test twice before handing it in.\n`);
+  await writeFile(manifestFile, (await readFile(manifestFile, 'utf8')).replace('version: 1.0.0-pdlc', 'version: 1.1.0'));
+  marketGit('commit', '-qam', 'web e2e: run new tests twice');
+  const newer = marketGit('rev-parse', 'HEAD');
+  row = checked();
+  assert.equal(row.status, 'newer version available');
+  assert.equal(row.updateCommand, `singularity-flow marketplace add acme --repo ${JSON.stringify(acme.repository)}`);
+  assert.match(row.words, /^version 1\.1\.0 \(imported 1\.0\.0-pdlc\) at the marketplace's newest commit: trust that commit first/u);
+  assert.doesNotMatch(row.words, /[0-9a-f]{12}/u, 'no commit for a person to read');
+  assert.match(row.detail, new RegExp(newer.slice(0, 12), 'u'), 'the terminal names the commit');
+
+  // Once the repository trusts the newer commit, its text is staged and imported again with one reviewed import.
+  const configuration = YAML.parse(await story.read('singularity/workflow.yml'));
+  configuration.marketplaces.acme.commit = newer;
+  await story.write('singularity/workflow.yml', YAML.stringify(configuration));
+  story.git('commit', '-qam', 'Trust the newest commit of acme');
+  row = checked();
+  assert.equal(row.status, 'newer version available');
+  assert.equal(row.words, 'version 1.1.0 (imported 1.0.0-pdlc) at the commit this repository trusts');
+  assert.match(row.updateCommand, /^singularity-flow import add "market:acme\/web-e2e-test-generation" --as skill --id web-e2e-test-generation --sha256 [0-9a-f]{64} --replace$/u);
+  run(row.updateCommand);
+  assert.match(await story.read('singularity/skill-library/web-e2e-test-generation/SKILL.md'), /Run every new test twice before handing it in\./u);
+  const lock = YAML.parse(await story.read('singularity/imports.lock.yml'));
+  assert.deepEqual([lock.imports[KEY].source.version, lock.imports[KEY].source.commit], ['1.1.0', newer]);
+  story.git('commit', '-qam', 'Update the web end-to-end test skill');
+  assert.equal(checked().status, 'up to date');
+
+  // The marketplace drops the skill: the copy here stays until a person removes it.
+  const rootManifest = path.join(acme.repository, 'apm.yml');
+  const listed = YAML.parseDocument(await readFile(rootManifest, 'utf8'));
+  listed.setIn(['marketplace', 'packages'], listed.getIn(['marketplace', 'packages']).items.filter((item) => item.get('name') !== 'web-e2e-test-generation'));
+  await writeFile(rootManifest, listed.toString());
+  marketGit('commit', '-qam', 'Retire web e2e generation');
+  row = checked();
+  assert.equal(row.status, 'removed at its source');
+  assert.match(row.words, /newest commit no longer has web-e2e-test-generation; the commit this repository trusts still does, and the copy here stays until a person removes it/u);
+  assert.equal(row.updateCommand, undefined);
+
+  // A marketplace the repository no longer trusts is never read.
+  delete configuration.marketplaces;
+  await story.write('singularity/workflow.yml', YAML.stringify(configuration));
+  row = checked();
+  assert.deepEqual([row.status, row.words], ['unavailable', 'marketplace acme is no longer trusted here as a Git repository']);
+});

@@ -1136,6 +1136,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     saveSkillForm: function () { return saveSkillForm.apply(null, arguments); }, openAttachForm: function () { return openAttachForm.apply(null, arguments); },
     saveAttach: function () { return saveAttach.apply(null, arguments); }, detachSkill: function () { return detachSkill.apply(null, arguments); },
     keepsSkillsInFile: function () { return keepsSkillsInFile.apply(null, arguments); }, addPreviewedImport: function () { return addPreviewedImport.apply(null, arguments); },
+    renderPreviewCard: function () { return renderPreviewCard.apply(null, arguments); },
     library: function () { return library(); },
     // Marketplaces: a Git repository trusted at the commit it is read at, and an agent of one as a workflow.
     renderMarketplaces: function () { return renderMarketplaces.apply(null, arguments); },
@@ -5163,10 +5164,20 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     // A workflow made from a marketplace agent: its conversion review in update mode (MCR section 8).
     var agent = /^singularity-flow workflow from-agent ([a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9._-]{0,99}) --update$/.exec(checked.updateCommand || '');
     if (row.kind === 'workflow' && agent) { previewAgentWorkflow(agent[1], agent[1].split('/')[1], {}, true); return; }
+    // A Git repository marketplace's skill newer only at its newest commit: trusting that commit comes first (Read its
+    // newest commit); once published, Check for updates offers the skill's import.
+    var newest = /^singularity-flow marketplace add ([a-z0-9]+(?:-[a-z0-9]+)*) --repo /.exec(checked.updateCommand || '');
+    if (newest) {
+      var market = (state.model.marketplaces || []).find(function (entry) { return entry.id === newest[1] && entry.repository; });
+      if (market) readRepositoryMarketplace({ id: market.id, label: market.label, repository: market.repository, ref: market.ref || '' });
+      return;
+    }
     var match = /^singularity-flow import add "([^"]+)"/.exec(checked.updateCommand || '');
     if (!match) return;
     var target = row.target || {};
     library().replace = true;
+    // A skill master skill is previewed for the skill master again, never for an agent's own table.
+    if (row.kind === 'library-skill') library().as = 'library-skill';
     // A skill master skill from plain Markdown keeps its description unless the person changes it.
     var description = row.kind === 'library-skill' ? ((state.draft.skills || {})[target.id] || {}).description || '' : '';
     previewImport(match[1], row.kind, { agent: target.agent || '', id: target.id || '', phases: (target.phases || []).slice(), optional: false, label: '', withoutDefaults: false, description: description });

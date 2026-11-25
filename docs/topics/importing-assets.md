@@ -14,7 +14,7 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 17
+version: 18
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
@@ -84,7 +84,7 @@ A marketplace agent's `agent.md` is a whole process: a hard gate first, a table 
 
 ## Every marketplace item on one page
 
-`singularity-flow marketplace catalog` lists every skill, agent and template of every marketplace this repository trusts, the workflows made from their agents, and what is installed here, like an app store. Each item says one of:
+`singularity-flow marketplace catalog` lists every skill, agent, template, MCP server and generated source of every marketplace this repository trusts, the workflows made from their agents, and what is installed here, like an app store. Each item says one of:
 
 - **installed:** installed here, the same text as the marketplace has at the commit (or index) this repository trusts;
 - **update available:** the marketplace has another version or a changed text, and the item says which ("version 1.2.0; version 1.0.0 is installed here", "skill web-xray-creation changed");
@@ -92,7 +92,9 @@ A marketplace agent's `agent.md` is a whole process: a hard gate first, a table 
 - **only here:** installed here, and no trusted marketplace has it: written here, from a link, or dropped by its marketplace;
 - **not approved yet:** a marketplace your working copy of `workflow.yml` trusts that is not approved; its items are not read.
 
-With `--json` each item carries whole commands under `actions`, each through its review: `preview` (`import preview …`, or `workflow from-agent … --review` for an agent), `install` (`import add … --sha256 … --propose`, or `workflow from-agent … --propose`), `update` (the same with `--replace`, or `workflow from-agent … --update --propose`) and `remove` (`skill remove … --propose`, `imports remove … --propose`, or `workflow archive … --propose`). Narrow it with `--kind skill|agent|workflow|template`, `--marketplace <ID>` and `--search <WORDS>`. It reads the approved configuration, a Git repository marketplace once per trusted commit; a newer commit than the trusted one is what `imports check` and **Read its newest commit** find. In VS Code, **Singularity Flow: Marketplace** (also **Marketplace** in Workflow Studio's Library and Skill master, and on the All skills page) shows it with tabs, search and filters; each button opens the same preview, conversion review, archive or removal in Workflow Studio, and nothing changes until you publish there.
+An index can also list MCP servers, generated sources and workflows. An MCP server is added for the agents that may use its tools, which its preview shows, so its row offers the preview (`import preview … --as mcp-server`) and you name the agents with `--agents`; its update keeps the agents and steps it was added for. A generated source is fetched for each Story by the agent that drafts its step, so its install is `import add "market:<ID>/<ENTRY>" --as generated --agent <that agent> --propose`; a step no workflow here has, or no agent drafts, is said instead. A workflow in an index has no install: `workflow import` reads a bundle from a file, so its row says to save the bundle from its link and preview it with `workflow import <FILE> --dry-run --propose`.
+
+With `--json` each item carries whole commands under `actions`, each through its review: `preview` (`import preview …`, or `workflow from-agent … --review` for an agent), `install` (`import add … --sha256 … --propose`, or `workflow from-agent … --propose`), `update` (the same with `--replace`, or `workflow from-agent … --update --propose`) and `remove` (`skill remove … --propose`, `imports remove … --propose`, or `workflow archive … --propose`). Narrow it with `--kind skill|agent|workflow|template|mcp-server|generated`, `--marketplace <ID>` and `--search <WORDS>`. It reads the approved configuration, a Git repository marketplace once per trusted commit; a newer commit than the trusted one is what `imports check` and **Read its newest commit** find. In VS Code, **Singularity Flow: Marketplace** (also **Marketplace** in Workflow Studio's Library and Skill master, and on the All skills page) shows it with tabs, search and filters; each button opens the same preview, conversion review, archive or removal in Workflow Studio, and nothing changes until you publish there.
 
 ## State and safety
 

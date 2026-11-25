@@ -6,7 +6,7 @@
 import { SingularityFlowError } from '../util.mjs';
 
 const CATALOG_OPTIONS = Object.freeze(['json', 'kind', 'marketplace', 'search']);
-const KINDS = Object.freeze(['skill', 'agent', 'workflow', 'template']);
+const KINDS = Object.freeze(['skill', 'agent', 'workflow', 'template', 'mcp-server', 'generated']);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const legacy = () => import('./legacy.mjs');
 

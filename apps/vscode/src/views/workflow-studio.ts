@@ -177,13 +177,15 @@ const STUDIO_AGENT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /**
  * What All skills and the Marketplace open Studio at: the Library's import preview of one marketplace skill, into the
- * skill master (an update when the library has it), or of an index marketplace's agent or template; the Skill master
- * searched for one skill, or asking to delete it; a marketplace agent's conversion review (to make its workflow, or its
- * update); the Library's Remove of one import; or a workflow's Archive or Restore. Each is Studio's own route, checked
- * here; the change is published from Studio as a reviewed proposal.
+ * skill master (an update when the library has it), or of an index marketplace's agent, template or MCP server; the
+ * Library's entries of one trusted marketplace (Browse, where a generated source is set up); the Skill master searched
+ * for one skill, or asking to delete it; a marketplace agent's conversion review (to make its workflow, or its update);
+ * the Library's Remove of one import; or a workflow's Archive or Restore. Each is Studio's own route, checked here; the
+ * change is published from Studio as a reviewed proposal.
  */
 export type StudioSkillFocus = { preview: { reference?: unknown; replace?: unknown; as?: unknown } } | { skill: string; remove?: boolean }
-  | { agentWorkflow: { target?: unknown; update?: unknown } } | { removeImport: unknown } | { retire: { action?: unknown; selector?: unknown } };
+  | { agentWorkflow: { target?: unknown; update?: unknown } } | { removeImport: unknown } | { retire: { action?: unknown; selector?: unknown } }
+  | { browse: unknown };
 const MARKET_SKILL_REFERENCE = /^market:[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*(?:@[0-9A-Za-z][0-9A-Za-z.+-]{0,63})?$/;
 /** An import's key, as `imports` lists it: kind, then the agent's and the item's IDs. */
 const IMPORT_KEY = /^(?:skill|library-skill|template|agent|mcp-server|generated):[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)?$/;
@@ -195,13 +197,16 @@ function skillFocus(raw: unknown): Record<string, unknown> | null {
   if ('preview' in requested) {
     const preview = record(requested.preview);
     const reference = preview.reference;
-    const as = preview.as === 'agent' || preview.as === 'template' ? { as: preview.as } : {};
+    const as = preview.as === 'agent' || preview.as === 'template' || preview.as === 'mcp-server' ? { as: preview.as } : {};
     return typeof reference === 'string' && reference.length <= MAX_REFERENCE_LENGTH && MARKET_SKILL_REFERENCE.test(reference)
       ? { view: 'library', preview: { reference, replace: preview.replace === true, ...as } } : null;
   }
   if ('agentWorkflow' in requested) {
     const flow = record(requested.agentWorkflow);
     return typeof flow.target === 'string' && MARKETPLACE_AGENT.test(flow.target) ? { view: 'library', agentWorkflow: { target: flow.target, update: flow.update === true } } : null;
+  }
+  if ('browse' in requested) {
+    return typeof requested.browse === 'string' && requested.browse.length <= 64 && STUDIO_AGENT_ID.test(requested.browse) ? { view: 'library', browse: requested.browse } : null;
   }
   if ('removeImport' in requested) {
     return typeof requested.removeImport === 'string' && requested.removeImport.length <= 200 && IMPORT_KEY.test(requested.removeImport)

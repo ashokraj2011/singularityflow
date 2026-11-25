@@ -1,7 +1,7 @@
 /**
  * Every marketplace item on one page, like an app store [owner, 2026-11-25: "see what is installed in local and update,
- * like an app store"]: the skills, agents and templates of each marketplace this repository trusts, the workflows made
- * from its agents, and what is installed here. Each item says whether it is installed here, has an update, is not
+ * like an app store"]: the skills, agents, templates, MCP servers and generated sources of each marketplace this
+ * repository trusts, the workflows made from its agents, and what is installed here. Each item says whether it is installed here, has an update, is not
  * installed, or is only here, with the whole commands that preview, install, update or remove it.
  *
  * - Read as Stories use them: the approved configuration's marketplaces, library, import record and workflows. A Git
@@ -18,6 +18,11 @@
  *   --propose`, `workflow from-agent … --propose`, `skill remove … --propose`, `workflow archive … --propose`, `imports
  *   remove … --propose`). The install and update commands name the SHA-256 of the exact text they add, as `imports check`
  *   does; no screen shows it, and no commit is ever shown.
+ * - An index also lists MCP servers, generated sources and workflows. An MCP server is added for the agents that may use
+ *   its tools, which its preview shows, so its row has the preview and the person names the agents (an update keeps those
+ *   it was added for). A generated source is fetched by the agent that drafts its step, so its install names that agent,
+ *   and a step no workflow here has, or no agent drafts, says so instead. `workflow import` reads a bundle from a file
+ *   only, so an index's workflow has no install: its row says why and what to do instead.
  *
  * analyzeMarketplaceCatalog is pure; readMarketplaceCatalog reads, and writes nothing but the per-commit listing a task
  * already keeps.
@@ -32,7 +37,7 @@ import { SingularityFlowError } from './util.mjs';
 export const MARKETPLACE_CATALOG_RESULT = 'marketplace-catalog';
 export const MARKETPLACE_CATALOG_COMMAND = 'singularity-flow marketplace catalog';
 /** What the page has a tab for, in its order; a marketplace not approved yet is a row of its own kind. */
-export const CATALOG_KINDS = Object.freeze(['skill', 'agent', 'workflow', 'template']);
+export const CATALOG_KINDS = Object.freeze(['skill', 'agent', 'workflow', 'template', 'mcp-server', 'generated']);
 export const CATALOG_STATUSES = Object.freeze(['update-available', 'installed', 'not-installed', 'local-only', 'not-approved-yet']);
 const KIND_ORDER = [...CATALOG_KINDS, 'marketplace'];
 const INDEX_KINDS = new Set(CATALOG_KINDS);
@@ -69,7 +74,10 @@ export function repositoryItems({ agents = [], skills = [] } = {}) {
   ];
 }
 
-/** An index marketplace's items: the newest version of each skill, agent, template and workflow it lists. */
+/**
+ * An index marketplace's items: the newest version of each skill, agent, template, workflow, MCP server and generated
+ * source it lists. A generated source keeps where it is fetched from and into, a workflow the link of its bundle.
+ */
 export function indexItems(index = {}) {
   const newest = new Map();
   for (const entry of index.entries ?? []) {
@@ -79,22 +87,28 @@ export function indexItems(index = {}) {
     if (!kept || compareVersions(entry.version, kept.version) > 0) newest.set(key, entry);
   }
   return [...newest.values()].map((entry) => ({ kind: entry.kind, name: entry.id, label: entry.label ?? entry.id, version: entry.version ?? null,
-    description: entry.description ?? '', tags: entry.tags ?? [], pdlcTasks: [], lifecycleState: null, sha256: entry.sha256 ?? null }));
+    description: entry.description ?? '', tags: entry.tags ?? [], pdlcTasks: [], lifecycleState: null, sha256: entry.sha256 ?? null,
+    ...(entry.kind === 'generated' ? { generated: { urlTemplate: entry.urlTemplate ?? null, phase: entry.phase ?? null, target: entry.target ?? null } } : {}),
+    ...(entry.kind === 'workflow' ? { url: entry.url ?? null } : {}) }));
 }
 
 // ---------------------------------------------------------------------------------------------- commands
 
 const reference = (marketplace, name) => `market:${marketplace}/${name}`;
-const AS = Object.freeze({ skill: 'skill', agent: 'agent', template: 'template' });
+const AS = Object.freeze({ skill: 'skill', agent: 'agent', template: 'template', 'mcp-server': 'mcp-server', generated: 'generated' });
 
 function previewCommand(kind, marketplace, name) {
   return `singularity-flow import preview ${JSON.stringify(reference(marketplace, name))} --as ${AS[kind]} --json`;
 }
 
-/** `import add` of exactly the marketplace's text, proposed: the SHA-256 is the text's, as `imports check` names it. */
-function addCommand(kind, marketplace, name, { id = null, agent = null, phases = [], sha256: hash, replace = false }) {
+/**
+ * `import add` of exactly the marketplace's text, proposed: the SHA-256 is the text's, as `imports check` names it. A
+ * generated source has no text to pin: the index entry gives its URL template, step and target, and `agent` fetches it.
+ */
+function addCommand(kind, marketplace, name, { id = null, agent = null, agents = [], phases = [], sha256: hash = null, replace = false }) {
   return ['singularity-flow import add', JSON.stringify(reference(marketplace, name)), `--as ${AS[kind]}`, agent ? `--agent ${agent}` : null,
-    id ? `--id ${id}` : null, phases.length ? `--phases ${phases.join(',')}` : null, `--sha256 ${hash}`, replace ? '--replace' : null, '--propose']
+    agents.length ? `--agents ${agents.join(',')}` : null, id ? `--id ${id}` : null, phases.length ? `--phases ${phases.join(',')}` : null,
+    hash ? `--sha256 ${hash}` : null, replace ? '--replace' : null, '--propose']
     .filter(Boolean).join(' ');
 }
 
@@ -145,10 +159,11 @@ function cameFromWords(record, { trusted, listed, labels }) {
 /**
  * The page from what was read: `marketplaces` each `{ id, label, kind, commit, items, warning }` with its items from
  * repositoryItems or indexItems, `library` the skill library's skills, `imports` the import record's entries,
- * `workflows` each workflow ID here with `{ label, archived }`, `unapproved` what the working copy trusts that is not
- * approved (task-skills.mjs unapprovedMarketplaces). `only`, `kind` and `search` narrow the rows.
+ * `workflows` each workflow ID here with `{ label, archived }`, `steps` each step ID here with `{ label, agent }` (the
+ * agent that drafts it, which fetches a generated source for it), `unapproved` what the working copy trusts that is
+ * not approved (task-skills.mjs unapprovedMarketplaces). `only`, `kind` and `search` narrow the rows.
  */
-export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imports = {}, workflows = {}, unapproved = [], warnings = [],
+export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imports = {}, workflows = {}, steps = {}, unapproved = [], warnings = [],
   only = null, kind = null, search = null } = {}) {
   const markets = [...marketplaces].sort((left, right) => byText(left.id, right.id));
   const labels = new Map([...unapproved.map((entry) => [entry.id, entry.label ?? entry.id]), ...markets.map((market) => [market.id, market.label ?? market.id])]);
@@ -251,38 +266,87 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
     return made;
   };
 
-  /** An index marketplace's agent or template: installed by its import. */
+  /** An index marketplace's agent, template or MCP server: installed by its import. */
   const importRow = (market, entry) => {
     const facts = marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [], lifecycleState: null }, market.id);
     const install = fromMarket([entry.kind], market.id, entry.name)[0] ?? null;
     if (install) represented.add(install.key);
     const label = labels.get(market.id);
-    const id = install?.target?.id ?? entry.name;
+    const target = install?.target ?? {};
+    const id = target.id ?? entry.name;
     const actions = { preview: action(previewCommand(entry.kind, market.id, entry.name), 'Show its exact text before installing it.') };
-    const kindWords = entry.kind === 'agent' ? 'agent' : 'template';
+    const kindWords = { agent: 'agent', template: 'template', 'mcp-server': 'MCP server' }[entry.kind];
+    // An MCP server is added for the agents that may use its tools, which only its preview shows: the person names them.
+    const server = entry.kind === 'mcp-server';
     let status; let statusWords; let update = null;
     if (install) {
       const same = sameText(install, entry, market);
       status = same ? 'installed' : 'update-available';
       update = same ? null : textUpdate(install.source?.version ?? null, entry.version, label);
-      statusWords = same ? `Installed here, the same as in marketplace ${label}.` : update.words;
+      statusWords = same ? `Installed here${server && target.agents?.length ? ` for ${listWords(target.agents)}` : ''}, the same as in marketplace ${label}.` : update.words;
       if (!same && entry.sha256) {
-        actions.update = action(addCommand(entry.kind, market.id, entry.name, { id: entry.kind === 'template' ? id : null, sha256: entry.sha256, replace: true }),
-          `Propose replacing the installed ${kindWords} with the marketplace's text.`);
+        actions.update = action(addCommand(entry.kind, market.id, entry.name, { id: entry.kind === 'template' ? id : null, agents: server ? target.agents ?? [] : [],
+          phases: server ? target.phases ?? [] : [], sha256: entry.sha256, replace: true }), `Propose replacing the installed ${kindWords} with the marketplace's text.`);
       }
       actions.remove = action(`singularity-flow imports remove ${install.key} --propose`, `Propose removing the ${kindWords}.`);
     } else {
       status = 'not-installed';
-      statusWords = 'Not installed here.';
-      if (entry.sha256) {
+      statusWords = server ? 'Not installed here: its preview shows the tools it offers and the command that adds it; name the agents that may use them with --agents.'
+        : 'Not installed here.';
+      if (entry.sha256 && !server) {
         actions.install = action(addCommand(entry.kind, market.id, entry.name, { id: entry.kind === 'template' ? entry.name : null, sha256: entry.sha256 }),
           `Propose adding the ${kindWords}, reviewed like any change.`);
       }
     }
     return row({ key: `market:${market.id}/${entry.kind}/${entry.name}`, kind: entry.kind, id: entry.name, name: entry.label, description: entry.description,
       source: 'marketplace', marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version, installedVersion: install?.source?.version ?? null,
-      facts, tags: entry.tags, status, statusWords, update, installedAs: install ? { as: entry.kind, id, importKey: install.key } : null,
+      facts, tags: entry.tags, status, statusWords, update,
+      installedAs: install ? { as: entry.kind, id, ...(server ? { agents: [...(target.agents ?? [])] } : {}), importKey: install.key } : null,
       importable: Boolean(entry.sha256), actions });
+  };
+
+  /**
+   * An index marketplace's generated source: fetched for each Story, by the agent that drafts its step, into its target.
+   * Installed by its import for that agent; the same when its version, URL template, step and target are.
+   */
+  const generatedRow = (market, entry) => {
+    const facts = marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [], lifecycleState: null }, market.id);
+    const source = entry.generated ?? {};
+    const install = fromMarket(['generated'], market.id, entry.name)[0] ?? null;
+    if (install) represented.add(install.key);
+    const label = labels.get(market.id);
+    const step = source.phase ? steps[source.phase] ?? null : null;
+    const stepWords = step ? `step ${step.label ?? source.phase}` : `step ${source.phase ?? 'it names'}`;
+    const target = install?.target ?? {};
+    const actions = {};
+    let status; let statusWords; let update = null;
+    if (install) {
+      const same = (install.source?.version ?? null) === (entry.version ?? null) && (install.source?.urlTemplate ?? null) === (source.urlTemplate ?? null)
+        && (target.phase ?? null) === (source.phase ?? null) && (target.path ?? null) === (source.target ?? null);
+      status = same ? 'installed' : 'update-available';
+      if (!same) {
+        update = entry.version && install.source?.version && entry.version !== install.source.version ? textUpdate(install.source.version, entry.version, label)
+          : { kind: 'source', from: install.source?.version ?? null, to: entry.version, newer: false,
+            words: `Marketplace ${label} fetches it from another address, step or file now; the source installed here is the earlier one.` };
+        actions.update = action(addCommand('generated', market.id, entry.name, { agent: target.agent, id: target.id !== entry.name ? target.id : null, replace: true }),
+          'Propose fetching it as the marketplace says now.');
+      }
+      statusWords = same ? `Installed here: agent ${target.agent} fetches it for each Story, the same as in marketplace ${label}.` : update.words;
+      actions.remove = action(`singularity-flow imports remove ${install.key} --propose`, `Propose that agent ${target.agent} stops fetching it.`);
+    } else {
+      status = 'not-installed';
+      if (!step) statusWords = `It is fetched for ${stepWords}, which no workflow here has, so nothing would fetch it.`;
+      else if (!step.agent) statusWords = `No agent drafts ${stepWords} here, so nothing would fetch it.`;
+      else {
+        statusWords = `Not installed here: agent ${step.agent} would fetch it into ${source.target} for each Story, when ${stepWords} starts.`;
+        actions.install = action(addCommand('generated', market.id, entry.name, { agent: step.agent }), `Propose that agent ${step.agent} fetches it, reviewed.`);
+      }
+    }
+    return row({ key: `market:${market.id}/generated/${entry.name}`, kind: 'generated', id: entry.name, name: entry.label, description: entry.description,
+      source: 'marketplace', marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version, installedVersion: install?.source?.version ?? null,
+      facts, tags: entry.tags, status, statusWords, update,
+      installedAs: install ? { as: 'generated', id: target.id ?? entry.name, agent: target.agent ?? null, importKey: install.key } : null,
+      importable: Boolean(actions.install || actions.update || install), actions });
   };
 
   for (const market of markets) {
@@ -290,13 +354,16 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
     for (const entry of [...(market.items ?? [])].sort((left, right) => byText(`${left.kind}:${left.name}`, `${right.kind}:${right.name}`))) {
       if (entry.kind === 'skill') rows.push(skillRow(market, entry));
       else if (entry.kind === 'agent' && market.kind === 'repository') rows.push(agentRow(market, entry));
-      else if (entry.kind === 'agent' || entry.kind === 'template') rows.push(importRow(market, entry));
+      else if (['agent', 'template', 'mcp-server'].includes(entry.kind)) rows.push(importRow(market, entry));
+      else if (entry.kind === 'generated') rows.push(generatedRow(market, entry));
       else if (entry.kind === 'workflow') {
-        // An index may list a workflow; this version of SFlow installs a workflow from a marketplace's agent only.
+        // `workflow import` reads a bundle from a file only, so an index's workflow has no install here: the row says why
+        // and what to do instead, and has no button.
         rows.push(row({ key: `market:${market.id}/workflow/${entry.name}`, kind: 'workflow', id: entry.name, name: entry.label, description: entry.description,
           source: 'marketplace', marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version,
           facts: marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [] }, market.id), tags: entry.tags, status: 'not-installed',
-          statusWords: 'This version of SFlow cannot install a workflow from an index: a workflow comes from a marketplace agent.', importable: false }));
+          statusWords: `Not installed here: SFlow imports a workflow from a bundle file, not from a marketplace's link. Save the bundle${entry.url ? ` from ${entry.url}` : ''},`
+            + ' then preview its import with singularity-flow workflow import, that file, --dry-run and --propose.', importable: false }));
       }
     }
   }
@@ -349,13 +416,14 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       actions: { open: action(`singularity-flow skill show ${skill.id}`, 'Show the installed skill and who uses it.'),
         remove: action(`singularity-flow skill remove ${skill.id} --propose`, 'Propose removing it from the skill library.') } }));
   }
-  for (const record of records.filter((item) => ['skill', 'agent', 'template'].includes(item.kind) && !represented.has(item.key))) {
+  for (const record of records.filter((item) => ['skill', 'agent', 'template', 'mcp-server', 'generated'].includes(item.kind) && !represented.has(item.key))) {
     const target = record.target ?? {};
     const as = record.kind === 'skill' ? 'agent-skill' : record.kind;
-    rows.push(hereRow(record, { key: `here:${record.key}`, kind: record.kind === 'template' ? 'template' : record.kind === 'agent' ? 'agent' : 'skill',
-      id: target.id ?? record.key, name: target.label ?? target.id ?? record.key, tags: record.source?.tags ?? [],
-      installedAs: { as, id: target.id ?? null, ...(record.kind === 'skill' ? { agent: target.agent ?? null } : {}), importKey: record.key },
-      actions: { remove: action(`singularity-flow imports remove ${record.key} --propose`, record.kind === 'skill' ? `Propose removing it from agent ${target.agent}.` : 'Propose removing what was imported.') } }));
+    const forAgent = ['skill', 'generated'].includes(record.kind);
+    rows.push(hereRow(record, { key: `here:${record.key}`, kind: record.kind, id: target.id ?? record.key, name: target.label ?? target.id ?? record.key,
+      tags: record.source?.tags ?? [],
+      installedAs: { as, id: target.id ?? null, ...(forAgent ? { agent: target.agent ?? null } : {}), importKey: record.key },
+      actions: { remove: action(`singularity-flow imports remove ${record.key} --propose`, forAgent ? `Propose removing it from agent ${target.agent}.` : 'Propose removing what was imported.') } }));
   }
 
   // Trusted only in the working copy: one row, never read, never shown as trusted.
@@ -454,6 +522,10 @@ async function readApprovedCatalog(root, { only, kind, search, fetchImpl, workin
   });
   const archive = await readWorkflowArchive(root).catch(() => ({ story: {}, initiative: {} }));
   const workflows = Object.fromEntries(Object.entries(definition.workTypes ?? {}).map(([id, type]) => [id, { label: type?.label ?? id, archived: workflowArchived(archive, 'story', id) }]));
+  // Who drafts each step here: the agent that would fetch a generated source for it (config.mjs defaultAgent).
+  const agents = definition.agentCatalog ?? Object.values(definition.agents ?? {});
+  const steps = Object.fromEntries(Object.entries(definition.phases ?? {}).map(([id, phase]) => [id, { label: phase?.label ?? id,
+    agent: agents.find((agent) => (agent.defaultFor ?? []).includes(id))?.id ?? null }]));
   const marketplaces = [];
   for (const marketplace of trusted) {
     const kind_ = marketplace.repository ? 'repository' : 'index';
@@ -468,7 +540,7 @@ async function readApprovedCatalog(root, { only, kind, search, fetchImpl, workin
       marketplaces.push({ ...base, items: [], warning: unreadableWords(marketplace, error) });
     }
   }
-  return analyzeMarketplaceCatalog({ marketplaces, library: [...library.skills.values()], imports: ledger.imports ?? {}, workflows, unapproved, warnings,
+  return analyzeMarketplaceCatalog({ marketplaces, library: [...library.skills.values()], imports: ledger.imports ?? {}, workflows, steps, unapproved, warnings,
     only, kind, search });
 }
 
@@ -476,14 +548,16 @@ async function readApprovedCatalog(root, { only, kind, search, fetchImpl, workin
 
 const STATUS_WORDS = Object.freeze({ installed: 'installed', 'update-available': 'update available', 'not-installed': 'not installed',
   'local-only': 'only here', 'not-approved-yet': 'not approved yet' });
-const KIND_HEADINGS = Object.freeze({ skill: 'Skills', agent: 'Agents', workflow: 'Workflows', template: 'Templates', marketplace: 'Marketplaces not approved yet' });
+const KIND_HEADINGS = Object.freeze({ skill: 'Skills', agent: 'Agents', workflow: 'Workflows', template: 'Templates', 'mcp-server': 'MCP servers',
+  generated: 'Generated sources', marketplace: 'Marketplaces not approved yet' });
+const KIND_NOUNS = Object.freeze({ 'mcp-server': ['MCP server', 'MCP servers'], generated: ['generated source', 'generated sources'] });
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 /** The page as a person reads it in a terminal: each item's state, and the preview to run next. No hash is printed. */
 export function marketplaceCatalogLines(catalog) {
   const lines = [];
   const { summary } = catalog;
-  const kinds = CATALOG_KINDS.filter((name) => summary.byKind[name]).map((name) => plural(summary.byKind[name], name));
+  const kinds = CATALOG_KINDS.filter((name) => summary.byKind[name]).map((name) => plural(summary.byKind[name], ...(KIND_NOUNS[name] ?? [name])));
   const states = CATALOG_STATUSES.filter((name) => summary.byStatus[name]).map((name) => `${summary.byStatus[name]} ${STATUS_WORDS[name]}`);
   const read = catalog.sources.filter((source) => source.approved && source.read).length;
   lines.push(`${plural(summary.items, 'item')} from ${plural(read, 'trusted marketplace')} and this repository${kinds.length ? `: ${listWords(kinds)}` : ''}.${states.length ? ` ${capitalized(listWords(states))}.` : ''}`);
@@ -495,7 +569,8 @@ export function marketplaceCatalogLines(catalog) {
       const where = item.marketplace ? `${item.marketplaceLabel ?? item.marketplace}${item.source === 'here' ? ' (here)' : ''}` : 'this repository';
       lines.push(`  ${item.id.padEnd(30)} ${where.padEnd(16)} ${(item.version ?? '').padEnd(12)} ${STATUS_WORDS[item.status]}`);
       if (item.status !== 'installed' || item.update) lines.push(`      ${item.statusWords}`);
-      const next = item.status === 'update-available' ? item.actions.preview ?? null : item.status === 'not-installed' ? item.actions.preview ?? null
+      // A generated source has no text to preview: its next step is the reviewed proposal that adds it.
+      const next = item.status === 'update-available' ? item.actions.preview ?? null : item.status === 'not-installed' ? item.actions.preview ?? item.actions.install ?? null
         : item.status === 'not-approved-yet' ? item.actions.approve : null;
       if (next) lines.push(`      Next: ${next.command.replace(/ --json$/u, '')}`);
     }

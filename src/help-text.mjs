@@ -861,7 +861,7 @@ Usage:
   singularity-flow imports check [--json]
   singularity-flow imports remove <IMPORT> [--dry-run] [--propose] [--json]
   singularity-flow marketplace [list] [--json]
-  singularity-flow marketplace catalog [--kind skill|agent|workflow|template] [--marketplace ID] [--search TEXT] [--json]
+  singularity-flow marketplace catalog [--kind skill|agent|workflow|template|mcp-server|generated] [--marketplace ID] [--search TEXT] [--json]
                                                         every item of every trusted marketplace and what is installed here,
                                                         each installed, with an update, not installed or only here, with the
                                                         commands that preview, install, update and remove it (each reviewed)

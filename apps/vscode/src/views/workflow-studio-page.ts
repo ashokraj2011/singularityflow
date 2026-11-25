@@ -7562,14 +7562,20 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       else if (message.view === 'build') openBuilds();
       else if (typeof message.workflowId === 'string') openWorkflowCanvas(message.workflowId);
       else if (message.view === 'agents' && (message.newAgent === true || typeof message.agent === 'string')) focusAgent(message.newAgent === true ? null : message.agent);
-      else if (message.view === 'library' && message.preview && typeof message.preview.reference === 'string' && (message.preview.as === 'agent' || message.preview.as === 'template')) {
-        // Marketplace: an index marketplace's agent or template, its exact text previewed for its import (an update when it is installed).
+      else if (message.view === 'library' && message.preview && typeof message.preview.reference === 'string' && (message.preview.as === 'agent' || message.preview.as === 'template' || message.preview.as === 'mcp-server')) {
+        // Marketplace: an index marketplace's agent, template or MCP server, its exact text previewed for its import (an update when it is installed).
         var entryLibrary = library(); entryLibrary.as = message.preview.as; entryLibrary.attachTo = null; entryLibrary.target = null; entryLibrary.replace = message.preview.replace === true;
         state.view = 'library'; state.returnTo = null; previewImport(message.preview.reference, message.preview.as, null);
       } else if (message.view === 'library' && message.agentWorkflow && typeof message.agentWorkflow.target === 'string') {
         // Marketplace: an agent's conversion review, to make its workflow or to review its update.
         state.view = 'library'; state.returnTo = null;
         previewAgentWorkflow(message.agentWorkflow.target, message.agentWorkflow.target.split('/')[1], {}, message.agentWorkflow.update === true);
+      } else if (message.view === 'library' && typeof message.browse === 'string') {
+        // Marketplace: a trusted marketplace's entries, as its Browse lists them (a generated source is set up there).
+        var browsing = library(); var browsed = (state.model.marketplaces || []).find(function (entry) { return entry.id === message.browse; });
+        state.view = 'library'; state.returnTo = null;
+        if (browsed) { browsing.busy = 'browse:' + browsed.id; browsing.market = browsed; browsing.entries = null; browsing.error = null; render(); post({ type: 'studio.marketplaceBrowse', id: browsed.id }); }
+        else { setStatus('This repository no longer trusts marketplace ' + message.browse + '.'); render(); }
       } else if (message.view === 'library' && typeof message.removeImport === 'string') {
         // Marketplace: Remove on one import, as the Library's own Remove queues it; it is removed once published.
         state.view = 'library'; state.returnTo = null;

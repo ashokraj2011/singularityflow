@@ -56,8 +56,13 @@ function sample() {
         { id: 'a11y-review', kind: 'skill', version: '1.10.0', label: 'Accessibility review', tags: ['web'], sha256: '5'.repeat(64) },
         { id: 'release-notes', kind: 'template', version: '1.1.0', label: 'Release notes', sha256: '6'.repeat(64) },
         { id: 'reviewer', kind: 'agent', version: '1.0.0', label: 'Reviewer', sha256: '7'.repeat(64) },
-        { id: 'nightly', kind: 'workflow', version: '1.0.0', label: 'Nightly checks' },
-        { id: 'lint-source', kind: 'generated', version: '1.0.0' }] }) },
+        { id: 'nightly', kind: 'workflow', version: '1.0.0', label: 'Nightly checks', url: 'https://catalog.example.org/nightly.json', sha256: 'e'.repeat(64) },
+        { id: 'docs-server', kind: 'mcp-server', version: '1.1.0', label: 'Docs server', sha256: '8'.repeat(64) },
+        { id: 'jira-server', kind: 'mcp-server', version: '2.0.0', label: 'Jira server', sha256: '9'.repeat(64) },
+        { id: 'lint-source', kind: 'generated', version: '1.0.0', label: 'Lint report', urlTemplate: 'https://catalog.example.org/lint/{workId}.md', phase: 'design', target: 'artifacts/design/lint.md' },
+        { id: 'review-notes', kind: 'generated', version: '1.0.0', urlTemplate: 'https://catalog.example.org/review/{workId}.md', phase: 'review', target: 'artifacts/review/notes.md' },
+        { id: 'deploy-log', kind: 'generated', version: '1.0.0', urlTemplate: 'https://catalog.example.org/deploy/{workId}.md', phase: 'deploy', target: 'artifacts/deploy/log.md' },
+        { id: 'coverage', kind: 'generated', version: '1.0.0', urlTemplate: 'https://catalog.example.org/coverage/{workId}.md', phase: 'design', target: 'artifacts/design/coverage.md' }] }) },
       { id: 'broken', label: 'Old catalog', kind: 'repository', commit: 'f'.repeat(40), warning: 'Marketplace Old catalog (broken) could not be read, so its items are not listed.', items: [] }
     ],
     library: [{ id: 'requirements-writer', label: 'Requirements writer', description: 'Numbered requirements.', tags: [] },
@@ -82,10 +87,17 @@ function sample() {
         source: { kind: 'marketplace-agent', marketplace: 'retired', agent: 'legacy-agent', version: '0.5.0' } },
       'template:release-notes': { kind: 'template', target: { id: 'release-notes' }, sha256: '9'.repeat(64),
         source: { kind: 'marketplace', marketplace: 'shared', entry: 'release-notes', version: '1.0.0' } },
-      'agent:house-reviewer': { kind: 'agent', target: { id: 'house-reviewer' }, sha256: '9'.repeat(64), source: { kind: 'url', url: 'https://example.org/reviewer.agent.md' } }
+      'agent:house-reviewer': { kind: 'agent', target: { id: 'house-reviewer' }, sha256: '9'.repeat(64), source: { kind: 'url', url: 'https://example.org/reviewer.agent.md' } },
+      'mcp-server:docs-server': { kind: 'mcp-server', target: { id: 'docs-server', agents: ['architect', 'developer'], phases: ['design'] }, sha256: '0'.repeat(64),
+        source: { kind: 'marketplace', marketplace: 'shared', entry: 'docs-server', version: '1.0.0' } },
+      'generated:architect/coverage': { kind: 'generated', target: { agent: 'architect', id: 'coverage', phase: 'design', path: 'artifacts/design/coverage.md' }, sha256: null,
+        source: { kind: 'marketplace', marketplace: 'shared', entry: 'coverage', version: '1.0.0', urlTemplate: 'https://catalog.example.org/coverage/{workId}.md' } },
+      'generated:developer/build-notes': { kind: 'generated', target: { agent: 'developer', id: 'build-notes', phase: 'design', path: 'artifacts/design/build.md' }, sha256: null,
+        source: { kind: 'url', urlTemplate: 'https://example.org/build/{workId}.md' } }
     },
     workflows: { 'qa-flow': { label: 'QA flow', archived: false }, 'product-flow': { label: 'Product flow', archived: true },
       'legacy-flow': { label: 'Legacy flow', archived: false }, feature: { label: 'Feature', archived: false } },
+    steps: { design: { label: 'Design', agent: 'architect' }, review: { label: 'Review', agent: null } },
     unapproved: [{ id: 'pending', label: 'Pending catalog', kind: 'index', change: 'added', words: 'Trusted only in your working copy.' }]
   };
 }
@@ -143,9 +155,34 @@ test('each item says whether it is installed here, has an update, is not install
   assert.equal(template.actions.update.command, `singularity-flow import add "market:shared/release-notes" --as template --id release-notes --sha256 ${'6'.repeat(64)} --replace --propose`);
   assert.equal(template.actions.remove.command, 'singularity-flow imports remove template:release-notes --propose');
   assert.equal(byKey.get('market:shared/agent/reviewer').actions.install.command, `singularity-flow import add "market:shared/reviewer" --as agent --sha256 ${'7'.repeat(64)} --propose`);
+  // An index's workflow: `workflow import` reads a bundle from a file only, so no button, and the row says what to do.
   const nightly = byKey.get('market:shared/workflow/nightly');
   assert.deepEqual([nightly.status, nightly.importable, nightly.actions], ['not-installed', false, {}]);
-  assert.ok(![...byKey.keys()].some((key) => key.includes('lint-source')), 'a generated source is not an item');
+  assert.equal(nightly.statusWords, 'Not installed here: SFlow imports a workflow from a bundle file, not from a marketplace\'s link. Save the bundle from '
+    + 'https://catalog.example.org/nightly.json, then preview its import with singularity-flow workflow import, that file, --dry-run and --propose.');
+  // An index's MCP server: added for the agents that may use its tools, which its preview shows; an update keeps them.
+  const docs = byKey.get('market:shared/mcp-server/docs-server');
+  assert.deepEqual([docs.kind, docs.status, docs.installedAs.agents, docs.update.words],
+    ['mcp-server', 'update-available', ['architect', 'developer'], 'Marketplace Shared has version 1.1.0; version 1.0.0 is installed here.']);
+  assert.equal(docs.actions.update.command,
+    `singularity-flow import add "market:shared/docs-server" --as mcp-server --agents architect,developer --phases design --sha256 ${'8'.repeat(64)} --replace --propose`);
+  assert.equal(docs.actions.remove.command, 'singularity-flow imports remove mcp-server:docs-server --propose');
+  const jira = byKey.get('market:shared/mcp-server/jira-server');
+  assert.deepEqual([jira.status, Object.keys(jira.actions)], ['not-installed', ['preview']]);
+  assert.equal(jira.actions.preview.command, 'singularity-flow import preview "market:shared/jira-server" --as mcp-server --json');
+  assert.match(jira.statusWords, /name the agents that may use them with --agents/u);
+  // An index's generated source: fetched by the agent that drafts its step; a step no agent drafts, or none here, says so.
+  const lint = byKey.get('market:shared/generated/lint-source');
+  assert.deepEqual([lint.kind, lint.status, lint.statusWords], ['generated', 'not-installed',
+    'Not installed here: agent architect would fetch it into artifacts/design/lint.md for each Story, when step Design starts.']);
+  assert.equal(lint.actions.install.command, 'singularity-flow import add "market:shared/lint-source" --as generated --agent architect --propose');
+  assert.deepEqual([byKey.get('market:shared/generated/review-notes').statusWords, Object.keys(byKey.get('market:shared/generated/review-notes').actions)],
+    ['No agent drafts step Review here, so nothing would fetch it.', []]);
+  assert.equal(byKey.get('market:shared/generated/deploy-log').statusWords, 'It is fetched for step deploy, which no workflow here has, so nothing would fetch it.');
+  const coverage = byKey.get('market:shared/generated/coverage');
+  assert.deepEqual([coverage.status, coverage.statusWords, coverage.actions.remove.command], ['installed',
+    'Installed here: agent architect fetches it for each Story, the same as in marketplace Shared.', 'singularity-flow imports remove generated:architect/coverage --propose']);
+  assert.deepEqual([byKey.get('here:generated:developer/build-notes').kind, byKey.get('here:generated:developer/build-notes').status], ['generated', 'local-only']);
   // Only here: written here, dropped by its marketplace, from a link, and from a marketplace that could not be read.
   assert.deepEqual([status('here:library-skill:house-style'), byKey.get('here:library-skill:house-style').statusWords],
     ['local-only', 'Written in this repository, or set up with SFlow: no marketplace has it.']);
@@ -171,13 +208,19 @@ test('each item says whether it is installed here, has an update, is not install
 test('kind, marketplace and words narrow the page; the terminal shows the preview, never a hash', () => {
   const keys = (options) => analyzeMarketplaceCatalog({ ...sample(), ...options }).items.map((item) => item.key);
   assert.deepEqual(keys({ kind: 'agent' }), ['here:agent:house-reviewer', 'market:acme/agent/product-agent', 'market:acme/agent/qa-agent', 'market:shared/agent/reviewer', 'marketplace:pending']);
-  assert.deepEqual(keys({ only: 'shared' }), ['market:shared/skill/a11y-review', 'market:shared/agent/reviewer', 'market:shared/workflow/nightly', 'market:shared/template/release-notes']);
+  assert.deepEqual(keys({ only: 'shared' }), ['market:shared/skill/a11y-review', 'market:shared/agent/reviewer', 'market:shared/workflow/nightly', 'market:shared/template/release-notes',
+    'market:shared/mcp-server/docs-server', 'market:shared/mcp-server/jira-server', 'market:shared/generated/coverage', 'market:shared/generated/deploy-log',
+    'market:shared/generated/lint-source', 'market:shared/generated/review-notes']);
+  assert.deepEqual(keys({ kind: 'generated' }).filter((key) => !key.startsWith('marketplace:')), ['here:generated:developer/build-notes', 'market:shared/generated/coverage',
+    'market:shared/generated/deploy-log', 'market:shared/generated/lint-source', 'market:shared/generated/review-notes']);
   assert.ok(keys({ only: 'shared' }).every((key) => key.startsWith('market:shared/')));
   assert.deepEqual(keys({ only: 'pending' }), ['marketplace:pending']);
   assert.deepEqual(keys({ search: 'XRAY cases' }), ['market:acme/skill/web-xray-creation']);
   const lines = marketplaceCatalogLines(analyzeMarketplaceCatalog(sample()));
-  assert.match(lines[0], /^\d+ items from 2 trusted marketplaces and this repository: \d+ skills, \d+ agents, \d+ workflows and 1 template\. \d+ update available, /u);
-  assert.ok(lines.includes('Skills') && lines.includes('Agents') && lines.includes('Workflows') && lines.includes('Templates'));
+  assert.match(lines[0], /^\d+ items from 2 trusted marketplaces and this repository: \d+ skills, \d+ agents, \d+ workflows, 1 template, 2 MCP servers and 5 generated sources\. \d+ update available, /u);
+  assert.ok(['Skills', 'Agents', 'Workflows', 'Templates', 'MCP servers', 'Generated sources'].every((heading) => lines.includes(heading)));
+  assert.ok(lines.some((line) => line.trim() === 'Next: singularity-flow import add "market:shared/lint-source" --as generated --agent architect --propose'));
+  assert.ok(lines.some((line) => line.trim() === 'Next: singularity-flow import preview "market:shared/jira-server" --as mcp-server'));
   assert.ok(lines.some((line) => line.trim() === 'Next: singularity-flow import preview "market:acme/requirements-writer" --as skill'));
   assert.ok(lines.some((line) => line.trim() === 'Next: singularity-flow workflow from-agent acme/qa-agent --update --review'));
   assert.ok(lines.includes('Note: Marketplace Old catalog (broken) could not be read, so its items are not listed.'));

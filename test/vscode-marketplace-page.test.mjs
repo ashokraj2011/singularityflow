@@ -34,7 +34,10 @@ function engineAnswer({ templates = true } = {}) {
       { id: 'shared', label: 'Shared', kind: 'index', warning: null, items: indexItems({ entries: [
         ...(templates ? [{ id: 'release-notes', kind: 'template', version: '1.0.0', label: 'Release notes', sha256: '7'.repeat(64) }] : []),
         { id: 'reviewer', kind: 'agent', version: '1.0.0', label: 'Reviewer', sha256: '8'.repeat(64) },
-        { id: 'nightly', kind: 'workflow', version: '1.0.0', label: 'Nightly checks' }] }) }
+        { id: 'nightly', kind: 'workflow', version: '1.0.0', label: 'Nightly checks' },
+        { id: 'docs-server', kind: 'mcp-server', version: '1.1.0', label: 'Docs server', sha256: '9'.repeat(64) },
+        { id: 'jira-server', kind: 'mcp-server', version: '1.0.0', label: 'Jira server', sha256: 'a'.repeat(64) },
+        { id: 'lint-source', kind: 'generated', version: '1.0.0', label: 'Lint report', urlTemplate: 'https://catalog.example.org/{workId}.md', phase: 'design', target: 'artifacts/design/lint.md' }] }) }
     ],
     library: [{ id: 'requirements-writer', label: 'Requirements writer', tags: [] }, { id: 'web-e2e-test-generation', label: 'Web tests', tags: [] },
       { id: 'house-style', label: 'House style', description: 'Our naming rules.', tags: [] }],
@@ -47,9 +50,12 @@ function engineAnswer({ templates = true } = {}) {
         source: { kind: 'marketplace-agent', marketplace: 'acme', agent: 'qa-agent', version: '1.0.0' } },
       'workflow:docs-flow': { kind: 'workflow', workflow: 'docs-flow', pieces: {}, source: { kind: 'marketplace-agent', marketplace: 'acme', agent: 'docs-agent', version: '1.0.0' } },
       ...(templates ? { 'template:release-notes': { kind: 'template', target: { id: 'release-notes' }, sha256: '7'.repeat(64),
-        source: { kind: 'marketplace', marketplace: 'shared', entry: 'release-notes', version: '1.0.0' } } } : {})
+        source: { kind: 'marketplace', marketplace: 'shared', entry: 'release-notes', version: '1.0.0' } } } : {}),
+      'mcp-server:docs-server': { kind: 'mcp-server', target: { id: 'docs-server', agents: ['architect'], phases: [] }, sha256: 'b'.repeat(64),
+        source: { kind: 'marketplace', marketplace: 'shared', entry: 'docs-server', version: '1.0.0' } }
     },
     workflows: { 'qa-flow': { label: 'QA flow', archived: false }, 'docs-flow': { label: 'Docs flow', archived: true } },
+    steps: { design: { label: 'Design', agent: 'architect' } },
     unapproved: [{ id: 'pending', label: 'Pending catalog', kind: 'index', change: 'added', words: 'Trusted only in your working copy.' }]
   })));
 }
@@ -89,6 +95,13 @@ test('each status has its buttons, and each button is one of Workflow Studio\'s 
   assert.deepEqual(routes('market:shared/agent/reviewer'), { install: { view: 'library', preview: { reference: 'market:shared/reviewer', replace: false, as: 'agent' } } });
   assert.deepEqual(routes('market:shared/template/release-notes'), { open: { view: 'library' }, remove: { view: 'library', removeImport: 'template:release-notes' } });
   assert.deepEqual(routes('market:shared/workflow/nightly'), {});
+  // An index's MCP server: Studio's preview, which asks which agents may use its tools; a generated source: Browse, where
+  // Studio asks which agent fetches it. A generated source's update is its reviewed command, so it has no button.
+  assert.deepEqual(routes('market:shared/mcp-server/jira-server'), { install: { view: 'library', preview: { reference: 'market:shared/jira-server', replace: false, as: 'mcp-server' } } });
+  assert.deepEqual(routes('market:shared/mcp-server/docs-server'), { update: { view: 'library', preview: { reference: 'market:shared/docs-server', replace: true, as: 'mcp-server' } },
+    open: { view: 'library' }, remove: { view: 'library', removeImport: 'mcp-server:docs-server' } });
+  assert.deepEqual(routes('market:shared/generated/lint-source'), { install: { view: 'library', browse: 'shared' } });
+  assert.match(studioTargetFor('install', item('market:shared/generated/lint-source')).notice, /choose Set up on Lint report, then publish\.$/u);
   assert.deepEqual(routes('marketplace:pending'), { approve: { view: 'changes' } });
   assert.match(studioTargetFor('install', item('market:acme/agent/product-agent')).notice, /^Workflow Studio shows the workflow product-agent becomes\./u);
 });
@@ -107,6 +120,9 @@ test('the page shows tabs, filters and one row per item with its status, and no 
     assert.match(html, new RegExp(`role="tabpanel" id="mkt-panel-${kind}" aria-labelledby="mkt-tab-${kind}"`, 'u'), kind);
   }
   assert.doesNotMatch(marketplacePageHtml({ catalog: marketplaceCatalogFrom(engineAnswer({ templates: false })), busy: false, error: null, notice: null }), /mkt-tab-template/u);
+  // An MCP server and a generated source each have a tab while one is listed.
+  assert.match(html, /data-tab="mcp-server"[^>]*>MCP servers <span class="mkt-count">2<\/span>/u);
+  assert.match(html, /data-tab="generated"[^>]*>Generated <span class="mkt-count">1<\/span>/u);
   assert.match(html, /aria-selected="true"\s+tabindex="0">Skills <span class="mkt-count">4<\/span> <span class="mkt-badge mkt-update-available" title="1 update available">1<\/span>/u);
   // Filters by what the engine says.
   for (const id of ['mkt-search', 'mkt-status', 'mkt-marketplace', 'mkt-lifecycle']) assert.match(html, new RegExp(`id="${id}"`, 'u'), id);
@@ -177,6 +193,8 @@ test('the host takes a row\'s key, never a reference or a command, and opens Wor
   assert.match(studio, /if \('agentWorkflow' in requested\)/u);
   assert.match(studio, /MARKETPLACE_AGENT\.test\(flow\.target\)/u);
   assert.match(studio, /IMPORT_KEY\.test\(requested\.removeImport\)/u);
+  assert.match(studio, /STUDIO_AGENT_ID\.test\(requested\.browse\) \? \{ view: 'library', browse: requested\.browse \}/u);
+  assert.match(studio, /preview\.as === 'mcp-server' \? \{ as: preview\.as \}/u);
   assert.match(studio, /WORKFLOW_SELECTOR\.test\(retire\.selector\)/u);
   assert.match(studio, /'studio\.marketplace': \(\) => vscode\.commands\.executeCommand\('singularityFlow\.marketplace'\)/u);
   const studioPage = source('apps/vscode/src/views/workflow-studio-page.ts');
@@ -185,6 +203,8 @@ test('the host takes a row\'s key, never a reference or a command, and opens Wor
   assert.match(studioPage, /if \(state\.draft\.skills && state\.draft\.skills\[message\.skill\]\) askRemoveSkill\(message\.skill\);/u);
   assert.match(studioPage, /retireWorkflow\(message\.retire\.action === 'restore' \? 'restore' : 'archive', message\.retire\.selector\);/u);
   assert.match(studioPage, /previewImport\(message\.preview\.reference, message\.preview\.as, null\);/u);
+  assert.match(studioPage, /message\.preview\.as === 'mcp-server'\)\) \{/u);
+  assert.match(studioPage, /post\(\{ type: 'studio\.marketplaceBrowse', id: browsed\.id \}\);/u);
   assert.equal((studioPage.match(/button\('Marketplace', function \(\) \{ post\(\{ type: 'studio\.marketplace' \}\); \}/gu) ?? []).length, 2, 'in the Library and the Skill master');
   // All skills links to it, and it to All skills: both pages stay.
   assert.match(source('apps/vscode/src/views/all-skills.ts'), /'allSkills\.marketplace': \(\) => vscode\.commands\.executeCommand\('singularityFlow\.marketplace'\)/u);

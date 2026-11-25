@@ -12,7 +12,7 @@
 import { escape } from './webview.ts';
 
 export type MarketplaceStatus = 'installed' | 'update-available' | 'not-installed' | 'local-only' | 'not-approved-yet';
-export type MarketplaceKind = 'skill' | 'agent' | 'workflow' | 'template' | 'marketplace';
+export type MarketplaceKind = 'skill' | 'agent' | 'workflow' | 'template' | 'mcp-server' | 'generated' | 'marketplace';
 export type MarketplaceAct = 'install' | 'update' | 'remove' | 'open' | 'approve';
 export interface MarketplaceAction { command: string; label: string }
 export interface MarketplaceInstall { as: string; id: string | null; agent: string | null; label: string | null; importKey: string | null; archived: boolean }
@@ -33,11 +33,14 @@ export interface MarketplaceCatalog {
 }
 
 export const MARKETPLACE_TABS: readonly { kind: MarketplaceKind; words: string }[] = Object.freeze([
-  { kind: 'skill', words: 'Skills' }, { kind: 'agent', words: 'Agents' }, { kind: 'workflow', words: 'Workflows' }, { kind: 'template', words: 'Templates' }]);
+  { kind: 'skill', words: 'Skills' }, { kind: 'agent', words: 'Agents' }, { kind: 'workflow', words: 'Workflows' }, { kind: 'template', words: 'Templates' },
+  { kind: 'mcp-server', words: 'MCP servers' }, { kind: 'generated', words: 'Generated' }]);
+/** Kinds whose tab shows only when an item of that kind is listed. */
+const OPTIONAL_TABS: MarketplaceKind[] = ['template', 'mcp-server', 'generated'];
 const STATUSES: MarketplaceStatus[] = ['update-available', 'installed', 'not-installed', 'local-only', 'not-approved-yet'];
 export const STATUS_WORDS: Record<MarketplaceStatus, string> = { installed: 'Installed', 'update-available': 'Update available', 'not-installed': 'Not installed',
   'local-only': 'Only here', 'not-approved-yet': 'Not approved yet' };
-const KINDS: MarketplaceKind[] = ['skill', 'agent', 'workflow', 'template', 'marketplace'];
+const KINDS: MarketplaceKind[] = ['skill', 'agent', 'workflow', 'template', 'mcp-server', 'generated', 'marketplace'];
 const ACTIONS = ['preview', 'install', 'update', 'remove', 'open', 'approve'] as const;
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item) => typeof item === 'string').map(String) : []);
@@ -99,6 +102,11 @@ export function studioTargetFor(act: MarketplaceAct, item: MarketplaceItem): Stu
     return item.status === 'not-approved-yet' && item.actions.approve ? { studio: { view: 'changes' }, notice: `Workflow Studio's Changes shows the change that trusts ${item.name}.` } : null;
   }
   if (act === 'install') {
+    // An MCP server is added for the agents that may use its tools: Studio's preview shows them and asks which.
+    if (item.kind === 'mcp-server') {
+      return item.status === 'not-installed' && item.actions.preview && reference ? { studio: { view: 'library', preview: { reference, replace: false, as: 'mcp-server' } },
+        notice: `Workflow Studio shows ${item.name}'s exact text and its tools: choose the agents that may use them, then publish.` } : null;
+    }
     if (item.status !== 'not-installed' || !item.actions.install || !reference) return null;
     if (item.kind === 'agent' && item.marketplaceKind === 'repository') {
       if (installed?.as === 'workflow' && installed.archived && installed.id) {
@@ -113,6 +121,10 @@ export function studioTargetFor(act: MarketplaceAct, item: MarketplaceItem): Stu
     if (item.kind === 'agent' || item.kind === 'template') {
       return { studio: { view: 'library', preview: { reference, replace: false, as: item.kind } }, notice: `Workflow Studio shows ${item.name}'s exact text. Add it there, then publish.` };
     }
+    // A generated source is set up from its marketplace's entries, where Studio asks which agent fetches it.
+    if (item.kind === 'generated' && item.marketplace) {
+      return { studio: { view: 'library', browse: item.marketplace }, notice: `Workflow Studio lists ${item.marketplaceLabel ?? item.marketplace}'s entries: choose Set up on ${item.name}, then publish.` };
+    }
     return null;
   }
   if (act === 'update') {
@@ -124,9 +136,11 @@ export function studioTargetFor(act: MarketplaceAct, item: MarketplaceItem): Stu
     }
     if (!reference) return null;
     if (installed.as === 'library-skill') return { studio: { view: 'library', preview: { reference, replace: true } }, notice: `Workflow Studio shows the marketplace's text of ${item.name}. Add it there to replace yours.` };
-    if (installed.as === 'agent' || installed.as === 'template') {
+    if (installed.as === 'agent' || installed.as === 'template' || installed.as === 'mcp-server') {
       return { studio: { view: 'library', preview: { reference, replace: true, as: installed.as } }, notice: `Workflow Studio shows the marketplace's text of ${item.name}. Add it there to replace yours.` };
     }
+    // A generated source has no text to preview: its update is the command under actions, through review.
+    if (installed.as === 'generated') return null;
     // A skill one agent imported for itself: Studio's Library updates it from its own check.
     return { studio: { view: 'library' }, notice: `In the Library, choose Check for updates, then Review update on ${installed.importKey ?? item.id}.` };
   }
@@ -215,7 +229,7 @@ export function marketplacePageHtml({ catalog, busy, error, notice }: { catalog:
     .map((warning) => `<p class="mkt-notice mkt-warn">${escape(warning)}</p>`).join('')}`;
   if (!catalog) return `<main class="mkt" id="mkt-root">${header}${messages}${busy ? '<p class="mkt-dim">Reading the trusted marketplaces and what is installed here…</p>' : ''}</main>`;
   const listed = catalog.items.filter((item) => item.kind !== 'marketplace');
-  const tabs = MARKETPLACE_TABS.filter((tab) => tab.kind !== 'template' || listed.some((item) => item.kind === 'template'));
+  const tabs = MARKETPLACE_TABS.filter((tab) => !OPTIONAL_TABS.includes(tab.kind) || listed.some((item) => item.kind === tab.kind));
   const markets: [string, string][] = [...new Map(listed.filter((item) => item.marketplace).map((item) => [item.marketplace as string, item.marketplaceLabel ?? item.marketplace as string])).entries()]
     .sort((left, right) => (left[1] < right[1] ? -1 : left[1] > right[1] ? 1 : 0));
   if (listed.some((item) => !item.marketplace)) markets.push(['here', 'Only this repository']);

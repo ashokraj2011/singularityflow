@@ -91,10 +91,15 @@ async function refreshStoryContext() {
   return storyRefresh;
 }
 
-async function followCodeView() {
-  if (!state.session?.followsActiveStory || state.page !== 'code' || document.hidden) return;
+async function followStoryView() {
+  const page = state.page;
+  if (!state.session?.followsActiveStory || !['code', 'ask'].includes(page) || document.hidden) return;
   try {
-    if (await refreshStoryContext() && state.page === 'code' && location.hash === '#code') await navigate();
+    if (await refreshStoryContext() && state.page === page && location.hash === '#' + page) {
+      const draft = page === 'ask' ? $('#ask-question')?.value : null;
+      if (draft) state.preparedQuestion = { contextId: state.session.context.id, text: draft };
+      await navigate();
+    }
   } catch { /* The connection status is handled by the workspace heartbeat. */ }
 }
 
@@ -774,18 +779,20 @@ async function navigate() {
       const contextId = context.id;
       const preparedQuestion = state.preparedQuestion?.contextId === contextId ? state.preparedQuestion.text : null;
       state.preparedQuestion = null;
-      mountAsk(main, {
+      state.disposeView = mountAsk(main, {
         context, issue: activeStoryIssue,
         preparedQuestion,
         navigate: go,
-        readStory: async name => {
-          const { value } = await operation(name, {}, { contextId });
-          return epoch === state.epoch && contextId === state.session?.context.id ? value : null;
-        },
         read: async (input, { signal } = {}) => {
           const timeout = ['task-start', 'task-prepare'].includes(input.interaction) ? 305_000 : input.interaction === 'chat' ? 58_000 : 22_000;
-          const value = await api('/api/ask', { method: 'POST', data: { ...input, contextId }, timeout, signal });
-          return epoch === state.epoch && contextId === state.session?.context.id ? value : null;
+          try {
+            const value = await api('/api/ask', { method: 'POST', data: { ...input, contextId }, timeout, signal });
+            return epoch === state.epoch && contextId === state.session?.context.id ? value : null;
+          } catch (error) {
+            if (error.code === 'UI_ASK_CONTEXT_CHANGED' && epoch === state.epoch) await followStoryView();
+            if (epoch === state.epoch) throw error;
+            return null;
+          }
         }
       });
       if (state.focusAsk) { state.focusAsk = false; $('#ask-question').focus(); }
@@ -894,7 +901,7 @@ async function boot() {
       existing.requests.forEach(activity);
     } catch { /* An unavailable activity list must not block the workspace. */ }
     await navigate();
-    setInterval(() => { void followCodeView(); }, 2000);
+    setInterval(() => { void followStoryView(); }, 2000);
     setInterval(async () => {
       if (document.hidden || !state.session) return;
       // Polling is not activity for the service's idle stop, unless this tab holds writing not yet saved.

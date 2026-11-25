@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "eb20cd6a4084373f52e0b9c4dfef754b5237a690",
+  "sourceCommit": "eb8364a6a70b244907c4cc3da2262544be7ab3c3",
   "topicCount": 95,
-  "contentSha256": "8afa906682cdac34fc9d3136f3cc38ccf149e1785a62bf794fb4ce3cb1d58431",
+  "contentSha256": "57b170dbcf681b8a3d22508e2a9d611f7a68c3b62cd700fa09088ff9adc97b39",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -96,8 +96,8 @@
     {
       "id": "browser-workspace",
       "title": "Open the local SFlow browser workspace",
-      "version": 4,
-      "sha256": "2f8cf494a54f824f8fbfa786149b5b60918db21d97194687b2d6ed7245cb9d99",
+      "version": 5,
+      "sha256": "7ee8c06ec399f7f8a4c284b08efac00213cce02fdddd8781c282538307141eaa",
       "routingSha256": "c404995713f61fe745855cadec6de921aaa9f34edb890c114efb0c26189883d1",
       "file": "browser-workspace.md"
     },
@@ -312,8 +312,8 @@
     {
       "id": "help-and-docs",
       "title": "Getting help",
-      "version": 15,
-      "sha256": "9a36870282c13e551a961e14bebba812373e8034040f6e462c0cb1f09f08d3d6",
+      "version": 16,
+      "sha256": "f0a8d19b7464f777f4cf5b03d992d49dfb29476aea7d634476a4b69c4e87ff15",
       "routingSha256": "04185743a3f29ebcea471ec4c6a7ff6b1191b8dfea8c12f8173850ba45b4b20b",
       "file": "help-and-docs.md"
     },

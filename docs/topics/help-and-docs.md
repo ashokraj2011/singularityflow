@@ -24,7 +24,7 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 15
+version: 16
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -67,7 +67,7 @@ Open **Ask SFlow** in the browser workspace or VS Code Navigator. Type to find a
 
 Open **Search or ask** from the workspace header with the button or with `⌘K` on Mac and `Ctrl+K` on Windows. Search ranks results from the selected checkout and SFlow Help. Use the filters for Stories, specifications, workflow assets, and tracked files. File previews open the commit found by the search.
 
-Switch to **Chat** to ask Copilot a general question and follow up in the same tab. To ask about your work, choose **Use workspace context** or **Ask about these results**. Copilot receives the recent conversation and a short selection of matching published record metadata when you include workspace context. The answer links to the workspace sources it cites. Choose **New chat** to clear this tab's recent conversation.
+Use **Send** to ask a question in the same conversation. Ask SFlow answers supported Story questions from its records, including follow-ups about test results and changed files. Open-ended questions go to Copilot. Choose **Include Story and workspace context** or **Ask about these results** to share relevant recent context and a small set of Story or published workspace records with Copilot. Replies link to their cited sources. Choose **New chat** to clear recent turns in the tab or use **Saved searches** to resume retained search results.
 
 ### Work and source history
 

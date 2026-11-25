@@ -877,6 +877,19 @@ test('browser Stories bind code, decisions, questions and test evidence to the r
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';
   config.repositoryReadiness.requiredBeforeStory = false;
+  const standin = path.join(base, 'story-chat.mjs');
+  const chatCalls = path.join(base, 'story-chat.jsonl');
+  await writeFile(standin, [
+    'import { readFileSync, appendFileSync } from "node:fs";',
+    'const args = process.argv.slice(2);',
+    'const input = JSON.parse(readFileSync(args[args.indexOf("--attachment") + 1], "utf8").split("\\n").at(-1));',
+    'appendFileSync(' + JSON.stringify(chatCalls) + ', JSON.stringify(input) + "\\n");',
+    'const tests = input.records.find(record => record.type === "story-tests");',
+    'process.stdout.write(tests ? "Review the recorded tests [" + tests.citation + "]." : "General answer.");'
+  ].join('\n'));
+  config.models = { defaultProvider: 'chat-test', providers: { 'chat-test': {
+    type: 'copilot-cli', executable: process.execPath, arguments: [standin], promptTransport: 'attachment'
+  } } };
   await writeFile(configPath, YAML.stringify(config));
   const portfolioPath = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
@@ -952,21 +965,48 @@ test('browser Stories bind code, decisions, questions and test evidence to the r
   const code = responses.find(item => item.operation === 'code.changes')?.result?.value;
   assert.equal((code?.data ?? code)?.codeMap?.model?.story?.workId, id);
   await nav.getByRole('link', { name: 'Ask SFlow' }).click();
-  const field = page.getByRole('searchbox', { name: 'Ask a question' });
+  const field = page.getByRole('textbox', { name: 'Ask a question' });
   await field.fill('current story');
   await field.press('Enter');
-  await page.getByRole('heading', { name: title, exact: true }).waitFor();
-  const questions = page.getByRole('group', { name: 'Questions about this Story' });
-  const answer = page.getByRole('region', { name: 'Answer', exact: true });
-  await questions.getByRole('button', { name: 'Code changes' }).click();
-  await answer.getByRole('heading', { name: 'Code changes' }).waitFor();
-  await answer.getByText('1 changed file in app.', { exact: true }).waitFor();
+  await page.getByRole('log', { name: 'Chat conversation' }).getByText(new RegExp(title)).waitFor();
+  const thread = page.getByRole('log', { name: 'Chat conversation' });
+  await field.fill('What changed?');
+  await field.press('Enter');
+  await thread.getByText(/1 changed file in app/).waitFor();
+  await thread.getByText(/invoice\.js/).waitFor();
   await field.fill('What needs a decision?');
   await field.press('Enter');
-  await answer.getByRole('link', { name: 'Open Decisions' }).waitFor();
-  await questions.getByRole('button', { name: 'Test evidence' }).click();
-  await answer.getByText(`No retained test run for ${id} in this phase.`).waitFor();
-  assert.equal(await answer.getByRole('link', { name: 'Open Run & Test' }).count(), 1);
+  await thread.getByRole('link', { name: 'Open Decisions' }).waitFor();
+  await field.fill('What tests ran?');
+  await field.press('Enter');
+  await thread.getByText(`No retained test run for ${id} in this phase.`).waitFor();
+  await field.fill('Did they pass?');
+  await field.press('Enter');
+  const followUp = thread.locator('.ask-turn').filter({ hasText: 'Did they pass?' });
+  await followUp.getByText(`No retained test run for ${id} in this phase.`).waitFor();
+  await followUp.getByRole('link', { name: 'Open Run & Test' }).waitFor();
+  await thread.getByText(/1 changed file in app/).waitFor();
+  await field.fill("What's left on this Story?");
+  await field.press('Enter');
+  await thread.locator('.ask-turn').filter({ hasText: "What's left on this Story?" })
+    .getByRole('link', { name: 'Open Run & Test' }).waitFor();
+  await assert.rejects(access(chatCalls));
+  const include = page.getByRole('checkbox', { name: 'Include Story and workspace context' });
+  await include.check();
+  await field.fill('What should I review before I hand it off?');
+  await field.press('Enter');
+  const modelReply = thread.locator('.ask-turn').filter({ hasText: 'What should I review before I hand it off?' });
+  await modelReply.getByRole('link', { name: /Open Run & Test/ }).waitFor();
+  await include.uncheck();
+  await field.fill('Explain how tidal power works.');
+  await field.press('Enter');
+  await thread.getByText('General answer.').waitFor();
+  const prompts = (await readFile(chatCalls, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(prompts[0].records.filter(record => record.type.startsWith('story-')).map(({ type, id }) => [type, id]),
+    ['story-status', 'story-decisions', 'story-tests'].map(type => [type, id]));
+  assert.ok(prompts[0].previous.some(turn => turn.question === 'Did they pass?' && turn.answer.includes(id)));
+  assert.deepEqual(prompts[1].previous, []);
+  assert.deepEqual(prompts[1].records, []);
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 390);
   await page.setViewportSize({ width: 1440, height: 960 });
@@ -1095,6 +1135,23 @@ test('Code Explainer follows the active Story from an engine clone and updates a
   await page.getByRole('button', { name: 'Follow active Story', exact: true }).click();
   await rows.filter({ hasText: second.name }).waitFor();
 
+  await page.getByRole('link', { name: 'Ask SFlow', exact: true }).click();
+  const question = page.getByRole('textbox', { name: 'Ask a question' });
+  const thread = page.getByRole('log', { name: 'Chat conversation' });
+  await question.fill('What phase are we in?');
+  await question.press('Enter');
+  await thread.getByText(new RegExp(second.id)).waitFor();
+  await question.fill('Where does this Story stand?');
+  await attach(first);
+  await page.locator('.ask-context').getByText(first.name, { exact: true }).waitFor();
+  assert.equal(await question.inputValue(), 'Where does this Story stand?');
+  assert.equal(await thread.getByText(new RegExp(second.id)).count(), 0);
+  await question.press('Enter');
+  await thread.getByText(new RegExp(first.id)).waitFor();
+  await attach(second);
+  await page.getByRole('link', { name: 'Code Explainer', exact: true }).click();
+  await rows.filter({ hasText: second.name }).waitFor();
+
   git(second.checkout, 'switch', '-qc', 'different-branch');
   await page.getByText(/checkout for the active Story INV-2 is unavailable/u).waitFor();
   assert.equal(await rows.filter({ hasText: second.name }).count(), 0);
@@ -1221,24 +1278,25 @@ test('Ask SFlow agrees across CLI, browser and Copilot reads and reopens the iss
   const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
   const loads = [];
   page.on('request', request => {
-    if (['/api/ask', '/api/operations'].includes(new URL(request.url()).pathname)) loads.push(request.url());
+    if (['/api/ask', '/api/operations'].includes(new URL(request.url()).pathname)
+        && request.postDataJSON()?.interaction !== 'chat-history') loads.push(request.url());
   });
   await page.goto(launch.url);
   await page.getByRole('link', { name: 'Ask SFlow', exact: true }).click();
-  const field = page.getByRole('searchbox', { name: 'Ask a question' });
+  const field = page.getByRole('textbox', { name: 'Ask a question' });
   await field.fill('specifcation');
   await page.getByRole('list', { name: 'Suggested destinations' }).getByRole('button', { name: /Spec Studio/ }).waitFor();
-  assert.deepEqual(loads, []);
+  assert.equal(loads.length, 0);
   await field.fill('How do I publish?');
-  await field.press('Enter');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   await page.getByRole('heading', { name: 'Artifacts, templates, and publication' }).waitFor();
   assert.equal(loads.length, 1);
   await field.fill(query);
-  await field.press('Enter');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   await page.getByRole('button', { name: 'Open ' + specId + '@1 · Checkout pricing' }).click();
   await page.getByRole('heading', { name: 'Checkout pricing', exact: true, level: 2 }).waitFor();
   await field.fill('story ASK-ORDER');
-  await field.press('Enter');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   await page.getByRole('button', { name: 'Open ' + specId + '@1 · Checkout pricing' }).waitFor({ state: 'detached' });
   const linked = page.waitForResponse(response => new URL(response.url()).pathname === '/api/ask' &&
     response.request().postDataJSON().query === 'show the specification behind the first result');
@@ -1272,10 +1330,10 @@ test('Ask SFlow history follows its pinned next page in the browser', { timeout:
   const page = await browser.newPage();
   await page.goto(launch.url);
   await page.getByRole('link', { name: 'Ask SFlow', exact: true }).click();
-  const field = page.getByRole('searchbox', { name: 'Ask a question' });
+  const field = page.getByRole('textbox', { name: 'Ask a question' });
   await field.fill(query);
-  const submitted = page.waitForResponse(response => new URL(response.url()).pathname === '/api/ask');
-  await field.press('Enter');
+  const submitted = page.waitForResponse(response => new URL(response.url()).pathname === '/api/ask' && response.request().postDataJSON().interaction === 'submit');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   const response = await submitted;
   const browserValue = await response.json();
   assert.equal(browserValue.history?.scope?.revision, pinned, JSON.stringify(browserValue));
@@ -1290,7 +1348,7 @@ test('Ask SFlow history follows its pinned next page in the browser', { timeout:
   assert.equal(await page.getByText(new RegExp(initial)).count(), 1);
 
   await field.fill('compare ' + initial + ' with ' + pinned);
-  await field.press('Enter');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   await page.getByRole('heading', { name: 'Revision comparison' }).waitFor();
   await page.getByText('No matching paths · Complete coverage').waitFor();
   assert.equal(mustGit('status', '--porcelain'), '');
@@ -1314,20 +1372,21 @@ test('Ask SFlow resumes private context in a new browser tab and opens the saved
     return page;
   }
   const first = await launchAsk();
-  const field = first.getByRole('searchbox', { name: 'Ask a question' });
+  const field = first.getByRole('textbox', { name: 'Ask a question' });
   await field.fill('commits from 2000-01-01 to 2099-12-31 on HEAD');
-  await field.press('Enter');
+  await first.getByRole('button', { name: 'Search', exact: true }).click();
   await first.getByText('2 commits · Complete coverage').waitFor();
   mustGit('commit', '--allow-empty', '-qm', 'Newer than the saved page');
   await first.close();
 
   const next = await launchAsk();
+  await next.getByText('Saved searches', { exact: true }).click();
   await next.getByRole('button', { name: 'Resume saved conversation' }).click();
   await next.getByText('2 commits · Complete coverage').waitFor();
   assert.equal(await next.getByText('Newer than the saved page').count(), 0);
-  const followUp = next.getByRole('searchbox', { name: 'Ask a question' });
+  const followUp = next.getByRole('textbox', { name: 'Ask a question' });
   await followUp.fill('the second result');
-  await followUp.press('Enter');
+  await next.getByRole('button', { name: 'Search', exact: true }).click();
   const evidence = next.getByRole('region', { name: 'Evidence and explanation' });
   await evidence.getByText(new RegExp(initial)).waitFor();
   await next.getByRole('button', { name: 'Explain with Copilot' }).click();
@@ -1393,13 +1452,13 @@ test('browser search finds workspace records and pinned files, and Copilot chat 
   await page.goto(launch.url);
   await page.getByRole('button', { name: 'Search or ask SFlow' }).waitFor();
   await page.keyboard.press('Control+k');
-  const search = page.getByRole('searchbox', { name: 'Ask a question' });
+  const search = page.getByRole('textbox', { name: 'Ask a question' });
   await search.waitFor();
   await page.waitForFunction(() => document.activeElement?.id === 'ask-question');
   await page.getByRole('button', { name: 'Publishing help' }).click();
-  await page.getByRole('region', { name: 'Answer', exact: true }).getByRole('heading', { name: /story lifecycle/i }).waitFor();
+  await page.getByRole('region', { name: 'Search answer', exact: true }).getByRole('heading', { name: /story lifecycle/i }).waitFor();
   await search.fill('Harbor invoice');
-  await search.press('Enter');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   const results = page.getByRole('region', { name: 'Workspace search results' });
   await results.getByRole('button', { name: 'Harbor invoice retries' }).waitFor();
   await results.getByRole('button', { name: 'Harbor invoice reconciliation' }).waitFor();
@@ -1418,15 +1477,18 @@ test('browser search finds workspace records and pinned files, and Copilot chat 
   assert.match(preview, /export const harborInvoice = true/u);
   assert.ok(!preview.includes(secret) && !preview.includes('newer changes'));
   await search.fill('RECEIPT FOR EACH INVOICE');
-  await search.press('Enter');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   await results.getByRole('button', { name: 'Harbor invoice reconciliation' }).waitFor();
   await results.getByText(/Keep the receipt for each invoice/).waitFor();
 
-  await page.getByRole('button', { name: 'Ask Copilot', exact: true }).click();
   const question = page.getByRole('textbox', { name: 'Ask a question' });
+  await question.fill('zqxwuvunmatched');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByRole('heading', { name: 'No matching results' }).waitFor();
+  await page.getByRole('button', { name: 'Ask Copilot', exact: true }).click();
+  assert.equal(await question.inputValue(), 'zqxwuvunmatched');
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: 'Explain a concept' }).click();
-  assert.equal(await question.inputValue(), 'Explain ');
+  assert.equal(await question.count(), 1);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 390);
   await assert.rejects(access(calls));
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -1440,9 +1502,8 @@ test('browser search finds workspace records and pinned files, and Copilot chat 
   await chat.getByText('This follows the earlier question about tidal power.').waitFor();
   await page.getByRole('link', { name: 'Overview', exact: true }).click();
   await page.getByRole('button', { name: 'Search or ask SFlow' }).click();
-  await page.getByRole('button', { name: 'Ask Copilot', exact: true }).click();
   await chat.getByText('This follows the earlier question about tidal power.').waitFor();
-  await page.getByRole('checkbox', { name: 'Use workspace context' }).check();
+  await page.getByRole('checkbox', { name: 'Include workspace context' }).check();
   await question.fill('Tell me about Harbor invoice ' + secret);
   await question.press('Enter');
   await chat.getByRole('button', { name: /Harbor invoice reconciliation/ }).waitFor();

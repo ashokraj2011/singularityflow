@@ -1,7 +1,8 @@
 import { askHistoryDisplay } from './ask-history-display.js';
 import { askSuggestions } from './ask-navigation.js';
+import { askIntent, askSavedReference } from './ask-query.js';
 import { escape, icon, markdown, words } from './views.js';
-import { chatLogView, searchFileView, searchResultsView, storyAnswerView } from './ask-results.js';
+import { chatLogView, searchFileView, searchResultsView } from './ask-results.js';
 
 const routes = new Set(['home', 'specs', 'stories', 'workflows', 'agents', 'skills', 'instructions', 'code', 'run', 'decisions', 'about']);
 const chip = (text, key, value) => `<button type="button" class="button" data-${key}="${escape(value)}">${escape(text)}</button>`;
@@ -9,11 +10,10 @@ const chip = (text, key, value) => `<button type="button" class="button" data-${
 const evidenceChip = id => id ? chip('View evidence', 'evidence', id) : '';
 
 const storyQuestions = [
-  { icon: 'stories', label: 'Story status', query: 'Where does this Story stand?', rule: /^(?:where does (?:this|my) story stand|what phase is (?:this|the current) story in|story status)$/iu, lookup: 'current story' },
-  { icon: 'decisions', label: 'Pending decisions', query: 'What needs a decision?', rule: /^(?:what needs (?:a decision|approval)|what decisions (?:are pending|do i need to make)|pending decisions|what needs my approval)$/iu, result: 'decisions', operation: 'decision.list' },
-  { icon: 'run', label: 'Test evidence', query: 'What tests ran?', rule: /^(?:what tests (?:ran|passed|failed)|did (?:the )?tests pass|(?:show )?(?:test results|test evidence))$/iu, result: 'tests', operation: 'tests.summary' },
-  { icon: 'code', label: 'Code changes', query: 'What changed?', rule: /^(?:what changed(?: in (?:this|the current) story)?|(?:show )?(?:my |the )?code changes)$/iu, result: 'changes', operation: 'code.changes' },
-  { icon: 'specs', label: 'Attached specification', query: 'Which spec is attached?', rule: /^(?:which spec(?:ification)? is attached(?: to this story)?|what spec(?:ification)? is this story using|attached specification)$/iu, lookup: 'spec used for this story' }
+  ['stories', 'Where does this Story stand?'],
+  ['decisions', 'What needs a decision?'],
+  ['run', 'What tests ran?'],
+  ['code', 'What changed?']
 ];
 
 function taskForm(evidence, supporting) {
@@ -119,70 +119,61 @@ function answerView(value) {
   ${value.status === 'empty' && !value.coverage && !diagnostics.length ? '<p class="muted">Enter a screen name, a work question, or a specification ID.</p>' : ''}`;
 }
 
-export function mountAsk(root, { context, issue, navigate, read, readStory, preparedQuestion = null }) {
+export function mountAsk(root, { context, issue, navigate, read, preparedQuestion = null }) {
   const story = issue ? null : context.story;
   const checkout = issue || context.engine && !story ? null : context.label;
-  const questions = story ? storyQuestions.filter(question => story.role !== 'secondary' || question.operation) : [];
-  const storyLabel = story?.title && story.title !== story.workId ? story.title : null;
-  const scope = story ? [story.workId, story.repositoryId].filter(Boolean).join(' · ') : checkout ?? 'No Story selected';
-  root.innerHTML = `<div class="ask-page" data-mode="search">
+  const limit = 8;
+  root.innerHTML = `<div class="ask-page">
     <header class="ask-hero">
-      <h1>Ask SFlow</h1>
-      <p id="ask-scope-description">${story ? 'Ask about this Story or search for specs, files, and workflow tools.' : checkout
-        ? 'Find a Story, specification, file, or SFlow help topic.' : 'Search SFlow Help or open a Story to ask about your work.'}</p>
+      <div><h1>Ask SFlow</h1><p>${story ? 'Ask about your Story, then follow up in the same conversation.'
+        : 'Ask a question, or search for work, files, and SFlow help.'}</p></div>
+      <button class="button" type="button" data-chat-action="reset">${icon('add')} New chat</button>
     </header>
     <div class="ask-context">
       <span class="tile-icon">${icon(story ? 'stories' : 'checkout')}</span>
-      <div><strong>${escape(storyLabel ?? scope)}</strong>${storyLabel ? `<small>${escape(scope)}</small>` : ''}
+      <div><strong>${escape(story?.title || story?.workId || checkout || 'No Story selected')}</strong>
+        ${story ? `<small>${escape([story.workId, story.repositoryId, story.workspaceName].filter(Boolean).join(' · '))}</small>` : ''}
         ${issue ? `<small>${escape(issue)}</small>` : ''}
       </div>
       ${checkout ? '<button class="quiet" type="button" data-action="choose-checkout">Change checkout</button>'
         : `<a class="text-link" href="#stories">Browse Stories ${icon('right')}</a>`}
     </div>
-    <section id="ask-chat" aria-label="Chat conversation" role="log" hidden></section>
-    <section class="ask-search card">
-      <div class="segmented ask-modes" role="group" aria-label="Search or chat">
-        <button type="button" data-ask-mode="search" aria-pressed="true">${icon('search')} Search</button>
-        <button type="button" data-ask-mode="chat" aria-pressed="false">${icon('chat')} Ask Copilot</button>
-      </div>
-      <form id="ask-form">
-        <label for="ask-question" class="sr-only">Ask a question</label>
-        <div class="ask-input-row"><span id="ask-input-icon">${icon('search')}</span><input id="ask-question" type="search" maxlength="2000" autocomplete="off"
-          placeholder="${story ? 'Ask about this Story or search your workspace…' : checkout ? 'Search by name, ID, or file path…' : 'Search SFlow Help…'}" aria-controls="ask-suggestions">
-          <textarea id="ask-chat-question" aria-label="Ask a question" placeholder="Ask Copilot anything…" maxlength="2000" rows="2" hidden></textarea>
-          <button id="ask-submit" type="submit" class="primary">Search ${icon('right')}</button></div>
-        <ul id="ask-suggestions" aria-label="Suggested destinations" hidden></ul>
-        <div id="ask-search-options" class="ask-options">
-          ${checkout ? '<label><input id="ask-portable" type="checkbox"> Save search conversation across devices</label>' : ''}
-        </div>
-        <div id="ask-chat-options" class="ask-options" hidden>
-          <label${checkout ? '' : ' hidden'}><input id="ask-workspace" type="checkbox"> Use workspace context</label>
-          <button type="button" class="quiet" data-chat-action="reset">${icon('add')} New chat</button>
-          <button type="button" class="quiet" id="ask-cancel" hidden>Cancel reply</button>
-        </div>
-      </form>
-    </section>
-    <div class="ask-starters" id="ask-search-starters" role="group" aria-label="${story ? 'Questions about this Story' : 'Suggested searches'}">
-      ${questions.length ? questions.map(item => `<button type="button" data-query="${escape(item.query)}">${icon(item.icon)} ${item.label}</button>`).join('')
+    ${checkout ? `<details class="ask-saved"><summary>Saved searches</summary>
+      <label><input id="ask-portable" type="checkbox"> Save across devices</label>
+      <div id="ask-conversation" class="ask-actions" aria-label="Saved search actions"></div>
+    </details>` : ''}
+    <section id="ask-chat" aria-label="Chat conversation" role="log" aria-relevant="additions text"></section>
+    <div id="ask-standalone"><section id="ask-answer" aria-label="Search answer"></section></div>
+    <section id="ask-evidence" aria-label="Evidence and explanation"></section>
+    <section id="ask-task" aria-label="Task handoff"></section>
+    <div class="ask-starters" role="group" aria-label="${story ? 'Questions about this Story' : 'Suggested questions'}">
+      ${story ? storyQuestions.map(([glyph, question]) => `<button type="button" data-chat-query="${escape(question)}">${icon(glyph)} ${escape(question)}</button>`).join('')
         : `${checkout ? `<button type="button" data-query="commits last week">${icon('history')} Recent commits</button>` : ''}
           <button type="button" data-query="story-lifecycle">${icon('about')} Publishing help</button>`}
     </div>
-    <div class="ask-starters" id="ask-chat-starters" role="group" aria-label="Suggested prompts" hidden>
-      ${story ? `<button type="button" data-prompt="Summarize the current Story and tell me what needs attention." data-use-context>${icon('stories')} Discuss this Story</button>` : ''}
-      <button type="button" data-prompt="Explain ">${icon('specs')} Explain a concept</button>
-      <button type="button" data-prompt="Help me plan ">${icon('check')} Plan an approach</button>
-    </div>
-    <div id="ask-conversation" class="ask-actions" aria-label="Conversation"></div>
-    <div id="ask-status" role="status" class="muted"></div>
-    <section id="ask-answer" aria-label="Answer"></section>
-    <section id="ask-evidence" aria-label="Evidence and explanation"></section>
-    <section id="ask-task" aria-label="Task handoff"></section>
+    <section class="ask-composer card">
+      <div id="ask-status" role="status" class="muted"></div>
+      <form id="ask-form">
+        <label for="ask-question" class="sr-only">Ask a question</label>
+        <div class="ask-input-row">
+          <textarea id="ask-question" autocomplete="off" maxlength="2000" rows="2" aria-controls="ask-suggestions"
+            aria-describedby="ask-send-note" placeholder="${story ? 'Ask about this Story…' : 'Ask a question or search…'}"></textarea>
+          <div class="ask-send-actions">
+            <button id="ask-search" type="submit" class="button">${icon('search')} Search</button>
+            <button id="ask-submit" type="submit" class="primary">Send ${icon('right')}</button>
+          </div>
+        </div>
+        <div class="ask-options">
+          ${checkout ? `<label><input id="ask-workspace" type="checkbox"> Include ${story ? 'Story and workspace' : 'workspace'} context</label>` : ''}
+          <span id="ask-send-note">Open-ended questions use Copilot.</span>
+          <button type="button" class="quiet" id="ask-cancel" hidden>Cancel reply</button>
+        </div>
+        <ul id="ask-suggestions" aria-label="Suggested destinations" hidden></ul>
+      </form>
+    </section>
   </div>`;
   const $ = selector => root.querySelector(selector);
-  const page = $('.ask-page');
-  const searchField = $('#ask-question');
-  const chatField = $('#ask-chat-question');
-  let field = searchField;
+  const field = $('#ask-question');
   const portable = $('#ask-portable');
   const workspace = $('#ask-workspace');
   const suggestions = $('#ask-suggestions');
@@ -192,14 +183,12 @@ export function mountAsk(root, { context, issue, navigate, read, readStory, prep
   const actions = $('#ask-conversation');
   const status = $('#ask-status');
   const chatLog = $('#ask-chat');
+  const starters = $('.ask-starters');
   const send = $('#ask-submit');
+  const search = $('#ask-search');
   const cancel = $('#ask-cancel');
-  const searchStarters = $('#ask-search-starters');
-  const chatStarters = $('#ask-chat-starters');
-  const modeButtons = [...$('.ask-modes').querySelectorAll('button')];
-  const drafts = { search: '', chat: '' };
-  let mode = 'search';
-  let chatTurns = [];
+  let turns = [];
+  let searchId = null;
   let searchResult = null;
   let pending = false;
   let controller = null;
@@ -209,14 +198,13 @@ export function mountAsk(root, { context, issue, navigate, read, readStory, prep
   let supporting = [];
 
   function sessionActions() {
-    if (!checkout) return;
+    if (!actions) return;
     const items = [chip('Resume saved conversation', 'conversation-action', 'resume'),
       chip('Resume across devices', 'conversation-action', 'resume-shared')];
     if (conflict) items.unshift(chip('Resume latest version', 'conversation-action', 'resume-conflict'));
     portable.disabled = Boolean(conversation);
-    if (conversation) portable.checked = conversation.portability === 'shared-provider';
     if (conversation) {
-      items.unshift(chip('New conversation', 'conversation-action', 'new'));
+      portable.checked = conversation.portability === 'shared-provider';
       if (conversation.canExplain) items.push(chip('Explain with Copilot', 'conversation-action', 'explain'));
       if (conversation.taskAdmissionId) items.push(chip('Open task handoff', 'task-action', 'inspect'));
       items.push(chip('Forget conversation', 'conversation-action', 'forget'));
@@ -226,39 +214,22 @@ export function mountAsk(root, { context, issue, navigate, read, readStory, prep
   const conversationScope = () => conversation ? { conversationId: conversation.id, revision: conversation.revision } : {};
 
   function updateSubmit() {
-    send.disabled = pending || !field.value.trim();
+    send.disabled = search.disabled = pending || !field.value.trim();
   }
 
-  function draw() {
+  function drawSuggestions() {
     updateSubmit();
     const items = askSuggestions(field.value, new Set([...routes, 'help']));
-    suggestions.hidden = mode !== 'search' || !field.value.trim() || items.length === 0;
+    suggestions.hidden = !field.value.trim() || items.length === 0;
     suggestions.innerHTML = items.map(item => `<li><button type="button" data-${item.id === 'help' ? 'query' : 'route'}="${escape(item.id === 'help' ? item.topic : item.id)}">
       <span>${escape(item.label)}<small>${escape(item.detail)}</small></span>${icon('right')}</button></li>`).join('');
   }
 
-  function changeMode(next, question = null) {
-    const leaving = mode;
-    const previousText = field.value;
-    drafts[mode] = previousText;
-    mode = next;
-    page.dataset.mode = next;
-    const chatting = next === 'chat';
-    searchField.hidden = chatting;
-    chatField.hidden = !chatting;
-    field = chatting ? chatField : searchField;
-    field.value = question ?? (drafts[mode] || previousText);
-    $('#ask-input-icon').innerHTML = icon(chatting ? 'chat' : 'search');
-    searchStarters.hidden = chatting;
-    send.innerHTML = (chatting ? 'Send ' : 'Search ') + icon('right');
-    $('#ask-search-options').hidden = actions.hidden = answer.hidden = taskPanel.hidden = chatting;
-    $('#ask-chat-options').hidden = chatLog.hidden = chatStarters.hidden = !chatting;
-    for (const button of modeButtons) button.setAttribute('aria-pressed', String(button.dataset.askMode === next));
-    if (leaving !== next) { status.textContent = ''; detail.replaceChildren(); }
-    suggestions.hidden = true;
-    updateSubmit();
-    field.focus();
-    if (chatting && leaving !== next) void show({ interaction: 'chat-history' });
+  function drawTurns() {
+    $('#ask-standalone').append(answer);
+    chatLog.innerHTML = chatLogView(turns, searchId);
+    chatLog.querySelector('#ask-search-result')?.append(answer);
+    starters.hidden = turns.length > 0;
   }
 
   async function show(input) {
@@ -266,44 +237,42 @@ export function mountAsk(root, { context, issue, navigate, read, readStory, prep
     pending = true;
     const chatting = input.interaction === 'chat';
     controller = chatting ? new AbortController() : null;
-    send.disabled = true;
-    for (const button of modeButtons) button.disabled = true;
+    updateSubmit();
     cancel.hidden = !chatting;
     status.textContent = ({ 'task-start': 'Starting the task…', 'task-prepare': 'Checking the task plan…',
-      chat: 'Copilot is replying…', 'chat-history': '', 'chat-reset': '' })[input.interaction] ?? 'Reading…';
+      chat: 'Finding an answer…', 'chat-reset': '' })[input.interaction] ?? 'Reading…';
     try {
-      if (input.storyQuestion) {
-        const result = await readStory(input.storyQuestion.operation).catch(error => {
-          if (input.storyQuestion.result !== 'decisions' || error.code !== 'DECISIONS_PHASE_UNKNOWN') throw error;
-          return { noCurrentPhase: true };
-        });
-        if (!result || !answer.isConnected) return;
-        answer.innerHTML = storyAnswerView(input.storyQuestion.result, result, story);
-        detail.replaceChildren(); taskPanel.replaceChildren();
-        searchResult = null; conversation = null; conflict = null; activeTask = null; supporting = [];
-        sessionActions();
-        status.textContent = 'Answer ready.';
-        return;
-      }
+      await historyReady;
+      if (!answer.isConnected) return;
       const result = await read(input, { signal: controller?.signal });
       if (!result || !answer.isConnected) return;
-      if (result.kind === 'chat-history' || result.kind === 'chat') {
-        if (result.kind === 'chat-history') {
-          chatTurns = result.turns;
-          if (input.interaction === 'chat-reset') { field.value = ''; drafts.chat = ''; detail.replaceChildren(); }
-        } else {
-          if (result.status !== 'resolved') { status.textContent = result.diagnostic?.message ?? 'Copilot did not answer.'; return; }
-          chatTurns = [...chatTurns, result].slice(-4);
-          if (field.value.trim() === input.query) field.value = '';
-          drafts.chat = field.value;
-          detail.replaceChildren();
+      if (result.turn) {
+        turns = [...turns, result.turn].slice(-limit);
+        if (input.interaction === 'submit' && !result.evidence) searchId = result.turn.id;
+        if (field.value.trim() === input.query) field.value = '';
+        detail.replaceChildren();
+        drawTurns();
+      }
+      if (result.kind === 'chat-history') {
+        turns = result.turns;
+        if (input.interaction === 'chat-reset') {
+          searchId = searchResult = conversation = conflict = activeTask = null;
+          supporting = [];
+          field.value = '';
+          if (workspace) workspace.checked = false;
+          if (portable) portable.checked = false;
+          for (const panel of [answer, detail, taskPanel]) panel.replaceChildren();
+          sessionActions();
         }
-        chatLog.innerHTML = chatLogView(chatTurns);
-        status.textContent = result.kind === 'chat' ? 'Reply ready.' : '';
-        if (result.kind === 'chat') { field.focus(); field.scrollIntoView({ block: 'nearest' }); }
+        drawTurns();
         return;
       }
-      if (result.kind === 'search-file' || result.artifact && (mode === 'chat' || searchResult)) {
+      if (result.kind === 'chat') {
+        status.textContent = result.status === 'resolved' ? '' : result.diagnostic?.message ?? 'Copilot did not answer. Try Search for recorded work.';
+        if (result.status === 'resolved') chatLog.lastElementChild?.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (result.kind === 'search-file' || input.interaction === 'activate') {
         detail.innerHTML = result.file ? searchFileView(result.file) : answerView(result);
         detail.querySelector('h2')?.scrollIntoView({ block: 'nearest' });
         status.textContent = result.file || result.artifact ? 'Source opened.' : 'Source unavailable.';
@@ -327,12 +296,12 @@ export function mountAsk(root, { context, issue, navigate, read, readStory, prep
           : explanationView(result.explanation);
         detail.querySelector('h2')?.scrollIntoView({ block: 'nearest' });
       } else {
-        detail.innerHTML = '';
+        detail.replaceChildren();
         supporting = evidenceOptions(result);
         searchResult = result.kind === 'workspace-search' ? result : null;
         answer.innerHTML = searchResult ? searchResultsView(searchResult) : result.kind === 'forgotten' ? '' : answerView(result);
         if (!conversation || activeTask !== conversation.taskAdmissionId) {
-          taskPanel.innerHTML = '';
+          taskPanel.replaceChildren();
           activeTask = null;
         }
       }
@@ -346,40 +315,36 @@ export function mountAsk(root, { context, issue, navigate, read, readStory, prep
       pending = false;
       updateSubmit();
       cancel.hidden = true;
-      for (const button of modeButtons) button.disabled = false;
     }
   }
 
-  function submit(query) {
+  function submit(query, searchOnly = false) {
     const value = query.trim();
-    if (!value) return;
+    if (!value || pending) return;
     field.value = value;
     suggestions.hidden = true;
-    if (mode === 'chat') { void show({ interaction: 'chat', query: value, workspace: Boolean(checkout && workspace.checked) }); return; }
-    const question = questions.find(item => item.rule.test(value.replace(/[?.!]+$/u, '')));
-    if (question?.operation) { void show({ storyQuestion: question }); return; }
-    void show({ interaction: 'submit', query: question?.lookup ?? value, ...(checkout ? { workspaceSearch: true } : {}),
+    const intent = askIntent(value);
+    const lookup = ['spec', 'work-history', 'commits', 'comparison'].includes(intent.kind) || intent.workId
+      || (!story && ['work', 'story-spec'].includes(intent.kind)) || (conversation && askSavedReference(value));
+    if (!searchOnly && !lookup) {
+      void show({ interaction: 'chat', query: value, workspace: Boolean(workspace?.checked) });
+      return;
+    }
+    void show({ interaction: 'submit', query: value, ...(checkout ? { workspaceSearch: true } : {}),
       ...(conversation ? conversationScope() : checkout ? { remember: true, ...(portable.checked ? { portable: true } : {}) } : {}) });
   }
 
   function interact(event) {
     const action = event.target.closest('button');
-    if (!action) return;
-    const { query, prompt, route, selection, file, continue: continuation, evidence, choice, conversationAction, taskAction,
-      resultFilter, askMode, chatAction } = action.dataset;
-    if (pending) return;
-    if (askMode) {
-      if (action.hasAttribute('data-discuss-results')) workspace.checked = true;
-      changeMode(askMode, action.closest('#ask-answer') ? field.value : null);
-      return;
-    }
+    if (!action || pending) return;
+    const { query, chatQuery, prompt, route, selection, file, continue: continuation, evidence, choice, conversationAction,
+      taskAction, resultFilter, chatAction } = action.dataset;
     if (chatAction === 'reset') { void show({ interaction: 'chat-reset' }); return; }
-    if (prompt) {
-      if (action.hasAttribute('data-use-context')) workspace.checked = true;
-      field.value = prompt;
+    if (prompt !== undefined) {
+      if (action.hasAttribute('data-use-context') && workspace) workspace.checked = true;
+      field.value = prompt || turns.find(turn => turn.id === searchId)?.question || '';
       field.focus();
-      field.setSelectionRange(prompt.length, prompt.length);
-      updateSubmit();
+      drawSuggestions();
       return;
     }
     if (resultFilter && searchResult) {
@@ -391,28 +356,13 @@ export function mountAsk(root, { context, issue, navigate, read, readStory, prep
       void show({ interaction: taskAction === 'start' ? 'task-start' : 'task-status', admissionId: conversation.taskAdmissionId });
       return;
     }
-    if (conversationAction === 'new') {
-      conversation = null;
-      conflict = null;
-      portable.checked = false;
-      searchResult = null;
-      answer.innerHTML = detail.innerHTML = status.textContent = '';
-      taskPanel.innerHTML = '';
-      activeTask = null;
-      supporting = [];
-      field.value = '';
-      sessionActions();
-      draw();
-      field.focus();
-      return;
-    }
     if (conversationAction === 'resume' || conversationAction === 'resume-shared' || conversationAction === 'resume-conflict') {
       void show({ interaction: 'resume', ...(conversationAction === 'resume-shared' ? { portable: true } : {}),
         ...(conversationAction === 'resume-conflict' ? { conversationId: conflict?.conversationId } : {}) });
       return;
     }
     if (conversationAction && conversation) {
-      if (conversationAction !== 'forget' || globalThis.confirm('Forget this private Ask conversation?')) {
+      if (conversationAction !== 'forget' || globalThis.confirm('Forget this saved search conversation?')) {
         void show({ interaction: conversationAction, ...conversationScope() });
       }
       return;
@@ -421,28 +371,30 @@ export function mountAsk(root, { context, issue, navigate, read, readStory, prep
       void show({ interaction: evidence ? 'evidence' : 'select', target: evidence ?? choice, ...conversationScope() });
       return;
     }
-    if (query) {
-      if (mode === 'chat') changeMode('search', query);
-      if (searchStarters.contains(action)) field.focus();
-      submit(query);
-    }
+    if (query || chatQuery) submit(query || chatQuery, Boolean(query));
     else if (routes.has(route)) navigate(route);
     else if (file) void show({ interaction: 'open-file', selection: file });
     else if (selection) void show({ interaction: 'activate', selection });
     else if (continuation) void show({ interaction: 'continue', selection: continuation });
   }
 
-  searchField.addEventListener('input', draw);
-  chatField.addEventListener('input', updateSubmit);
-  chatField.addEventListener('keydown', event => {
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); submit(chatField.value); }
+  field.addEventListener('input', drawSuggestions);
+  field.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      submit(field.value);
+    } else if (event.key === 'Escape') {
+      suggestions.hidden = true;
+    } else if (event.key === 'ArrowDown' && !suggestions.hidden) {
+      const first = suggestions.querySelector('button');
+      if (first) { event.preventDefault(); first.focus(); }
+    }
   });
-  root.querySelector('#ask-form').addEventListener('submit', event => { event.preventDefault(); submit(field.value); });
-  suggestions.addEventListener('click', interact);
-  searchStarters.addEventListener('click', interact);
-  chatStarters.addEventListener('click', interact);
-  answer.addEventListener('click', interact);
-  detail.addEventListener('click', interact);
+  $('#ask-form').addEventListener('submit', event => {
+    event.preventDefault();
+    submit(field.value, event.submitter === search);
+  });
+  $('.ask-page').addEventListener('click', interact);
   detail.addEventListener('submit', event => {
     if (event.target.id !== 'ask-task-form') return;
     event.preventDefault();
@@ -452,29 +404,25 @@ export function mountAsk(root, { context, issue, navigate, read, readStory, prep
     void show({ interaction: 'task-prepare', ...conversationScope(), target: event.target.dataset.target,
       words: form.get('words'), kind: form.get('kind'), clauses, evidence: form.getAll('evidence') });
   });
-  taskPanel.addEventListener('click', interact);
-  actions.addEventListener('click', interact);
-  chatLog.addEventListener('click', interact);
-  $('#ask-chat-options').addEventListener('click', interact);
-  $('.ask-modes').addEventListener('click', interact);
-  cancel.onclick = () => controller?.abort();
-  sessionActions();
-  searchField.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { suggestions.hidden = true; return; }
-    if (event.key === 'ArrowDown' && mode === 'search') {
-      draw();
-      if (suggestions.querySelector('button')) { event.preventDefault(); suggestions.querySelector('button').focus(); }
-    }
-  });
   suggestions.addEventListener('keydown', event => {
-    const button = event.target.closest('li');
-    if (event.key === 'ArrowDown' && button?.nextElementSibling) button.nextElementSibling.querySelector('button').focus();
-    else if (event.key === 'ArrowUp') (button?.previousElementSibling?.querySelector('button') ?? field).focus();
+    const item = event.target.closest('li');
+    if (event.key === 'ArrowDown' && item?.nextElementSibling) item.nextElementSibling.querySelector('button').focus();
+    else if (event.key === 'ArrowUp') (item?.previousElementSibling?.querySelector('button') ?? field).focus();
     else if (event.key === 'Escape') { suggestions.hidden = true; field.focus(); }
     else return;
     event.preventDefault();
   });
-  draw();
-  if (preparedQuestion) changeMode('chat', preparedQuestion);
-  else field.focus();
+  cancel.onclick = () => controller?.abort();
+  sessionActions();
+  if (preparedQuestion) field.value = preparedQuestion;
+  updateSubmit();
+  field.focus({ preventScroll: true });
+  const historyReady = read({ interaction: 'chat-history' }).then(result => {
+    if (!result || !answer.isConnected) return;
+    turns = result.turns;
+    drawTurns();
+  }).catch(error => {
+    if (!pending && status.isConnected) status.textContent = error.message;
+  });
+  return () => controller?.abort();
 }

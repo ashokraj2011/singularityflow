@@ -8,7 +8,7 @@ related:
   - run-and-test
 commands:
   - ui
-version: 4
+version: 5
 ---
 # Open the local SFlow browser workspace
 
@@ -70,15 +70,18 @@ stays available to any chat.
 4. Search the Stories with checkouts on this computer, sort them by their column headings (creation
    date descending by default) and open one in this tab. For a Story available on the remote,
    attach it with `singularity-flow session open <WORK-ID>` or the VS Code Story picker first.
-   The tab follows SFlow's active Story when it opens and while Code Explainer is visible.
+   The tab follows SFlow's active Story when it opens and while Code Explainer or Ask SFlow is visible.
    Opening a checkout from Stories keeps that selection in this tab. Use **Follow active Story**
    in the checkout picker to reconnect it to the active Story.
    A Story's Run & Test results and Decisions come from its workflow checkout. If it spans
    repositories, Code Explainer and the application plan follow the repository you opened.
-   Open the primary checkout for Ask questions about the Story record.
-5. In **Ask SFlow**, the Story questions read its status, pending decisions, test evidence, changes,
-   or attached specification. **Search** also finds local workspace records and files.
-   **Ask Copilot** opens a conversation with the option to include workspace sources.
+5. In **Ask SFlow**, use one conversation for questions and search results. Send “What tests ran?”
+   and then “Did they pass?” to read the selected Story's retained test evidence. The same box
+   answers questions about phase status, decisions, changed files and attached specifications.
+   **Search** finds workspace records, files and SFlow Help. For open-ended questions, **Send**
+   uses Copilot. Choose **Include Story and workspace context** to give it a bounded selection of
+   relevant records and cite those sources in its reply. Chat follows the tab's checkout. **New chat**
+   clears its recent turns. **Saved searches** opens retained search results separately.
 6. When a matching VS Code window is connected, **Continue with Copilot** prepares the existing
    `/sf-spec-author` request in that window. The person chooses Send. Delivery is not model execution,
    completion, acceptance or approval. A disconnected or different-checkout editor connection is refused.

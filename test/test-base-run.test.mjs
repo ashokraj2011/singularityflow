@@ -151,11 +151,12 @@ test('tests base: a real Story\'s failures, compared with its base commit, chang
   // The same question again is not a second run.
   const again = JSON.parse(sflow('tests', 'base', '--work-id', 'QF-1', '--json'));
   assert.equal(again.results[0].reused, true);
-  // What the decisions card reads of it before it recommends on a test-run risk [owner, 2026-11-16]: the kept answer's verdict.
+  // What the decisions card reads of it before it recommends on a test-run risk [owner, 2026-11-16]: the kept answer's verdict;
+  // and what a refactor's test step reads to tell a behaviour change from an old failure, by test name [ITW:REQ-015].
   const { loadAcceptedStoryExecution } = await import('../src/accepted-story-execution.mjs');
   const story = await loadAcceptedStoryExecution(root, 'QF-1');
   const facts = await baseCheckFacts(root, story.definition, story.workflow, story.workflow.phases.implement, [result.commandId, 'not-a-command']);
-  assert.deepEqual(Object.fromEntries(facts), { [result.commandId]: { status: 'checked', verdict: 'partly-on-base' } });
+  assert.deepEqual(Object.fromEntries(facts), { [result.commandId]: { status: 'checked', verdict: 'partly-on-base', onlyHere: ['value'], alsoOnBase: ['already broken'] } });
   assert.deepEqual(again.results[0].alsoOnBase, ['already broken']);
   assert.match(sflow('tests', 'base', '--work-id', 'QF-1'), /not evidence and refuses nothing[\s\S]*already run on this base/u);
   // A Story step is what it compares: a capability has no base commit.

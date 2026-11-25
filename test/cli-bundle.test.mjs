@@ -459,6 +459,15 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   for (const name of ['readPendingList', 'pendingSummary', 'approvalAdvisories']) {
     assert.match(phaseCode, namedFunction(name), `nextsteps' ${name} must not fall through to the compatibility/admin bundle`);
   }
+  // The plan /sf-task shows and `skill catalog` [ITW:REQ-010]: imported only dynamically, claimed by intake and reads.
+  // Unclaimed they fell into compatibility, which statically loads models (measured 2026-11-25: compatibility -91,184
+  // bytes, intake +75,168, reads +16,355; no closure an earlier family owns changed).
+  const intakeCode = await readFile(path.join(outdir, 'cold-intake.mjs'), 'utf8');
+  for (const name of ['workCommand', 'walkTaskWorkType', 'composeTask', 'taskSkillChooser', 'loadImportsLedger', 'readMarketplaceRepository']) {
+    assert.match(intakeCode, namedFunction(name), `work's ${name} must not fall through to the compatibility/admin bundle`);
+  }
+  assert.match(await readFile(path.join(outdir, 'cold-reads.mjs'), 'utf8'), namedFunction('readSkillCatalog'),
+    'skill catalog must not fall through to the compatibility/admin bundle');
   // 5,245,000 (next 5,000 boundary over 5 MiB): main 3bd739a8 measures 5,241,916. A test command's literal `env`
   // (SPEC-TCE M6) adds 1,741 for 5,243,657, because every configuration read validates its commands:
   // cold-narrow-reads +1,593 (external-command-policy.mjs: the env check in normalizeExternalCommand 1,031 and
@@ -592,6 +601,7 @@ export async function load(url, context, next) {
     ['agents', 'list', '--json'], ['agents', 'mappings', '--json'], ['agents', 'status', '--json'],
     ['phase', 'show', 'intake', '--json'], ['report', 'MISSING', '--format', 'json'],
     ['workflow', 'list', '--json'], ['skill', 'list', '--json'], ['instruction', 'list', '--json'],
+    ['skill', 'catalog', '--json'], ['work', 'fix the login button', '--kind', 'fix', '--json'],
     ['start', 'BUNDLE-NEW-STORY', '--json'],
     ['workflow', 'intent', 'preflight', '--source', 'installed', '--json'],
     ['workflow', 'markup', 'example', '--json']]) {
@@ -616,6 +626,13 @@ export async function load(url, context, next) {
     // configuration's own chunk, never with the catalogs (Stage 4).
     if (['nextsteps', 'status'].includes(args[0])) {
       assert.ok(!bundled.modules.some(url => url.endsWith('/cold-catalogs.mjs')), `${args[0]} must not load the catalogs for the derivation`);
+    }
+    // All skills and the plan /sf-task shows: their own families, never the compatibility handler, models or phases.
+    if ((args[0] === 'skill' && args[1] === 'catalog') || args[0] === 'work') {
+      assert.equal(bundled.status, 0, `${args.join(' ')}: ${bundled.stdout}`);
+      for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-phases.mjs']) {
+        assert.ok(!bundled.modules.some(url => url.endsWith('/' + name)), `${args.join(' ')} must not load ${name}`);
+      }
     }
     if (['agents', 'workflow', 'skill', 'instruction'].includes(args[0]) && ['list', 'mappings', 'status'].includes(args[1])) {
       for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs']) {

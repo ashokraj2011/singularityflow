@@ -165,7 +165,9 @@ export function baseComparison(result, { here = [], hereMessages = null, hereNod
 /**
  * What the kept base runs say about a step's test-run risks, by command ID [owner, 2026-11-16]: `checked` with the
  * comparison's verdict when a run of that command on the base commit is kept, else `unknown` (`cutShort` when the last
- * try ran out of time). Reads only what is kept; runs nothing.
+ * try ran out of time). With the verdict, the failing tests by name: those that fail only with the change (`onlyHere`)
+ * and those that failed without it too (`alsoOnBase`), which a refactor's test step reads [ITW:REQ-015]. Reads only what
+ * is kept; runs nothing.
  */
 export async function baseCheckFacts(root, config, workflow, phase, commandIds) {
   const baseCommit = storyBaseCommit(workflow, phase);
@@ -187,9 +189,9 @@ export async function baseCheckFacts(root, config, workflow, phase, commandIds) 
       const attempt = attempts.filter((entry) => entry.commandId === id).at(-1);
       const here = attempt && attempt.status !== 'passed' ? failedNames(attempt.occurrences) : [];
       // The verdict alone: its words name the base commit, which a person never reads.
-      const { verdict } = baseComparison(kept, { here, hereNode: attempt?.environment?.toolchain?.node ?? null,
+      const { verdict, onlyHere, alsoOnBase } = baseComparison(kept, { here, hereNode: attempt?.environment?.toolchain?.node ?? null,
         hereMessages: here.length ? await attemptFailureMessages(root, workflow.workItem.id, attempt).catch(() => null) : null });
-      found.set(id, { status: 'checked', verdict });
+      found.set(id, { status: 'checked', verdict, onlyHere: [...onlyHere], alsoOnBase: [...alsoOnBase] });
     } else {
       const cut = await readJson(cutPath(root, key));
       // A kept run older than its day is asked again, never recommended from [limit audit, item 9].

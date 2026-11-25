@@ -41,13 +41,38 @@ const isString = (value, maximum = 4096) => typeof value === 'string' && value.l
 const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
   && canonicalJson(Object.keys(value).sort()) === canonicalJson([...keys].sort());
 
-/** The change entry the composition gains: who asked, or the team's rule and its reason. */
+/**
+ * What a task may become [ITW:REQ-014, REQ-015], the only kind changes a task change makes:
+ * - a fix whose code changes the data or a public interface is a change, with the plan step it gains (`adds`), recorded
+ *   with the files that made it one (`paths`);
+ * - a refactor whose new behaviour a person accepted is a change, with no step added: its own plan is revised (the
+ *   person's return to it), recorded with the checks whose behaviour changed (`checks`) and that return (`changeRequest`).
+ */
+export const TASK_GROWTHS = Object.freeze([
+  Object.freeze({ from: 'fix', to: 'change', intent: 'plan', adds: true }),
+  Object.freeze({ from: 'refactor', to: 'change', intent: 'plan', adds: false })]);
+const growthOf = (change) => TASK_GROWTHS.find((entry) => entry.from === change?.from && entry.to === change?.to && entry.intent === change?.intent) ?? null;
+const isGrow = (change) => change?.change === 'grow';
+/** Whether a decision adds its step (every change but a kind change that keeps the steps). */
+export const addsStep = (decision) => !isGrow(decision?.change) || growthOf(decision.change)?.adds !== false;
+
+/**
+ * The change entry the composition gains: who asked, the team's rule and its reason (a `paths` rule for the files the
+ * code changed, or an `always` rule of the kind a fix became), or a fix grown into a change with why and the files.
+ */
 function validChange(change, step) {
+  const paths = (value) => Array.isArray(value) && value.length >= 1 && value.length <= 256 && value.every((file) => isString(file, 4096));
+  const timed = change && !Number.isNaN(Date.parse(change.at)) && isString(change.by, 512) && change.intent === step?.intent;
+  if (isGrow(change)) {
+    const growth = growthOf(change);
+    return Boolean(growth) && timed && isString(change.because, 2000) && (growth.adds
+      ? exactKeys(change, ['change', 'intent', 'at', 'by', 'from', 'to', 'because', 'paths']) && paths(change.paths)
+      : exactKeys(change, ['change', 'intent', 'at', 'by', 'from', 'to', 'because', 'checks', 'changeRequest']) && paths(change.checks)
+        && /^CR-[0-9]{3,6}$/u.test(change.changeRequest ?? ''));
+  }
   const keys = ['change', 'intent', 'at', 'by', ...(change && Object.hasOwn(change, 'rule') ? ['rule', 'because', 'paths'] : [])];
-  return exactKeys(change, keys) && change.change === 'add' && change.intent === step?.intent
-    && !Number.isNaN(Date.parse(change.at)) && isString(change.by, 512)
-    && (!Object.hasOwn(change, 'rule') || (/^paths\[[0-9]{1,3}\]$/u.test(change.rule) && isString(change.because, 2000)
-      && Array.isArray(change.paths) && change.paths.length >= 1 && change.paths.length <= 256 && change.paths.every((file) => isString(file, 4096))));
+  return exactKeys(change, keys) && change.change === 'add' && timed
+    && (!Object.hasOwn(change, 'rule') || (/^(?:paths|always)\[[0-9]{1,3}\]$/u.test(change.rule) && isString(change.because, 2000) && paths(change.paths)));
 }
 
 /** The decision record's closed shape; its binding to a revision is checked by the snapshot chain. */
@@ -70,9 +95,11 @@ export function validateTaskChangeDecisionRecord(decision) {
     && decision.to.revision === decision.from.revision + 1 && QUALIFIED_SHA256.test(decision.to.policySha256 ?? '')
     && QUALIFIED_SHA256.test(decision.to.compositionSha256 ?? '')
     && Array.isArray(decision.addedAssets) && decision.addedAssets.length <= 16 && decision.addedAssets.every((id) => isString(id, 256))
-    && decision.addedAssets.includes(`template:${decision.step.id}`)
     && Array.isArray(decision.addedAgents) && decision.addedAgents.length <= 8 && decision.addedAgents.every((id) => STEP_ID.test(id ?? ''))
-    && same([...decision.addedAssets].sort(), [`template:${decision.step.id}`, ...decision.addedAgents.map((id) => `agent:${id}`)].sort());
+    // A kind change that keeps the steps brings nothing; a step added brings its template and the agents it needs.
+    && (addsStep(decision) ? decision.addedAssets.includes(`template:${decision.step.id}`)
+      && same([...decision.addedAssets].sort(), [`template:${decision.step.id}`, ...decision.addedAgents.map((id) => `agent:${id}`)].sort())
+      : !decision.addedAssets.length && !decision.addedAgents.length);
   if (!ok) fail('The task change decision record is malformed.');
   return decision;
 }
@@ -80,7 +107,7 @@ export function validateTaskChangeDecisionRecord(decision) {
 /** The append-only summary a task change leaves on the Story, derived from its decision. */
 export function taskChangeSummary(decision, { decisionPath, decisionSha256 }) {
   return { schemaVersion: currentSchemaVersion('task-change-summary'), kind: 'task-change-summary', id: decision.id, status: 'applied',
-    change: 'add-step', phaseId: decision.step.id, intent: decision.step.intent, decisionPath, decisionSha256,
+    change: addsStep(decision) ? 'add-step' : 'kind', phaseId: decision.step.id, intent: decision.step.intent, decisionPath, decisionSha256,
     from: structuredClone(decision.from), to: structuredClone(decision.to), decidedAt: decision.approvedAt };
 }
 
@@ -89,7 +116,7 @@ export function validateTaskChangeSummary(summary) {
   catch { fail('A task change summary has an unsupported version.'); }
   const ok = exactKeys(summary, ['schemaVersion', 'kind', 'id', 'status', 'change', 'phaseId', 'intent', 'decisionPath', 'decisionSha256', 'from', 'to', 'decidedAt'])
     && summary.kind === 'task-change-summary' && TASK_CHANGE_ID.test(summary.id ?? '') && summary.status === 'applied'
-    && summary.change === 'add-step' && STEP_ID.test(summary.phaseId ?? '') && INTENTS.has(summary.intent)
+    && ['add-step', 'kind'].includes(summary.change) && STEP_ID.test(summary.phaseId ?? '') && INTENTS.has(summary.intent)
     && isString(summary.decisionPath) && QUALIFIED_SHA256.test(summary.decisionSha256 ?? '')
     && Number.isSafeInteger(summary.from?.revision) && summary.to?.revision === summary.from.revision + 1;
   if (!ok) fail('A task change summary is malformed.');
@@ -117,20 +144,27 @@ function assertCompositionScope(before, after, decision) {
   if (taskChangeDigest(before) !== decision.from.compositionSha256 || taskChangeDigest(after) !== decision.to.compositionSha256) {
     fail('A task change does not bind the exact composition it changed.');
   }
-  if (!same(after.steps, stepsWithInsertion(before.steps, decision.step, decision.position))) {
-    fail('A task change\'s steps are not the task\'s steps with exactly the recorded step added.');
+  const adds = addsStep(decision);
+  if (!same(after.steps, adds ? stepsWithInsertion(before.steps, decision.step, decision.position) : before.steps)
+      || (!adds && !same(before.steps[decision.position], decision.step))) {
+    fail(adds ? 'A task change\'s steps are not the task\'s steps with exactly the recorded step added.' : 'A kind change changed the task\'s steps.');
   }
   if (!same(after.changes, [...(before.changes ?? []), decision.change])) fail('A task change does not append exactly its own record to the task\'s changes.');
-  // Approvals only rise: a person keeps every step they approved, and may gain one (the new step's, or a step the new
-  // step would otherwise hand to SFlow, whose pinned settings stay as they were).
+  // Approvals only rise: a person keeps every step they approved, and may gain the new step's (a rule gives it to them), or
+  // keep a step the new step would otherwise hand to SFlow (personKeeps, below), whose pinned settings stay as they were.
   const addedApprovals = (after.personApproves ?? []).filter((intent) => !(before.personApproves ?? []).includes(intent));
-  if (!(before.personApproves ?? []).every((intent) => (after.personApproves ?? []).includes(intent))
-      || addedApprovals.some((intent) => !after.steps.some((step) => step.intent === intent))) fail('A task change took an approval from a person.');
+  if (!(before.personApproves ?? []).every((intent) => (after.personApproves ?? []).includes(intent))) fail('A task change took an approval from a person.');
+  if (addedApprovals.some((intent) => !adds || intent !== decision.step.intent)) fail('A task change gave a person the approval of a step it did not add.');
   // A step a person approved stays theirs when the new step would hand it to SFlow (personKeeps): it only grows, and only
   // with steps the task already had.
-  const kept = (after.personKeeps ?? []).filter((id) => !(before.personKeeps ?? []).includes(id));
-  if (!(before.personKeeps ?? []).every((id) => (after.personKeeps ?? []).includes(id))
-      || kept.some((id) => id === decision.step.id || !before.steps.some((step) => step.id === id))) fail('A task change changed which steps a person keeps.');
+  // So does a step that wrote the requirement IDs before the new step took that role (clauseKeeps).
+  for (const key of ['personKeeps', 'clauseKeeps']) {
+    const kept = (after[key] ?? []).filter((id) => !(before[key] ?? []).includes(id));
+    if (!(before[key] ?? []).every((id) => (after[key] ?? []).includes(id))
+        || (kept.length && !adds) || kept.some((id) => id === decision.step.id || !before.steps.some((step) => step.id === id))) {
+      fail(key === 'personKeeps' ? 'A task change changed which steps a person keeps.' : 'A task change changed which steps keep the requirement IDs.');
+    }
+  }
   const rule = Object.hasOwn(decision.change, 'rule') ? decision.change : null;
   if (rule) {
     const added = { intent: decision.step.intent, rule: rule.rule, because: rule.because };
@@ -142,9 +176,12 @@ function assertCompositionScope(before, after, decision) {
   } else {
     for (const key of ['added', 'rules', 'touchedPaths']) if (!same(before[key], after[key])) fail(`A person's task change changed the task's ${key}.`);
   }
+  // A grown fix is a change from here on: its kind moves exactly as the change says, and only then [ITW:REQ-014].
+  const grown = isGrow(decision.change) ? growthOf(decision.change) : null;
+  if (grown ? before.kind !== grown.from || after.kind !== grown.to : before.kind !== after.kind) fail('A task change changed the task\'s kind.');
   const rest = (value) => {
     const copy = structuredClone(value);
-    for (const key of ['steps', 'changes', 'personApproves', 'personKeeps', 'added', 'rules', 'touchedPaths']) delete copy[key];
+    for (const key of ['kind', 'steps', 'changes', 'personApproves', 'personKeeps', 'clauseKeeps', 'added', 'rules', 'touchedPaths']) delete copy[key];
     return copy;
   };
   if (!same(rest(before), rest(after))) fail('A task change changed the task\'s kind or workflow.');
@@ -170,9 +207,18 @@ export function assertTaskChangeScope(previous, next, decision) {
   assertCompositionScope(previous.composition, next.composition, decision);
   const before = previous.phases ?? [];
   const after = next.phases ?? [];
+  // A kind change that keeps the steps keeps every pinned step, template and agent exactly as they were.
+  if (!addsStep(decision)) {
+    if (!same(before, after) || !['templates', 'agents', 'plannedClaims', 'obligationGraph'].every((key) => same(previous[key], next[key]))
+        || !before.some((phase) => phase.id === decision.afterPhase)) fail('A kind change changed the Story\'s steps.');
+    return;
+  }
   const { position, step } = decision;
   const current = before.findIndex((phase) => phase.id === decision.afterPhase);
-  if (current < 0 || position <= current || position > before.length || after.length !== before.length + 1) {
+  // A grown fix's plan goes where a plan goes, before the code step that is current (its code waits for approval, and is
+  // returned to the plan next); every other added step goes after the current step.
+  const earliest = isGrow(decision.change) ? current : current + 1;
+  if (current < 0 || position < earliest || position > before.length || after.length !== before.length + 1) {
     fail('A task change adds its step after the current step, and only there.');
   }
   if (!same(after.map((phase) => phase.id), next.composition.steps.map((entry) => entry.id))

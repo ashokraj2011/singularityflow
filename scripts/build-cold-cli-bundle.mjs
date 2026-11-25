@@ -115,8 +115,20 @@ const FAMILIES = Object.freeze([
   // What each code step runs for the steps after it, named at Story start and at its own test runs [PHR:REQ-007].
   ['intake', ['commands/start.mjs', 'approval-staffing.mjs', 'later-step-tests.mjs', 'commands/workspace-branches.mjs', 'commands/intake-entry.mjs',
     'commands/story-entry.mjs', 'story-worktree-preparation.mjs',
-    'local-work-journal.mjs', 'history-index.mjs']],
-  ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs']],
+    'local-work-journal.mjs', 'history-index.mjs',
+    // `work` [ITW:REQ-001, REQ-010]: the plan /sf-task shows and its start through commands/start.mjs; its walk, the task
+    // composer, the skill chooser with the import record and a repository marketplace's reader. All are imported only
+    // dynamically; unclaimed, each fell into compatibility, so every /sf-task plan loaded it and models. Not in catalogs:
+    // the walk statically imports the step decision and route simulation, and claimed there it took 1.4 MB from
+    // hook-context and publication; the rest would grow the catalogs chunk every hook-context read imports.
+    'commands/work.mjs', 'task-walk.mjs', 'workflow-walk/quick.mjs', 'task-composition.mjs', 'task-skills.mjs', 'imports-ledger.mjs',
+    'marketplace-repository.mjs',
+    // A marketplace agent offered as the task's plan [ITW:REQ-011], read with the skill chooser.
+    'task-agents.mjs']],
+  ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs',
+    // `skill catalog`, VS Code's All skills page: a broad read over the library, the trusted marketplaces and the task
+    // chooser (intake, which this slot already imports). Unclaimed, each read loaded compatibility and models.
+    'commands/skill-catalog.mjs', 'skill-catalog.mjs']],
   ['phases', ['phase-entry-authoring.mjs', 'phase-prompt-composer.mjs', 'document-runtime.mjs',
     'copilot-story-follow.mjs',
     // A step's version opening: the one operation and the commands that open a version through it (SPEC-OSA Stage 2).

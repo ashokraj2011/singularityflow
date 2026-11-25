@@ -792,6 +792,11 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Submitted ${slot(s.phase)}; its tests failed, so SFlow returned it to ${slot(s.code)}${s.version ? ` and started version ${slot(s.version)} to fix them` : ''}.`,
     preserves: false
   },
+  // ITW:REQ-014: a fix's code changes the data or a public interface, so the task is a change and its code waits for the plan.
+  'submit.grown': {
+    headline: (s) => `Submitted ${slot(s.phase)}; the fix is a change now, so SFlow added ${slot(s.plan, 'a plan step')} before it and returned the code to it.`,
+    preserves: false
+  },
   'submit.noop': {
     headline: (s) => `${slot(s.phase)} is already awaiting approval.`,
     preserves: true

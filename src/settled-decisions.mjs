@@ -24,9 +24,11 @@ export const SETTLED_KINDS = Object.freeze(['story-selection', 'own-correction',
   // once that version is approved (owner, 2026-11-20, D1; failing-tests-return.mjs).
   'failing-tests', 'tests-rerun',
   // On the person's yes, a finished code step's next version (completed-step-change.mjs).
-  'person-change']);
+  'person-change',
+  // A fix that became a change: its code's next version once its plan is approved (task-amendment.mjs, ITW:REQ-014).
+  'task-grown']);
 /** The kinds that start a step's next version: forward only, and history once a later version of that step exists. */
-const VERSION_STARTS = Object.freeze(['review-corrections', 'own-correction', 'failing-tests', 'tests-rerun', 'person-change']);
+const VERSION_STARTS = Object.freeze(['review-corrections', 'own-correction', 'failing-tests', 'tests-rerun', 'person-change', 'task-grown']);
 const RETIRED_KINDS = Object.freeze(['own-correction']);
 const ID = /^STL-[0-9]{3,}$/u;
 const BY = Object.freeze(['agent', 'sflow']);
@@ -162,7 +164,8 @@ export function reraisedRoute(workflow, entry) {
       + 'An undo does not withdraw the version it started: that stays open, and the one before it stays as published.',
     'tests-rerun': `From now on SFlow asks you before it runs ${step}'s tests again after a fix. The version it started stays open.`,
     'person-change': `Version ${entry.effect?.toGeneration ?? 'N'} of ${step} was started on your own yes, and stays open: an open version can't be withdrawn. `
-      + `To keep ${step} as it was, make no change in it and publish it again.`
+      + `To keep ${step} as it was, make no change in it and publish it again.`,
+    'task-grown': `From now on SFlow asks you before it starts ${step}'s next version after its plan. The version it started stays open.`
   }[entry.kind],
   command: `singularity-flow phase show ${step} --work-id ${workId}`, copilotCommand: `/sf-phase-documents ${step}` };
   if (entry.kind === 'node-version') return { words: `Which Node ${step}'s tests run on is on the decision list again.`, ...list };

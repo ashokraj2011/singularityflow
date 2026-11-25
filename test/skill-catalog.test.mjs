@@ -222,7 +222,7 @@ test('skill catalog reads the library and every trusted marketplace once per com
   assert.equal(catalog.summary.coverage.find((entry) => entry.intent === 'review').status, 'marketplace');
   // The listing at the trusted commit is kept in the clone's Git folder: the marketplace is not read again.
   const kept = path.join(story.root, '.git', 'singularity-flow', 'task-marketplace-skills');
-  const [file] = await readdir(kept);
+  const [file] = (await readdir(kept)).filter((name) => !name.startsWith('index-'));
   assert.equal(JSON.parse(await readFile(path.join(kept, file), 'utf8')).format, 'sflow-task-marketplace-skills/v2');
   await rm(acme.repository, { recursive: true, force: true });
   const again = JSON.parse(story.cli('skill', 'catalog', '--marketplace', 'acme', '--json'));
@@ -241,4 +241,41 @@ test('skill catalog reads the library and every trusted marketplace once per com
   assert.notEqual(extra.status, 0);
   assert.match(`${extra.stdout}${extra.stderr}`, /SKILL_CATALOG_USAGE/u);
   assert.equal(story.git('status', '--porcelain'), '', 'reading the catalog writes nothing in the checkout');
+});
+
+test('skill catalog lists what the approved configuration trusts; a working-copy change not approved yet is said so on its row, never read', async (t) => {
+  const acme = await marketplaceRepository(t);
+  const empty = path.join(acme.directory, 'served-nothing');
+  await mkdir(empty, { recursive: true });
+  const story = await journeyRepository(t, {
+    env: { SINGULARITY_FLOW_TEST_REMOTE_FIXTURES: empty },
+    files: { 'package.json': WEB_PACKAGE },
+    configure: (configuration) => { configuration.marketplaces = { acme: { label: 'Acme', repository: acme.repository, commit: acme.commit } }; }
+  });
+  // The approved configuration: sflow/config on the repository's remote, as main is now.
+  story.git('push', '-q', 'origin', 'main:sflow/config');
+  // This checkout's workflow.yml, not approved: it stops trusting acme, trusts an index, and has a skill of its own.
+  const configuration = YAML.parse(await story.read('singularity/workflow.yml'));
+  configuration.marketplaces = { shared: { label: 'Shared', index: INDEX } };
+  await story.write('singularity/workflow.yml', YAML.stringify(configuration));
+  await story.write('singularity/skill-library/web-smoke-checks/SKILL.md', skillText('web-smoke-checks', 'Check each changed web page in a browser.', ['task:e2e-testing', 'web']));
+  const catalog = JSON.parse(story.cli('skill', 'catalog', '--json'));
+  assert.deepEqual(catalog.sources.map(({ id, read, approved, skills }) => [id, read, approved, skills]),
+    [['library', true, true, catalog.sources[0].skills], ['acme', true, true, 7], ['shared', false, false, 0]]);
+  assert.equal(catalog.sources.find((source) => source.id === 'acme').notApproved,
+    'Your working copy of workflow.yml stops trusting it, and that is not approved yet: Stories still use it.');
+  assert.equal(catalog.sources.find((source) => source.id === 'shared').notApproved,
+    'Trusted only in your working copy of workflow.yml, and not approved yet: Stories do not use it, so its skills are not read.');
+  assert.deepEqual(catalog.warnings, [], 'the index trusted only here is never read');
+  assert.ok(!catalog.rows.some((row) => row.marketplace === 'shared'));
+  assert.ok(!catalog.rows.some((row) => row.id === 'web-smoke-checks'), 'the library Stories use, not this checkout\'s edit');
+  const kept = path.join(story.root, '.git', 'singularity-flow', 'task-marketplace-skills');
+  assert.ok(!(await readdir(kept)).some((name) => name.startsWith('index-')), 'no index listing was read or kept');
+  const text = story.cli('skill', 'catalog');
+  assert.match(text.split('\n')[0], /7 in marketplace acme and none in marketplace shared \(not approved yet\)\./u);
+  assert.match(text, /^Note: marketplace shared: Trusted only in your working copy of workflow\.yml, and not approved yet/mu);
+  const waiting = story.raw(['skill', 'catalog', '--marketplace', 'shared', '--json']);
+  assert.notEqual(waiting.status, 0);
+  assert.match(`${waiting.stdout}${waiting.stderr}`, /SKILL_CATALOG_MARKETPLACE_NOT_APPROVED/u);
+  assert.match(`${waiting.stdout}${waiting.stderr}`, /singularity-flow configuration proposals/u);
 });

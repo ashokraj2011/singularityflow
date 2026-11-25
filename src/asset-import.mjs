@@ -170,7 +170,9 @@ async function fetchReference(root, reference, { fetchImpl = globalThis.fetch, m
       entry,
       source: {
         kind: 'marketplace', marketplace: marketplace.id, index: marketplace.index, indexSha256: index.indexSha256,
-        entry: entry.id, version: entry.version, url: entry.url, resolvedUrl: fetched.resolvedUrl
+        entry: entry.id, version: entry.version, url: entry.url, resolvedUrl: fetched.resolvedUrl,
+        // What the index says it is for, kept with the import, so a task finds it for the same step the next time [ITW:REQ-010].
+        tags: [...(entry.tags ?? [])], phases: [...(entry.phases ?? [])]
       }
     };
   }
@@ -558,11 +560,9 @@ function updateCommand(key, entry, sha256, reference = entry.source.url) {
  */
 async function marketplaceAgentCheck(root, key, entry) {
   const source = entry.source;
-  const [{ withApprovedConfigurationRead }, { configuredMarketplaces }, { readMarketplaceAgent }, { piecesDifferences, differencesWords, sourcePieces }] = await Promise.all([
-    import('./approved-configuration-reader.mjs'), import('./marketplace.mjs'), import('./marketplace-repository.mjs'), import('./agent-workflow-provenance.mjs')]);
-  // A map by ID, read where the check already reads the approved configuration.
-  const marketplaces = await withApprovedConfigurationRead(root, () => configuredMarketplaces(root), { preferAuthority: true }).catch(() => configuredMarketplaces(root)).catch(() => ({}));
-  const marketplace = marketplaces[source.marketplace] ?? null;
+  const [{ readMarketplaceAgent }, { piecesDifferences, differencesWords, sourcePieces }] = await Promise.all([
+    import('./marketplace-repository.mjs'), import('./agent-workflow-provenance.mjs')]);
+  const marketplace = (await checkedMarketplaces(root))[source.marketplace] ?? null;
   if (!marketplace?.repository) return { key, status: 'unavailable', detail: `marketplace ${source.marketplace} is no longer trusted here as a Git repository` };
   let read;
   try { read = await readMarketplaceAgent({ ...marketplace, commit: null }, source.agent); }
@@ -584,6 +584,83 @@ async function marketplaceAgentCheck(root, key, entry) {
     updateCommand: `singularity-flow workflow from-agent ${source.marketplace}/${source.agent} --update` };
 }
 
+/** Why a repository marketplace no longer gives a skill: it lists none by that name, or not as a skill, or with no SKILL.md. */
+const SKILL_GONE = new Set(['MARKETPLACE_ENTRY_UNKNOWN', 'IMPORT_KIND_INVALID', 'IMPORT_CONTENT_EMPTY']);
+
+/**
+ * A skill imported from a marketplace that is a Git repository [ITW:REQ-010], as `imports check` checks an HTTPS one: read
+ * at the commit the repository trusts now, which is what importing it again reads, and then at its newest commit.
+ * - Its text at the trusted commit differs from what was imported (the trust moved since): staged, and imported again
+ *   with `import add ... --replace`.
+ * - Only the newest commit has a newer text: trusting that commit is the update's first step (`marketplace add --repo`,
+ *   Workflow Studio's Read its newest commit), as an agent's update moves the trust (MCR:REQ-037); the check then offers
+ *   the import.
+ * - A skill the marketplace no longer has stays here until a person removes it (MCR:REQ-035).
+ * `detail` names the commit for the terminal; `words` says the same without it, for a screen a person reads.
+ */
+async function marketplaceSkillCheck(root, key, entry, marketplaces) {
+  const source = entry.source;
+  const where = `marketplace ${source.marketplace}`;
+  const marketplace = marketplaces[source.marketplace] ?? null;
+  if (!marketplace?.repository) {
+    const detail = `${where} is no longer trusted here as a Git repository`;
+    return { key, status: 'unavailable', detail, words: detail };
+  }
+  const reference = { kind: 'marketplace', marketplace: source.marketplace, entry: source.entry, version: null, display: `market:${source.marketplace}/${source.entry}` };
+  const read = async (at) => {
+    try { return { skill: await repositoryMarketplaceSkill(at, reference) }; }
+    catch (error) { return SKILL_GONE.has(error?.code) ? { gone: true } : { error }; }
+  };
+  const short = (commit) => String(commit ?? '').slice(0, 12);
+  const versionWords = (version) => (version && version !== source.version ? `version ${version}${source.version ? ` (imported ${source.version})` : ''}` : 'a changed text');
+  const pinned = await read(marketplace);
+  if (pinned.error) return { key, status: 'unavailable', detail: pinned.error.message, words: `${where} could not be read with Git; check that this computer can reach it` };
+  if (pinned.gone) {
+    const detail = `${source.entry} is no longer a skill in ${where} at the commit this repository trusts; the copy here stays until a person removes it`;
+    return { key, status: 'removed at its source', detail, words: detail };
+  }
+  const trusted = pinned.skill;
+  const trustedSha256 = sha256Hex(trusted.bytes);
+  if (trustedSha256 !== entry.sha256) {
+    const staged = await stageImport(root, trusted);
+    const version = trusted.entry.version;
+    return {
+      key, status: version && source.version && version !== source.version ? 'newer version available' : 'changed at its source',
+      detail: `${versionWords(version)} at the commit this repository trusts (${short(trusted.source.commit)})`,
+      words: `${versionWords(version)} at the commit this repository trusts`,
+      sha256: staged.sha256, updateCommand: updateCommand(key, entry, staged.sha256, reference.display)
+    };
+  }
+  const newest = await read({ ...marketplace, commit: null });
+  if (newest.error) {
+    return { key, status: 'up to date', detail: `matches the commit this repository trusts; its newest commit could not be read: ${newest.error.message.split('\n')[0]}`,
+      words: 'matches the commit this repository trusts; its newest commit could not be read' };
+  }
+  if (newest.gone) {
+    const words = `${where}'s newest commit no longer has ${source.entry}; the commit this repository trusts still does, and the copy here stays until a person removes it`;
+    return { key, status: 'removed at its source', detail: words, words };
+  }
+  const commit = newest.skill.source.commit;
+  if (commit === trusted.source.commit) return { key, status: 'up to date', detail: `commit ${short(commit)}`, words: 'nothing newer in the marketplace' };
+  if (sha256Hex(newest.skill.bytes) === entry.sha256) {
+    return { key, status: 'up to date', detail: `unchanged at ${where}'s newest commit ${short(commit)}`, words: 'nothing newer for it in the marketplace' };
+  }
+  const version = newest.skill.entry.version;
+  return {
+    key, status: version && source.version && version !== source.version ? 'newer version available' : 'changed at its source',
+    detail: `${versionWords(version)} at ${where}'s newest commit ${short(commit)}; trust that commit first, then check again to import it`,
+    words: `${versionWords(version)} at the marketplace's newest commit: trust that commit first (read its newest commit), then check again to import it`,
+    commit,
+    updateCommand: `singularity-flow marketplace add ${source.marketplace} --repo ${JSON.stringify(marketplace.repository)}${marketplace.ref ? ` --ref ${marketplace.ref}` : ''}`
+  };
+}
+
+/** The marketplaces a check reads, by ID: where the check already reads the approved configuration, that one. */
+async function checkedMarketplaces(root) {
+  const [{ withApprovedConfigurationRead }] = await Promise.all([import('./approved-configuration-reader.mjs')]);
+  return withApprovedConfigurationRead(root, () => configuredMarketplaces(root), { preferAuthority: true }).catch(() => configuredMarketplaces(root)).catch(() => ({}));
+}
+
 /** The workflows made from marketplace `marketplaceId`'s agents, each compared with its newest commit (MCR §8). */
 export async function marketplaceWorkflowChecks(root, marketplaceId) {
   const ledger = await loadImportsLedger(configurationReadRoot(root));
@@ -596,13 +673,16 @@ export async function marketplaceWorkflowChecks(root, marketplaceId) {
 }
 
 /**
- * Re-read every linked source and compare it with what was imported. A changed source is staged so
- * it can be reviewed and imported deliberately; nothing in the repository changes here.
+ * Re-read every linked source and compare it with what was imported: a link, an index marketplace's entry, and a
+ * Git-repository marketplace's skill and workflow. A changed source is staged so it can be reviewed and imported
+ * deliberately; nothing in the repository changes here.
  */
 export async function checkImportSources(root, { fetchImpl = globalThis.fetch } = {}) {
   const configRoot = configurationReadRoot(root);
   const ledger = await loadImportsLedger(configRoot);
   const rows = [];
+  // Read once, for the skills of marketplaces that are Git repositories.
+  let repositoryMarketplaces = null;
   for (const key of Object.keys(ledger.imports).sort()) {
     const entry = ledger.imports[key];
     if (entry.kind === 'generated') {
@@ -628,6 +708,11 @@ export async function checkImportSources(root, { fetchImpl = globalThis.fetch } 
     }
     if (entry.source?.kind === 'marketplace-agent') {
       rows.push(await marketplaceAgentCheck(root, key, entry));
+      continue;
+    }
+    if (entry.source?.kind === 'marketplace-skill') {
+      repositoryMarketplaces ??= await checkedMarketplaces(root);
+      rows.push(await marketplaceSkillCheck(root, key, entry, repositoryMarketplaces));
       continue;
     }
     if (entry.source?.kind !== 'url' || typeof entry.source.url !== 'string') {

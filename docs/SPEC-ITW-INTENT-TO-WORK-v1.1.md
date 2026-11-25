@@ -156,6 +156,16 @@ proposal.
 - "Add a design step" or "skip the plan" re-composes the steps from the current one forward. Done steps stay, and the
   rules still apply.
 - The change is recorded with who asked for it.
+- Built 2026-11-25: a step whose approval the team's rules give a person is a person's when it is added to a started
+  task, whoever adds it (`work add`, or a rule at the code's submission): an `always` rule for the task's kind, or a
+  `paths` rule for the files the task started with or its code changed. Only the added step's approval rises; the change
+  record refuses any other. A plan or requirements step added to a fix leaves the requirement IDs with the intake that
+  wrote them (`clauseKeeps`), beside its own, as a feature's requirements step sits beside its plan; before, adding one
+  was always refused. A Story whose test agreement (`testRecovery`) was confirmed for its steps keeps them: the agreement
+  binds the intake plan confirmed at the start, and a new step would leave it describing other steps. `work add` is
+  refused with the complete command that starts the task again with the step from its own words
+  (`work "<its title>" --kind KIND --add STEP --new --start`), whose start confirms an agreement for the new steps, and
+  names the cancel of the first. Every other refusal that restarts a task names the same command, never a placeholder.
 
 **ITW:REQ-010, skills for each step.**
 - For each composed step, SFlow looks for skills that fit, by:
@@ -167,16 +177,38 @@ proposal.
   1. the repository's skill library;
   2. trusted marketplaces, read at the commit the repository trusts.
 
-  An untrusted marketplace is never read.
+  An untrusted marketplace is never read. (Built 2026-11-25: a trusted HTTPS index marketplace is read too, its entries'
+  `phases` naming the steps they are for. Its skill list is kept in the clone's Git folder for an hour, so a plan read
+  does not fetch the index each time; `skill catalog` reads it fresh. An import from an index keeps the entry's tags
+  and steps, so the next task finds it in the library. `skill catalog` and VS Code's All skills page read the approved
+  configuration Stories use: a marketplace only the working copy of workflow.yml trusts is named "not approved yet" on
+  its row and never read.)
 - A marketplace skill marked approved or `ga` is offered directly. One marked proposed or beta needs the person's yes.
 - A marketplace skill not yet in the repository costs one yes the first time, with its exact text shown, as any import.
-  It is then in the library, and the next task uses it without asking.
+  It is then in the library, and the next task uses it without asking. (Built 2026-11-25: a Git repository
+  marketplace's skill can also be imported on its own, before any task asks: `marketplace browse` names its
+  `import preview "market:<id>/<skill>" --as skill`, and Workflow Studio's Library gives it **Add to the skill master**,
+  through the same preview and review.)
 - The plan line names the skills it uses: "code → tests (with web-e2e-test-generation from acme, new here: add it?)".
 - The exact skill text a Story uses is frozen into its snapshot.
 
 **ITW:REQ-011, a marketplace agent as the plan.** When one marketplace agent's stages cover the task, SFlow offers that
 agent's workflow as the plan, through the conversion review. Its steps then replace the composed ones, with the team
 rules still applied.
+(Built 2026-11-25: `src/task-agents.mjs`. The plan reads each trusted marketplace's agents at its pinned commit, kept per
+commit like its skills, and converts each as `workflow from-agent` does, with the answers its import recorded. An agent
+covers the task when its workflow has a step for each of the task's own steps but the intake (a requirements step
+before the code also plans it), and its code is the task's kind of code: an agent whose code steps only write tests
+covers a tests task, and one with a code step never covers a task that changes no code. One agent is offered: one
+already imported first, then the fewest extra steps. The plan result's `agentOffer` asks one question, with
+`workflow from-agent --review` to read first; `--use-agent MARKETPLACE/AGENT` is yes, `--without-agent` is no, and
+`--start` with the offer unanswered is refused (`TASK_AGENT_YES_NEEDED`). A yes to an agent whose workflow is not in the
+repository is refused at the start (`TASK_AGENT_IMPORT_NEEDED`) with its import through the conversion review as the
+next action, and a start without it; in Copilot the yes confirms the import the review proposed and the task keeps its
+own steps, as for a marketplace skill. Once imported, the task's steps are that workflow's, the team's `always` and
+`paths` rules still adding steps and approvals, and the composition records the marketplace, the agent, its version and
+the commit its import read, so the Story's snapshot and a second laptop have the same steps. Tested by
+test/task-agents.test.mjs.)
 
 **ITW:REQ-012, words and progress.**
 - The plan is one line.
@@ -206,6 +238,18 @@ rules still applied.
 - When a `fix` turns out to need a public interface or a data change, SFlow says so in one line and re-composes forward
   as a `change`: a plan step is added, and the person approves the plan. Done steps stay. Steps are only added, so this
   needs no extra yes.
+- Built 2026-11-25 (the third bullet): decided at the code's submission, by path only, from the application files the
+  code changed, never a test's own files. A data change is a migration (a `migration`/`migrations` folder or `db/migrate`,
+  the folders the delivery receipt already calls migrations) or a migration tool's schema file (`schema.prisma`,
+  `db/schema.rb`, `db/structure.sql`); a public interface is its contract file (an OpenAPI, Swagger or AsyncAPI document,
+  a `.proto`, a GraphQL schema). An exported signature changed in source is not read: nothing cheap and deterministic
+  knows it. The plan goes where a plan goes, before the code step that waits for its approval, as one `grow` task change
+  (TSC-NNN: from fix, to change, why, and the files); the composition's kind becomes `change`. SFlow then returns the
+  code to the plan itself (its own return, `task-grown`), so the code is never approved before a person approves the
+  plan. The plan is written from the code on the branch; once it is approved SFlow starts the code's next version itself,
+  settled with an undo, and a person approves the code. The team's `always` rules for `change` then apply too. When the
+  plan cannot be added the code stays with its approvers and the line says why; when the return cannot be made the line
+  gives the person's return command.
 
 **ITW:REQ-015, refactoring.**
 - The plan step says what must not change (outputs, public interfaces, errors, formats, side effects and order, as they
@@ -218,6 +262,18 @@ rules still applied.
   - accept the new behaviour: the task becomes a `change`, and its plan is revised.
 - A check that already failed before stays a finding; the refactor does not approve it.
 - What no check covers is named in the last message. A refactor is never reported as safer than what ran.
+- Built 2026-11-25: the "before" is `tests base` on the test step's commands (the start's `task.before`), kept by base
+  commit, command and Node; the test step's own run is the "after". When the test step's tests fail, each failed command
+  is compared with its kept run before the change (`baseCheckFacts`), at the submission and at the approval alike, and
+  SFlow does not return the failure to the code on its own: a test that passed before and fails after is named as a
+  behaviour change, with the person's two filled choices, keep the old behaviour (the test step back to the code step,
+  whose next version SFlow starts) or accept the new one (back to the plan); a test that failed before too is a finding
+  the refactor does not approve, with the test step's usual choices; a command with no run before kept (or one on
+  another Node) cannot be told, and the first choice runs it before the change. The person's return to the plan from
+  that stop is the acceptance: the task becomes a `change` in one revision that keeps every step and its state (a `grow`
+  task change that adds no step, with the checks and the return), SFlow starts the plan's next version, then the code's
+  and the tests', each settled with an undo. Not yet: a journey that walks a refactor through a behaviour change end to
+  end, and the last message's list of what no check covers.
 
 **ITW:REQ-016, documents.**
 - A `docs` task writes its document as its own step's document, kept with the Story on its branch. Git keeps its

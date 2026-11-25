@@ -3,7 +3,7 @@
  * is a Git repository with an APM manifest at its root (src/marketplace-repository.mjs). Adding reads the repository
  * once, at `--ref` (else its default branch), to check it is a marketplace and to pin the commit it is read at; the
  * pin is a reviewed configuration change, made exactly as `marketplace add --index` makes one. Browsing reads it at
- * that pinned commit and lists its agents and skills.
+ * that pinned commit and lists its agents, each one a workflow, and its skills, each importable on its own.
  */
 import path from 'node:path';
 import { invocationDirectory, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
@@ -70,11 +70,18 @@ export async function browseRepositoryMarketplace(marketplace, options) {
     throw new SingularityFlowError(`--kind is agent or skill (or prompt, instructions, hybrid): '${kind}'.`, { code: 'MARKETPLACE_BROWSE_USAGE' });
   }
   const catalog = await readMarketplaceRepository(marketplace);
-  // Each entry also as an index entry reads (id, label, importable), so Workflow Studio's list shows it as it is.
-  const entries = marketplaceRepositoryView(catalog, { kind, search: optionString(options, 'search') }).map((entry) => ({
-    ...entry, id: entry.name, label: entry.name, importable: false,
-    ...(entry.kind === 'agent' ? { workflowCommand: `singularity-flow workflow from-agent ${marketplace.id}/${entry.name}` } : {})
-  }));
+  // Each entry also as an index entry reads (id, label, importable), so Workflow Studio's list shows it as it is. An agent
+  // becomes a workflow; a skill is imported on its own, into the skill master, through the same preview and review as any
+  // import (`import preview "market:<id>/<skill>" --as skill`, read at the pinned commit).
+  const entries = marketplaceRepositoryView(catalog, { kind, search: optionString(options, 'search') }).map((entry) => {
+    const importable = entry.kind === 'skill' && Boolean(entry.document);
+    const reference = `market:${marketplace.id}/${entry.name}`;
+    return {
+      ...entry, id: entry.name, label: entry.name, importable,
+      ...(importable ? { importReference: reference, previewCommand: `singularity-flow import preview ${JSON.stringify(reference)} --as skill` } : {}),
+      ...(entry.kind === 'agent' ? { workflowCommand: `singularity-flow workflow from-agent ${marketplace.id}/${entry.name}` } : {})
+    };
+  });
   if (optionBoolean(options, 'json')) {
     return console.log(JSON.stringify({
       schemaVersion: 1, resultType: 'marketplace-entries',
@@ -96,6 +103,7 @@ export async function browseRepositoryMarketplace(marketplace, options) {
     ].filter(Boolean);
     if (facts.length) console.log(`         ${facts.join(' · ')}`);
     if (entry.workflowCommand) console.log(`         As a workflow: ${entry.workflowCommand}`);
+    if (entry.previewCommand) console.log(`         As a skill on its own: ${entry.previewCommand}`);
   }
   for (const problem of catalog.problems.slice(0, 10)) console.log(`Note: ${problem}`);
 }

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "6dadadccc49956ccc36c8ae5f1c5a9308a2515f1",
+  "sourceCommit": "e2e79761b2b25be4b8c9823facd78b567613b10e",
   "topicCount": 95,
-  "contentSha256": "de6745ec3f4846dc017b608d660987db863cddf80dc7d11b6b25fa84ba95936a",
+  "contentSha256": "7ab58d2d2893d4c91fe4da6612774e834ad244d4fbec675f261077a68ddd694c",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -328,8 +328,8 @@
     {
       "id": "importing-assets",
       "title": "Importing skills, templates, and agents",
-      "version": 12,
-      "sha256": "70e4d2250f548c4ccb395b601d8b3b0083b1e448c0e107c6e6e6cd17fb213c96",
+      "version": 15,
+      "sha256": "e4dacf4a816ba5d86787b3781bb435465cdbceb8e967e3df936d23072647dc7b",
       "routingSha256": "aaf37214a54793f39448126ce20f7bea8d6e54c15a568bed8304b301d5f7fc2d",
       "file": "importing-assets.md"
     },
@@ -608,8 +608,8 @@
     {
       "id": "skill-master",
       "title": "Skill master and attached skills",
-      "version": 10,
-      "sha256": "3e4ff6b804b852766ab13edd228dff676ca96bf5a1381dad4381e6fba788fbb6",
+      "version": 12,
+      "sha256": "3616fae6de1262d0d228dd6dda269e03d130f7f74083e2bd38b82f90328935db",
       "routingSha256": "c8c32db0b1ad991145a393a28bb35c09a1a913599cdccd1b96022561dfd97cb5",
       "file": "skill-master.md"
     },
@@ -664,8 +664,8 @@
     {
       "id": "tasks",
       "title": "Tasks: say what you want done",
-      "version": 11,
-      "sha256": "600da045d672714d75e2fbd42b6a09d5aa800593880db44055e4e35446e647a5",
+      "version": 15,
+      "sha256": "444bd068c86e4a317bd0c39ba33259e43d6233b5ca55b582da79a58b42f64437",
       "routingSha256": "1a1fcc7163ff59b9ed320743d473a84207b520bae38e1e42f2bb43617d1f4786",
       "file": "tasks.md"
     },

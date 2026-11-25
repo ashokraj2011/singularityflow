@@ -82,7 +82,8 @@ function classify(relative, overrides) {
 const OVERRIDES = {
   // This machine's log of refusals a step met, read to notice a repeated one as a lesson [LRN:REQ-006]; never shared.
   'lesson-refusals.mjs': 'local-operational',
-  // A trusted marketplace's skill list kept per pinned commit in the clone's Git folder, so it is not read again [ITW:REQ-010].
+  // A trusted marketplace's skill list kept in the clone's Git folder: per pinned commit for a Git repository, for an hour
+  // for an HTTPS index, so a plan read does not read it again [ITW:REQ-010].
   'task-skills.mjs': 'projection',
   // Ask SFlow (codex/spec-ask-r1): a saved conversation is this person's own data on this machine, and the copy shared
   // to resume elsewhere is theirs too; neither is a Story's record. Its reads cite the Git history they read.

@@ -228,10 +228,10 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     }
     if (!automaticReturn?.data) automaticReturn = null;
   }
-  const returned = automaticReturn?.returned === true;
-  // A task's code that touched a team's path rule gains that rule's steps now, after the code step [ITW:REQ-014].
+  // A task's code that touched a team's path rule gains that rule's steps now, after the code step; a fix whose code changes
+  // the data or a public interface becomes a change, and its code goes back to the plan added before it [ITW:REQ-014].
   let taskRuleSteps = null;
-  if (!returned && workflow.resolution?.composition && phase.deliveryEvidence?.changeSetPath) {
+  if (automaticReturn?.returned !== true && workflow.resolution?.composition && phase.deliveryEvidence?.changeSetPath) {
     const submittedId = phase.id;
     taskRuleSteps = (await postPublicationStep('the steps the team\'s rules add for the files the code changed', workflow.workItem.id,
       async () => (await import('../task-amendment.mjs')).addRuleStepsAfterCode(root, workflow.workItem.id, submittedId))).value;
@@ -240,6 +240,8 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       phase = workflow.phases[submittedId];
     }
   }
+  const grown = taskRuleSteps?.grown?.returned === true ? taskRuleSteps.grown : null;
+  const returned = automaticReturn?.returned === true || Boolean(grown);
   // Approve twice (owner, 2026-11-19): a step SFlow approves when it is ready is approved now, in its own commit, when its
   // reviewer said ready, its checks passed and nothing is open for it; otherwise its people approve it and are told why.
   let automaticApproval = null;
@@ -272,6 +274,11 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   const rerun = phase.status === 'approved' && (workflow.settledDecisions ?? []).some((entry) => entry?.kind === 'failing-tests') ? (await postPublicationStep('the test step\'s run again', workflow.workItem.id,
     async () => (await import('../failing-tests-opening.mjs')).rerunTestsAfterFix(root, workflow.workItem.id, { actor: actionActor(root) }))).value : null;
   if (rerun) workflow = (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow;
+  // A plan SFlow approved for a fix that became a change: the code's next version starts after it [ITW:REQ-014].
+  const grownCode = !rerun && phase.status === 'approved' && (workflow.resolution?.composition?.changes ?? []).some((entry) => entry?.change === 'grow')
+    ? (await postPublicationStep('the code\'s next version after the plan', workflow.workItem.id,
+      async () => (await import('../task-amendment.mjs')).codeVersionAfterGrownPlan(root, workflow.workItem.id, { actor: actionActor(root) }))).value : null;
+  if (grownCode) workflow = (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow;
   // A step approved by its submission moves the register items it fixed on the way too [CQF:REQ-066].
   const fixedOnTheWay = phase.status === 'approved' && workflow.departures?.some((entry) => entry.phase === phase.id && entry.findings?.length)
     ? await (await import('../findings/register/on-the-way.mjs')).recordFindingsAfterApproval(root, config,
@@ -290,7 +297,8 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     }
     if (automaticApproval?.applies && !automaticApproval.approved) console.log((await import('../automatic-approval.mjs')).needsPersonWords(phase, automaticApproval));
     // The return, or at the brake why SFlow did not make it and the person's filled choices; the test step's run again.
-    for (const line of [...(automaticReturn?.lines ?? []), ...(rerun?.line ? [rerun.line] : []), ...(taskRuleSteps?.lines ?? [])]) console.log(line);
+    for (const line of [...(automaticReturn?.lines ?? []), ...(rerun?.line ? [rerun.line] : []), ...(taskRuleSteps?.lines ?? []),
+      ...(grownCode?.line ? [grownCode.line] : [])]) console.log(line);
     for (const repair of registrationRepairs) {
       console.log(`Repaired stale artifact registration for ${repair.path} and continued; authored content still matches generation ${repair.generation}.`);
     }
@@ -324,9 +332,10 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   emitCommandResult(commandResult({
     operation: { id: 'submit', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded(returned ? 'submit.returned' : phase.status === 'approved' ? 'submit.completed' : 'submit.succeeded', {
+    outcome: succeeded(grown ? 'submit.grown' : returned ? 'submit.returned' : phase.status === 'approved' ? 'submit.completed' : 'submit.succeeded', {
       phase: phase.id, documents: phase.artifacts.length,
-      ...(returned ? { code: automaticReturn.code, version: automaticReturn.opened?.generation ?? null } : {}),
+      ...(grown ? { plan: `a ${String(workflow.phases?.[grown.id]?.label ?? 'plan').toLowerCase()} step` }
+        : returned ? { code: automaticReturn.code, version: automaticReturn.opened?.generation ?? null } : {}),
       ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed', completionLabel: completion.label ?? null } : {})
     }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
@@ -342,6 +351,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       ...(automaticReturn ? { automaticReturn: automaticReturn.data } : {}),
       ...(rerun ? { testsRerun: rerun } : {}),
       ...(taskRuleSteps ? { taskSteps: taskRuleSteps } : {}),
+      ...(grownCode ? { grownCode } : {}),
       ...(automaticApproval?.applies ? { automaticApproval: { approved: automaticApproval.approved === true, checked: automaticApproval.checked ?? [],
         open: automaticApproval.open ?? [], ...(automaticApproval.approved ? { commit: automaticApproval.publication?.sha ?? null } : {}) } } : {}),
       ...(fixedOnTheWay?.moved.length ? { fixedOnTheWay: fixedOnTheWay.moved } : {}),

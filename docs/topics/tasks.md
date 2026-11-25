@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 11
+version: 15
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -18,7 +18,7 @@ Say what you want done and SFlow does the rest of the setting up: `/sf-task fix 
 | fix, chore | intake → code → tests |
 | change | intake → plan → code → tests |
 | feature | intake → requirements → plan → code → tests |
-| refactor | intake → plan (what must not change) → code → tests; before any edit, the tests run once on the base (`sflow tests base`), so what already fails there is never read as a change |
+| refactor | intake → plan (what must not change) → code → tests; before any edit, the tests run once on the base (`sflow tests base`), and the test step compares its run with it: a test that passed before and fails after is a behaviour change, one that failed before is a finding |
 | tests | intake → write the tests → tests |
 | docs | intake → write the document (kept with the Story; a later task starts from it with `--from`) |
 | investigate | intake → investigate, ending with a report; no code changes |
@@ -58,9 +58,18 @@ tasks:
   ```
 
   `intent:<step>` names a step directly (`intent:test`). A skill tagged `beta` or `proposed` (or `lifecycle:proposed`) needs your yes.
-- **Then the marketplaces the repository trusts**, for a step the library has nothing for, each read at the commit `marketplaces:` in `singularity/workflow.yml` pins. A marketplace the repository does not trust is never read. A skill offered from one is new here: the plan line says "code (with web-e2e-test-generation from acme, new here: add it?) → tests". Your yes reads its exact text (`sflow import preview "market:acme/web-e2e-test-generation" --as skill`) and adds it to the library like any import, with what its marketplace says about it (its tasks, tags and lifecycle). The next task finds it there and asks nothing.
+- **Then the marketplaces the repository trusts**, for a step the library has nothing for. A Git repository marketplace is read at the commit `marketplaces:` in `singularity/workflow.yml` pins. An HTTPS index marketplace is read through its index; an entry's `phases` name the steps it is for. Its skill list is kept in the clone's Git folder for an hour, so showing a plan does not fetch the index each time (`sflow skill catalog` reads it fresh). A marketplace the repository does not trust is never read. Where an approved configuration is known, a marketplace is read as it trusts it, and one only your working copy of `workflow.yml` trusts is not read: the plan notes it instead. A skill offered from one is new here: the plan line says "code (with web-e2e-test-generation from acme, new here: add it?) → tests". Your yes reads its exact text (`sflow import preview "market:acme/web-e2e-test-generation" --as skill`) and adds it to the library like any import, with what its marketplace says about it (its tasks, tags and lifecycle). The next task finds it there and asks nothing.
 
 A task with a skill that needs your yes does not start until you answer: `--use-skill <ID>` is yes, `--without-skill <ID>` is no. The Story keeps the exact text of each skill it uses with its steps, so a later change to the library, or a second laptop, uses the same text.
+
+**A marketplace agent as the plan.** When one agent of a marketplace the repository trusts has stages that cover the task, the plan offers that agent's workflow instead: "acme's qa-test-automation agent covers this task: use its workflow as the plan, requirements → write the tests → tests?". What each stage is for comes from the same conversion `sflow workflow from-agent` makes, read at the commit the repository trusts. The agent covers the task when it has a step for each of the task's own steps (a requirements step before the code also plans it), and its code is the task's kind of code: an agent whose code steps only write tests is offered for a tests task, and one with a code step is never offered for a task that changes no code. Only one agent is offered: one whose workflow is already in the repository first, then the closest fit. An agent marked deprecated is never offered; one marked proposed says so.
+
+- Read what it becomes first: `sflow workflow from-agent acme/qa-test-automation-agent --review` shows its conversion review.
+- `--use-agent acme/qa-test-automation-agent` is yes: the task's steps are that workflow's, in its order, and the team's `tasks:` rules still add their steps and approvals. The plan line says whose they are ("Plan, from acme's qa-test-automation agent: …"), and the Story records the marketplace, the agent and its version with its steps, so a second laptop resumes the same steps.
+- An agent whose workflow is not in the repository yet comes in first through its conversion review, as a reviewed configuration change (`sflow workflow from-agent acme/qa-test-automation-agent --propose`, then the import it shows). Until that change is approved, a start with `--use-agent` says so; `--without-agent` starts the task with its own steps now, and a later task uses the agent's workflow.
+- `--without-agent acme/qa-test-automation-agent` is no: the task keeps its own steps and nothing more is asked.
+
+With no agent that covers the task, the plan is as above and nothing is asked.
 
 `/sf-start` stays the route for choosing the base, the intake and the workflow by hand.
 
@@ -96,12 +105,25 @@ goes, after the step being worked on: a review after the tests, a design or a pl
 started yet. Done steps and the current one stay exactly as they are; the steps after it read the new one. It is
 recorded with who asked, as a new version of the task's workflow, and needs no approval of its own, since it only adds
 work. A step whose place has passed is refused with the reason ("The code is already being written; a plan step goes
-before it."), and so is taking a step out after the start.
+before it."), and so is taking a step out after the start. A step a team rule gives a person to approve (`personApproves`) is
+theirs when it is added after the start too, and the line says so ("You approve it."). A Story whose test agreement was
+confirmed for its steps keeps them: the refusal gives the command that starts the task again with the step.
 
 **A fix that grows.** A `paths` rule also applies to what the code step actually changed: when the code is submitted and
 its files match a rule, the rule's steps are added the same way, after the step being worked on, recorded as the rule's
 with its `because`, and the submission says so in one line ("Added a review step after the tests: Changes to sign-in are
 reviewed."). A rule's step whose place has passed, such as a plan once the code is written, is named and not added.
+
+A fix whose code changes the data (a migration, or `schema.prisma`, `db/schema.rb`, `db/structure.sql`) or a public
+interface (an OpenAPI, Swagger or AsyncAPI document, a `.proto`, a GraphQL schema) is a change: the submission says so in
+one line, SFlow adds a plan step before the code and returns the code to it, so you approve the plan before the code. The
+code is kept on the branch; once the plan is approved SFlow starts the code's next version itself, and you approve the
+code as before. Nothing else asks you anything. Tests' own files never count.
+
+**A refactor that changes behaviour.** Run its `task.before` (`sflow tests base`) before any edit. When the refactor's
+tests fail, the test step stops and names each test that passed before and fails after. You choose: keep the old
+behaviour (the code step's next version restores it) or accept the new one (the task becomes a change, and its plan is
+revised first). A test that already failed before is a finding the refactor does not approve.
 
 ## Tasks from Ask SFlow evidence
 
@@ -111,7 +133,7 @@ An Ask SFlow task handoff carries the selected reviewed specification revision, 
 
 ## State and safety
 
-`work` without `--start` reads only; it keeps the list of a trusted marketplace's skills at the commit it reads, in the clone's Git folder, so the same commit is not fetched again. `--start` creates the Story's branch and its record, as `start` does, under the same identity, authority, branch and publication checks. The composed steps are recorded with the Story; `singularity/workflow.yml` is never written. `work add` writes one Story commit: the step, its decision record and the new version of the task's workflow; every later command checks that version against its history.
+`work` without `--start` reads only; it keeps the list of a trusted marketplace's skills and agents at the commit it reads, in the clone's Git folder, so the same commit is not fetched again. `--start` creates the Story's branch and its record, as `start` does, under the same identity, authority, branch and publication checks. The composed steps are recorded with the Story; `singularity/workflow.yml` is never written. `work add` writes one Story commit: the step, its decision record and the new version of the task's workflow; every later command checks that version against its history.
 
 ## Troubleshooting
 
@@ -120,6 +142,7 @@ An Ask SFlow task handoff carries the selected reviewed specification revision, 
 - If a `tasks:` rule is refused, fix the rule its words name; the plan is shown again once it is valid.
 - If the start says a skill needs your yes, read the skill (a marketplace one's text is shown), then start again with `--use-skill <ID>` or `--without-skill <ID>`.
 - If the start says a skill changed since the plan was shown, show the plan again: it chooses from the library as it is now.
+- If the start says an agent's workflow needs your yes, read its conversion review, then start again with `--use-agent <MARKETPLACE/AGENT>` or `--without-agent <MARKETPLACE/AGENT>`. If it says the workflow is not in the repository yet, import it through its conversion review, or start with `--without-agent` for now.
 
 ## Related topics
 

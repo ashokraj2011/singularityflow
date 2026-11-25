@@ -3769,10 +3769,16 @@ async function rejectCommand(positionals, options) {
   const started = phase.id !== current.id && current.validationVerdict === 'failed' && Number(workflow.resolution?.phaseResponsibility?.ownerStepChecks ?? 0) >= 4
     ? (await postPublicationStep('the code step\'s next version', workflow.workItem.id, async () => (await import('./failing-tests-opening.mjs'))
       .versionAfterPersonReturn(root, workflow.workItem.id, current.id, phase.changeRequest.id, { actor: session.actor }))).value : null;
-  const after = started ? (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow : workflow;
+  // A refactor's test step stopped on a behaviour change, and the person returned it to the plan: they accepted the new
+  // behaviour, so the task becomes a change and its plan's next version starts, settled with an undo [ITW:REQ-015].
+  const accepted = !started && phase.id !== current.id && current.validationVerdict === 'failed' && workflow.resolution?.composition?.kind === 'refactor'
+    ? (await postPublicationStep('the refactor\'s accepted behaviour', workflow.workItem.id, async () => (await import('./task-amendment.mjs'))
+      .acceptBehaviourAfterReturn(root, workflow.workItem.id, current.id, phase.changeRequest.id, { actor: session.actor }))).value : null;
+  const after = started || accepted ? (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow : workflow;
   if (!json) {
     console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
     if (started?.line) console.log(started.line);
+    if (accepted?.line) console.log(accepted.line);
     if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
     if (phase.changeRequest.members?.length) {
       console.log(`Members to regenerate: ${phase.changeRequest.members.join(', ')}`);
@@ -3787,7 +3793,9 @@ async function rejectCommand(positionals, options) {
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     data: { changeRequestId: phase.changeRequest.id, comment: phase.changeRequest.comment,
       clauseIds: phase.changeRequest.clauseIds ?? [], members: phase.changeRequest.members ?? [], contextBoundary: phase.contextBoundary ?? null,
-      ...(started ? { codeVersion: { opened: started.opened, settled: started.settled, nextAction: started.nextAction } } : {}) }
+      ...(started ? { codeVersion: { opened: started.opened, settled: started.settled, nextAction: started.nextAction } } : {}),
+      ...(accepted ? { taskKind: { kind: accepted.kind, changeId: accepted.changeId, checks: accepted.checks, line: accepted.line,
+        ...(accepted.opened ? { opened: accepted.opened } : {}) } } : {}) }
   }), { json, postState: after });
 }
 
@@ -3943,10 +3951,12 @@ async function importCommand(positionals, options) {
   const json = optionBoolean(options, 'json');
   if (action === 'preview') {
     const reference = requirePositional(positionals, 2, 'link to import');
-    const preview = await previewImport(root, reference, {
+    // A marketplace or MCP server is the one the approved configuration trusts, as `marketplace browse` reads it: an
+    // edit of workflow.yml that is not approved yet trusts nothing (ITW A7).
+    const preview = await withApprovedConfigurationRead(root, () => previewImport(root, reference, {
       as, id: optionString(options, 'id'), maxBytes: optionNumber(options, 'max-bytes') ?? undefined,
       launch: optionBoolean(options, 'launch'), arguments: importArguments(options)
-    });
+    }), { preferAuthority: true });
     const command = importAddCommandLine(reference, {
       as: preview.as, agent: optionString(options, 'agent'), id: preview.id ?? importIdFromLink(reference), sha256: preview.sha256
     });

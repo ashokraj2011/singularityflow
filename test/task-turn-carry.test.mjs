@@ -101,18 +101,39 @@ test('ITW REQ-008, A11: the start this /sf-task turn ran goes on into the intake
   assert.equal(await decide({ turn: { ...turn, skill: 'sf-next', typedSkill: 'sf-task' } }), null, 'a turn already carried on');
 });
 
-test('ITW REQ-008, A17: the person\'s Yes in the chat approves, and only then the same /sf-task turn goes on with the next step', slowLane({ timeout: 600_000 }), async (t) => {
+test('ITW REQ-008, A11, A17: in one chat the step\'s submission goes on into its approval question, and only the person\'s Yes into the next step', slowLane({ timeout: 600_000 }), async (t) => {
   const story = await journeyRepository(t);
   Object.assign(story, { workId: 'TASK-1', item: 'singularity/work-items/TASK-1' });
-  const walk = await followRoutes(story, { label: 'a fix to its plan approval', start: { shell: START.replace(/ --json$/u, '') },
+  // The intake written, published and its review retained, by its routes: only its submission is left.
+  const walk = await followRoutes(story, { label: 'a fix to its intake\'s submission', start: { shell: START.replace(/ --json$/u, '') },
     agent: generatedAgent('TASK-1'), person: generatedPerson(story, 'TASK-1'),
-    done: ({ record }) => record?.phases?.intake?.status === 'awaiting_approval', maxSteps: 60 });
+    done: ({ trail }) => Boolean(trail.at(-1)?.retained), maxSteps: 60 });
   assert.equal(walk.reached, true, formatTrail(walk.trail));
+  assert.equal(storyRecord(story).phases.intake.status, 'in_progress', 'not submitted yet');
   const chat = copilotTurn(story, 'task-approve');
   const seen = records(story, 'task-approve');
   chat.prompt('/sf-task');
+  const working = seen.turn();
+  assert.deepEqual([working.skill, working.typedSkill, seen.mutation().contract.turnMode], ['sf-next', 'sf-task', 'authoring']);
+  const yes = 'singularity-flow approve intake --work-id TASK-1 --yes';
+  assert.ok(denied(chat.tool('bash', { command: yes })), 'the step\'s own work never approves it');
+
+  // The submission: the same turn goes on into the approval question, as the approval-only turn of that step.
+  const submit = 'singularity-flow status TASK-1 --submission-readiness --submit-if-ready --for-agent --json';
+  chat.after('bash', { command: submit }, { resultType: 'success', textResultForLlm: '{"submitIfReady":{"submitted":true}}' });
+  assert.equal(seen.turn().turnId, working.turnId, 'not submitted yet: the host\'s word alone carries nothing on');
+  assert.ok(!denied(chat.tool('bash', { command: submit })), submit);
+  const submitted = story.raw(argvOf(submit));
+  assert.equal(submitted.status, 0, submitted.stderr.slice(-2000));
+  assert.equal(storyRecord(story).phases.intake.status, 'awaiting_approval');
+  const asked = chat.after('bash', { command: submit }, { resultType: 'success', textResultForLlm: submitted.stdout });
+  assert.match(asked.additionalContext ?? '', /SFlow: the step is submitted and waits for the person's approval, and this \/sf-task turn goes on with it now/u);
+  assert.match(asked.additionalContext ?? '', /SFlow turn boundary \(sf-approve\): approval-only turn, TASK-1 step intake generation 1\./u);
   const first = seen.turn();
   assert.deepEqual([first.skill, first.typedSkill, seen.mutation().contract.turnMode], ['sf-approve', 'sf-task', 'approval-only']);
+  assert.notEqual(first.turnId, working.turnId, 'a new turn ID: no answer from the work counts for the approval');
+  assert.ok(denied(chat.tool('edit', { path: path.join(story.root, story.item, 'artifacts/intake/intake.md') })), 'the approval-only turn writes nothing');
+  assert.ok(denied(chat.tool('bash', { command: yes })), 'and approves only on the person\'s Yes to its question');
   const code = 'singularity-flow phase begin implementation --for-agent --json';
   assert.ok(denied(chat.tool('bash', { command: code })), 'the approval-only turn authors nothing');
   assert.ok(denied(chat.tool('edit', { path: path.join(story.root, 'src/value.mjs') })));
@@ -180,4 +201,26 @@ test('ITW REQ-008, A17: the person\'s Yes in the chat approves, and only then th
   assert.equal(await decide({ workflow: deciding }), null, 'a decision is the person\'s on its card');
   assert.equal(await decide({ commands: [parsed('singularity-flow approve intake --work-id OTHER-1 --yes')] }), null, 'another Story\'s approval');
   assert.equal(await decide({ commands: [parsed(onYes)] }), null, 'an answer is not the approval');
+  // The submission's decision: only a submission this turn recorded, of the step it was bound to, now waiting for a person.
+  const asSubmitted = structuredClone(record);
+  asSubmitted.currentPhase = 'intake';
+  Object.assign(asSubmitted.phases.intake, { status: 'awaiting_approval', submittedAt: new Date().toISOString(), approvals: [] });
+  asSubmitted.phases.implementation.status = 'not_started';
+  const work = { ...working };
+  const bound = { turnId: working.turnId, sessionId: working.sessionId, originPhase: 'intake',
+    contract: { workId: 'TASK-1', turnMode: 'authoring', phaseId: 'intake', repositoryRoot: contract.repositoryRoot } };
+  const carry = (overrides = {}) => decide({ turn: work, value: bound, commands: [parsed(submit)], workflow: asSubmitted, ...overrides });
+  assert.deepEqual(await carry(), { skill: 'sf-approve', workId: 'TASK-1', reason: 'submission' });
+  assert.deepEqual(await carry({ commands: [parsed('singularity-flow submit intake --work-id TASK-1 --json')] }), { skill: 'sf-approve', workId: 'TASK-1', reason: 'submission' });
+  assert.equal(await carry({ commands: [parsed('singularity-flow status TASK-1 --submission-readiness --json')] }), null, 'a read submits nothing');
+  assert.equal(await carry({ turn: { ...work, typedSkill: undefined } }), null, '/sf-next typed: its own skill ends the turn');
+  assert.equal(await carry({ turn: { ...work, recordedAt: Date.now() + 60_000 } }), null, 'a submission from before this turn');
+  assert.equal(await carry({ workflow: record }), null, 'nothing waits for a person');
+  const classicSubmitted = structuredClone(asSubmitted);
+  classicSubmitted.workItem.workType = 'quick-fix';
+  delete classicSubmitted.resolution.composition;
+  assert.equal(await carry({ workflow: classicSubmitted }), null, 'a classic Story\'s submission ends its turn as before');
+  const held = structuredClone(asSubmitted);
+  held.pendingDecision = { key: 'd1', label: 'Pick one', options: [{ id: 'a', label: 'A' }] };
+  assert.equal(await carry({ workflow: held }), null, 'a decision first is the person\'s on its card');
 });

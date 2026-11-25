@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 16
+version: 17
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -89,8 +89,9 @@ Use this topic to start work by saying what you want done. The repository must u
 2. Read the one-line plan: the steps, and what you approve.
 3. Start it. SFlow picks the Story ID, the base and the steps, and the same chat turn goes on into the first step: its
    question, then its writing.
-4. Approve in the chat when asked: after your Yes the same turn goes on with the next step. `/sf-task`, with no words, is
-   for coming back: it does whatever comes next, the step's own work, or your approval, asked in the chat. In VS Code,
+4. Approve in the chat when asked: a step's submission goes on to its approval question, and after your Yes the same
+   turn goes on with the next step. `/sf-task`, with no words, is for coming back: it does whatever comes next, the step's
+   own work, or your approval, asked in the chat. In VS Code,
    approving a task's step on the approval page carries the chat on by itself, and the Journey's next action names
    `/sf-task` too.
 5. When the last step is done, say `/sf-task open the pull request` if you want one.

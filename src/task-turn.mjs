@@ -58,47 +58,59 @@ const CARRIED = new Set(['sf-next', 'sf-approve']);
 const CLOCK_SLACK_MS = 1000;
 const since = (at, turn) => Number.isFinite(Date.parse(at)) && Date.parse(at) >= turn.recordedAt - CLOCK_SLACK_MS;
 
+/** What each carried call is: who ran it, and which SFlow command did it, read as the guard reads it. */
+const CARRY = Object.freeze({
+  start: ({ positionals, options }) => positionals[0] === 'work' && !['add', 'skip', 'status', 'handoff'].includes(positionals[1]) && options.start === true,
+  approval: ({ positionals }) => positionals[0] === 'approve',
+  submission: ({ positionals, options }) => positionals[0] === 'submit' || (positionals[0] === 'status' && options['submit-if-ready'] === true)
+});
+
+/** Which carried call this turn may make: the task's own turn starts, the turns /sf-task took approve or submit. */
+function carryReason(turn) {
+  if (TYPED.has(turn.skill)) return 'start';
+  if (!TYPED.has(turn.typedSkill)) return null;
+  return { approve: 'approval', next: 'submission' }[NAME(turn.skill)] ?? null;
+}
+
 /**
  * Whether the tool call that just finished carries this `/sf-task` turn on into the task's next action, and as which
- * skill's turn [ITW:REQ-008, A11, A17, docs/SPEC-ITW-INTENT-TO-WORK-v1.1.md]. Two calls do, each only once what it did
+ * skill's turn [ITW:REQ-008, A11, A17, docs/SPEC-ITW-INTENT-TO-WORK-v1.1.md]. Three calls do, each only once what it did
  * shows in the Story, never on the host's word that it succeeded:
  * - the task's own turn (`/sf-task <words>`, nothing open yet) ran `work … --start`, and this checkout now holds a task's
  *   Story in progress that was created during this turn: the turn goes on into its first step (the intake's question,
  *   then its writing) with nothing typed;
+ * - the step's own work /sf-task took (/sf-next's turn) ran `submit` or `status --submit-if-ready`, and the step that turn
+ *   was bound to, still the current one, now waits for a person's approval after a submission recorded during this turn:
+ *   the turn goes on into that approval's question, as the approval-only turn of that step, whose Yes is the person's;
  * - the approval-only turn `/sf-task` took ran `approve`, and the step that turn was bound to now reads approved, by an
  *   approval recorded during this turn (the person's own Yes, which the guard held that command to): the turn goes on
  *   with the next step's work or the next approval question.
- * Every other turn, a classic Story's and one the person typed `/sf-approve` for among them, ends as before. `turn` is the
- * session's boundary record; `ran` is its mutation record and the SFlow commands the call ran, as the guard read them
- * (copilot-mutation-guard.mjs turnRanCommands). Returns `{ skill, workId, reason }`, or null to leave the turn as it is.
+ * Every other turn, a classic Story's and one the person typed `/sf-approve` or `/sf-next` for among them, ends as before.
+ * `turn` is the session's boundary record; `ran` is its mutation record and the SFlow commands the call ran, as the guard
+ * read them (copilot-mutation-guard.mjs turnRanCommands). Returns `{ skill, workId, reason }`, or null to leave the turn.
  */
 export async function taskTurnContinuation(payload, { turn, ran, resolveRoot = discoveryRoot, load = acceptedStory } = {}) {
   const value = ran?.value;
   if (!turn || !value || value.turnId !== turn.turnId || value.sessionId !== turn.sessionId || !Number.isFinite(turn.recordedAt)) return null;
-  const reason = TYPED.has(turn.skill) ? 'start' : TYPED.has(turn.typedSkill) && NAME(turn.skill) === 'approve' ? 'approval' : null;
-  if (!reason) return null;
-  const commands = ran.commands ?? [];
+  const reason = carryReason(turn);
   const workId = value.contract?.workId ?? null;
-  const ranIt = reason === 'start'
-    ? commands.some(({ positionals, options }) => positionals[0] === 'work' && !['add', 'skip', 'status', 'handoff'].includes(positionals[1])
-      && options.start === true)
-    : Boolean(workId) && value.contract.turnMode === 'approval-only' && commands.some(({ positionals, options }) => positionals[0] === 'approve'
-      && (options['work-id'] === undefined || options['work-id'] === workId));
-  if (!ranIt) return null;
+  if (!reason || (reason !== 'start' && !workId) || (reason === 'approval' && value.contract.turnMode !== 'approval-only')) return null;
+  const ours = (options) => reason === 'start' || options['work-id'] === undefined || options['work-id'] === workId;
+  if (!(ran.commands ?? []).some((command) => CARRY[reason](command) && ours(command.options))) return null;
   // The checkout this turn is bound to, and none other (a start in an isolated worktree, or a Story another folder holds).
   const bound = value.contract?.repositoryRoot ?? value.repositoryRoot ?? null;
   const root = await resolveRoot(payload).catch(() => null);
   if (!bound || !root || await realpath(root).catch(() => null) !== bound) return null;
   const workflow = (await load(root).catch(() => null))?.workflow ?? null;
   const { isTaskStory } = await import('./safe-command-guidance.mjs');
-  if (!isTaskStory(workflow) || workflow.status !== 'in_progress') return null;
+  if (!isTaskStory(workflow) || workflow.status !== 'in_progress' || (reason !== 'start' && workflow.workItem?.id !== workId)) return null;
+  const step = reason === 'start' ? null : workflow.phases?.[value.originPhase ?? value.contract.phaseId];
   if (reason === 'start' && !since(workflow.workItem?.createdAt, turn)) return null;
-  if (reason === 'approval') {
-    const approved = workflow.phases?.[value.originPhase ?? value.contract.phaseId];
-    if (workflow.workItem?.id !== workId || approved?.status !== 'approved'
-        || !(approved.approvals ?? []).some((entry) => entry && !entry.invalidatedAt && since(entry.at, turn))) return null;
-  }
+  if (reason === 'submission' && (step?.status !== 'awaiting_approval' || workflow.currentPhase !== step.id || !since(step.submittedAt, turn))) return null;
+  if (reason === 'approval' && (step?.status !== 'approved'
+      || !(step.approvals ?? []).some((entry) => entry && !entry.invalidatedAt && since(entry.at, turn)))) return null;
   const { workflowGuide } = await import('./guide.mjs');
   const skill = taskTurnSkillFor(workflow, workflowGuide(workflow));
-  return CARRIED.has(skill) ? { skill, workId: workflow.workItem.id, reason } : null;
+  // A submission goes on only into the person's approval of that same step.
+  return CARRIED.has(skill) && (reason !== 'submission' || skill === 'sf-approve') ? { skill, workId: workflow.workItem.id, reason } : null;
 }

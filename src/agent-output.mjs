@@ -557,6 +557,11 @@ export function agentAct(result) {
   const returned = result.submitIfReady?.result?.status === 'returned';
   // A fix whose code changes the data or a public interface is a change now: its code waits for the plan [ITW:REQ-014].
   const grown = result.submitIfReady?.result?.status === 'grown';
+  // A task's last step completed: what the task did is said in this same turn (/sf-task's step 1, `work status`) [ITW:REQ-018].
+  const finished = result.submitIfReady?.submitted && result.submitIfReady.result?.status === 'completed' && done?.commandGuidance?.copilotCommand === TASK_ROUTE
+    && /^singularity-flow work status\s/u.test(done.commandGuidance.command ?? '');
+  if (finished) return { state: 'read', read: ['submitIfReady.result'], do: { reason: oneLine(done.reason), copilot: TASK_ROUTE, shell: done.commandGuidance.command, vscode: null },
+    said: `Submitted, and that completed ${result.submitIfReady.result.phase ?? 'the step'}, the task's last step. Run do.shell now, in this turn, and say what the task did as /sf-task's step 1 says for a Story with no step left.` };
   if (result.submitIfReady?.submitted && (result.submitIfReady.result?.status === 'completed' || returned || grown) && done) {
     const reset = done.contextBoundary?.commands?.length ? done.contextBoundary.commands.join(', then ') : null;
     return withRoute({ state: 'end-turn', do: null, read: ['submitIfReady.next', 'submitIfReady.result'],

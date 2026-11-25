@@ -1126,6 +1126,7 @@ Usage:
   singularity-flow work "<words>" [--kind KIND] [--path FILE]... [--json]
   singularity-flow work "<words>" --start [--kind KIND] [--work-id ID] [--base BRANCH] [--from TASK-ID] [--document FILE]... [--add STEP]... [--skip STEP]... [--new] [--json]
   singularity-flow work status [TASK-ID] [--json]
+  singularity-flow work add requirements|design|plan|review [--work-id ID] [--json]
 
   singularity-flow initiative status [INIT-ID] [--json]
   singularity-flow initiative next [INIT-ID] [--json]

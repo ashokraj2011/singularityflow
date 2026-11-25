@@ -1,5 +1,6 @@
 /**
- * `singularity-flow work "<words>" [--kind KIND] [--start] [--work-id ID] [--path FILE ...] [--json]` [ITW:REQ-001–007].
+ * `singularity-flow work "<words>" [--kind KIND] [--start] [--work-id ID] [--path FILE ...] [--json]` [ITW:REQ-001–007];
+ * `singularity-flow work add <STEP> [--work-id ID] [--json]` [ITW:REQ-009].
  *
  * Shows the plan a task's words get, composed from its kind (src/task-composition.mjs), and writes nothing. With
  * `--start` it starts the Story: its ID is a Jira key the words or `--work-id` name, else the next free `<prefix>-<n>`
@@ -15,6 +16,7 @@ import { loadConfig } from '../state-stores.mjs';
 import { branch, commitOfRef, committedFileText, localBranches, remoteBranches, remoteDefaultBranchName } from '../git.mjs';
 import { repoRoot } from '../git-execution.mjs';
 import { composeTask, kindFromWords, planLine, TASK_KINDS, taskDefinition, taskRules } from '../task-composition.mjs';
+import { walkTaskWorkType } from '../task-walk.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
 const JIRA_KEY = /\b([A-Z][A-Z0-9_]{1,31}-[1-9][0-9]{0,9})\b/u;
@@ -57,13 +59,6 @@ function kindOf(words, options) {
   });
 }
 
-/** Each approval group as Workflow Studio shows it, for the walk. */
-function groupsOf(definition) {
-  return new Map(Object.entries(definition.approvalAuthorities ?? {}).map(([id, group]) => [id, { id, label: group.label ?? id,
-    status: (group.members ?? []).length ? 'people' : group.allowAnyGitIdentity ? 'anyone' : (group.githubTeams ?? []).length ? 'teams'
-      : definition.approvalSecurity?.autoEnrollNewIdentities === false ? 'blocked' : 'auto' }]));
-}
-
 const approvalOf = (phase) => phase.approval?.mode === 'none' ? 'none'
   : phase.approval?.automatic === 'when-ready' ? 'sflow' : 'person';
 
@@ -72,15 +67,7 @@ export async function taskPlan(definition, { kind, touchedPaths = [], pullReques
   const composition = { ...composeTask(definition, { kind, touchedPaths, add, skip }), ...(pullRequest ? { pullRequest: true } : {}) };
   const overlaid = validateDefinition(structuredClone(taskDefinition(definition, composition)));
   const resolved = assertWorkTypeStartable(resolveWorkType(overlaid, composition.workType));
-  const { quickWalkResolved, walkHosts } = await import('../workflow-walk/quick.mjs');
-  const walk = quickWalkResolved(resolved, { approvalAuthorities: overlaid.approvalAuthorities, groups: groupsOf(overlaid), hosts: walkHosts() });
-  if (walk.stops.length) {
-    const stop = walk.stops[0];
-    throw new SingularityFlowError(`This task's steps would stop before they finish: ${stop.title}${stop.detail ? ` ${stop.detail}` : ''}`, {
-      code: 'TASK_PLAN_STOPS',
-      details: { stops: walk.stops, nextAction: { command: 'singularity-flow workflow check', label: 'Check the workflow configuration the task is composed from.' } }
-    });
-  }
+  const walk = await walkTaskWorkType(overlaid, resolved);
   const approvals = Object.fromEntries(resolved.phases.map((phase) => [phase.id, approvalOf(phase)]));
   return {
     composition,
@@ -241,7 +228,33 @@ function titleOf(words) {
   return line.length > 120 ? `${line.slice(0, 117).trimEnd()}…` : line;
 }
 
+/**
+ * `work add <STEP>` [ITW:REQ-009]: the task open on this checkout (or --work-id) gains a step after its current one,
+ * recorded as a new revision of its pinned workflow (src/task-amendment.mjs). `work skip <STEP>` on a started task is
+ * refused: after the start a task only gains steps.
+ */
+async function changeTask(positionals, options) {
+  const verb = positionals[1];
+  const intent = positionals[2];
+  if (!intent) {
+    throw new SingularityFlowError(`Say which step: singularity-flow work ${verb} design. A task can gain a requirements, design, plan or review step.`, {
+      code: 'TASK_STEP_MISSING', details: { nextAction: { command: `singularity-flow work ${verb} design`, label: 'Name the step.' } } });
+  }
+  const root = await taskRepositoryRoot();
+  const id = optionString(options, 'work-id') ?? openStoryHere(root);
+  if (!id) {
+    throw new SingularityFlowError('There is no task open on this checkout to change. Check out its branch, or name it with --work-id.', {
+      code: 'TASK_UNKNOWN', details: { nextAction: { command: 'singularity-flow work status', label: 'See the task open on this checkout.' } } });
+  }
+  const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
+  const loaded = await loadAcceptedStoryExecution(root, id);
+  const amendment = await import('../task-amendment.mjs');
+  if (verb === 'skip') return amendment.refuseTaskStepRemoval(loaded.workflow, intent);
+  return amendment.addTaskStep(root, loaded.config ?? loaded.definition, loaded.workflow, { intent, definition: await loadConfig(root) });
+}
+
 export async function workCommand(positionals = [], options = {}) {
+  if (positionals[1] === 'add' || positionals[1] === 'skip') return changeTask(positionals, options);
   if (positionals[1] === 'status') {
     const root = await taskRepositoryRoot();
     const definition = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : {};
@@ -311,6 +324,11 @@ function printPlan(result) {
 
 export async function run(_argv, { positionals = ['work'], options = {} } = {}) {
   const result = await workCommand(positionals, options);
+  if (result?.resultType === 'sflow-task-change') {
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${result.words}\n${result.plan}`);
+    return result;
+  }
   if (result?.resultType === 'sflow-task-status') {
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else {

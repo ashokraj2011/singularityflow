@@ -20,6 +20,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    - a person's approval (`/sf-approve`): run `singularity-flow choices begin approve <WORK-ID> --fetch --for-agent --json --review-packet`, ask its `act.ask` question with ask_user, and on the person's own Yes run its `onYes` commands in order. Never answer it yourself.
    - a decision (`/sf-decide`): show its route; the person decides it on the decisions card.
    - anything else: do the current step's own work in this turn, from `singularity-flow phase enter --compose --for-agent --json` to its own boundary, as `/sf-next` does.
+   Words that ask for another step ("add a design step"): run `singularity-flow work add <STEP> --json` first and say its `words`, then carry on as above.
    Then say in one line what finished and what comes next. When the Story has no step left, run `singularity-flow work status --json`: say its `words`, what the person approved, and link each step's `document`; when `pullRequest` is true, open it as in step 2.
 2. Words that ask for a pull request when the Story has no step left: run `singularity-flow pr <WORK-ID> --json`, show its head, base and title, then `singularity-flow pr <WORK-ID> --create --yes`, and give its link. No new task.
 3. Otherwise (no Story open, or words beginning "new task") name the kind from the person's words only: fix, feature, change, refactor, tests, docs, investigate, review or chore. A question about why something happens is investigate. Only when two kinds fit equally, ask_user once with those two as the choices.

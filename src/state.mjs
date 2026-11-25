@@ -491,7 +491,8 @@ function sourceMarkdown(source) {
     + `\n## Subtasks\n\n${subtasks}\n`;
 }
 
-function phaseState(definition, index) {
+/** A step's runtime state, as it starts: a Story's start builds one per step, a task builds one per step it gains. */
+export function phaseState(definition, index) {
   const requiredArtifact = structuredClone(definition.artifact);
   return {
     id: definition.id,
@@ -6859,6 +6860,11 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
   if (amendments && unallowed().length) {
     for (const commit of await amendments.reviewSafeApproverRefreshes(root, config, workflow, unallowed())) allowedReviewCommits.add(commit);
   }
+  // A step added to a task after the step under review changes nothing that review saw [ITW:REQ-009].
+  if ((workflow.taskChanges ?? []).length && unallowed().length) {
+    const { reviewSafeTaskChanges } = await import('./task-change-review.mjs');
+    for (const commit of await reviewSafeTaskChanges(root, config, workflow, phase, unallowed())) allowedReviewCommits.add(commit);
+  }
   const pendingProposals = amendments && unallowed().length
     ? await amendments.pendingIntentAmendmentProposals(root, config, workflow, unallowed()) : [];
   for (const { proposalCommit } of pendingProposals) allowedReviewCommits.add(proposalCommit);
@@ -11235,7 +11241,7 @@ export async function verifyAcceptedSkillAmendmentRevalidation(root, config, wor
   }
   const approved = accepted.skillVersionAmendments?.filter((item) => item?.status === 'approved');
   if (!approved?.length) {
-    if (accepted.testCommandAmendments?.length || accepted.approverRefreshes?.length) return verified;
+    if (accepted.testCommandAmendments?.length || accepted.approverRefreshes?.length || accepted.taskChanges?.length) return verified;
     skillAmendmentFail('SKP_AMENDMENT_REVALIDATION_INVALID',
       'The accepted skill-version revision has no reviewed affected-phase record.');
   }

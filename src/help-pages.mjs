@@ -496,7 +496,11 @@ const PAGES = Object.freeze({
       'Without --start it shows the plan and writes nothing. With --start it starts the Story: its ID is',
       'a Jira key the words or --work-id name, else the next free TASK-<n> (tasks.idPrefix); its base is',
       'the default branch; its intake is your words. The composed workflow is recorded with the Story and',
-      'never written to workflow.yml. In Copilot, /sf-task does this and names the kind for you.'
+      'never written to workflow.yml. In Copilot, /sf-task does this and names the kind for you.',
+      '',
+      '`work add STEP` gives the task open on this checkout a requirements, design, plan or review step',
+      'after its current step, recorded as a new version of its workflow with who asked. Done steps and',
+      'the current one stay as they are, and a started task never loses a step.'
     ],
     options: [
       ['--kind KIND', 'The kind of task; without it SFlow reads it from the words.'],
@@ -515,7 +519,8 @@ const PAGES = Object.freeze({
       ['singularity-flow work "fix the login timeout on slow networks"', 'Show the plan a fix gets.'],
       ['singularity-flow work "fix the login timeout on slow networks" --start', 'Start it as a Story.'],
       ['singularity-flow work "why do cancelled orders still send emails?" --kind investigate', 'An investigation: a report, no code change.'],
-      ['singularity-flow work status', 'Where the task on this checkout stands: each step and who approved it.']
+      ['singularity-flow work status', 'Where the task on this checkout stands: each step and who approved it.'],
+      ['singularity-flow work add review', 'Give the started task a review step after its tests.']
     ],
     seeAlso: ['start', 'workflow', 'lessons']
   },

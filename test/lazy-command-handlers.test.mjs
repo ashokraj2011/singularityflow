@@ -998,7 +998,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // start.mjs, configuration-branch.mjs) [ITW M1]; the composer itself loads only for a task. No new eager file.
     // 9,872,488 (+256, 2026-11-25): --new, a task started over one open on its checkout (util.mjs), and /sf-task as the
     // route `nextsteps` names (safe-command-guidance.mjs) [ITW M2]. No new eager file.
-    assert.ok(closure.bytes <= 9_872_488, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,876,942 (measured for submit.mjs, +4,454, 2026-11-25): a started task gains a step [ITW:REQ-009]: its snapshot dialect
+    // read in the accepted chain (workflow-snapshots.mjs), its check beside the test-command one, `work add` registered;
+    // its capture, replay and review check load only for a task change. No new eager file.
+    assert.ok(closure.bytes <= 9_876_942, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1164,7 +1167,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 875,926 (+576, 2026-11-25): `work`, a task's plan and Story, registered with --start read as a flag (command-registry.mjs,
   // command-loaders.mjs, util.mjs) [ITW M1]. No new eager file.
   // 875,984 (+58, 2026-11-25): --new read as a flag (util.mjs) [ITW M2]. No new eager file.
-  assert.ok(root.bytes <= 875_984, `root dispatch loads ${root.bytes} source bytes`);
+  // 876,614 (+630, 2026-11-25): `work add` and `work skip` registered (command-registry.mjs) [ITW:REQ-009]. No new eager file.
+  assert.ok(root.bytes <= 876_614, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1550,7 +1554,9 @@ test('the common session projection does not import attach, state stores or publ
   // copilot-mutation-guard.mjs, phase-mutation-contract.mjs, util.mjs) [ITW M1]. No new eager file.
   // 4,343,915 (+256, 2026-11-25): --new (util.mjs) and /sf-task as `nextsteps`' route (safe-command-guidance.mjs) [ITW M2].
   // No new eager file.
-  assert.ok(current.bytes <= 4_343_915, `session current loads ${current.bytes} source bytes`);
+  // 4,347,584 (+3,669, 2026-11-25): a task's added step read in the accepted snapshot chain (workflow-snapshots.mjs,
+  // schema-migrations.mjs) and `work add` registered [ITW:REQ-009]; the rest loads only for a task change. No new eager file.
+  assert.ok(current.bytes <= 4_347_584, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

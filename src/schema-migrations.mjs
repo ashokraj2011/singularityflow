@@ -2788,6 +2788,10 @@ const families = [
   family({ id: 'approver-refresh-decision', currentVersion: 1, immutable: true,
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/approver-refreshes\/APR-[0-9]{3,6}-decision\.json$/] }),
   family({ id: 'approver-refresh-summary', currentVersion: 1, immutable: true }),
+  // A step added to a started task, and the summary it leaves on the Story [ITW:REQ-009, 2026-11-25].
+  family({ id: 'task-change-decision', currentVersion: 1, immutable: true,
+    paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/task-changes\/TSC-[0-9]{3,6}-decision\.json$/] }),
+  family({ id: 'task-change-summary', currentVersion: 1, immutable: true }),
   family({ id: 'test-command-epoch-validation', currentVersion: 1, immutable: true,
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/test-recovery\/epochs\/TCEV-[a-f0-9-]{36}\.json$/] }),
   family({

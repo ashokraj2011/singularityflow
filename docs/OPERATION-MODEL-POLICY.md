@@ -1010,7 +1010,9 @@ Every public operation is classified before its implementation module is importe
 | wm.rules.propose.deterministic | read | never | — | — |
 | wm.show-prompt | read | never | — | — |
 | wm.show-prompt.record-audit | mutation | never | — | — |
+| work.add | mutation | never | — | — |
 | work.plan | read | never | — | — |
+| work.skip | mutation | never | — | — |
 | work.start | mutation | never | — | — |
 | workflow.activate | mutation | never | — | — |
 | workflow.archive | mutation | never | — | — |

@@ -375,6 +375,8 @@ export async function verifyAcceptedTestCommandAmendment(root, config, workflow,
   const epoch = workflow.resolution?.testRecoveryValidationEpoch;
   if (Number(workflow.workflowSnapshot?.revision ?? 1) <= 1 && epoch == null && !(workflow.testCommandAmendments ?? []).length) return;
   verified ??= await verifyWorkflowSnapshot(root, config, workflow, { requireAccepted: true, retainBytes: true });
+  // A task's added steps have their own check, run wherever this one is [ITW:REQ-009].
+  if ((workflow.taskChanges ?? []).length) await (await import('./task-change-verify.mjs')).verifyAcceptedTaskChanges(root, config, workflow, verified);
   const relative = `${workRelative(config, workflow)}/workflow.json`;
   const bytes = exactFileAtObject(root, verified.acceptanceCommit, relative, { maximumBytes: 16 * 1024 * 1024 });
   if (!bytes) fail('The accepted runner amendment cannot be read from its publication commit.', 'TCA_AMENDMENT_STALE');

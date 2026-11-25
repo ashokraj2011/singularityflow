@@ -1651,8 +1651,9 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   // The decision list reads; only `decisions record` and a person's `decisions undo` write (its second word may be a Story ID).
   // `decisions learn` reads the advice records only [Q13].
   // Lessons read; a person's drop, keep and edit write [LRN:REQ-004].
-  // A task's plan reads; `--start` starts its Story [ITW:REQ-001].
-  if (definition.name === 'work') return optionBoolean(options, 'start') ? never('work.start', definition, 'mutation') : never('work.plan', definition, 'read');
+  // A task's plan reads; `--start` starts its Story [ITW:REQ-001]; `add` and `skip` change a started one [ITW:REQ-009].
+  if (definition.name === 'work') return ['add', 'skip'].includes(positionals[1]) ? never(`work.${positionals[1]}`, definition, 'mutation')
+    : optionBoolean(options, 'start') ? never('work.start', definition, 'mutation') : never('work.plan', definition, 'read');
   if (definition.name === 'lessons') {
     return ['drop', 'keep', 'edit', 'rule'].includes(positionals[1]) ? never(`lessons.${positionals[1]}`, definition, 'mutation') : never('lessons.list', definition, 'read');
   }
@@ -2000,6 +2001,7 @@ export function operationCatalog() {
     never('decisions.undo', commandDefinition('decisions'), 'mutation'),
     never('work.plan', commandDefinition('work'), 'read'),
     never('work.start', commandDefinition('work'), 'mutation'),
+    ...['add', 'skip'].map((name) => never(`work.${name}`, commandDefinition('work'), 'mutation')),
     never('lessons.list', commandDefinition('lessons'), 'read'),
     ...['drop', 'keep', 'edit', 'rule'].map((name) => never(`lessons.${name}`, commandDefinition('lessons'), 'mutation')),
     ...['add.preview', 'list', 'show'].map(name => never(`call.${name}`, commandDefinition('call'), 'read')),

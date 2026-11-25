@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 7
+version: 8
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -75,12 +75,18 @@ another task while one is open with `/sf-task new task: <what you want done>`.
 `sflow work status` says where the task on this checkout stands: each step and who approved it. "Fix it" after an
 investigation starts a fix from its report (`--from TASK-2`), and a task about a document pins the version it starts with
 (`--document docs/specs/export.md`). "… and open a pull request" in the first words ends the plan with one. Before a task starts, "add a design step" or "skip the plan"
-(`--add design`, `--skip plan`) changes its steps; a team rule's step, the intake and a code task's tests stay. A started
-task keeps its steps.
+(`--add design`, `--skip plan`) changes its steps; a team rule's step, the intake and a code task's tests stay.
+
+**A started task only gains steps.** "Add a design step" on a started task (`sflow work add design`) adds it where it
+goes, after the step being worked on: a review after the tests, a design or a plan before the code while the code is not
+started yet. Done steps and the current one stay exactly as they are; the steps after it read the new one. It is
+recorded with who asked, as a new version of the task's workflow, and needs no approval of its own, since it only adds
+work. A step whose place has passed is refused with the reason ("The code is already being written; a plan step goes
+before it."), and so is taking a step out after the start.
 
 ## State and safety
 
-`work` without `--start` reads only. `--start` creates the Story's branch and its record, as `start` does, under the same identity, authority, branch and publication checks. The composed steps are recorded with the Story; `singularity/workflow.yml` is never written.
+`work` without `--start` reads only. `--start` creates the Story's branch and its record, as `start` does, under the same identity, authority, branch and publication checks. The composed steps are recorded with the Story; `singularity/workflow.yml` is never written. `work add` writes one Story commit: the step, its decision record and the new version of the task's workflow; every later command checks that version against its history.
 
 ## Troubleshooting
 

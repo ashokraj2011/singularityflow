@@ -35,7 +35,7 @@ const KIND_STEPS = Object.freeze({
 });
 
 /** Where an added step goes: the order a workflow's steps keep. */
-const INTENT_ORDER = Object.freeze(['intake', 'requirements', 'design', 'plan', 'code', 'test', 'review']);
+export const INTENT_ORDER = Object.freeze(['intake', 'requirements', 'design', 'plan', 'code', 'test', 'review']);
 
 /** The packaged step each intent prefers, when the repository still has it for that intent. */
 const PREFERRED_STEP = Object.freeze({
@@ -49,7 +49,7 @@ const KIND_WORDS = Object.freeze({
 });
 
 /** A step's label in a task: what it does for this kind, in a developer's words. */
-function stepLabel(kind, intent) {
+export function taskStepLabel(kind, intent) {
   if (intent === 'intake') return 'Intake';
   if (intent === 'requirements') return 'Requirements';
   if (intent === 'plan') return kind === 'refactor' ? 'Plan: what must not change' : 'Plan';
@@ -152,13 +152,13 @@ export function pathMatches(glob, file) {
   return globPattern(glob.replace(/^\.\//u, '')).test(normalized);
 }
 
+/** The steps a person may add to a task, or take out of it before it starts, by intent [ITW:REQ-009]. */
+export const ADDABLE = Object.freeze(['requirements', 'design', 'plan', 'review']);
+
 /**
  * The composed task: its kind, its steps in order (each with the repository step it uses), the rules that added to it,
  * and the work type the Story pins. Deterministic: the same kind, definition and touched paths give the same result.
  */
-/** The steps a person may add to a task before it starts, or take out of it, by intent [ITW:REQ-009]. */
-const ADDABLE = Object.freeze(['requirements', 'design', 'plan', 'review']);
-
 export function composeTask(definition, { kind, touchedPaths = [], add = [], skip = [] } = {}) {
   if (!TASK_KINDS.includes(kind)) {
     throw taskRefusal('TASK_KIND_UNKNOWN', `'${kind}' is not a kind of task. A task is one of: ${TASK_KINDS.join(', ')}.`,
@@ -230,7 +230,7 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
         { command: 'singularity-flow start <ID> --work-type <workflow>', label: 'Start the Story with one of the repository\'s workflows instead.' },
         { kind, intent });
     }
-    return { id, intent, label: stepLabel(kind, intent) };
+    return { id, intent, label: taskStepLabel(kind, intent) };
   });
   const ids = steps.map((step) => step.id);
   if (new Set(ids).size !== ids.length) {
@@ -261,6 +261,9 @@ export function composedWorkType(definition, composition) {
       override.approval = { ...override.approval, automatic: 'off' };
       const rule = composition.rules.find((entry) => entry.because) ?? { because: 'The team\'s task rules give this step to a person.' };
       override.because = { ...(override.because ?? {}), 'approval.automatic': rule.because };
+    } else if ((composition.personKeeps ?? []).includes(step.id)) {
+      // A step a person approved before the task gained a later step stays theirs, exactly as it was [ITW:REQ-009].
+      override.approval = { ...override.approval, automatic: 'off' };
     }
     phaseOverrides[step.id] = override;
   });

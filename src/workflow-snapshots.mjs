@@ -640,6 +640,20 @@ async function validateApproverRefreshDecision(config, workId, decision, { previ
   }
 }
 
+// A step added to a started task [ITW:REQ-009]: one accepted revision, checked in workflow-snapshot-task-changes.mjs.
+const TASK_CHANGE_DIALECT = 'task-step-added/v1';
+
+export function taskChangeDecisionPath(config, workId, id) {
+  if (!/^TSC-[0-9]{3,6}$/u.test(id ?? '')) fail('Invalid task change ID.', 'WFA_AMENDMENT_INVALID');
+  return storyRelative(config, workId, `context/task-changes/${id}-decision.json`);
+}
+
+function taskChangeDecisionId(config, workId, relative) {
+  const id = /\/context\/task-changes\/(TSC-[0-9]{3,6})-decision\.json$/u.exec(relative ?? '')?.[1];
+  if (!id || taskChangeDecisionPath(config, workId, id) !== relative) fail('Task change decision is outside its immutable Story slot.', 'WFA_PATH_REFUSED');
+  return id;
+}
+
 export function assertTestCommandWorkflowScope(previous, proposed, phaseId, { replay = false, decision = null } = {}) {
   const published = decision && testCommandAmendmentVersion(decision) === 2;
   if (previous.currentPhase !== phaseId || proposed.currentPhase !== phaseId
@@ -1588,6 +1602,22 @@ export async function captureWorkflowApproverRefresh(root, config, currentWorkfl
   return reference;
 }
 
+// Only this module marks a task change's revision as its transaction's own until its commit is accepted.
+const taskChangeSnapshots = () => import('./workflow-snapshot-task-changes.mjs');
+const taskChangeInternals = () => ({ fail, verifyWorkflowSnapshot, stableFile, installBlob, captureRepositoryAsset, captureInstalledAgent,
+  validateBlobReference, storyRelative, readCommittedJson, domainHash, manifestCore, digestHex, qualified, sha256, posix, taskChangeDecisionId,
+  taskChangeDecisionPath, limits: { MAXIMUM_AMENDMENT_REVISIONS, MAXIMUM_AMENDMENT_DECISION_BYTES, MAXIMUM_ASSETS, MAXIMUM_BUNDLE_BYTES },
+  QUALIFIED_SHA256, SNAPSHOT_FAMILY, SNAPSHOT_REFERENCE_FAMILY, TASK_CHANGE_DIALECT });
+const taskChangeCall = (name) => async (...args) => (await taskChangeSnapshots())[name](taskChangeInternals(), ...args);
+export const captureTaskStepAssets = taskChangeCall('captureTaskStepAssets');
+const validateTaskChangeDecision = taskChangeCall('validateTaskChangeDecision');
+const validateAcceptedTaskChangeEvidence = taskChangeCall('validateAcceptedTaskChangeEvidence');
+export async function captureWorkflowTaskChange(root, config, currentWorkflow, proposedWorkflow, options = {}) {
+  const reference = await taskChangeCall('captureWorkflowTaskChange')(root, config, currentWorkflow, proposedWorkflow, options);
+  RETAINED_AMENDMENT_DRAFTS.set(proposedWorkflow, Object.freeze(structuredClone(reference)));
+  return reference;
+}
+
 /** True only before the exact in-memory Story object's first immutable creation commit exists. */
 export function hasRetainedWorkflowSnapshotDraft(root, config, workflow) {
   const retained = workflow && RETAINED_CREATION_DRAFTS.get(workflow);
@@ -2018,7 +2048,10 @@ function approvedAmendmentSummaries(workflow) {
   // Its exact bytes are replayed against the decision (validateAcceptedApproverRefreshEvidence).
   if (refreshes.some((entry) => entry?.kind !== 'approver-refresh-summary' || entry.status !== 'approved'
       || !Number.isSafeInteger(entry.from?.revision))) fail('Approver refresh summaries are malformed.', 'WFA_AMENDMENT_INVALID');
-  return [...amendmentSummaries(workflow).filter((entry) => entry?.status === 'approved'), ...testCommands, ...refreshes]
+  const taskChanges = workflow?.taskChanges ?? [];
+  if (!Array.isArray(taskChanges) || taskChanges.length > MAXIMUM_AMENDMENT_REVISIONS || taskChanges.some((entry) => entry?.kind
+    !== 'task-change-summary' || !Number.isSafeInteger(entry.from?.revision))) fail('Task change summaries are malformed.', 'WFA_AMENDMENT_INVALID');
+  return [...amendmentSummaries(workflow).filter((entry) => entry?.status === 'approved'), ...testCommands, ...refreshes, ...taskChanges]
     .sort((left, right) => left.from.revision - right.from.revision);
 }
 
@@ -2579,8 +2612,10 @@ async function acceptedAmendmentChain(root, config, workId, requestedReference, 
     const decisionPath = manifest.amendment.decisionPath;
     const testCommand = TEST_COMMAND_AMENDMENT_DIALECTS.includes(manifest.semantics?.amendment);
     const approverRefresh = manifest.semantics?.amendment === APPROVER_REFRESH_DIALECT;
+    const taskChange = manifest.semantics?.amendment === TASK_CHANGE_DIALECT;
     if (testCommand) testCommandDecisionId(config, workId, decisionPath);
     else if (approverRefresh) approverRefreshDecisionId(config, workId, decisionPath);
+    else if (taskChange) taskChangeDecisionId(config, workId, decisionPath);
     else amendmentDecisionId(config, workId, decisionPath);
     if (firstAddedCommit(root, decisionPath,
       `Workflow snapshot revision ${revision} decision`) !== commit) {
@@ -2602,7 +2637,8 @@ async function acceptedAmendmentChain(root, config, workId, requestedReference, 
         'WFA_AMENDMENT_INVALID');
     }
     const validateEvidence = testCommand ? validateAcceptedTestCommandEvidence
-      : approverRefresh ? validateAcceptedApproverRefreshEvidence : validateAcceptedAmendmentEvidence;
+      : approverRefresh ? validateAcceptedApproverRefreshEvidence
+        : taskChange ? validateAcceptedTaskChangeEvidence : validateAcceptedAmendmentEvidence;
     await validateEvidence(root, config, workId, {
       workflow: committedWorkflow, workflowRelative: initial.workflowRelative,
       previousReference: previous, previousCommit, acceptanceCommit: commit,
@@ -2864,7 +2900,7 @@ function assertSkillPackageClosure(manifest, storedVersion, policy, assetByLogic
     }
     return;
   }
-  if (storedVersion === 3 && [...TEST_COMMAND_AMENDMENT_DIALECTS, APPROVER_REFRESH_DIALECT].includes(manifest.semantics?.amendment) && !selected.length) {
+  if (storedVersion === 3 && [...TEST_COMMAND_AMENDMENT_DIALECTS, APPROVER_REFRESH_DIALECT, TASK_CHANGE_DIALECT].includes(manifest.semantics?.amendment) && !selected.length) {
     if (!Array.isArray(manifest.skillPackages) || declared.length
         || [...assetByLogicalId.values()].some((asset) => asset.purpose === 'skill-package-file')
         || manifest.semantics.snapshot !== 'wfa-snapshot-v3' || manifest.semantics.policyReaderMinimum !== 5
@@ -2995,8 +3031,10 @@ async function verifyWorkflowSnapshotCore(root, config, workflow, options = {}) 
       if (previous) {
         const testCommand = TEST_COMMAND_AMENDMENT_DIALECTS.includes(current.manifest?.semantics?.amendment);
         const approverRefresh = current.manifest?.semantics?.amendment === APPROVER_REFRESH_DIALECT;
+        const taskChange = current.manifest?.semantics?.amendment === TASK_CHANGE_DIALECT;
         const validateDecision = testCommand ? validateTestCommandDecision
-          : approverRefresh ? validateApproverRefreshDecision : validateAmendmentDecision;
+          : approverRefresh ? validateApproverRefreshDecision
+            : taskChange ? validateTaskChangeDecision : validateAmendmentDecision;
         await validateDecision(config, workflow.workItem.id, authority.decision, {
           previous: {
             reference: previous.reference,
@@ -3008,7 +3046,8 @@ async function verifyWorkflowSnapshotCore(root, config, workflow, options = {}) 
           },
           decisionPath: authority.decisionPath
         });
-        assertAmendmentClosureScope(previous.result, current, testCommand || approverRefresh ? null : authority.decision.to.skillId);
+        if (taskChange) await taskChangeCall('assertTaskChangeClosureScope')(previous.result, current, authority.decision);
+        else assertAmendmentClosureScope(previous.result, current, testCommand || approverRefresh ? null : authority.decision.to.skillId);
         if (current.manifest?.amendment?.decisionPath !== authority.decisionPath
             || current.manifest?.createdAt !== authority.decision.approvedAt
             || current.manifest?.parentSnapshotHash !== previous.reference.snapshotHash) {

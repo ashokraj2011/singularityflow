@@ -38,8 +38,8 @@ const fail = (message, code = 'APR_REFRESH_REFUSED', details = undefined) => {
 };
 const same = (left, right) => canonicalJson(left) === canonicalJson(right);
 
-/** The appeal, risk and dispute records a refresh would make stale, each with its way out. */
-async function staleningRecords(root, config, workflow, at) {
+/** The appeal, risk and dispute records a refresh (or a step added to a task) would make stale, each with its way out. */
+export async function staleningRecords(root, config, workflow, at) {
   const records = [];
   if (workflow.phaseAppeals?.length) {
     const { phaseAppealStatus } = await import('./phase-appeals.mjs');

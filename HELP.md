@@ -4346,6 +4346,7 @@ singularity-flow knowledge import <REPOSITORY-RELATIVE-MANIFEST.json|yaml|yml> [
 singularity-flow lessons [list|drop|keep|edit|rule] [K-ID] [--path PATH] [--story WORK-ID] [--text TEXT] [--json]
 singularity-flow work "<words>" [--kind KIND] [--path FILE]... [--start] [--work-id ID] [--base BRANCH] [--from TASK-ID] [--document FILE]... [--add STEP]... [--skip STEP]... [--new] [--json]
 singularity-flow work status [TASK-ID] [--json]
+singularity-flow work add requirements|design|plan|review [--work-id ID] [--json]
 singularity-flow capability tree|show|of|add|set|remove|map|edit|organisation|leads
 singularity-flow hook turn-intent|turn-end|agent-start|session-start|agent-guard
 singularity-flow env status|audit|bind|unbind ...

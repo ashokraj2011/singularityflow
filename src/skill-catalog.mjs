@@ -27,7 +27,7 @@ import path from 'node:path';
 import { compareVersions } from './marketplace.mjs';
 import { STEP_INTENTS } from './phase-roles.mjs';
 import { composeTask, storyComposition, TASK_KINDS } from './task-composition.mjs';
-import { chooseTaskSkills, definitionStepIntent, librarySkillCandidate, marketplaceSkillCandidate } from './task-skills.mjs';
+import { chooseTaskSkills, definitionStepIntent, librarySkillCandidate, marketplaceSkillCandidate, sameMarketplaceTrust } from './task-skills.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const SKILL_CATALOG_RESULT = 'skill-catalog';
@@ -320,8 +320,6 @@ const NOT_APPROVED_WORDS = Object.freeze({
   changed: 'Your working copy of workflow.yml reads it elsewhere (another commit or index), and that is not approved yet: these are the skills Stories use.',
   removed: 'Your working copy of workflow.yml stops trusting it, and that is not approved yet: Stories still use it.'
 });
-const sameTrust = (left, right) => ['repository', 'ref', 'commit', 'index'].every((key) => (left[key] ?? null) === (right[key] ?? null))
-  && JSON.stringify([...(left.allowedOrigins ?? [])].sort()) === JSON.stringify([...(right.allowedOrigins ?? [])].sort());
 
 /**
  * What this checkout's own workflow.yml trusts that the approved configuration does not, or trusts otherwise: each
@@ -332,7 +330,7 @@ export function unapprovedMarketplaces(approved = {}, working = {}) {
   const found = [];
   for (const id of [...new Set([...Object.keys(approved), ...Object.keys(working)])].sort(byText)) {
     const here = working[id]; const there = approved[id];
-    const change = here && !there ? 'added' : there && !here ? 'removed' : sameTrust(here, there) ? null : 'changed';
+    const change = here && !there ? 'added' : there && !here ? 'removed' : sameMarketplaceTrust(here, there) ? null : 'changed';
     if (!change) continue;
     const entry = here ?? there;
     found.push({ id, label: entry.label ?? id, kind: entry.repository ? 'repository' : 'index', change, words: NOT_APPROVED_WORDS[change] });

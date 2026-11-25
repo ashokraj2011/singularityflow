@@ -461,3 +461,24 @@ test('ITW REQ-010: an index marketplace\'s listing is read again after an hour, 
   assert.deepEqual(chosen.offers.map(({ id, marketplace, steps }) => [id, marketplace, steps]), [['web-checks', 'team', ['implementation']]]);
   assert.deepEqual(chosen.notes, []);
 });
+
+test('ITW A7: a marketplace only a working-copy edit of workflow.yml trusts is not trusted yet: no task offers its skills and no preview reads it', async (t) => {
+  const catalog = await indexMarketplace(t, [{ id: 'web-checks', label: 'Web checks', tags: ['web', 'ga'], phases: ['implementation'], text: WEB_CHECKS }]);
+  const story = await journeyRepository(t, { files: { 'package.json': WEB_PACKAGE }, env: { SINGULARITY_FLOW_TEST_REMOTE_FIXTURES: catalog.directory } });
+  // The approved configuration, sflow/config on the remote (and its tracking ref here), trusts no marketplace.
+  story.git('push', '-q', 'origin', 'main:sflow/config');
+  story.git('fetch', '-q', 'origin');
+  const configuration = YAML.parse(await story.read('singularity/workflow.yml'));
+  configuration.marketplaces = { team: { label: 'Team catalog', index: catalog.index, allowedOrigins: ['https://cdn.example.org'] } };
+  await story.write('singularity/workflow.yml', YAML.stringify(configuration));
+  const shown = json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json'));
+  assert.equal(shown.offers, undefined);
+  assert.deepEqual(shown.notes, ['Marketplace team is trusted only in your working copy of workflow.yml, and that is not approved yet, so its skills are not offered.']);
+  const preview = refused(story, ['import', 'preview', 'market:team/web-checks', '--as', 'skill']);
+  assert.equal(preview.code, 'MARKETPLACE_UNKNOWN');
+  assert.equal(preview.details.nextAction, 'singularity-flow marketplace list');
+  // Once approved, the same marketplace is offered.
+  story.git('commit', '-qam', 'Trust the team catalog');
+  story.git('push', '-q', 'origin', 'main:sflow/config');
+  assert.deepEqual(json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json')).offers.map((offer) => offer.id), ['web-checks']);
+});

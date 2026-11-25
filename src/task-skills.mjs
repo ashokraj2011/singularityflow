@@ -293,6 +293,22 @@ export async function trustedIndexMarketplaceSkills(root, marketplace, { fetchIm
   return skills;
 }
 
+/** Whether two `marketplaces:` entries trust the same thing: the same repository and commit, or the same index and origins. */
+export const sameMarketplaceTrust = (left, right) => ['repository', 'ref', 'commit', 'index'].every((key) => (left[key] ?? null) === (right[key] ?? null))
+  && JSON.stringify([...(left.allowedOrigins ?? [])].sort()) === JSON.stringify([...(right.allowedOrigins ?? [])].sort());
+
+/**
+ * The marketplaces the approved configuration trusts, from this clone's own refs (no fetch), or null when no approved
+ * configuration is known here and the working tree is the configuration. A marketplace only a working-copy edit trusts is
+ * not trusted yet (A7).
+ */
+async function approvedMarketplaces(root) {
+  const [{ withApprovedConfigurationRead }, { configuredMarketplaces }] = await Promise.all([
+    import('./approved-configuration-reader.mjs'), import('./marketplace.mjs')]);
+  return withApprovedConfigurationRead(root, (authority) => (authority && authority.kind !== 'working-tree' ? configuredMarketplaces(root) : null),
+    { preferAuthority: true, refreshAuthority: false, selectPaths: ['singularity/workflow.yml'] });
+}
+
 /** A trusted marketplace's skills, as each kind is read: a Git repository at its commit, an index through its listing. */
 export function trustedSkillsOf(root, marketplace, options = {}) {
   return marketplace.repository ? trustedMarketplaceSkills(root, marketplace) : trustedIndexMarketplaceSkills(root, marketplace, options);
@@ -322,7 +338,12 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
     const bare = composition.steps.filter((step) => !fromLibrary.byStep[step.id]?.length);
     const namedElsewhere = use.some((id) => !candidates.some((entry) => entry.id === id));
     if ((bare.length || namedElsewhere) && marketplaces.length) {
+      const approved = await approvedMarketplaces(root).catch(() => null);
       for (const marketplace of marketplaces) {
+        if (approved && !(approved[marketplace.id] && sameMarketplaceTrust(approved[marketplace.id], marketplace))) {
+          notes.push(`Marketplace ${marketplace.id} is trusted only in your working copy of workflow.yml, and that is not approved yet, so its skills are not offered.`);
+          continue;
+        }
         try {
           candidates.push(...(await trustedSkillsOf(root, marketplace, { fetchImpl })).map((entry) => marketplaceSkillCandidate(entry, marketplace.id, { stepIntent })));
         } catch (error) {

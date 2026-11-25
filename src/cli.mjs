@@ -3943,10 +3943,12 @@ async function importCommand(positionals, options) {
   const json = optionBoolean(options, 'json');
   if (action === 'preview') {
     const reference = requirePositional(positionals, 2, 'link to import');
-    const preview = await previewImport(root, reference, {
+    // A marketplace or MCP server is the one the approved configuration trusts, as `marketplace browse` reads it: an
+    // edit of workflow.yml that is not approved yet trusts nothing (ITW A7).
+    const preview = await withApprovedConfigurationRead(root, () => previewImport(root, reference, {
       as, id: optionString(options, 'id'), maxBytes: optionNumber(options, 'max-bytes') ?? undefined,
       launch: optionBoolean(options, 'launch'), arguments: importArguments(options)
-    });
+    }), { preferAuthority: true });
     const command = importAddCommandLine(reference, {
       as: preview.as, agent: optionString(options, 'agent'), id: preview.id ?? importIdFromLink(reference), sha256: preview.sha256
     });

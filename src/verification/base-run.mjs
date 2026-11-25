@@ -166,10 +166,12 @@ export function baseComparison(result, { here = [], hereMessages = null, hereNod
  * What the kept base runs say about a step's test-run risks, by command ID [owner, 2026-11-16]: `checked` with the
  * comparison's verdict when a run of that command on the base commit is kept, else `unknown` (`cutShort` when the last
  * try ran out of time). With the verdict, the failing tests by name: those that fail only with the change (`onlyHere`)
- * and those that failed without it too (`alsoOnBase`), which a refactor's test step reads [ITW:REQ-015]. Reads only what
- * is kept; runs nothing.
+ * and those that failed without it too (`alsoOnBase`), which a refactor's steps read [ITW:REQ-015]. `phase` is the code
+ * step whose commands `tests base` runs; `here`, the step whose runs are compared (that step by default; a refactor's test
+ * step runs the same repository tests after it), and `pick` the run of each command compared (its latest by default).
+ * Reads only what is kept; runs nothing.
  */
-export async function baseCheckFacts(root, config, workflow, phase, commandIds) {
+export async function baseCheckFacts(root, config, workflow, phase, commandIds, { here: herePhase = phase, pick = (runs) => runs.at(-1) } = {}) {
   const baseCommit = storyBaseCommit(workflow, phase);
   const found = new Map();
   if (!baseCommit || !commandIds.length) return found;
@@ -177,16 +179,25 @@ export async function baseCheckFacts(root, config, workflow, phase, commandIds) 
     import('../local-test-runs.mjs'), import('./attempts.mjs'), import('../story-paths.mjs')]);
   const { commands } = await resolveStoryLocalTestCommands(root, config, workflow, { phaseId: phase.id });
   // Every run of the step, a local one too, as `tests base` compares them: the latest of each command is "here".
-  const attempts = await stepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id).catch(() => []);
+  const attempts = await stepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, herePhase.id).catch(() => []);
+  // Another step's check of the same program in the same folder is the code step's command under its own ID (a test
+  // step's `node-tests` is the code step's `.-node-tests`).
+  const sameProgram = (id) => {
+    const check = herePhase === phase ? null : (herePhase.checks ?? []).find((entry) => entry?.id === id);
+    return check?.command ? commands.find((entry) => (entry.command ?? (entry.argv ?? []).join(' ')) === check.command
+      && (entry.workingDirectory ?? '.') === (check.workingDirectory ?? '.')) ?? null : null;
+  };
   for (const id of commandIds) {
-    const selected = commands.find((entry) => entry.id === id);
+    const selected = commands.find((entry) => entry.id === id) ?? sameProgram(id);
     if (!selected) continue;
     const command = selected.testScope?.baseCommand ?? selected;
     const { version } = await storyTestNode(root, path.join(root, command.workingDirectory ?? '.'));
     const key = baseRunKey(baseCommit, command, version);
     const kept = await readJson(cachePath(root, key));
+    const attempt = pick(attempts.filter((entry) => entry.commandId === id));
+    // Another step's run that is not kept here tells nothing: never read as a run that passed.
+    if (!attempt && herePhase !== phase) { found.set(id, { status: 'unknown', notRun: true }); continue; }
     if (freshBaseRun(kept)) {
-      const attempt = attempts.filter((entry) => entry.commandId === id).at(-1);
       const here = attempt && attempt.status !== 'passed' ? failedNames(attempt.occurrences) : [];
       // The verdict alone: its words name the base commit, which a person never reads.
       const { verdict, onlyHere, alsoOnBase } = baseComparison(kept, { here, hereNode: attempt?.environment?.toolchain?.node ?? null,

@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 17
+version: 18
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -18,7 +18,7 @@ Say what you want done and SFlow does the rest of the setting up: `/sf-task fix 
 | fix, chore | intake → code → tests |
 | change | intake → plan → code → tests |
 | feature | intake → requirements → plan → code → tests |
-| refactor | intake → plan (what must not change) → code → tests; before any edit, the tests run once on the base (`sflow tests base`), and the test step compares its run with it: a test that passed before and fails after is a behaviour change, one that failed before is a finding |
+| refactor | intake → plan (what must not change) → code → tests; before any edit, the tests run once on the base (`sflow tests base`), and the code step and the test step compare their runs with it: a test that passed before and fails after is a behaviour change, one that failed before is a finding |
 | tests | intake → write the tests → tests |
 | docs | intake → write the document (kept with the Story; a later task starts from it with `--from`) |
 | investigate | intake → investigate, ending with a report; no code changes |
@@ -99,7 +99,8 @@ Use this topic to start work by saying what you want done. The repository must u
 While a task is open, words after `/sf-task` belong to it: an answer to its question, or a change you want. Start
 another task while one is open with `/sf-task new task: <what you want done>`.
 
-`sflow work status` says where the task on this checkout stands: each step and who approved it. "Fix it" after an
+`sflow work status` says where the task on this checkout stands: each step and who approved it, and once it is done the
+checks that ran. "Fix it" after an
 investigation starts a fix from its report (`--from TASK-2`), and a task about a document pins the version it starts with
 (`--document docs/specs/export.md`). "… and open a pull request" in the first words ends the plan with one. Before a task starts, "add a design step" or "skip the plan"
 (`--add design`, `--skip plan`) changes its steps; a team rule's step, the intake and a code task's tests stay.
@@ -124,10 +125,20 @@ one line, SFlow adds a plan step before the code and returns the code to it, so 
 code is kept on the branch; once the plan is approved SFlow starts the code's next version itself, and you approve the
 code as before. Nothing else asks you anything. Tests' own files never count.
 
-**A refactor that changes behaviour.** Run its `task.before` (`sflow tests base`) before any edit. When the refactor's
-tests fail, the test step stops and names each test that passed before and fails after. You choose: keep the old
-behaviour (the code step's next version restores it) or accept the new one (the task becomes a change, and its plan is
-revised first). A test that already failed before is a finding the refactor does not approve.
+**A refactor that changes behaviour.** Run its `task.before` (`sflow tests base`) before any edit: it runs the code
+step's tests on the base. The code step runs the same tests before it is published, so a behaviour change usually shows
+there first: when a test that passed before fails in a run of the code being written, the code step stops and names it,
+and its author changes nothing for it until you choose. Keep the old behaviour (`sflow work behaviour keep`: the code
+step goes on and restores it) or accept the new one (`sflow work behaviour accept`: the code goes back to the plan, the
+task becomes a change, and SFlow starts the plan's next version to say what changes; the code waits for it as it is).
+Only you run either: Copilot never runs them for you. A later run that passes again does not lift the stop; your choice
+does. The test step compares its own run the same way. A test that already failed before is a finding the refactor does
+not approve.
+
+**What no check covered.** A refactor's plan lists what must not change in its planned evidence rows, with the tests
+that show each. When the task is done, `sflow work status` says the checks that ran and, for a refactor, each row no
+check covered: one whose tests are `not-applicable:`, or name no file a passing test ran in ("Not covered by any check:
+The log line keeps its format."). A refactor is never reported as safer than what ran.
 
 ## Tasks from Ask SFlow evidence
 

@@ -773,7 +773,7 @@ export async function changeTaskKind(root, config, workflow, { from, to, because
 export async function acceptBehaviourAfterReturn(root, workId, phaseId, changeRequestId, { actor = null } = {}) {
   const [{ loadAcceptedStoryExecution }, composer, rules] = await Promise.all([import('./accepted-story-execution.mjs'), import('./task-composition.mjs'),
     import('./failing-tests-return.mjs')]);
-  let { config, workflow } = await loadAcceptedStoryExecution(root, workId);
+  const { config, workflow } = await loadAcceptedStoryExecution(root, workId);
   const composition = composer.storyComposition(workflow);
   const plan = composition?.steps?.find((step) => step.intent === 'plan');
   const request = (workflow.changeRequests ?? []).find((entry) => entry.id === changeRequestId);
@@ -783,7 +783,48 @@ export async function acceptBehaviourAfterReturn(root, workId, phaseId, changeRe
   const failed = rules.failingTestChecks(test);
   const check = failed ? await rules.refactorAfterCheck(root, config, workflow, test, failed) : null;
   if (!check?.changed.length) return null;
-  const checks = rules.checkNames(check.changed);
+  return becomeChange(root, workId, { plan, request, from: test, checks: rules.checkNames(check.changed), actor });
+}
+
+/**
+ * A person's acceptance of a refactor's new behaviour while its code step is written, before any version of it was
+ * published (refactor-behaviour.mjs) [ITW:REQ-015]: the code step goes back to the plan by the person's own return, its
+ * open version and code kept in place for it (amended-drafts.mjs holdReturnedCode), and the task becomes a change as at
+ * the test step (becomeChange). The code step's author then goes on in that same version once the plan is approved.
+ */
+export async function acceptBehaviourAtCode(root, workId, phaseId, { checks, actor }) {
+  const [{ loadAcceptedStoryExecution }, composer, { rejectPhase, transactStory }, { LIFECYCLE_EVENT }] = await Promise.all([
+    import('./accepted-story-execution.mjs'), import('./task-composition.mjs'), import('./state-stores.mjs'), import('./lifecycle-event.mjs')]);
+  const { config, workflow } = await loadAcceptedStoryExecution(root, workId);
+  const composition = composer.storyComposition(workflow);
+  const plan = composition?.steps?.find((step) => step.intent === 'plan');
+  const code = workflow.phases?.[phaseId];
+  if (composition?.kind !== 'refactor' || !plan || workflow.currentPhase !== phaseId || !(workflow.phaseOrder ?? []).includes(plan.id)) {
+    throw refused(`${workflow.workItem.id} is not a refactor with a plan whose code is being written, so it does not become a change from here.`, statusAction(workflow.workItem.id));
+  }
+  const listed = `${checks.slice(0, 4).join(', ')}${checks.length > 4 ? ` and ${checks.length - 4} more` : ''}`;
+  const reason = `Accept the new behaviour: ${listed} behave differently after the change, as the person chose. Revise the plan to say what changes; the code and its tests follow it.`;
+  const { value: returned } = await transactStory(root, config, workflow,
+    { type: LIFECYCLE_EVENT.PHASE_REJECTED, phaseId, generation: code.generation, actor, agent: null, authorityGroup: null, payload: { targetPhaseId: plan.id } },
+    `[${workflow.workItem.id}][phase:${phaseId}][reject] return to ${plan.id}: the refactor's new behaviour accepted`,
+    (aggregate) => rejectPhase(root, config, aggregate, { phaseId, target: plan.id, reason, actor, agent: null, behaviourChange: { checks } }),
+    { eventFromResult: (transition) => ({ payload: { targetPhaseId: plan.id, changeRequestId: transition.changeRequest.id } }) });
+  const { workflow: after } = await loadAcceptedStoryExecution(root, workId);
+  const request = (after.changeRequests ?? []).find((entry) => entry.id === returned.changeRequest?.id);
+  const accepted = await becomeChange(root, workId, { plan, request, from: code, checks, actor });
+  // The plan's agent takes the session, as after any return (reject).
+  const current = await loadAcceptedStoryExecution(root, workId);
+  await (await import('./session.mjs')).activateWorkItemSession(root, current.config, current.workflow).catch(() => null);
+  return accepted;
+}
+
+/**
+ * Once a person returned a refactor to its plan to accept its new behaviour: the task becomes a change (changeTaskKind)
+ * and SFlow starts the plan's next version, the revised plan, settled with an undo [ITW:REQ-015].
+ */
+async function becomeChange(root, workId, { plan, request, from, checks, actor }) {
+  const { loadAcceptedStoryExecution } = await import('./accepted-story-execution.mjs');
+  let { config, workflow } = await loadAcceptedStoryExecution(root, workId);
   const listed = `${checks.slice(0, 4).join(', ')}${checks.length > 4 ? ` and ${checks.length - 4} more` : ''}`;
   const changed = await changeTaskKind(root, config, workflow, { from: 'refactor', to: 'change', changeRequest: request.id,
     because: `A person accepted the new behaviour: ${listed} behave differently after the change.`, checks });
@@ -794,11 +835,11 @@ export async function acceptBehaviourAfterReturn(root, workId, phaseId, changeRe
     opened = await openSettledVersion(root, config, workflow, step, { actor,
       subject: `${plan.id} version ${step.generation}: its revision for the refactor's accepted new behaviour`,
       answer: (next) => `Started version ${next} of ${stepName(step)} to say what changes`,
-      evidence: [{ what: `a person returned ${stepName(test)} to ${stepName(step)} to accept the new behaviour of ${listed}`, where: request.id }],
+      evidence: [{ what: `a person returned ${stepName(from)} to ${stepName(step)} to accept the new behaviour of ${listed}`, where: request.id }],
       effect: { changeRequest: request.id } });
   } catch (error) {
     if (!error?.code) throw error;
   }
-  return { changeId: changed.changeId, kind: 'change', checks, ...(opened ? { opened } : {}),
+  return { changeId: changed.changeId, kind: 'change', checks, changeRequest: request.id, ...(opened ? { opened } : {}),
     line: `The refactor is a change now: you accepted the new behaviour of ${listed}. ${opened ? `SFlow started version ${opened.generation} of ${stepName(step)}, which says what changes` : `Revise ${stepName(step)} to say what changes`}; the code and its tests follow it.` };
 }

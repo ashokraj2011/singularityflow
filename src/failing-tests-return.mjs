@@ -219,17 +219,30 @@ async function riskEligibleRun(root, phase, failed) {
 const named = (list, limit = 4) => `${list.slice(0, limit).join(', ')}${list.length > limit ? ` and ${list.length - limit} more` : ''}`;
 
 /**
- * A refactor's test step after the change [ITW:REQ-015]: each failed test command's latest run against its run on the
- * Story's base, which the start's `task.before` (`tests base`) kept (verification/base-run.mjs baseCheckFacts). A test
- * that passed before and fails after is a behaviour change (`changed`); one that failed before too stays a finding
- * (`before`); a command with no run before the change kept, or one on another Node, cannot be told (`unknown`). Reads only
- * what is kept; runs nothing. Null when the Story is not a refactor.
+ * The code step whose repository tests a refactor's checks are (`tests base` runs a code step's commands): `phase` itself
+ * when it is one, else the nearest code step before it. Null when there is none. Pure.
  */
-export async function refactorAfterCheck(root, config, workflow, phase, failed) {
+export function refactorCodeStep(workflow, phase) {
+  if (phaseRequiresCodeDelivery(phase)) return phase;
+  const order = workflow?.phaseOrder ?? [];
+  return order.slice(0, Math.max(0, order.indexOf(phase?.id))).reverse().map((id) => workflow.phases?.[id]).find((step) => phaseRequiresCodeDelivery(step)) ?? null;
+}
+
+/**
+ * A refactor's step after the change [ITW:REQ-015]: each failed test command's latest run, at the code step or at the test
+ * step after it, against its run on the Story's base, which the start's `task.before` (`tests base`, on the code step's
+ * commands) kept (verification/base-run.mjs baseCheckFacts). A test that passed before and fails after is a behaviour
+ * change (`changed`); one that failed before too stays a finding (`before`); a command with no run before the change kept,
+ * or one on another Node, cannot be told (`unknown`). `pick` chooses the run compared among a command's runs of `phase`
+ * (the latest by default). Reads only what is kept; runs nothing. Null when the Story is not a refactor.
+ */
+export async function refactorAfterCheck(root, config, workflow, phase, failed, { pick = null } = {}) {
   if (workflow?.resolution?.composition?.kind !== 'refactor' || !config) return null;
+  const code = refactorCodeStep(workflow, phase);
+  if (!code) return null;
   const { baseCheckFacts } = await import('./verification/base-run.mjs');
   const ids = [...new Set(failed.map((check) => check.id))];
-  return afterCheckOf(ids, await baseCheckFacts(root, config, workflow, phase, ids).catch(() => new Map()));
+  return afterCheckOf(ids, await baseCheckFacts(root, config, workflow, code, ids, { here: phase, ...(pick ? { pick } : {}) }).catch(() => new Map()));
 }
 
 /** The after-check from what the kept base runs say of each failed command (baseCheckFacts' map). Pure. */
@@ -278,7 +291,7 @@ export function refactorHold(workflow, phase, code, check, choices) {
   }
   if (check.unknown.length) {
     const before = { id: 'run-before', label: 'Run the checks on the base first, to tell what changed',
-      command: `singularity-flow tests base --work-id ${workflow.workItem.id} --phase ${phase.id} --within 600 --json`, skill: null };
+      command: `singularity-flow tests base --work-id ${workflow.workItem.id} --phase ${(refactorCodeStep(workflow, phase) ?? code).id} --within 600 --json`, skill: null };
     return { reason: 'no-before', choices: [before, ...choices], words: `No run before the change is kept for ${named(check.unknown)}, so SFlow cannot tell a changed behaviour from an old failure. Run them before the change: ${before.command}` };
   }
   if (check.before.length) {

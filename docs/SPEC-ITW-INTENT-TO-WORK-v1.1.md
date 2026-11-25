@@ -222,7 +222,13 @@ next action, and a start without it; in Copilot the yes confirms the import the 
 own steps, as for a marketplace skill. Once imported, the task's steps are that workflow's, the team's `always` and
 `paths` rules still adding steps and approvals, and the composition records the marketplace, the agent, its version and
 the commit its import read, so the Story's snapshot and a second laptop have the same steps. Tested by
-test/task-agents.test.mjs.)
+test/task-agents.test.mjs.) (Built 2026-11-26: walked to its end by test/journey-tasks.test.mjs, slow lane: a tests task
+from the fixture marketplace's QA agent, its workflow imported through the conversion review, followed by its routes. The
+agent's hard gate is a Story value its intake's submission records (`--decision channel=<channel>`); the route follower
+answers such a question from the journey's scripted answer per value name (`values: { channel: 'web' }`), as the agent
+asks the person in the turn the route names. The task ends closed with the agent's four steps; the person takes 5 actions:
+the words, the intake's question, the channel, and the approvals of the requirements and the tests. Not yet: the
+submission's route names the value only as `<channel>`, with neither the agent's question nor its choices.)
 
 **ITW:REQ-012, words and progress.**
 - The plan is one line.
@@ -288,6 +294,31 @@ test/task-agents.test.mjs.)
   task change that adds no step, with the checks and the return), SFlow starts the plan's next version, then the code's
   and the tests', each settled with an undo. Not yet: a journey that walks a refactor through a behaviour change end to
   end, and the last message's list of what no check covers.
+- Built 2026-11-26: the "before" never ran: `task.before` named the test step, and `tests base` runs only a code step's
+  commands (TESTS_PHASE_NOT_CODE). It names the code step now, and a refactor's test step reads its commands as the code
+  step's (`baseCheckFacts` `here`: the same program in the same folder under the test step's own ID; another step's run
+  not kept here is unknown, never a pass). **At the code step too** (`src/refactor-behaviour.mjs`): the code step runs the
+  same tests before its publication, so at every publication of a refactor's code step each command's latest failed run
+  of the version being written (the gate's or the agent's own `tests run`) is compared with the run before the change. A
+  test that passed before and failed in a run of this version stops the publication (`REFACTOR_BEHAVIOUR_CHANGED`), named,
+  with the person's two complete commands, each a person's own step the Copilot guard refuses to an agent
+  (person-step-catalog.mjs `refactor-behaviour`): `work behaviour keep` records the choice for that version
+  (`behaviourDecisions`, a DECISION_MADE commit by the step's approvers) and the author goes on in the code step, where a
+  run that still fails is its ordinary repair, told that the person kept the old behaviour; `work behaviour accept`
+  returns the code step, still being written, to the plan by the person's return (rejectPhase `behaviourChange`, its open
+  version and code kept in place, amended-drafts.mjs), the task becomes a change and SFlow starts the plan's next version,
+  settled with an undo, as at the test step; the code is then written on in the same version. The stop holds when a later
+  run of the version passes again: once SFlow saw it change behaviour, only the person's choice lets it through. **The
+  last message** (`work status` once the task is done, `src/task-checks.mjs`): the checks that ran ("Checks that ran: npm
+  test (2 tests, all passed).") and, for a refactor, each planned evidence row of its plan (the plan template's
+  machine-readable table: the clause's sentence, its Planned tests) that no check covered: tests `not-applicable:`, or no
+  passing test of a named file in any run the code or test step kept ("Not covered by any check: The log line keeps its
+  format."). Walked end to end by test/journey-tasks.test.mjs (slow lane): a refactor whose code lists two errors in
+  another order stops at its code step's gate; the person keeps the old behaviour, the code restores it, the task ends
+  with that last message (5 person actions: the words, the intake's question, the plan, the choice, the code); and one
+  where the person accepts it, which ends as a change with a revised plan (6: the revised plan's approval too). Not yet:
+  the choice on the decisions card (it is a person's terminal command today), and a test whose expectation the author
+  edits, with no run of the version failing, is not stopped.
 
 **ITW:REQ-016, documents.**
 - A `docs` task writes its document as its own step's document, kept with the Story on its branch. Git keeps its
@@ -387,7 +418,9 @@ These already hold in SFlow, and `/sf-task` keeps them:
   the journeys' counts are unchanged.
 - **A12:** "Fix it" after an investigation starts a fix whose intake is the report. No question is asked twice.
 - **A13:** A refactor that changes the order of two errors stops at its test step and names the change. A refactor with
-  every check unchanged ends by listing the checks that ran.
+  every check unchanged ends by listing the checks that ran. (Built 2026-11-26: it stops at its code step's own gate,
+  where the tests run first, and at its test step; its last message lists the checks that ran and what no check covered.
+  Walked by test/journey-tasks.test.mjs.)
 - **A14:** "Quick fix the permission check" in `src/auth/**` gets the security review step.
 - **A15:** A `fix` that turns out to need a database migration becomes a `change` with a plan approval. Its code step
   is kept.

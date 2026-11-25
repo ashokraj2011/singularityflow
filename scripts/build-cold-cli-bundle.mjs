@@ -121,7 +121,9 @@ const FAMILIES = Object.freeze([
     'commands/work.mjs', 'task-walk.mjs', 'workflow-walk/quick.mjs', 'task-composition.mjs', 'task-skills.mjs', 'imports-ledger.mjs',
     'marketplace-repository.mjs',
     // A marketplace agent offered as the task's plan [ITW:REQ-011], read with the skill chooser.
-    'task-agents.mjs']],
+    'task-agents.mjs',
+    // A refactor's behaviour choice, `work behaviour` [ITW:REQ-015].
+    'refactor-behaviour-decide.mjs']],
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs',
     // `skill catalog`, VS Code's All skills page: a broad read over the library, the trusted marketplaces and the task
     // chooser (intake, which this slot already imports). Unclaimed, each read loaded compatibility and models.

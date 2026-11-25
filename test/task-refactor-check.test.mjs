@@ -10,7 +10,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { afterCheckOf, checkNames, refactorHold } from '../src/failing-tests-return.mjs';
+import { afterCheckOf, checkNames, refactorCodeStep, refactorHold } from '../src/failing-tests-return.mjs';
+import { behaviourCommands, behaviourDecisionsOf } from '../src/refactor-behaviour.mjs';
+import { checksWords, planItems, taskChecks } from '../src/task-checks.mjs';
 import { assertTaskChangeScope, stableTaskStepState, taskChangeDigest, taskChangePolicyDigest } from '../src/task-change-contracts.mjs';
 import { journeyRepository, storyRecord } from './helpers/route-follower.mjs';
 
@@ -62,7 +64,7 @@ test('ITW REQ-015, A13: a behaviour change stops the test step, names it, and gi
   assert.deepEqual(old.choices, choices);
   const blind = refactorHold(workflow, step, code, { changed: [], before: [], unknown: ['unit'] }, choices);
   assert.equal(blind.reason, 'no-before');
-  assert.equal(blind.choices[0].command, 'singularity-flow tests base --work-id TASK-7 --phase verification --within 600 --json');
+  assert.equal(blind.choices[0].command, 'singularity-flow tests base --work-id TASK-7 --phase implementation --within 600 --json', 'the code step\'s commands run on the base');
   assert.equal(refactorHold(workflow, step, code, null, choices), null, 'not a refactor: the test step\'s own brake');
 });
 
@@ -70,7 +72,7 @@ test('ITW REQ-015: a refactor whose new behaviour is accepted becomes a change i
   const story = await journeyRepository(t);
   Object.assign(story, { workId: 'TASK-1', item: ITEM });
   const started = json(story.cli('work', 'tidy the value module', '--kind', 'refactor', '--start', '--json'));
-  assert.match(started.data?.task?.before ?? started.task?.before ?? JSON.stringify(started), /tests base --work-id TASK-1 --phase verification/u);
+  assert.match(started.data?.task?.before ?? started.task?.before ?? JSON.stringify(started), /tests base --work-id TASK-1 --phase implementation/u);
   const before = storyRecord(story);
   const because = 'A person accepted the new behaviour: \'errors come in code order\' behave differently after the change.';
   const script = `
@@ -108,4 +110,56 @@ test('ITW REQ-015: a refactor whose new behaviour is accepted becomes a change i
   const otherKind = structuredClone(decision);
   otherKind.change = { ...otherKind.change, from: 'fix' };
   assert.throws(() => assertTaskChangeScope(before.resolution, record.resolution, otherKind), /malformed|kind/u);
+});
+
+test('ITW REQ-015, A13: the last message lists the checks that ran and each thing the plan says must not change that no check covered', () => {
+  const plan = ['<!-- singularity-flow:metadata {} -->', '# TASK-7 — Plan', '', '## Planned implementation evidence', '',
+    '| Clause | Expected paths | Planned tests | Fulfillment |', '|---|---|---|---|',
+    '| `TASK-7:IFC-001` | `src/value.mjs` | `test/value.test.mjs` | modified |',
+    '| `TASK-7:CON-002` | `src/value.mjs` | not-applicable: no test reads the log line; a person reads it | modified |',
+    '| `TASK-7:BEH-003` | `src/value.mjs` | `test/other.test.mjs` | existing |', '',
+    'A missing name is still reported before a missing email. [TASK-7:IFC-001]', 'The log line keeps its format. [TASK-7:CON-002]',
+    'The errors stay plain text. [TASK-7:BEH-003]', '<!-- singularity-flow:inputs:start -->', '| Clause | Expected paths | Planned tests |', '|---|---|---|',
+    '| `TASK-7:REQ-009` | - | - |', '<!-- singularity-flow:inputs:end -->'].join('\n');
+  assert.deepEqual(planItems(plan).map((item) => [item.clause, item.words, item.tests, item.notApplicable]), [
+    ['TASK-7:IFC-001', 'A missing name is still reported before a missing email', ['test/value.test.mjs'], false],
+    ['TASK-7:CON-002', 'The log line keeps its format', [], true],
+    ['TASK-7:BEH-003', 'The errors stay plain text', ['test/other.test.mjs'], false]], 'an earlier step\'s document the plan carries as an input is not its own');
+  const receipt = { tests: { discovered: 2, passed: 2, failed: 0 }, occurrences: [{ name: 'order', file: 'test/value.test.mjs', outcome: 'passed' }] };
+  const files = { 'singularity/work-items/TASK-7/artifacts/plan.md': plan, 'runs/TA-1.json': JSON.stringify(receipt) };
+  const steps = [{ id: 'implementation-spec', intent: 'plan' }, { id: 'implementation', intent: 'code' }, { id: 'verification', intent: 'test' }];
+  const workflow = { phaseOrder: steps.map((step) => step.id), resolution: { composition: { kind: 'refactor', steps } }, phases: {
+    'implementation-spec': { status: 'approved', requiredArtifact: { path: 'artifacts/plan.md' } },
+    implementation: { status: 'approved', checks: [{ id: '.-node-tests', command: 'npm test' }],
+      deliveryEvidence: { testExecutions: [{ commandId: '.-node-tests', receiptPath: 'runs/TA-1.json', status: 'passed' }] } },
+    verification: { status: 'approved', checks: [{ id: 'node-tests', command: 'npm test' }],
+      stepTestRuns: { testExecutions: [{ commandId: 'node-tests', receiptPath: 'runs/TA-1.json', status: 'passed', counts: receipt.tests }] } } } };
+  const read = (relative) => files[relative] ?? null;
+  const checks = taskChecks(workflow, read, { item: 'singularity/work-items/TASK-7' });
+  assert.deepEqual(checks, { ran: ['npm test (2 tests, all passed)'], items: 3, notCovered: ['The log line keeps its format', 'The errors stay plain text'] },
+    'the same command run by the code step and reused by the test step is one check; a row whose tests never passed in a run is not covered');
+  assert.equal(checksWords(checks), ' Checks that ran: npm test (2 tests, all passed). Not covered by any check: The log line keeps its format; The errors stay plain text.');
+  // A change has no list of what must not change: only the checks that ran.
+  const change = structuredClone(workflow);
+  change.resolution.composition.kind = 'change';
+  assert.deepEqual(taskChecks(change, read, { item: 'singularity/work-items/TASK-7' }), { ran: ['npm test (2 tests, all passed)'] });
+  // The checks are the code step's tests: the test step's own are read as the code step's commands.
+  const code = { id: 'implementation', generation: { task: 'code' } };
+  assert.equal(refactorCodeStep({ phaseOrder: workflow.phaseOrder, phases: { implementation: code } }, { id: 'verification' }), code);
+  assert.equal(refactorCodeStep({ phaseOrder: workflow.phaseOrder, phases: { implementation: code } }, code), code);
+  assert.equal(refactorCodeStep({ phaseOrder: ['intake', 'design'], phases: {} }, { id: 'design' }), null);
+});
+
+test('ITW REQ-015: keeping or accepting a refactor\'s behaviour is the person\'s own step, by complete commands, recorded per version', async () => {
+  const { keep, accept } = behaviourCommands('TASK-7');
+  assert.equal(keep, 'singularity-flow work behaviour keep --work-id TASK-7');
+  assert.equal(accept, 'singularity-flow work behaviour accept --work-id TASK-7');
+  const { ownTerminalStep, skillForCommandLine } = await import('../src/command-skills.mjs');
+  for (const command of [keep, accept]) {
+    assert.equal(ownTerminalStep(command), 'refactor-behaviour', 'the Copilot guard refuses it to an agent');
+    assert.equal(skillForCommandLine(command), null, 'no skill runs it');
+  }
+  const workflow = { behaviourDecisions: [{ id: 'BHV-001', phase: 'implementation', generation: 1, choice: 'keep', checks: ['\'order\''] },
+    { id: 'BHV-002', phase: 'implementation', generation: 2, choice: 'keep', checks: ['\'format\''] }] };
+  assert.deepEqual(behaviourDecisionsOf(workflow, { id: 'implementation' }, 2).map((entry) => entry.id), ['BHV-002'], 'a choice is for the version it was made on');
 });

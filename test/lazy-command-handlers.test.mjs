@@ -1039,7 +1039,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // that does not parse, with the packaged-or-edited test it asks first on (skill-library-problems.mjs). No new eager file.
     // 9,898,216 (measured for submit.mjs on itw-all2 with itw-market2 and itw-turn, 2026-11-26): the two branches' rises together (restore and
     // marketplace routes; a task's turn carried on in chat). No new eager file.
-    assert.ok(closure.bytes <= 9_898_216, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,896,006 (measured for submit.mjs, +1,461 over 9,894,545 at eb20cd6a4, 2026-11-26 on itw-walks): a refactor's code step
+    // stops on a behaviour change before its publication and a person's acceptance returns it to its plan (state.mjs), and
+    // `work behaviour` is a person's own step and a registered mutation (person-step-catalog.mjs, command-registry.mjs)
+    // [ITW:REQ-015]; the check, the choice and the last message's checks load only for a task. No new eager file.
+    // 9,899,677 (measured for submit.mjs on itw-all2 with itw-walks merged, 2026-11-26): the rises above together. No new eager file.
+    assert.ok(closure.bytes <= 9_899_677, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1220,7 +1225,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 879,142 (measured on itw-all with itw-store, 2026-11-25): `marketplace catalog` registered (command-registry.mjs). No new eager file.
   // 879,356 (+214, measured 2026-11-26 on itw-market2): `marketplace catalog --newest` and `skill restore --discard-edits`
   // read as flags (util.mjs), and `skill restore` registered (command-registry.mjs). No new eager file.
-  assert.ok(root.bytes <= 879_356, `root dispatch loads ${root.bytes} source bytes`);
+  // 879,170 (measured, +28, 2026-11-26 on itw-walks): `work behaviour` registered as a mutation (command-registry.mjs)
+  // [ITW:REQ-015]. No new eager file.
+  // 879,384 (measured on itw-all2 with itw-walks merged, 2026-11-26): `work behaviour` and the marketplace's new options registered. No new eager file.
+  assert.ok(root.bytes <= 879_384, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1626,7 +1634,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,361,439 (+3,046 from 4,358,393 on its base eb20cd6a4, measured 2026-11-26 on itw-market2): an index listing past its
   // hour asks whether it changed (remote-fetch.mjs, marketplace.mjs), the new flags (util.mjs) and `skill restore` and
   // /sf-marketplace in the tables the guard reads (command-registry.mjs, command-skills.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_361_439, `session current loads ${current.bytes} source bytes`);
+  // 4,361,681 (measured on itw-all2 with itw-walks merged, 2026-11-26): the rises above together. No new eager file.
+  assert.ok(current.bytes <= 4_361_681, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

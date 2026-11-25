@@ -85,6 +85,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
     && !(options.choose !== undefined && options.answers === undefined
       && [options.choose].flat().every((entry) => typeof entry === 'string' && CHAT_CHOICE.test(entry)))],
   ['set-aside', ([command], options) => command === 'recover' && options['set-aside'] === true],
+  // Keeping or accepting what a refactor changed is the person's, never its author's [ITW:REQ-015, refactor-behaviour.mjs].
+  ['refactor-behaviour', ([command, sub]) => command === 'work' && sub === 'behaviour'],
   // Without --confirm it is a preview anyone may run.
   ['publication-set-aside', ([command, sub], options) => (command === 'sync' || (command === 'initiative' && sub === 'sync'))
     && options['set-aside'] === true && confirming(options)],

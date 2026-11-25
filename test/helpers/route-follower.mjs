@@ -53,6 +53,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { childTimeout } from './child-timeout.mjs';
+import { ownTerminalStep } from '../../src/command-skills.mjs';
 import { ISOLATED_RUN_SWITCHES, MACHINE_STATE_LOCATIONS } from '../../src/machine-state-locations.mjs';
 
 const REPOSITORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -115,8 +116,10 @@ export function skillEntries(skillsRoot = SKILLS) {
     const oneWorkCommand = /`\/sf-code` and `\/sf-phase` are one work command/u.test(body);
     // /sf-task on an open task: "anything else: do the current step's own work in this turn, from `<entry>`" [ITW:REQ-008].
     const stepWork = /anything else: do the current step's own work in this turn, from `(singularity-flow [^`]+)`/u.exec(own.join('\n'))?.[1] ?? null;
+    // /sf-task: "A refactor: run `data.task.before` once now, before any edit" [ITW:REQ-015].
+    const runsBefore = /run `data\.task\.before` once now, before any edit/u.test(body);
     map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint, refreshAfterBegin, worksInTurn, oneWorkCommand,
-      ...(stepWork ? { stepWork } : {}),
+      ...(stepWork ? { stepWork } : {}), ...(runsBefore ? { runsBefore } : {}),
       ...(delegate && !entry ? { delegate: `/sf-${delegate}` } : {}), ...(choice ? { choice: true } : {}) });
   }
   for (const known of map.values()) {
@@ -378,9 +381,13 @@ export function formatTrail(trail) {
  * - `start`: { copilot } or { shell }, what the person types first.
  * - `agent.author({ story, phase, generation, entry })`: writes the step's document or code (act.state author).
  * - `agent.correct({ story, phase, result })`: corrects a draft the check returned (act.state correct); returns true when it did.
+ * - `agent.repair({ story, phase, result })`: repairs what a refused gate's failed test names (act.state repair), in the same
+ *   turn; returns true when it did, and the same gate runs again.
  * - `agent.review({ story, phase, packet })`: the reviewer's report for a review packet.
  * - `agent.clarify({ story, phase, checkpoint })`: a step's clarification questions with the person's answers,
  *   [{ question, answer }], recorded through the checkpoint's own recordAction.
+ * - `values`: the person's scripted answer per Story value a step's submission records (`{ channel: 'web' }`), filled into a
+ *   route's `--decision <name>=<<name>>` when the agent asks them.
  * - `person({ story, route, result, act })`: what the person does at a question, confirmation or their own step:
  *   { command } to run as them, { route } to type instead, or null (unanswered; the walk stops there).
  * - `detour({ finding, route, result })`: for a dead end the journey expects, the route the person takes instead.
@@ -394,7 +401,7 @@ export function formatTrail(trail) {
  * Returns { reached, findings: [{ kind, detail, step }], trail, steps, views }: `views` lists each hand-off where one of
  * the person's views named another skill than the agent's route (see personViews).
  */
-export async function followRoutes(story, { start, agent = {}, person = null, detour = null, newChat = null, done, maxSteps = 60, label = 'journey', host = 'cli', vscode = null, skillsRoot = SKILLS }) {
+export async function followRoutes(story, { start, agent = {}, person = null, detour = null, newChat = null, done, maxSteps = 60, label = 'journey', host = 'cli', vscode = null, skillsRoot = SKILLS, values = {} }) {
   const entries = skillEntries();
   // VS Code's chat [hardening C]: /sf-approve and /sf-decide are entered as skills there, and their page tools are called on
   // the host's pages (test/helpers/vscode-host.mjs); every tool answer is kept to find the same one coming back unchanged.
@@ -446,7 +453,7 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     }
     const taken = chat && route.copilot && !route.inTurn && VSCODE_CARD_SKILLS.has(skillOf(route.copilot))
       ? await vscodeTurn({ story, route, entries, phases: phases(), currentPhase: current(), person, entry, guard, chat, step })
-      : await takeRoute({ story, route, entries, phases: phases(), currentPhase: current(), agent, person, entry, turn, last, before, guard });
+      : await takeRoute({ story, route, entries, phases: phases(), currentPhase: current(), agent, person, entry, turn, last, before, guard, values });
     turn = taken.turn ?? turn;
     last = taken.result ?? last;
     // A route the person types as /sf-task is that turn, whatever work command its steps run in it [ITW:REQ-008].
@@ -477,8 +484,11 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     if (task?.stepWork && !isPersonRoute({ ...taken.next, inTurn: false }) && !/^singularity-flow work\b/u.test(taken.next.shell ?? '') && current()) {
       const work = [...entries.values()].find((known) => known.oneWorkCommand && known.entry === task.stepWork)?.skill ?? null;
       const resolved = work ? { ...taken.next, copilot: work, source: `${taken.next.source ?? 'route'} (${task.skill}: the step's own work)` } : null;
-      if (resolved) taken.next = entries.get(turn)?.oneWorkCommand && taken.next.turn !== 'new-turn' ? { ...resolved, inTurn: Boolean(resolved.shell) }
-        : turn === task.skill && guard.skill === task.skill && taken.next.turn !== 'new-turn' ? { ...resolved, inTurn: false, within: task.skill }
+      // The next step's work after this one completed (a submission SFlow approved) is a new turn the person types.
+      const moved = before.mark.split(':')[1] !== storyState(story).mark.split(':')[1];
+      const own = taken.next.turn !== 'new-turn' && !moved;
+      if (resolved) taken.next = entries.get(turn)?.oneWorkCommand && own ? { ...resolved, inTurn: Boolean(resolved.shell) }
+        : turn === task.skill && guard.skill === task.skill && own ? { ...resolved, inTurn: false, within: task.skill }
           : { ...resolved, inTurn: false, typed: task.skill };
     }
     // D1: in a turn of the work command, a route naming its other name is this turn's own work, run here by its command;
@@ -640,14 +650,16 @@ function guardedConfirmation(guard, command) {
 }
 
 // `/decide` is Copilot CLI's own Decide card (plugin/extensions/decisions): the person answers it, as at /sf-decide's card.
+// A person's own terminal step the result says never to run (act confirm-in-terminal) is theirs too (person-step-catalog.mjs).
 const isPersonRoute = (route) => /^singularity-flow (?:approve|decisions record|story advance .*--confirm|reopen)\b/u.test(route.shell ?? '')
-  || /^\/(?:sf-(?:approve|decide|confirm)|decide)\b/u.test(route.copilot ?? '') && !route.inTurn;
+  || /^\/(?:sf-(?:approve|decide|confirm)|decide)\b/u.test(route.copilot ?? '') && !route.inTurn
+  || (route.state === 'confirm-in-terminal' && Boolean(ownTerminalStep(route.shell ?? '')));
 
 /**
  * Takes one route: runs what an agent runs for it, then does the agent's or the person's part its result asks for.
  * Returns { result, next, personPending, finding, turn }.
  */
-async function takeRoute({ story, route, entries, phases, currentPhase, agent, person, entry, turn, last, before, guard }) {
+async function takeRoute({ story, route, entries, phases, currentPhase, agent, person, entry, turn, last, before, guard, values = {} }) {
   // A person's own step (approval, their decisions, a confirmation): theirs to answer, scripted.
   if (route.person || (route.source !== 'start' && isPersonRoute(route))) {
     const answer = person?.({ story, route, result: last, act: last?.act ?? null, phase: currentPhase });
@@ -671,6 +683,13 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
     }
     // What the person does next is what their own last command returned, or the route they were answering again.
     return { result: ran.result, next: answer.then ?? nextFrom(ran.result, { turn: null }) ?? (answer.retry ? { ...route, source: 'retry' } : null), personPending: false, turn: 'person' };
+  }
+  // A Story value the step's submission records (`--decision <name>=<<name>>`, a marketplace agent's hard gate): in the
+  // turn the route names, the agent asks the person, and runs the command with the journey's scripted answer.
+  const answered = route.shell ? storyValueAnswers(route.shell, values) : null;
+  if (answered) {
+    route = { ...route, shell: answered.command, inTurn: true };
+    entry.did = `the person answered ${answered.names.map((name) => `${name}=${values[name]}`).join(', ')}`;
   }
   // A Copilot route crossing into a turn: the skill's own entry, with the routed command kept to compare.
   let command = route.shell;
@@ -711,7 +730,26 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
   if (!result) return { finding: { kind: 'no-result', detail: `${short(command)} printed no JSON: ${(ran.stderr || ran.stdout).slice(-600)}` }, turn: nextTurn };
   const phase = result.phase ?? result.data?.phase ?? currentPhase;
 
+  // A failed test the step's author repairs in this turn (act repair: "repair within the admitted authoring scope, then
+  // rerun the original gate"): the agent repairs it, and the same command runs again.
+  if (ran.status !== 0 && act?.state === 'repair' && agent.repair) {
+    let repaired;
+    try { repaired = await agent.repair({ story: guard ? guardedStory(story, guard, nextTurn, guard.contract ?? undefined).story : story, phase, result }); }
+    catch (error) { if (error?.journeyFinding) return { result, finding: error.journeyFinding, turn: nextTurn }; throw error; }
+    if (repaired) {
+      entry.did = `the agent repaired ${phase}'s failed test, and runs its gate again`;
+      return { result, next: { shell: command, source: 'repair', inTurn: true }, turn: nextTurn };
+    }
+  }
   if (ran.status !== 0) return refusalRoute(result, command, nextTurn);
+
+  // /sf-task's own step: a refactor's start names its checks' run on the base, run once now, before any edit [ITW:REQ-015].
+  const onBase = route.source === 'start' && [...entries.values()].some((known) => known.runsBefore) ? result.data?.task?.before ?? result.task?.before ?? null : null;
+  if (onBase) {
+    const base = await runCommand(story, onBase);
+    entry.did = `the agent ran the checks on the base before any edit (exit ${base.status})`;
+    if (base.status !== 0) return refusalRoute(base.result, onBase, nextTurn) ?? { result: base.result, finding: { kind: 'before-refused', detail: `${short(onBase)}: ${base.stderr.slice(-300)}` }, turn: nextTurn };
+  }
 
   // A command the skill runs before its entry again ("Successful begin: refresh entry once").
   if (route.reenter && !PERSON_STATES.has(act?.state)) return { result, next: { copilot: route.reenter, source: 'refresh entry', reentered: true }, turn: nextTurn };
@@ -869,6 +907,20 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
     }
   }
   return { result, next, turn: nextTurn };
+}
+
+/**
+ * A command whose only placeholders are Story values a step's submission records (`--decision channel=<channel>`), each
+ * with the journey's scripted answer: `{ command, names }` filled in; null otherwise.
+ */
+export function storyValueAnswers(command, values = {}) {
+  const names = [];
+  const filled = String(command ?? '').replace(/(--decision\s+)([A-Za-z][A-Za-z0-9_-]*)=<\2>/gu, (whole, flag, name) => {
+    if (!Object.hasOwn(values, name)) return whole;
+    names.push(name);
+    return `${flag}${name}=${values[name]}`;
+  });
+  return names.length ? { command: filled, names } : null;
 }
 
 /** A refusal must return a route, and not generic help for a refusal about the Story's state. Null without a result. */

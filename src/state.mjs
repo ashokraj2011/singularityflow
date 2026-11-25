@@ -5609,11 +5609,16 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     if (refusal) {
       // The criterion whose own test failed is named, with its repair in this step [PHR:REQ-002, finding 11].
       if (ownerStepChecks(workflow)) await (await import('./criterion-test-failures.mjs')).withCriterionTestFailures(root, phase, refusal, recordedRuns, deliveryEvidence.acceptanceCriteria?.witnesses ?? []);
+      // A refactor's test that passed before the change is the person's choice, never this step's repair [ITW:REQ-015].
+      if (workflow.resolution?.composition?.kind === 'refactor') refusal = await (await import('./refactor-behaviour.mjs')).codeStepBehaviourHold(root, config, workflow, phase, { refusal });
       // The version's task keeps where the failed test stopped it, so every view and turn names the same continuation
       // (a person's Node choice, the environment, or its repair within budget) and nothing repeats the run [§8, OSA:REQ-012].
       await (await import('./workflow-task-outcome.mjs')).recordRefusalOutcome(root, workflow, phase, refusal);
       throw (await import('./test-run-risk.mjs')).withOtherFailedTests(refusal, otherFailed);
     }
+    // So is one an earlier run of this version showed [ITW:REQ-015].
+    const held = workflow.resolution?.composition?.kind === 'refactor' && await (await import('./refactor-behaviour.mjs')).codeStepBehaviourHold(root, config, workflow, phase);
+    if (held) throw held;
   } finally {
     const acceptedIds = new Set(passing.map((command) => command.id));
     for (const check of checks) await restoreTransientQualityResult(check, {
@@ -8473,7 +8478,9 @@ export async function rejectPhase(root, config, workflow, {
   // `{ kind, tests, commands, files }`. No person and no group return it; the change request and decision say so.
   automatic = null,
   // A person's change to a finished code step, on their yes's receipt `{ assurance }` (completed-step-change.mjs).
-  personChange = null
+  personChange = null,
+  // A person's yes to a refactor's new behaviour while its code is written, `{ checks }` (refactor-behaviour.mjs) [ITW:REQ-015].
+  behaviourChange = null
 } = {}) {
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   await assertNoPendingPublication(root, config, workflow, 'reject');
@@ -8528,11 +8535,13 @@ export async function rejectPhase(root, config, workflow, {
   if (convergenceRework && !reworkBlockers.length) {
     throw new SingularityFlowError('Convergence rework needs at least one finding dispositioned as rework.');
   }
+  if (behaviourChange && (automatic || upstreamIssue || convergenceRework || testingRepair || personChange || !Array.isArray(behaviourChange.checks)
+    || workflow.resolution?.composition?.kind !== 'refactor' || !phaseRequiresCodeDelivery(workflow.phases?.[phaseId]))) behaviourChange = null;
   const phase = await assertPhaseSequence(root, workflow, 'reject', {
     requestedPhase: phaseId,
     // An upstream issue's return is decided by the earlier step's owners, so the step that found
-    // the defect need not be submitted first [UIF-M2].
-    allowedStatuses: reworkBlockers.length || testingRepair || upstreamIssue || personChange
+    // the defect need not be submitted first [UIF-M2]; nor is a refactor's code whose new behaviour a person accepts.
+    allowedStatuses: reworkBlockers.length || testingRepair || upstreamIssue || personChange || behaviourChange
       ? ['awaiting_approval', 'in_progress'] : ['awaiting_approval']
   });
   if ((testingRepair || phase.approvalPolicy.changeRequests?.commentRequired !== false)
@@ -8633,6 +8642,7 @@ export async function rejectPhase(root, config, workflow, {
     // What failed, as SFlow read it from the step's run: the code step's author fixes these.
     ...(automatic ? { automatic: structuredClone(automatic) } : {}),
     ...(personChange ? { personChange: true } : {}),
+    ...(behaviourChange ? { behaviourChange: { checks: behaviourChange.checks.slice(0, 50) } } : {}),
     ...(testingRepair ? { testingRepair: {
       confirmation: testingRepair.confirmation,
       changeSetDigest: testingRepair.changeSetDigest,

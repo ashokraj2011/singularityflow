@@ -1051,6 +1051,8 @@ test('every step only a person takes in their own terminal is refused in every t
       `singularity-flow decisions record PMC-1 --choose d1=accept-test-command --confirm ${digest}`,
       `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=accept-test-command --confirm ${digest}`],
     'set-aside': [`singularity-flow recover PMC-1 --phase custom-step --set-aside --confirm ${digest} --json`],
+    // Keeping or accepting what a refactor's code changed [ITW:REQ-015].
+    'refactor-behaviour': ['singularity-flow work behaviour keep --work-id PMC-1', 'singularity-flow work behaviour accept --work-id PMC-1 --json'],
     // What was settled for the person, and an approved intent amendment's acknowledgement, left this list [owner,
     // 2026-11-19]: each is also a bound yes in /sf-decide; test/person-step-golden.test.mjs holds every turn to that.
     'publication-set-aside': [`singularity-flow sync PMC-1 --set-aside --confirm ${'a'.repeat(40)}`,

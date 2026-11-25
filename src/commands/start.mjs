@@ -2092,9 +2092,10 @@ async function startCommandAtRoot(positionals, options) {
         // The skills its steps use, frozen with the Story [ITW:REQ-010].
         ...(taskComposition.skills?.length ? { skills: taskComposition.skills.map(({ id, steps }) => ({ id, steps })) } : {}),
         // A refactor runs its checks on the base before any edit [ITW:REQ-015]: what already fails there is a finding,
-        // never a behaviour the refactor changed (tests base: a fact for a person, never evidence).
-        ...(taskComposition.kind === 'refactor' && taskComposition.steps.some((step) => step.intent === 'test') ? {
-          before: `singularity-flow tests base --work-id ${workflow.workItem.id} --phase ${taskComposition.steps.find((step) => step.intent === 'test').id} --within 600 --json`
+        // never a behaviour the refactor changed (tests base: a fact for a person, never evidence). The code step runs the
+        // repository's tests (the test step runs the same ones after it), and `tests base` runs a code step's.
+        ...(taskComposition.kind === 'refactor' && taskComposition.steps.some((step) => step.intent === 'test') && taskComposition.steps.some((step) => step.intent === 'code') ? {
+          before: `singularity-flow tests base --work-id ${workflow.workItem.id} --phase ${taskComposition.steps.find((step) => step.intent === 'code').id} --within 600 --json`
         } : {}) } } : {}),
       testPolicy: sealedTestPolicy ? {
         path: workflow.testPolicy.path, sha256: workflow.testPolicy.sha256, baselineFailures: sealedTestPolicy.baselineFailures,

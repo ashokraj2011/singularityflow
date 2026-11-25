@@ -325,6 +325,12 @@ const repairFacts = (result) => [
   ...beforePublish(result)
 ];
 
+// Story lessons [LRN:REQ-014]: one line, numbered, never a question.
+const LESSON_FIELDS = ['lessons', 'lessonsUse', 'ruleOffers'];
+const approvalLessonWords = (result) => (result.lessons ? ' Say in one line the lessons SFlow kept (data.lessons, numbered), and that the person drops one with singularity-flow lessons drop <its id> or in VS Code\'s Lessons.' : '')
+  + (result.lessonsUse ? ' Say data.lessonsUse as it is.' : '')
+  + (result.ruleOffers ? ' Offer the person each data.ruleOffers as a team rule (singularity-flow lessons rule <id>); do not make one in this turn.' : '');
+
 export function agentAct(result) {
   if (result?.resultType === 'sflow-ask') {
     const read = ['work', 'specifications', 'help', 'items', 'diagnostics', 'choices', 'candidates', 'history', 'comparison', 'coverage', 'continuation', 'conversation', 'links', 'evidence', 'explanation', 'currentConversation']
@@ -345,18 +351,19 @@ export function agentAct(result) {
   if (result.paused === true) return { state: 'paused', said: 'SFlow is paused for this conversation; answer as native Copilot and offer only /sf-pause off.', do: null };
   // A step approved here ends the turn with one next step, the clean-chat boundary. Its act also said "next:
   // /sf-nextsteps", so the person saw three competing next steps (Story anu-bin verification, 2026-11-11).
+  // A task's step approved in the chat: its /sf-task turn goes on [ITW:REQ-008, A17].
+  if (result.resultType === 'sflow-approval-agent-result' && result.outcome?.status === 'succeeded' && result.turnBoundary === 'task') {
+    return { state: 'next', do: { reason: 'The task goes on in this chat.', copilot: TASK_ROUTE, shell: null, vscode: null },
+      read: ['outcome', 'decision', 'warnings', 'nextStep', ...LESSON_FIELDS.filter((field) => result[field])],
+      said: `${result.instruction}${approvalLessonWords(result)}` };
+  }
   if (result.resultType === 'sflow-approval-agent-result' && result.outcome?.status === 'succeeded' && result.turnBoundary === 'end') {
     const boundary = Array.isArray(result.contextBoundary?.commands) && result.contextBoundary.commands.length ? result.contextBoundary.commands.join(', then ') : null;
     return { state: 'end-turn', do: null, read: ['outcome', 'decision', 'warnings', ...(result.contextBoundary ? ['contextBoundary'] : []), ...(result.nextStep ? ['nextStep'] : []),
-      ...(result.lessons ? ['lessons'] : []), ...(result.lessonsUse ? ['lessonsUse'] : []), ...(result.ruleOffers ? ['ruleOffers'] : [])],
+      ...LESSON_FIELDS.filter((field) => result[field])],
       said: (boundary ? `Approved. End this turn; the one next step is ${boundary} (${result.contextBoundary.nextPhase ?? 'the next step'}). Offer no other route.`
-        // A task's next step is /sf-task, typed in this same chat (context-policy.mjs storyContextPolicy) [ITW:REQ-008].
-        : result.nextStep?.copilotCommand ? `Approved. End this turn. Name the next step for the person: ${result.nextStep.copilotCommand} (${result.nextStep.phase ?? 'the next step'})${result.nextStep.copilotCommand === TASK_ROUTE ? ', typed in this chat' : ''}. Offer no other route.`
-          : 'Approved. End this turn; the next step continues in a new turn. Offer no other route.')
-        // Story lessons [LRN:REQ-014]: one line, numbered, never a question.
-        + (result.lessons ? ' Say in one line the lessons SFlow kept (data.lessons, numbered), and that the person drops one with singularity-flow lessons drop <its id> or in VS Code\'s Lessons.' : '')
-        + (result.lessonsUse ? ' Say data.lessonsUse as it is.' : '')
-        + (result.ruleOffers ? ' Offer the person each data.ruleOffers as a team rule (singularity-flow lessons rule <id>); do not make one in this turn.' : '') };
+        : result.nextStep?.copilotCommand ? `Approved. End this turn. Name the next step for the person: ${result.nextStep.copilotCommand} (${result.nextStep.phase ?? 'the next step'}). Offer no other route.`
+          : 'Approved. End this turn; the next step continues in a new turn. Offer no other route.') + approvalLessonWords(result) };
   }
   // `result last` (agent-result-keeper.mjs): a kept result is acted on as the command returned it;
   // otherwise it says to wait for the command, run it once more, or that nothing was kept.

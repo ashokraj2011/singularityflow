@@ -8,7 +8,11 @@
  * nothing to do, or no Story, keeps the /sf-task turn (it starts a task, or says the task is done).
  *
  * Read in the prompt hook: the Story's guide is pure (src/guide.mjs), so this costs one Story read.
+ *
+ * The same turn carries the task on with nothing typed after a start it ran and after the person's Yes it recorded
+ * (taskTurnContinuation, read in the after-tool hook): the turn is then that next action's, as if /sf-task were typed.
  */
+import { realpath } from 'node:fs/promises';
 
 /** The words typed after the skill's name, as the hosts deliver them (`/sf-task …` or a skill-context block). */
 export function typedAfterSkill(prompt) {
@@ -31,11 +35,11 @@ export function taskTurnSkillFor(workflow, guide) {
   return 'sf-next';
 }
 
+const discoveryRoot = async (value) => (await import('./copilot-repository-boundary.mjs')).resolveCopilotDiscoveryRoot(value);
+const acceptedStory = async (root) => (await import('./accepted-story-execution.mjs')).loadAcceptedStoryExecution(root);
+
 /** The skill a typed `/sf-task` takes, from the Story this chat is bound to and in progress; null keeps /sf-task (it starts a task). */
-export async function taskTurnSkill(payload, {
-  resolveRoot = async (value) => (await import('./copilot-repository-boundary.mjs')).resolveCopilotDiscoveryRoot(value),
-  load = async (root) => (await import('./accepted-story-execution.mjs')).loadAcceptedStoryExecution(root)
-} = {}) {
+export async function taskTurnSkill(payload, { resolveRoot = discoveryRoot, load = acceptedStory } = {}) {
   // Words typed while a task is open (an answer, "go on", a change) are that Story's next turn too; the skill reads them.
   const root = await resolveRoot(payload).catch(() => null);
   if (!root) return null;
@@ -44,4 +48,57 @@ export async function taskTurnSkill(payload, {
   if (!workflow) return null;
   const { workflowGuide } = await import('./guide.mjs');
   return taskTurnSkillFor(workflow, workflowGuide(workflow));
+}
+
+const TYPED = new Set(['sf-task', 'sflow-task']);
+// The next actions a /sf-task turn carries on into: the next step's own work, or the next approval question. A decision
+// is the person's on its card, and a return the person's with their reason: the turn never carries on into either.
+const CARRIED = new Set(['sf-next', 'sf-approve']);
+// A record written a moment before the turn's prompt was kept (clocks of two processes) still belongs to the turn.
+const CLOCK_SLACK_MS = 1000;
+const since = (at, turn) => Number.isFinite(Date.parse(at)) && Date.parse(at) >= turn.recordedAt - CLOCK_SLACK_MS;
+
+/**
+ * Whether the tool call that just finished carries this `/sf-task` turn on into the task's next action, and as which
+ * skill's turn [ITW:REQ-008, A11, A17, docs/SPEC-ITW-INTENT-TO-WORK-v1.1.md]. Two calls do, each only once what it did
+ * shows in the Story, never on the host's word that it succeeded:
+ * - the task's own turn (`/sf-task <words>`, nothing open yet) ran `work … --start`, and this checkout now holds a task's
+ *   Story in progress that was created during this turn: the turn goes on into its first step (the intake's question,
+ *   then its writing) with nothing typed;
+ * - the approval-only turn `/sf-task` took ran `approve`, and the step that turn was bound to now reads approved, by an
+ *   approval recorded during this turn (the person's own Yes, which the guard held that command to): the turn goes on
+ *   with the next step's work or the next approval question.
+ * Every other turn, a classic Story's and one the person typed `/sf-approve` for among them, ends as before. `turn` is the
+ * session's boundary record; `ran` is its mutation record and the SFlow commands the call ran, as the guard read them
+ * (copilot-mutation-guard.mjs turnRanCommands). Returns `{ skill, workId, reason }`, or null to leave the turn as it is.
+ */
+export async function taskTurnContinuation(payload, { turn, ran, resolveRoot = discoveryRoot, load = acceptedStory } = {}) {
+  const value = ran?.value;
+  if (!turn || !value || value.turnId !== turn.turnId || value.sessionId !== turn.sessionId || !Number.isFinite(turn.recordedAt)) return null;
+  const reason = TYPED.has(turn.skill) ? 'start' : TYPED.has(turn.typedSkill) && NAME(turn.skill) === 'approve' ? 'approval' : null;
+  if (!reason) return null;
+  const commands = ran.commands ?? [];
+  const workId = value.contract?.workId ?? null;
+  const ranIt = reason === 'start'
+    ? commands.some(({ positionals, options }) => positionals[0] === 'work' && !['add', 'skip', 'status', 'handoff'].includes(positionals[1])
+      && options.start === true)
+    : Boolean(workId) && value.contract.turnMode === 'approval-only' && commands.some(({ positionals, options }) => positionals[0] === 'approve'
+      && (options['work-id'] === undefined || options['work-id'] === workId));
+  if (!ranIt) return null;
+  // The checkout this turn is bound to, and none other (a start in an isolated worktree, or a Story another folder holds).
+  const bound = value.contract?.repositoryRoot ?? value.repositoryRoot ?? null;
+  const root = await resolveRoot(payload).catch(() => null);
+  if (!bound || !root || await realpath(root).catch(() => null) !== bound) return null;
+  const workflow = (await load(root).catch(() => null))?.workflow ?? null;
+  const { isTaskStory } = await import('./safe-command-guidance.mjs');
+  if (!isTaskStory(workflow) || workflow.status !== 'in_progress') return null;
+  if (reason === 'start' && !since(workflow.workItem?.createdAt, turn)) return null;
+  if (reason === 'approval') {
+    const approved = workflow.phases?.[value.originPhase ?? value.contract.phaseId];
+    if (workflow.workItem?.id !== workId || approved?.status !== 'approved'
+        || !(approved.approvals ?? []).some((entry) => entry && !entry.invalidatedAt && since(entry.at, turn))) return null;
+  }
+  const { workflowGuide } = await import('./guide.mjs');
+  const skill = taskTurnSkillFor(workflow, workflowGuide(workflow));
+  return CARRIED.has(skill) ? { skill, workId: workflow.workItem.id, reason } : null;
 }

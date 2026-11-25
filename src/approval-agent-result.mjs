@@ -7,11 +7,14 @@ export function approvalAgentResult(result) {
   // A team that keeps the chat (contextPolicy keep; the shipped policy is new): the next step is named for the person, never run.
   const handoff = result.data?.contextBoundary;
   const nextStep = !contextBoundary && handoff?.mode === 'keep' && !handoff.complete && typeof handoff.commands?.[0] === 'string' ? handoff.commands[0] : null;
+  // A task's /sf-task turn goes on (copilot-repository-boundary.mjs carryTaskTurn) [ITW:REQ-008, A17].
+  const task = nextStep === TASK_ROUTE;
   return { schemaVersion: 1, resultType: 'sflow-approval-agent-result',
     operation: result.operation, subject: result.subject, outcome: result.outcome,
-    effects: result.effects, turnBoundary: 'end',
-    instruction: contextBoundary?.instruction ?? (nextStep
-      ? `End this turn. Name the next step for the person: ${nextStep}${nextStep === TASK_ROUTE ? ', typed in this chat' : ''}. Do not repeat approval or author the next phase here.`
+    effects: result.effects, turnBoundary: task ? 'task' : 'end',
+    instruction: contextBoundary?.instruction ?? (task ? `Approved; ${handoff.nextPhase ?? 'the next step'} is next. When SFlow's note after this command says `
+      + 'this /sf-task turn goes on, do /sf-task\'s step 1 again now; otherwise name /sf-task, typed in this chat, as the next step. Offer no other route; do not repeat the approval.'
+      : nextStep ? `End this turn. Name the next step for the person: ${nextStep}. Do not repeat approval or author the next phase here.`
       : 'End this approval-only turn. Do not repeat approval or author the next phase. Inspect the returned next action in a new turn.'),
     ...(contextBoundary ? { contextBoundary } : {}), ...(nextStep ? { nextStep: { copilotCommand: nextStep, phase: handoff.nextPhase ?? null } } : {}),
     decision: { commit: result.data?.commit, pushed: result.data?.pushed,

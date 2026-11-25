@@ -107,6 +107,8 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'author', 'attest', 'for-person', 'retention', 'all-repositories',
   // story advance --submit: convergence goes for approval with no separate confirmation (owner, 2026-11-19).
   'submit',
+  // ask (Ask SFlow R1-R5, codex/spec-ask-r1): its read and conversation switches.
+  'suggest', 'open-spec', 'remember', 'forget', 'explain', 'portable',
   // phase opening --reconcile (OSA Stage 2).
   'reconcile',
   // phase rollover --review-findings (ceremony cut 10) and a recommended answer with no reason, --recommended (C10),

@@ -124,7 +124,8 @@ export function requireMarketplace(marketplaces, id) {
   const marketplace = marketplaces[id];
   if (!marketplace) {
     const known = Object.keys(marketplaces);
-    throw fail(`This repository does not trust a marketplace called '${id}'.${known.length ? ` Configured: ${known.join(', ')}.` : ' Add one with singularity-flow marketplace add.'}`, 'MARKETPLACE_UNKNOWN');
+    throw fail(`This repository does not trust a marketplace called '${id}'.${known.length ? ` Configured: ${known.join(', ')}.` : ' Add one with singularity-flow marketplace add.'}`, 'MARKETPLACE_UNKNOWN',
+      { marketplace: id, nextAction: { command: 'singularity-flow marketplace list', label: 'See the marketplaces this repository trusts.' } });
   }
   return marketplace;
 }

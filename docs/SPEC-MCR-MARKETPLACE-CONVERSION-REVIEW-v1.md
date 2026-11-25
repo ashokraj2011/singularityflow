@@ -158,6 +158,10 @@ every imported workflow. It runs on request: Workflow Studio's Library, `singula
 `/sf-import`, and **Read its newest commit** (`marketplace add --repo` for a marketplace already trusted), whose same read
 names the workflows made from it that changed. `singularity-flow check` never fetches, so it does not run it. It reports by
 agent: "2 skills and 1 stage changed", "no change", or "removed from the marketplace".
+(Built 2026-11-25: a skill imported on its own from a Git repository marketplace is checked too. It is read at the commit
+the repository trusts, then at the newest commit. A changed text at the trusted commit is staged with its `import add …
+--replace`. A newer text only at the newest commit names `marketplace add <ID> --repo …` first, since an import reads the
+trusted commit. A skill the marketplace dropped is reported and stays. Before, these rows said "not checked".)
 
 **MCR:REQ-031:** Network reads happen only when a person asks, or from the check they already run. Nothing polls in the
 background.

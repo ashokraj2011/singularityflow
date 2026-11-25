@@ -22,7 +22,8 @@ export interface SkillCatalogRow {
   inLibrary: boolean; libraryVersion: string | null; newerVersion: string | null; usedBy: SkillUses; overlaps: string[];
   actions: { show?: string; preview?: string; reference?: string };
 }
-export interface SkillCatalogSource { id: string; kind: string; label: string; read: boolean; skills: number; warning?: string }
+/** A source: read, or not; `approved: false` is trusted only in the working copy of workflow.yml, and `notApproved` says so. */
+export interface SkillCatalogSource { id: string; kind: string; label: string; read: boolean; approved: boolean; skills: number; warning?: string; notApproved?: string }
 export interface SkillOverlap { skills: string[]; ids: string[]; intents: string[]; why: string }
 export interface SkillCoverage { intent: string; status: string; words: string }
 export interface SkillCatalog {
@@ -54,7 +55,8 @@ export function skillCatalogFrom(value: unknown): SkillCatalog | null {
   return {
     repository: { softwareKinds: strings(repository.softwareKinds), words: text(repository.words) },
     sources: records(data.sources).map((source) => ({ id: text(source.id), kind: text(source.kind), label: text(source.label) || text(source.id),
-      read: source.read === true, skills: Number(source.skills) || 0, ...(typeof source.warning === 'string' ? { warning: source.warning } : {}) })),
+      read: source.read === true, approved: source.approved !== false, skills: Number(source.skills) || 0, ...(typeof source.warning === 'string' ? { warning: source.warning } : {}),
+      ...(typeof source.notApproved === 'string' ? { notApproved: source.notApproved } : {}) })),
     rows: records(data.rows).filter((row) => typeof row.key === 'string' && typeof row.id === 'string').map((row) => {
       const used = record(row.usedBy);
       const actions = record(row.actions);
@@ -116,7 +118,10 @@ function summaryHtml(catalog: SkillCatalog): string {
     [String(catalog.summary.skills), 'skills'], [String(library), 'in the library'], [String(catalog.rows.length - library), 'in marketplaces'],
     [String(catalog.summary.notInLibrary), 'not in the library'], [String(catalog.summary.newerAvailable), 'newer available'], [String(catalog.summary.overlaps.length), 'look alike']
   ].map(([count, words]) => `<div class="ask-tile"><strong>${escape(count)}</strong><span>${escape(words)}</span></div>`).join('');
-  const sources = catalog.sources.map((source) => `<li>${escape(source.kind === 'library' ? 'Library' : source.label)}: ${source.read ? escape(plural(source.skills, 'skill')) : '<span class="ask-warn">not read</span>'}</li>`).join('');
+  // A marketplace trusted only in the working copy is never shown as trusted: its row says it is not approved yet.
+  const sources = catalog.sources.map((source) => `<li>${escape(source.kind === 'library' ? 'Library' : source.label)}: ${!source.approved
+    ? '<span class="ask-warn">not approved yet</span>' : source.read ? escape(plural(source.skills, 'skill')) : '<span class="ask-warn">not read</span>'}${source.notApproved
+    ? ` <span class="ask-dim">${escape(source.notApproved)}</span>` : ''}</li>`).join('');
   const gaps = catalog.summary.coverage.filter((entry) => entry.status === 'none');
   const marketOnly = catalog.summary.coverage.filter((entry) => entry.status === 'marketplace');
   const coverage = gaps.length || marketOnly.length ? `<div class="ask-box"><h2>Steps the library does not cover</h2><ul>${[...gaps, ...marketOnly]

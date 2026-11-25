@@ -286,3 +286,199 @@ test('ITW A6, A7: a trusted marketplace\'s skill is offered new here; one yes wi
   const untrusted = refused(story, ['import', 'preview', 'market:elsewhere/web-e2e-test-generation', '--as', 'skill']);
   assert.match(untrusted.code ?? '', /MARKETPLACE_UNKNOWN/u);
 });
+
+test('ITW REQ-010: imports check re-checks a skill imported from a Git-repository marketplace: still the same, newer, its trust moved, gone', async (t) => {
+  const acme = await marketplaceRepository(t);
+  const story = await journeyRepository(t, {
+    files: { 'package.json': WEB_PACKAGE },
+    configure: (configuration) => { configuration.marketplaces = { acme: { label: 'Acme', repository: acme.repository, commit: acme.commit } }; }
+  });
+  const marketGit = (...args) => {
+    const result = spawnSync('git', ['-c', 'user.name=Market Maintainer', '-c', 'user.email=maintainers@example.com', ...args], { cwd: acme.repository, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const KEY = 'library-skill:web-e2e-test-generation';
+  const checked = () => JSON.parse(story.cli('imports', 'check', '--json')).imports.find((row) => row.key === KEY);
+  const run = (command) => story.must('sh', ['-c', command.replace(/^singularity-flow /u, `"${process.execPath}" "${path.join(ROOT, 'bin/singularity-flow.mjs')}" `)]);
+  const preview = JSON.parse(story.cli('import', 'preview', 'market:acme/web-e2e-test-generation', '--as', 'skill', '--json'));
+  run(preview.addCommand);
+  story.git('add', 'singularity');
+  story.git('commit', '-qm', 'Add the web end-to-end test skill');
+
+  // Before: the commit the repository trusts is the marketplace's newest, and it still gives the same text.
+  let row = checked();
+  assert.deepEqual([row.status, row.words, row.updateCommand], ['up to date', 'nothing newer in the marketplace', undefined]);
+
+  // The marketplace moves on: version 1.1.0 at its newest commit. Trusting that commit is the update's first step.
+  const skillFile = path.join(acme.repository, 'skills/web-e2e-test-generation/SKILL.md');
+  const manifestFile = path.join(acme.repository, 'skills/web-e2e-test-generation/apm.yml');
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(skillFile, `${await readFile(skillFile, 'utf8')}\nRun every new test twice before handing it in.\n`);
+  await writeFile(manifestFile, (await readFile(manifestFile, 'utf8')).replace('version: 1.0.0-pdlc', 'version: 1.1.0'));
+  marketGit('commit', '-qam', 'web e2e: run new tests twice');
+  const newer = marketGit('rev-parse', 'HEAD');
+  row = checked();
+  assert.equal(row.status, 'newer version available');
+  assert.equal(row.updateCommand, `singularity-flow marketplace add acme --repo ${JSON.stringify(acme.repository)}`);
+  assert.match(row.words, /^version 1\.1\.0 \(imported 1\.0\.0-pdlc\) at the marketplace's newest commit: trust that commit first/u);
+  assert.doesNotMatch(row.words, /[0-9a-f]{12}/u, 'no commit for a person to read');
+  assert.match(row.detail, new RegExp(newer.slice(0, 12), 'u'), 'the terminal names the commit');
+
+  // Once the repository trusts the newer commit, its text is staged and imported again with one reviewed import.
+  const configuration = YAML.parse(await story.read('singularity/workflow.yml'));
+  configuration.marketplaces.acme.commit = newer;
+  await story.write('singularity/workflow.yml', YAML.stringify(configuration));
+  story.git('commit', '-qam', 'Trust the newest commit of acme');
+  row = checked();
+  assert.equal(row.status, 'newer version available');
+  assert.equal(row.words, 'version 1.1.0 (imported 1.0.0-pdlc) at the commit this repository trusts');
+  assert.match(row.updateCommand, /^singularity-flow import add "market:acme\/web-e2e-test-generation" --as skill --id web-e2e-test-generation --sha256 [0-9a-f]{64} --replace$/u);
+  run(row.updateCommand);
+  assert.match(await story.read('singularity/skill-library/web-e2e-test-generation/SKILL.md'), /Run every new test twice before handing it in\./u);
+  const lock = YAML.parse(await story.read('singularity/imports.lock.yml'));
+  assert.deepEqual([lock.imports[KEY].source.version, lock.imports[KEY].source.commit], ['1.1.0', newer]);
+  story.git('commit', '-qam', 'Update the web end-to-end test skill');
+  assert.equal(checked().status, 'up to date');
+
+  // The marketplace drops the skill: the copy here stays until a person removes it.
+  const rootManifest = path.join(acme.repository, 'apm.yml');
+  const listed = YAML.parseDocument(await readFile(rootManifest, 'utf8'));
+  listed.setIn(['marketplace', 'packages'], listed.getIn(['marketplace', 'packages']).items.filter((item) => item.get('name') !== 'web-e2e-test-generation'));
+  await writeFile(rootManifest, listed.toString());
+  marketGit('commit', '-qam', 'Retire web e2e generation');
+  row = checked();
+  assert.equal(row.status, 'removed at its source');
+  assert.match(row.words, /newest commit no longer has web-e2e-test-generation; the commit this repository trusts still does, and the copy here stays until a person removes it/u);
+  assert.equal(row.updateCommand, undefined);
+
+  // A marketplace the repository no longer trusts is never read.
+  delete configuration.marketplaces;
+  await story.write('singularity/workflow.yml', YAML.stringify(configuration));
+  row = checked();
+  assert.deepEqual([row.status, row.words], ['unavailable', 'marketplace acme is no longer trusted here as a Git repository']);
+});
+
+/** An HTTPS index marketplace served from files: `https://<host>/<path>` is read from `<directory>/<host>/<path>`. */
+async function indexMarketplace(t, entries) {
+  const { createHash } = await import('node:crypto');
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const directory = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'sflow-task-index-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const files = {};
+  const index = { format: 'sflow-marketplace@1', name: 'Team catalog', entries: entries.map(({ text, ...entry }) => {
+    const file = `/skills/${entry.id}.md`;
+    files[`cdn.example.org${file}`] = text;
+    return { kind: 'skill', version: '1.0.0', url: `https://cdn.example.org${file}`, sha256: createHash('sha256').update(text).digest('hex'), ...entry };
+  }) };
+  files['catalog.example.org/sflow-marketplace.json'] = JSON.stringify(index);
+  for (const [relative, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(directory, relative)), { recursive: true });
+    await writeFile(path.join(directory, relative), text);
+  }
+  return { directory, index: 'https://catalog.example.org/sflow-marketplace.json', indexFile: path.join(directory, 'catalog.example.org/sflow-marketplace.json') };
+}
+
+const WEB_CHECKS = ['---', 'name: web-checks', 'description: Check each changed page in a browser.', '---', '', 'Open each page the change touches.', ''].join('\n');
+const VISUAL_DIFF = ['---', 'name: visual-diff', 'description: Compare screenshots before and after.', '---', '', 'Take a screenshot of each page.', ''].join('\n');
+
+test('ITW REQ-010, A6, A7: a trusted HTTPS index marketplace\'s skills are offered like a repository\'s, read once an hour, and an import is found the next time', async (t) => {
+  const catalog = await indexMarketplace(t, [
+    { id: 'web-checks', label: 'Web checks', tags: ['web', 'playwright', 'ga'], phases: ['implementation'], text: WEB_CHECKS },
+    { id: 'visual-diff', label: 'Visual diff', tags: ['web', 'beta'], phases: ['requirements'], text: VISUAL_DIFF }]);
+  const story = await journeyRepository(t, {
+    files: { 'package.json': WEB_PACKAGE },
+    env: { SINGULARITY_FLOW_TEST_REMOTE_FIXTURES: catalog.directory },
+    configure: (configuration) => { configuration.marketplaces = { team: { label: 'Team catalog', index: catalog.index, allowedOrigins: ['https://cdn.example.org'] } }; }
+  });
+  const shown = json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json'));
+  assert.equal(shown.plan, 'Plan: code (with web-checks from team, new here: add it?) → tests. You approve the plan in the intake and the code. Say "add a design step" to change it.');
+  const [offer] = shown.offers;
+  assert.deepEqual([offer.id, offer.new, offer.marketplace, offer.state, offer.steps], ['web-checks', true, 'team', null, ['implementation']]);
+  assert.equal(offer.show, 'singularity-flow import preview "market:team/web-checks" --as skill --json');
+  assert.equal(story.git('status', '--porcelain'), '', 'showing the plan writes nothing in the checkout');
+  // The listing is kept in the clone's Git folder: the next plan within the hour does not fetch the index again.
+  const { rename } = await import('node:fs/promises');
+  await rename(catalog.indexFile, `${catalog.indexFile}.away`);
+  assert.deepEqual(json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json')), shown, 'the same plan, from the kept listing');
+  await rename(`${catalog.indexFile}.away`, catalog.indexFile);
+  // A7: a beta skill is marked so; starting asks first.
+  const feature = json(story.cli('work', 'add a gift card option to checkout', '--kind', 'feature', '--json'));
+  assert.deepEqual(feature.offers.map(({ id, state, steps }) => [id, state, steps]), [['visual-diff', 'beta', ['requirements']], ['web-checks', null, ['implementation']]]);
+  assert.equal(refused(story, ['work', 'fix the checkout button', '--kind', 'fix', '--start']).code, 'TASK_SKILL_YES_NEEDED');
+  // The yes: its exact text, then the import; what the index said it is for is kept with it, so the next task uses it.
+  const preview = JSON.parse(story.cli('import', 'preview', 'market:team/web-checks', '--as', 'skill', '--json'));
+  assert.equal(preview.text, WEB_CHECKS);
+  story.must('sh', ['-c', preview.addCommand.replace(/^singularity-flow /u, `"${process.execPath}" "${path.join(ROOT, 'bin/singularity-flow.mjs')}" `)]);
+  const lock = YAML.parse(await story.read('singularity/imports.lock.yml'));
+  assert.deepEqual([lock.imports['library-skill:web-checks'].source.tags, lock.imports['library-skill:web-checks'].source.phases], [['web', 'playwright', 'ga'], ['implementation']]);
+  story.git('add', 'singularity');
+  story.git('commit', '-qm', 'Add the web checks skill');
+  const next = json(story.cli('work', 'fix the cart total', '--kind', 'fix', '--json'));
+  assert.match(next.plan, /^Plan: code \(with web-checks\) → tests\./u);
+  assert.equal(next.offers, undefined);
+});
+
+test('ITW REQ-010: an index marketplace\'s listing is read again after an hour, or when the catalog asks for it now', async (t) => {
+  const { trustedIndexMarketplaceSkills, INDEX_LISTING_FRESH_MS, taskSkillChooser } = await import('../src/task-skills.mjs');
+  const { normalizeMarketplaces } = await import('../src/marketplace.mjs');
+  const root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'sflow-task-index-cache-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const INDEX = 'https://catalog.example.org/sflow-marketplace.json';
+  const team = normalizeMarketplaces({ team: { index: INDEX, allowedOrigins: ['https://cdn.example.org'] } }).team;
+  let reads = 0;
+  let entries = [{ id: 'web-checks', kind: 'skill', version: '1.0.0', label: 'Web checks', url: 'https://cdn.example.org/a.md', sha256: 'a'.repeat(64), tags: ['web'], phases: ['implementation'] }];
+  const fetchImpl = async (url) => {
+    reads += 1;
+    assert.equal(url, INDEX, 'only the trusted index is read');
+    const bytes = Buffer.from(JSON.stringify({ format: 'sflow-marketplace@1', entries }));
+    return { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => bytes };
+  };
+  const now = Date.parse('2026-11-25T10:00:00Z');
+  const first = await trustedIndexMarketplaceSkills(root, team, { fetchImpl, now });
+  assert.deepEqual(first.map(({ name, version, phases }) => [name, version, phases]), [['web-checks', '1.0.0', ['implementation']]]);
+  entries = [...entries, { ...entries[0], version: '1.2.0', sha256: 'b'.repeat(64) }];
+  assert.deepEqual(await trustedIndexMarketplaceSkills(root, team, { fetchImpl, now: now + INDEX_LISTING_FRESH_MS - 1 }), first, 'kept for an hour');
+  assert.equal(reads, 1);
+  assert.equal((await trustedIndexMarketplaceSkills(root, team, { fetchImpl, now: now + INDEX_LISTING_FRESH_MS }))[0].version, '1.2.0', 'the newest version, read again');
+  assert.equal(reads, 2);
+  await trustedIndexMarketplaceSkills(root, team, { fetchImpl, now: now + INDEX_LISTING_FRESH_MS + 1, fresh: true });
+  assert.equal(reads, 3, 'the catalog reads it now');
+  // Another index, or the same index with other allowed origins, is another listing.
+  const wider = normalizeMarketplaces({ team: { index: INDEX, allowedOrigins: ['https://cdn.example.org', 'https://files.example.org'] } }).team;
+  await trustedIndexMarketplaceSkills(root, wider, { fetchImpl, now: now + INDEX_LISTING_FRESH_MS + 2 });
+  assert.equal(reads, 4);
+  // The chooser reads an index the definition trusts, through the listing kept now, and no other.
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(path.join(root, 'package.json'), WEB_PACKAGE);
+  for (const args of [['add', 'package.json'], ['-c', 'user.name=Tester', '-c', 'user.email=tester@example.com', 'commit', '-qm', 'web']]) {
+    assert.equal(spawnSync('git', args, { cwd: root }).status, 0);
+  }
+  await trustedIndexMarketplaceSkills(root, team, { fetchImpl, fresh: true });
+  const definition = { ...base(), marketplaces: { team } };
+  const chosen = await taskSkillChooser(root, definition, { fetchImpl: async () => { throw new Error('an index is read only past its hour'); } })(composeTask(definition, { kind: 'fix' }));
+  assert.deepEqual(chosen.offers.map(({ id, marketplace, steps }) => [id, marketplace, steps]), [['web-checks', 'team', ['implementation']]]);
+  assert.deepEqual(chosen.notes, []);
+});
+
+test('ITW A7: a marketplace only a working-copy edit of workflow.yml trusts is not trusted yet: no task offers its skills and no preview reads it', async (t) => {
+  const catalog = await indexMarketplace(t, [{ id: 'web-checks', label: 'Web checks', tags: ['web', 'ga'], phases: ['implementation'], text: WEB_CHECKS }]);
+  const story = await journeyRepository(t, { files: { 'package.json': WEB_PACKAGE }, env: { SINGULARITY_FLOW_TEST_REMOTE_FIXTURES: catalog.directory } });
+  // The approved configuration, sflow/config on the remote (and its tracking ref here), trusts no marketplace.
+  story.git('push', '-q', 'origin', 'main:sflow/config');
+  story.git('fetch', '-q', 'origin');
+  const configuration = YAML.parse(await story.read('singularity/workflow.yml'));
+  configuration.marketplaces = { team: { label: 'Team catalog', index: catalog.index, allowedOrigins: ['https://cdn.example.org'] } };
+  await story.write('singularity/workflow.yml', YAML.stringify(configuration));
+  const shown = json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json'));
+  assert.equal(shown.offers, undefined);
+  assert.deepEqual(shown.notes, ['Marketplace team is trusted only in your working copy of workflow.yml, and that is not approved yet, so its skills are not offered.']);
+  const preview = refused(story, ['import', 'preview', 'market:team/web-checks', '--as', 'skill']);
+  assert.equal(preview.code, 'MARKETPLACE_UNKNOWN');
+  assert.equal(preview.details.nextAction, 'singularity-flow marketplace list');
+  // Once approved, the same marketplace is offered.
+  story.git('commit', '-qam', 'Trust the team catalog');
+  story.git('push', '-q', 'origin', 'main:sflow/config');
+  assert.deepEqual(json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json')).offers.map((offer) => offer.id), ['web-checks']);
+});

@@ -1014,6 +1014,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the migration folders named once (application-paths.mjs MIGRATION_PATH, delivery-evidence.mjs), the `task-grown`
     // settled kind and opening (settled-decisions.mjs, story-version-opening.mjs) and a refactor's after-check at the test
     // step's approval (state.mjs). The growth, its return and the after-check load only for a task. No new eager file.
+    // 9,884,511 (measured for submit.mjs, +144, 2026-11-25 on itw-market): MARKETPLACE_UNKNOWN names `marketplace list` as
+    // its way on (marketplace.mjs, which every configuration load validates with). No new eager file.
     assert.ok(closure.bytes <= 9_886_373, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
@@ -1581,6 +1583,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,353,049 (measured on the merge of Ask SFlow R1-R5, 2026-11-25): `ask` registered and its record families. No new eager file.
   // 4,353,387 (+338, 2026-11-25): the migration folders named once, for the delivery receipt and a task that grows
   // (application-paths.mjs MIGRATION_PATH) [ITW:REQ-014]. No new eager file.
+  // 4,353,193 (+144, 2026-11-25 on itw-market): MARKETPLACE_UNKNOWN names `marketplace list` as its way on (marketplace.mjs).
+  // No new eager file.
   assert.ok(current.bytes <= 4_353_387, `session current loads ${current.bytes} source bytes`);
 });
 

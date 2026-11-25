@@ -117,7 +117,8 @@ function why(candidate, step, { kinds, words }) {
  * task touches; `use` and `without` are the IDs the person said yes and no to.
  */
 export function chooseTaskSkills(composition, { candidates = [], kinds = [], words = '', use = [], without = [] } = {}) {
-  if (composition.uses) return { skills: [], offers: [], byStep: {} };
+  // A team's workflow (`use`) or a marketplace agent's (REQ-011) carries its own skills: a task chooses none for it.
+  if (composition.uses || composition.agent) return { skills: [], offers: [], byStep: {} };
   const touched = new Set(kinds);
   const said = tokens(words);
   const wanted = new Set(use);
@@ -203,6 +204,35 @@ export async function taskSoftwareKinds(root, touchedPaths = []) {
 
 // v2 keeps each skill's description too, for the page of every skill (skill-catalog.mjs); a v1 listing is read again once.
 const CATALOG_FORMAT = 'sflow-task-marketplace-skills/v2';
+// A marketplace's agents, each with its agent.md, for a marketplace agent as a task's plan [ITW:REQ-011].
+const AGENTS_FORMAT = 'sflow-task-marketplace-agents/v1';
+
+/** Where a trusted marketplace's listing at its pinned commit is kept: the clone's Git folder, one file per commit. */
+async function listingFile(root, folder, marketplace) {
+  const { repositoryGitPath } = await import('./git-directory.mjs');
+  const key = createHash('sha256').update(`${marketplace.repository}\n${marketplace.commit}`).digest('hex');
+  return path.join(repositoryGitPath(root, 'singularity-flow', folder), `${key}.json`);
+}
+
+/** The listing kept in `file` for `marketplace` at its commit, or null when none is kept (or it is of another format). */
+async function keptListing(file, format, marketplace, field) {
+  try {
+    const kept = JSON.parse(await readFile(file, 'utf8'));
+    if (kept?.format === format && kept.repository === marketplace.repository && kept.commit === marketplace.commit && Array.isArray(kept[field])) return kept;
+  } catch { /* not kept yet */ }
+  return null;
+}
+
+async function keepListing(file, value) {
+  try {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, `${JSON.stringify(value)}\n`);
+  } catch { /* the listing is read again next time */ }
+}
+
+const listingSkills = (listing) => listing.packages.filter((entry) => entry.kind === 'skill' && ID.test(entry.name)).map((entry) => ({
+  name: entry.name, version: entry.version ?? null, description: entry.description ?? null, tags: entry.tags ?? [], pdlcTasks: entry.pdlcTasks ?? [],
+  lifecycleState: entry.lifecycleState ?? null }));
 
 /**
  * A trusted marketplace's skill packages at the commit the repository trusts. The listing at a pinned commit never
@@ -210,23 +240,39 @@ const CATALOG_FORMAT = 'sflow-task-marketplace-skills/v2';
  * `skill catalog` (skill-catalog.mjs) reads a marketplace through this same listing.
  */
 export async function trustedMarketplaceSkills(root, marketplace) {
-  const { repositoryGitPath } = await import('./git-directory.mjs');
-  const key = createHash('sha256').update(`${marketplace.repository}\n${marketplace.commit}`).digest('hex');
-  const file = path.join(repositoryGitPath(root, 'singularity-flow', 'task-marketplace-skills'), `${key}.json`);
-  try {
-    const kept = JSON.parse(await readFile(file, 'utf8'));
-    if (kept?.format === CATALOG_FORMAT && kept.repository === marketplace.repository && kept.commit === marketplace.commit && Array.isArray(kept.skills)) return kept.skills;
-  } catch { /* not kept yet */ }
+  const file = await listingFile(root, 'task-marketplace-skills', marketplace);
+  const kept = await keptListing(file, CATALOG_FORMAT, marketplace, 'skills');
+  if (kept) return kept.skills;
   const { readMarketplaceRepository } = await import('./marketplace-repository.mjs');
-  const listing = await readMarketplaceRepository(marketplace);
-  const skills = listing.packages.filter((entry) => entry.kind === 'skill' && ID.test(entry.name)).map((entry) => ({
-    name: entry.name, version: entry.version ?? null, description: entry.description ?? null, tags: entry.tags ?? [], pdlcTasks: entry.pdlcTasks ?? [],
-    lifecycleState: entry.lifecycleState ?? null }));
-  try {
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, `${JSON.stringify({ format: CATALOG_FORMAT, repository: marketplace.repository, commit: marketplace.commit, skills })}\n`);
-  } catch { /* the listing is read again next time */ }
+  const skills = listingSkills(await readMarketplaceRepository(marketplace));
+  await keepListing(file, { format: CATALOG_FORMAT, repository: marketplace.repository, commit: marketplace.commit, skills });
   return skills;
+}
+
+/**
+ * A trusted marketplace's agents at the commit the repository trusts, each with what its apm.yml says and its agent.md
+ * text, and its skills as trustedMarketplaceSkills lists them: what convertAgent (agent-workflow.mjs) reads to tell what
+ * each stage of an agent is for [ITW:REQ-011]. Kept like the skill listing, once per commit; the same read keeps the
+ * skill listing too, so a task's skills do not fetch that commit again.
+ */
+export async function trustedMarketplaceAgents(root, marketplace) {
+  const file = await listingFile(root, 'task-marketplace-agents', marketplace);
+  const kept = await keptListing(file, AGENTS_FORMAT, marketplace, 'agents');
+  if (kept && Array.isArray(kept.skills)) return { agents: kept.agents, skills: kept.skills };
+  const { readMarketplaceRepository } = await import('./marketplace-repository.mjs');
+  const listing = await readMarketplaceRepository(marketplace, { documents: (packages) => packages.filter((entry) => entry.kind === 'agent').map((entry) => entry.name) });
+  const agents = listing.packages.filter((entry) => entry.kind === 'agent' && ID.test(entry.name) && typeof entry.text === 'string').map((entry) => ({
+    name: entry.name, version: entry.version ?? null, description: entry.description ?? null, lifecycleState: entry.lifecycleState ?? null,
+    pdlcPhases: entry.pdlcPhases ?? [], pdlcTasks: entry.pdlcTasks ?? [], tags: entry.tags ?? [], skills: entry.skills ?? [],
+    maintainer: entry.maintainer ?? null, sourceRepository: entry.sourceRepository ?? null, document: entry.document ?? null,
+    manifestSha256: entry.manifestSha256 ?? null, text: entry.text }));
+  const skills = listingSkills(listing);
+  await keepListing(file, { format: AGENTS_FORMAT, repository: marketplace.repository, commit: marketplace.commit, agents, skills });
+  const skillFile = await listingFile(root, 'task-marketplace-skills', marketplace);
+  if (!await keptListing(skillFile, CATALOG_FORMAT, marketplace, 'skills')) {
+    await keepListing(skillFile, { format: CATALOG_FORMAT, repository: marketplace.repository, commit: marketplace.commit, skills });
+  }
+  return { agents, skills };
 }
 
 /**
@@ -237,6 +283,7 @@ export async function trustedMarketplaceSkills(root, marketplace) {
 export function taskSkillChooser(root, definition, { words = '', touchedPaths = [], use = [], without = [] } = {}) {
   return async (composition) => {
     const notes = [];
+    if (composition.agent) return { skills: [], offers: [], byStep: {}, notes };
     const [{ configurationReadRoot }, { loadSkillLibrary }, { loadImportsLedger }] = await Promise.all([
       import('./configuration-read-scope.mjs'), import('./skill-library.mjs'), import('./imports-ledger.mjs')]);
     const configRoot = configurationReadRoot(root);

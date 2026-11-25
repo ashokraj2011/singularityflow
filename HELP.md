@@ -4345,7 +4345,7 @@ singularity-flow repositories providers|list|search|status|select|cache ...
 singularity-flow knowledge list|show|record|import|harvest|resolve ...
 singularity-flow knowledge import <REPOSITORY-RELATIVE-MANIFEST.json|yaml|yml> [--dry-run] [--json]
 singularity-flow lessons [list|drop|keep|edit|rule] [K-ID] [--path PATH] [--story WORK-ID] [--text TEXT] [--json]
-singularity-flow work "<words>" [--kind KIND] [--path FILE]... [--start] [--work-id ID] [--base BRANCH] [--from TASK-ID] [--document FILE]... [--add STEP]... [--skip STEP]... [--use-skill ID]... [--without-skill ID]... [--new] [--json]
+singularity-flow work "<words>" [--kind KIND] [--path FILE]... [--start] [--work-id ID] [--base BRANCH] [--from TASK-ID] [--document FILE]... [--add STEP]... [--skip STEP]... [--use-agent MARKETPLACE/AGENT | --without-agent MARKETPLACE/AGENT] [--use-skill ID]... [--without-skill ID]... [--new] [--json]
 singularity-flow work status [TASK-ID] [--json]
 singularity-flow work add requirements|design|plan|review [--work-id ID] [--json]
 singularity-flow capability tree|show|of|add|set|remove|map|edit|organisation|leads

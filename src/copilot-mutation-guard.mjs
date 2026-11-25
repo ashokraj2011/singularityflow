@@ -1861,8 +1861,9 @@ const NO_STORY_COMMANDS = Object.freeze({
   sgos: ['intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit',
     'device', 'authority-store', 'pack', 'memory', 'meta-tool'],
   'sgos-create': ['intent'], stack: ['stack'],
-  // /sf-task composes a task's steps and starts its Story [ITW:REQ-001].
-  task: ['work'], 'story-branch': ['story'], 'story-fetch': ['story'],
+  // /sf-task composes a task's steps and starts its Story [ITW:REQ-001]; on the person's yes it proposes the import of a
+  // marketplace skill (REQ-010) or of an agent's workflow after its conversion review (REQ-011), as /sf-import does.
+  task: ['work', 'import add', 'workflow from-agent', 'workflow import'], 'story-branch': ['story'], 'story-fetch': ['story'],
   'story-start': ['story'], telemetry: ['telemetry'], watch: ['watch'],
   'workspace-bootstrap': ['workspace'], 'workspace-impact': ['workspace']
 });

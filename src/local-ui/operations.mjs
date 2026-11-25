@@ -62,6 +62,8 @@ const fields = {
   'spec.source.link': ['specId', 'url']
 };
 const writes = new Set(['spec.create', 'spec.save', 'spec.fork', 'spec.source.add', 'spec.source.link']);
+// A multi-repository Story keeps these records in its primary checkout.
+const storyReads = new Set(['story.read', 'decision.list', 'tests.plan', 'tests.summary']);
 export function operationShape(operation, input) {
   insist(Object.hasOwn(reads, operation) || writes.has(operation),
     'UI_OPERATION_UNSUPPORTED', 'This operation is not available in the browser. Use its existing SFlow surface.');
@@ -168,9 +170,16 @@ export async function runCanonical(root, args, { signal, timeoutMs = 300_000, on
   });
 }
 
-export async function executeOperation({ operation, input, root, invocationId, directory, signal, onProgress, environment = process.env }) {
+export async function executeOperation({ operation, input, root, story, invocationId, directory, signal, onProgress, environment = process.env }) {
   const shape = operationShape(operation, input);
   let args = reads[operation]?.(input), temporary = null;
+  if (story && storyReads.has(operation)) {
+    insist(!input.workId || input.workId === story.workId, 'UI_STORY_CONTEXT_CHANGED', 'Switch to that Story before reading its workflow.', 409);
+    root = story.lifecycle?.checkoutPath ?? root;
+    args = ['decision.list', 'story.read'].includes(operation)
+      ? reads[operation]({ workId: story.workId })
+      : [...args, `--work-id=${story.workId}`];
+  }
   try {
     // Each browser value is one `--name=value` word: a title of `--` or `--context-root=…` stays a title.
     if (operation === 'spec.create') args = ['spec', 'author', 'new', `--title=${input.title}`, `--kind=${input.kind}`,

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "c28a2d2fa7d359f3e173df75c60190146cf70ca6",
+  "sourceCommit": "312197ee43d32e466bd63c46966fa6e98e6659ad",
   "topicCount": 95,
-  "contentSha256": "c1992129d9d0f6e2f96d7e2254e5c1c5d583c22a341c692c141332ab2fd3d23d",
+  "contentSha256": "60788218d8aa4a31caf40b5fc3f45c8e4635d5ef01aa430a6cb1e273c2503735",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -96,8 +96,8 @@
     {
       "id": "browser-workspace",
       "title": "Open the local SFlow browser workspace",
-      "version": 2,
-      "sha256": "3c3ef166e843bd2afb0efe82d95a824541b4ff03f3d6d1df1a73d26f6fa7db9d",
+      "version": 3,
+      "sha256": "0e0c1050872acd8080dbe20754cc060422d7eb67e67a41d9c498ccbc2e74621e",
       "routingSha256": "c404995713f61fe745855cadec6de921aaa9f34edb890c114efb0c26189883d1",
       "file": "browser-workspace.md"
     },

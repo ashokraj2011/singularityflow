@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, rm, writeFile, readFile, readdir, chmod, utimes, stat, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile, readdir, chmod, utimes, stat, access, realpath } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { request as httpRequest, createServer as httpServer } from 'node:http';
@@ -20,7 +20,7 @@ import { withUiRecovery } from '../src/local-ui/cli-recovery.mjs';
 import { UiError, nativeEnvironment } from '../src/local-ui/contracts.mjs';
 import { browserLaunch } from '../src/local-ui/cli.mjs';
 
-async function fixture(t) {
+async function fixture(t, { checkout = 'project' } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-ui-'));
   const env = isolatedTestEnvironment(path.join(base, 'machine'));
   const previous = { ...process.env };
@@ -28,7 +28,7 @@ async function fixture(t) {
   for (const key of Object.keys(process.env)) if (!Object.hasOwn(env, key)) delete process.env[key];
   Object.assign(process.env, env);
   t.after(async () => { try { for (const cleanup of cleanups) await cleanup(); } finally { for (const key of Object.keys(process.env)) delete process.env[key]; Object.assign(process.env, previous); await rm(base, { recursive: true, force: true }); } });
-  const root = path.join(base, 'project'); await mkdir(root);
+  const root = path.join(base, checkout); await mkdir(root, { recursive: true });
   const mustGit = (...args) => { const result = spawnSync('git', args, { cwd: root, env, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); };
   mustGit('init', '-q', '-b', 'main');
   await writeFile(path.join(root, 'README.md'), '# Isolated local workspace fixture\n');
@@ -762,7 +762,7 @@ test('actual browser creates, edits, previews, saves and reloads a draft without
   assert.deepEqual(errors, []);
 });
 
-test('browser navigation, Story selection and readable summaries work on desktop and narrow screens', async t => {
+test('browser navigation, Story sorting and readable summaries work on desktop and narrow screens', async t => {
   const { root, base, directory, cleanup } = await fixture(t);
   const other = path.join(base, 'checkout-b');
   await mkdir(other);
@@ -813,9 +813,6 @@ test('browser navigation, Story selection and readable summaries work on desktop
   await page.getByRole('searchbox', { name: 'Find a Story' }).clear();
   await page.getByRole('button', { name: 'Can open here' }).click();
   assert.equal(await stories.getByRole('row').count(), 2);
-  await page.getByRole('button', { name: 'Open Checkout recovery' }).click();
-  await page.getByRole('heading', { name: 'Workspace overview' }).waitFor();
-  assert.equal(await page.locator('#context-name').textContent(), 'SW-1');
 
   await nav.getByRole('link', { name: 'Spec Studio' }).click();
   await page.getByRole('button', { name: 'Published', exact: true }).click();
@@ -854,6 +851,142 @@ test('browser navigation, Story selection and readable summaries work on desktop
   }));
   assert.equal(width.content, width.viewport, 'the Story table scrolls within the page at phone width');
   assert.deepEqual(errors, []);
+});
+
+test('browser Stories bind code, decisions, questions and test evidence to the real Story worktree', { timeout: 85_000 }, async t => {
+  const { root, base, directory, env, mustGit, cleanup } = await fixture(t, { checkout: 'workspace/repos/app' });
+  const workspacePath = path.join(base, 'workspace');
+  const remote = path.join(base, 'app.git');
+  const apiRemote = path.join(base, 'api.git');
+  const apiRoot = path.join(workspacePath, 'repos', 'api');
+  const id = 'BROWSER-101';
+  const title = 'Track invoice totals';
+  const git = (checkout, ...args) => mustGit('-C', checkout, ...args);
+  const cli = (checkout, ...args) => {
+    const result = spawnSync(process.execPath, [cliPath, ...args, '--no-model', '--json'], {
+      cwd: checkout, env, encoding: 'utf8', timeout: 30_000
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    return result.stdout;
+  };
+  const [{ default: YAML }, { readWorkspace }, { rememberWorkspace }, { chromium }] = await Promise.all([
+    import('yaml'), import('../src/workspace-manifest.mjs'), import('../src/workspace.mjs'), import('playwright-core')
+  ]);
+  cli(root, 'init');
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.git.publish = 'off';
+  config.repositoryReadiness.requiredBeforeStory = false;
+  await writeFile(configPath, YAML.stringify(config));
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.repositories = { app: { url: remote, defaultBranch: 'main', required: true },
+    api: { url: apiRemote, defaultBranch: 'main', required: true } };
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  await writeFile(path.join(root, 'singularity/capabilities.yml'), YAML.stringify({
+    version: 1, capabilities: {
+      enterprise: { kind: 'collection', parent: null, policy: {} },
+      product: { kind: 'collection', parent: 'enterprise', policy: {} },
+      delivery: { kind: 'delivery', parent: 'product', repositories: ['app', 'api'], policy: {} }
+    }
+  }));
+  await writeFile(path.join(root, 'invoice.js'), 'export function invoiceTotal(value) { return value; }\n');
+  mustGit('add', '.'); mustGit('commit', '-qm', 'Initialize application');
+  mustGit('branch', 'sflow/config');
+  mustGit('init', '--bare', '-q', '-b', 'main', remote);
+  mustGit('init', '--bare', '-q', '-b', 'main', apiRemote);
+  mustGit('remote', 'add', 'origin', remote);
+  mustGit('push', '-qu', 'origin', 'main', 'sflow/config');
+  mustGit('clone', '--no-local', '-q', remote, apiRoot);
+  git(apiRoot, 'remote', 'set-url', 'origin', apiRemote);
+  await writeFile(path.join(apiRoot, 'payments.js'), 'export function reconcileInvoice(value) { return value; }\n');
+  git(apiRoot, 'add', 'payments.js'); git(apiRoot, 'commit', '-qm', 'Initialize API');
+  git(apiRoot, 'push', '-qu', 'origin', 'main');
+  await writeFile(path.join(workspacePath, 'workspace.json'), JSON.stringify({
+    version: 1, id: 'browser-stories', name: 'Invoice workspace', anchor: { provider: 'workspace', key: 'browser-stories' },
+    leadRepository: 'app', capabilities: ['delivery'], repositories: {
+      app: { url: remote, path: 'repos/app', defaultBranch: 'main', capabilities: ['delivery'] },
+      api: { url: apiRemote, path: 'repos/api', defaultBranch: 'main', capabilities: ['delivery'] }
+    }
+  }));
+  await rememberWorkspace(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, await readWorkspace(workspacePath));
+  cli(root, 'workspace', 'use', workspacePath, '--repository', 'app');
+  cli(root, 'start', id, '--isolated-worktree', '--from-branch', 'main', '--capability', 'delivery', '--work-type', 'feature',
+    '--title', title, '--description', 'Return a normalized invoice total.');
+  const canonical = JSON.parse(cli(root, 'workspace', 'stories', id)).stories;
+  assert.deepEqual(canonical.map(({ role, availability }) => [role, availability]).sort(),
+    [['secondary', 'ready'], ['story', 'ready']]);
+  const { checkoutPath, branch } = canonical.find(item => item.role === 'story');
+  const { checkoutPath: apiCheckout } = canonical.find(item => item.role === 'secondary');
+  assert.notEqual(checkoutPath, await realpath(root));
+  await writeFile(path.join(checkoutPath, 'invoice.js'), 'export function invoiceTotal(value) { return Math.round(value); }\n');
+  await writeFile(path.join(apiCheckout, 'payments.js'), 'export function reconcileInvoice(value) { return Math.abs(value); }\n');
+  const storyBefore = git(checkoutPath, 'status', '--porcelain');
+  const refBefore = git(checkoutPath, 'rev-parse', 'HEAD');
+
+  const browser = await chromium.launch({ headless: true }); cleanup(() => browser.close());
+  const service = await startService({ directory }); cleanup(() => service.close());
+  const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID(), environment: env });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  page.setDefaultTimeout(12_000);
+  const nav = page.getByRole('navigation', { name: 'Main navigation' });
+  const openStory = page.getByRole('button', { name: 'Open ' + title, exact: true });
+  const responses = [];
+  page.on('response', async response => {
+    if (new URL(response.url()).pathname.startsWith('/api/requests/') && response.ok()) {
+      const receipt = await response.json();
+      if (receipt.state === 'succeeded') responses.push(receipt);
+    }
+  });
+  await page.goto(launch.url);
+  await nav.getByRole('link', { name: 'Stories' }).click();
+  await openStory.click();
+  await page.getByRole('heading', { name: 'Workspace overview' }).waitFor();
+  assert.equal(await page.locator('#context-name').textContent(), id);
+  assert.equal(await page.locator('#context-switch').getAttribute('title'), checkoutPath);
+
+  await nav.getByRole('link', { name: 'Code Explainer' }).click();
+  await page.locator('#cx-nodes .cx-row').filter({ hasText: 'invoiceTotal' }).waitFor();
+  const code = responses.find(item => item.operation === 'code.changes')?.result?.value;
+  assert.equal((code?.data ?? code)?.codeMap?.model?.story?.workId, id);
+  await nav.getByRole('link', { name: 'Ask SFlow' }).click();
+  const field = page.getByRole('searchbox', { name: 'Ask a question' });
+  await field.fill('current story');
+  await field.press('Enter');
+  await page.getByRole('heading', { name: title, exact: true }).waitFor();
+  await nav.getByRole('link', { name: 'Decisions' }).click();
+  await page.getByText(new RegExp('^' + id + ' ·')).waitFor();
+  await nav.getByRole('link', { name: 'Run & Test' }).click();
+  await page.getByText(`No retained test run for ${id} in this phase.`).waitFor();
+  const summary = responses.find(item => item.operation === 'tests.summary')?.result?.value;
+  assert.equal(summary?.scope?.workId, id, JSON.stringify(summary?.scope));
+  assert.equal(git(checkoutPath, 'status', '--porcelain'), storyBefore);
+  assert.equal(git(checkoutPath, 'rev-parse', 'HEAD'), refBefore);
+  assert.equal(mustGit('status', '--porcelain'), '');
+
+  await nav.getByRole('link', { name: 'Stories' }).click();
+  await page.getByRole('button', { name: 'Open ' + title + ' in api', exact: true }).click();
+  await page.getByRole('heading', { name: 'Selected Story' }).waitFor();
+  assert.equal(await page.locator('#context-switch').getAttribute('title'), apiCheckout);
+  await nav.getByRole('link', { name: 'Code Explainer' }).click();
+  await page.locator('#cx-nodes .cx-row').filter({ hasText: 'reconcileInvoice' }).waitFor();
+  assert.equal(await page.locator('#cx-nodes .cx-row').filter({ hasText: 'invoiceTotal' }).count(), 0);
+  await nav.getByRole('link', { name: 'Decisions' }).click();
+  await page.getByText(new RegExp('^' + id + ' ·')).waitFor();
+  await nav.getByRole('link', { name: 'Run & Test' }).click();
+  await page.getByText(`No retained test run for ${id} in this phase.`).waitFor();
+
+  await page.locator('#context-switch').click();
+  await page.getByRole('button', { name: /^app/ }).click();
+  await nav.getByRole('link', { name: 'Stories' }).click();
+  await openStory.waitFor();
+  // The folder still exists, but a different branch now occupies it.
+  git(checkoutPath, 'switch', '-qc', 'other-invoice');
+  await openStory.click();
+  await page.locator('#banner-message').filter({ hasText: 'Refresh Stories' }).waitFor();
+  assert.equal(await page.locator('#context-switch').getAttribute('title'), await realpath(root));
+  assert.equal(git(checkoutPath, 'branch', '--show-current'), 'other-invoice');
+  git(checkoutPath, 'switch', '-q', branch);
 });
 
 test('an agent turn only reads the service status: ui open, serve and stop with --for-agent are refused with the person\'s route', async () => {

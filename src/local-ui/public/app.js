@@ -541,10 +541,10 @@ async function stories(epoch, initialId = '') {
   const rows = result.value.stories ?? [];
   const key = row => JSON.stringify([row.workId, row.checkoutPath]);
   const choices = new Map((result.choices ?? []).map(choice => [key(choice), choice.choiceId]));
-  $('#main').innerHTML = heading('Stories', 'Find a Story and open its checkout in this tab.',
+  $('#main').innerHTML = heading('Stories', 'Open a Story checkout on this computer.',
     '<button data-action="retry">Refresh</button>' + nativeButton('intake', 'Start a Story in VS Code'))
     + `<section class="card collection"><div class="toolbar">
-      ${searchField('story-search', 'Find a Story', 'Search by title, ID, creator or repository…')}
+      ${searchField('story-search', 'Find a Story', 'Search by title, ID, creator, repository or workspace…')}
       <div class="segmented" role="group" aria-label="Story filter">
         <button data-story-filter="all" aria-pressed="true">All</button><button data-story-filter="ready" aria-pressed="false">Can open here</button>
       </div><span id="story-count" class="results-count" role="status"></span>
@@ -571,7 +571,7 @@ async function stories(epoch, initialId = '') {
   const draw = () => {
     const query = searchText($('#story-search').value);
     const filtered = rows.filter(row => (!onlyReady || choices.has(key(row)))
-      && searchText([row.title, row.workId, storyPhase(row), row.createdBy, row.repository?.id].join(' ')).includes(query)).sort(compare);
+      && searchText([row.title, row.workId, storyPhase(row), row.createdBy, row.repository?.id, row.workspace?.name].join(' ')).includes(query)).sort(compare);
     $('#story-count').textContent = `${filtered.length} ${filtered.length === 1 ? 'Story' : 'Stories'}`;
     const columns = storyColumns.map(([field, label]) => {
       const direction = field === sort.field ? sort.direction === -1 ? 'descending' : 'ascending' : null;
@@ -580,12 +580,14 @@ async function stories(epoch, initialId = '') {
     $('#story-list').innerHTML = filtered.length ? table('Stories', 'story-table', columns, filtered.map(row => {
       const title = row.title ?? row.workId;
       const choice = choices.get(key(row));
-      const repository = row.repository?.id;
+      const location = [row.workId, row.repository?.id, row.workspace?.name].filter(Boolean).join(' · ');
+      const secondary = row.role === 'secondary';
       const name = choice
-        ? `<button class="story-title" data-context="${escape(choice)}" aria-label="Open ${escape(title)}"><span>${escape(title)}</span>${icon('right')}</button>`
+        ? `<button class="story-title" data-context="${escape(choice)}" aria-label="Open ${escape(title)}${secondary ? ` in ${escape(row.repository.id)}` : ''}"><span>${escape(title)}</span>${icon('right')}</button>`
         : `<span class="row-title">${escape(title)}</span>`;
       return `<tr>
-        <td>${name}<small>${escape(row.workId)}${repository ? ` · ${escape(repository)}` : ''}</small>
+        <td>${name}<small>${escape(location)}</small>
+          ${secondary ? '<small>Additional repository</small>' : ''}
           ${choice ? '' : `<small>${escape(row.reason ?? 'No local checkout')}</small>`}</td>
         <td>${pill(storyPhase(row) || words(row.availability), choice ? 'accent' : '')}</td>
         <td>${escape(date(row.createdAt))}</td><td>${escape(row.createdBy || 'Not recorded')}</td>
@@ -650,7 +652,10 @@ async function catalog(page, epoch, initialId = '') {
 }
 
 async function runAndTest(epoch) {
-  $('#main').innerHTML = heading('Run & Test', 'Inspect configured commands, current app status and retained test results.',
+  const { story } = state.session.context;
+  $('#main').innerHTML = heading('Run & Test', story
+    ? `Application status for this checkout and test evidence for ${story.workId}.`
+    : 'Inspect configured commands, current app status and retained test results.',
     nativeButton('run', 'Open Run & Test in VS Code'))
     + `<div class="run-grid">${runPanels.map(([name, title]) => `<section class="card run-card"><h2>${title}</h2>
       <div data-run-panel="${name}">${loading('Reading…')}</div></section>`).join('')}</div>`;

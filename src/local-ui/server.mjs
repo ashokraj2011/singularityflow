@@ -120,6 +120,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
   }
   const cookieName = `sflow_${instance.replaceAll('-', '')}`;
   const tickets = new Map(), sessions = new Map(), browsers = new Map(), contexts = new Map(), jobs = new Map(), queue = [], runningRoots = new Set();
+  const storyBindings = new WeakMap();
   const admissions = new Map();
   const bridges = new Map(), handoffs = new Map(), resources = new Map(), nativeNonces = new Map();
   let running = 0, draining = false, lastActivity = Date.now(), origin, server, closed = false;
@@ -234,12 +235,13 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         job.receipt.state = 'running'; job.receipt.startedAt = new Date().toISOString();
         try {
           await persist(job.receipt);
-          const result = await execute({ ...job, directory, onProgress: progress => event(job.session, 'progress', { invocationId: job.receipt.invocationId, ...progress }) });
+          const story = job.machine ? null : await verifyStory(job.context);
+          const result = await execute({ ...job, story, directory, onProgress: progress => event(job.session, 'progress', { invocationId: job.receipt.invocationId, ...progress }) });
           if (job.operation === 'story.list') {
             job.session.choices.clear();
             result.choices = (result.value?.stories ?? []).filter(story => story.availability === 'ready').map(story => {
               const choiceId = randomUUID();
-              job.session.choices.set(choiceId, { root: story.checkoutPath, label: story.workId });
+              job.session.choices.set(choiceId, story);
               return { choiceId, checkoutPath: story.checkoutPath, workId: story.workId };
             });
           }
@@ -277,6 +279,28 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
     const resolved = await realpath(text(root, 'Checkout', 8192));
     insist((await stat(resolved)).isDirectory(), 'UI_CONTEXT_UNAVAILABLE', 'The selected checkout is not a directory.');
     return { id: randomUUID(), key: digest(resolved), root: resolved, label: path.basename(resolved) };
+  }
+  const sameStory = (entry, row) => entry?.workId === row.workId && entry.branch === row.branch
+    && entry.checkoutPath === row.checkoutPath && (entry.repository.id ?? null) === (row.repository.id ?? null)
+    && entry.workspace.id === row.workspace.id && (entry.role ?? 'story') === (row.role ?? 'story')
+    && (entry.lifecycle?.checkoutPath ?? null) === (row.lifecycle?.checkoutPath ?? row.lifecycleCheckoutPath ?? null);
+  function storyChanged(reason) {
+    return new UiError('UI_STORY_CHECKOUT_CHANGED',
+      `The selected Story checkout changed.${reason ? ' ' + reason + '.' : ''} Refresh Stories and open its current checkout.`, null, 409);
+  }
+  async function verifyStory(context) {
+    const entry = storyBindings.get(context);
+    if (!entry) return null;
+    const { verifyStoryEntry } = await import('../story-index.mjs');
+    const result = await verifyStoryEntry(entry);
+    if (result.status !== 'valid' || result.entry.checkoutPath !== context.root) throw storyChanged(result.reason);
+    return result.entry;
+  }
+  function bindStory(context, entry) {
+    storyBindings.set(context, entry);
+    context.label = entry.workId;
+    context.story = { workId: entry.workId, title: entry.title, repositoryId: entry.repository.id,
+      workspaceName: entry.workspace.name, role: entry.role ?? 'story' };
   }
   function browserCookie(req) {
     return String(req.headers.cookie ?? '').split(';').map(part => part.trim()).find(part => part.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
@@ -339,6 +363,9 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           insist(!previous?.environmentHash || previous.environmentHash === environmentHash, 'UI_CLIENT_SCOPE_CHANGED',
             'The native environment changed. Open a new browser client and inspect the original canonical draft/history using your current credentials; the old write will not be repeated.', 409);
           const context = await contextFor(previous?.root ?? input.root);
+          const { indexedCheckoutAt } = await import('../story-index.mjs');
+          const story = await indexedCheckoutAt(context.root, { env: environment }).catch(() => null);
+          if (story) bindStory(context, story);
           contexts.set(context.id, context);
           const ticket = randomKey(), link = `${origin}/#ticket=${ticket}`;
           const clientId = previous?.clientId ?? text(input.clientId, 'Client ID', 128);
@@ -529,6 +556,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           running += 1;
           if (!startTask) res.once('close', abort);
           try {
+            await verifyStory(context);
             const { value } = await runCanonical(context.root, args, {
               timeoutMs: startTask || prepareTask ? 300_000 : chat ? 55_000 : 20_000,
               signal: controller.signal, environment: session.environment, personAskModel: interaction === 'explain' || chat, stdin
@@ -588,6 +616,8 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           const input = record(await body(req), ['contextId', 'type', 'specId', 'menu']);
           const context = selected(session, text(input.contextId, 'Context ID', 128)), bridge = bridgeFor(session);
           insist(context.id === session.contextId && bridge, 'UI_BRIDGE_UNAVAILABLE', 'No matching VS Code window is connected to this tab and checkout.', 409);
+          await verifyStory(context);
+          insist(context.id === session.contextId, 'UI_BRIDGE_UNAVAILABLE', 'The selected checkout changed. Try the handoff in the current checkout.', 409);
           insist(['spec.assist', 'native.menu'].includes(input.type), 'UI_REQUEST_INVALID', 'Unknown editor handoff.');
           if (input.type === 'spec.assist') {
             insist(bridge.copilot, 'UI_COPILOT_UNAVAILABLE', 'Copilot handoff is unavailable in this window.', 409);
@@ -613,13 +643,28 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           insist(Boolean(input.choiceId) !== Boolean(input.contextId), 'UI_REQUEST_INVALID', 'Select one issued context or Story choice.');
           if (input.contextId) {
             const context = selected(session, text(input.contextId, 'Context ID', 128));
+            await verifyStory(context);
             insist(await realpath(context.root) === context.root, 'UI_CONTEXT_MOVED', 'This checkout moved. Reopen it through the native client.', 409);
             session.contextId = context.id;
             return send(res, 200, { context, capabilities: capabilitiesFor(session) });
           }
           const choice = session.choices.get(text(input.choiceId, 'Context choice', 128));
           insist(choice, 'UI_CONTEXT_DENIED', 'Refresh Stories and select a currently available checkout.', 403);
-          const context = await contextFor(choice.root); context.label = choice.label;
+          const { indexedCheckoutAt } = await import('../story-index.mjs');
+          const entry = await indexedCheckoutAt(choice.checkoutPath, { env: session.environment });
+          if (!sameStory(entry, choice)) throw storyChanged();
+          let context = [...session.contexts].map(id => contexts.get(id)).find(candidate => {
+            const known = storyBindings.get(candidate);
+            return sameStory(known, entry) && known.commonDir === entry.commonDir;
+          });
+          if (context) {
+            bindStory(context, entry);
+            session.contextId = context.id;
+            return send(res, 200, { context, capabilities: capabilitiesFor(session) });
+          }
+          context = await contextFor(entry.checkoutPath);
+          if (context.root !== entry.checkoutPath) throw storyChanged();
+          bindStory(context, entry);
           if (session.contexts.size >= 32) {
             const oldest = session.contexts.values().next().value;
             session.contexts.delete(oldest); contexts.delete(oldest);
@@ -645,7 +690,9 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           text(input.invocationId, 'Invocation ID', 36);
           insist(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(input.invocationId), 'UI_REQUEST_INVALID', 'Use a UUID invocation ID.');
           const shape = operationShape(text(input.operation, 'Operation', 128), input.input);
-          const inputHash = digest(JSON.stringify([context.root, session.environmentHash, input.operation, input.input]));
+          const binding = shape.machine || shape.mutation ? null : storyBindings.get(context);
+          const inputHash = digest(JSON.stringify([context.root, session.environmentHash, input.operation, input.input,
+            ...(binding ? [[binding.workId, binding.branch, binding.commonDir, binding.lifecycle?.checkoutPath]] : [])]));
           const previous = jobs.get(input.invocationId);
           if (previous) {
             insist(previous.clientId === session.clientId && previous.inputHash === inputHash, 'UI_INVOCATION_CONFLICT', 'This invocation ID belongs to different input or another client.', 409);
@@ -667,7 +714,8 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             throw error;
           }
           finally { admissions.delete(receipt.invocationId); }
-          queue.push({ operation: input.operation, input: input.input, root: context.root, invocationId: receipt.invocationId, environment: session.environment, session, receipt });
+          queue.push({ operation: input.operation, input: input.input, root: context.root, context, machine: shape.machine,
+            invocationId: receipt.invocationId, environment: session.environment, session, receipt });
           event(session, 'accepted', { invocationId: receipt.invocationId });
           send(res, 202, view(receipt)); pump(); return;
         }

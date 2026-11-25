@@ -1279,7 +1279,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.guideDeliveryValidation', 'singularityFlow.applicationReview', 'singularityFlow.openApmPackages',
     'singularityFlow.showImpact', 'singularityFlow.showPrompts', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.reviewWitness', 'singularityFlow.adjudicate', 'singularityFlow.decide', 'singularityFlow.sfGuard',
-    'singularityFlow.findings', 'singularityFlow.uploadFindings', 'singularityFlow.lessons',
+    'singularityFlow.findings', 'singularityFlow.uploadFindings', 'singularityFlow.lessons', 'singularityFlow.allSkills',
     'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
     'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
@@ -9826,6 +9826,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { agent, newAgent } = (target && typeof target === 'object' ? target : {}) as { agent?: unknown; newAgent?: unknown };
       // `{ importBundle }`: start Import… with a bundle file the team-import panel wrote.
       const importBundle = (target as { importBundle?: unknown } | undefined)?.importBundle;
+      // All skills opens the Library on one marketplace skill's import preview, or the Skill master on one skill.
+      const { preview, skill } = (target && typeof target === 'object' ? target : {}) as { preview?: unknown; skill?: unknown };
       const focus = (STUDIO_FOCUS_VIEWS as readonly unknown[]).includes(requested) ? requested as typeof STUDIO_FOCUS_VIEWS[number] : null;
       WorkflowStudioPanel.show(client, output, {
         refresh: refreshAfterKnownMutation,
@@ -9862,7 +9864,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }, focus, typeof workflowId === 'string' ? workflowId : null,
       typeof importBundle === 'string' && path.isAbsolute(importBundle) && importBundle.endsWith('.json') ? importBundle : null,
-      newAgent === true ? { newAgent: true } : typeof agent === 'string' ? { agent } : null);
+      newAgent === true ? { newAgent: true } : typeof agent === 'string' ? { agent } : null,
+      preview && typeof preview === 'object' ? { preview: preview as { reference?: unknown; replace?: unknown } } : typeof skill === 'string' ? { skill } : null);
     },
     // The Workflow Designer is gone: Workflow Studio does what it did. The command stays for one
     // release, so links and habits land in Studio.
@@ -10075,6 +10078,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.findings': async () => lazyPanels().FindingsPanel.show(client, { output, refresh: refreshAfterKnownMutation }),
     // What earlier Stories learned, with Drop, Keep and Edit [LRN:REQ-014]; a path opens it on that file's lessons.
     'singularityFlow.lessons': async (filter?: unknown) => lazyPanels().LessonsPanel.show(client, typeof filter === 'string' ? filter : null),
+    // Every skill in the library and the trusted marketplaces, with what each is for, look-alikes and gaps [owner, 2026-11-25].
+    'singularityFlow.allSkills': async () => lazyPanels().AllSkillsPanel.show(client),
     'singularityFlow.uploadFindings': async () => {
       const { uploadFindings, FindingsPanel, findingsImportSummary } = lazyPanels();
       const result = await uploadFindings(client, { output, refresh: refreshAfterKnownMutation });

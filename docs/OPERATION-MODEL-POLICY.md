@@ -776,6 +776,7 @@ Every public operation is classified before its implementation module is importe
 | skill.approved | read | never | — | — |
 | skill.attach | mutation | never | — | — |
 | skill.attach.preview | read | never | — | — |
+| skill.catalog | read | never | — | — |
 | skill.create | mutation | never | — | — |
 | skill.create.preview | read | never | — | — |
 | skill.detach | mutation | never | — | — |

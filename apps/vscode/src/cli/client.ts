@@ -371,6 +371,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'upkeep' | '
   if (args[0] === 'knowledge') return ['list', 'show'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'work') return args.includes('--start') ? 'mutation' : 'read';
   if (args[0] === 'lessons') return ['drop', 'keep', 'edit', 'rule'].includes(args[1] ?? 'list') ? 'mutation' : 'read';
+  // The skill master's reads, every skill's catalog and the skill package reads; a change previews with --dry-run.
+  if (args[0] === 'skill') return ['list', 'show', 'catalog', 'inspect', 'approved', 'doctor'].includes(args[1] ?? '') || enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   if (args[0] === 'harness') return (args[1] ?? 'report') === 'report' ? 'read' : 'mutation';
   if (args[0] === 'regression') return (args[1] ?? 'analyze') === 'analyze' && !enabledBooleanOption(args, 'fetch') ? 'read' : 'mutation';
   // Inspect pending uploads; retry spends a transport attempt.

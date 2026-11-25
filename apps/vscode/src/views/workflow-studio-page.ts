@@ -5913,6 +5913,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       el('div', null, el('h1', { text: 'Skill master' }),
         el('p', { class: 'studio-lede', text: 'Attach skills to workflow steps for that workflow only, or to agents wherever they are used. Both are included in the phase prompt. Running Stories keep the exact skill text they started with.' })),
       el('div', { class: 'studio-row' },
+        button('All skills', function () { post({ type: 'studio.allSkills' }); }, { class: 'secondary', title: 'Every skill here and in the trusted marketplaces: what each is for, look-alikes and gaps' }),
         button('Add from a link', function () { var lib = library(); lib.as = 'library-skill'; lib.attachTo = null; lib.preview = null; lib.target = null; lib.replace = false; state.returnTo = { view: 'skills' }; state.view = 'library'; render(); }, { class: 'secondary' }),
         button('New skill', function () { openSkillForm(null); }, { class: 'primary' }))));
     if (view.form) main.appendChild(renderSkillForm(view.form));
@@ -7533,6 +7534,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       else if (message.view === 'build') openBuilds();
       else if (typeof message.workflowId === 'string') openWorkflowCanvas(message.workflowId);
       else if (message.view === 'agents' && (message.newAgent === true || typeof message.agent === 'string')) focusAgent(message.newAgent === true ? null : message.agent);
+      else if (message.view === 'library' && message.preview && typeof message.preview.reference === 'string') {
+        // All skills: a marketplace skill's exact text, previewed for the skill master (an update when the library has it).
+        var skillLibrary = library(); skillLibrary.as = 'library-skill'; skillLibrary.attachTo = null; skillLibrary.target = null; skillLibrary.replace = message.preview.replace === true;
+        state.view = 'library'; state.returnTo = null; previewImport(message.preview.reference, 'library-skill', null);
+      } else if (message.view === 'skills' && typeof message.skill === 'string') { state.searches.skills = message.skill; state.view = 'skills'; state.returnTo = null; render(); }
       else if (['home', 'agents', 'skills', 'instructions', 'constitution', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
     } else if (message.type === 'studio.failed') {
       if (state.library) state.library.madeWorkflow = null;

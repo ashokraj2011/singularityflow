@@ -11,6 +11,8 @@ export async function run(argv, { positionals, options, applyChangeSet, printRes
   // A skill master edit is applied through the configuration authority (a reviewed proposal or a
   // local edit), which the CLI monolith owns; it calls back here with that path.
   if (SKILL_MASTER_CHANGES.includes(positionals[1]) && !applyChangeSet) return (await import('./legacy.mjs')).run(argv);
+  // Every skill the library and the trusted marketplaces have, analyzed; read only.
+  if (positionals[1] === 'catalog') return (await import('./skill-catalog.mjs')).runSkillCatalog({ positionals, options });
   if ([...SKILL_MASTER_READS, ...SKILL_MASTER_CHANGES].includes(positionals[1])) {
     return (await skillMaster()).runSkillMaster({ positionals, options, applyChangeSet, printResult });
   }

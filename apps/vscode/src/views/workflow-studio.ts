@@ -175,6 +175,23 @@ export interface StudioSavedDraft { schema: 1 | 2; base: string; savedAt: string
 export type StudioAgentFocus = { agent: string } | { newAgent: true };
 const STUDIO_AGENT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+/**
+ * What All skills opens Studio at: the Library's import preview of one marketplace skill, into the skill master (an
+ * update when the library has it), or the Skill master searched for one skill.
+ */
+export type StudioSkillFocus = { preview: { reference?: unknown; replace?: unknown } } | { skill: string };
+const MARKET_SKILL_REFERENCE = /^market:[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*(?:@[0-9A-Za-z][0-9A-Za-z.+-]{0,63})?$/;
+
+function skillFocus(requested: StudioSkillFocus | null): Record<string, unknown> | null {
+  if (!requested) return null;
+  if ('preview' in requested) {
+    const reference = requested.preview?.reference;
+    return typeof reference === 'string' && reference.length <= MAX_REFERENCE_LENGTH && MARKET_SKILL_REFERENCE.test(reference)
+      ? { view: 'library', preview: { reference, replace: requested.preview.replace === true } } : null;
+  }
+  return typeof requested.skill === 'string' && requested.skill.length <= 64 && STUDIO_AGENT_ID.test(requested.skill) ? { view: 'skills', skill: requested.skill } : null;
+}
+
 function agentFocus(requested: StudioAgentFocus | null): StudioAgentFocus | null {
   if (!requested) return null;
   if ('newAgent' in requested) return requested.newAgent === true ? { newAgent: true } : null;
@@ -195,6 +212,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private focus: StudioFocusView | null = null;
   private workflowToOpen: string | null = null;
   private agentToOpen: StudioAgentFocus | null = null;
+  private skillToOpen: Record<string, unknown> | null = null;
   /** The last conversion the page previewed: its feedback is what Copy and Open an issue use, never text from the page. */
   private agentPreview: { target: string; answers: unknown; result: Record<string, unknown> } | null = null;
   /** A bundle to import once the page is ready, from the team-import panel; never a webview path. */
@@ -218,12 +236,16 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       contentSecurityPolicy(panel.webview, token), token, WORKFLOW_STUDIO_SCRIPT);
   }
 
-  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions, focus: StudioFocusView | null = null, workflowId: string | null = null, importBundle: string | null = null, agent: StudioAgentFocus | null = null): WorkflowStudioPanel {
+  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions, focus: StudioFocusView | null = null, workflowId: string | null = null, importBundle: string | null = null, agent: StudioAgentFocus | null = null, skill: StudioSkillFocus | null = null): WorkflowStudioPanel {
     const canvasWorkflow = workflowId && /^(?:initiative:)?[a-z0-9]+(?:-[a-z0-9]+)*$/.test(workflowId) && workflowId.length <= 139 ? workflowId : null;
     const agentToOpen = agentFocus(agent);
+    const skillToOpen = skillFocus(skill);
     if (WorkflowStudioPanel.current) {
       WorkflowStudioPanel.current.panel.reveal(vscode.ViewColumn.Active);
-      if (canvasWorkflow) {
+      if (skillToOpen) {
+        if (WorkflowStudioPanel.current.model) WorkflowStudioPanel.current.post({ type: 'studio.focus', ...skillToOpen });
+        else WorkflowStudioPanel.current.skillToOpen = skillToOpen;
+      } else if (canvasWorkflow) {
         if (WorkflowStudioPanel.current.model) WorkflowStudioPanel.current.post({ type: 'studio.focus', workflowId: canvasWorkflow });
         else WorkflowStudioPanel.current.workflowToOpen = canvasWorkflow;
       } else if (agentToOpen) {
@@ -241,6 +263,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     WorkflowStudioPanel.current.focus = focus;
     WorkflowStudioPanel.current.workflowToOpen = canvasWorkflow;
     WorkflowStudioPanel.current.agentToOpen = agentToOpen;
+    WorkflowStudioPanel.current.skillToOpen = skillToOpen;
     WorkflowStudioPanel.current.bundleToImport = importBundle;
     return WorkflowStudioPanel.current;
   }
@@ -310,6 +333,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.discardSavedDraft': (message) => this.discardSavedDraft(stringField(message, 'draftId')),
     'studio.checkSignIn': (message) => this.checkSignIn(stringField(message, 'intentId')),
     'studio.importTeam': () => this.actions.importTeam?.(),
+    'studio.allSkills': () => vscode.commands.executeCommand('singularityFlow.allSkills'),
     'studio.addUserAgent': () => this.actions.addUserAgent?.(),
     'studio.markup': async () => {
       // CommonJS cannot split import() automatically; load this editor only on explicit use.
@@ -927,11 +951,12 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     try {
       this.model = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]);
       this.post({ type: 'studio.model', model: this.model, reset });
-      if (this.workflowToOpen) {
+      if (this.skillToOpen) this.post({ type: 'studio.focus', ...this.skillToOpen });
+      else if (this.workflowToOpen) {
         this.post({ type: 'studio.focus', workflowId: this.workflowToOpen }); this.workflowToOpen = null;
       } else if (this.agentToOpen) this.post({ type: 'studio.focus', view: 'agents', ...this.agentToOpen });
       else if (this.focus) this.post({ type: 'studio.focus', view: this.focus });
-      this.focus = null; this.agentToOpen = null;
+      this.focus = null; this.agentToOpen = null; this.skillToOpen = null;
       if (this.bundleToImport) this.post({ type: 'studio.importRequested', name: this.bundleToImport.split(/[\\/]/).pop() });
       await this.offerSavedDraft();
       await this.proposals();

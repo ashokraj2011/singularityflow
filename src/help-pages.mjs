@@ -559,6 +559,36 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['knowledge', 'story', 'approve']
   },
+  skill: {
+    summary: 'The skill master (named skills any agent can attach), every skill this repository can use, and skill packages.',
+    description: [
+      'list and show read the skill master: the SKILL.md files under singularity/skill-library and the',
+      'workflows and agents that use each one. create, edit, attach, detach and remove change it through',
+      'the configuration review (--dry-run previews, --propose proposes).',
+      '',
+      'catalog shows every skill this repository can use on one page: the skill library and each marketplace',
+      'it trusts, a Git repository read at the commit it trusts and an index read through its index. Each',
+      'row says where the skill comes from (version, lifecycle), the steps it is for and the /sf-task kinds',
+      'that would pick it, the kinds of software it is for, whether the library has it and whether its',
+      'marketplace has a newer version, and who uses it. The summary names skills that look alike (the same',
+      'kind of step and software, and most of their words shared) and the steps no skill covers here. A',
+      'marketplace that cannot be read is a warning; the rest is listed. It reads only, with no model.',
+      '',
+      'inspect, approved and doctor read compiled skill packages, which skill steps bind.'
+    ],
+    options: [
+      ['--marketplace ID', 'catalog: read only this trusted marketplace, with the library.'],
+      ['--dry-run', 'A change: show it on top of your drafts, and change nothing.'],
+      ['--propose', 'A change: propose your drafts and this change for review together.'],
+      ['--json', 'Emit the result as JSON.']
+    ],
+    examples: [
+      ['singularity-flow skill catalog', 'Every skill in the library and the trusted marketplaces, with look-alikes and the steps none covers.'],
+      ['singularity-flow skill catalog --marketplace acme --json', 'The library and marketplace acme only, as JSON.'],
+      ['singularity-flow skill list', 'The skill master and who uses each skill.']
+    ],
+    seeAlso: ['marketplace', 'import', 'work']
+  },
   intent: {
     summary: 'Capture, confirm, create, ratify, and compile intent without letting proposals become authority.',
     description: [

@@ -129,7 +129,8 @@ export function requireMarketplace(marketplaces, id) {
   return marketplace;
 }
 
-function compareVersions(left, right) {
+/** Which of two versions is newer (1.2.0 after 1.10.0 is older): positive when `left` is. */
+export function compareVersions(left, right) {
   const parts = (value) => String(value).split(/[.+-]/).map((part) => (/^\d+$/.test(part) ? Number(part) : part));
   const a = parts(left); const b = parts(right);
   for (let index = 0; index < Math.max(a.length, b.length); index += 1) {

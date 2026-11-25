@@ -401,6 +401,8 @@ Usage:
                                                         inspect exact retained Story bytes; never adopts a newer source
   singularity-flow skill list [--json]                  the skill master: named skills any agent can attach, and who uses them
   singularity-flow skill show <ID> [--json]
+  singularity-flow skill catalog [--marketplace ID] [--json]
+                                                        every skill in the library and trusted marketplaces: what it is for, who uses it, look-alikes, gaps
   singularity-flow instruction list [--json]            reusable instruction catalog; no implicit global application
   singularity-flow instruction show <ID> [--json]
   singularity-flow instruction create <ID> --description TEXT (--from FILE | --instructions TEXT) [--label TEXT] [--operation-id ID] [--dry-run] [--propose] [--json]

@@ -790,6 +790,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "singularityFlow.startTask",
+        "title": "Singularity Flow: Start a Task",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "singularityFlow.openAdhocWork",
         "title": "Singularity Flow: Ad Hoc Work & Land as a Story",
         "icon": "$(git-commit)"
@@ -1690,6 +1695,11 @@
           "command": "singularityFlow.refresh",
           "when": "view == singularityFlow.navigation",
           "group": "navigation@0"
+        },
+        {
+          "command": "singularityFlow.startTask",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",
+          "group": "navigation@1"
         },
         {
           "command": "singularityFlow.openChangeExplorer",

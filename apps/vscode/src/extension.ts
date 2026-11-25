@@ -1255,7 +1255,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const REPOSITORY_COMMANDS = [
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openFlowImpact', 'singularityFlow.openStories',
-    'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.openWorkspaceStories', 'singularityFlow.openReviews', 'singularityFlow.startWork',
+    'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.openWorkspaceStories', 'singularityFlow.openReviews', 'singularityFlow.startWork', 'singularityFlow.startTask',
     'singularityFlow.openConfigurationApprovals',
     'singularityFlow.openAdhocWork',
     'singularityFlow.openDeveloperHome',
@@ -8957,6 +8957,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (await runPlannedAction(client, output)) await refreshAfterKnownMutation();
     },
     'singularityFlow.startWork': startWork,
+    // Start a task [ITW:REQ-001]: the person's words go to Copilot as /sf-task, which composes the steps and starts the Story.
+    'singularityFlow.startTask': async () => {
+      const words = await vscode.window.showInputBox({ title: 'Start a task', ignoreFocusOut: true,
+        prompt: 'Say what you want done. SFlow picks the steps from the kind of task.', placeHolder: 'fix the login timeout on slow networks' });
+      if (!words?.trim()) return;
+      chatPrefill.noteRequestSent();
+      await vscode.commands.executeCommand('workbench.action.chat.open', { query: `/sf-task ${words.trim()}`, isPartialQuery: false });
+    },
     'singularityFlow.openAdhocWork': async () => {
       const choice = await vscode.window.showQuickPick([
         {

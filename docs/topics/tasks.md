@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 1
+version: 2
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -57,7 +57,7 @@ Use this topic to start work by saying what you want done. The repository must u
 ## Use it from each surface
 
 - **Shell:** `sflow work "<what you want done>"` shows the plan; add `--start` to start it. Run `singularity-flow work --help` for every option.
-- **Copilot:** `/sf-task <what you want done>`. The agent names the kind of task from your words and starts it.
+- **Copilot:** `/sf-task <what you want done>`. The agent names the kind of task from your words and starts it; `/sf-task` with no words then does whatever comes next.
 - **VS Code:** a task started in Copilot or the terminal appears in **My Work** like any Story.
 
 ## Guided workflow
@@ -65,7 +65,9 @@ Use this topic to start work by saying what you want done. The repository must u
 1. Say what you want done, in your own words.
 2. Read the one-line plan: the steps, and what you approve.
 3. Start it. SFlow picks the Story ID, the base and the steps.
-4. Continue with `/sf-next`; each step stops only for your approval or a real question.
+4. Carry on with `/sf-task`, with no words, each time: it does whatever comes next, the step's own work, or your
+   approval, asked in the chat. In VS Code, approving a task's step on the approval page carries the chat on by itself.
+5. When the last step is done, say `/sf-task open the pull request` if you want one.
 
 ## State and safety
 

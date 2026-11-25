@@ -2,7 +2,7 @@
 
 **Specification ID:** `ITW-v1.1`
 
-**Status:** M1 built (2026-11-25): kinds, the composer, team rules, the Story's own workflow, `singularity-flow work`, and a first `/sf-task` that starts the task. M2 to M5 not built. Replaces [ITW v1](SPEC-ITW-INTENT-TO-WORK-v1.md). Also takes in the useful parts of
+**Status:** M1 built (2026-11-25): kinds, the composer, team rules, the Story's own workflow, `singularity-flow work`. M2 in part (2026-11-25): `/sf-task` with no words takes the turn of what comes next (`src/task-turn.mjs`), VS Code's approval page carries a task's chat on, and "open the pull request" after a finished task. Not yet: quiet progress lines, re-composing the plan, a fix growing into a change, the CLI's last-message summary, "… and open a pull request" in the first words; M3 to M5. Replaces [ITW v1](SPEC-ITW-INTENT-TO-WORK-v1.md). Also takes in the useful parts of
 an outside draft, "SPEC-IEX v1.1, Intent to Verified Execution" (2026-11-07); section 5 lists what was left out of it and
 why.
 

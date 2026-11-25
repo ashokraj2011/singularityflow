@@ -1887,7 +1887,9 @@ const NEEDS_A_STORY = Object.freeze({
   'sflow-return': [[/^resume\b/u, 'named only as the command it must not substitute']],
   'sflow-push': [[/^sync$/u, 'named only as the Story publication command it must not substitute']],
   'sflow-prompt-log': [[/^wm compose$/u, 'describes which handoffs capture prompts']],
-  'sflow-quickstart': [[/^(?:init|bootstrap)\b/u, 'the next step it offers for the person\'s own repository']]
+  'sflow-quickstart': [[/^(?:init|bootstrap)\b/u, 'the next step it offers for the person\'s own repository']],
+  // /sf-task with no words takes the bound Story's next turn (task-turn.mjs); with none bound it only starts a task [ITW M2].
+  'sflow-task': [[/^phase enter\b/u, 'the step\'s own work, in the turn of a bound Story'], [/^pr PMC-1\b/u, 'the pull request of a bound Story\'s finished task']]
 });
 /** Skills whose registry boundary needs no Story but whose steps are Story work. */
 const STORY_WORK_SKILLS = Object.freeze({

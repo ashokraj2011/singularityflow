@@ -373,6 +373,7 @@ test('no skill routes the person back to itself, unless the sentence names what 
     'sflow-confirm: description: Run one reviewed SFlow confirmation, by the short code a returned /sf-confirm route carried, once.', // what it runs
     'sflow-explain: - Nothing after `/sf-explain`: run nothing and ask what to explain.', // what was typed
     'sflow-pause: An explicit SFlow request only offers `/sf-pause off`;', // another form: it lifts the pause
+    'sflow-task: Show start\'s readiness lines in one line, then `/sf-task` as what carries the task on.', // another form: with no words it does the started task's next action [ITW M2]
     'sflow-ready: rerun `/sf-ready`), record secrets, or edit a Story checkout.', // the end of a "never" list
     'sflow-ready: rerun `/sf-ready` for a new `planId`,', // a new plan
     'sflow-recover: Then the person reruns `/sf-recover`.', // after the person's own step

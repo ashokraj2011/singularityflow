@@ -394,7 +394,12 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null, r
   const stat = await lstat(directory);
   if (!stat.isDirectory() || stat.isSymbolicLink()) return {};
   const confirm = ['sf-confirm', 'sflow-confirm'].includes(skill) ? confirmedTurn(payload.prompt) : null;
-  const record = { schemaVersion: currentSchemaVersion(FAMILY), sessionId: sessionId(payload), skill, turnId: randomUUID(),
+  // /sf-task with no words takes the turn of what the Story needs next (task-turn.mjs) [ITW:REQ-008]: the approval, the
+  // decision or the step's own work, each under its own skill's rules. The prompt is still kept as /sf-task.
+  const turnSkill = ['sf-task', 'sflow-task'].includes(skill)
+    ? await (await import('./task-turn.mjs')).taskTurnSkill(payload).catch(() => null) ?? skill : skill;
+  const record = { schemaVersion: currentSchemaVersion(FAMILY), sessionId: sessionId(payload), skill: turnSkill, turnId: randomUUID(),
+    ...(turnSkill !== skill ? { typedSkill: skill } : {}),
     recordedAt: now, modeChangedAt: mode.changedAt, ...(confirm ? { confirmDigest: confirm.digest } : {}),
     ...(confirm?.code ? { confirmCode: confirm.code } : {}),
     ...(sourceReviewCompletionRequested(payload.prompt) ? { reviewCompletionRequested: true } : {}),

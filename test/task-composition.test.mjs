@@ -15,6 +15,9 @@ import {
   taskClosureWorkTypes, taskDefinition, taskRules
 } from '../src/task-composition.mjs';
 import { taskPlan } from '../src/commands/work.mjs';
+import { workflowGuide } from '../src/guide.mjs';
+import { taskTurnSkill, taskTurnSkillFor, typedAfterSkill } from '../src/task-turn.mjs';
+import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { journeyRepository, storyRecord } from './helpers/route-follower.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -143,4 +146,31 @@ test('ITW REQ-001, REQ-007: work shows the plan and writes nothing; --start star
   story.git('checkout', '-q', 'main');
   const second = JSON.parse(story.cli('work', 'investigate why the value is 1', '--start', '--json'));
   assert.equal((second.data ?? second).id, 'TASK-2');
+});
+
+test('ITW REQ-008: /sf-task with no words takes the turn of what the Story needs next; with words it stays a task turn', async (t) => {
+  assert.equal(typedAfterSkill('/sf-task'), '');
+  assert.equal(typedAfterSkill('/sf-task fix the login'), 'fix the login');
+  assert.equal(typedAfterSkill('<skill-context name="sf-task">x ARGUMENTS: add a design step </skill-context>'), 'add a design step');
+  const story = await journeyRepository(t);
+  story.cli('work', 'fix the value module so it returns 2', '--start', '--json');
+  story.item = 'singularity/work-items/TASK-1';
+  const record = storyRecord(story);
+  // The step's own work is /sf-next's turn; a person's approval is /sf-approve's; a decision is /sf-decide's.
+  assert.equal(taskTurnSkillFor(record, workflowGuide(record)), 'sf-next');
+  const waiting = structuredClone(record);
+  waiting.phases[waiting.currentPhase].status = 'awaiting_approval';
+  assert.equal(taskTurnSkillFor(waiting, workflowGuide(waiting)), 'sf-approve');
+  const deciding = structuredClone(record);
+  deciding.pendingDecision = { key: 'd1', label: 'Pick one', options: [{ id: 'a', label: 'A' }] };
+  assert.equal(taskTurnSkillFor(deciding, workflowGuide(deciding)), 'sf-decide');
+  assert.equal(taskTurnSkillFor({ ...record, status: 'closed' }, workflowGuide(record)), null);
+  // From the real Story: the chat bound to it gets /sf-next's turn, and typed words keep /sf-task's.
+  assert.equal(await taskTurnSkill({ prompt: '/sf-task', cwd: story.root }, { resolveRoot: async () => story.root }), 'sf-next');
+  assert.equal(await taskTurnSkill({ prompt: '/sf-task fix another thing', cwd: story.root }, { resolveRoot: async () => story.root }), null);
+  let captured = null;
+  await recordRepositoryBoundaryTurn({ sessionId: 'task-turn', cwd: story.root, timestamp: Date.now(), prompt: '/sf-task' },
+    { captureMutation: async (_payload, turn) => { captured = turn; return {}; } });
+  assert.equal(captured?.skill, 'sf-next');
+  assert.equal(captured?.typedSkill, 'sf-task');
 });

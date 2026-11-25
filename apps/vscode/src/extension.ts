@@ -7630,7 +7630,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     if (message.type === 'approve') {
-      return runNode({
+      await runNode({
         kind: 'action', id: approval.id, label: approval.label,
         approve: approval.source === 'story'
           ? {
@@ -7644,6 +7644,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             summary: `Approve ${approval.label}`
           }
       });
+      // A task's Story carries on in the chat once its person approves here [ITW:REQ-008]: nothing to type.
+      if (approval.source === 'story') await continueTaskInChat(approval.workId ?? '', approval.phase);
+      return;
     }
     let target = approval.phase;
     if (approval.source === 'story') {
@@ -8051,6 +8054,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * chat so a previous world-model-builder or unrelated repository conversation cannot leak into
    * the Story session.
   */
+  /**
+   * After a person approves a step of a task's Story on the approval page, the chat goes on with the task's next action
+   * [ITW:REQ-008]: `/sf-task` is sent as the person would type it, so its turn is the next step's, under that step's rules.
+   * Only for a task (its work type `task-<kind>`), only once the step reads approved.
+   */
+  const continueTaskInChat = async (workId: string, phaseId: string): Promise<void> => {
+    const workflow = store.current.snapshot?.workflow;
+    if (!workflow || workflow.workItem?.id !== workId || !/^task-[a-z]+$/u.test(workflow.workItem?.workType ?? '')) return;
+    if (workflow.phases?.[phaseId]?.status !== 'approved') return;
+    chatPrefill.noteRequestSent();
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: '/sf-task', isPartialQuery: false });
+  };
+
   const openGovernedCopilot = async (requestedWorkId?: string | null): Promise<void> => {
     const resolvedWorkId = store.current.snapshot?.workflow?.workItem.id ?? null;
     const activeWorkId = requestedWorkId ?? resolvedWorkId;

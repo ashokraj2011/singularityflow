@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { confirmCode } from '../src/confirm-code.mjs';
-import { agentAct, agentOutputGoverned, boundedAgentOutput, boundedAgentText, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, OMITTED_FIELDS_SHOWN, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, returnsAgentPaths, withAgentRoutes } from '../src/agent-output.mjs';
+import { agentAct, agentOutputGoverned, boundedAgentOutput, boundedAgentText, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, OMITTED_FIELDS_SHOWN, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, returnsAgentPaths, WHOLE_PACKET_READ_BYTES, wholeFileReadPlan, withAgentRoutes } from '../src/agent-output.mjs';
 import { CLI_PATH_REFERENCE } from '../src/safe-command-guidance.mjs';
 import { approvalHoldContinuation } from '../src/copilot-guidance.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
@@ -237,7 +237,9 @@ test('review check accepts output-only agent shaping without relaxing review con
   assert.equal(interpretsForAgent(['review-source', 'check']), false);
   // The submit's retained result is long: --for-agent only bounds and keeps it; the submit reads its own options as before.
   assert.equal(interpretsForAgent(['review-source', 'submit']), false);
-  for (const action of ['context', 'stage', 'decide']) assert.equal(interpretsForAgent(['review-source', action]), true);
+  // Stage is the check of the staged file (stagingProtocol.check) since 2026-11-25: its result is bounded the same way.
+  assert.equal(interpretsForAgent(['review-source', 'stage']), false);
+  for (const action of ['context', 'decide']) assert.equal(interpretsForAgent(['review-source', action]), true);
   const result = await withAgentRoutes({ next: [{
     command: 'singularity-flow review-source check custom-scope --report-file /private/report.json --json'
   }] });
@@ -440,6 +442,51 @@ test('a source review\'s reads all fit what the host file tool shows in one read
   }
   const story = texts.find((entry) => entry.field === 'sources.0.text');
   assert.equal(story.read, undefined, 'a short source is read whole');
+});
+
+test('a review packet up to 64 KiB is read whole in one response; a larger one keeps its field ranges (owner, 2026-11-25)', async (t) => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-review-whole-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  assert.equal(WHOLE_PACKET_READ_BYTES, 64 * 1024);
+  assert.ok(READ_CHUNK_BYTES * READ_PLAN_CHUNKS >= WHOLE_PACKET_READ_BYTES, 'a whole packet fits the ranges one response reads');
+  const rows = (label, count) => Array.from({ length: count }, (_, index) => ({ id: `${label}-${index}`, detail: 'y'.repeat(120) }));
+  // What a real packet carries beside the review material: many fields, most of them outside act.read.
+  const packet = (size) => ({ resultType: 'source-review-agent-context', canReview: true, ready: true, repositoryPath: root, workId: 'W',
+    phase: 'specification', sources: [{ id: 'story', text: 'Plot a graph.\n' }], reviewGuide: { role: 'Do the whole review now.' },
+    reportTemplate: { rows: rows('row', 20) }, reportSchema: { rows: rows('schema', size) }, mutationContract: { rules: rows('rule', size) },
+    ...Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`extra${index}`, { note: `field ${index}` }])) });
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify(packet(60)), { cwd: root }));
+  const text = await readFile(view.agentOutput.path, 'utf8');
+  const lines = text.split('\n');
+  assert.ok(Buffer.byteLength(text) > 2 * READ_CHUNK_BYTES && Buffer.byteLength(text) <= WHOLE_PACKET_READ_BYTES, `${Buffer.byteLength(text)} bytes`);
+  assert.equal(view.agentOutput.whole, true);
+  assert.match(view.agentOutput.instruction, /agentOutput\.read is this whole file; .* in one response, and no other range of it/u);
+  assert.ok(Buffer.byteLength(view.agentOutput.instruction) <= 200);
+  // Consecutive, from the first line to the last, each one view, all of them one response.
+  const read = view.agentOutput.read.map((entry) => entry.lines);
+  assert.ok(read.length >= 3 && read.length <= READ_PLAN_CHUNKS, JSON.stringify(read));
+  assert.equal(read[0][0], 1);
+  assert.equal(read.at(-1)[1], view.agentOutput.lines);
+  read.slice(1).forEach(([start], index) => assert.equal(start, read[index][1] + 1, 'no gap and no overlap'));
+  for (const [start, end] of read) assert.ok(Buffer.byteLength(lines.slice(start - 1, end).join('\n')) <= READ_CHUNK_BYTES, `${start}-${end}`);
+  // Nothing of the file is left to read by a field's own ranges, needed by act or not.
+  for (const entry of view.omittedFields) assert.equal(entry.read, undefined, `${entry.field} has no ranges of its own`);
+  assert.ok(view.omittedFields.some((entry) => entry.field === 'mutationContract' && entry.readBy === 'agentOutput.read'), JSON.stringify(view.omittedFields));
+  for (const read of namedReads(view)) assert.equal(await namedReadRefused(read, root), null, `${path.basename(read.file)} ${read.range}`);
+  assert.ok(Buffer.byteLength(JSON.stringify(view)) <= DEFAULT_AGENT_OUTPUT_BYTES);
+  assert.equal(completeAgentResult(view).mutationContract.rules.length, 60, 'the result is kept whole');
+  assert.deepEqual(wholeFileReadPlan(text).map((entry) => entry.lines), read);
+  // One view when the whole file fits one.
+  assert.deepEqual(wholeFileReadPlan('{\n"a": 1\n}\n').map((entry) => entry.lines), [[1, 3]]);
+  // Larger than one response reads whole: the field ranges stay, and only what act reads is planned.
+  const large = JSON.parse(await boundedAgentOutput(JSON.stringify(packet(400)), { cwd: root }));
+  assert.ok((await readFile(large.agentOutput.path)).length > WHOLE_PACKET_READ_BYTES);
+  assert.equal(large.agentOutput.whole, undefined);
+  assert.match(large.agentOutput.instruction, /the other omittedFields are optional/u);
+  // Only a review packet is read whole: any other result keeps the reads its act names.
+  const other = JSON.parse(await boundedAgentOutput(JSON.stringify({ ...packet(60), resultType: 'sflow-phase-entry', canReview: undefined }), { cwd: root }));
+  assert.equal(other.agentOutput.whole, undefined);
 });
 
 test('omitted pretty JSON fields advertise safe field-specific reads and actual disk bytes', async t => {
@@ -886,10 +933,12 @@ test('a result reads what its act names, nested fields included, and only a resu
   assert.ok(lines.every((line) => !line.startsWith(' ')), 'a saved result has line structure and no indentation');
   assert.deepEqual(completeAgentResult(view).submitIfReady, submitted.submitIfReady, 'the complete result is still whole');
 
-  // Fields apart in the file never share a range, which would read every line between them.
+  // Fields apart in the file never share a range, which would read every line between them. (A review packet up to
+  // 64 KiB is read whole instead, so this one is larger.)
   const apart = { resultType: 'source-review-agent-context', canReview: true, ready: true, repositoryPath: root, workId: 'W',
-    sources: [{ id: 'story', text: 'Keep the pinned source.' }], unnamed: rows('unnamed', 60), artifact: { text: 'Authored artifact.\n'.repeat(500) } };
+    sources: [{ id: 'story', text: 'Keep the pinned source.' }], unnamed: rows('unnamed', 600), artifact: { text: 'Authored artifact.\n'.repeat(500) } };
   const review = JSON.parse(await boundedAgentOutput(JSON.stringify(apart), { cwd: root }));
+  assert.equal(review.agentOutput.whole, undefined);
   const unnamed = review.omittedFields.find((entry) => entry.field === 'unnamed');
   for (const { lines: [start, end] } of review.agentOutput.read ?? []) assert.ok(end < unnamed.read[0][0] || start > unnamed.read.at(-1)[1], JSON.stringify(review.agentOutput.read));
 

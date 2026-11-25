@@ -1174,7 +1174,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // command-loaders.mjs, util.mjs) [ITW M1]. No new eager file.
   // 875,984 (+58, 2026-11-25): --new read as a flag (util.mjs) [ITW M2]. No new eager file.
   // 876,614 (+630, 2026-11-25): `work add` and `work skip` registered (command-registry.mjs) [ITW:REQ-009]. No new eager file.
-  assert.ok(root.bytes <= 876_614, `root dispatch loads ${root.bytes} source bytes`);
+  // 876,763 (measured, +149, 2026-11-25): `review-source submit` asks the branch tip early (cli-entry.mjs) and stage's agent
+  // view is output-only like check's (cli-json-output.mjs). No new eager file.
+  assert.ok(root.bytes <= 876_763, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

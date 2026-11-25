@@ -57,8 +57,8 @@ test('`result last --command` answers none, with the safe read, rather than anot
 /**
  * Every SFlow route an agent view or refusal plan can hand an agent with --json, and whether it gets
  * --for-agent (bounded, act first, kept for `result last`). Those that do not, and why:
- * - review-source context/stage/decide: strict entry or write protocols that refuse the flag
- *   (agent-entry-options.mjs); stage and decide print short results.
+ * - review-source context/decide: strict entry or write protocols that refuse the flag
+ *   (agent-entry-options.mjs); decide prints a short result. (Stage is the check of the staged file since 2026-11-25.)
  * - session other than current/open: sessionAgentEntryGuard keeps agent entry to the read-only form;
  *   loosening it is not this fix's to do.
  * - an exact `--confirm` replay: the person confirmed that exact command, run as given.
@@ -69,7 +69,8 @@ const ROUTES = {
   'singularity-flow review-source submit planning --report-file r.json --json': true,
   'singularity-flow review-source status planning --json': true,
   'singularity-flow review-source decision-context planning --work-id W-1 --finding F-1 --reason <TEXT> --json': true,
-  'singularity-flow review-source stage planning --report-file r.json --json': false,
+  // Stage is the check of the staged file (owner, 2026-11-25): its view is bounded like the check's.
+  'singularity-flow review-source stage planning --report-file r.json --json': true,
   'singularity-flow review-source decide planning --work-id W-1 --finding F-1 --decision accept --reason R --json': false,
   'singularity-flow choices answer R-1 phase-confirmation planning --json': true,
   'singularity-flow choices begin approve W-1 --fetch --json': true,

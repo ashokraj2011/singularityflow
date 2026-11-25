@@ -215,7 +215,8 @@ export async function sourceReviewAgentStop(payload = {}) {
   // "from-context" is the binding this operation's context showed: never a changed one.
   if (draft?.report?.binding && draft.report.binding !== 'from-context' && recordSha256(draft.report.binding) !== operation.bindingSha256
       && operation.state !== 'review-changed-inputs') return {};
-  const check = safeCommandGuidance({ argv: ['review-source', 'check', operation.phaseId, '--for-agent', '--json'] });
+  // The staging protocol's check: `review-source stage`, which checks the staged file and returns every repair.
+  const check = safeCommandGuidance({ argv: ['review-source', 'stage', operation.phaseId, '--for-agent', '--json'] });
   // The skeleton SFlow wrote, still untouched: the judgments are to write, not a check to run [owner, 2026-11-20].
   const template = Boolean(operation.templateSha256 && draft?.raw
     && (await import('node:crypto')).createHash('sha256').update(draft.raw).digest('hex') === operation.templateSha256);

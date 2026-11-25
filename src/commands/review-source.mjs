@@ -154,11 +154,16 @@ export async function reviewSourceCommand(positionals, options) {
     }), true, disputed) : undefined;
   }
   if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') throw sourceReviewStepNotCurrent(workflow, phase, action);
-  if (action !== 'check' && action !== 'decision-context') {
+  // `stage` with no inline JSON is the check of the file the reviewer wrote at stagingPath, with the check's exact
+  // findings and repairs in its result: stage, repair, stage, submit, never a separate check call [owner, 2026-11-25:
+  // 23 of 66 real reviews ran the check more than once and took 124 s against 71 s]. `check` stays as it was.
+  const inlineStage = action === 'stage' && Object.hasOwn(options, 'report-json');
+  const checks = action === 'check' || (action === 'stage' && !inlineStage);
+  if (!checks && action !== 'decision-context') {
     const { assertNoPendingPublication } = await import('../story-publication-pending.mjs');
     await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
   }
-  if (action === 'stage') {
+  if (inlineStage) {
     const { stageSourceReviewReport } = await import('../source-review-staging.mjs');
     const result = await stageSourceReviewReport(root, config, workflow, phaseId, optionString(options, 'report-json'));
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
@@ -167,7 +172,7 @@ export async function reviewSourceCommand(positionals, options) {
     console.log(commandRouteLines(result.commandGuidance).join('\n'));
     return;
   }
-  if (action === 'check' || action === 'submit') {
+  if (checks || action === 'submit') {
     // The file is the one SFlow issued for this step and generation, so --report-file may be left out; any other
     // file is still refused [owner, 2026-11-20: SFlow fills what it knows].
     const reportFile = optionString(options, 'report-file') ?? stagingPath;
@@ -207,7 +212,7 @@ export async function reviewSourceCommand(positionals, options) {
       input: disputedEarlier.length ? { ...input, disputedEarlier } : input });
     report = fixed.report;
     const correction = fixed.corrected.length ? { corrected: fixed.corrected, correctedWords: fixed.correctedWords } : {};
-    if (action === 'check') {
+    if (checks) {
       const { checked } = fixed;
       // The skeleton context wrote, checked untouched: the reviewer's judgments are still to write, and it spends nothing.
       const untouched = text === staging.sourceReviewTemplateText((await import('../source-review-contract.mjs')).sourceReviewReportTemplate(input));
@@ -237,19 +242,20 @@ export async function reviewSourceCommand(positionals, options) {
       const result = { schemaVersion: 1, resultType: 'source-review-check', // schema-transient
         workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
         status: checked.format.status !== 'ready' ? checked.format.status : checked.evaluation.status,
-        ...checked, findings: [...checked.format.findings, ...(checked.evaluation?.findings ?? [])], ...correction,
+        // With a format error, also the citation and reference slips found beside it (checkSourceReviewReport).
+        ...checked, findings: checked.evaluation ? [...checked.format.findings, ...checked.evaluation.findings] : checked.findings, ...correction,
         stagingPath, stagingProtocol: protocol, progress, ...(incomplete ? { incomplete } : {}),
         continuation: { automaticAdvance: false,
           nextAction: { ...guidance, reason },
           actions: [{ ...guidance, reason }] } };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Source review check: ${result.status}; format ${result.format.status}; retention ${result.retentionReady ? 'ready' : 'blocked'}${result.correctedWords ? '' : ' (no changes)'}.`);
+      console.log(`${action === 'stage' ? 'Review draft staged and checked' : 'Source review check'}: ${result.status}; format ${result.format.status}; retention ${result.retentionReady ? 'ready' : 'blocked'}${result.correctedWords ? '' : ' (no changes)'}.`);
       if (result.correctedWords) console.log(result.correctedWords);
       for (const finding of result.findings) console.log(`- ${finding.field ?? finding.code}: ${finding.message}`);
       console.log(incomplete?.instruction ?? result.repair.instruction);
       for (const citation of result.repair.citations) console.log(`- ${citation.field}: ${citation.instruction}${citation.proposedEdit ? ` ${citation.proposedEdit.field} = ${citation.proposedEdit.value}` : ''}`);
       console.log(commandRouteLines(commandGuidance).join('\n'));
-      return emitReview('check', noop('source-review.checked', {
+      return emitReview(action, noop('source-review.checked', {
         workId: workflow.workItem.id, phase: phaseId, retentionReady: result.retentionReady
       }), false, result);
     }

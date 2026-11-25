@@ -34,12 +34,14 @@ test('a source-review write step with the agent flag gets the same command witho
   // [review-submit fix]: whatever refuses it here, it is never the flag.
   const submitted = JSON.parse(run('review-source', 'submit', 'implement', '--report-file', '/tmp/report.json', '--for-agent', '--json').stdout);
   assert.notEqual(submitted.error?.code, 'REVIEW_SOURCE_OPTIONS_INVALID', JSON.stringify(submitted.error));
-  // Stage still owns its options: the flag is refused and the route is the same command without it.
-  const refused = run('review-source', 'stage', 'implement', '--report-file', '/tmp/report.json', '--for-agent', '--json');
+  // Stage is the check of the staged file now (owner, 2026-11-25) and takes the flag the same way.
+  const staged = JSON.parse(run('review-source', 'stage', 'implement', '--report-file', '/tmp/report.json', '--for-agent', '--json').stdout);
+  assert.notEqual(staged.error?.code, 'REVIEW_SOURCE_OPTIONS_INVALID', JSON.stringify(staged.error));
+  // Decide still owns its options: the flag is refused, and the refusal says to run it without the flag.
+  const refused = run('review-source', 'decide', 'implement', '--finding', 'F-1', '--reason', 'kept', '--for-agent', '--json');
   const plan = JSON.parse(refused.stdout);
   assert.equal(plan.error.code, 'REVIEW_SOURCE_OPTIONS_INVALID');
-  assert.match(plan.error.message, /run review-source stage without it/u);
-  assert.equal(plan.remediationPlan.steps[0].command, 'singularity-flow review-source stage implement --report-file /tmp/report.json');
+  assert.match(plan.error.message, /run review-source decide without it/u);
   const status = run('review-source', 'status', 'implement', '--for-agent', '--json');
   assert.equal(status.status, 0, status.stdout + status.stderr);
   assert.notEqual(JSON.parse(status.stdout).error?.code, 'REVIEW_SOURCE_OPTIONS_INVALID');

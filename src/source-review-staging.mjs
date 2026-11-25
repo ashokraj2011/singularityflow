@@ -24,7 +24,9 @@ export function sourceReviewStagingProtocol(phaseId, stagingPath) {
     pathRule: CLI_PATH_CONTRACT,
     terminal: 'standalone-sflow-command', shellWritersAllowed: false, inlineJsonAllowed: false,
     // No --report-file: the check and submit read this issued file themselves, so its long path is never typed again.
-    check: safeCommandGuidance({ argv: ['review-source', 'check', phaseId, '--for-agent', '--json'] }),
+    // The check is `review-source stage`: it checks the staged file and returns every repair at once, so the route is
+    // stage, repair, stage, submit, with no separate `review-source check` call (owner, 2026-11-25; check still works).
+    check: safeCommandGuidance({ argv: ['review-source', 'stage', phaseId, '--for-agent', '--json'] }),
     // --for-agent: a host cut the whole result of a submit without it (2026-11-10).
     retain: safeCommandGuidance({ argv: ['review-source', 'submit', phaseId, '--for-agent', '--json'] }),
     repositoryEditsAllowed: false, stagingIsRetention: false, retentionIsApproval: false };

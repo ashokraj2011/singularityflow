@@ -237,7 +237,7 @@ test('spent repairs never stop SFlow correcting and retaining, and their route i
   const spent = await spend();
   assert.equal(spent.retentionReady, false);
   assert.equal(spent.incomplete.recorded, true);
-  const fresh = packet.stagingProtocol.check.command.replace(/ check .*$/u, ` context ${phaseId} --for-agent --json`);
+  const fresh = packet.stagingProtocol.check.command.replace(/ stage .*$/u, ` context ${phaseId} --for-agent --json`);
   assert.equal(spent.continuation.nextAction.command, fresh, 'the way on is a fresh review turn');
   assert.notEqual(spent.continuation.nextAction.command, packet.stagingProtocol.check.command);
   assert.equal(spent.progress.state, 'repairs-spent', 'no host continuation repeats the check');

@@ -50,6 +50,15 @@ export const DEFAULT_AGENT_OUTPUT_BYTES = 4_000;
 // longer text file, is at most READ_CHUNK_BYTES (agent-output-folder.mjs: what the host shows at once).
 export { READ_CHUNK_BYTES };
 export const READ_PLAN_CHUNKS = 10;
+// A review packet up to 64 KiB is read whole, top to bottom, in one response, never field by field. No host's single
+// view takes a file that size (Copilot in VS Code refused 8,909 bytes whole and cut a ranged read after 8,193; Copilot
+// CLI refused 27.5 KB whole and cut a ranged read at about 20,000 characters: agent-output-folder.mjs; the Copilot edit
+// guard turns back any read over 8,000 bytes), so the packet is its consecutive ranges of at most READ_CHUNK_BYTES, one
+// view each and one in all when it fits one, at most READ_PLAN_CHUNKS of them (70,000 bytes: room for 64 KiB at line
+// boundaries). Read by field ranges, this one file was 81% of everything reviewers viewed (1,055 of 1,301 views), about
+// 15 ranges over three model round trips a review (66 real reviews, 2026-11-25). A larger packet keeps the field ranges.
+export const WHOLE_PACKET_READ_BYTES = 64 * 1024;
+const WHOLE_READ_INSTRUCTION = 'Bounded result: agentOutput.read is this whole file; view it and each textFiles entry marked need, by their ranges, in one response, and no other range of it. Nothing was truncated.';
 export const LOOP_THRESHOLD = 3;
 const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
 // The version question's third answer for words the person typed (requested-successor.mjs JUST_A_QUESTION, owner 2026-11-18).
@@ -672,7 +681,7 @@ export function agentAct(result) {
       read: ['progress'], said: progress.instruction };
     return { state: progress?.state === 'repair-report' ? 'correct' : 'review', do: null,
       read: ['progress', ...(result.taskResume ? ['taskResume'] : []), 'reviewGuide', 'reviewer', 'citationGuide', 'sources', 'upstreamSpec', 'clarifications', 'clarificationGuidance', 'artifact', 'reportTemplate', 'reportSchema', 'stagingProtocol'],
-      said: progress?.instruction ?? 'Perform the independent review now. Read pinned source text files with native file tools; their 1-based lines are citation lines. Stage, check, repair the changed packet within the bounded budget, then retain. Reading and summarising is not the review: end only after the filled report is staged and checked. Do not stop at a repairable packet error or invent coverage.' };
+      said: progress?.instruction ?? 'Perform the independent review now. Read pinned source text files with native file tools; their 1-based lines are citation lines. Run stagingProtocol.check (review-source stage checks the file and returns every repair), repair and stage the changed packet again within the bounded budget, then retain. Reading and summarising is not the review: end only after the filled report is staged and checked. Do not stop at a repairable packet error or invent coverage.' };
   }
   // No review retained yet, as the author's turn reads it after its reviewer returned: the review is finished by a review
   // turn, and what the step must correct is the review's to record. On a real Story the author read "no review exists",
@@ -718,7 +727,7 @@ export function agentAct(result) {
     if (result.retentionReady) return withRoute({ state: 'retain', do: null,
       read: ['repair', 'evaluation'], said: `${corrected}Packet valid: retain it now, including honest correction-required findings. Retention is not approval.` }, result.continuation?.nextAction);
     return { state: 'correct', do: null, read: ['repair', 'findings'],
-      said: `${corrected ? `${corrected}Leave those lines and quotes as they are now. ` : ''}Repair only the fields still listed in this staged packet, using the exact values returned and the pinned text, then check the changed packet. At most two changed-packet repair attempts, counting your edits only (running the check is always allowed); never invent coverage.`,
+      said: `${corrected ? `${corrected}Leave those lines and quotes as they are now. ` : ''}Repair only the fields still listed in this staged packet, using the exact values returned and the pinned text, then run stagingProtocol.check (review-source stage) on the changed packet. At most two changed-packet repair attempts, counting your edits only (running the check is always allowed); never invent coverage.`,
       ...correctionList(result.findings) };
   }
   // The decision list: the person chooses; recording a reused run or a test-run risk is their own
@@ -994,6 +1003,19 @@ const neededFields = (act, omitted) => (Array.isArray(act?.read) ? act.read : om
  */
 export function readRangesText(text) {
   return bytes(text) > READ_CHUNK_BYTES ? lineRanges(text).map(([start, end]) => `${start}-${end}`).join(', ') : null;
+}
+
+/**
+ * The whole of a review packet's file as its read plan, or null when it is larger than one response reads whole
+ * (WHOLE_PACKET_READ_BYTES): its consecutive ranges, each one view, a single one when the file fits one view.
+ */
+export function wholeFileReadPlan(text) {
+  if (bytes(text) > WHOLE_PACKET_READ_BYTES) return null;
+  const ranges = lineRanges(text);
+  if (ranges.length > READ_PLAN_CHUNKS) return null;
+  const lines = text.split('\n');
+  return ranges.map(([start, end]) => ({ lines: [start, end],
+    bytes: lines.slice(start - 1, end).reduce((total, line) => total + bytes(line) + 1, 0) }));
 }
 
 /**
@@ -1403,7 +1425,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
     .map(({ field, textFile, bytes: length, lines }) => ({ field, path: textFile, bytes: length,
       ...(length > READ_CHUNK_BYTES ? { read: lineRanges(readFileSync(textFile, 'utf8')) } : { lines }) }))]));
   const isNeeded = (needs, field) => needs === null || needs.some((path) => field === path || field.startsWith(`${path}.`));
-  const reference = (ranges, document = null, needs = null, planned = Infinity) => {
+  const reference = (ranges, document = null, needs = null, planned = Infinity, wholeFile = false) => {
     const lines = document?.split('\n');
     return Object.fromEntries(keys.map((key) => {
       const range = ranges[key];
@@ -1413,7 +1435,8 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
         : `${JSON.stringify(full[key], null, 2)}\n`;
       // Listing a field's own ranges beside the read plan got one result read twice in one response,
       // so a field the plan holds names the plan instead.
-      const inPlan = document && isNeeded(needs, key) && range && range[1] <= planned;
+      // A plan of the whole file holds every field in it, needed or not.
+      const inPlan = document && (wholeFile || isNeeded(needs, key)) && range && range[1] <= planned;
       const long = bytes(text) > READ_CHUNK_BYTES;
       const chunks = long && !inPlan ? lineRanges(text) : [];
       const files = textFiles[key].map((entry) => (isNeeded(needs, entry.field) ? { ...entry, need: true } : entry));
@@ -1451,7 +1474,9 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   // A text moved to a reference file adds at most six lines (its object) and saves bytes.
   const widest = wholeText.split('\n').length - 1 + 6 * longStrings(full, [], DUPLICATE_TEXT_BYTES).length + texts.length;
   // A text file already written gains only its reason when it becomes a reference.
-  const provisional = { ...describe(wholeText, instruction), lines: widest, bytes: bytes(wholeText) + 200 * texts.length,
+  // A review packet's view may name its whole file instead (wholeFileReadPlan): room for that instruction and flag too.
+  const provisional = { ...describe(wholeText, reviewSources && bytes(WHOLE_READ_INSTRUCTION) > bytes(instruction) ? WHOLE_READ_INSTRUCTION : instruction),
+    ...(reviewSources ? { whole: true } : {}), lines: widest, bytes: bytes(wholeText) + 200 * texts.length,
     read: Array.from({ length: READ_PLAN_CHUNKS }, () => ({ lines: [widest, widest], bytes: 9_999_999 })) };
   const provisionalReferences = reference(Object.fromEntries(keys.map((key) => [key, [widest, widest]])));
   while (bytes(render(kept, provisional, provisionalReferences)) > budget && kept.size) kept.delete([...kept].sort(removalOrder)[0]);
@@ -1483,10 +1508,13 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
     const range = nestedRange(indentedLines, need.split('.'));
     if (range) ranges[need] = range;
   }
-  const read = readPlan(fullText, ranges, needs.filter((need) => omitted.includes(need.split('.')[0])));
+  // A review packet that fits is read whole in one response, not field by field (WHOLE_PACKET_READ_BYTES).
+  const wholeRead = reviewSources ? wholeFileReadPlan(fullText) : null;
+  const read = wholeRead ?? readPlan(fullText, ranges, needs.filter((need) => omitted.includes(need.split('.')[0])));
   const needsNothing = !read.length && !omitted.some((key) => textFiles[key].some((entry) => isNeeded(needs, entry.field)));
-  const agentOutput = { ...describe(fullText, needsNothing ? actAlone : instruction), ...(read.length ? { read } : {}) };
-  const placed = reference(ranges, fullText, needs, read.at(-1)?.lines[1] ?? 0);
+  const agentOutput = { ...describe(fullText, wholeRead ? WHOLE_READ_INSTRUCTION : needsNothing ? actAlone : instruction),
+    ...(wholeRead ? { whole: true } : {}), ...(read.length ? { read } : {}) };
+  const placed = reference(ranges, fullText, needs, read.at(-1)?.lines[1] ?? 0, Boolean(wholeRead));
   let index = null;
   if (omitted.length > OMITTED_FIELDS_SHOWN) {
     // Every omitted field's reference, in a file of its own the agent pages through when it needs one.

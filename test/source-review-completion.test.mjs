@@ -66,9 +66,10 @@ test('read-only review stops once, resumes a real draft, and never invents findi
     assert.equal(agentAct({ ...resumed, resultType: 'source-review-agent-context' }).state, 'retain');
     const draftStop = await item.stop();
     assert.equal(draftStop.decision, 'block');
-    assert.match(draftStop.reason, /Run singularity-flow review-source check/);
+    // The check it issues is `review-source stage`, which checks the staged file (owner, 2026-11-25).
+    assert.match(draftStop.reason, /Run singularity-flow review-source stage/);
     assert.deepEqual(JSON.parse(await readFile(packet.stagingPath)), report, 'a resume preserves independent judgments');
-    const issuedCheck = validateSafeSflowCommand(draftStop.reason.match(/Run (singularity-flow review-source check .+?) now,/u)?.[1]);
+    const issuedCheck = validateSafeSflowCommand(draftStop.reason.match(/Run (singularity-flow review-source stage .+?) now,/u)?.[1]);
     assert.ok(issuedCheck, 'the completion checkpoint issues a parseable check');
     const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
     const checked = spawnSync(process.execPath, [cli, '--no-model', ...issuedCheck.argv],

@@ -134,7 +134,8 @@ test('kernel review staging preserves published bytes and proceeds through check
     assert.deepEqual(packet.citationGuide.scenarioIds, ['S1']);
     assert.match(packet.citationGuide.lineBasis, /not the JSON packet/u);
     assert.equal(packet.stagingProtocol.shellWritersAllowed, false);
-    assert.equal(packet.stagingProtocol.check.copilotCommand.startsWith(`/sf-review-source check ${phaseId} `), true);
+    // The check is `review-source stage`: it checks the staged file and returns every repair (owner, 2026-11-25).
+    assert.equal(packet.stagingProtocol.check.copilotCommand.startsWith(`/sf-review-source stage ${phaseId} `), true);
     const artifactBefore = await readFile(path.join(root, packet.artifact.path));
     const stateFile = path.join(root, 'singularity/work-items', WORK_ID, 'workflow.json');
     const stateBefore = await readFile(stateFile);

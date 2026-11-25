@@ -951,7 +951,9 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   // complete that refresh before this command reads the tree. Without a record this is one file
   // lookup and no Git process.
   if (root) await (await import('./deferred-index-refresh.mjs')).completeDeferredIndexRefresh(root);
-  if (root && (['submit', 'approve', 'reject'].includes(definition.name) || (definition.name === 'phase' && subcommand === 'publish'))) {
+  // A retained review publishes too (review-source submit, 2026-11-25).
+  if (root && (['submit', 'approve', 'reject'].includes(definition.name) || (definition.name === 'phase' && subcommand === 'publish')
+      || (definition.name === 'review-source' && subcommand === 'submit'))) {
     askPublicationTipEarly(root);
   }
   const requestedOperation = resolveOperation({

@@ -114,8 +114,10 @@ file-edit tool, keeping SFlow's values. Never type the report into a shell argum
 place. Read output with native file-read
 tools, not shell parsers. No shell writers, mkdir, pipes or chains. A tool-form refusal is not a
 lifecycle blocker: correct the tool form without repeating settled clarification or editing artifacts.
-Run `stagingProtocol.check` (it reads that file and sets what SFlow knows) before retention. Apply
-`repair` hints to format/citations and independently correct missing mappings now, at most twice with
+Run `stagingProtocol.check` (review-source stage: it reads that file, sets what SFlow knows and lists every
+repair at once; no separate check) before retention. Apply
+`repair` hints to format/citations and independently correct missing mappings now, all in one edit, then
+stage again, at most twice with
 changed packets; they count your edits, never the check, which is always allowed.
 Never erase real gaps. The check itself moves a citation to
 the one line its exact quote is on (`sflowCorrects`): never edit those, or change a quote to fit a line;

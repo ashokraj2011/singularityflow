@@ -18,8 +18,10 @@ const specificationRow = z.discriminatedUnion('outcome', [
     line: citation.line.optional(), quote: citation.quote.optional(),
     attestation: text(1024).optional().describe('For an actually inspected visual source, name page/region and observation instead of line/quote. Unreadable sources still need a separate human disposition.')
   }),
-  z.strictObject({ id, sourceId: id, line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional(), outcome: z.literal('excluded'), reason: text() }),
-  z.strictObject({ id, sourceId: id, line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional(), outcome: z.literal('question'), question: text() })
+  z.strictObject({ id, sourceId: id, line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional(), outcome: z.literal('excluded'),
+    reason: text().describe('The concrete reason this request is left out; it stays pending a human product decision.') }),
+  z.strictObject({ id, sourceId: id, line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional(), outcome: z.literal('question'),
+    question: text().describe('What must be resolved before this request can be covered.') })
 ]);
 const planningRow = z.strictObject({
   id: id.optional(),
@@ -104,11 +106,62 @@ export function sourceReviewReportSchema(kind) {
 export function validateSourceReviewReport(report, kind, { known = null } = {}) {
   const checked = schema(kind);
   const result = checked.safeParse(report);
-  const findings = result.success ? [] : agentInputIssues(result.error.issues, report, { schema: checked, known: known ? known() : [] })
+  const sets = result.success ? [] : known ? known() : [];
+  const findings = result.success ? [] : agentInputIssues(result.error.issues, report, { schema: checked, known: sets })
     .map((entry) => ({ code: 'review-format-invalid', ...entry,
-      ...(/ has no field /u.test(entry.message) ? { message: `${entry.message} Use reportSchema and reportTemplate from review-source context.` } : {}) }));
+      ...(/ has no field /u.test(entry.message) ? { message: `${entry.message} Use reportSchema and reportTemplate from review-source context.` } : {}),
+      ...missingValueWords(entry, report, checked, sets) }));
   return { status: findings.length ? 'correction-required' : 'ready', findings };
 }
+
+/**
+ * A value left out says what it must be, so it is written right in one edit [owner, 2026-11-25]: the choices the packet
+ * knows for that field (scenario and clause IDs, as `allowed`), or else what the field is for, from its schema.
+ * "rows[0].scenarioId is missing; it must be a string." sent a reviewer back to the packet for the IDs.
+ */
+function missingValueWords(entry, report, checked, sets) {
+  if (!entry.field || valueAtField(report, entry.field) !== undefined || !/ is missing; it must be an? \w+\.$/u.test(entry.message)) return {};
+  const set = sets.find((candidate) => candidate.field.test(entry.field));
+  if (set?.values.length) {
+    const allowed = set.values.slice(0, 12);
+    return { message: `${entry.field} is missing; it must be ${set.what}: ${allowed.join(', ')}${set.values.length > allowed.length ? ', …' : ''}.`, allowed };
+  }
+  const described = fieldDescription(checked, entry.field, report);
+  return described ? { message: `${entry.message.slice(0, -1)}: ${described.replace(/\.$/u, '')}.` } : {};
+}
+
+const WRAPPERS = new Set(['optional', 'nullable', 'default', 'readonly', 'catch', 'nonoptional', 'prefault']);
+
+/** What a field's `.describe()` says, read through arrays, wrappers and the row's own outcome, or null. */
+function fieldDescription(node, field, report) {
+  const unwrap = (current, value) => {
+    for (let guard = 0; guard < 16; guard += 1) {
+      const def = current?._zod?.def;
+      if (def && WRAPPERS.has(def.type)) { current = def.innerType; continue; }
+      const chosen = def?.type === 'union' && def.discriminator && value && typeof value === 'object'
+        ? def.options.find((option) => option._zod?.def?.shape?.[def.discriminator]?._zod?.def?.values?.includes(value[def.discriminator])) : null;
+      if (!chosen) return current;
+      current = chosen;
+    }
+    return current;
+  };
+  let value = report;
+  for (const part of fieldTrail(field)) {
+    const def = unwrap(node, value)?._zod?.def;
+    node = def?.type === 'array' && typeof part === 'number' ? def.element : def?.type === 'object' && typeof part === 'string' ? def.shape[part] : null;
+    if (!node) return null;
+    value = value?.[part];
+  }
+  for (let guard = 0; node && guard < 16; guard += 1) {
+    if (typeof node.description === 'string' && node.description) return node.description;
+    node = WRAPPERS.has(node._zod?.def?.type) ? node._zod.def.innerType : null;
+  }
+  return null;
+}
+
+/** A field selector's keys and indexes: `rows[2].tests[0].line` is ['rows', 2, 'tests', 0, 'line']. */
+const fieldTrail = (field) => String(field).split(/\.|(?=\[)/u).filter(Boolean)
+  .map((part) => (/^\[\d+\]$/u.test(part) ? Number(part.slice(1, -1)) : part));
 
 /** A planning row's pinned plan metadata for one clause: what the plan says, never a judgment. */
 function plannedRowMetadata(clauseId, claim) {
@@ -540,14 +593,15 @@ export function sourceReviewRepairGuide(report, input, checked) {
     citations: [], mappingTasks: []
   };
   const sources = new Map(input.sources.map(source => [source.id, source]));
-  const candidates = (checked.findings ?? []).filter(entry => CITATION_CODES.includes(entry.code));
+  const evaluatedBinding = (checked.evaluation ?? checked.preview)?.binding;
+  const candidates = (checked.findings ?? []).filter(entry => CITATION_CODES.includes(entry.code) && sources.has(entry.sourceId));
   const citations = candidates.slice(0, 25).map(entry => {
     const facts = citationFacts(report, entry, sources);
     const { row, source, lines, matches, matchCount, lost } = facts;
     const current = Number.isSafeInteger(row?.line) ? lines[row.line - 1] : undefined;
     // What the check sets itself (sourceReviewCitationCorrections): never the reviewer's edit, so never flipped back.
     const exact = exactCitation(facts);
-    return { field: entry.field, sourceId: source.id, textSha256: checked.evaluation.binding.sources.find(bound => bound.id === source.id).textSha256,
+    return { field: entry.field, sourceId: source.id, textSha256: evaluatedBinding?.sources?.find(bound => bound.id === source.id)?.textSha256 ?? null,
       matchCount, matchingLines: lost ? lost.lines : matches,
       ...(matchCount === 1 ? { proposedEdit: { field: `${entry.field}.line`, value: matches[0] }, ...(exact ? { sflowCorrects: true } : {}),
         instruction: 'The unchanged quote occurs on exactly one pinned source line: stagingProtocol.check moves this line field there itself. Leave this citation, its line and its quote, as they are.' }

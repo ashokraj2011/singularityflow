@@ -367,6 +367,8 @@ Usage:
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow review-source context <specification|planning> [--json]
       read pinned inputs, canonical reportSchema, and reportTemplate (planning mappings are prefilled, not assessed)
+  singularity-flow review-source stage <specification|planning> [--json]
+      the reviewer's check of the file review-source context issued: the same as check, with every repair it needs at once
   singularity-flow review-source check <specification|planning> [--report-file FILE] [--json]
       reads the file review-source context issued; sets what SFlow knows in it, then a read-only format, citation and binding preflight
   singularity-flow review-source submit <specification|planning> [--report-file FILE] [--json]

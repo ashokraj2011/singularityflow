@@ -1289,11 +1289,40 @@ export function checkSourceReviewReport(report, input) {
     'visual-inspection-invalid', 'visual-citation-invalid', 'finding-citation-missing', 'design-blocking-without-defect', 'evidence-outside-plan',
     'use-severity-mismatch', 'runtime-finding-unknown', 'runtime-finding-unanswered']);
   const bindingAndCitationFindings = evaluation?.findings.filter((entry) => invalid.has(entry.code) || entry.code === 'review-binding-stale') ?? [];
+  // A packet with a format error is still read for its citation and reference slips, so one check names every
+  // field to repair and the reviewer fixes them in one edit [owner, 2026-11-25: 23 of 66 real reviews checked more
+  // than once]. They never make it retainable: the format error still blocks, and its evaluation stays null.
+  const preview = format.status === 'ready' ? null : formatErrorPreview(report, input, format.findings, invalid);
   const checked = { format, evaluation,
     retentionReady: format.status === 'ready' && evaluation.status !== 'stale' && !bindingAndCitationFindings.length,
-    findings: [...format.findings, ...bindingAndCitationFindings],
+    findings: [...format.findings, ...bindingAndCitationFindings, ...(preview?.findings ?? [])],
     disclaimer: 'This read-only check grants no reviewer provenance, human disposition, phase submission or approval.' };
-  return { ...checked, repair: sourceReviewRepairGuide(report, input, checked) };
+  // Not part of the result: what the repair guide needs to name exact lines. SFlow sets lines only in a well-formed
+  // packet (sourceReviewCitationCorrections): a format error is repaired first.
+  const unlisted = (value) => (preview ? Object.defineProperty(value, 'preview', { value: { status: preview.status, binding: preview.binding }, enumerable: false }) : value);
+  return unlisted({ ...checked, repair: sourceReviewRepairGuide(report, input, unlisted(checked)) });
+}
+
+// The slips a format error leaves to be found next: a citation, ID or reference in a field the format check passed.
+const PREVIEW_EXCLUDED = new Set(['review-contract-invalid', 'review-binding-mistyped', 'reviewer-not-independent', 'review-self-disposition']);
+const CITED_KEYS = new Set(['line', 'quote', 'sourceId']);
+
+/**
+ * The evaluator's citation and reference findings for a packet whose format check failed, without those a format
+ * finding already names (its own field, a field inside it, or the line, quote or source of the citation it judges).
+ * Null when the evaluator cannot read the packet, or its inputs changed (a fresh context comes first).
+ */
+function formatErrorPreview(report, input, formatFindings, invalid) {
+  let preview;
+  try { preview = evaluateSourceGroundedReview(report, { ...input, reviewerReadOnly: true }); } catch { return null; }
+  if (!preview || preview.status === 'stale') return null;
+  const named = formatFindings.map((entry) => String(entry.field ?? '')).filter(Boolean);
+  const within = (inner, outer) => inner === outer || inner.startsWith(`${outer}.`) || inner.startsWith(`${outer}[`);
+  const covered = (field) => named.some((formatField) => within(field, formatField)
+    || (formatField.startsWith(`${field}.`) && CITED_KEYS.has(formatField.slice(field.length + 1).split(/[.[]/u)[0])));
+  const findings = (preview.findings ?? []).filter((entry) => invalid.has(entry.code) && !PREVIEW_EXCLUDED.has(entry.code)
+    && typeof entry.field === 'string' && entry.field && !covered(entry.field));
+  return { status: preview.status, binding: preview.binding, findings };
 }
 
 /**

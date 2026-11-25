@@ -14,6 +14,7 @@ import { copilotHome } from './copilot-home.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { confirmCodesIn, resolveConfirmCode } from './confirm-code.mjs';
 import { noteActivity } from './machine-activity.mjs';
+import { noteHookSession } from './copilot-chat-hooks.mjs';
 import { ASKED_FOR_SKILLS, TASK_COMPLETION_ALIASES } from './writing-aliases.mjs';
 
 const FAMILY = 'copilot-repository-boundary';
@@ -864,6 +865,8 @@ export async function runRepositoryBoundaryHook(event, input = process.stdin) {
     }
     // A prompt is a person at this laptop: automatic sharing and clean-up wait for an idle one (machine-activity.mjs).
     if (event === 'boundary-turn') noteActivity();
+    // SFlow's hooks saw this chat, so a command it runs can tell a chat whose hooks never ran (copilot-chat-hooks.mjs).
+    if (event === 'boundary-turn' || event === 'boundary-guard') noteHookSession(sessionId(payload));
     const handler = { 'boundary-turn': recordRepositoryBoundaryTurn,
       'boundary-guard': repositoryToolGuard, 'boundary-end': endRepositoryBoundaryTurn,
       'boundary-after': repositoryPostToolGuard, 'boundary-stop': repositoryAgentStop,

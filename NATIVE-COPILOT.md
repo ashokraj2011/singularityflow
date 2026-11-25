@@ -77,6 +77,29 @@ runtime. A missing/broken runtime returns `SFLOW_HOOK_RUNTIME_UNAVAILABLE` with 
 installation repair and reload route, rather than the opaque “hook errored”/exit-127 failure.
 Nonstandard Node/npm installation prefixes must remain available in the host's PATH.
 
+### A folder opened through a link runs no hooks in VS Code
+
+VS Code's Copilot chat (its agent host, VS Code 1.147 with Copilot runtime 1.0.111) runs no
+command hook at all, neither the plugin's nor the repository's `.github/hooks`, in a folder it
+opened through a link. On macOS `/tmp/x` is a link to `/private/tmp/x`, and any folder reached
+through a symlinked parent counts. Nothing is logged, and the chat otherwise works, so SFlow's
+turn boundary and change guard are off while it looks fine. The same folder opened at its real
+path runs every hook. Copilot CLI runs them from a link too.
+
+SFlow says so wherever the person or the agent looks:
+
+- VS Code shows **SFlow guard off** in the status bar and a warning whose one button reopens
+  the folder at its real path.
+- In such a chat, every SFlow command prints `SFLOW_HOOKS_OFF: …` with the fix, and every
+  `--for-agent` result and `pause status` tells the agent to say it and stop.
+- `singularity-flow doctor` reports `copilot-chat-hooks` from VS Code's terminal in that window,
+  and warns about a VS Code window that opened the repository through a link.
+
+The fix is the one command these name, for example `code /private/tmp/x`, then a new chat.
+SFlow's hooks leave one empty file per chat they see under `copilot-hook-sessions` beside the
+Copilot mode file, which is how a command a chat runs (it carries `COPILOT_AGENT_SESSION_ID`)
+knows the hooks never saw it.
+
 ## Evidence and the Repository brief
 
 Use `/sf-upload` or `/sflow-upload` to register files, directories, screenshots, exported designs,

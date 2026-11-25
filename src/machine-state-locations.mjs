@@ -42,6 +42,8 @@ export const MACHINE_STATE_LOCATIONS = Object.freeze({
   SINGULARITY_FLOW_MACHINE_ID_FILE: 'machine-id',
   // When a person last used this laptop, and the automatic work waiting for an idle one beside it (src/machine-activity.mjs).
   SINGULARITY_FLOW_ACTIVITY_FILE: 'activity.json',
+  // VS Code's own user data, read for the folders its windows opened through a link (src/copilot-chat-hooks.mjs).
+  SINGULARITY_FLOW_VSCODE_USER_DATA: 'vscode-user-data',
   SINGULARITY_FLOW_HOME: 'home'
 });
 

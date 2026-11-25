@@ -29,6 +29,7 @@ import { validateAgentEntryRequest } from './agent-entry-options.mjs';
 import { interpretsForAgent } from './cli-json-output.mjs';
 import { parseArgs, writeAtomic } from './util.mjs';
 import { confirmCommandByCode } from './confirm-code.mjs';
+import { hookGapAct, processChatHookGap } from './copilot-chat-hooks.mjs';
 
 // Copilot CLI shows a shell result inline only below 8,192 characters. From there it saves the result
 // outside the workspace, shows its first 500 characters and suggests rg/head/tail/jq on that file,
@@ -1325,7 +1326,9 @@ export async function boundedAgentOutput(text, options = {}) {
     }
     const { agentJson } = await import('./agent-packet-presentation.mjs');
     if (result.resultType === 'sflow-session-entry') result = sessionEntryForAgent(result);
-    const derived = result.act ?? agentAct(result);
+    const gap = processChatHookGap();
+    if (gap) result.copilotHooks = { ran: false, ...gap };
+    const derived = gap ? hookGapAct(gap) : result.act ?? agentAct(result);
     const rest = Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act'));
     const routed = await withAgentRoutes(derived ? { act: derived, ...rest } : result);
     const ordered = derived ? { ...routed, act: leadingAct(routed.act) } : routed;
@@ -1362,7 +1365,10 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   // small reads every skill turn makes cost no extra Git process.
   let located;
   const locate = () => (located ??= repositoryOf(result, cwd) ?? false) || null;
-  const derived = result.act ?? agentAct(result);
+  // In a Copilot chat SFlow's hooks never saw, every result leads with that and ends the turn (copilot-chat-hooks.mjs).
+  const gap = processChatHookGap();
+  if (gap) result.copilotHooks = { ran: false, ...gap };
+  const derived = gap ? hookGapAct(gap) : result.act ?? agentAct(result);
   // A kept result read again (`result last`) is the same action, never a repeat of it.
   const counted = derived && !result.keptResult && !UNCOUNTED_STATES.has(derived.state) && (derived.do || derived.ask);
   const observed = counted && locate() ? observeAgentLoop(locate().root, result, derived, { now: now.getTime() }) : derived;

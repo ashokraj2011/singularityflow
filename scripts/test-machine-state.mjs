@@ -89,6 +89,8 @@ export function isolatedTestEnvironment(root, env = process.env) {
   const { set, unset } = isolatedHomeEnvironment(root, env);
   const isolated = { ...env, ...isolatedMachineEnvironment(root), ...set, ...ISOLATED_RUN_SWITCHES };
   for (const name of unset) delete isolated[name];
+  // A run started from a Copilot chat is not that chat: its commands would report the chat's hooks (copilot-chat-hooks.mjs).
+  delete isolated.COPILOT_AGENT_SESSION_ID;
   // What every Story step must leave true is checked where the CLI reads or writes it, and logged here for the runner,
   // which fails on what test/fixtures/known-invariant-violations.json does not list (src/story-invariants.mjs).
   isolated.SINGULARITY_FLOW_INVARIANTS = env.SINGULARITY_FLOW_INVARIANTS ?? path.join(root, 'invariants.jsonl');

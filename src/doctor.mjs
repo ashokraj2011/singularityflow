@@ -103,6 +103,27 @@ async function repositoryHooksCheck(root) {
 }
 
 /**
+ * Whether Copilot runs SFlow's hooks in the chats on this folder (copilot-chat-hooks.mjs). A fail: doctor run by a chat
+ * SFlow's hooks never saw, or from the terminal of a VS Code window whose folder is open through a link, where VS Code's
+ * Copilot chat runs no hooks at all. A warning: a VS Code window that opened it through a link in the last 30 days.
+ * Null when none holds.
+ */
+const LINKED_WINDOW_DAYS = 30;
+async function copilotChatHooksCheck(root, { env = process.env, now = Date.now() } = {}) {
+  try {
+    const hooks = await import('./copilot-chat-hooks.mjs');
+    const gap = hooks.copilotChatHookGap({ env, root, now });
+    if (gap) return check('copilot-chat-hooks', 'fail', gap.message, gap.fix, { copilotHooks: gap });
+    const terminal = env.TERM_PROGRAM === 'vscode' ? hooks.linkedTerminalFolder({ env }) : null;
+    const linked = terminal ?? hooks.vscodeLinkedOpenings(root, { env, since: now - LINKED_WINDOW_DAYS * 24 * 60 * 60 * 1000 })[0] ?? null;
+    if (!linked) return null;
+    const notice = hooks.linkedFolderNotice(linked);
+    return check('copilot-chat-hooks', terminal ? 'fail' : 'warn',
+      `SFlow's guard is off in Copilot chats in that window: ${notice.because}`, notice.fix, { copilotHooks: notice });
+  } catch { return null; }
+}
+
+/**
  * VS Code older than 1.141 is said plainly, with what does not work there and that updating fixes it
  * (vscode-host-version.mjs); a warning only. `editorVersion` is what the caller found; left out, only VS Code's own
  * terminal names it. Nothing when no VS Code version can be seen.
@@ -133,6 +154,8 @@ export async function doctorSnapshot(root, {
   if (plainChat) checks.push(plainChat);
   const hooks = await repositoryHooksCheck(root);
   if (hooks) checks.push(hooks);
+  const chatHooks = await copilotChatHooksCheck(root);
+  if (chatHooks) checks.push(chatHooks);
   let performanceReport = null;
   let schemaReport = null;
   const node = nodeRequirement();

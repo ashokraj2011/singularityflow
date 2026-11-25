@@ -30,7 +30,10 @@ const FAMILIES = Object.freeze([
     'machine-activity.mjs',
     // A Story step's refusal, noted for its lessons on every refused command (lesson-refusals.mjs, LRN-v1): in the startup
     // chunk, so a refusal loads no other family for it.
-    'lesson-refusals.mjs']],
+    'lesson-refusals.mjs',
+    // Whether SFlow's hooks ran in the Copilot chat a command runs in: stamped by the prompt hook and the guard, read by
+    // root dispatch for every command a chat runs (copilot-chat-hooks.mjs). Claimed elsewhere, each would load that chunk.
+    'copilot-chat-hooks.mjs']],
   ['status', ['commands/status.mjs', 'commands/progress.mjs', 'commands/report.mjs',
     'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs',
     // The Story report's change impact counts, imported only by `report` and its read [CIC:REQ-017].

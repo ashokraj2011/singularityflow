@@ -71,6 +71,11 @@ export async function libraryView(root, config, { env = process.env, refresh = t
   }
   const commit = refCommit(root, ref, { env });
   if (!commit) return { ledger, ref, commit: null, status: identity.configured && !refresh ? 'not-fetched' : 'absent', specs: new Map() };
+  return { ...specificationSnapshot(root, commit, { specId, env }), ledger, ref };
+}
+
+/** Index an exact commit already verified by the caller's source owner. */
+export function specificationSnapshot(root, commit, { specId = null, env = { ...process.env, GIT_NO_LAZY_FETCH: '1' } } = {}) {
   const specs = new Map();
   const directory = specId === null ? LIBRARY_ROOT : LIBRARY_ROOT + '/' + requireSpecId(specId);
   for (const file of committedTreePaths(root, commit, [directory], { env })) {
@@ -80,7 +85,7 @@ export async function libraryView(root, config, { env = process.env, refresh = t
     specs.get(match[1]).push(Number(match[2]));
   }
   for (const list of specs.values()) list.sort((left, right) => left - right);
-  return { ledger, ref, commit, status: 'available', specs };
+  return { commit, status: 'available', specs };
 }
 
 function invalid(specId, revision, detail) {

@@ -645,8 +645,8 @@ export async function main(argv) {
     const agentFlag = options['for-agent'] !== undefined;
     const taskHandoff = positionals[0] === 'work' && positionals[1] === 'handoff';
     if (taskHandoff && agentFlag) throw new SingularityFlowError('Use the task handoff in your own Ask SFlow view or terminal.', { code: 'TASK_HANDOFF_PERSON_REQUIRED' });
-    // `ui serve` prints its own JSON readiness and keeps running; the --for-agent refusal is the ui command's (local-ui/cli.mjs).
-    const foregroundUi = positionals[0] === 'ui' && positionals[1] === 'serve';
+    const foregroundService = positionals[0] === 'ui' && positionals[1] === 'serve' ||
+      positionals[0] === 'ask' && positionals[1] === 'provider' && positionals[2] === 'serve';
     const ownsFlag = interpretsForAgent(positionals);
     if ((utilityEntry || agentFlag && (!ownsFlag || ['app-review', 'ask'].includes(positionals[0]))) && !['pause', 'hook'].includes(positionals[0])) {
       const paused = await copilotPause();
@@ -656,7 +656,7 @@ export async function main(argv) {
     // A foreground server emits its readiness record before waiting for shutdown. Buffering this
     // one long-lived command until return would hide that record for the lifetime of the server.
     const directAskPerson = (positionals[0] === 'ask' || taskHandoff) && options['for-person'] === true && !agentFlag;
-    const invoke = () => withCliJsonOutput(optionBoolean(options, 'json') && !foregroundUi,
+    const invoke = () => withCliJsonOutput(optionBoolean(options, 'json') && !foregroundService,
       () => runMain(agentFlag && !ownsFlag ? withoutAgentFlag(commandArgv) : commandArgv, utilityEntry, contextRequest.root),
       { forAgent: !directAskPerson && agentViewRequested(options), kind: positionals[0], utilityEntry, argv: commandArgv });
     // Include the first-build gate, accounting and authoring in one bounded immutable capture.

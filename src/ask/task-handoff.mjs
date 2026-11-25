@@ -6,7 +6,7 @@ import { resolveSlices, sliceClauseId } from '../spec-library/slice.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 const audience = 'person';
-export const askConversationId = /^ask-[a-f0-9]{32}$/u;
+export const askConversationId = /^askp?-[a-f0-9]{32}$/u;
 export const evidenceId = /^ev-[a-f0-9]{24}$/u;
 const digest = value => 'sha256:' + recordSha256(value);
 const fail = (code, message) => new SingularityFlowError(message, { code });
@@ -14,10 +14,15 @@ const missing = () => fail('ASK_TASK_EVIDENCE_UNAVAILABLE', 'Open the selected e
 
 /** The caller submits an explicit person action. Only Ask's saved handles can supply sources. */
 export async function readTaskSelection(root, { conversationId, revision, target, evidence = [], clauses = [] }) {
-  const store = await conversationStore({ root, context: {}, audience });
+  const portable = conversationId.startsWith('askp-');
+  const store = await conversationStore({ root, context: {}, audience, portable });
   const conversation = await store.read(conversationId, revision);
-  const selected = target ?? conversation.selected?.id;
-  const handles = [...new Set([selected, ...evidence])];
+  if (conversation.localTask && !conversation.taskAdmissionId) {
+    throw fail('ASK_TASK_LOCAL_ONLY', 'Resume the existing task handoff on the original device.');
+  }
+  const resolveHandle = id => portable ? conversation.shared.fromHandle(id) : id;
+  const selected = target ? resolveHandle(target) : conversation.selected?.id;
+  const handles = [...new Set([selected, ...evidence.map(resolveHandle)])];
   if (!selected || handles.length > 8) throw missing();
   const links = handles.map(id => {
     const link = conversation.result.refs.find(item => item.id === id)
@@ -25,6 +30,7 @@ export async function readTaskSelection(root, { conversationId, revision, target
     if (!link) throw missing();
     return link;
   });
+  if (portable) await Promise.all(links.map(link => store.sources.verify(link)));
   if (clauses.length && links[0].ref.kind !== 'spec') {
     throw fail('TASK_SPEC_CLAUSE_WITHOUT_SPEC', 'Choose a reviewed specification before selecting clauses.');
   }

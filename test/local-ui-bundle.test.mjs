@@ -72,6 +72,8 @@ test('npm package includes the service, browser and Copilot skill assets', { tim
     'src/local-ui/public/code-explainer.css', 'src/ask/history-display.mjs', 'src/ask/retained-history.mjs',
     'src/git-access-history.mjs', 'src/ask/conversation.mjs', 'src/ask/evidence.mjs', 'src/ask/explanation.mjs',
     'src/task-handoff.mjs', 'src/task-admission.mjs', 'src/ask/task-handoff.mjs',
+    'src/ask/shared-contract.mjs', 'src/ask/shared-provider-server.mjs', 'src/ask/shared-conversations.mjs',
+    'src/ask/portable-view.mjs', 'src/ask/portable-evidence.mjs', 'src/ask/portable-task.mjs', 'src/ask/private-files.mjs',
     'src/comprehension/code-map.mjs', 'plugin/skills/sflow-ui/SKILL.md']) assert.ok(files.has(file), file);
 });
 

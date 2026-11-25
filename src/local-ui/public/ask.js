@@ -47,7 +47,9 @@ function evidenceView(evidence, supporting, canPrepare) {
 }
 
 function evidenceOptions(answer) {
-  return [answer.work, ...(answer.specifications ?? []), answer.help, ...(askHistoryDisplay(answer)?.rows ?? [])]
+  const visible = [answer.work, ...(answer.specifications ?? []), answer.help, ...(askHistoryDisplay(answer)?.rows ?? []),
+    ...(answer.savedResults ?? []).filter(row => row.availability === 'available')];
+  return [...new Map(visible.filter(item => item?.evidenceId).map(item => [item.evidenceId, item])).values()]
     .filter(item => item?.evidenceId).map(item => ({ id: item.evidenceId, label: item.title ?? item.label ?? item.reference }));
 }
 
@@ -97,7 +99,13 @@ function answerView(value) {
     chip(item.label, item.id === 'help' ? 'query' : 'route', item.id === 'help' ? item.topic : item.id)).join('')}</div></section>` : ''}
   ${choices.length || candidates.length ? `<section class="card ask-answer"><h2>Choose what to look up</h2><div class="ask-actions">${choices.map(item =>
     chip(item.id + ' · ' + words(item.kind), item.selection ? 'choice' : 'query', item.selection ?? item.kind + ' ' + item.id)).join('')}${candidates.map(item => chip(item.title, item.selection ? 'choice' : 'query', item.selection ?? item.id)).join('')}</div></section>` : ''}
+  ${value.task?.workId && !value.task.id ? `<section class="card ask-answer"><h2>Task ${escape(value.task.workId)}</h2>
+    <p>${[value.task.workStatus ?? value.task.status, value.task.phase].filter(Boolean).map(escape).join(' · ')}</p></section>` : ''}
   ${historyView(value)}
+  ${value.savedResults?.length ? `<section class="card ask-answer"><h2>Saved results</h2><ol class="ask-history-rows">
+    ${value.savedResults.map(row => `<li>${row.availability === 'available'
+      ? escape(row.title) + ' ' + evidenceChip(row.evidenceId)
+      : row.availability === 'local-only' ? 'Available on the original device' : 'Unavailable in this checkout'}</li>`).join('')}</ol></section>` : ''}
   ${diagnostics.map(item => `<p class="card ask-answer" role="status">${escape(item.message)}</p>`).join('')}
   ${value.status === 'empty' && !value.coverage && !diagnostics.length ? '<p class="muted">Enter a screen name, a work question, or a specification ID.</p>' : ''}`;
 }
@@ -108,6 +116,7 @@ export function mountAsk(root, { checkout, navigate, read }) {
       <label for="ask-question">Ask a question</label>
       <div class="ask-input-row"><input id="ask-question" type="search" maxlength="2000" autocomplete="off"
         placeholder="Where do I write a specification?" aria-controls="ask-suggestions"><button type="submit" class="primary">Ask</button></div>
+      ${checkout ? '<label><input id="ask-portable" type="checkbox"> Save across devices</label>' : ''}
       ${checkout ? `<p class="muted ask-scope">Checkout · ${escape(checkout)}</p>` : ''}
     </form>
     <ul id="ask-suggestions" aria-label="Suggested destinations"></ul>
@@ -118,6 +127,7 @@ export function mountAsk(root, { checkout, navigate, read }) {
   <section id="ask-evidence" aria-label="Evidence and explanation"></section>
   <section id="ask-task" aria-label="Task handoff"></section>`;
   const field = root.querySelector('#ask-question');
+  const portable = root.querySelector('#ask-portable');
   const suggestions = root.querySelector('#ask-suggestions');
   const answer = root.querySelector('#ask-answer');
   const detail = root.querySelector('#ask-evidence');
@@ -126,12 +136,17 @@ export function mountAsk(root, { checkout, navigate, read }) {
   const status = root.querySelector('#ask-status');
   let pending = false;
   let conversation = null;
+  let conflict = null;
   let activeTask = null;
   let supporting = [];
 
   function sessionActions() {
     if (!checkout) return;
-    const items = [chip('Resume saved conversation', 'conversation-action', 'resume')];
+    const items = [chip('Resume saved conversation', 'conversation-action', 'resume'),
+      chip('Resume across devices', 'conversation-action', 'resume-shared')];
+    if (conflict) items.unshift(chip('Resume latest version', 'conversation-action', 'resume-conflict'));
+    portable.disabled = Boolean(conversation);
+    if (conversation) portable.checked = conversation.portability === 'shared-provider';
     if (conversation) {
       items.unshift(chip('New conversation', 'conversation-action', 'new'));
       if (conversation.canExplain) items.push(chip('Explain with Copilot', 'conversation-action', 'explain'));
@@ -166,10 +181,11 @@ export function mountAsk(root, { checkout, navigate, read }) {
         return;
       }
       if (result.conversation) conversation = result.conversation;
-      if (result.kind === 'forgotten' || result.status === 'conflict') conversation = null;
+      conflict = result.status === 'conflict' ? result.currentConversation ?? null : null;
+      if (result.kind === 'forgotten' || result.kind === 'conversation' && !result.conversation) conversation = null;
       sessionActions();
       if (result.evidence || result.explanation) {
-        detail.innerHTML = result.evidence ? evidenceView(result.evidence, supporting.filter(item => item.id !== result.evidence.id), Boolean(conversation))
+        detail.innerHTML = result.evidence ? evidenceView(result.evidence, supporting.filter(item => item.id !== result.evidence.id), Boolean(conversation && !conversation.taskAvailability))
           : explanationView(result.explanation);
         detail.querySelector('h2')?.scrollIntoView({ block: 'nearest' });
       } else {
@@ -182,7 +198,8 @@ export function mountAsk(root, { checkout, navigate, read }) {
         }
       }
       status.textContent = result.kind === 'forgotten' ? 'Saved conversation removed.'
-        : result.kind === 'artifact' ? 'Specification opened.' : 'Answer ready.';
+        : result.kind === 'artifact' ? 'Specification opened.'
+        : result.status === 'conflict' ? 'Conversation updated. Resume its latest version.' : 'Answer ready.';
     } catch (error) {
       if (status.isConnected) status.textContent = error.message;
     } finally {
@@ -195,7 +212,7 @@ export function mountAsk(root, { checkout, navigate, read }) {
     if (!value) return;
     field.value = value;
     suggestions.hidden = true;
-    void show({ interaction: 'submit', query: value, ...(conversation ? scope() : checkout ? { remember: true } : {}) });
+    void show({ interaction: 'submit', query: value, ...(conversation ? scope() : checkout ? { remember: true, ...(portable.checked ? { portable: true } : {}) } : {}) });
   }
 
   function interact(event) {
@@ -209,6 +226,8 @@ export function mountAsk(root, { checkout, navigate, read }) {
     }
     if (conversationAction === 'new') {
       conversation = null;
+      conflict = null;
+      portable.checked = false;
       answer.innerHTML = detail.innerHTML = status.textContent = '';
       taskPanel.innerHTML = '';
       activeTask = null;
@@ -219,7 +238,11 @@ export function mountAsk(root, { checkout, navigate, read }) {
       field.focus();
       return;
     }
-    if (conversationAction === 'resume') { void show({ interaction: 'resume' }); return; }
+    if (conversationAction === 'resume' || conversationAction === 'resume-shared' || conversationAction === 'resume-conflict') {
+      void show({ interaction: 'resume', ...(conversationAction === 'resume-shared' ? { portable: true } : {}),
+        ...(conversationAction === 'resume-conflict' ? { conversationId: conflict?.conversationId } : {}) });
+      return;
+    }
     if (conversationAction && conversation) {
       if (conversationAction !== 'forget' || globalThis.confirm('Forget this private Ask conversation?')) {
         void show({ interaction: conversationAction, ...scope() });

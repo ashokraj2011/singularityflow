@@ -1664,6 +1664,72 @@ test('Ask SFlow opens from Navigator and uses offline suggestions and reviewed h
   assert.ok(results?.some(item => item.label === 'Artifacts, templates, and publication'), JSON.stringify(registered.infos));
 });
 
+test('Ask SFlow opts in to shared resume and labels local-only results in the editor', { timeout: 60_000 }, async t => {
+  if (!requireBundle(t)) return;
+  const [{ createHash, randomBytes }, { serveAskProvider }] = await Promise.all([
+    import('node:crypto'), import('../src/ask/shared-provider-server.mjs')
+  ]);
+  const root = await demoRepository();
+  const base = path.dirname(root);
+  t.after(() => removeFixture(base));
+  const remote = run('git', ['remote', 'get-url', 'origin'], { cwd: root }).stdout.trim();
+  const second = path.join(base, 'resume-checkout');
+  run('git', ['clone', remote, second], { cwd: base });
+  run('git', ['commit', '--allow-empty', '-qm', 'Private editor commit'], { cwd: root });
+  const token = randomBytes(32).toString('base64url');
+  const server = path.join(base, 'server.json');
+  const client = path.join(base, 'client.json');
+  const tokenFile = path.join(base, 'client-token');
+  await writeFile(server, JSON.stringify({ schemaVersion: 1, name: 'editor-provider', directory: path.join(base, 'provider'), port: 0,
+    grants: [{ tokenSha256: createHash('sha256').update(token).digest('hex'), owner: 'operator', workspace: 'editor-test', repository: remote }] }), { mode: 0o600 });
+  await writeFile(tokenFile, token, { mode: 0o600 });
+  const service = await serveAskProvider(server);
+  t.after(() => service.close());
+  await writeFile(client, JSON.stringify({ schemaVersion: 1, bindings: [{ provider: 'editor-provider',
+    workspace: 'editor-test', repository: remote, endpoint: 'http://127.0.0.1:' + service.port, tokenFile }] }), { mode: 0o600 });
+  const previous = process.env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG;
+  process.env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG = client;
+  t.after(() => { if (previous == null) delete process.env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG;
+    else process.env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG = previous; });
+
+  async function readFrom(checkout, initialLabel, query) {
+    const { api, registered } = stubVscode();
+    api.workspace.workspaceFolders = [{ uri: { fsPath: checkout } }];
+    await loadExtension(api).activate(context());
+    api.window.createQuickPick = () => {
+      let changed, accept, hidden;
+      const dispose = () => {};
+      return {
+        value: '', items: [], activeItems: [], selectedItems: [], dispose,
+        onDidChangeValue(callback) { changed = callback; return { dispose }; },
+        onDidAccept(callback) { accept = callback; return { dispose }; },
+        onDidHide(callback) { hidden = callback; return { dispose }; },
+        show() {
+          this.value = query;
+          changed();
+          const item = this.items.find(value => value.label === initialLabel);
+          assert.ok(item, initialLabel);
+          this.selectedItems = [item];
+          accept();
+        },
+        hide() { hidden(); }
+      };
+    };
+    let result;
+    api.window.showQuickPick = async items => { result = items; return undefined; };
+    await registered.commands.get('singularityFlow.askSFlow')();
+    assert.ok(result, JSON.stringify(registered.infos));
+    return result;
+  }
+  const first = await readFrom(root, 'Ask and save across devices', 'commits from 2000-01-01 to 2099-12-31 on HEAD');
+  const original = first.find(item => item.label === 'Private editor commit');
+  assert.ok(original?.target, JSON.stringify(first));
+  const resumed = await readFrom(second, 'Resume Ask conversation across devices', '');
+  assert.ok(resumed.some(item => item.label === 'Result 1 · Available on the original device' && !item.action), JSON.stringify(resumed));
+  assert.ok(resumed.some(item => item.action === 'evidence' && item.target !== original.target));
+  assert.ok(resumed.every(item => !item.label.includes('Private editor commit')));
+});
+
 test('Ask SFlow shows and pages through pinned Git history from the VS Code Navigator', async t => {
   if (!requireBundle(t)) return;
   const root = await demoRepository();

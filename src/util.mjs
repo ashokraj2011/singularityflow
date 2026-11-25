@@ -200,7 +200,7 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
  * guessing wrong would swallow a real value, which is the worse failure.
  */
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
-  'suggest', 'open-spec', 'remember', 'forget', 'explain',
+  'suggest', 'open-spec', 'remember', 'forget', 'explain', 'portable',
   'drain',
   'heartbeat', 'not-applicable', 'submit',
   // work "<words>" --start starts the task's Story [ITW:REQ-001]; --new starts it over a task open on this checkout.

@@ -781,7 +781,7 @@ export function argvAllowed(argv, mode, value) {
   // A specification's secret-shaped values are withheld from a model; asking for them is the person's own page, in no turn.
   if (options['for-person'] !== undefined &&
       (positionals[0] === 'ask' || positionals[0] === 'spec' && positionals[1] === 'author')) return false;
-  if (positionals[0] === 'ask' && (options.explain !== undefined || options.forget !== undefined)) return false;
+  if (positionals[0] === 'ask' && ('explain' in options || 'forget' in options || 'portable' in options || positionals[1] === 'provider')) return false;
   // `run --repair-on-fault` runs the command it wraps unchecked; the guided `run` is `next` and `submit`.
   if (positionals[0] === 'run' && (positionals.length > 1 || options['repair-on-fault'] !== undefined)) return false;
   // `action execute` runs its plan's stored command in this process: a turn admits it only when it

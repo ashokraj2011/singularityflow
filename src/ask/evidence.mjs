@@ -67,13 +67,13 @@ async function exactWorkState(root, ref) {
   return entry.state;
 }
 
-export async function readEvidence(root, link, { audience, detail = true }) {
+export async function readEvidence(root, link, { audience, detail = true, verifiedSpecification = null }) {
   const { ref, id } = link;
   const result = (value) => ({ id, kind: ref.kind, ...value });
   if (ref.kind === 'spec') {
     const { readPublishedSpecification } = await import('../spec-library/library.mjs');
     const { specificationResult } = await import('./read.mjs');
-    const current = await readPublishedSpecification(root, ref.reference);
+    const current = verifiedSpecification ?? await readPublishedSpecification(root, ref.reference);
     if (current.manifestSha256 !== ref.manifestSha256 || current.manifest.files['spec.md'] !== ref.contentSha256) throw stale();
     const pinned = current.commit === ref.stateCommit ? current
       : await readPublishedSpecification(root, ref.reference, { pin: ref });
@@ -132,7 +132,7 @@ export async function readEvidence(root, link, { audience, detail = true }) {
 }
 
 /** Walk an explicit Story-to-Spec binding at the selected work revision. */
-export async function linkedSpecifications(root, link, audience) {
+export async function linkedSpecifications(root, link, audience, readSpecification) {
   const { ref } = link;
   const absent = () => sourceError('ASK_RELATION_UNAVAILABLE', 'The selected evidence does not establish a link to a specification.');
   if (ref.workKind !== 'story') throw absent();
@@ -147,10 +147,15 @@ export async function linkedSpecifications(root, link, audience) {
   } else throw absent();
   const pins = state.workItem?.source?.specification;
   if (!Array.isArray(pins) || !pins.length) throw absent();
-  const { readPublishedSpecification } = await import('../spec-library/library.mjs');
+  const read = readSpecification ?? (await import('../spec-library/library.mjs')).readPublishedSpecification;
   const specifications = [];
   for (const pin of pins.slice(0, 8)) {
-    const current = await readPublishedSpecification(root, pin.revision);
+    const current = await read(root, pin.revision, readSpecification ? { pin } : {});
+    if (readSpecification) {
+      const { specificationResult } = await import('./read.mjs');
+      specifications.push(specificationResult(current));
+      continue;
+    }
     const saved = evidenceEntry({ kind: 'spec', reference: pin.revision, stateCommit: pin.stateCommit,
       manifestSha256: pin.manifestSha256, contentSha256: current.manifest.files['spec.md'] });
     const verified = await readEvidence(root, saved, { audience, detail: false });

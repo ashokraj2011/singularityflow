@@ -1,15 +1,23 @@
+import path from 'node:path';
 import { operationContext } from '../operation-context.mjs';
 import { optionBoolean, SingularityFlowError } from '../util.mjs';
 import { ASK_HINT, askSuggestions } from '../ask/navigation.mjs';
 import { askIntent, askNeedsRepository } from '../ask/query.mjs';
 import { askHistoryDisplay } from '../ask/history-display.mjs';
 
-const SESSION_FLAGS = ['remember', 'resume', 'conversation', 'revision', 'select', 'evidence', 'forget', 'explain'];
+const SESSION_FLAGS = ['remember', 'resume', 'conversation', 'revision', 'select', 'evidence', 'forget', 'explain', 'portable'];
 const VALUE_FLAGS = ['manifest-sha256', 'state-commit', 'work-id', 'question', 'cursor', 'conversation', 'revision', 'select', 'evidence'];
 const OPTIONS = new Set(['json', 'for-agent', 'for-person', 'model', 'suggest', 'open-spec', 'timings', ...VALUE_FLAGS, ...SESSION_FLAGS]);
 const invalid = (message, code = 'ASK_REQUEST_INVALID') => { throw new SingularityFlowError(message, { code }); };
 
 export function validateAskCliRequest(positionals, options) {
+  if (positionals[1] === 'provider' && positionals[2] === 'serve') {
+    if (positionals.length !== 3 || typeof options.config !== 'string' || !options.config ||
+        Object.keys(options).some(flag => !['config', 'json'].includes(flag))) {
+      invalid('Use singularity-flow ask provider serve --config FILE from your own terminal.');
+    }
+    return { providerConfiguration: options.config, repository: false };
+  }
   for (const [flag, value] of Object.entries(options)) {
     if (!OPTIONS.has(flag) || Array.isArray(value)) invalid('Use one value for each supported Ask SFlow option. See singularity-flow ask --help.');
     const boolean = !VALUE_FLAGS.includes(flag);
@@ -24,7 +32,7 @@ export function validateAskCliRequest(positionals, options) {
   const { 'open-spec': open, 'work-id': workId, 'state-commit': stateCommit, 'manifest-sha256': manifestSha256, suggest } = options;
   const cursor = options.cursor;
   if (SESSION_FLAGS.some(flag => options[flag] !== undefined)) {
-    if (['remember', 'resume', 'forget', 'explain'].some(flag => options[flag] === false)) {
+    if (['remember', 'resume', 'forget', 'explain', 'portable'].some(flag => options[flag] === false)) {
       invalid('Use an explicit Ask action without a negated flag.');
     }
     if (suggest || open || cursor !== undefined || stateCommit !== undefined || manifestSha256 !== undefined) {
@@ -35,9 +43,12 @@ export function validateAskCliRequest(positionals, options) {
     const sessionAction = choices[0] ?? 'query';
     const conversationId = options.conversation;
     const contextRevision = options.revision === undefined ? undefined : Number(options.revision);
-    if ((conversationId !== undefined && (typeof conversationId !== 'string' || !/^ask-[a-f0-9]{32}$/u.test(conversationId))) ||
+    if ((conversationId !== undefined && (typeof conversationId !== 'string' || !/^askp?-[a-f0-9]{32}$/u.test(conversationId))) ||
         (options.revision !== undefined && (typeof options.revision !== 'string' || !/^[1-9][0-9]*$/u.test(options.revision)
           || !Number.isSafeInteger(contextRevision)))) invalid('Use the conversation ID and revision returned by Ask.');
+    const portable = options.portable === true || conversationId?.startsWith('askp-') === true;
+    if (portable && options['for-person'] !== true) invalid('Shared Ask conversations require your own viewer or terminal with --for-person.', 'ASK_AUDIENCE_DENIED');
+    if (portable && conversationId && !conversationId.startsWith('askp-')) invalid('Use the shared conversation ID returned by Ask.');
     if ((sessionAction === 'query' && (!query || (!conversationId && options.remember !== true))) ||
         (conversationId && options.remember !== undefined)) invalid('Use --remember with a new question, or continue a saved conversation.');
     if (['forget', 'explain'].includes(sessionAction) && options['for-person'] !== true) {
@@ -51,7 +62,7 @@ export function validateAskCliRequest(positionals, options) {
       invalid('Enter a question of up to 2,000 characters and a valid work ID when needed.');
     }
     const request = { query: query || sessionAction, sessionAction, conversationId, contextRevision, target, workId };
-    return { query: request.query, session: Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined)), repository: true };
+    return { query: request.query, portable, session: Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined)), repository: true };
   }
   if (cursor !== undefined) {
     if (typeof cursor !== 'string' || cursor.length > 3700 || query || open || suggest ||
@@ -131,9 +142,11 @@ function renderText(data, audience) {
     const { id, revision, hasMore, selectedId } = data.conversation;
     const route = 'singularity-flow ask --conversation=' + id + ' --revision=' + revision + (audience === 'person' ? ' --for-person' : '');
     const links = data.links ?? [];
-    lines.push('Private conversation · ' + id + ' · revision ' + revision);
+    lines.push((data.conversation.portability === 'shared-provider' ? 'Private conversation · Available across devices · ' : 'Private conversation · ') + id + ' · revision ' + revision);
     for (const [index, link] of links.entries()) {
-      lines.push('Evidence ' + (index + 1) + ' · ' + route + ' --evidence=' + link);
+      const row = data.savedResults?.[index];
+      const label = row?.title ?? (row?.availability === 'local-only' ? 'Available on the original device' : row ? 'Unavailable here' : '');
+      lines.push('Evidence ' + (index + 1) + (label ? ' · ' + label : '') + (row && row.availability !== 'available' ? '' : ' · ' + route + ' --evidence=' + link));
     }
     if (selectedId && !links.includes(selectedId)) lines.push('Selected evidence · ' + route + ' --evidence=' + selectedId);
     for (const item of [...(data.choices ?? []), ...(data.candidates ?? [])]) {
@@ -145,12 +158,33 @@ function renderText(data, audience) {
         data.conversation.taskAdmissionId + ' --for-person');
     }
   }
+  if (data.currentConversation?.conversationId) {
+    lines.push('Resume latest · singularity-flow ask --resume --conversation=' + data.currentConversation.conversationId +
+      (audience === 'person' ? ' --for-person' : ''));
+  }
+  if (data.task?.workId && !data.task.id) lines.push('Task ' + data.task.workId + ' · ' + (data.task.workStatus ?? data.task.status));
   for (const diagnostic of data.diagnostics ?? []) lines.push(diagnostic.message);
   return lines.filter(Boolean).join('\n') || ASK_HINT + '.';
 }
 
 export async function run(_argv, { positionals, options }) {
   const request = validateAskCliRequest(positionals, options);
+  if (request.providerConfiguration) {
+    const { serveAskProvider } = await import('../ask/shared-provider-server.mjs');
+    const service = await serveAskProvider(path.resolve(request.providerConfiguration));
+    const close = () => { void service.close(); };
+    process.once('SIGTERM', close);
+    process.once('SIGINT', close);
+    try {
+      const ready = { resultType: 'sflow-ask-provider', status: 'ready', name: service.name, port: service.port, tls: service.tls };
+      console.log(optionBoolean(options, 'json') ? JSON.stringify(ready) : 'Ask provider ' + ready.name + ' listening on port ' + ready.port + '.');
+      await service.done;
+    } finally {
+      process.removeListener('SIGTERM', close);
+      process.removeListener('SIGINT', close);
+    }
+    return;
+  }
   const root = operationContext()?.root ?? null;
   const audience = options['for-person'] === true ? 'person' : 'model';
   let value;
@@ -160,7 +194,7 @@ export async function run(_argv, { positionals, options }) {
   } else if (request.session) {
     const { askConversation } = await import('../ask/conversation.mjs');
     const { validateArguments } = await import('../gateway/argument-schemas.mjs');
-    value = await askConversation({ root, audience, allowModel: request.session.sessionAction === 'explain',
+    value = await askConversation({ root, audience, portable: request.portable, allowModel: request.session.sessionAction === 'explain',
       arguments: validateArguments('ask-query-v1', request.session) });
   } else if (request.open) {
     if (!root) invalid('Open the checkout containing this published specification.', 'ASK_REPOSITORY_REQUIRED');

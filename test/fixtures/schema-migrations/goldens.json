@@ -546,6 +546,23 @@
     "reads": 2,
     "explanationUsed": false
   }],
+  "ask-portable-conversation": [{
+    "schemaVersion": 1,
+    "id": "askp-11111111111111111111111111111111",
+    "scope": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "revision": 1,
+    "updatedAt": 1793817600000,
+    "result": { "id": "ask-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "refs": [], "history": null, "pending": null },
+    "selected": null,
+    "reads": 1,
+    "explanationUsed": false
+  }],
+  "ask-portable-host": [{
+    "schemaVersion": 1,
+    "id": "askp-11111111111111111111111111111111",
+    "updatedAt": 1793817600000,
+    "values": {}
+  }],
   "workspace-registry": [{ "schemaVersion": 1 }],
   "repository-onboarding-cleanup": [{ "schemaVersion": 1 }],
   "repository-catalog-cursor": [{ "schemaVersion": 1 }],

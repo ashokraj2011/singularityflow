@@ -3463,6 +3463,14 @@ const families = [
     id: 'ask-conversation', currentVersion: 1,
     paths: [/^\$local\/ask-conversations\/v1\/[a-f0-9]{64}\/ask-[a-f0-9]{32}\.json$/u]
   }),
+  family({
+    id: 'ask-portable-conversation', currentVersion: 1,
+    paths: [/^\$provider\/v1\/[^/]+\/askp-.+\.json$/]
+  }),
+  family({
+    id: 'ask-portable-host', currentVersion: 1,
+    paths: [/^\$local\/ask-conversations\/device-v1\/[^/]+\/askp-.+\.json$/]
+  }),
   family({ id: 'workspace-registry', currentVersion: 1, paths: [/^\$local\/workspaces\.json$/] }),
   family({
     id: 'repository-onboarding-cleanup', currentVersion: 1,

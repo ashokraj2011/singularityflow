@@ -88,6 +88,7 @@ const PAGES = Object.freeze({
       ['--for-person', 'Use your own terminal or viewer for full specification text or a bounded patch.'],
       ['--cursor TOKEN', 'Continue a stateless history read with its original dates and revisions.'],
       ['--remember', 'Save the answer’s ordered source references and filters privately on this machine.'],
+      ['--portable', 'Opt in to the configured private provider with --remember or --resume. Use --for-person.'],
       ['--resume', 'Reopen and verify the last saved answer in the checkout and audience.'],
       ['--conversation ID --revision N', 'Use the verified context revision for a follow-up or evidence link.'],
       ['--explain', 'Organize a saved answer using an optional tool-free Copilot call. Use --for-person.']
@@ -98,7 +99,9 @@ const PAGES = Object.freeze({
       ['singularity-flow ask SPEC-CHK-004@3 --open-spec --for-person', 'Read the exact revision.'],
       ['singularity-flow ask "history for story STORY-1"', 'Read retained Story events.'],
       ['singularity-flow ask "commits last week in UTC on main"', 'Filter reachable Git commits by committer date.'],
-      ['singularity-flow ask "compare main with release/v1"', 'Compare the two exact endpoint trees.']
+      ['singularity-flow ask "compare main with release/v1"', 'Compare the two exact endpoint trees.'],
+      ['singularity-flow ask --resume --portable --for-person', 'Reopen the latest conversation from the configured provider.'],
+      ['singularity-flow ask provider serve --config FILE', 'Run the shared provider from a private server configuration.']
     ],
     seeAlso: ['help', 'home', 'spec']
   },

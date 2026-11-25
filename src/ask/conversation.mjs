@@ -22,23 +22,35 @@ function retainedResult(value, history, queryKind) {
 }
 
 function meta(record) {
+  const selected = record.selected?.id;
   return {
-    id: record.id, revision: record.revision, resultSetId: record.result.id, selectedId: record.selected?.id ?? null,
-    private: true, portability: 'local', hasMore: Boolean(record.result.history?.next),
+    id: record.id, revision: record.revision, resultSetId: record.result.id,
+    selectedId: record.shared ? record.shared.toHandle(selected) : selected ?? null,
+    private: true, portability: record.shared ? 'shared-provider' : 'local', hasMore: Boolean(record.result.history?.next),
     canExplain: record.result.refs.length > 0 && !record.explanationUsed && record.reads < MAX_READS,
     reads: { used: record.reads, limit: MAX_READS },
-    ...(record.taskAdmissionId ? { taskAdmissionId: record.taskAdmissionId } : {})
+    ...(record.taskAdmissionId ? { taskAdmissionId: record.taskAdmissionId } : {}),
+    ...(record.taskPublication ? { taskAvailability: 'published' } : {}),
+    ...(record.localTask && !record.taskAdmissionId && !record.taskPublication ? { taskAvailability: 'local-only' } : {})
   };
 }
 
 function present(value, record) {
-  value.capability = 'ask-r3';
+  value.capability = record.shared ? 'ask-r5' : 'ask-r3';
   value.conversation = meta(record);
   value.resultSetId = record.result.id ?? value.resultSetId;
   // R3 uses the durable page checkpoint. The R2 token remains available on stateless requests.
   delete value.continuation;
   const { refs, pending } = record.result;
-  value.links = refs.map(({ id }) => id);
+  const handle = id => record.shared ? record.shared.toHandle(id) : id;
+  value.links = refs.map(({ id }) => handle(id));
+  if (record.shared) {
+    for (const row of [value.work, value.help, ...(value.specifications ?? []), ...(value.savedResults ?? []),
+      ...(value.history?.rows ?? []), ...(value.comparison?.rows ?? []), ...(value.explanation?.statements ?? [])]) {
+      if (row?.evidenceId) row.evidenceId = handle(row.evidenceId);
+    }
+    if (value.evidence) value.evidence.id = handle(value.evidence.id);
+  }
   if (pending) {
     for (const item of [...(value.choices ?? []), ...(value.candidates ?? [])]) {
       const choice = pending.choices.find(entry => entry.id === item.id && (!item.kind || entry.kind === item.kind));
@@ -54,7 +66,7 @@ const diagnostic = (code, message, category = 'unavailable') => ({ code, message
 async function lookup(scope, query, options = {}) {
   let history = null;
   const value = await readAsk({ ...scope, arguments: { query, ...(options.workId ? { workId: options.workId } : {}) },
-    historyReplay: options.replay, internal: true, captureHistory: plan => { history = plan; } });
+    historyReplay: options.replay, internal: true, readSpecification: scope.sources?.readSpecification, captureHistory: plan => { history = plan; } });
   return { value, result: retainedResult(value, history, askIntent(query, options.workId).kind) };
 }
 
@@ -74,6 +86,7 @@ function checkBudget(record) {
 }
 
 async function restore(scope, record) {
+  if (record.shared) return (await import('./portable-view.mjs')).restorePortable(scope, record, { answer, diagnostic, lookup });
   const { refs, history, pending } = record.result;
   if (history) {
     const verified = await lookup(scope, 'saved history', { replay: { ...history, next: history.start } });
@@ -116,8 +129,11 @@ async function restore(scope, record) {
 }
 
 function followUp(record, request) {
-  if (request.sessionAction === 'select') return { action: 'select', id: request.target };
-  if (request.sessionAction !== 'query') return { action: request.sessionAction, id: request.target };
+  if (request.sessionAction !== 'query') {
+    const { target } = request;
+    const id = record.shared && target?.startsWith('ev-') ? record.shared.fromHandle(target) : target;
+    return { action: request.sessionAction, id };
+  }
   const text = request.query.toLowerCase().trim().replace(/[?.!]+$/u, '');
   const pos = /^(?:show |open )?(?:the )?(first|second|third|fourth|fifth|\d+)(?: result)?$/u.exec(text);
   if (pos) return { action: 'select', id: record.result.pending?.choices[ordinal(pos[1]) - 1]?.key ?? record.result.refs[ordinal(pos[1]) - 1]?.id };
@@ -135,12 +151,14 @@ function followUp(record, request) {
   if (/^(?:also include|include) (?:the )?previous week$/u.test(text)) return { action: 'previous-week' };
   if (/^(?:what is )?(?:its|that work's) (?:status now|current status)$/u.test(text)) {
     const ref = record.selected?.ref;
-    if (ref?.kind === 'work' || ref?.kind === 'event') return { action: 'query', query: ref.workKind + ' ' + ref.workId };
+    if (ref?.kind === 'work' || ref?.kind === 'event') {
+      return { action: 'query', query: ref.workKind + ' ' + ref.workId, verify: record.selected };
+    }
     throw lost();
   }
   if (/^(?:use|open|show) (?:the )?(?:newest|latest) (?:published )?(?:spec|specification|revision)$/u.test(text)) {
     const ref = record.selected?.ref;
-    if (ref?.kind === 'spec') return { action: 'query', query: ref.reference.split('@')[0] };
+    if (ref?.kind === 'spec') return { action: 'query', query: ref.reference.split('@')[0], verify: record.selected };
     throw lost();
   }
   return { action: 'query', query: request.query, workId: request.workId };
@@ -157,18 +175,22 @@ function earlierWeek(history) {
   return { intent: history.intent, next, window: expanded };
 }
 
-function validateSessionRequest(request, audience) {
+function validateSessionRequest(request, audience, portable) {
   const { sessionAction: action, conversationId: id, contextRevision: rev, target, cursor, workId } = request;
   if (!['query', 'resume', 'select', 'evidence', 'forget', 'explain'].includes(action) || cursor ||
       (action !== 'query' && (workId || request.query !== action)) || (!!target !== ['evidence', 'select'].includes(action))) throw invalid('Choose one Ask conversation operation.');
-  if ((id && !/^ask-[a-f0-9]{32}$/u.test(id)) || (!id && rev != null) ||
+  if ((id && !/^askp?-[a-f0-9]{32}$/u.test(id)) || (!id && rev != null) ||
       (id && rev == null && action !== 'resume') || (!id && !['query', 'resume'].includes(action))) {
     throw invalid('Use the conversation ID and revision returned by Ask.');
+  }
+  if (portable && (audience !== 'person' || (id && !id.startsWith('askp-')))) {
+    throw saveError('ASK_PROVIDER_ACCESS_DENIED', 'Use your own Ask viewer with a shared conversation ID.');
   }
   if (action === 'forget' && audience !== 'person') throw invalid('Forget saved conversations from your own SFlow session.');
 }
 
-export async function askConversation({ root, context = {}, audience = 'model', arguments: request, allowModel = false }) {
+export async function askConversation({ root, context = {}, audience = 'model', arguments: request, allowModel = false, portable = false }) {
+  portable ||= request.conversationId?.startsWith('askp-') === true;
   const scope = { root, context, audience };
   const requestId = randomUUID();
   const finish = value => {
@@ -177,26 +199,58 @@ export async function askConversation({ root, context = {}, audience = 'model', 
   };
   let record;
   try {
-    validateSessionRequest(request, audience);
-    const store = await conversationStore(scope);
+    validateSessionRequest(request, audience, portable);
+    const store = await conversationStore({ ...scope, portable });
+    scope.sources = store.sources;
+    const show = async (value, saved) => {
+      if (!portable) return present(value, saved);
+      const restored = await restore(scope, saved);
+      await store.read(saved.id, saved.revision);
+      if (!saved.result.refs.length && !saved.result.pending && !saved.result.history) {
+        restored.diagnostics = value.diagnostics ?? restored.diagnostics;
+        restored.status = value.status;
+        restored.kind = value.kind;
+      }
+      return present({ ...restored, items: value.items ?? [] }, saved);
+    };
+    const open = async (link, detail) => portable
+      ? (await import('./portable-view.mjs')).readPortableEvidence(scope, link, detail)
+      : readEvidence(root, link, { audience, detail });
     const { sessionAction, conversationId, contextRevision } = request;
     if (!conversationId && sessionAction === 'query') {
       const { value, result } = await lookup(scope, request.query, { workId: request.workId });
-      record = await store.create({ result, reads: 1, explanationUsed: false, selected: result.refs.length === 1 ? result.refs[0] : null });
-      return finish(present(value, record));
+      record = await store.create({ result, reads: 1, explanationUsed: false, selected: result.refs.length === 1 ? result.refs[0] : null }, portable ? value : undefined);
+      return finish(await show(value, record));
     }
     record = await store.read(conversationId, contextRevision);
-    const { action, id, query, workId } = followUp(record, request);
+    const { action, id, query, workId, verify } = followUp(record, request);
+    const verified = portable && verify ? await scope.sources.verify(verify) : null;
     if (action === 'resume') {
       const restored = await restore(scope, record);
+      if (record.localTask && !record.taskAdmissionId && !record.taskPublication) {
+        restored.diagnostics.push(diagnostic('ASK_TASK_LOCAL_ONLY', 'Resume the saved task handoff on the original device.'));
+      }
       if (audience === 'person' && record.taskAdmissionId) {
         const { inspectTaskAdmission } = await import('../task-admission.mjs');
         try {
           const task = await inspectTaskAdmission(root, record.taskAdmissionId);
           restored.task = { id: task.id, status: task.status, workId: task.workId };
+          if (portable && task.status === 'accepted' && !record.taskPublication) {
+            const { attachSharedTask } = await import('./portable-task.mjs');
+            record = await attachSharedTask(store, record, task).catch(error => {
+              if (error.code === 'ASK_CONVERSATION_CONFLICT') throw error;
+              return record;
+            });
+          }
         } catch (error) {
+          if (error.code === 'ASK_CONVERSATION_CONFLICT') throw error;
           restored.diagnostics.push(diagnostic(error.code ?? 'TASK_ADMISSION_UNAVAILABLE', 'The saved task handoff could not be inspected.'));
         }
+      }
+      if (!restored.task && record.taskPublication) {
+        const { sharedTaskStatus } = await import('./portable-task.mjs');
+        try { restored.task = await sharedTaskStatus(root, scope.sources, record.taskPublication); }
+        catch { restored.diagnostics.push(diagnostic('ASK_SHARED_SOURCE_UNAVAILABLE', 'The published task is unavailable in this checkout.')); }
       }
       await store.read(record.id, record.revision);
       return finish(present(restored, record));
@@ -213,44 +267,50 @@ export async function askConversation({ root, context = {}, audience = 'model', 
     const choice = action === 'select' ? record.result.pending?.choices.find(item => item.key === id) : null;
     if ((action === 'select' && !choice) || action === 'evidence') {
       const link = findLink(record, id);
-      const evidence = await readEvidence(root, link, { audience, detail: action === 'evidence' || link.ref.kind === 'spec' });
+      const evidence = await open(link, action === 'evidence' || link.ref.kind === 'spec');
       record = await store.update(record.id, record.revision, { selected: link, reads: record.reads + 1 });
       return finish(present(answer('evidence', { evidence }), record));
     }
     if (action === 'linked-spec') {
       const link = findLink(record, id);
-      const value = answer('story-spec', { specifications: await linkedSpecifications(root, link, audience) });
+      if (portable) await scope.sources.verify(link);
+      const value = answer('story-spec', { specifications: await linkedSpecifications(root, link, audience, scope.sources?.readSpecification) });
       const result = retainedResult(value, null, 'story-spec');
       if (result.refs.length === 1) {
         const selected = result.refs[0];
-        const evidence = await readEvidence(root, selected, { audience });
-        record = await store.update(record.id, record.revision, { reads: record.reads + 1, selected });
-        return finish(present(answer('evidence', { evidence }), record));
+        const evidence = portable ? null : await open(selected, true);
+        record = await store.update(record.id, record.revision, { reads: record.reads + 1, selected }, value);
+        return finish(present(answer('evidence', { evidence: evidence ?? await open(record.selected, true) }), record));
       }
       result.id = 'ask-' + createHash('sha256').update(JSON.stringify(result.refs)).digest('hex').slice(0, 32);
-      record = await store.update(record.id, record.revision, { result, reads: record.reads + 1, selected: null });
-      return finish(present(value, record));
+      record = await store.update(record.id, record.revision, { result, reads: record.reads + 1, selected: null }, value);
+      return finish(await show(value, record));
     }
     let replay = null;
     if (action === 'next') {
       const history = record.result.history;
+      if (record.shared?.missingHistory) throw saveError('ASK_EVIDENCE_LOCAL_ONLY', 'Continue this saved page on the original device.');
       if (!history?.next) throw saveError('ASK_NO_NEXT_PAGE', 'This saved result has no further page.');
       replay = history;
     } else if (action === 'previous-week') replay = earlierWeek(record.result.history);
-    const next = await lookup(scope, choice ? choiceQuestion(choice, record.result.pending) : query ?? 'saved history', { replay, workId });
+    if (portable && replay) await scope.sources.verifyHistory(record.result.history);
+    const freshWork = verified?.currentWork;
+    const queried = freshWork ? answer('work', { work: freshWork, observedAt: new Date().toISOString() }) : null;
+    const next = queried ? { value: queried, result: retainedResult(queried, null, 'work') } : await lookup(scope, choice ? choiceQuestion(choice, record.result.pending) : query ?? 'saved history', { replay, workId });
     if (replay && next.value.status === 'unavailable') return finish(present(next.value, record));
     const fields = { result: next.result, reads: replay ? record.reads + 1 : 1,
       explanationUsed: replay ? record.explanationUsed : false,
       selected: replay ? record.selected : next.result.refs.length === 1 ? next.result.refs[0] : null };
-    record = await store.update(record.id, record.revision, fields);
-    return finish(present(next.value, record));
+    record = await store.update(record.id, record.revision, fields, next.value);
+    return finish(await show(next.value, record));
   } catch (error) {
     const conflict = error.code === 'ASK_CONVERSATION_CONFLICT';
     const value = answer('conversation', { status: conflict ? 'conflict' : 'unavailable',
       diagnostics: [diagnostic(error.code ?? 'ASK_CONVERSATION_UNAVAILABLE',
         error.code?.startsWith('ASK_') ? error.message : 'The saved source could not be reauthorized.', conflict ? 'conflict' : 'unavailable')],
       ...(conflict ? { currentConversation: error.details } : {}) });
-    if (record && !conflict) value.conversation = meta(record);
+    if (record && !conflict && (!portable || !['ASK_PROVIDER_ACCESS_DENIED', 'ASK_PROVIDER_UNAVAILABLE',
+      'ASK_PROVIDER_INCOMPATIBLE', 'ASK_CONVERSATION_UNAVAILABLE'].includes(error.code))) value.conversation = meta(record);
     return finish(value);
   }
 }

@@ -33,8 +33,8 @@ async function privateDirectory(directory, create) {
   return true;
 }
 
-async function load(directory, id, scope) {
-  if (!ID.test(id ?? '')) throw unavailable();
+async function load(directory, id, scope, { family, idPattern, validate }) {
+  if (!idPattern.test(id ?? '')) throw unavailable();
   if (process.platform === 'win32') {
     const info = await lstat(path.join(directory, id + '.json')).catch(cause => {
       if (cause.code === 'ENOENT') return null;
@@ -53,10 +53,10 @@ async function load(directory, id, scope) {
   try {
     const info = await handle.stat();
     if (!info.isFile() || !isPrivate(info) || info.size > MAX_BYTES) throw unsafe();
-    const { record } = readRecord(FAMILY, await handle.readFile());
+    const { record } = readRecord(family, await handle.readFile());
     if (record.id !== id || record.scope !== scope || !Number.isSafeInteger(record.revision) || record.revision < 1 ||
         !Number.isFinite(record.updatedAt) || !Array.isArray(record.result?.refs) || record.result.refs.length > 100) throw unsafe();
-    return record;
+    return validate ? validate(record) : record;
   } finally {
     await handle.close();
   }
@@ -84,12 +84,15 @@ async function locked(directory, operation) {
   finally { await lease.release(); }
 }
 
-export async function conversationStore({ root, context, audience, env = process.env }) {
-  if (!root) throw unavailable();
-  const scope = await checkoutScope(root, context, audience);
-  const base = path.resolve(env.SINGULARITY_FLOW_ASK_CONVERSATIONS || path.join(os.homedir(), '.singularity-flow', 'ask-conversations'));
+export function conversationHome(env = process.env) {
+  return path.resolve(env.SINGULARITY_FLOW_ASK_CONVERSATIONS || path.join(os.homedir(), '.singularity-flow', 'ask-conversations'));
+}
+
+/** A single filesystem authority serializes expected-version writes on its own persistent disk. */
+export function conversationDirectory({ base, scope, family = FAMILY, idPattern = ID, validate = null, validateUpdate = null, authorize = async () => {}, now = Date.now }) {
   const version = path.join(base, 'v1');
   const directory = path.join(version, scope);
+  const readEntry = id => load(directory, id, scope, { family, idPattern, validate });
   async function ready(create) {
     for (const part of [base, version, directory]) {
       if (!await privateDirectory(part, create)) return false;
@@ -97,13 +100,13 @@ export async function conversationStore({ root, context, audience, env = process
     return true;
   }
   async function entries() {
-    const files = (await readdir(directory)).filter(file => file.endsWith('.json') && ID.test(file.slice(0, -5)));
-    const records = await Promise.all(files.map(file => load(directory, file.slice(0, -5), scope)));
+    const files = (await readdir(directory)).filter(file => file.endsWith('.json') && idPattern.test(file.slice(0, -5)));
+    const records = await Promise.all(files.map(file => readEntry(file.slice(0, -5))));
     return records.filter(Boolean).sort((a, b) => b.updatedAt - a.updatedAt);
   }
-  const active = record => record && Date.now() - record.updatedAt <= AGE_MS;
+  const active = record => record && now() - record.updatedAt <= AGE_MS;
   async function exact(id) {
-    const found = await load(directory, id, scope);
+    const found = await readEntry(id);
     if (!active(found)) throw unavailable();
     return found;
   }
@@ -115,18 +118,21 @@ export async function conversationStore({ root, context, audience, env = process
   }
   return {
     async read(id = null, expected) {
+      await authorize();
       if (!await ready(false)) throw unavailable();
       const record = id ? await exact(id) : (await entries()).find(active);
       if (!record) throw unavailable();
       if (expected != null) match(record, expected);
       return record;
     },
-    async create(fields) {
+    async create(fields, id = 'ask-' + randomUUID().replaceAll('-', '')) {
+      if (!idPattern.test(id)) throw unavailable();
       await ready(true);
       return locked(directory, async () => {
+        await authorize();
         const owned = await entries();
-        const record = { ...fields, schemaVersion: currentSchemaVersion(FAMILY), scope,
-          id: 'ask-' + randomUUID().replaceAll('-', ''), revision: 1, updatedAt: Date.now() };
+        if (owned.some(record => record.id === id)) throw error('ASK_CONVERSATION_EXISTS', 'That Ask conversation ID is already recorded. Resume it to continue.');
+        const record = { ...fields, schemaVersion: currentSchemaVersion(family), scope, id, revision: 1, updatedAt: now() };
         await save(directory, record);
         await Promise.all(owned.filter((item, index) => !active(item) || index >= MAX_RECORDS - 1)
           .map(item => unlink(path.join(directory, item.id + '.json')).catch(cause => {
@@ -138,9 +144,11 @@ export async function conversationStore({ root, context, audience, env = process
     async update(id, expected, fields) {
       if (!await ready(false)) throw unavailable();
       return locked(directory, async () => {
+        await authorize();
         const before = await exact(id);
         match(before, expected);
-        const record = { ...before, ...fields, revision: before.revision + 1, updatedAt: Date.now() };
+        validateUpdate?.(before, fields);
+        const record = { ...before, ...fields, revision: before.revision + 1, updatedAt: now() };
         await save(directory, record);
         return record;
       });
@@ -148,10 +156,25 @@ export async function conversationStore({ root, context, audience, env = process
     async forget(id, expected) {
       if (!await ready(false)) throw unavailable();
       await locked(directory, async () => {
+        await authorize();
         const before = await exact(id);
         match(before, expected);
         await unlink(path.join(directory, before.id + '.json'));
       });
+    },
+    async prune() {
+      if (!await ready(false)) return;
+      await locked(directory, async () => {
+        for (const record of await entries()) {
+          if (!active(record)) await unlink(path.join(directory, record.id + '.json'));
+        }
+      });
     }
   };
+}
+
+export async function conversationStore({ root, context, audience, env = process.env, portable = false }) {
+  if (!root) throw unavailable();
+  if (portable) return (await import('./shared-conversations.mjs')).sharedConversations({ root, context, audience, env });
+  return conversationDirectory({ base: conversationHome(env), scope: await checkoutScope(root, context, audience) });
 }

@@ -24,7 +24,7 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 12
+version: 13
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -96,6 +96,56 @@ The local store is private to the user and checkout. A scope supports up to 16 s
 - Use the ID and revision returned by Ask to follow up with `singularity-flow ask "the second result" --conversation=ID --revision=N --for-person`.
 - Add `--explain` in place of the question for an optional Copilot explanation, or use the evidence command returned with a result.
 - In the Copilot gateway, `sessionAction: "query"` starts a saved context. For later actions, pass its `conversationId` and `contextRevision`. To reopen evidence, use `sessionAction: "evidence"`, `query: "evidence"` and the returned link ID as `target`. The gateway provides verified facts without launching a second model.
+
+### Resume on another device
+
+**Save across devices** in the browser and **Ask and save across devices** in VS Code use the private provider configured for the selected repository. On the second device, open a checkout of the same repository and choose **Resume across devices**. Local saving remains the default. Both devices need a credential authorized for the same provider, workspace, repository, and owner.
+
+- Save from a terminal with `singularity-flow ask "commits last week in UTC on main" --remember --portable --for-person`.
+- Resume the most recent conversation with `singularity-flow ask --resume --portable --for-person`, or use `--resume --conversation=ID --for-person` with its shared ID.
+- If someone updated the same conversation revision on another device, choose **Resume latest version** or repeat the resume command for the returned ID. Inspect the newer selection before applying a change.
+
+Ask rechecks access to the published Git source, reads current work status from the published owner record, and keeps the saved evidence pinned. A local-only result keeps its place in the answer and displays **Available on the original device**. Provider records store bounded references and context. Questions, source content, local file paths, and unpublished evidence stay on the original device. The included provider expires records 30 days after the last update. **Forget conversation** removes the provider's context and selections. Story records and task receipts keep their own retention.
+
+An unfinished shared task handoff stays with the device that claimed it. After the Story is published and its origin has been verified, the second device can view its current status. The original device continues to own the task receipt and its retry.
+
+#### Configure the shared provider
+
+Use an HTTPS origin reachable from both devices. The included provider runs with `singularity-flow ask provider serve --config FILE`. Use one provider service over a private, persistent server-local directory. Give each device its own random 32-byte base64url token and store only the token's SHA-256 hex digest in the server's grants. A grant names the owner, workspace, and repository. Revoke a device by removing its grant from the server configuration. Use an OS account and filesystem permissions that limit the provider data and its private files to the service administrator. HTTP on loopback is available for local qualification.
+
+On the server, the private configuration takes the following fields. Credential-free Git URLs identify repositories.
+
+```json
+{
+  "schemaVersion": 1,
+  "name": "sflow-ask",
+  "directory": "./ask-provider-data",
+  "host": "0.0.0.0",
+  "port": 8787,
+  "tls": { "key": "./ask-provider.key", "cert": "./ask-provider.crt" },
+  "grants": [
+    { "tokenSha256": "<64-hex-digest>", "owner": "developer", "workspace": "platform", "repository": "<git_url>.git" }
+  ]
+}
+```
+
+On each device, save the following in `~/.singularity-flow/ask-provider.json` or set `SINGULARITY_FLOW_ASK_PROVIDER_CONFIG` to another private file. Save the device token as one line in the `tokenFile` beside the configuration, outside the checkout. On macOS, use permissions `0600` for both configurations, the token file, and the server's TLS private key. Use a TLS certificate both devices trust. Omit `remote` to use `origin`.
+
+```json
+{
+  "schemaVersion": 1,
+  "bindings": [
+    {
+      "provider": "sflow-ask",
+      "endpoint": "https://<ask-provider-host>:8787",
+      "workspace": "platform",
+      "repository": "<git_url>.git",
+      "remote": "origin",
+      "tokenFile": "./ask-provider.token"
+    }
+  ]
+}
+```
 
 ### Start a task from evidence
 

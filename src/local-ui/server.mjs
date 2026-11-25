@@ -421,19 +421,28 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           insist(contextual || task || ['activate', 'submit', 'continue', 'resume'].includes(interaction), 'UI_REQUEST_INVALID', 'Choose an Ask SFlow action.');
           const contextFields = ['conversationId', 'revision'];
           const supplied = prepareTask ? [...contextFields, 'target', 'words', 'kind', 'clauses', 'evidence']
-            : task ? ['admissionId'] : interaction === 'submit' ? ['query', 'remember', ...contextFields]
+            : task ? ['admissionId'] : interaction === 'submit' ? ['query', 'remember', 'portable', ...contextFields]
             : contextual ? [...contextFields, ...(['evidence', 'select'].includes(interaction) ? ['target'] : [])]
-              : interaction === 'resume' ? [] : ['selection'];
+              : interaction === 'resume' ? ['portable', 'conversationId'] : ['selection'];
           const input = record(request, ['contextId', 'interaction', ...supplied]);
           const context = selected(session, text(input.contextId, 'Context ID', 128));
           insist(context.id === session.contextId, 'UI_ASK_CONTEXT_CHANGED', 'Switch to the original checkout or search here again.', 409);
-          if (contextual || input.conversationId !== undefined || input.revision !== undefined) {
+          if (interaction === 'resume' && input.conversationId !== undefined) {
+            insist(typeof input.conversationId === 'string' && /^askp?-[a-f0-9]{32}$/u.test(input.conversationId),
+              'UI_REQUEST_INVALID', 'Use an Ask conversation ID.');
+          } else if (contextual || input.conversationId !== undefined || input.revision !== undefined) {
             const latest = session.askConversation;
             insist(input.conversationId && latest?.id === input.conversationId && latest?.revision === input.revision && latest?.contextId === context.id,
               'UI_ASK_CONVERSATION_CHANGED', 'Resume the current Ask conversation from this tab to continue.', 409);
           }
           const args = task ? ['work', 'handoff', '--for-person'] : ['ask', '--for-person'];
-          if (input.conversationId) args.push('--conversation=' + input.conversationId, '--revision=' + input.revision);
+          if (input.conversationId) args.push('--conversation=' + input.conversationId);
+          if (input.revision !== undefined) args.push('--revision=' + input.revision);
+          if (input.portable !== undefined) {
+            insist(input.portable === true && (interaction === 'resume' || input.remember === true && !input.conversationId),
+              'UI_REQUEST_INVALID', 'Choose a new or saved shared Ask conversation.');
+            args.push('--portable');
+          }
           if (prepareTask) {
             const ids = (value, limit, label) => {
               insist(Array.isArray(value) && value.length <= limit, 'UI_REQUEST_INVALID', `Choose up to ${limit} ${label}.`);
@@ -486,10 +495,11 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             insist(session.contextId === context.id && contexts.has(context.id),
               'UI_ASK_CONTEXT_CHANGED', 'The checkout changed while reading. Search again in the selected checkout.', 409);
             if (value.conversation) session.askConversation = { id: value.conversation.id, revision: value.conversation.revision, contextId: context.id };
-            if (value.kind === 'forgotten' || value.status === 'conflict') session.askConversation = null;
+            const ended = value.kind === 'forgotten' || value.kind === 'conversation' && !value.conversation;
+            if (ended) session.askConversation = null;
             const handoffId = value.resultType === 'sflow-task-handoff' ? value.id : value.conversation?.taskAdmissionId;
             if (value.conversation || handoffId) session.askTask = handoffId ? { id: handoffId, contextId: context.id } : null;
-            if (value.kind === 'forgotten') session.askTask = null;
+            if (ended) session.askTask = null;
             for (const specification of value.conversation ? [] : value.specifications ?? []) {
               const id = randomUUID();
               // The input to activation is opaque. Only an exact revision issued to this tab can open.

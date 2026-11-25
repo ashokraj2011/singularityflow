@@ -44,7 +44,11 @@ interface Answer {
   specifications?: Specification[];
   artifact?: Specification & { content: string };
   continuation?: { cursor: string; behavior: string };
-  conversation?: { id: string; revision: number; hasMore: boolean; canExplain: boolean; taskAdmissionId?: string };
+  conversation?: { id: string; revision: number; hasMore: boolean; canExplain: boolean; taskAdmissionId?: string;
+    portability?: string; taskAvailability?: string };
+  currentConversation?: { conversationId: string };
+  task?: { workId: string; workStatus?: string; status: string; phase?: string };
+  savedResults?: Array<{ position: number; availability: string; title?: string; evidenceId: string }>;
   evidence?: { id: string; title: string; revision: string; locator: string; details?: Record<string, unknown>;
     specification?: Specification; content?: string };
   explanation?: { status: string; statements: Array<{ text: string; evidenceId: string }> };
@@ -67,6 +71,7 @@ interface TaskHandoff {
 interface Scope { root: string; workspaceId: string | null; repositoryId: string | null }
 interface Pick extends vscode.QuickPickItem {
   query?: string;
+  portable?: boolean;
   destination?: string;
   topic?: string;
   specification?: Specification;
@@ -91,8 +96,13 @@ function initialChoice(savedAvailable: boolean): Promise<Pick | null> {
     const suggestions = askSuggestions(query, installed).map(item => ({
       label: item.label, description: item.detail, destination: item.id, alwaysShow: true
     }));
-    const first: Pick[] = query ? [{ label: 'Ask “' + query + '”', query, alwaysShow: true }]
-      : savedAvailable ? [{ label: 'Resume saved Ask conversation', action: 'resume' }] : [];
+    const first: Pick[] = query ? [
+      { label: 'Ask “' + query + '”', query, alwaysShow: true },
+      ...(savedAvailable ? [{ label: 'Ask and save across devices', query, portable: true, alwaysShow: true }] : [])
+    ] : savedAvailable ? [
+      { label: 'Resume saved Ask conversation', action: 'resume' },
+      { label: 'Resume Ask conversation across devices', action: 'resume', portable: true }
+    ] : [];
     picker.items = [...first, ...suggestions];
     picker.activeItems = picker.items.slice(0, 1);
   };
@@ -122,7 +132,7 @@ function choices(value: Answer): Pick[] {
   for (const specification of value.specifications ?? []) {
     items.push({ label: specification.reference + ' · ' + specification.title, description: specification.reviewState, ...(specification.evidenceId
       ? { action: 'evidence', target: specification.evidenceId } : { specification }) });
-    if (specification.evidenceId && specification.reviewState === 'reviewed') items.push({
+    if (!value.conversation?.taskAvailability && specification.evidenceId && specification.reviewState === 'reviewed') items.push({
       label: 'Prepare a task from ' + specification.reference, action: 'task-prepare', target: specification.evidenceId, taskSpec: true
     });
   }
@@ -141,6 +151,11 @@ function choices(value: Answer): Pick[] {
     if (display.patch?.text) items.push({ label: 'View patch', patch: display.patch.text });
     else if (display.patch?.status === 'binary') items.push({ label: 'Binary files have no text patch.' });
   }
+  for (const row of value.savedResults ?? []) {
+    items.push({ label: 'Result ' + row.position + ' · ' + (row.title ?? (row.availability === 'local-only'
+      ? 'Available on the original device' : 'Unavailable in this checkout')), ...(row.availability === 'available'
+        ? { action: 'evidence' as const, target: row.evidenceId } : {}) });
+  }
   if (value.continuation) items.push({
     label: value.continuation.behavior === 'retry' ? 'Retry this page' : 'Next page',
     cursor: value.continuation.cursor
@@ -150,7 +165,7 @@ function choices(value: Answer): Pick[] {
     for (const [field, detail] of Object.entries(value.evidence.details ?? {})) {
       if (detail != null) items.push({ label: field, detail: String(detail) });
     }
-    if (!value.evidence.specification || value.evidence.specification.reviewState === 'reviewed') items.push({
+    if (!value.conversation?.taskAvailability && (!value.evidence.specification || value.evidence.specification.reviewState === 'reviewed')) items.push({
       label: 'Prepare a task from this evidence', action: 'task-prepare', target: value.evidence.id, taskSpec: Boolean(value.evidence.specification)
     });
   }
@@ -158,12 +173,14 @@ function choices(value: Answer): Pick[] {
     items.push({ label: value.explanation.status === 'copilot-assisted' ? 'Copilot-organized explanation' : 'Explanation from recorded evidence' });
     items.push(...value.explanation.statements.map(item => ({ label: item.text, action: 'evidence' as const, target: item.evidenceId })));
   }
+  if (value.task?.workId && !value.conversation?.taskAdmissionId) items.push({
+    label: 'Task ' + value.task.workId, description: value.task.workStatus ?? value.task.status, detail: value.task.phase });
   if (value.conversation?.hasMore) items.push({ label: 'Next page', query: 'next page' });
   if (value.conversation?.canExplain) items.push({ label: 'Explain with Copilot', action: 'explain' });
   if (value.conversation?.taskAdmissionId) items.push({ label: 'Open task handoff', action: 'task-inspect', target: value.conversation.taskAdmissionId });
   if (value.conversation) items.push({ label: 'Ask a follow-up', action: 'follow-up' },
     { label: 'Forget saved conversation', action: 'forget' });
-  if (value.status === 'conflict') items.push({ label: 'Resume saved conversation', action: 'resume' });
+  if (value.status === 'conflict') items.push({ label: 'Resume latest version', action: 'resume', target: value.currentConversation?.conversationId });
   for (const finding of value.diagnostics ?? []) items.push({ label: finding.message, description: finding.code });
   return items;
 }
@@ -183,9 +200,10 @@ function handoffChoices(value: TaskHandoff): Pick[] {
 
 type EvidenceChoice = vscode.QuickPickItem & { id: string };
 function evidenceChoices(value: Answer): EvidenceChoice[] {
-  const visible = [value.work, ...(value.specifications ?? []), value.help, ...(askHistoryDisplay(value)?.rows ?? [])];
-  return visible.flatMap(item => item?.evidenceId
-    ? [{ id: item.evidenceId, label: 'title' in item ? item.title : item.label }] : []);
+  const visible = [value.work, ...(value.specifications ?? []), value.help, ...(askHistoryDisplay(value)?.rows ?? []),
+    ...(value.savedResults ?? []).filter(row => row.availability === 'available').map(row => ({ evidenceId: row.evidenceId, title: row.title ?? 'Result ' + row.position }))];
+  return [...new Map(visible.flatMap(item => item?.evidenceId
+    ? [[item.evidenceId, { id: item.evidenceId, label: 'title' in item ? item.title : item.label }] as const] : [])).values()];
 }
 
 async function prepareTaskInputs(pick: Pick, sources: EvidenceChoice[]): Promise<string[] | null> {
@@ -285,9 +303,10 @@ export async function openAskSFlow(active: () => Scope | null, readAnswer: Run):
     } else if (picked.action) {
       if (picked.action === 'forget' && await vscode.window.showWarningMessage('Forget this private Ask conversation?', { modal: true }, 'Forget') !== 'Forget') return;
       args = ['ask', '--for-person', '--json', ...(picked.action === 'explain' ? [] : ['--no-model']),
-        '--' + picked.action + (picked.target ? '=' + picked.target : ''), ...(picked.action === 'resume' ? [] : bindings)];
+        ...(picked.action === 'resume' ? ['--resume', ...(picked.target ? ['--conversation=' + picked.target] : []), ...(picked.portable ? ['--portable'] : [])]
+          : ['--' + picked.action + (picked.target ? '=' + picked.target : ''), ...bindings])];
     } else if (picked.cursor) args = ['ask', '--cursor=' + picked.cursor, '--no-model', '--for-person', '--json'];
-    else args = [...askLookupArguments(query), ...(conversation ? bindings : root ? ['--remember'] : [])];
+    else args = [...askLookupArguments(query), ...(conversation ? bindings : root ? ['--remember', ...(picked.portable ? ['--portable'] : [])] : [])];
     const result = await readAnswer(root, args);
     ensureScope();
     if (result.resultType === 'sflow-task-handoff') {
@@ -302,6 +321,7 @@ export async function openAskSFlow(active: () => Scope | null, readAnswer: Run):
       return;
     }
     if (result.conversation) conversation = result.conversation;
+    if (result.kind === 'conversation' && !result.conversation) conversation = undefined;
     if (!result.evidence && !result.explanation) sources = evidenceChoices(result);
     if (result.evidence?.content != null) {
       const evidence = result.evidence;

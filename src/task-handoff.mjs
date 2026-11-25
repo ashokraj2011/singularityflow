@@ -133,7 +133,14 @@ export async function workHandoff(positionals, options) {
   const input = requestOf(positionals, options);
   const root = operationContext()?.root;
   if (!root) throw fail('TASK_ADMISSION_CHECKOUT_REQUIRED', 'Open the original Ask checkout to use this handoff.');
-  if (input.id) return handoffView(await (input.start ? startTask(root, input.id) : inspectTaskAdmission(root, input.id)));
+  if (input.id) {
+    const task = await (input.start ? startTask(root, input.id) : inspectTaskAdmission(root, input.id));
+    const view = handoffView(task);
+    if (task.status === 'accepted' && task.request.origin?.conversationId?.startsWith('askp-')) {
+      Object.assign(view, await (await import('./ask/portable-task.mjs')).syncSharedTask(root, task));
+    }
+    return view;
+  }
 
   const selection = await readTaskSelection(root, input);
   const definition = await taskDefinition(root);
@@ -144,9 +151,22 @@ export async function workHandoff(positionals, options) {
   const target = { checkout: await checkoutScope(root, {}, 'person'), remote, authoritySha256: recordSha256(authorities),
     remoteConfigured: Boolean(authorities[0]), base: remoteDefaultBranchName(root, definition, remote) ?? 'main',
     workItemRoot: normalizeWorkItemRoot(definition.workItemRoot) };
-  const prepared = await prepareTaskAdmission(root, { effect: 'work.start', origin: { conversationId: input.conversationId, interaction: 'prepare-task' },
+  const request = { effect: 'work.start', origin: { conversationId: input.conversationId, interaction: 'prepare-task' },
     words: input.words, kind: input.kind, target, sources, plan: preview.plan, steps: preview.steps, planSha256: recordSha256(preview),
-    reviewedPlanSha256: reviewedPlan(overlay(definition, preview.composition), preview) }, { key: input.key });
+    reviewedPlanSha256: reviewedPlan(overlay(definition, preview.composition), preview) };
+  if (selection.conversation.shared) {
+    const key = input.key ?? selection.store.taskKey(selection.conversation.id, recordSha256(request));
+    const previous = selection.conversation.taskAdmissionId;
+    if (previous && previous !== key) {
+      throw fail('TASK_ADMISSION_KEY_CONFLICT', 'Inspect the existing task handoff or start a new Ask conversation for a different task.');
+    }
+    // Claim the shared context before creating any actionable receipt on this device.
+    const conversation = previous ? selection.conversation
+      : await selection.store.update(selection.conversation.id, selection.conversation.revision, { taskAdmissionId: key });
+    const prepared = await prepareTaskAdmission(root, request, { key });
+    return { ...handoffView(await inspectTaskAdmission(root, prepared.id)), conversation: { id: conversation.id, revision: conversation.revision } };
+  }
+  const prepared = await prepareTaskAdmission(root, request, { key: input.key });
   let conversation;
   try {
     conversation = selection.conversation.taskAdmissionId === prepared.id

@@ -78,7 +78,7 @@ async function reviewedHelp(query) {
 }
 
 /** Exact owner reads are the only Ask operations that use a repository. */
-export async function readAsk({ root = null, context = {}, arguments: proposed, audience = 'model', captureHistory, historyReplay, internal = false }) {
+export async function readAsk({ root = null, context = {}, arguments: proposed, audience = 'model', captureHistory, historyReplay, internal = false, readSpecification }) {
   const { query, workId, cursor } = validateArguments('ask-query-v1', proposed);
   const intent = historyReplay?.intent ?? (cursor ? { kind: 'continuation' } : askIntent(query, workId));
   const effectiveScope = { workspaceId: context.workspace?.id ?? null, repositoryId: context.repositoryId ?? repositoryReference(root) };
@@ -115,8 +115,8 @@ export async function readAsk({ root = null, context = {}, arguments: proposed, 
       const { readAskHistory } = await import('./history.mjs');
       Object.assign(data, await readAskHistory({ root, context, audience, intent, cursor, replay: historyReplay, capture: captureHistory }));
     } else if (intent.kind === 'spec') {
-      const { readPublishedSpecification } = await import('../spec-library/library.mjs');
-      data.specifications = [specificationResult(await readPublishedSpecification(root, intent.reference))];
+      const read = readSpecification ?? (await import('../spec-library/library.mjs')).readPublishedSpecification;
+      data.specifications = [specificationResult(await read(root, intent.reference))];
     } else {
       const { work, matches, diagnostics } = await currentWork(root, { ...context, ...effectiveScope }, intent, internal);
       data.diagnostics = diagnostics;
@@ -128,10 +128,10 @@ export async function readAsk({ root = null, context = {}, arguments: proposed, 
           if (!work.specification.length) {
             data.diagnostics.push(finding('ASK_SPEC_PIN_ABSENT', 'This Story has no published specification attached.', 'absent'));
           } else {
-            const { readPublishedSpecification } = await import('../spec-library/library.mjs');
+            const read = readSpecification ?? (await import('../spec-library/library.mjs')).readPublishedSpecification;
             data.specifications = [];
             for (const pin of work.specification.slice(0, 8)) {
-              try { data.specifications.push(specificationResult(await readPublishedSpecification(root, pin.reference, { pin }))); }
+              try { data.specifications.push(specificationResult(await read(root, pin.reference, { pin }))); }
               catch (error) { data.diagnostics.push(ownerFinding(error)); }
             }
             if (work.specification.length > 8) data.diagnostics.push(finding('ASK_BUDGET_EXHAUSTED', 'Open a specification by ID to inspect attachments beyond the first eight.'));

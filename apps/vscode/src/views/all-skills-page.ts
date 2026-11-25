@@ -352,6 +352,8 @@ export const ALL_SKILLS_SCRIPT = String.raw`
     keep();
   }
   writeFilters();
+  // A kept filter whose choice is gone (a marketplace no longer trusted) is dropped, so no row is hidden unseen.
+  state.filters = readFilters();
   apply();
   document.addEventListener('input', function (event) { if (event.target && event.target.id && event.target.id.indexOf('ask-') === 0) { state.filters = readFilters(); apply(); } });
   document.addEventListener('change', function (event) { if (event.target && event.target.id && event.target.id.indexOf('ask-') === 0) { state.filters = readFilters(); apply(); } });

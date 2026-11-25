@@ -507,6 +507,8 @@ const PAGES = Object.freeze({
       ['--from TASK-ID', 'Start from an earlier task\'s report (an investigation or review): it becomes the intake.'],
       ['--document FILE', 'A document the task is about, pinned at the version it starts with (repeatable).'],
       ['--new', 'Start another task even though one is open on this checkout.'],
+      ['--add STEP', 'Add a requirements, design, plan or review step before the task starts (repeatable).'],
+      ['--skip STEP', 'Take a step out before the task starts; a team rule\'s step, the intake and a code task\'s tests stay.'],
       ['--json', 'Emit the plan, or the started Story, as JSON.']
     ],
     examples: [

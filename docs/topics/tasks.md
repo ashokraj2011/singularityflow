@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 4
+version: 5
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -74,7 +74,9 @@ another task while one is open with `/sf-task new task: <what you want done>`.
 
 `sflow work status` says where the task on this checkout stands: each step and who approved it. "Fix it" after an
 investigation starts a fix from its report (`--from TASK-2`), and a task about a document pins the version it starts with
-(`--document docs/specs/export.md`). "… and open a pull request" in the first words ends the plan with one.
+(`--document docs/specs/export.md`). "… and open a pull request" in the first words ends the plan with one. Before a task starts, "add a design step" or "skip the plan"
+(`--add design`, `--skip plan`) changes its steps; a team rule's step, the intake and a code task's tests stay. A started
+task keeps its steps.
 
 ## State and safety
 

@@ -68,8 +68,8 @@ const approvalOf = (phase) => phase.approval?.mode === 'none' ? 'none'
   : phase.approval?.automatic === 'when-ready' ? 'sflow' : 'person';
 
 /** The task's plan: composed, checked and walked as a Story start would, with nothing written. */
-export async function taskPlan(definition, { kind, touchedPaths = [], pullRequest = false } = {}) {
-  const composition = { ...composeTask(definition, { kind, touchedPaths }), ...(pullRequest ? { pullRequest: true } : {}) };
+export async function taskPlan(definition, { kind, touchedPaths = [], pullRequest = false, add = [], skip = [] } = {}) {
+  const composition = { ...composeTask(definition, { kind, touchedPaths, add, skip }), ...(pullRequest ? { pullRequest: true } : {}) };
   const overlaid = validateDefinition(structuredClone(taskDefinition(definition, composition)));
   const resolved = assertWorkTypeStartable(resolveWorkType(overlaid, composition.workType));
   const { quickWalkResolved, walkHosts } = await import('../workflow-walk/quick.mjs');
@@ -259,7 +259,8 @@ export async function workCommand(positionals = [], options = {}) {
   }
   const definition = await loadConfig(root);
   const touchedPaths = optionStrings(options, 'path');
-  const preview = await taskPlan(definition, { kind, touchedPaths, pullRequest: ASKS_FOR_PULL_REQUEST.test(words) });
+  const preview = await taskPlan(definition, { kind, touchedPaths, pullRequest: ASKS_FOR_PULL_REQUEST.test(words),
+    add: optionStrings(options, 'add'), skip: optionStrings(options, 'skip') });
   if (!optionBoolean(options, 'start')) {
     return {
       schemaVersion: 1, resultType: 'sflow-task-plan', kind, words, plan: preview.plan, steps: preview.steps,

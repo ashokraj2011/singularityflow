@@ -95,6 +95,27 @@ test('ITW REQ-004: the team\'s rules only add steps and approvals, and a broken 
   assert.equal(pathMatches('db/migrations/*.sql', 'db/migrations/a/001.sql'), false);
 });
 
+test('ITW REQ-009: before a task starts, a person may add a step or take one out; a rule\'s step and a code task\'s tests stay', async () => {
+  const added = await taskPlan(base(), { kind: 'fix', add: ['design'] });
+  assert.deepEqual(added.steps.map((step) => step.id), ['intake', 'design', 'implementation', 'verification']);
+  assert.equal(added.walk, 'completed');
+  assert.deepEqual(composeTask(base(), { kind: 'fix', add: ['design'] }).changes, [{ change: 'add', intent: 'design' }]);
+  const skipped = await taskPlan(base(), { kind: 'change', skip: ['plan'] });
+  assert.deepEqual(skipped.steps.map((step) => step.id), ['intake', 'implementation', 'verification']);
+  // The intake of a change without its plan step is its plan: a person still approves two things.
+  assert.equal(skipped.steps.filter((step) => step.approvedBy === 'person').length, 2);
+  for (const [options, words] of [
+    [{ kind: 'fix', skip: ['test'] }, /Every code change gets a test step/u],
+    [{ kind: 'fix', skip: ['intake'] }, /Every task starts with its intake/u],
+    [{ kind: 'investigate', skip: ['design'] }, /report is its design step/u],
+    [{ kind: 'fix', add: ['deploy'] }, /not 'deploy'/u]
+  ]) assert.throws(() => composeTask(base(), options), (error) => error.code === 'TASK_CHANGE_REFUSED' && words.test(error.message), JSON.stringify(options));
+  // "Skip the review" on a task a rule gives one is refused with the rule's words [A4].
+  const ruled = Object.assign(base(), { tasks: { always: [{ kinds: ['feature'], steps: ['review'], because: 'Every feature gets a conformance review.' }] } });
+  assert.throws(() => composeTask(ruled, { kind: 'feature', skip: ['review'] }),
+    (error) => error.code === 'TASK_CHANGE_REFUSED' && /Every feature gets a conformance review/u.test(error.message));
+});
+
 test('ITW REQ-006: the composed work type lives in memory and in the Story\'s record, never in the configuration', () => {
   const definition = base();
   const before = JSON.stringify(definition);

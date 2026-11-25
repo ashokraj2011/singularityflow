@@ -154,7 +154,10 @@ export function pathMatches(glob, file) {
  * The composed task: its kind, its steps in order (each with the repository step it uses), the rules that added to it,
  * and the work type the Story pins. Deterministic: the same kind, definition and touched paths give the same result.
  */
-export function composeTask(definition, { kind, touchedPaths = [] } = {}) {
+/** The steps a person may add to a task before it starts, or take out of it, by intent [ITW:REQ-009]. */
+const ADDABLE = Object.freeze(['requirements', 'design', 'plan', 'review']);
+
+export function composeTask(definition, { kind, touchedPaths = [], add = [], skip = [] } = {}) {
   if (!TASK_KINDS.includes(kind)) {
     throw taskRefusal('TASK_KIND_UNKNOWN', `'${kind}' is not a kind of task. A task is one of: ${TASK_KINDS.join(', ')}.`,
       { command: 'singularity-flow work "<what you want done>" --kind change', label: 'Name one of the kinds of task.' }, { kinds: [...TASK_KINDS] });
@@ -167,11 +170,35 @@ export function composeTask(definition, { kind, touchedPaths = [] } = {}) {
       { rule: `use.${kind}`, because: `This team runs every ${kind} task as the ${definition.workTypes[used].label ?? used} workflow.` }] };
   }
   const intents = [...KIND_STEPS[kind]];
+  const changes = [];
+  // The person's own changes come first; the team's rules are applied after them, so no rule's step is taken out.
+  for (const intent of [...new Set(add)]) {
+    if (!ADDABLE.includes(intent)) throw taskRefusal('TASK_CHANGE_REFUSED', `A task can gain a ${ADDABLE.join(', ')} step, not '${intent}'.`,
+      { command: 'singularity-flow work "<what you want done>" --add design', label: 'Add one of the steps a task can gain.' }, { add: intent });
+    if ((intent === 'review') && !intents.includes('code')) continue;
+    if (!intents.includes(intent)) { intents.push(intent); changes.push({ change: 'add', intent }); }
+  }
+  const wantedOut = new Set(skip);
+  for (const intent of wantedOut) {
+    if (!intents.includes(intent)) continue;
+    const kept = intent === 'intake' ? 'Every task starts with its intake.'
+      : intent === 'code' && intents.includes('code') ? `A ${kind} task is its change; a task with no change is an investigate task.`
+        : intent === 'test' && intents.includes('code') ? 'Every code change gets a test step.'
+          : intent === 'design' && ['investigate', 'review'].includes(kind) ? `A ${kind} task's report is its design step.` : null;
+    if (kept) throw taskRefusal('TASK_CHANGE_REFUSED', `The ${intent} step stays: ${kept}`,
+      { command: `singularity-flow work "<what you want done>" --kind ${kind}`, label: 'Keep the step.' }, { skip: intent });
+    intents.splice(intents.indexOf(intent), 1);
+    changes.push({ change: 'skip', intent });
+  }
   const added = [];
   const personApproves = new Set();
   const applied = [];
   const apply = (rule, name) => {
     for (const intent of rule.steps) {
+      if (wantedOut.has(intent)) {
+        throw taskRefusal('TASK_CHANGE_REFUSED', `The ${intent} step stays: ${rule.because}`,
+          { command: `singularity-flow work "<what you want done>" --kind ${kind}`, label: 'Keep the step the team\'s rule adds.' }, { skip: intent, rule: name });
+      }
       // Only a code task gets a test or review step from a rule: a step that reads code needs code to read.
       if ((intent === 'test' || intent === 'review') && !intents.includes('code')) continue;
       if (!intents.includes(intent)) { intents.push(intent); added.push({ intent, rule: name, because: rule.because }); }
@@ -206,6 +233,7 @@ export function composeTask(definition, { kind, touchedPaths = [] } = {}) {
   return {
     schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: taskWorkTypeId(kind), steps,
     added, personApproves: [...personApproves].filter((intent) => intents.includes(intent)).sort(), rules: applied,
+    ...(changes.length ? { changes } : {}),
     ...(touched.length ? { touchedPaths: touched } : {})
   };
 }

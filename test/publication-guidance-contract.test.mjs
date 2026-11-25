@@ -66,13 +66,15 @@ test('every shipped and example workflow routes publication through its phase co
         // `phase publish`, which /sf-publish owns [OSA:REQ-026, C9]. Every other step's is its contract's command.
         const built = contract.producer === 'deterministic';
         const expected = built ? `singularity-flow phase prepublish ${phase.id} --for-agent --json --publish-if-ready` : contract.command;
+        // A person is shown the person form of the same command (no agent flags) [person-routes, 2026-11-25].
+        const shown = built ? `singularity-flow phase prepublish ${phase.id}` : expected;
 
         const sequence = sequenceGuidance(workflow).actions;
         if (phase.id === 'convergence' && contract.producer === 'deterministic') {
           assert.equal(sequence.length, 1, `${label} offered publication before convergence projection`);
         } else assert.equal(sequence[1].command, expected, `${label} sequence drifted`);
         const nextActions = workflowNextSteps(workflow).filter((entry) =>
-          entry.command.startsWith('singularity-flow phase publish ') || entry.command === expected
+          entry.command.startsWith('singularity-flow phase publish ') || entry.command === expected || entry.command === shown
         );
         if (phase.id === 'convergence' && contract.producer === 'deterministic') {
           assert.equal(nextActions.length, 0, `${label} offered publication before convergence projection`);
@@ -81,7 +83,7 @@ test('every shipped and example workflow routes publication through its phase co
         } else assert.ok(nextActions.length > 0, `${label} omitted its publication action`);
         for (const action of nextActions) {
           if (!built) assertValidPublicationAction(action, phase, label);
-          else assert.deepEqual([action.command, /\/sf-publish/u.test(action.copilotCommand ?? '')], [expected, false], `${label} handed a step SFlow builds to /sf-publish`);
+          else assert.deepEqual([action.command, /\/sf-publish/u.test(action.copilotCommand ?? '')], [shown, false], `${label} handed a step SFlow builds to /sf-publish`);
         }
         if (built && phase.id !== 'convergence') assert.doesNotMatch(sequence[1].copilotCommand ?? '', /\/sf-publish/u, `${label} sequence named /sf-publish`);
 

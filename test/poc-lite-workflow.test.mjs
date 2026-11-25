@@ -193,11 +193,11 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   assert.doesNotMatch(submittedPlan.stdout, /\/sf-publish/u, 'no route hands a step SFlow builds to /sf-publish');
   assert.doesNotMatch(submittedPlan.stdout, /phase publish poc-lite-act/u);
   assert.match(submittedPlan.stdout,
-    /SOON\s+Once its code and tests are written with \/sf-code, check and publish the ACT[^\n]*; its tests run first\.\n\s*Copilot: \/sf-code\n\s*Shell: singularity-flow phase prepublish poc-lite-act --for-agent --json --publish-if-ready\n/u);
+    /SOON\s+Once its code and tests are written with \/sf-code, check and publish the ACT[^\n]*; its tests run first\.\n\s*Copilot: \/sf-code\n\s*Shell: singularity-flow phase prepublish poc-lite-act\n/u);
   const later = JSON.parse(lifecycle('nextsteps', '--json').stdout).actions;
   const publication = later.find((entry) => entry.operationId === 'phase');
   assert.deepEqual([publication?.timing, publication?.copilotCommand, publication?.command],
-    ['then', '/sf-code', 'singularity-flow phase prepublish poc-lite-act --for-agent --json --publish-if-ready'], JSON.stringify(later));
+    ['then', '/sf-code', 'singularity-flow phase prepublish poc-lite-act'], JSON.stringify(later));
   assert.ok(later.every((entry) => !/^\/sf-publish\b/u.test(entry.copilotCommand ?? '')), JSON.stringify(later.map((entry) => entry.copilotCommand)));
 
   // The code interval must open before either endpoint changes. A passing baseline test cannot be

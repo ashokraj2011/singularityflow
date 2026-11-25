@@ -141,6 +141,7 @@ export const GROUPS = Object.freeze([
   { pattern: /^REPOSITORY_ONBOARDING_|^CAPABILITY_(?:MAP|PROPOSAL|TEAM|ID)_/u, reason: 'Organisation and onboarding input bounds: the refusal names the field and its bound, before anything is written.' },
   { pattern: /^STORY_DESCRIPTION_/u, reason: 'Story-description enhancement is optional; over its input size it is skipped and the description is used as written.' },
   { pattern: /^AUTO_/u, reason: 'Auto limits beyond the ceilings: a halted flight hands its work back to the Story (auto-ceilings row); the rest name their own control.' },
+  { pattern: /^ASK_|^TASK_ADMISSION_LIMIT$/u, reason: 'Ask SFlow bounds an opt-in, read-only question and what it saves; each message names the narrower ask (one work ID, a specification by ID, a new question, fewer evidence links for a task handoff) and nothing on a Story is refused.' },
   { pattern: /^GAL_/u, reason: 'Git reader limits reach a person only through the command that wraps them, which routes on details.gitAccessCode (limit-remediation.mjs gitAccessLimit).' },
   { pattern: /_INVALID$|_REQUIRED$|_TOO_SMALL$|_UNKNOWN$|_MISMATCH$|_UNPROVEN$|_MISSING$/u, reason: 'Validation of a limit setting itself (a bound out of range or missing): the message names the field and its range; nothing was reached.' }
 ]);

@@ -1679,14 +1679,14 @@ test('Ask SFlow opts in to shared resume and labels local-only results in the ed
   const token = randomBytes(32).toString('base64url');
   const server = path.join(base, 'server.json');
   const client = path.join(base, 'client.json');
-  const tokenFile = path.join(base, 'client-token');
+  const grantFile = path.join(base, 'client-token');
   await writeFile(server, JSON.stringify({ schemaVersion: 1, name: 'editor-provider', directory: path.join(base, 'provider'), port: 0,
     grants: [{ tokenSha256: createHash('sha256').update(token).digest('hex'), owner: 'operator', workspace: 'editor-test', repository: remote }] }), { mode: 0o600 });
-  await writeFile(tokenFile, token, { mode: 0o600 });
+  await writeFile(grantFile, token, { mode: 0o600 });
   const service = await serveAskProvider(server);
   t.after(() => service.close());
   await writeFile(client, JSON.stringify({ schemaVersion: 1, bindings: [{ provider: 'editor-provider',
-    workspace: 'editor-test', repository: remote, endpoint: 'http://127.0.0.1:' + service.port, tokenFile }] }), { mode: 0o600 });
+    workspace: 'editor-test', repository: remote, endpoint: 'http://127.0.0.1:' + service.port, tokenFile: grantFile }] }), { mode: 0o600 });
   const previous = process.env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG;
   process.env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG = client;
   t.after(() => { if (previous == null) delete process.env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG;

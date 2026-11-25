@@ -114,7 +114,7 @@ export function handoffView(record) {
     actions.push({ id: 'start', label: status === 'prepared' ? 'Start this task' : 'Retry this reservation', command: command + ' --start' });
   }
   if (status === 'accepted') actions.push({ id: 'status', label: 'View task status', command: `singularity-flow work status ${workId}` });
-  if (outcome?.pendingPush) actions.push({ id: 'publish', label: 'Push the saved changes again', command: `singularity-flow push retry ${outcome.pendingPush} --json` });
+  if (outcome?.pendingPush) actions.push({ id: 'publish', label: 'Push the saved changes again', command: `singularity-flow sync ${outcome.pendingPush} --json` });
   else if (outcome?.publicationPending) actions.push({ id: 'publish', label: 'Inspect pending publication', command: 'singularity-flow push status --json' });
   if (status === 'unknown') actions.push({ id: 'recover', label: 'Inspect repository recovery', command: 'singularity-flow doctor --json' });
   const message = {

@@ -3,6 +3,7 @@ import { ASK_HINT, askSuggestions } from '../../../src/ask/navigation.mjs';
 import { askIntent, askNeedsRepository } from '../../../src/ask/query.mjs';
 import { askHistoryDisplay } from '../../../src/ask/history-display.mjs';
 import { escape } from './views/webview.ts';
+import { showCompactInformationMessage, showCompactWarningMessage } from './compact-message.ts';
 
 const destinations = new Map([
   ['home', 'singularityFlow.myWork'],
@@ -286,7 +287,7 @@ export async function openAskSFlow(active: () => Scope | null, readAnswer: Run):
     if (!picked.query && !picked.cursor && !picked.action) return;
     const query = picked.query ?? '';
     if (!root && (picked.cursor || picked.action || askNeedsRepository(askIntent(query)))) {
-      await vscode.window.showInformationMessage('Open a checkout to inspect its work, source history, or specifications.');
+      await showCompactInformationMessage('Open a checkout to inspect its work, source history, or specifications.');
       return;
     }
     const bindings = conversation ? ['--conversation=' + conversation.id, '--revision=' + conversation.revision] : [];
@@ -301,7 +302,7 @@ export async function openAskSFlow(active: () => Scope | null, readAnswer: Run):
       if (!picked.target) return;
       args = ['work', 'handoff', picked.target, '--for-person', '--no-model', '--json', ...(picked.action === 'task-start' ? ['--start'] : [])];
     } else if (picked.action) {
-      if (picked.action === 'forget' && await vscode.window.showWarningMessage('Forget this private Ask conversation?', { modal: true }, 'Forget') !== 'Forget') return;
+      if (picked.action === 'forget' && await showCompactWarningMessage('Forget this private Ask conversation?', { modal: true }, 'Forget') !== 'Forget') return;
       args = ['ask', '--for-person', '--json', ...(picked.action === 'explain' ? [] : ['--no-model']),
         ...(picked.action === 'resume' ? ['--resume', ...(picked.target ? ['--conversation=' + picked.target] : []), ...(picked.portable ? ['--portable'] : [])]
           : ['--' + picked.action + (picked.target ? '=' + picked.target : ''), ...bindings])];
@@ -317,7 +318,7 @@ export async function openAskSFlow(active: () => Scope | null, readAnswer: Run):
     }
     if (result.resultType !== 'sflow-ask' || result.schemaVersion !== 1) throw new Error('The selected SFlow CLI needs an update to use Ask SFlow.');
     if (result.kind === 'forgotten') {
-      await vscode.window.showInformationMessage('Saved Ask conversation removed.');
+      await showCompactInformationMessage('Saved Ask conversation removed.');
       return;
     }
     if (result.conversation) conversation = result.conversation;
@@ -330,7 +331,7 @@ export async function openAskSFlow(active: () => Scope | null, readAnswer: Run):
     }
     const results = choices(result);
     if (!results.length) {
-      await vscode.window.showInformationMessage(ASK_HINT + '.');
+      await showCompactInformationMessage(ASK_HINT + '.');
       return;
     }
     picked = await vscode.window.showQuickPick(results, {

@@ -98,10 +98,10 @@ export const providerRequest = z.discriminatedUnion('operation', [
   z.strictObject({ ...scopeFields, operation: z.literal('forget'), id, expected: revision })
 ]);
 
-const tokenGrant = z.strictObject({ tokenSha256: hex, owner: identifier, workspace: slug, repository: filePath, expiresAt: instant.optional() });
+const accessGrant = z.strictObject({ tokenSha256: hex, owner: identifier, workspace: slug, repository: filePath, expiresAt: instant.optional() });
 export const serverConfiguration = z.strictObject({ schemaVersion: z.literal(1), name: slug, directory: filePath,
   host: z.string().min(1).max(255).optional(), port: z.number().int().min(0).max(65535).optional(),
-  tls: z.strictObject({ key: filePath, cert: filePath }).optional(), grants: z.array(tokenGrant).max(1024) });
+  tls: z.strictObject({ key: filePath, cert: filePath }).optional(), grants: z.array(accessGrant).max(1024) });
 
 export const clientConfiguration = z.strictObject({ schemaVersion: z.literal(1), bindings: z.array(z.strictObject({
   provider: slug, endpoint: z.string().url().max(512), workspace: slug, repository: filePath,

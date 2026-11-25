@@ -201,7 +201,9 @@ test('a quick-fix Story reviews every step: its document, then its code, with a 
   assert.equal(prepared.value.mutationContract?.applicationEdits, true, JSON.stringify(prepared.value.mutationContract ?? null).slice(0, 1500));
   assert.equal(prepared.value.codeAuthoringReady, true);
   const session = sflowJson('nextsteps', 'QF-1');
-  assert.doesNotMatch(JSON.stringify(session.value.act ?? session.value).slice(0, 4000), /review-source/u,
+  // What comes now writes version 2; its own review comes after its publication ("then"), never version 1's again.
+  const now = [session.value.act?.do ?? null, ...(session.value.actions ?? []).filter((action) => action.timing === 'now')];
+  assert.doesNotMatch(JSON.stringify(now), /review-source/u,
     `with version 2 open, the next step writes it; version 1 is not offered for review again: ${JSON.stringify(session.value.actions?.[0] ?? null)}`);
   const status = sflowJson('review-source', 'status', 'implement');
   assert.doesNotMatch(JSON.stringify(status.value), /SOURCE_REVIEW_INPUT_UNPUBLISHED/u, JSON.stringify(status.value).slice(0, 3000));

@@ -762,12 +762,9 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   // Rejects an unknown name with a correction and two entry points. It throws rather than returning
   // nothing, so there is no falsy case to test for here.
   const definition = commandDefinition(requested);
-  // A command run by a Copilot chat that SFlow's hooks never saw says so first: SFlow's guard is off in that chat and
-  // nothing else would say it (copilot-chat-hooks.mjs). `pause status` carries it in its own answer; hooks run unchecked.
+  // In a Copilot chat SFlow's hooks never saw, its guard is off: say so (copilot-chat-hooks.mjs).
   if (process.env.COPILOT_AGENT_SESSION_ID && !['hook', 'pause'].includes(definition.name)) {
-    const { hookGapLine, processChatHookGap } = await import('./copilot-chat-hooks.mjs');
-    const gap = processChatHookGap();
-    if (gap) process.stderr.write(`${hookGapLine(gap)}\n`);
+    (await import('./copilot-chat-hooks.mjs')).sayHookGap();
   }
   // Before the operation is resolved and long before the handler loads. `--help` used to be parsed
   // into `options` and then ignored — and because unknown options are accepted silently, the command

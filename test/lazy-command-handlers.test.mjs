@@ -1193,7 +1193,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // refresh (cli-entry.mjs) and its record families (schema-migrations.mjs). No new eager file.
   // 879,086 (+156, measured on itw-all, 2026-11-25): the Ask handoff's for-agent refusal names `help work` (cli-entry.mjs) and
   // `work` refuses a skill's name as a task's words (command-registry help). No new eager file.
-  assert.ok(root.bytes <= 879_086, `root dispatch loads ${root.bytes} source bytes`);
+  // 879,344 (+258, measured 2026-11-25 on vsc-agenthost-hooks): a command a Copilot chat runs says when SFlow's hooks never saw
+  // the chat (cli-entry.mjs loads copilot-chat-hooks.mjs only then). No new eager file.
+  assert.ok(root.bytes <= 879_344, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

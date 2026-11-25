@@ -29,7 +29,6 @@ import { validateAgentEntryRequest } from './agent-entry-options.mjs';
 import { interpretsForAgent } from './cli-json-output.mjs';
 import { parseArgs, writeAtomic } from './util.mjs';
 import { confirmCommandByCode } from './confirm-code.mjs';
-import { hookGapAct, processChatHookGap } from './copilot-chat-hooks.mjs';
 
 // Copilot CLI shows a shell result inline only below 8,192 characters. From there it saves the result
 // outside the workspace, shows its first 500 characters and suggests rg/head/tail/jq on that file,
@@ -1307,6 +1306,14 @@ async function literalEnvelope(text, { cwd, budget, now, literal, unkept = null 
   return `${envelope(headLines(text, Math.max(0, Math.min(PREVIEW_BYTES, budget - reserve))))}\n`;
 }
 
+/** Only a command a Copilot chat runs asks whether the chat's hooks ran: the module loads for those alone. */
+async function chatHookGap() {
+  if (!process.env.COPILOT_AGENT_SESSION_ID) return null;
+  const { hookGapAct, processChatHookGap } = await import('./copilot-chat-hooks.mjs');
+  const found = processChatHookGap();
+  return found ? { found, act: hookGapAct(found) } : null;
+}
+
 /**
  * The agent view of one command's JSON stdout. Small results keep every field, with `act` first;
  * larger ones are written whole and stdout keeps what fits. Other text that fits is returned
@@ -1329,9 +1336,9 @@ export async function boundedAgentOutput(text, options = {}) {
     }
     const { agentJson } = await import('./agent-packet-presentation.mjs');
     if (result.resultType === 'sflow-session-entry') result = sessionEntryForAgent(result);
-    const gap = processChatHookGap();
-    if (gap) result.copilotHooks = { ran: false, ...gap };
-    const derived = gap ? hookGapAct(gap) : result.act ?? agentAct(result);
+    const gap = await chatHookGap();
+    if (gap) result.copilotHooks = { ran: false, ...gap.found };
+    const derived = gap ? gap.act : result.act ?? agentAct(result);
     const rest = Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act'));
     const routed = await withAgentRoutes(derived ? { act: derived, ...rest } : result);
     const ordered = derived ? { ...routed, act: leadingAct(routed.act) } : routed;
@@ -1369,9 +1376,9 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   let located;
   const locate = () => (located ??= repositoryOf(result, cwd) ?? false) || null;
   // In a Copilot chat SFlow's hooks never saw, every result leads with that and ends the turn (copilot-chat-hooks.mjs).
-  const gap = processChatHookGap();
-  if (gap) result.copilotHooks = { ran: false, ...gap };
-  const derived = gap ? hookGapAct(gap) : result.act ?? agentAct(result);
+  const gap = await chatHookGap();
+  if (gap) result.copilotHooks = { ran: false, ...gap.found };
+  const derived = gap ? gap.act : result.act ?? agentAct(result);
   // A kept result read again (`result last`) is the same action, never a repeat of it.
   const counted = derived && !result.keptResult && !UNCOUNTED_STATES.has(derived.state) && (derived.do || derived.ask);
   const observed = counted && locate() ? observeAgentLoop(locate().root, result, derived, { now: now.getTime() }) : derived;

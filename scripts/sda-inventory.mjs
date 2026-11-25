@@ -159,7 +159,7 @@ const OVERRIDES = {
   'automatic-work.mjs': 'local-operational',
   // One empty file per Copilot chat SFlow's hooks saw, so a command that chat runs can tell a chat they never saw:
   // machine-local, never shared, aged out, and safe to lose (a lost one is written again by the chat's next hook).
-  'copilot-chat-hooks.mjs': 'local-operational',
+  'copilot-hook-sessions.mjs': 'local-operational',
   // Shared helpers every class uses.
   'util.mjs': 'source-control',
   'atomic-write.mjs': 'projection'

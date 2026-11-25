@@ -9,7 +9,7 @@
  * and none through a link once the host granted the folder its trust, as VS Code does for a trusted window. Copilot
  * CLI 1.0.115 ran them from a link too.
  *
- *   noteHookSession        SFlow's prompt hook and guard leave one small file per chat they see
+ *   noteHookSession        SFlow's prompt hook and guard leave one small file per chat they see (copilot-hook-sessions.mjs)
  *   copilotChatHookGap     a command run by a Copilot chat (which carries COPILOT_AGENT_SESSION_ID) in a chat no SFlow
  *                          hook saw: what is off, why, and the command that fixes it; null when nothing is wrong
  *   vscodeLinkedOpenings   the VS Code windows that opened a folder through a link (VS Code's workspaceStorage)
@@ -18,75 +18,25 @@
  * Node built-ins only; never Git, network or a child process. Every reader fails quietly: a check that cannot read
  * says nothing rather than something wrong.
  */
-import { createHash } from 'node:crypto';
-import {
-  closeSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync
-} from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { copilotHome } from './copilot-home.mjs';
 import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
+import { hookSessionSeen, latestHookAt } from './copilot-hook-sessions.mjs';
 import { linkedFolderNotice, shellPath } from './linked-folder-notice.mjs';
 
+export { HOOK_SESSIONS_DIRECTORY, hookSessionsDirectory, noteHookSession } from './copilot-hook-sessions.mjs';
 export { linkedFolderNotice, shellPath };
 
-export const HOOK_SESSIONS_DIRECTORY = 'copilot-hook-sessions';
 // Any SFlow hook within this long: a sub-agent's call can carry an id other than the one its hooks name.
 const RECENT_HOOK_MS = 30_000;
-const KEEP_MS = 14 * 24 * 60 * 60 * 1000;
-const PRUNE_ABOVE = 256;
-const LATEST = '.latest';
 const VSCODE_STORAGE_LIMIT = 2000;
 export const VSCODE_AGENT_HOST_CLIENT = 'vscode-agent-host';
 
 const validId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 256
   && !/[\u0000-\u001f\u007f]/u.test(value) ? value : null;
-const digest = (value) => createHash('sha256').update(value).digest('hex');
-
-export function hookSessionsDirectory(env = process.env, home = os.homedir()) {
-  return path.join(path.dirname(copilotModeFile(env, home)), HOOK_SESSIONS_DIRECTORY);
-}
-
-function touch(file, now) {
-  try { utimesSync(file, now / 1000, now / 1000); return false; } catch { /* not there yet */ }
-  closeSync(openSync(file, 'a', 0o600));
-  utimesSync(file, now / 1000, now / 1000);
-  return true;
-}
-
-function prune(directory, now) {
-  let names = [];
-  try { names = readdirSync(directory); } catch { return; }
-  if (names.length <= PRUNE_ABOVE) return;
-  for (const name of names) {
-    if (name === LATEST) continue;
-    const file = path.join(directory, name);
-    try { if (now - lstatSync(file).mtimeMs > KEEP_MS) rmSync(file, { force: true }); } catch { /* gone already */ }
-  }
-}
-
-/** A hook saw this chat now. Never fails its caller, and true when written. */
-export function noteHookSession(sessionId, { env = process.env, now = Date.now() } = {}) {
-  const id = validId(sessionId);
-  if (!id) return false;
-  try {
-    const directory = hookSessionsDirectory(env);
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    touch(path.join(directory, LATEST), now);
-    if (touch(path.join(directory, digest(id)), now)) prune(directory, now);
-    return true;
-  } catch { return false; }
-}
-
-function seen(sessionId, env) {
-  const directory = hookSessionsDirectory(env);
-  try { lstatSync(path.join(directory, digest(sessionId))); return true; } catch { return false; }
-}
-
-function latestHookAt(env) {
-  try { return lstatSync(path.join(hookSessionsDirectory(env), LATEST)).mtimeMs; } catch { return null; }
-}
 
 function small(file, limit = 64 * 1024) {
   try {
@@ -187,7 +137,7 @@ export function copilotChatHookGap({ env = process.env, cwd = process.cwd(), roo
   try {
     const sessionId = validId(env.COPILOT_AGENT_SESSION_ID);
     if (!sessionId || env.SINGULARITY_FLOW_COPILOT_HOOK_CHECK === 'off') return null;
-    if (seen(sessionId, env)) return null;
+    if (hookSessionSeen(sessionId, env)) return null;
     const latest = latestHookAt(env);
     if (latest !== null && now - latest >= 0 && now - latest < RECENT_HOOK_MS) return null;
     if (readCopilotMode(copilotModeFile(env, home)).paused) return null;
@@ -230,4 +180,11 @@ let processGap;
 export function processChatHookGap() {
   if (processGap === undefined) processGap = copilotChatHookGap();
   return processGap;
+}
+
+/** Root dispatch's line on stderr, once, for a command a chat runs where the hooks never saw it. */
+export function sayHookGap() {
+  const gap = processChatHookGap();
+  if (gap) process.stderr.write(`${hookGapLine(gap)}\n`);
+  return gap;
 }

@@ -170,7 +170,9 @@ async function fetchReference(root, reference, { fetchImpl = globalThis.fetch, m
       entry,
       source: {
         kind: 'marketplace', marketplace: marketplace.id, index: marketplace.index, indexSha256: index.indexSha256,
-        entry: entry.id, version: entry.version, url: entry.url, resolvedUrl: fetched.resolvedUrl
+        entry: entry.id, version: entry.version, url: entry.url, resolvedUrl: fetched.resolvedUrl,
+        // What the index says it is for, kept with the import, so a task finds it for the same step the next time [ITW:REQ-010].
+        tags: [...(entry.tags ?? [])], phases: [...(entry.phases ?? [])]
       }
     };
   }

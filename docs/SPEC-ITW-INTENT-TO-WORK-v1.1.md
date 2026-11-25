@@ -167,7 +167,10 @@ proposal.
   1. the repository's skill library;
   2. trusted marketplaces, read at the commit the repository trusts.
 
-  An untrusted marketplace is never read.
+  An untrusted marketplace is never read. (Built 2026-11-25: a trusted HTTPS index marketplace is read too, its entries'
+  `phases` naming the steps they are for. Its skill list is kept in the clone's Git folder for an hour, so a plan read
+  does not fetch the index each time; `skill catalog` reads it fresh. An import from an index keeps the entry's tags
+  and steps, so the next task finds it in the library.)
 - A marketplace skill marked approved or `ga` is offered directly. One marked proposed or beta needs the person's yes.
 - A marketplace skill not yet in the repository costs one yes the first time, with its exact text shown, as any import.
   It is then in the library, and the next task uses it without asking.

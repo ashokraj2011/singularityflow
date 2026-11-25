@@ -15,8 +15,8 @@
  *
  * Read only, as a task reads them (task-skills.mjs): this checkout's library and workflow.yml, a Git-repository
  * marketplace at the commit the repository trusts through that module's per-commit listing, and an index marketplace
- * through its index, as `marketplace browse` reads it. A marketplace that cannot be read is one warning on its source;
- * the rest is listed.
+ * through its index, read now, as `marketplace browse` reads it (its listing is kept for the next task's plan). A
+ * marketplace that cannot be read is one warning on its source; the rest is listed.
  *
  * analyzeSkillCatalog is pure; readSkillCatalog reads.
  */
@@ -26,7 +26,7 @@ import path from 'node:path';
 import { compareVersions } from './marketplace.mjs';
 import { STEP_INTENTS } from './phase-roles.mjs';
 import { composeTask, storyComposition, TASK_KINDS } from './task-composition.mjs';
-import { chooseTaskSkills, librarySkillCandidate, marketplaceSkillCandidate } from './task-skills.mjs';
+import { chooseTaskSkills, definitionStepIntent, librarySkillCandidate, marketplaceSkillCandidate } from './task-skills.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const SKILL_CATALOG_RESULT = 'skill-catalog';
@@ -178,19 +178,18 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
     const source = imports[`library-skill:${id}`]?.source ?? null;
     return source && ['marketplace', 'marketplace-skill'].includes(source.kind) ? source : null;
   };
-  const stepIntent = (phase) => definition.phases?.[phase]?.intent;
+  const stepIntent = definitionStepIntent(definition);
   const entries = [];
   for (const skill of [...library].sort((left, right) => byText(left.id, right.id))) {
     const record = recordOf(skill.id);
-    const candidate = librarySkillCandidate(skill, imports[`library-skill:${skill.id}`] ?? null);
+    const candidate = librarySkillCandidate(skill, imports[`library-skill:${skill.id}`] ?? null, { stepIntent });
     entries.push({ candidate, key: `library:${skill.id}`, source: 'library', marketplace: record?.marketplace ?? null, version: record?.version ?? null,
       label: skill.label ?? skill.id, description: skill.description ?? '', tags: [...(skill.tags ?? []), ...(record?.tags ?? [])] });
   }
   for (const marketplace of [...marketplaces].sort((left, right) => byText(left.id, right.id))) {
     for (const entry of [...(marketplace.skills ?? [])].sort((left, right) => byText(left.name, right.name))) {
       // An index entry names the steps it is for by their IDs here; each is the intent that step has.
-      const phaseIntents = (entry.phases ?? []).map(stepIntent).filter(Boolean).map((intent) => `intent:${intent}`);
-      const candidate = marketplaceSkillCandidate({ ...entry, tags: [...(entry.tags ?? []), ...phaseIntents] }, marketplace.id);
+      const candidate = marketplaceSkillCandidate(entry, marketplace.id, { stepIntent });
       entries.push({ candidate, key: `market:${marketplace.id}/${entry.name}`, source: 'marketplace', marketplace: marketplace.id, version: entry.version ?? null,
         label: entry.label ?? entry.name, description: entry.description ?? '', tags: entry.tags ?? [] });
     }
@@ -281,19 +280,6 @@ function unreadable(marketplace, error) {
   return `Marketplace ${name} could not be read, so its skills are not listed: ${said}`;
 }
 
-/** An index marketplace's skills: the newest version of each. */
-async function indexMarketplaceSkills(marketplace, { fetchImpl }) {
-  const { fetchMarketplaceIndex } = await import('./marketplace.mjs');
-  const index = await fetchMarketplaceIndex(marketplace, { fetchImpl });
-  const newest = new Map();
-  for (const entry of index.entries.filter((item) => item.kind === 'skill')) {
-    const kept = newest.get(entry.id);
-    if (!kept || compareVersions(entry.version, kept.version) > 0) newest.set(entry.id, entry);
-  }
-  return [...newest.values()].map((entry) => ({ name: entry.id, label: entry.label, version: entry.version, description: entry.description ?? null,
-    tags: [...entry.tags], phases: [...entry.phases], pdlcTasks: [], lifecycleState: null }));
-}
-
 /** The task Stories in this checkout whose composition chose skills: their records here, no other branch. */
 async function taskStories(root, definition) {
   const directory = path.join(root, definition.workItemRoot ?? 'singularity/work-items');
@@ -327,7 +313,7 @@ function usesFrom(model) {
  * an index marketplace's index.
  */
 export async function readSkillCatalog(root, { marketplace: only = null, fetchImpl = globalThis.fetch } = {}) {
-  const [{ configurationReadRoot }, { loadDefinition }, { loadSkillLibrary }, { loadImportsLedger }, { readAssetCatalog }, { taskSoftwareKinds, trustedMarketplaceSkills }] = await Promise.all([
+  const [{ configurationReadRoot }, { loadDefinition }, { loadSkillLibrary }, { loadImportsLedger }, { readAssetCatalog }, { taskSoftwareKinds, trustedSkillsOf }] = await Promise.all([
     import('./configuration-read-scope.mjs'), import('./config.mjs'), import('./skill-library.mjs'), import('./imports-ledger.mjs'),
     import('./asset-catalog.mjs'), import('./task-skills.mjs')]);
   const configRoot = configurationReadRoot(root);
@@ -354,7 +340,8 @@ export async function readSkillCatalog(root, { marketplace: only = null, fetchIm
   for (const marketplace of trusted.filter((entry) => only == null || entry.id === only)) {
     const kind = marketplace.repository ? 'repository' : 'index';
     try {
-      const skills = marketplace.repository ? await trustedMarketplaceSkills(root, marketplace) : await indexMarketplaceSkills(marketplace, { fetchImpl });
+      // A person reads this page to see what is there now: an index is read fresh, and kept for the next plan.
+      const skills = await trustedSkillsOf(root, marketplace, { fetchImpl, fresh: true });
       marketplaces.push({ id: marketplace.id, label: marketplace.label ?? marketplace.id, kind, skills, warning: null });
     } catch (error) {
       marketplaces.push({ id: marketplace.id, label: marketplace.label ?? marketplace.id, kind, skills: [], warning: unreadable(marketplace, error) });

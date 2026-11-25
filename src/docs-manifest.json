@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "47216ecfe393123a48cfca500091ff25ecee910f",
+  "sourceCommit": "bbccfca272334b76737dd396a4740cd581f73ed1",
   "topicCount": 95,
-  "contentSha256": "a73285d83681686dea631fc11c0570317d794a7c80389185fad1c9ec9e004518",
+  "contentSha256": "37abf87508edb9eca5ccd975cd56d8de02da302531d8c09e588dc933f67e2be7",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -608,8 +608,8 @@
     {
       "id": "skill-master",
       "title": "Skill master and attached skills",
-      "version": 10,
-      "sha256": "3e4ff6b804b852766ab13edd228dff676ca96bf5a1381dad4381e6fba788fbb6",
+      "version": 11,
+      "sha256": "03bb88438319cba1fb7874d5070708338792803c6d6d6183aff504e1c60a55b6",
       "routingSha256": "c8c32db0b1ad991145a393a28bb35c09a1a913599cdccd1b96022561dfd97cb5",
       "file": "skill-master.md"
     },
@@ -664,8 +664,8 @@
     {
       "id": "tasks",
       "title": "Tasks: say what you want done",
-      "version": 11,
-      "sha256": "600da045d672714d75e2fbd42b6a09d5aa800593880db44055e4e35446e647a5",
+      "version": 12,
+      "sha256": "405025b6685fc8b07d9be4331346d36687072cda8fa398765fb9b9f657a69edb",
       "routingSha256": "1a1fcc7163ff59b9ed320743d473a84207b520bae38e1e42f2bb43617d1f4786",
       "file": "tasks.md"
     },

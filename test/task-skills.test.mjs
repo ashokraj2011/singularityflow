@@ -358,3 +358,106 @@ test('ITW REQ-010: imports check re-checks a skill imported from a Git-repositor
   row = checked();
   assert.deepEqual([row.status, row.words], ['unavailable', 'marketplace acme is no longer trusted here as a Git repository']);
 });
+
+/** An HTTPS index marketplace served from files: `https://<host>/<path>` is read from `<directory>/<host>/<path>`. */
+async function indexMarketplace(t, entries) {
+  const { createHash } = await import('node:crypto');
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const directory = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'sflow-task-index-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const files = {};
+  const index = { format: 'sflow-marketplace@1', name: 'Team catalog', entries: entries.map(({ text, ...entry }) => {
+    const file = `/skills/${entry.id}.md`;
+    files[`cdn.example.org${file}`] = text;
+    return { kind: 'skill', version: '1.0.0', url: `https://cdn.example.org${file}`, sha256: createHash('sha256').update(text).digest('hex'), ...entry };
+  }) };
+  files['catalog.example.org/sflow-marketplace.json'] = JSON.stringify(index);
+  for (const [relative, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(directory, relative)), { recursive: true });
+    await writeFile(path.join(directory, relative), text);
+  }
+  return { directory, index: 'https://catalog.example.org/sflow-marketplace.json', indexFile: path.join(directory, 'catalog.example.org/sflow-marketplace.json') };
+}
+
+const WEB_CHECKS = ['---', 'name: web-checks', 'description: Check each changed page in a browser.', '---', '', 'Open each page the change touches.', ''].join('\n');
+const VISUAL_DIFF = ['---', 'name: visual-diff', 'description: Compare screenshots before and after.', '---', '', 'Take a screenshot of each page.', ''].join('\n');
+
+test('ITW REQ-010, A6, A7: a trusted HTTPS index marketplace\'s skills are offered like a repository\'s, read once an hour, and an import is found the next time', async (t) => {
+  const catalog = await indexMarketplace(t, [
+    { id: 'web-checks', label: 'Web checks', tags: ['web', 'playwright', 'ga'], phases: ['implementation'], text: WEB_CHECKS },
+    { id: 'visual-diff', label: 'Visual diff', tags: ['web', 'beta'], phases: ['requirements'], text: VISUAL_DIFF }]);
+  const story = await journeyRepository(t, {
+    files: { 'package.json': WEB_PACKAGE },
+    env: { SINGULARITY_FLOW_TEST_REMOTE_FIXTURES: catalog.directory },
+    configure: (configuration) => { configuration.marketplaces = { team: { label: 'Team catalog', index: catalog.index, allowedOrigins: ['https://cdn.example.org'] } }; }
+  });
+  const shown = json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json'));
+  assert.equal(shown.plan, 'Plan: code (with web-checks from team, new here: add it?) → tests. You approve the plan in the intake and the code. Say "add a design step" to change it.');
+  const [offer] = shown.offers;
+  assert.deepEqual([offer.id, offer.new, offer.marketplace, offer.state, offer.steps], ['web-checks', true, 'team', null, ['implementation']]);
+  assert.equal(offer.show, 'singularity-flow import preview "market:team/web-checks" --as skill --json');
+  assert.equal(story.git('status', '--porcelain'), '', 'showing the plan writes nothing in the checkout');
+  // The listing is kept in the clone's Git folder: the next plan within the hour does not fetch the index again.
+  const { rename } = await import('node:fs/promises');
+  await rename(catalog.indexFile, `${catalog.indexFile}.away`);
+  assert.deepEqual(json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json')), shown, 'the same plan, from the kept listing');
+  await rename(`${catalog.indexFile}.away`, catalog.indexFile);
+  // A7: a beta skill is marked so; starting asks first.
+  const feature = json(story.cli('work', 'add a gift card option to checkout', '--kind', 'feature', '--json'));
+  assert.deepEqual(feature.offers.map(({ id, state, steps }) => [id, state, steps]), [['visual-diff', 'beta', ['requirements']], ['web-checks', null, ['implementation']]]);
+  assert.equal(refused(story, ['work', 'fix the checkout button', '--kind', 'fix', '--start']).code, 'TASK_SKILL_YES_NEEDED');
+  // The yes: its exact text, then the import; what the index said it is for is kept with it, so the next task uses it.
+  const preview = JSON.parse(story.cli('import', 'preview', 'market:team/web-checks', '--as', 'skill', '--json'));
+  assert.equal(preview.text, WEB_CHECKS);
+  story.must('sh', ['-c', preview.addCommand.replace(/^singularity-flow /u, `"${process.execPath}" "${path.join(ROOT, 'bin/singularity-flow.mjs')}" `)]);
+  const lock = YAML.parse(await story.read('singularity/imports.lock.yml'));
+  assert.deepEqual([lock.imports['library-skill:web-checks'].source.tags, lock.imports['library-skill:web-checks'].source.phases], [['web', 'playwright', 'ga'], ['implementation']]);
+  story.git('add', 'singularity');
+  story.git('commit', '-qm', 'Add the web checks skill');
+  const next = json(story.cli('work', 'fix the cart total', '--kind', 'fix', '--json'));
+  assert.match(next.plan, /^Plan: code \(with web-checks\) → tests\./u);
+  assert.equal(next.offers, undefined);
+});
+
+test('ITW REQ-010: an index marketplace\'s listing is read again after an hour, or when the catalog asks for it now', async (t) => {
+  const { trustedIndexMarketplaceSkills, INDEX_LISTING_FRESH_MS, taskSkillChooser } = await import('../src/task-skills.mjs');
+  const { normalizeMarketplaces } = await import('../src/marketplace.mjs');
+  const root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'sflow-task-index-cache-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const INDEX = 'https://catalog.example.org/sflow-marketplace.json';
+  const team = normalizeMarketplaces({ team: { index: INDEX, allowedOrigins: ['https://cdn.example.org'] } }).team;
+  let reads = 0;
+  let entries = [{ id: 'web-checks', kind: 'skill', version: '1.0.0', label: 'Web checks', url: 'https://cdn.example.org/a.md', sha256: 'a'.repeat(64), tags: ['web'], phases: ['implementation'] }];
+  const fetchImpl = async (url) => {
+    reads += 1;
+    assert.equal(url, INDEX, 'only the trusted index is read');
+    const bytes = Buffer.from(JSON.stringify({ format: 'sflow-marketplace@1', entries }));
+    return { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => bytes };
+  };
+  const now = Date.parse('2026-11-25T10:00:00Z');
+  const first = await trustedIndexMarketplaceSkills(root, team, { fetchImpl, now });
+  assert.deepEqual(first.map(({ name, version, phases }) => [name, version, phases]), [['web-checks', '1.0.0', ['implementation']]]);
+  entries = [...entries, { ...entries[0], version: '1.2.0', sha256: 'b'.repeat(64) }];
+  assert.deepEqual(await trustedIndexMarketplaceSkills(root, team, { fetchImpl, now: now + INDEX_LISTING_FRESH_MS - 1 }), first, 'kept for an hour');
+  assert.equal(reads, 1);
+  assert.equal((await trustedIndexMarketplaceSkills(root, team, { fetchImpl, now: now + INDEX_LISTING_FRESH_MS }))[0].version, '1.2.0', 'the newest version, read again');
+  assert.equal(reads, 2);
+  await trustedIndexMarketplaceSkills(root, team, { fetchImpl, now: now + INDEX_LISTING_FRESH_MS + 1, fresh: true });
+  assert.equal(reads, 3, 'the catalog reads it now');
+  // Another index, or the same index with other allowed origins, is another listing.
+  const wider = normalizeMarketplaces({ team: { index: INDEX, allowedOrigins: ['https://cdn.example.org', 'https://files.example.org'] } }).team;
+  await trustedIndexMarketplaceSkills(root, wider, { fetchImpl, now: now + INDEX_LISTING_FRESH_MS + 2 });
+  assert.equal(reads, 4);
+  // The chooser reads an index the definition trusts, through the listing kept now, and no other.
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(path.join(root, 'package.json'), WEB_PACKAGE);
+  for (const args of [['add', 'package.json'], ['-c', 'user.name=Tester', '-c', 'user.email=tester@example.com', 'commit', '-qm', 'web']]) {
+    assert.equal(spawnSync('git', args, { cwd: root }).status, 0);
+  }
+  await trustedIndexMarketplaceSkills(root, team, { fetchImpl, fresh: true });
+  const definition = { ...base(), marketplaces: { team } };
+  const chosen = await taskSkillChooser(root, definition, { fetchImpl: async () => { throw new Error('an index is read only past its hour'); } })(composeTask(definition, { kind: 'fix' }));
+  assert.deepEqual(chosen.offers.map(({ id, marketplace, steps }) => [id, marketplace, steps]), [['web-checks', 'team', ['implementation']]]);
+  assert.deepEqual(chosen.notes, []);
+});

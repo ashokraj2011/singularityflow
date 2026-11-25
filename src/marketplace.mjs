@@ -203,16 +203,24 @@ export function parseMarketplaceIndex(bytes, marketplace) {
   });
 }
 
-export async function fetchMarketplaceIndex(marketplace, { fetchImpl = globalThis.fetch } = {}) {
+/**
+ * A trusted index, read through the hardened reader and checked against the marketplace's origins. `conditional`
+ * (`{ etag, lastModified }` from an earlier read) asks whether it changed: `{ notModified: true, resolvedIndex, etag,
+ * lastModified }` when it did not, so the caller keeps the list it checked then; otherwise the index as always, with
+ * its `etag` and `lastModified` when the server gave them.
+ */
+export async function fetchMarketplaceIndex(marketplace, { fetchImpl = globalThis.fetch, conditional = null } = {}) {
   if (marketplace.repository) {
     const browse = `singularity-flow marketplace browse ${marketplace.id}`;
     throw fail(`Marketplace '${marketplace.id}' is a Git repository with no files to import one by one. ${browse} lists the command that makes each agent a workflow.`,
       'MARKETPLACE_REPOSITORY_NOT_INDEX', { marketplace: marketplace.id, nextAction: browse });
   }
   const fetched = await fetchRemoteBytes(marketplace.index, {
-    maxBytes: INDEX_MAX_BYTES, fetchImpl, label: `Marketplace '${marketplace.id}' index`, accept: 'application/json'
+    maxBytes: INDEX_MAX_BYTES, fetchImpl, label: `Marketplace '${marketplace.id}' index`, accept: 'application/json', conditional
   });
-  return { ...parseMarketplaceIndex(fetched.bytes, marketplace), indexSha256: fetched.sha256, resolvedIndex: fetched.resolvedUrl };
+  const validators = { ...(fetched.etag ? { etag: fetched.etag } : {}), ...(fetched.lastModified ? { lastModified: fetched.lastModified } : {}) };
+  if (fetched.notModified) return { notModified: true, resolvedIndex: fetched.resolvedUrl, ...validators };
+  return { ...parseMarketplaceIndex(fetched.bytes, marketplace), indexSha256: fetched.sha256, resolvedIndex: fetched.resolvedUrl, ...validators };
 }
 
 /** The entry an import names: an exact version, or the newest version of that ID. */

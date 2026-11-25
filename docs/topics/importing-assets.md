@@ -14,7 +14,7 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 16
+version: 17
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
@@ -102,6 +102,7 @@ With `--json` each item carries whole commands under `actions`, each through its
 - Adding a skill to an agent that already names remote resources nobody has trusted is refused; run `singularity-flow agents lock <AGENT>` first.
 - No credentials, cookies or tokens are ever sent. Links with embedded credentials, private hosts and `localhost` are refused.
 - A marketplace index can only list files from its own origin and the origins `workflow.yml` allows for it; anything else refuses the whole index.
+- A task keeps an index marketplace's skill list for an hour. After that hour, or when `skill catalog` reads it now, SFlow asks the index whether it changed, with the ETag or Last-Modified date its server gave: when it has not (HTTP 304 from the same address), the kept list stays, as it was checked, and its hour starts again; when it has, or the server gives neither, the index is read and checked in full.
 - A Git repository marketplace is read at the commit `workflow.yml` pins, with Git and the sign-in a `git clone` of it uses. Nothing is checked out and nothing in it is run. To trust a newer commit, run the same `marketplace add --repo` again: it moves the pin, as a reviewed change.
 - An MCP server is started or contacted only with `--launch`, for an item its `sources` allow; its answer is vendored and never re-read.
 

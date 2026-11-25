@@ -462,6 +462,55 @@ test('ITW REQ-010: an index marketplace\'s listing is read again after an hour, 
   assert.deepEqual(chosen.notes, []);
 });
 
+test('an index past its hour is asked whether it changed: a 304 keeps the checked list and starts its hour again, a change is read in full', async (t) => {
+  const { trustedIndexMarketplaceSkills, INDEX_LISTING_FRESH_MS } = await import('../src/task-skills.mjs');
+  const { normalizeMarketplaces } = await import('../src/marketplace.mjs');
+  const root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'sflow-task-index-changed-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const INDEX = 'https://catalog.example.org/sflow-marketplace.json';
+  const team = normalizeMarketplaces({ team: { index: INDEX, allowedOrigins: ['https://cdn.example.org'] } }).team;
+  const entry = { id: 'web-checks', kind: 'skill', version: '1.0.0', label: 'Web checks', url: 'https://cdn.example.org/a.md', sha256: 'a'.repeat(64), tags: ['web'] };
+  let served = { tag: '"v1"', entries: [entry] };
+  const asked = [];
+  const fetchImpl = async (url, request) => {
+    asked.push({ url, ifNoneMatch: request.headers['if-none-match'] ?? null, ifModifiedSince: request.headers['if-modified-since'] ?? null });
+    const headers = { etag: served.tag, 'last-modified': 'Wed, 25 Nov 2026 10:00:00 GMT' };
+    if (request.headers['if-none-match'] === served.tag) return { ok: false, status: 304, headers: { get: (name) => headers[name] ?? null }, arrayBuffer: async () => Buffer.alloc(0) };
+    const bytes = Buffer.from(JSON.stringify({ format: 'sflow-marketplace@1', entries: served.entries }));
+    return { ok: true, status: 200, headers: { get: (name) => headers[name] ?? null }, arrayBuffer: async () => bytes };
+  };
+  const now = Date.parse('2026-11-25T10:00:00Z');
+  const first = await trustedIndexMarketplaceSkills(root, team, { fetchImpl, now });
+  assert.deepEqual(asked, [{ url: INDEX, ifNoneMatch: null, ifModifiedSince: null }], 'the first read asks nothing');
+  // Past its hour and unchanged: one conditional request, the same list, and the hour starts again.
+  assert.deepEqual(await trustedIndexMarketplaceSkills(root, team, { fetchImpl, now: now + INDEX_LISTING_FRESH_MS }), first);
+  assert.deepEqual(asked[1], { url: INDEX, ifNoneMatch: '"v1"', ifModifiedSince: 'Wed, 25 Nov 2026 10:00:00 GMT' });
+  await trustedIndexMarketplaceSkills(root, team, { fetchImpl, now: now + (2 * INDEX_LISTING_FRESH_MS) - 1 });
+  assert.equal(asked.length, 2, 'kept for an hour from the 304');
+  // Changed: read in full and checked again, so a new version shows; and a refresh asks too.
+  served = { tag: '"v2"', entries: [entry, { ...entry, version: '1.1.0', sha256: 'b'.repeat(64) }] };
+  assert.equal((await trustedIndexMarketplaceSkills(root, team, { fetchImpl, fresh: true, now: now + (2 * INDEX_LISTING_FRESH_MS) }))[0].version, '1.1.0');
+  assert.equal(asked[2].ifNoneMatch, '"v1"');
+  // A changed list is still checked against the allowed origins: a 200 never skips the check.
+  served = { tag: '"v3"', entries: [{ ...entry, version: '2.0.0', url: 'https://elsewhere.example.net/a.md' }] };
+  await assert.rejects(trustedIndexMarketplaceSkills(root, team, { fetchImpl, fresh: true, now: now + (3 * INDEX_LISTING_FRESH_MS) }), /not allowed to use/u);
+  // A 304 answered from another address than the list was read at is not trusted: the index is read in full.
+  served = { tag: '"v2"', entries: [entry] };
+  const moved = async (url, request) => {
+    if (url === INDEX) return { ok: false, status: 302, headers: { get: (name) => (name === 'location' ? 'https://mirror.example.org/index.json' : null) }, arrayBuffer: async () => Buffer.alloc(0) };
+    return fetchImpl(url, request);
+  };
+  const before = asked.length;
+  assert.equal((await trustedIndexMarketplaceSkills(root, team, { fetchImpl: moved, fresh: true, now: now + (4 * INDEX_LISTING_FRESH_MS) }))[0].version, '1.0.0');
+  assert.deepEqual(asked.slice(before).map((entry_) => entry_.ifNoneMatch), ['"v2"', null], 'asked, then read in full without validators');
+  // The reader never sends a validator that could carry a header of its own.
+  const { remoteValidator } = await import('../src/remote-fetch.mjs');
+  assert.equal(remoteValidator('"v1"\r\nx-injected: 1'), null);
+  assert.equal(remoteValidator(' "v1"'), null);
+  assert.equal(remoteValidator('W/"v1"'), 'W/"v1"');
+});
+
 test('ITW A7: a marketplace only a working-copy edit of workflow.yml trusts is not trusted yet: no task offers its skills and no preview reads it', async (t) => {
   const catalog = await indexMarketplace(t, [{ id: 'web-checks', label: 'Web checks', tags: ['web', 'ga'], phases: ['implementation'], text: WEB_CHECKS }]);
   const story = await journeyRepository(t, { files: { 'package.json': WEB_PACKAGE }, env: { SINGULARITY_FLOW_TEST_REMOTE_FIXTURES: catalog.directory } });

@@ -161,8 +161,20 @@ async function fixtureResponse(url) {
 }
 
 /**
- * Fetch exact bytes from a public HTTPS URL. Returns `{ bytes, size, sha256, url, resolvedUrl }`.
- * `label` names the thing being read in every refusal.
+ * A validator a server gave (ETag, Last-Modified) as a request header may carry it again: visible ASCII and spaces only,
+ * so no line break or control character can reach a header; anything else is not sent and not kept.
+ */
+export function remoteValidator(value) {
+  const text = Array.isArray(value) ? value[0] : value;
+  return typeof text === 'string' && text.length > 0 && text.length <= 256 && /^[\x20-\x7e]+$/u.test(text) && text.trim() === text ? text : null;
+}
+
+/**
+ * Fetch exact bytes from a public HTTPS URL. Returns `{ bytes, size, sha256, url, resolvedUrl }`, with `etag` and
+ * `lastModified` when the server gave them.
+ * `label` names the thing being read in every refusal. `conditional: { etag, lastModified }` asks whether it changed
+ * (If-None-Match, If-Modified-Since): a 304 then returns `{ notModified: true, url, resolvedUrl, etag, lastModified }`
+ * and no bytes, so the caller keeps what it read before. Every other check is the same for a conditional request.
  */
 export async function fetchRemoteBytes(url, options = {}) {
   return measurePerformance('network', 'http.download', () => fetchRemoteBytesImpl(url, options));
@@ -175,7 +187,8 @@ async function fetchRemoteBytesImpl(url, {
   lookupImpl = fetchImpl === globalThis.fetch ? dnsLookup : null,
   accept = '*/*',
   label = 'Remote content',
-  noun = 'content'
+  noun = 'content',
+  conditional = null
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new SingularityFlowError('This Node runtime does not provide HTTPS fetch support.');
   if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > HARD_REMOTE_MAX_BYTES) {
@@ -183,6 +196,10 @@ async function fetchRemoteBytesImpl(url, {
   }
   let current = validatePublicHttpsUrl(url, `${label} URL`);
   const useFixtures = fetchImpl === globalThis.fetch && Boolean(process.env[REMOTE_FIXTURES_ENV]);
+  const etag = remoteValidator(conditional?.etag);
+  const lastModified = remoteValidator(conditional?.lastModified);
+  const asked = { ...(etag ? { 'if-none-match': etag } : {}), ...(lastModified ? { 'if-modified-since': lastModified } : {}) };
+  const header = (response, name) => remoteValidator(response.headers?.get?.(name) ?? null);
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     let response;
     if (useFixtures) response = await fixtureResponse(current);
@@ -190,7 +207,7 @@ async function fetchRemoteBytesImpl(url, {
       const resolved = lookupImpl ? await resolveRemoteHostWithTimeout(current, lookupImpl, timeoutMs) : null;
       const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const requestOptions = { method: 'GET', redirect: 'manual', signal: controller.signal, headers: { accept } };
+        const requestOptions = { method: 'GET', redirect: 'manual', signal: controller.signal, headers: { accept, ...asked } };
         response = resolved && fetchImpl === globalThis.fetch
           ? await pinnedHttpsFetch(current, requestOptions, resolved, maxBytes)
           : await fetchImpl(current, requestOptions);
@@ -206,11 +223,18 @@ async function fetchRemoteBytesImpl(url, {
       current = validatePublicHttpsUrl(new URL(location, current).toString(), `${label} redirect`);
       continue;
     }
+    // Not changed since the validators it was asked with: only an answer to a conditional request.
+    if (response.status === 304 && Object.keys(asked).length) {
+      return { notModified: true, url, resolvedUrl: current, etag: header(response, 'etag') ?? etag, lastModified: header(response, 'last-modified') ?? lastModified };
+    }
     if (!response.ok) throw new SingularityFlowError(`${label} ${current} returned HTTP ${response.status}.`);
     const bytes = Buffer.from(await response.arrayBuffer());
     if (!bytes.length) throw new SingularityFlowError(`${label} ${current} returned empty ${noun}.`);
     if (bytes.length > maxBytes) throw new SingularityFlowError(`${label} ${current} exceeds its ${maxBytes} byte limit.`);
-    return { bytes, size: bytes.length, sha256: sha256Hex(bytes), url, resolvedUrl: current };
+    // A validator is returned only when the server gave one, for a caller that asks next time whether it changed.
+    const validators = { etag: header(response, 'etag'), lastModified: header(response, 'last-modified') };
+    return { bytes, size: bytes.length, sha256: sha256Hex(bytes), url, resolvedUrl: current,
+      ...Object.fromEntries(Object.entries(validators).filter(([, value]) => value)) };
   }
   throw new SingularityFlowError(`Unable to fetch ${url}.`);
 }

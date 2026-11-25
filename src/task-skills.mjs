@@ -286,32 +286,46 @@ export function indexMarketplaceSkillEntries(index, compareVersions) {
 /**
  * A trusted HTTPS index marketplace's skills (A7: only one `marketplaces:` names). Its index is fetched through the hardened
  * reader, which checks every entry against the marketplace's allowed origins (marketplace.mjs); the listing is kept in the
- * clone's Git folder with the index's digest and when it was read, and used for INDEX_LISTING_FRESH_MS, so a plan read does
- * not fetch the index each time. The hardened reader sends no conditional request, so freshness is by age. `fresh` reads
- * it now (`skill catalog`, which a person refreshes), and keeps that listing for the next plan. An import of one of its
- * skills fetches and verifies the entry's own file again, by its pinned SHA-256.
+ * clone's Git folder with the index's digest, when it was read, and the validators the server gave (ETag, Last-Modified),
+ * and used for INDEX_LISTING_FRESH_MS, so a plan read does not fetch the index each time. Past that hour, or when `fresh`
+ * reads it now (`skill catalog`, which a person refreshes), a kept listing with validators asks the index whether it
+ * changed: a 304 from the same address keeps that listing, checked when it was read, and starts its hour again; any other
+ * answer is read and checked in full, and a listing with no validators is read in full, by age as before. An import of
+ * one of its skills fetches and verifies the entry's own file again, by its pinned SHA-256.
  */
 export async function trustedIndexMarketplaceSkills(root, marketplace, { fetchImpl = globalThis.fetch, fresh = false, now = Date.now() } = {}) {
   const { repositoryGitPath } = await import('./git-directory.mjs');
   const origins = [...(marketplace.allowedOrigins ?? [])].sort();
   const key = createHash('sha256').update(`${marketplace.index}\n${origins.join(' ')}`).digest('hex');
   const file = path.join(repositoryGitPath(root, 'singularity-flow', 'task-marketplace-skills'), `index-${key}.json`);
-  if (!fresh) {
-    try {
-      const kept = JSON.parse(await readFile(file, 'utf8'));
-      const age = now - Date.parse(kept?.readAt ?? '');
-      if (kept?.format === INDEX_LISTING_FORMAT && kept.index === marketplace.index && JSON.stringify(kept.allowedOrigins) === JSON.stringify(origins)
-        && Array.isArray(kept.skills) && age >= 0 && age < INDEX_LISTING_FRESH_MS) return kept.skills;
-    } catch { /* not kept yet */ }
-  }
-  const { compareVersions, fetchMarketplaceIndex } = await import('./marketplace.mjs');
-  const index = await fetchMarketplaceIndex(marketplace, { fetchImpl });
-  const skills = indexMarketplaceSkillEntries(index, compareVersions);
+  let kept = null;
   try {
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, `${JSON.stringify({ format: INDEX_LISTING_FORMAT, index: marketplace.index, allowedOrigins: origins, indexSha256: index.indexSha256,
-      readAt: new Date(now).toISOString(), skills })}\n`);
-  } catch { /* the index is read again next time */ }
+    const read = JSON.parse(await readFile(file, 'utf8'));
+    if (read?.format === INDEX_LISTING_FORMAT && read.index === marketplace.index && JSON.stringify(read.allowedOrigins) === JSON.stringify(origins)
+      && Array.isArray(read.skills)) kept = read;
+  } catch { /* not kept yet */ }
+  const age = now - Date.parse(kept?.readAt ?? '');
+  if (kept && !fresh && age >= 0 && age < INDEX_LISTING_FRESH_MS) return kept.skills;
+  const keep = async (value) => {
+    try {
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, `${JSON.stringify({ format: INDEX_LISTING_FORMAT, index: marketplace.index, allowedOrigins: origins, ...value, readAt: new Date(now).toISOString() })}\n`);
+    } catch { /* the index is read again next time */ }
+  };
+  const validators = (from) => ({ ...(from.etag ? { etag: from.etag } : {}), ...(from.lastModified ? { lastModified: from.lastModified } : {}) });
+  const { compareVersions, fetchMarketplaceIndex } = await import('./marketplace.mjs');
+  const asked = kept && (kept.etag || kept.lastModified) && kept.resolvedIndex ? validators(kept) : null;
+  let index = await fetchMarketplaceIndex(marketplace, { fetchImpl, conditional: asked });
+  if (index.notModified) {
+    // The same list, from the address it was read at: kept, with its digest, and its hour starts again.
+    if (index.resolvedIndex === kept.resolvedIndex) {
+      await keep({ indexSha256: kept.indexSha256, resolvedIndex: kept.resolvedIndex, ...validators({ ...kept, ...index }), skills: kept.skills });
+      return kept.skills;
+    }
+    index = await fetchMarketplaceIndex(marketplace, { fetchImpl });
+  }
+  const skills = indexMarketplaceSkillEntries(index, compareVersions);
+  await keep({ indexSha256: index.indexSha256, resolvedIndex: index.resolvedIndex, ...validators(index), skills });
   return skills;
 }
 

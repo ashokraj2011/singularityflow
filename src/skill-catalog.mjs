@@ -27,7 +27,7 @@ import path from 'node:path';
 import { compareVersions } from './marketplace.mjs';
 import { STEP_INTENTS } from './phase-roles.mjs';
 import { composeTask, storyComposition, TASK_KINDS } from './task-composition.mjs';
-import { chooseTaskSkills, definitionStepIntent, librarySkillCandidate, marketplaceSkillCandidate, sameMarketplaceTrust } from './task-skills.mjs';
+import { chooseTaskSkills, definitionStepIntent, librarySkillCandidate, marketplaceSkillCandidate, unapprovedMarketplaces } from './task-skills.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const SKILL_CATALOG_RESULT = 'skill-catalog';
@@ -315,28 +315,9 @@ function usesFrom(model) {
   }]));
 }
 
-const NOT_APPROVED_WORDS = Object.freeze({
-  added: 'Trusted only in your working copy of workflow.yml, and not approved yet: Stories do not use it, so its skills are not read.',
-  changed: 'Your working copy of workflow.yml reads it elsewhere (another commit or index), and that is not approved yet: these are the skills Stories use.',
-  removed: 'Your working copy of workflow.yml stops trusting it, and that is not approved yet: Stories still use it.'
-});
-
-/**
- * What this checkout's own workflow.yml trusts that the approved configuration does not, or trusts otherwise: each
- * `{ id, label, kind, change, words }`, `change` one of added, changed or removed. Empty when the working tree is the
- * configuration (no approved one is known here).
- */
-export function unapprovedMarketplaces(approved = {}, working = {}) {
-  const found = [];
-  for (const id of [...new Set([...Object.keys(approved), ...Object.keys(working)])].sort(byText)) {
-    const here = working[id]; const there = approved[id];
-    const change = here && !there ? 'added' : there && !here ? 'removed' : sameMarketplaceTrust(here, there) ? null : 'changed';
-    if (!change) continue;
-    const entry = here ?? there;
-    found.push({ id, label: entry.label ?? id, kind: entry.repository ? 'repository' : 'index', change, words: NOT_APPROVED_WORDS[change] });
-  }
-  return found;
-}
+// What this checkout's workflow.yml trusts that the approved configuration does not (task-skills.mjs, which the
+// marketplace page reads too).
+export { unapprovedMarketplaces };
 
 /**
  * Read and analyze every skill, from the approved configuration: what Stories actually use [owner, 2026-11-25]. A

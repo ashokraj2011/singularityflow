@@ -220,8 +220,10 @@ export async function taskSoftwareKinds(root, touchedPaths = []) {
 
 // v2 keeps each skill's description too, for the page of every skill (skill-catalog.mjs); a v1 listing is read again once.
 const CATALOG_FORMAT = 'sflow-task-marketplace-skills/v2';
-// A marketplace's agents, each with its agent.md, for a marketplace agent as a task's plan [ITW:REQ-011].
-const AGENTS_FORMAT = 'sflow-task-marketplace-agents/v1';
+// A marketplace's agents, each with its agent.md, for a marketplace agent as a task's plan [ITW:REQ-011]. v2 keeps each
+// skill's SHA-256 too, so the marketplace page (marketplace-catalog.mjs) tells an installed copy from a changed one; a v1
+// listing is read again once.
+const AGENTS_FORMAT = 'sflow-task-marketplace-agents/v2';
 
 /** Where a trusted marketplace's listing at its pinned commit is kept: the clone's Git folder, one file per commit. */
 async function listingFile(root, folder, marketplace) {
@@ -317,6 +319,29 @@ export async function trustedIndexMarketplaceSkills(root, marketplace, { fetchIm
 export const sameMarketplaceTrust = (left, right) => ['repository', 'ref', 'commit', 'index'].every((key) => (left[key] ?? null) === (right[key] ?? null))
   && JSON.stringify([...(left.allowedOrigins ?? [])].sort()) === JSON.stringify([...(right.allowedOrigins ?? [])].sort());
 
+const NOT_APPROVED_WORDS = Object.freeze({
+  added: 'Trusted only in your working copy of workflow.yml, and not approved yet: Stories do not use it, so its skills are not read.',
+  changed: 'Your working copy of workflow.yml reads it elsewhere (another commit or index), and that is not approved yet: these are the skills Stories use.',
+  removed: 'Your working copy of workflow.yml stops trusting it, and that is not approved yet: Stories still use it.'
+});
+
+/**
+ * What this checkout's own workflow.yml trusts that the approved configuration does not, or trusts otherwise: each
+ * `{ id, label, kind, change, words }`, `change` one of added, changed or removed. Empty when the working tree is the
+ * configuration (no approved one is known here). The skill catalog and the marketplace page both say so.
+ */
+export function unapprovedMarketplaces(approved = {}, working = {}) {
+  const found = [];
+  for (const id of [...new Set([...Object.keys(approved), ...Object.keys(working)])].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))) {
+    const here = working[id]; const there = approved[id];
+    const change = here && !there ? 'added' : there && !here ? 'removed' : sameMarketplaceTrust(here, there) ? null : 'changed';
+    if (!change) continue;
+    const entry = here ?? there;
+    found.push({ id, label: entry.label ?? id, kind: entry.repository ? 'repository' : 'index', change, words: NOT_APPROVED_WORDS[change] });
+  }
+  return found;
+}
+
 /**
  * The marketplaces the approved configuration trusts, from this clone's own refs (no fetch), or null when no approved
  * configuration is known here and the working tree is the configuration. A marketplace only a working-copy edit trusts is
@@ -345,13 +370,16 @@ export async function trustedMarketplaceAgents(root, marketplace) {
   const kept = await keptListing(file, AGENTS_FORMAT, marketplace, 'agents');
   if (kept && Array.isArray(kept.skills)) return { agents: kept.agents, skills: kept.skills };
   const { readMarketplaceRepository } = await import('./marketplace-repository.mjs');
-  const listing = await readMarketplaceRepository(marketplace, { documents: (packages) => packages.filter((entry) => entry.kind === 'agent').map((entry) => entry.name) });
+  // Each skill's SKILL.md is read too, for its SHA-256 alone: what an import of it would add (marketplace-catalog.mjs).
+  const listing = await readMarketplaceRepository(marketplace, { documents: (packages) => packages.filter((entry) => ['agent', 'skill'].includes(entry.kind)).map((entry) => entry.name) });
   const agents = listing.packages.filter((entry) => entry.kind === 'agent' && ID.test(entry.name) && typeof entry.text === 'string').map((entry) => ({
     name: entry.name, version: entry.version ?? null, description: entry.description ?? null, lifecycleState: entry.lifecycleState ?? null,
     pdlcPhases: entry.pdlcPhases ?? [], pdlcTasks: entry.pdlcTasks ?? [], tags: entry.tags ?? [], skills: entry.skills ?? [],
     maintainer: entry.maintainer ?? null, sourceRepository: entry.sourceRepository ?? null, document: entry.document ?? null,
     manifestSha256: entry.manifestSha256 ?? null, text: entry.text }));
-  const skills = listingSkills(listing);
+  const texts = new Map(listing.packages.filter((entry) => entry.kind === 'skill' && typeof entry.text === 'string').map((entry) => [entry.name, entry.text]));
+  const skills = listingSkills(listing).map((skill) => ({ ...skill,
+    sha256: texts.has(skill.name) ? createHash('sha256').update(texts.get(skill.name), 'utf8').digest('hex') : null }));
   await keepListing(file, { format: AGENTS_FORMAT, repository: marketplace.repository, commit: marketplace.commit, agents, skills });
   const skillFile = await listingFile(root, 'task-marketplace-skills', marketplace);
   if (!await keptListing(skillFile, CATALOG_FORMAT, marketplace, 'skills')) {

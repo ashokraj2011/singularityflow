@@ -14,7 +14,7 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 15
+version: 16
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
@@ -24,9 +24,9 @@ Use this topic to take a skill, template, or agent someone has published at a pu
 
 ## Use it from each surface
 
-- **Shell:** `sflow import preview <LINK> --as skill|template|agent`, then `sflow import add <LINK> … --sha256 <HASH>`; `sflow imports`, `sflow imports check`, `sflow imports remove <IMPORT>`; `sflow marketplace browse <ID>` and `sflow import preview market:<ID>/<ENTRY>`.
+- **Shell:** `sflow import preview <LINK> --as skill|template|agent`, then `sflow import add <LINK> … --sha256 <HASH>`; `sflow imports`, `sflow imports check`, `sflow imports remove <IMPORT>`; `sflow marketplace catalog`, `sflow marketplace browse <ID>` and `sflow import preview market:<ID>/<ENTRY>`.
 - **Copilot:** `/sf-import`. It previews, shows the full content and hash, asks what the import is for, and adds only the reviewed bytes.
-- **VS Code:** **Workflow Studio** offers the same imports; each one becomes a change in the Studio's review before it is published.
+- **VS Code:** **Workflow Studio** offers the same imports; each one becomes a change in the Studio's review before it is published. **Singularity Flow: Marketplace** shows every marketplace item and what is installed here, like an app store; its Install, Update and Remove open the same Studio reviews.
 
 ## Guided workflow
 
@@ -81,6 +81,18 @@ A marketplace agent's `agent.md` is a whole process: a hard gate first, a table 
 | static-analysis | test | it runs the analyzers and records what they found |
 | accessibility-review, coding-standards-review, security-review, pr-review | review | it judges the delivered change |
 | release-notes, changelog, pr-description, release-readiness | release | |
+
+## Every marketplace item on one page
+
+`singularity-flow marketplace catalog` lists every skill, agent and template of every marketplace this repository trusts, the workflows made from their agents, and what is installed here, like an app store. Each item says one of:
+
+- **installed:** installed here, the same text as the marketplace has at the commit (or index) this repository trusts;
+- **update available:** the marketplace has another version or a changed text, and the item says which ("version 1.2.0; version 1.0.0 is installed here", "skill web-xray-creation changed");
+- **not installed;**
+- **only here:** installed here, and no trusted marketplace has it: written here, from a link, or dropped by its marketplace;
+- **not approved yet:** a marketplace your working copy of `workflow.yml` trusts that is not approved; its items are not read.
+
+With `--json` each item carries whole commands under `actions`, each through its review: `preview` (`import preview …`, or `workflow from-agent … --review` for an agent), `install` (`import add … --sha256 … --propose`, or `workflow from-agent … --propose`), `update` (the same with `--replace`, or `workflow from-agent … --update --propose`) and `remove` (`skill remove … --propose`, `imports remove … --propose`, or `workflow archive … --propose`). Narrow it with `--kind skill|agent|workflow|template`, `--marketplace <ID>` and `--search <WORDS>`. It reads the approved configuration, a Git repository marketplace once per trusted commit; a newer commit than the trusted one is what `imports check` and **Read its newest commit** find. In VS Code, **Singularity Flow: Marketplace** (also **Marketplace** in Workflow Studio's Library and Skill master, and on the All skills page) shows it with tabs, search and filters; each button opens the same preview, conversion review, archive or removal in Workflow Studio, and nothing changes until you publish there.
 
 ## State and safety
 

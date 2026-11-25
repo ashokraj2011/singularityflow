@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "d7293ece7d740e669e03de815a2b32cdab073deb",
+  "sourceCommit": "da518835d11d54becadb13d6666f5fd968df7a6f",
   "topicCount": 95,
-  "contentSha256": "043dead9d503f98ea99a4007e5de44d424da39dea6ea21210cd40cb41090d17e",
+  "contentSha256": "f7c96e8c808a5def34f1befd1fe9e7d762213c7ee091a817e08bf565fcdef552",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -608,8 +608,8 @@
     {
       "id": "skill-master",
       "title": "Skill master and attached skills",
-      "version": 12,
-      "sha256": "3616fae6de1262d0d228dd6dda269e03d130f7f74083e2bd38b82f90328935db",
+      "version": 13,
+      "sha256": "6c0aa8e275f928f6085f0c9ca3b68ad952a20ffd4c7411ca4c7effcc182335d8",
       "routingSha256": "c8c32db0b1ad991145a393a28bb35c09a1a913599cdccd1b96022561dfd97cb5",
       "file": "skill-master.md"
     },

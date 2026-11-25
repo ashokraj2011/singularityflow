@@ -30,7 +30,10 @@ import { guidanceConflicts, scanGuidanceText } from './guidance-scan.mjs';
 import { mcpServerSetupCommands, mcpTargetOriginNeed, mcpTargetOriginSteps } from './mcp-target.mjs';
 import { phaseTopologyFindings } from './phase-semantics.mjs';
 import { sourceReviewPolicyNotice } from './source-review-policy.mjs';
-import { SKILL_ATTACHMENTS_PATH } from './skill-library.mjs';
+import { SKILL_ATTACHMENTS_PATH, readSkillAttachments } from './skill-library.mjs';
+import {
+  approvedConfigurationIn, configurationSkillProblems, librarySkillNeeds, librarySkillRepairs, storySkillScope
+} from './skill-library-problems.mjs';
 import { explainWorkflow } from './workflow-explanation.mjs';
 import { isKnownPackagedWorkflowValue } from './packaged-workflow-history.mjs';
 import { mergePhaseOverride } from './phase-overrides.mjs';
@@ -768,6 +771,40 @@ async function workflowStepIntents(workflow, { raw, resolved, templates }) {
   return inferStepIntents(steps, { planOwners: owners });
 }
 
+/**
+ * A skill an agent or workflow uses that the skill master lacks, or cannot read. A Story of each
+ * workflow named in `subject.workflows` keeps it when it starts, so none can start until it is
+ * repaired (skill-library.mjs assertStoryLibrarySkills); every other workflow is unaffected, as
+ * loading configuration reads no skill. The fix is its way out, as complete commands.
+ */
+async function skillProblemFindings(root, definition, resolvedById) {
+  const problems = await configurationSkillProblems(root, definition).catch(() => []);
+  if (!problems.length) return [];
+  const attachments = await readSkillAttachments(root).catch(() => []);
+  const key = (entry) => `${entry.agentId ?? ''}\0${entry.workflowId ?? ''}\0${entry.skillId}`;
+  const usedBy = new Map();
+  for (const [id, resolved] of resolvedById) {
+    for (const need of librarySkillNeeds(definition.agentCatalog ?? [], attachments, definition, storySkillScope(definition, id, resolved))) {
+      usedBy.set(key(need), new Set([...(usedBy.get(key(need)) ?? []), id]));
+    }
+  }
+  const approved = approvedConfigurationIn(root);
+  return problems.map((problem) => {
+    const workflows = [...(usedBy.get(key(problem)) ?? [])].sort();
+    const repairs = librarySkillRepairs(problem, { approved });
+    const owner = problem.workflowId ? `workflow ${problem.workflowId}` : `agent ${problem.agentId}`;
+    return finding({ code: 'CHECK_SKILL_MISSING', area: 'assets', severity: 'problem',
+      title: `Skill ${problem.skillId}, which ${owner} uses, ${problem.reason === 'missing' ? 'is not in the skill master' : 'is not a valid skill'}`,
+      detail: `${problem.detail.charAt(0).toUpperCase()}${problem.detail.slice(1)}. ${workflows.length
+        ? `A Story of ${workflows.join(', ')} keeps it when it starts, so none can start until it is repaired; other workflows are not affected.`
+        : 'No workflow checked here keeps it.'}`,
+      fix: { text: repairs.map((entry) => `${entry.label} Run: ${entry.command}`).join(' '), command: repairs[0].command },
+      subject: { skill: problem.skillId, ...(problem.workflowId ? { workflow: problem.workflowId } : { agent: problem.agentId }), workflows },
+      location: problem.reason === 'missing' ? null : { file: problem.path, line: 1 },
+      blocksStart: workflows.length > 0 });
+  });
+}
+
 /** Findings about the repository's own agents, skills, instructions and links, not one workflow. */
 async function checkAssets({ model, definition, guidance, configRoot, attachmentsText }) {
   const findings = [];
@@ -1066,9 +1103,11 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null,
   const mapping = unmappedRefusal ? await agentMappingFindings(unmappedRefusal.details.problems, { model, definition, locate, configRoot }) : [];
   const unmapped = new Set(mapping.map((entry) => entry.subject.step));
   const results = [];
+  const resolvedById = new Map();
   for (const workflow of model.workflows) {
     if (only && !only.includes(workflow.id)) continue;
     const { findings, resolved, explanationGuidance, people, walk } = await checkWorkflow(workflow, { definition, raw, model, locate, guidance, groups, templates, sfGuard, unmapped });
+    if (resolved) resolvedById.set(workflow.id, resolved);
     // What each step is for, declared or inferred, and how sure SFlow is.
     const intents = await workflowStepIntents(workflow, { raw, resolved, templates });
     results.push({
@@ -1088,7 +1127,8 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null,
   for (const skill of model.skills ?? []) await guidance.scan(skill.path);
   for (const item of model.instructions ?? []) await guidance.scan(item.path);
   const attachmentsText = await readFile(path.join(configRoot, SKILL_ATTACHMENTS_PATH), 'utf8').catch(() => null);
-  const repository = [...mapping, ...await checkAssets({ model, definition, guidance, configRoot, attachmentsText })];
+  const repository = [...mapping, ...await checkAssets({ model, definition, guidance, configRoot, attachmentsText }),
+    ...await skillProblemFindings(root, definition, resolvedById)];
   const all = [...results.flatMap((entry) => entry.findings), ...repository];
   const result = {
     ...base,

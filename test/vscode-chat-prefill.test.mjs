@@ -16,7 +16,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, isChatRoute, nextChatPrefill, removeOldCopilotTurns, TURN_REMOVE_AFTER_MS, TURN_STALE_MS, participantRequestEnded, participantRequestStarted, PREFILL_COMMAND, PREFILL_SETTING
+  CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, isChatRoute, nextChatPrefill, removeOldCopilotTurns, TURN_REMOVE_AFTER_MS, TURN_STALE_MS, participantRequestEnded, participantRequestStarted, PREFILL_COMMAND, PREFILL_SETTING,
+  taskChatContinuation
 } = await import(pathToFileURL(path.join(packageRoot, 'apps', 'vscode', 'src', 'chat-prefill.ts')).href);
 
 const phase = (id, label, status, generation) => ({ id, label, status, generation, artifacts: [], approvals: [] });
@@ -105,6 +106,52 @@ test('nothing is filled for a terminal-only step, someone else\'s step, or no St
   const ended = generation();
   ended.workflow.currentPhase = null;
   assert.equal(nextChatPrefill(ended), null, 'a Story with no current step');
+});
+
+test('ITW REQ-008: a task\'s Story says /sf-task in the status bar and the chat box, in the same chat; a decision keeps its card', () => {
+  // A real VS Code run showed "TASK-1 · intake" beside "Next: /sf-phase" for a task Story.
+  const task = (snapshot) => {
+    Object.assign(snapshot.workflow.workItem, { id: 'TASK-1', workType: 'task-fix' });
+    snapshot.workflow.resolution = { composition: { kind: 'fix', steps: [{ id: 'code', intent: 'code' }] } };
+    return snapshot;
+  };
+  const writing = nextChatPrefill(task(generation()));
+  assert.deepEqual([writing.command, writing.head, writing.freshChat], ['/sf-task', '/sf-task', false]);
+  assert.match(writing.label, /Generate and publish/, 'the label still says what comes next');
+  const submission = nextChatPrefill(task(submit()));
+  assert.deepEqual([submission.command, submission.freshChat], ['/sf-task', false], 'never a new chat for a task');
+  const approval = nextChatPrefill(task(awaiting({
+    next: { effect: 'approves', available: true, where: { copilot: '/sf-approve code --work-id TASK-1' } }, waitingFor: null
+  })));
+  assert.deepEqual([approval.command, approval.head, approval.label], ['/sf-task', '/sf-task', 'Review and approve Code']);
+  assert.notEqual(approval.stateKey, writing.stateKey, 'each step state still fills once');
+  const held = task(submit());
+  held.submissionReadiness.sheet = { holds: [{ key: 'hold:1', title: 'Acknowledge the amendment' }], waitingFor: null, owedLater: [],
+    next: { id: 'choose', label: 'Acknowledge the amendment', effect: 'reads', available: true,
+      command: 'singularity-flow decisions TASK-1', where: { copilot: '/sf-decide TASK-1', terminal: true, vscode: 'singularityFlow.decisions' } } };
+  assert.equal(nextChatPrefill(held).command, '/sf-decide TASK-1', 'a decision is decided on its card, which /sf-decide opens');
+  // A classic Story is unchanged.
+  assert.equal(nextChatPrefill(generation()).command, '/sf-code');
+});
+
+test('ITW REQ-008: a person\'s approval on any page sends /sf-task into the same chat, once the step reads approved', async () => {
+  // A live run: the person approved on the approval page the chat opened, and VS Code started a new chat with /sf-phase.
+  const record = (status, workType = 'task-fix') => ({ workItem: { id: 'TASK-1', workType }, currentPhase: 'code',
+    phases: { code: { status } }, resolution: workType.startsWith('task-') ? { composition: { kind: 'fix', steps: [] } } : {} });
+  assert.equal(taskChatContinuation(record('approved'), 'TASK-1', 'code'), '/sf-task');
+  assert.equal(taskChatContinuation(record('awaiting_approval'), 'TASK-1', 'code'), null, 'not before the step reads approved');
+  assert.equal(taskChatContinuation(record('approved'), 'TASK-2', 'code'), null, 'another Story\'s approval');
+  assert.equal(taskChatContinuation(record('approved', 'quick-fix'), 'TASK-1', 'code'), null, 'a classic Story goes on as before');
+  assert.equal(taskChatContinuation(null, 'TASK-1', 'code'), null);
+  // Every page approval goes through runNode's approve branch, which continues the task's chat there, in the chat the person
+  // used last (no new chat), and nowhere else.
+  const extension = await readFile(path.join(packageRoot, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
+  const approve = extension.slice(extension.indexOf('const runNode = async'), extension.indexOf('if (!node?.command) return;', extension.indexOf('const runNode = async')));
+  assert.match(approve, /approveWithReceipt\(client, node\.approve, output\)[^]*refreshAfterKnownMutation\(\)[^]*continueTaskInChat\(node\.approve\.workId, node\.approve\.phaseId\)/u);
+  const continuation = extension.slice(extension.indexOf('const continueTaskInChat = async'), extension.indexOf('const openGovernedCopilot = async'));
+  assert.match(continuation, /taskChatContinuation\(/u);
+  assert.doesNotMatch(continuation, /newChat/u, 'the same chat, never a new one');
+  assert.match(continuation, /isPartialQuery: false/u, 'sent as the person would type it');
 });
 
 test('only a /sf- skill or an @sflow command with plain arguments is a chat route', () => {

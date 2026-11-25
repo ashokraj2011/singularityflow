@@ -25,7 +25,7 @@ import { parseYamlText } from './yaml-parse-cache.mjs';
 import { scopedCatalogRead } from './catalog-read-scope.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { SingularityFlowError, secureRepositoryPath } from './util.mjs';
-import { instructionReferences, resolveSkillInstructions, guidanceTags } from './instruction-library.mjs';
+import { instructionReferences, guidanceTags } from './instruction-library.mjs';
 import { inlineInstructionTags, instructionSlots, skillInstructionIds } from './skill-instruction-composition.mjs';
 
 export const SKILL_LIBRARY_ROOT = 'singularity/skill-library';
@@ -248,9 +248,12 @@ export function effectiveLibrarySkills(agent) {
 }
 
 /**
- * Every skill an agent attaches is in the skill master and readable, every agent the attachments
- * file names is here, and no skill attached to an agent shares the ID of one of its remote
- * resources (a Story keeps both under that ID). Checked when configuration loads.
+ * Every agent the attachments file names is here, every workflow and step it names exists, and no
+ * skill attached to an agent shares the ID of one of its remote resources (a Story keeps both under
+ * that ID). Checked when configuration loads, from the attachments file alone: no skill is read.
+ * Whether an attached skill is in the skill master is checked where that skill is used, when
+ * configuration changes, and by doctor (skill-library-problems.mjs), so one missing skill never stops
+ * a command, Story or step that does not use it.
  */
 export async function assertAttachedLibrarySkills(configRoot, agents, definition = {}) {
   const known = new Map(agents.map((agent) => [agent.id, agent]));
@@ -272,35 +275,6 @@ export async function assertAttachedLibrarySkills(configRoot, agents, definition
     if (remote) {
       fail(`${SKILL_ATTACHMENTS_PATH} attaches skill '${attachment.id}' to agent '${attachment.agent}', which already has a remote ${remote.type} with that ID.`,
         'SKILL_ATTACHMENT_CONFLICT', { agentId: attachment.agent, skillId: attachment.id });
-    }
-  }
-  const problems = new Map();
-  for (const attachment of attachments.filter((entry) => entry.workflow)) {
-    const skill = await readLibrarySkill(configRoot, attachment.id);
-    if (!skill) fail(`Workflow '${attachment.workflow}' attaches missing skill '${attachment.id}'.`, 'SKILL_LIBRARY_MISSING');
-    await resolveSkillInstructions(configRoot, skill);
-  }
-  for (const agent of agents) {
-    for (const attachment of effectiveLibrarySkills(agent)) {
-      // New packaged agents are dormant on repositories predating their optional phases.
-      // Do not require their uninstalled library until a supported phase exists. Repository
-      // agents and explicit attachments.yml declarations remain strict, even if dormant.
-      if (['plugin', 'bundled'].includes(agent.scope) && attachment.phases.length
-          && attachment.phases.every((id) => !definition.phases?.[id])
-          && !(agent.attachedSkills ?? []).some((entry) => entry.id === attachment.id)) continue;
-      if (!problems.has(attachment.id)) {
-        problems.set(attachment.id, await readLibrarySkill(configRoot, attachment.id)
-          .then(async skill => {
-            if (!skill) return `it is not in the skill master (${librarySkillPath(attachment.id)})`;
-            await resolveSkillInstructions(configRoot, skill);
-            return null;
-          }).catch(error => error.message));
-      }
-      const problem = problems.get(attachment.id);
-      if (problem) {
-        fail(`Agent '${agent.id}' attaches skill '${attachment.id}', but ${problem}.`, 'SKILL_LIBRARY_MISSING',
-          { agentId: agent.id, skillId: attachment.id });
-      }
     }
   }
 }

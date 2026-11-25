@@ -14,6 +14,7 @@
 import { generationSkillForPhase } from '../code-delivery-policy.mjs';
 import { directCopilotSkill } from '../copilot-guidance.mjs';
 import { pendingBoundary, workflowNextSteps } from '../nextsteps.mjs';
+import { withTaskRoutes } from '../safe-command-guidance.mjs';
 import { action, distinctNext, plannedAction } from './command-result.mjs';
 
 /** The skill that drafts a Story step, when the result knows the Story; null otherwise. */
@@ -94,7 +95,8 @@ const PLANNER_RANKS = Object.freeze({
  * produced a list of steps all captioned "Continue", which is worse than no caption at all.
  */
 function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode, stepActionHold = null } = {}) {
-  return workflowNextSteps(workflow, { publicationPending, modelMode, stepActionHold })
+  // A task's Story names /sf-task for each turn it takes, in the same chat [ITW:REQ-008]: kept where the action is rebuilt.
+  return withTaskRoutes(workflow, workflowNextSteps(workflow, { publicationPending, modelMode, stepActionHold })
     // The planner's skill is the step's own route; it is kept whenever the pair is safe to show.
     .map((step, index) => plannedAction({
       id: step.command ? step.command.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 64) : `step-${index}`,
@@ -104,7 +106,7 @@ function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode, 
       rank: PLANNER_RANKS[step.timing ?? step.rank] ?? (index === 0 ? 'NOW' : 'SOON'),
       kind: 'workflow',
       modelPolicy: step.modelPolicy ?? 'never'
-    }, step.skill));
+    }, step.skill)));
 }
 
 /**

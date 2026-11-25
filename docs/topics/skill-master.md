@@ -17,7 +17,7 @@ related:
   - agents-and-routing
   - importing-assets
   - workflow-authoring
-version: 12
+version: 13
 ---
 The skill master is the repository's collection of named skills. Attach a skill to a **workflow** to apply it only within that workflow, or to an **agent** to apply it wherever that agent is selected. Each attachment can restrict its steps and say when to use it. Both scopes eagerly inject exact instructions by default; explicitly optional procedures can instead use a retained catalog.
 
@@ -203,12 +203,16 @@ The summary counts the skills, names skills that look alike (two skills for the 
   - A Story still works when the skill master no longer has the skill.
   - The agent context audit records each skill a prompt used, by hash, with a copy of its text.
 - **Broken attachments are refused.** A broken attachment never reaches a prompt. Configuration refuses:
-  - a skill the skill master does not have (`SKILL_LIBRARY_MISSING`);
   - a step that does not exist (`AGENT_PHASE_UNKNOWN`);
   - an attachments-file entry naming an agent that is not there (`SKILL_ATTACHMENT_AGENT_UNKNOWN`);
   - an attachment naming an unknown workflow or a step outside it (`SKILL_ATTACHMENT_WORKFLOW_UNKNOWN`, `SKILL_ATTACHMENT_PHASE_UNKNOWN`);
   - a skill with the same ID as one of the agent's remote resources (`SKILL_ATTACHMENT_CONFLICT`);
   - an attachments file that is not a valid list (`SKILL_ATTACHMENTS_INVALID`).
+- **A missing skill stops only what uses it.** Loading configuration reads no skill. So a skill the skill master lacks, or cannot read, never stops a command, Story or step that does not use it. It is refused (`SKILL_LIBRARY_MISSING`), with its way out, in four places:
+  - when a Story of a workflow that keeps it starts;
+  - when a step whose prompt uses it is prepared;
+  - when a configuration change, approval or refresh would leave an agent or workflow using it;
+  - in `singularity-flow doctor` and `singularity-flow workflow validate`, which list each one with its fix.
 - **Removal detaches.** Removing a skill detaches it from every workflow and agent in the same change, in both places. An agent with no skills left loses its `## Attached skills` section, and an empty attachments file is removed.
 - **Export and import.** Both scopes travel with their owners. Agent attachments are materialized into the exported agent's own table without changing the source agent. Workflow attachments are retained separately in bundle v7. Import and duplication rename workflow, phase and skill references together. A linked copy shares skill definitions but has separate workflow attachments; an independent copy renames its editable dependencies. Different same-name skill text requires keep, replace or rename. See `sflow explain workflow-authoring`.
 - **Transfer preview.** The import and independent-duplicate screen lists each skill's scope, owning workflow or agent, applicable phases, destination ID and use condition. A skill used at both scopes has two attachment rows; renaming one owner never promotes its skill to the other scope.
@@ -217,7 +221,10 @@ The summary counts the skills, names skills that look alike (two skills for the 
 
 ## Troubleshooting
 
-- **"attaches skill … but it is not in the skill master"**: create or import the skill, or detach it with `singularity-flow skill detach <ID> --agent <AGENT>`.
+- **"attaches skill … but it is not in the skill master"**: the refusal names the command that fixes it.
+  - A skill SFlow ships comes back as it shipped. Run `singularity-flow workspace refresh-configuration` when the repository has an approved configuration (`sflow/config`). Otherwise run `singularity-flow init --repair` and commit the restored file. Your own changes are kept.
+  - Any other skill: write it again with `skill create`, or detach it with `skill detach`. Add `--propose` when changes go through `sflow/config`.
+  - Stories and steps of other workflows go on meanwhile.
 - **"attaches skill … to agent …, which is not an agent here"**: an agent named in `singularity/skill-library/attachments.yml` was removed or renamed. Detach the skill from it, or fix the agent ID in that file.
 - **"Seeded … is read-only"** when you change a skill: that skill comes in a seeded agent's own file. Duplicate the workflow to change it, or write your own skill and add it to the step.
 - **"names skill … but sits in the folder of …"**: the `name` in `SKILL.md` must match its folder.

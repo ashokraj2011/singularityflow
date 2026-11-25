@@ -13,7 +13,7 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 6,
-  "generic-route": 6204,
+  "generic-route": 6210,
   "jargon": 1348,
   "length": 647
  },
@@ -1235,7 +1235,6 @@
   "SKILL_ATTACHMENT_CONFLICT",
   "SKILL_ATTACHMENT_PHASE_UNKNOWN",
   "SKILL_ATTACHMENT_WORKFLOW_UNKNOWN",
-  "SKILL_LIBRARY_MISSING",
   "SKP_ACTION_UNKNOWN",
   "SKP_AGENT_UNAVAILABLE",
   "SKP_AMENDMENT_CONFIRM_UNEXPECTED",

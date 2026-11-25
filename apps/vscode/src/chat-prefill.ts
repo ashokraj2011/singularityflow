@@ -30,6 +30,7 @@ import { readdir, readFile, realpath, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { routedCommandGuidance } from './copilot-command.ts';
+import { isTaskStory, TASK_ROUTE, withTaskRoute } from '../../../src/safe-command-guidance.mjs';
 import { buildJourney } from './views/journey-model.ts';
 import { startsFreshChat } from './views/submission-presentation.ts';
 
@@ -98,6 +99,7 @@ export function nextChatPrefill(snapshot: RepositorySnapshot | null | undefined)
   // person's terminal or the Decide card takes it.
   if (next?.execution === 'decide-list' && sheet?.next && !isChatRoute(sheet.next.where?.copilot)) return null;
   let command: string | null = isChatRoute(next?.copilotCommand) ? next.copilotCommand : null;
+  let skill: string | null = next?.skill ?? null;
   let label = next?.label ?? next?.reason ?? '';
   let reason = next?.reason ?? '';
   // The sheet says whether this approval is the person's and whether a chat takes it (a signature
@@ -107,15 +109,29 @@ export function nextChatPrefill(snapshot: RepositorySnapshot | null | undefined)
     const approve = routedCommandGuidance({ command: readiness?.nextCommand, skill: '/sf-approve' });
     if (approve && isChatRoute(approve.copilotCommand)) {
       command = approve.copilotCommand;
+      skill = approve.skill;
       label = `Review and approve ${phase.label}`;
       reason = `${phase.label} waits for your approval.`;
     }
   }
   if (!command) return null;
+  // A task's Story goes on with /sf-task in the same chat, whatever turn comes next [ITW:REQ-008] (withTaskRoute).
+  command = withTaskRoute(workflow, { skill, copilotCommand: command }).copilotCommand ?? command;
   const stateKey = JSON.stringify([workId, phaseId, phase.status, phase.generation,
     workflow.pendingDecision?.key ?? null, command]);
   const head = command.split(' ').slice(0, command.startsWith('@sflow ') ? 2 : 1).join(' ');
   return { command, head, label, reason, workId, stateKey, freshChat: startsFreshChat(command) };
+}
+
+/**
+ * What the chat is sent once a person approved a step of a task's Story on a page (the approval page the chat's own approve
+ * flow opened, the Approvals list, the Journey, the tree) [ITW:REQ-008]: `/sf-task`, in the chat the person used last, never
+ * a new one, and only once that step reads approved. Null for any other Story, which goes on as before.
+ */
+export function taskChatContinuation(workflow: unknown, workId: string, phaseId: string): string | null {
+  const story = workflow as { workItem?: { id?: unknown }; phases?: Record<string, { status?: unknown } | undefined> } | null | undefined;
+  if (!story || !workId || story.workItem?.id !== workId || !isTaskStory(story)) return null;
+  return story.phases?.[phaseId]?.status === 'approved' ? TASK_ROUTE : null;
 }
 
 // --- Copilot turns in flight ---------------------------------------------------------------------

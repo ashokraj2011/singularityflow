@@ -156,12 +156,17 @@ export function stop(result, label, code = 'CLI_STEP_FAILED') {
 // Review, submission and approval read their own packets, so the authoring chat only makes each of
 // their calls dearer: 40% of a recorded Story's cost, 17% less replayed from a fresh chat (2026-11-05).
 const FRESH_CHAT_ROUTE = /^\/sf(?:low)?-(?:review-source|submit|approve)(?:\s|$)/u;
+// A task's Story goes on with /sf-task in the same chat (safe-command-guidance.mjs withTaskRoute) [ITW:REQ-008].
+const TASK_CHAT_ROUTE = /^\/sf-task$/u;
 
 export function nextAfterStep(review, done) {
   const continuation = review?.continuation ?? null;
   const action = continuation?.nextAction ?? null;
+  const route = continuation?.copilotCommand ?? '';
+  const chat = TASK_CHAT_ROUTE.test(route) ? ' Say the person types /sf-task in this chat to carry the task on.'
+    : FRESH_CHAT_ROUTE.test(route) ? ' Say to run it in a new chat: it needs nothing from this one.' : '';
   return {
-    instruction: `${done} End the reply with this next action: its reason, then its Copilot, Shell and VS Code (model-free) routes in that order, saying "not available for this action" for a missing one.${FRESH_CHAT_ROUTE.test(continuation?.copilotCommand ?? '') ? ' Say to run it in a new chat: it needs nothing from this one.' : ''} Fields after this one describe the check before the step ran.`,
+    instruction: `${done} End the reply with this next action: its reason, then its Copilot, Shell and VS Code (model-free) routes in that order, saying "not available for this action" for a missing one.${chat} Fields after this one describe the check before the step ran.`,
     ...(continuation?.contextBoundary ? { contextBoundary: continuation.contextBoundary } : {}),
     reason: action?.reason ?? null,
     commandGuidance: action ? { copilotCommand: continuation.copilotCommand ?? null,

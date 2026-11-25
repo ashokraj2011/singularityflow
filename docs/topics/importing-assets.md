@@ -5,6 +5,7 @@ aliases:
   - imports
   - import-from-link
   - marketplaces
+  - sf-marketplace
 commands:
   - import
   - imports
@@ -14,7 +15,7 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 19
+version: 20
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
@@ -25,7 +26,7 @@ Use this topic to take a skill, template, or agent someone has published at a pu
 ## Use it from each surface
 
 - **Shell:** `sflow import preview <LINK> --as skill|template|agent`, then `sflow import add <LINK> … --sha256 <HASH>`; `sflow imports`, `sflow imports check`, `sflow imports remove <IMPORT>`; `sflow marketplace catalog`, `sflow marketplace browse <ID>` and `sflow import preview market:<ID>/<ENTRY>`.
-- **Copilot:** `/sf-import`. It previews, shows the full content and hash, asks what the import is for, and adds only the reviewed bytes.
+- **Copilot:** `/sf-import`. It previews, shows the full content and hash, asks what the import is for, and adds only the reviewed bytes. `/sf-marketplace` shows every marketplace item and what is installed here in a short table (say a kind, some words, or "newer versions"); for an install, update, removal or newer commit it shows the item's preview command and asks you before it proposes anything.
 - **VS Code:** **Workflow Studio** offers the same imports; each one becomes a change in the Studio's review before it is published. **Singularity Flow: Marketplace** shows every marketplace item and what is installed here, like an app store; its Install, Update and Remove open the same Studio reviews.
 
 ## Guided workflow

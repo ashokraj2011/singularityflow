@@ -149,7 +149,9 @@ const entries = {
   agents: ['sf-agents'],
   import: ['sf-import'],
   imports: ['sf-import'],
-  marketplace: ['sf-import'],
+  // `marketplace catalog` is the page of every item and what is installed here (/sf-marketplace); trusting one and
+  // its other actions stay /sf-import's.
+  marketplace: ['sf-import', 'sf-marketplace'],
   // APM packages are imported by the APM CLI; /sf-import reads what it deployed [APM A1] and reviews
   // apm attach, a configuration change.
   apm: ['sf-apm', 'sf-import'],
@@ -340,6 +342,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   // the person's own steps (OWN_TERMINAL_STEPS).
   // attach is a configuration change reviewed like an import, so its turn is the import skill's.
   apm: route('sf-apm', { install: null, update: null, publish: null, marketplace: null, policy: null, attach: 'sf-import' }),
+  marketplace: route('sf-import', { catalog: 'sf-marketplace' }),
   capabilities: route('sf-capabilities', {
     doctor: 'sf-capability-doctor'
   }),

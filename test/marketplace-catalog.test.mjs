@@ -457,3 +457,26 @@ test('marketplace catalog reads what the approved configuration trusts once per 
     [...after.values()].filter((item) => item.marketplace === 'acme').map((item) => [item.key, item.status]), 'read again from what was kept');
   assert.equal(story.git('status', '--porcelain'), '', 'reading the page writes nothing in the checkout');
 });
+
+test('/sf-marketplace reads the catalog, shows the statuses, and proposes a change only on the person\'s own Yes', async () => {
+  const text = readFileSync(path.join(ROOT, 'plugin/skills/sflow-marketplace/SKILL.md'), 'utf8');
+  assert.match(text, /^name: sflow-marketplace$/mu);
+  assert.match(text, /Run `singularity-flow marketplace catalog --json` once\./u);
+  for (const flag of ['--kind', '--search', '--newest']) assert.ok(text.includes(`\`${flag}`), flag);
+  const ask = text.indexOf('Then `ask_user` "Propose this change for review?" with Yes and No.');
+  const run = text.indexOf('Only on the person\'s own Yes, run that action\'s `command` exactly, with `--json`');
+  assert.ok(ask > 0 && run > ask, 'it asks before it runs anything that proposes a change');
+  assert.match(text, /Never show its `--sha256` value\./u);
+  assert.match(text, /vscode_askQuestions/u, 'the host question tool is named, so no model reads ask_user as unavailable');
+  const { skillForCommandLine } = await import('../src/command-skills.mjs');
+  assert.equal(skillForCommandLine('singularity-flow marketplace catalog --newest --json'), 'sf-marketplace');
+  assert.equal(skillForCommandLine('singularity-flow marketplace add acme --repo "https://git.example.com/acme.git" --propose'), 'sf-import');
+  // What it may run on a Yes is a catalog action, each one a reviewed proposal.
+  const input = sample();
+  Object.assign(input.marketplaces[0], { repository: 'https://git.example.com/acme.git', newest: { items: [] } });
+  for (const item of analyzeMarketplaceCatalog({ ...input, newest: true }).items) {
+    for (const [name, step] of Object.entries(item.actions)) {
+      if (['install', 'update', 'remove', 'trust'].includes(name)) assert.match(step.command, /--propose$/u, `${item.key} ${name}`);
+    }
+  }
+});

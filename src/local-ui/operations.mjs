@@ -96,24 +96,27 @@ function redactedValue(value, redact, depth = 0) {
 }
 
 /**
- * No shell, repository executable, model invocation, or caller-provided argv. The explicit context comes
+ * No shell, repository executable, or caller-provided argv. Only the person's explicit Ask actions allow models. The explicit context comes
  * first and every browser value is one `--name=value` word, so no value can end the options (`--`) or
  * name another root. Diagnostics, original errors and progress are redacted before anyone keeps them.
  */
-export async function runCanonical(root, args, { signal, timeoutMs = 300_000, onProgress = () => {}, environment = process.env, machine = false, personAskExplanation = false } = {}) {
+export async function runCanonical(root, args, { signal, timeoutMs = 300_000, onProgress = () => {}, environment = process.env, machine = false, personAskModel = false, stdin = null } = {}) {
   const started = performance.now();
   const redact = await redactor();
   const argv = [...(machine ? [] : [`--context-root=${root}`]), ...args];
   return new Promise((resolve, reject) => {
     let bytes = 0, stdout = '', stderr = '', deadline = false, tooLarge = false, settled = false;
-    const askExplanation = personAskExplanation && args[0] === 'ask' && args.includes('--explain') && args.includes('--for-person');
-    const env = { ...environment, ELECTRON_RUN_AS_NODE: '1', ...(askExplanation ? {} : { SINGULARITY_FLOW_NO_MODEL: '1' }) };
+    const askModel = personAskModel && args[0] === 'ask' && args.includes('--for-person') &&
+      (args.includes('--explain') || args[1] === 'chat' && args.includes('--query-stdin') && typeof stdin === 'string');
+    const env = { ...environment, ELECTRON_RUN_AS_NODE: '1', ...(askModel ? {} : { SINGULARITY_FLOW_NO_MODEL: '1' }) };
     if (machine) delete env.SINGULARITY_FLOW_SURFACE_CONTEXT;
     else env.SINGULARITY_FLOW_SURFACE_CONTEXT = JSON.stringify({ schemaVersion: 1, repositoryPath: root }); // schema-transient: canonical process selector
-    const child = spawn(process.execPath, [cliPath, ...argv, '--json', ...(askExplanation ? [] : ['--no-model'])], {
-      cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+    const child = spawn(process.execPath, [cliPath, ...argv, '--json', ...(askModel ? [] : ['--no-model'])], {
+      cwd: root, windowsHide: true, stdio: [stdin == null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       env
     });
+    child.stdin?.on('error', () => { /* An early refusal is delivered on the child's result channel. */ });
+    child.stdin?.end(stdin);
     const finish = (error, value) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); error ? reject(error) : resolve(value); };
     const abort = () => { child.kill(); };
     const timer = setTimeout(() => { deadline = true; child.kill(); }, timeoutMs);

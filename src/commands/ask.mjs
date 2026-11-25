@@ -7,7 +7,7 @@ import { askHistoryDisplay } from '../ask/history-display.mjs';
 
 const SESSION_FLAGS = ['remember', 'resume', 'conversation', 'revision', 'select', 'evidence', 'forget', 'explain', 'portable'];
 const VALUE_FLAGS = ['manifest-sha256', 'state-commit', 'work-id', 'question', 'cursor', 'conversation', 'revision', 'select', 'evidence'];
-const OPTIONS = new Set(['json', 'for-agent', 'for-person', 'model', 'suggest', 'open-spec', 'timings', ...VALUE_FLAGS, ...SESSION_FLAGS]);
+const OPTIONS = new Set(['json', 'for-agent', 'for-person', 'model', 'suggest', 'open-spec', 'timings', 'all', ...VALUE_FLAGS, ...SESSION_FLAGS]);
 const invalid = (message, code = 'ASK_REQUEST_INVALID') => { throw new SingularityFlowError(message, { code }); };
 
 export function validateAskCliRequest(positionals, options) {
@@ -18,6 +18,23 @@ export function validateAskCliRequest(positionals, options) {
     }
     return { providerConfiguration: options.config, repository: false };
   }
+  if (positionals[1] === 'file' && options.ref !== undefined) {
+    const { ref, path: file } = options;
+    if (positionals.length !== 2 || options['for-person'] !== true || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(ref ?? '') ||
+        typeof file !== 'string' || file.length > 1000 || /[\x00-\x1f\x7f\\]/u.test(file) ||
+        file.split('/').some(part => ['', '.', '..'].includes(part)) ||
+        Object.keys(options).some(flag => !['ref', 'path', 'for-person', 'json', 'model', 'timings'].includes(flag))) {
+      invalid('Open the file returned by a workspace search.');
+    }
+    return { file, ref, repository: true };
+  }
+  if (positionals[1] === 'chat' && options['query-stdin'] !== undefined) {
+    if (positionals.length !== 2 || options['query-stdin'] !== true || options['for-person'] !== true ||
+        Object.keys(options).some(flag => !['query-stdin', 'for-person', 'json', 'model', 'timings'].includes(flag))) {
+      invalid('Open Chat in your browser workspace.', 'ASK_AUDIENCE_DENIED');
+    }
+    return { chat: true, repository: true };
+  }
   for (const [flag, value] of Object.entries(options)) {
     if (!OPTIONS.has(flag) || Array.isArray(value)) invalid('Use one value for each supported Ask SFlow option. See singularity-flow ask --help.');
     const boolean = !VALUE_FLAGS.includes(flag);
@@ -26,6 +43,10 @@ export function validateAskCliRequest(positionals, options) {
   if (options['for-agent'] !== undefined && options['for-person'] !== undefined) {
     invalid('Use the specification’s model-safe view in chat, or open it in your own viewer.', 'ASK_AUDIENCE_DENIED');
   }
+  if (options.all !== undefined && (options.all !== true || options['for-person'] !== true)) {
+    invalid('Use workspace search from your own Ask SFlow view.', 'ASK_AUDIENCE_DENIED');
+  }
+  const workspaceSearch = options.all === true;
   const question = options.question;
   if (question !== undefined && (typeof question !== 'string' || positionals.length > 1)) invalid('Provide one question.');
   const query = (question ?? positionals.slice(1).join(' ')).trim();
@@ -62,7 +83,7 @@ export function validateAskCliRequest(positionals, options) {
       invalid('Enter a question of up to 2,000 characters and a valid work ID when needed.');
     }
     const request = { query: query || sessionAction, sessionAction, conversationId, contextRevision, target, workId };
-    return { query: request.query, portable, session: Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined)), repository: true };
+    return { query: request.query, portable, workspaceSearch, session: Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined)), repository: true };
   }
   if (cursor !== undefined) {
     if (typeof cursor !== 'string' || cursor.length > 3700 || query || open || suggest ||
@@ -92,10 +113,15 @@ export function validateAskCliRequest(positionals, options) {
   }
   if (!suggest && workId !== undefined && !['work', 'story-spec', 'work-history'].includes(intent.kind)) invalid('--work-id applies to a work question.');
   if (workId !== undefined && intent.workId?.toLowerCase() !== workId.toLowerCase()) invalid('Name one work ID per Ask SFlow query.');
-  return { query: query || (workId ? 'current work' : ''), workId, suggest, open, intent, pin, repository: !suggest && askNeedsRepository(intent) };
+  return { query: query || (workId ? 'current work' : ''), workId, suggest, open, intent, pin, workspaceSearch, repository: !suggest && (workspaceSearch || askNeedsRepository(intent)) };
 }
 
 function renderText(data, audience) {
+  if (data.kind === 'search-file' && data.file) return data.file.text;
+  if (data.kind === 'chat') return data.answer ?? data.diagnostic?.message ?? ASK_HINT;
+  if (data.kind === 'workspace-search') {
+    return data.results.map(result => result.title + ' · ' + (result.subtitle ?? result.type)).join('\n') || 'No matching results.';
+  }
   if (data.kind === 'forgotten') return 'Saved Ask conversation removed.';
   const lines = [];
   if (data.effectiveScope?.repositoryId) lines.push('Repository: ' + data.effectiveScope.repositoryId);
@@ -188,13 +214,19 @@ export async function run(_argv, { positionals, options }) {
   const root = operationContext()?.root ?? null;
   const audience = options['for-person'] === true ? 'person' : 'model';
   let value;
-  if (request.suggest || !request.query) {
+  if (request.chat) {
+    const { readChatInput, answerChat } = await import('../ask/chat.mjs');
+    value = await answerChat(root, await readChatInput());
+  } else if (request.file) {
+    const { openWorkspaceSearchFile } = await import('../ask/workspace-search.mjs');
+    value = await openWorkspaceSearchFile(root, request.ref, request.file);
+  } else if (request.suggest || !request.query) {
     const items = askSuggestions(request.query).map(({ id, label, detail, topic }) => ({ id, label, detail, topic }));
     value = { kind: 'suggestions', status: items.length ? 'resolved' : 'empty', items };
   } else if (request.session) {
     const { askConversation } = await import('../ask/conversation.mjs');
     const { validateArguments } = await import('../gateway/argument-schemas.mjs');
-    value = await askConversation({ root, audience, portable: request.portable, allowModel: request.session.sessionAction === 'explain',
+    value = await askConversation({ root, audience, portable: request.portable, workspaceSearch: request.workspaceSearch, allowModel: request.session.sessionAction === 'explain',
       arguments: validateArguments('ask-query-v1', request.session) });
   } else if (request.open) {
     if (!root) invalid('Open the checkout containing this published specification.', 'ASK_REPOSITORY_REQUIRED');
@@ -207,6 +239,10 @@ export async function run(_argv, { positionals, options }) {
     value = await readAsk({ root, audience, arguments: {
       query: request.query, ...(request.workId ? { workId: request.workId } : {}), ...(request.cursor ? { cursor: request.cursor } : {})
     } });
+    if (request.workspaceSearch) {
+      const { workspaceSearchFallback } = await import('../ask/workspace-search.mjs');
+      value = await workspaceSearchFallback(root, request.query, value) ?? value;
+    }
   }
   if (optionBoolean(options, 'json')) console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-ask', ...value })); // schema-transient: ASK response
   else console.log(renderText(value, audience));

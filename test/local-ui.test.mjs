@@ -1025,3 +1025,132 @@ test('Ask SFlow resumes private context in a new browser tab and opens the saved
   await evidence.getByRole('heading', { name: 'Explanation from recorded evidence' }).waitFor();
   await assert.rejects(access(path.join(root, '.git/singularity-flow/model-invocations')));
 });
+
+test('browser search finds workspace records and pinned files, and Copilot chat uses explicit context and keeps follow-ups', { timeout: 65_000 }, async t => {
+  const { base, root, directory, env, mustGit, cleanup } = await fixture(t);
+  const [{ initializeDefinition }, { revisionFiles }, { revisionDirectory }, { chromium }, { default: YAML }] = await Promise.all([
+    import('../src/config.mjs'), import('../src/spec-library/library.mjs'), import('../src/spec-library/ids.mjs'), import('playwright-core'), import('yaml')
+  ]);
+  await initializeDefinition(root);
+  const standin = path.join(base, 'chat-standin.mjs');
+  const calls = path.join(base, 'chat-calls.jsonl');
+  const secret = inventedValue('gh', 'p_', 'M2sV'.repeat(10));
+  await writeFile(standin, [
+    'import { readFileSync, appendFileSync } from "node:fs";',
+    'const args = process.argv.slice(2);',
+    'const prompt = readFileSync(args[args.indexOf("--attachment") + 1], "utf8");',
+    'const input = JSON.parse(prompt.split("\\n").at(-1));',
+    'appendFileSync(' + JSON.stringify(calls) + ', JSON.stringify({ ...input, toolsDisabled: !args.includes("--allow-all-tools"), argvContainsQuestion: args.includes(input.question) }) + "\\n");',
+    'const spec = input.records.find(item => item.type === "spec");',
+    'const answer = spec ? "Read the Harbor invoice spec [" + spec.citation + "]. [S999]"',
+    '  : input.previous.length ? "This follows the earlier question about tidal power." : "Tidal power uses moving water. <img src=x onerror=alert(1)>";',
+    'process.stdout.write(answer);'
+  ].join('\n'));
+  const workflow = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflow, 'utf8'));
+  definition.models = { defaultProvider: 'chat-test', providers: { 'chat-test': {
+    type: 'copilot-cli', executable: process.execPath, arguments: [standin], promptTransport: 'attachment'
+  } } };
+  await writeFile(workflow, YAML.stringify(definition));
+  const code = path.join(root, 'harbor-invoice.mjs');
+  await writeFile(code, 'export const harborInvoice = true;\n// Harbor invoice marker\n// api_key = "' + secret + '"\n');
+  const storyDir = path.join(root, 'singularity/work-items/HARBOR-17');
+  await mkdir(storyDir, { recursive: true });
+  await writeFile(path.join(storyDir, 'workflow.json'), JSON.stringify({ schemaVersion: 1, status: 'in-progress',
+    workItem: { id: 'HARBOR-17', title: 'Harbor invoice retries', branch: 'main', description: 'LOCAL_DRAFT_CANARY' },
+    currentPhase: 'intake', phaseOrder: ['intake'], phases: { intake: { id: 'intake', status: 'in-progress', generation: 0 } }
+  }));
+  mustGit('add', '-A'); mustGit('commit', '-qm', 'Search fixtures');
+  const original = mustGit('rev-parse', 'HEAD');
+  const spec = 'SPEC-HARBOR-INVOICE';
+  const built = revisionFiles({ specId: spec, revision: 1, reviewState: 'reviewed', operationId: 'browser-search-fixture',
+    actor: { name: 'Fixture Reviewer', email: 'reviewer@example.test' }, recordedAt: '2026-11-06T00:00:00Z',
+    head: { sequence: 1, snapshotSha256: 'sha256:' + 'a'.repeat(64), draft: { title: 'Harbor invoice reconciliation',
+      kind: 'business', spec: '# Harbor invoice reconciliation\n\nKeep the receipt for each invoice.\n', gaps: [], research: [] } },
+    report: { counts: { d: 0, a: 0, h: 0 }, blocking: [] } });
+  mustGit('switch', '-qc', 'state', original);
+  const published = path.join(root, revisionDirectory(spec, 1));
+  await mkdir(published, { recursive: true });
+  for (const [name, bytes] of Object.entries(built.files)) await writeFile(path.join(published, name), bytes);
+  mustGit('add', '-A'); mustGit('commit', '-qm', 'Published invoice specification');
+  mustGit('switch', '-q', 'main');
+
+  const service = await startService({ directory });
+  cleanup(() => service.close());
+  const browser = await chromium.launch({ headless: true });
+  cleanup(() => browser.close());
+  const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID(), environment: env });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(launch.url);
+  await page.getByRole('button', { name: 'Search or ask SFlow' }).waitFor();
+  await page.keyboard.press('Control+k');
+  const search = page.getByRole('searchbox', { name: 'Ask a question' });
+  await search.waitFor();
+  await page.waitForFunction(() => document.activeElement?.id === 'ask-question');
+  await page.getByRole('button', { name: 'Publishing help' }).click();
+  await page.getByRole('region', { name: 'Answer', exact: true }).getByRole('heading', { name: /story lifecycle/i }).waitFor();
+  await search.fill('Harbor invoice');
+  await search.press('Enter');
+  const results = page.getByRole('region', { name: 'Workspace search results' });
+  await results.getByRole('button', { name: 'Harbor invoice retries' }).waitFor();
+  await results.getByRole('button', { name: 'Harbor invoice reconciliation' }).waitFor();
+  await results.getByRole('button', { name: /Files/ }).click();
+  assert.equal(await results.getByRole('button', { name: 'Harbor invoice retries' }).count(), 0);
+  const file = results.getByRole('button', { name: 'harbor-invoice.mjs' });
+  await file.waitFor();
+  await assert.rejects(access(calls));
+
+  await writeFile(code, 'export const harborInvoice = false; // newer changes\n');
+  mustGit('add', 'harbor-invoice.mjs'); mustGit('commit', '-qm', 'Change file after search');
+  await file.click();
+  const evidence = page.getByRole('region', { name: 'Evidence and explanation' });
+  await evidence.getByText('Commit', { exact: false }).first().waitFor();
+  const preview = await evidence.textContent();
+  assert.match(preview, /export const harborInvoice = true/u);
+  assert.ok(!preview.includes(secret) && !preview.includes('newer changes'));
+  await search.fill('RECEIPT FOR EACH INVOICE');
+  await search.press('Enter');
+  await results.getByRole('button', { name: 'Harbor invoice reconciliation' }).waitFor();
+  await results.getByText(/Keep the receipt for each invoice/).waitFor();
+
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  const question = page.getByRole('textbox', { name: 'Ask a question' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Explain a concept' }).click();
+  assert.equal(await question.inputValue(), 'Explain ');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 390);
+  await assert.rejects(access(calls));
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await question.fill('How does tidal power work?');
+  await page.getByRole('button', { name: 'Send' }).click();
+  const chat = page.getByRole('log', { name: 'Chat conversation' });
+  await chat.getByText('Tidal power uses moving water.', { exact: false }).waitFor();
+  assert.equal(await chat.locator('img').count(), 0);
+  await question.fill('Can you give me another example?');
+  await question.press('Enter');
+  await chat.getByText('This follows the earlier question about tidal power.').waitFor();
+  await page.getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByRole('button', { name: 'Search or ask SFlow' }).click();
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await chat.getByText('This follows the earlier question about tidal power.').waitFor();
+  await page.getByRole('checkbox', { name: 'Use workspace context' }).check();
+  await question.fill('Tell me about Harbor invoice ' + secret);
+  await question.press('Enter');
+  await chat.getByRole('button', { name: /Harbor invoice reconciliation/ }).waitFor();
+  assert.doesNotMatch(await chat.textContent(), /S999/u);
+  const requests = (await readFile(calls, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(requests.length, 3);
+  assert.deepEqual(requests[0].records, []);
+  assert.match(requests[1].previous[0].question, /tidal power/u);
+  assert.ok(requests[2].records.some(record => record.reference === spec + '@1'));
+  assert.ok(!JSON.stringify(requests).includes(secret) && !JSON.stringify(requests).includes('LOCAL_DRAFT_CANARY'));
+  assert.ok(requests.every(request => request.toolsDisabled && !request.argvContainsQuestion));
+
+  await page.getByRole('button', { name: 'New chat' }).click();
+  await chat.getByText('This follows the earlier question about tidal power.').waitFor({ state: 'detached' });
+  const noModel = await connect(service, root, { environment: { ...env, SINGULARITY_FLOW_NO_MODEL: '1' } });
+  const disabled = await noModel.api('/api/ask', { contextId: noModel.session.context.id, interaction: 'chat', query: 'An unrelated question', workspace: false });
+  assert.equal(disabled.status, 200);
+  assert.equal(disabled.value.diagnostic.code, 'MODEL_UNAVAILABLE');
+  assert.equal(mustGit('status', '--porcelain'), '');
+});

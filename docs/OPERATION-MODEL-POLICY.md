@@ -102,6 +102,7 @@ Every public operation is classified before its implementation module is importe
 | approve | mutation | never | — | — |
 | artifact | mutation | never | — | — |
 | ask | read | never | — | — |
+| ask.chat | read | optional | ask | copilot-cli |
 | ask.explain | read | optional | ask | copilot-cli |
 | assign | mutation | never | — | — |
 | authority | mutation | never | — | — |

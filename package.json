@@ -27,6 +27,8 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "apps/vscode/media/brand.svg",
+    "apps/vscode/media/icon.svg",
     "bin/",
     "bundle/",
     "src/",

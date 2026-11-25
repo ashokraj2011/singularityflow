@@ -1,6 +1,7 @@
 import { askHistoryDisplay } from './ask-history-display.js';
-import { ASK_HINT, askSuggestions } from './ask-navigation.js';
-import { escape, heading, icon, markdown, words } from './views.js';
+import { askSuggestions } from './ask-navigation.js';
+import { escape, icon, markdown, words } from './views.js';
+import { chatLogView, searchFileView, searchResultsView } from './ask-results.js';
 
 const routes = new Set(['home', 'specs', 'stories', 'workflows', 'agents', 'skills', 'instructions', 'code', 'run', 'decisions', 'about']);
 const chip = (text, key, value) => `<button type="button" class="button" data-${key}="${escape(value)}">${escape(text)}</button>`;
@@ -111,30 +112,76 @@ function answerView(value) {
 }
 
 export function mountAsk(root, { checkout, navigate, read }) {
-  root.innerHTML = heading('Ask SFlow', ASK_HINT + '.') + `<section class="card ask-search">
-    <form id="ask-form">
-      <label for="ask-question">Ask a question</label>
-      <div class="ask-input-row"><input id="ask-question" type="search" maxlength="2000" autocomplete="off"
-        placeholder="Where do I write a specification?" aria-controls="ask-suggestions"><button type="submit" class="primary">Ask</button></div>
-      ${checkout ? '<label><input id="ask-portable" type="checkbox"> Save across devices</label>' : ''}
-      ${checkout ? `<p class="muted ask-scope">Checkout · ${escape(checkout)}</p>` : ''}
-    </form>
-    <ul id="ask-suggestions" aria-label="Suggested destinations"></ul>
-  </section>
-  <div id="ask-conversation" class="ask-actions" aria-label="Conversation"></div>
-  <div id="ask-status" role="status" class="muted"></div>
-  <section id="ask-answer" aria-label="Answer"></section>
-  <section id="ask-evidence" aria-label="Evidence and explanation"></section>
-  <section id="ask-task" aria-label="Task handoff"></section>`;
-  const field = root.querySelector('#ask-question');
-  const portable = root.querySelector('#ask-portable');
-  const suggestions = root.querySelector('#ask-suggestions');
-  const answer = root.querySelector('#ask-answer');
-  const detail = root.querySelector('#ask-evidence');
-  const taskPanel = root.querySelector('#ask-task');
-  const actions = root.querySelector('#ask-conversation');
-  const status = root.querySelector('#ask-status');
+  root.innerHTML = `<div class="ask-page" data-mode="search">
+    <header class="ask-hero">
+      <div class="segmented ask-modes" role="group" aria-label="Search or chat">
+        <button type="button" data-ask-mode="search" aria-pressed="true">${icon('search')} Search</button>
+        <button type="button" data-ask-mode="chat" aria-pressed="false">${icon('chat')} Chat</button>
+      </div>
+      <h1 id="ask-title">What are you looking for?</h1>
+      <p id="ask-scope-description">Search your workspace and SFlow Help.</p>
+    </header>
+    <section id="ask-chat" aria-label="Chat conversation" role="log" hidden></section>
+    <section class="ask-search">
+      <form id="ask-form">
+        <label for="ask-question" class="sr-only">Ask a question</label>
+        <div class="ask-input-row"><span id="ask-input-icon">${icon('search')}</span><input id="ask-question" type="search" maxlength="2000" autocomplete="off"
+          placeholder="Search a Story, specification, or file…" aria-controls="ask-suggestions">
+          <textarea id="ask-chat-question" aria-label="Ask a question" placeholder="Ask Copilot anything…" maxlength="2000" rows="2" hidden></textarea>
+          <button id="ask-submit" type="submit" class="primary">Search ${icon('right')}</button></div>
+        <ul id="ask-suggestions" aria-label="Suggested destinations" hidden></ul>
+        <div id="ask-search-options" class="ask-options">
+          ${checkout ? `<span class="ask-scope">${icon('checkout')} <span>${escape(checkout)}</span></span>
+            <label><input id="ask-portable" type="checkbox"> Save across devices</label>` : ''}
+        </div>
+        <div id="ask-chat-options" class="ask-options" hidden>
+          <label><input id="ask-workspace" type="checkbox"> Use workspace context</label>
+          <button type="button" class="quiet" data-chat-action="reset">${icon('add')} New chat</button>
+          <button type="button" class="quiet" id="ask-cancel" hidden>Cancel reply</button>
+        </div>
+      </form>
+      <div class="ask-starters" id="ask-search-starters" role="group" aria-label="Suggested searches">
+        <button type="button" data-query="current story">${icon('stories')} Current Story</button>
+        <button type="button" data-query="commits last week">${icon('history')} Recent commits</button>
+        <button type="button" data-query="story-lifecycle">${icon('about')} Publishing help</button>
+      </div>
+      <div class="ask-starters" id="ask-chat-starters" role="group" aria-label="Suggested prompts" hidden>
+        <button type="button" data-prompt="Explain ">${icon('specs')} Explain a concept</button>
+        <button type="button" data-prompt="Help me compare ">${icon('workflows')} Compare options</button>
+        <button type="button" data-prompt="Help me plan ">${icon('check')} Plan an approach</button>
+      </div>
+    </section>
+    <div id="ask-conversation" class="ask-actions" aria-label="Conversation"></div>
+    <div id="ask-status" role="status" class="muted"></div>
+    <section id="ask-answer" aria-label="Answer"></section>
+    <section id="ask-evidence" aria-label="Evidence and explanation"></section>
+    <section id="ask-task" aria-label="Task handoff"></section>
+  </div>`;
+  const $ = selector => root.querySelector(selector);
+  const page = $('.ask-page');
+  const searchField = $('#ask-question');
+  const chatField = $('#ask-chat-question');
+  let field = searchField;
+  const portable = $('#ask-portable');
+  const workspace = $('#ask-workspace');
+  const suggestions = $('#ask-suggestions');
+  const answer = $('#ask-answer');
+  const detail = $('#ask-evidence');
+  const taskPanel = $('#ask-task');
+  const actions = $('#ask-conversation');
+  const status = $('#ask-status');
+  const chatLog = $('#ask-chat');
+  const send = $('#ask-submit');
+  const cancel = $('#ask-cancel');
+  const searchStarters = $('#ask-search-starters');
+  const chatStarters = $('#ask-chat-starters');
+  const modeButtons = [...$('.ask-modes').querySelectorAll('button')];
+  const drafts = { search: '', chat: '' };
+  let mode = 'search';
+  let chatTurns = [];
+  let searchResult = null;
   let pending = false;
+  let controller = null;
   let conversation = null;
   let conflict = null;
   let activeTask = null;
@@ -157,20 +204,78 @@ export function mountAsk(root, { checkout, navigate, read }) {
   }
   const scope = () => conversation ? { conversationId: conversation.id, revision: conversation.revision } : {};
 
+  function updateSubmit() {
+    send.disabled = pending || !field.value.trim();
+  }
+
   function draw() {
+    updateSubmit();
     const items = askSuggestions(field.value, new Set([...routes, 'help']));
-    suggestions.hidden = items.length === 0;
+    suggestions.hidden = mode !== 'search' || !field.value.trim() || items.length === 0;
     suggestions.innerHTML = items.map(item => `<li><button type="button" data-${item.id === 'help' ? 'query' : 'route'}="${escape(item.id === 'help' ? item.topic : item.id)}">
       <span>${escape(item.label)}<small>${escape(item.detail)}</small></span>${icon('right')}</button></li>`).join('');
+  }
+
+  function changeMode(next, question = null) {
+    const leaving = mode;
+    const previousText = field.value;
+    drafts[mode] = previousText;
+    mode = next;
+    page.dataset.mode = next;
+    const chatting = next === 'chat';
+    searchField.hidden = chatting;
+    chatField.hidden = !chatting;
+    field = chatting ? chatField : searchField;
+    field.value = question ?? (drafts[mode] || previousText);
+    $('#ask-input-icon').innerHTML = icon(chatting ? 'chat' : 'search');
+    $('#ask-title').textContent = chatting ? 'How can I help?' : 'What are you looking for?';
+    $('#ask-scope-description').hidden = searchStarters.hidden = chatting;
+    send.innerHTML = (chatting ? 'Send ' : 'Search ') + icon('right');
+    $('#ask-search-options').hidden = actions.hidden = answer.hidden = taskPanel.hidden = chatting;
+    $('#ask-chat-options').hidden = chatLog.hidden = chatStarters.hidden = !chatting;
+    for (const button of modeButtons) button.setAttribute('aria-pressed', String(button.dataset.askMode === next));
+    if (leaving !== next) { status.textContent = ''; detail.replaceChildren(); }
+    suggestions.hidden = true;
+    updateSubmit();
+    field.focus();
+    if (chatting && leaving !== next) void show({ interaction: 'chat-history' });
   }
 
   async function show(input) {
     if (pending) return;
     pending = true;
-    status.textContent = ({ 'task-start': 'Starting the task…', 'task-prepare': 'Checking the task plan…' })[input.interaction] ?? 'Reading…';
+    const chatting = input.interaction === 'chat';
+    controller = chatting ? new AbortController() : null;
+    send.disabled = true;
+    for (const button of modeButtons) button.disabled = true;
+    cancel.hidden = !chatting;
+    status.textContent = ({ 'task-start': 'Starting the task…', 'task-prepare': 'Checking the task plan…',
+      chat: 'Copilot is replying…', 'chat-history': '', 'chat-reset': '' })[input.interaction] ?? 'Reading…';
     try {
-      const result = await read(input);
+      const result = await read(input, { signal: controller?.signal });
       if (!result || !answer.isConnected) return;
+      if (result.kind === 'chat-history' || result.kind === 'chat') {
+        if (result.kind === 'chat-history') {
+          chatTurns = result.turns;
+          if (input.interaction === 'chat-reset') { field.value = ''; drafts.chat = ''; detail.replaceChildren(); }
+        } else {
+          if (result.status !== 'resolved') { status.textContent = result.diagnostic?.message ?? 'Copilot did not answer.'; return; }
+          chatTurns = [...chatTurns, result].slice(-4);
+          if (field.value.trim() === input.query) field.value = '';
+          drafts.chat = field.value;
+          detail.replaceChildren();
+        }
+        chatLog.innerHTML = chatLogView(chatTurns);
+        status.textContent = result.kind === 'chat' ? 'Reply ready.' : '';
+        if (result.kind === 'chat') { field.focus(); field.scrollIntoView({ block: 'nearest' }); }
+        return;
+      }
+      if (result.kind === 'search-file' || result.artifact && (mode === 'chat' || searchResult)) {
+        detail.innerHTML = result.file ? searchFileView(result.file) : answerView(result);
+        detail.querySelector('h2')?.scrollIntoView({ block: 'nearest' });
+        status.textContent = result.file || result.artifact ? 'Source opened.' : 'Source unavailable.';
+        return;
+      }
       if (result.resultType === 'sflow-task-handoff') {
         activeTask = result.id;
         conversation = { ...conversation, ...result.conversation, taskAdmissionId: activeTask };
@@ -182,7 +287,7 @@ export function mountAsk(root, { checkout, navigate, read }) {
       }
       if (result.conversation) conversation = result.conversation;
       conflict = result.status === 'conflict' ? result.currentConversation ?? null : null;
-      if (result.kind === 'forgotten' || result.kind === 'conversation' && !result.conversation) conversation = null;
+      if (['forgotten', 'workspace-search'].includes(result.kind) || result.kind === 'conversation' && !result.conversation) conversation = null;
       sessionActions();
       if (result.evidence || result.explanation) {
         detail.innerHTML = result.evidence ? evidenceView(result.evidence, supporting.filter(item => item.id !== result.evidence.id), Boolean(conversation && !conversation.taskAvailability))
@@ -191,7 +296,8 @@ export function mountAsk(root, { checkout, navigate, read }) {
       } else {
         detail.innerHTML = '';
         supporting = evidenceOptions(result);
-        answer.innerHTML = result.kind === 'forgotten' ? '' : answerView(result);
+        searchResult = result.kind === 'workspace-search' ? result : null;
+        answer.innerHTML = searchResult ? searchResultsView(searchResult) : result.kind === 'forgotten' ? '' : answerView(result);
         if (!conversation || activeTask !== conversation.taskAdmissionId) {
           taskPanel.innerHTML = '';
           activeTask = null;
@@ -201,9 +307,13 @@ export function mountAsk(root, { checkout, navigate, read }) {
         : result.kind === 'artifact' ? 'Specification opened.'
         : result.status === 'conflict' ? 'Conversation updated. Resume its latest version.' : 'Answer ready.';
     } catch (error) {
-      if (status.isConnected) status.textContent = error.message;
+      if (status.isConnected) status.textContent = controller?.signal.aborted ? 'Reply cancelled.' : error.message;
     } finally {
+      controller = null;
       pending = false;
+      updateSubmit();
+      cancel.hidden = true;
+      for (const button of modeButtons) button.disabled = false;
     }
   }
 
@@ -212,14 +322,35 @@ export function mountAsk(root, { checkout, navigate, read }) {
     if (!value) return;
     field.value = value;
     suggestions.hidden = true;
-    void show({ interaction: 'submit', query: value, ...(conversation ? scope() : checkout ? { remember: true, ...(portable.checked ? { portable: true } : {}) } : {}) });
+    if (mode === 'chat') { void show({ interaction: 'chat', query: value, workspace: workspace.checked }); return; }
+    void show({ interaction: 'submit', query: value, workspaceSearch: true,
+      ...(conversation ? scope() : checkout ? { remember: true, ...(portable.checked ? { portable: true } : {}) } : {}) });
   }
 
   function interact(event) {
     const action = event.target.closest('button');
     if (!action) return;
-    const { query, route, selection, continue: continuation, evidence, choice, conversationAction, taskAction } = action.dataset;
+    const { query, prompt, route, selection, file, continue: continuation, evidence, choice, conversationAction, taskAction,
+      resultFilter, askMode, chatAction } = action.dataset;
     if (pending) return;
+    if (askMode) {
+      if (action.hasAttribute('data-discuss-results')) workspace.checked = true;
+      changeMode(askMode, action.closest('#ask-answer') ? field.value : null);
+      return;
+    }
+    if (chatAction === 'reset') { void show({ interaction: 'chat-reset' }); return; }
+    if (prompt) {
+      field.value = prompt;
+      field.focus();
+      field.setSelectionRange(prompt.length, prompt.length);
+      updateSubmit();
+      return;
+    }
+    if (resultFilter && searchResult) {
+      answer.innerHTML = searchResultsView(searchResult, resultFilter);
+      answer.querySelector(`[data-result-filter="${resultFilter}"]`).focus();
+      return;
+    }
     if (taskAction && conversation?.taskAdmissionId) {
       void show({ interaction: taskAction === 'start' ? 'task-start' : 'task-status', admissionId: conversation.taskAdmissionId });
       return;
@@ -228,6 +359,7 @@ export function mountAsk(root, { checkout, navigate, read }) {
       conversation = null;
       conflict = null;
       portable.checked = false;
+      searchResult = null;
       answer.innerHTML = detail.innerHTML = status.textContent = '';
       taskPanel.innerHTML = '';
       activeTask = null;
@@ -253,15 +385,26 @@ export function mountAsk(root, { checkout, navigate, read }) {
       void show({ interaction: evidence ? 'evidence' : 'select', target: evidence ?? choice, ...scope() });
       return;
     }
-    if (query) submit(query);
+    if (query) {
+      if (mode === 'chat') changeMode('search', query);
+      if (searchStarters.contains(action)) field.focus();
+      submit(query);
+    }
     else if (routes.has(route)) navigate(route);
+    else if (file) void show({ interaction: 'open-file', selection: file });
     else if (selection) void show({ interaction: 'activate', selection });
     else if (continuation) void show({ interaction: 'continue', selection: continuation });
   }
 
-  field.addEventListener('input', draw);
+  searchField.addEventListener('input', draw);
+  chatField.addEventListener('input', updateSubmit);
+  chatField.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); submit(chatField.value); }
+  });
   root.querySelector('#ask-form').addEventListener('submit', event => { event.preventDefault(); submit(field.value); });
   suggestions.addEventListener('click', interact);
+  searchStarters.addEventListener('click', interact);
+  chatStarters.addEventListener('click', interact);
   answer.addEventListener('click', interact);
   detail.addEventListener('click', interact);
   detail.addEventListener('submit', event => {
@@ -275,10 +418,14 @@ export function mountAsk(root, { checkout, navigate, read }) {
   });
   taskPanel.addEventListener('click', interact);
   actions.addEventListener('click', interact);
+  chatLog.addEventListener('click', interact);
+  $('#ask-chat-options').addEventListener('click', interact);
+  $('.ask-modes').addEventListener('click', interact);
+  cancel.onclick = () => controller?.abort();
   sessionActions();
-  field.addEventListener('keydown', event => {
+  searchField.addEventListener('keydown', event => {
     if (event.key === 'Escape') { suggestions.hidden = true; return; }
-    if (event.key === 'ArrowDown') {
+    if (event.key === 'ArrowDown' && mode === 'search') {
       draw();
       if (suggestions.querySelector('button')) { event.preventDefault(); suggestions.querySelector('button').focus(); }
     }

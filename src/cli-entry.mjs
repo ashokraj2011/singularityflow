@@ -636,7 +636,7 @@ export async function main(argv) {
   const { positionals, options } = parseArgs(argv);
   // The optional Ask provider owns cancellation once it starts. There is no lease held while
   // it runs, so the generic handler must not re-raise the signal before the provider stops.
-  const uninstall = positionals[0] === 'ask' && options.explain === true ? () => {} : installFileLeaseSignalHandlers();
+  const uninstall = positionals[0] === 'ask' && (options.explain === true || positionals[1] === 'chat' && options['query-stdin'] === true) ? () => {} : installFileLeaseSignalHandlers();
   try {
     const utilityEntry = options['utility-entry'] !== undefined ? { operation: positionals.join(' ') } : null;
     if (utilityEntry) validateUtilityEntry(positionals, options);

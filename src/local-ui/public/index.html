@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SFlow Workspace</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/code-explainer.css">
   <script type="module" src="/app.js"></script>
@@ -13,7 +14,7 @@
   <div id="navigation-scrim" hidden></div>
   <aside id="sidebar">
     <a class="brand" href="#home" aria-label="SFlow overview">
-      <span class="brand-mark" aria-hidden="true">∿</span>
+      <img class="brand-mark" src="/sflow-brand.svg" width="36" height="36" alt="">
       <span class="brand-name nav-label">Singularity Flow</span>
     </a>
     <nav id="navigation" aria-label="Main navigation"></nav>
@@ -34,6 +35,9 @@
         <span class="breadcrumb-divider" aria-hidden="true">/</span>
         <span id="current-page">Overview</span>
       </div>
+      <button id="quick-ask" type="button" aria-label="Search or ask SFlow" aria-keyshortcuts="Meta+K Control+K" disabled>
+        <span id="quick-ask-icon"></span><span class="quick-ask-label">Search or ask…</span><kbd id="quick-ask-key">Ctrl K</kbd>
+      </button>
       <div class="topbar-actions">
         <span id="connection" class="connection" role="status" data-status="connecting"><i></i><span id="connection-text">Connecting</span></span>
         <button id="activity-toggle" class="quiet" type="button" aria-expanded="false" aria-controls="activity">

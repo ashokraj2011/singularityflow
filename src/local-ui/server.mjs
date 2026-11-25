@@ -16,10 +16,13 @@ const equal = (a, b) => typeof a === 'string' && typeof b === 'string'
   && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const publicFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
+  ['/sflow-brand.svg', ['../../../apps/vscode/media/brand.svg', 'image/svg+xml']],
+  ['/favicon.svg', ['../../../apps/vscode/media/icon.svg', 'image/svg+xml']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/ask-navigation.js', ['../../ask/navigation.mjs', 'text/javascript; charset=utf-8']],
   ['/ask-history-display.js', ['../../ask/history-display.mjs', 'text/javascript; charset=utf-8']],
   ['/ask.js', ['ask.js', 'text/javascript; charset=utf-8']],
+  ['/ask-results.js', ['ask-results.js', 'text/javascript; charset=utf-8']],
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
   ['/views.js', ['views.js', 'text/javascript; charset=utf-8']],
   ['/code-explainer.js', ['code-explainer.js', 'text/javascript; charset=utf-8']],
@@ -27,6 +30,7 @@ const publicFiles = new Map([
 ]);
 const terminal = new Set(['succeeded', 'failed', 'unknown', 'expired']);
 const ASK_SELECTION_MS = 5 * 60_000;
+const ASK_CHAT_TURNS = 4;
 const RETENTION_MS = 7 * 24 * 60 * 60_000;
 const MAX_RECORDS = 8192;
 const MAX_RECORD_BYTES = MAX_REPLY * 2 + 64 * 1024;
@@ -414,19 +418,30 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         if (route === '/api/ask' && req.method === 'POST') {
           const request = await body(req);
           const interaction = request?.interaction;
+          const chat = interaction === 'chat';
+          const chatControl = ['chat-history', 'chat-reset'].includes(interaction);
           const prepareTask = interaction === 'task-prepare';
           const startTask = interaction === 'task-start';
           const task = prepareTask || startTask || interaction === 'task-status';
           const contextual = prepareTask || ['evidence', 'select', 'explain', 'forget'].includes(interaction);
-          insist(contextual || task || ['activate', 'submit', 'continue', 'resume'].includes(interaction), 'UI_REQUEST_INVALID', 'Choose an Ask SFlow action.');
+          insist(chat || chatControl || contextual || task || ['activate', 'open-file', 'submit', 'continue', 'resume'].includes(interaction), 'UI_REQUEST_INVALID', 'Choose an Ask SFlow action.');
           const contextFields = ['conversationId', 'revision'];
-          const supplied = prepareTask ? [...contextFields, 'target', 'words', 'kind', 'clauses', 'evidence']
-            : task ? ['admissionId'] : interaction === 'submit' ? ['query', 'remember', 'portable', ...contextFields]
+          const supplied = chat ? ['query', 'workspace'] : chatControl ? []
+            : prepareTask ? [...contextFields, 'target', 'words', 'kind', 'clauses', 'evidence']
+            : task ? ['admissionId'] : interaction === 'submit' ? ['query', 'remember', 'portable', 'workspaceSearch', ...contextFields]
             : contextual ? [...contextFields, ...(['evidence', 'select'].includes(interaction) ? ['target'] : [])]
               : interaction === 'resume' ? ['portable', 'conversationId'] : ['selection'];
           const input = record(request, ['contextId', 'interaction', ...supplied]);
           const context = selected(session, text(input.contextId, 'Context ID', 128));
           insist(context.id === session.contextId, 'UI_ASK_CONTEXT_CHANGED', 'Switch to the original checkout or search here again.', 409);
+          const turns = session.askChat?.contextId === context.id ? session.askChat.turns : [];
+          if (chatControl) {
+            if (interaction === 'chat-reset') {
+              insist(!session.askReading, 'UI_ASK_BUSY', 'Wait for the current reply before starting a new chat.', 429);
+              session.askChat = null;
+            }
+            return send(res, 200, { kind: 'chat-history', turns: interaction === 'chat-reset' ? [] : turns });
+          }
           if (interaction === 'resume' && input.conversationId !== undefined) {
             insist(typeof input.conversationId === 'string' && /^askp?-[a-f0-9]{32}$/u.test(input.conversationId),
               'UI_REQUEST_INVALID', 'Use an Ask conversation ID.');
@@ -436,6 +451,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
               'UI_ASK_CONVERSATION_CHANGED', 'Resume the current Ask conversation from this tab to continue.', 409);
           }
           const args = task ? ['work', 'handoff', '--for-person'] : ['ask', '--for-person'];
+          let stdin = null;
           if (input.conversationId) args.push('--conversation=' + input.conversationId);
           if (input.revision !== undefined) args.push('--revision=' + input.revision);
           if (input.portable !== undefined) {
@@ -443,7 +459,12 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
               'UI_REQUEST_INVALID', 'Choose a new or saved shared Ask conversation.');
             args.push('--portable');
           }
-          if (prepareTask) {
+          if (chat) {
+            const question = text(input.query, 'Question', 2000).trim();
+            insist(question && typeof input.workspace === 'boolean', 'UI_REQUEST_INVALID', 'Enter a question and choose whether to include workspace context.');
+            args.splice(1, 0, 'chat', '--query-stdin');
+            stdin = JSON.stringify({ question, workspace: input.workspace, previous: turns.map(({ question, answer }) => ({ question, answer })) });
+          } else if (prepareTask) {
             const ids = (value, limit, label) => {
               insist(Array.isArray(value) && value.length <= limit, 'UI_REQUEST_INVALID', `Choose up to ${limit} ${label}.`);
               return value.map(id => text(id, label, 160));
@@ -463,6 +484,10 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
               'UI_REQUEST_INVALID', 'Choose a new or an existing Ask conversation.');
             args.push('--question=' + text(input.query, 'Question', 2000));
             if (input.remember) args.push('--remember');
+            if (input.workspaceSearch !== undefined) {
+              insist(input.workspaceSearch === true, 'UI_REQUEST_INVALID', 'Choose workspace search.');
+              args.push('--all');
+            }
           } else if (interaction === 'resume' || interaction === 'explain' || interaction === 'forget') {
             args.push('--' + interaction);
           } else if (interaction === 'evidence' || interaction === 'select') {
@@ -476,6 +501,9 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
               'UI_ASK_SELECTION_EXPIRED', 'Submit the original question again from this tab.', 409);
             if (interaction === 'continue') {
               args.push('--cursor=' + selection.cursor);
+            } else if (interaction === 'open-file') {
+              args.splice(1, 0, 'file');
+              args.push('--ref=' + selection.revision, '--path=' + selection.file);
             } else {
               const { reference, stateCommit, manifestSha256 } = selection.specification;
               args.push('--question=' + reference, '--open-spec', '--state-commit=' + stateCommit, '--manifest-sha256=' + manifestSha256);
@@ -489,13 +517,13 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           if (!startTask) res.once('close', abort);
           try {
             const { value } = await runCanonical(context.root, args, {
-              timeoutMs: startTask || prepareTask ? 300_000 : 20_000,
-              signal: controller.signal, environment: session.environment, personAskExplanation: interaction === 'explain'
+              timeoutMs: startTask || prepareTask ? 300_000 : chat ? 55_000 : 20_000,
+              signal: controller.signal, environment: session.environment, personAskModel: interaction === 'explain' || chat, stdin
             });
             insist(session.contextId === context.id && contexts.has(context.id),
               'UI_ASK_CONTEXT_CHANGED', 'The checkout changed while reading. Search again in the selected checkout.', 409);
             if (value.conversation) session.askConversation = { id: value.conversation.id, revision: value.conversation.revision, contextId: context.id };
-            const ended = value.kind === 'forgotten' || value.kind === 'conversation' && !value.conversation;
+            const ended = ['workspace-search', 'forgotten'].includes(value.kind) || value.kind === 'conversation' && !value.conversation;
             if (ended) session.askConversation = null;
             const handoffId = value.resultType === 'sflow-task-handoff' ? value.id : value.conversation?.taskAdmissionId;
             if (value.conversation || handoffId) session.askTask = handoffId ? { id: handoffId, contextId: context.id } : null;
@@ -505,6 +533,21 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
               // The input to activation is opaque. Only an exact revision issued to this tab can open.
               session.askSelections.set(id, { interaction: 'activate', specification: { ...specification }, contextId: context.id, expiresAt: Date.now() + ASK_SELECTION_MS });
               specification.selection = id;
+            }
+            for (const result of [...(value.results ?? []), ...(value.sources ?? [])]) {
+              const id = randomUUID();
+              const bound = { contextId: context.id, expiresAt: Date.now() + ASK_SELECTION_MS };
+              if (result.type === 'spec' && result.reference) {
+                session.askSelections.set(id, { ...bound, interaction: 'activate', specification: { ...result } });
+                result.selection = id;
+              } else if (result.type === 'file') {
+                session.askSelections.set(id, { ...bound, interaction: 'open-file', revision: result.revision, file: result.id });
+                result.selection = id;
+              }
+            }
+            if (chat && value.kind === 'chat' && value.status === 'resolved') {
+              session.askChat = { contextId: context.id, turns: [...turns, { question: value.question, answer: value.answer,
+                sources: value.sources }].slice(-ASK_CHAT_TURNS) };
             }
             if (value.continuation?.cursor) {
               const id = randomUUID();
@@ -516,7 +559,8 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             return send(res, 200, value);
           } catch (error) {
             if (!task && error?.code === 'UI_OPERATION_TIMEOUT') {
-              throw new UiError('UI_ASK_TIMEOUT', 'Ask SFlow could not finish the read in 20 seconds. Submit the question again to retry.', error.details, 504);
+              throw new UiError('UI_ASK_TIMEOUT', chat ? 'Copilot did not finish this reply. Your question is still in the composer.'
+                : 'Ask SFlow could not finish the read in 20 seconds. Submit the question again to retry.', error.details, 504);
             }
             throw error;
           } finally {

@@ -9,7 +9,7 @@ const $ = selector => document.querySelector(selector);
 const state = {
   session: null, epoch: 0, page: 'home', draft: null, dirty: false, saving: false, creating: false,
   switching: false, uncertain: false, pendingSave: null, pendingCreation: null, pendingFork: null,
-  activities: [], recentSpecs: new Map(), eventSequence: 0, objectUrls: []
+  activities: [], recentSpecs: new Map(), eventSequence: 0, objectUrls: [], focusAsk: false
 };
 const preferences = {
   get(key, fallback) { try { return JSON.parse(localStorage.getItem(`sflow.view.${key}`)) ?? fallback; } catch { return fallback; } },
@@ -153,9 +153,10 @@ function activity(item) {
   renderActivity();
 }
 
-async function api(route, { method = 'GET', data, content, timeout = 15_000 } = {}) {
+async function api(route, { method = 'GET', data, content, timeout = 15_000, signal = null } = {}) {
   const tabId = state.session?.tabId ?? sessionStorage.getItem('sflow.tab');
-  const response = await fetch(route, { method, signal: AbortSignal.timeout(timeout),
+  const deadline = AbortSignal.timeout(timeout);
+  const response = await fetch(route, { method, signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
     headers: { ...(data ? content === undefined ? { 'Content-Type': 'application/json' }
       : { 'Content-Type': 'application/octet-stream', 'X-SFlow-Content': encodeURIComponent(JSON.stringify(data)) } : {}), ...(tabId ? { 'X-SFlow-Tab': tabId } : {}),
       ...(state.session?.csrf ? { 'X-SFlow-CSRF': state.session.csrf } : {}) }, ...(data ? { body: content === undefined ? JSON.stringify(data) : content } : {}) });
@@ -210,6 +211,14 @@ function nativeButton(menu, label) {
     ? `<button data-native="${menu}">${escape(label)} ${icon('external')}</button>` : '';
 }
 function go(hash) { location.hash = hash; }
+function focusAsk() {
+  if (!state.session) return;
+  const field = $('#ask-question:not([hidden]), #ask-chat-question:not([hidden])');
+  if (state.page === 'ask' && field) { field.focus(); return; }
+  state.focusAsk = true;
+  go('ask');
+}
+$('#quick-ask').onclick = focusAsk;
 function dirtyGuard() {
   if (state.saving || state.creating || state.switching) {
     banner('Wait for the current action to finish before switching views.');
@@ -525,7 +534,7 @@ function conflictActions() {
 const storyColumns = [['title', 'Story'], ['phase', 'Phase'], ['createdAt', 'Created'], ['createdBy', 'Creator']];
 function storyPhase(row) { return row.phaseLabel ?? (row.phase ? words(row.phase) : ''); }
 
-async function stories(epoch) {
+async function stories(epoch, initialId = '') {
   const result = await operation('story.list');
   if (epoch !== state.epoch) return;
   const rows = result.value.stories ?? [];
@@ -543,6 +552,7 @@ async function stories(epoch) {
   if (!storyColumns.some(([field]) => field === sort?.field) || ![1, -1].includes(sort.direction)) {
     sort = { field: 'createdAt', direction: -1 };
   }
+  $('#story-search').value = initialId;
   let onlyReady = false;
   const sortValue = {
     title: row => row.title ?? row.workId,
@@ -612,7 +622,7 @@ const catalogs = {
   skills: { type: 'skill', description: 'Find reusable skills by name, purpose or tag.' },
   instructions: { type: 'instruction', description: 'Find instructions available to workflows and agents.' }
 };
-async function catalog(page, epoch) {
+async function catalog(page, epoch, initialId = '') {
   const { type, description } = catalogs[page];
   const result = await operation(`${type}.list`);
   if (epoch !== state.epoch) return;
@@ -633,6 +643,7 @@ async function catalog(page, epoch) {
       : empty(query ? 'No results for this search' : 'Nothing listed yet', query ? 'Try a different name or keyword.'
         : 'Entries appear here when they are available in this checkout.', '', page);
   };
+  $('#catalog-search').value = initialId;
   $('#catalog-search').oninput = draw;
   draw();
 }
@@ -674,7 +685,7 @@ async function about(epoch) {
       await api('/api/session/close', { method: 'POST', data: {} });
       sessionStorage.removeItem('sflow.tab');
       state.session = null; state.dirty = false;
-      $('#context-switch').disabled = true;
+      $('#context-switch').disabled = $('#quick-ask').disabled = true;
       $('#main').innerHTML = empty('This tab is disconnected', 'Open SFlow from the terminal or VS Code to reconnect.', '', 'about');
       setConnected('disconnected', 'Disconnected');
     } catch (error) { banner(error.message); }
@@ -689,6 +700,7 @@ async function navigate() {
     return;
   }
   state.page = page; state.draft = null; state.dirty = false; state.uncertain = false;
+  document.body.dataset.page = page;
   state.pendingSave = null; state.pendingFork = null;
   state.objectUrls.forEach(url => URL.revokeObjectURL(url)); state.objectUrls = [];
   const epoch = ++state.epoch;
@@ -715,17 +727,18 @@ async function navigate() {
       mountAsk(main, {
         checkout: state.session.context.label,
         navigate: go,
-        read: async (input) => {
-          const timeout = ['task-start', 'task-prepare'].includes(input.interaction) ? 305_000 : 22_000;
-          const value = await api('/api/ask', { method: 'POST', data: { ...input, contextId }, timeout });
+        read: async (input, { signal } = {}) => {
+          const timeout = ['task-start', 'task-prepare'].includes(input.interaction) ? 305_000 : input.interaction === 'chat' ? 58_000 : 22_000;
+          const value = await api('/api/ask', { method: 'POST', data: { ...input, contextId }, timeout, signal });
           return epoch === state.epoch && contextId === state.session?.context.id ? value : null;
         }
       });
+      if (state.focusAsk) { state.focusAsk = false; $('#ask-question').focus(); }
     }
     else if (page === 'specs') await library(epoch);
     else if (page === 'spec') await specification(decodeURIComponent(parts[1] ?? ''), parts[2] === 'published', epoch);
-    else if (page === 'stories') await stories(epoch);
-    else if (Object.hasOwn(catalogs, page)) await catalog(page, epoch);
+    else if (page === 'stories') await stories(epoch, decodeURIComponent(parts[1] ?? ''));
+    else if (Object.hasOwn(catalogs, page)) await catalog(page, epoch, decodeURIComponent(parts[1] ?? ''));
     else if (page === 'code') {
       const { mountCodeExplainer } = await import('./code-explainer.js');
       if (epoch !== state.epoch) return;
@@ -779,6 +792,11 @@ document.addEventListener('keydown', event => {
     if (document.body.classList.contains('nav-open')) navigationPanel(false);
     else if (!$('#activity').hidden && !document.querySelector('dialog[open]')) activityPanel(false);
   }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && state.session && !document.querySelector('dialog[open]')) {
+    event.preventDefault();
+    if (document.body.classList.contains('nav-open')) navigationPanel(false, false);
+    focusAsk();
+  }
   if ((event.metaKey || event.ctrlKey) && event.key === 's' && state.draft) {
     event.preventDefault();
     void saveDraft();
@@ -787,9 +805,10 @@ document.addEventListener('keydown', event => {
 async function boot() {
   $('#navigation').innerHTML = navigation();
   for (const [id, name] of [['about-icon', 'about'], ['mobile-menu', 'menu'], ['checkout-icon', 'checkout'],
-    ['checkout-chevron', 'down'], ['activity-icon', 'clock'], ['activity-close', 'close'], ['banner-close', 'close']]) {
+    ['checkout-chevron', 'down'], ['quick-ask-icon', 'search'], ['activity-icon', 'clock'], ['activity-close', 'close'], ['banner-close', 'close']]) {
     $(`#${id}`).innerHTML = icon(name);
   }
+  $('#quick-ask-key').textContent = /Mac|iPhone|iPad/u.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
   // Remove the one-use fragment before any asynchronous read or navigation.
   const ticket = new URLSearchParams(location.hash.slice(1)).get('ticket');
   if (ticket) history.replaceState(null, '', '#home');
@@ -802,7 +821,7 @@ async function boot() {
       state.session = { ...await api('/api/session'), tabId };
     }
     updateCheckout(state.session.context);
-    $('#context-switch').disabled = false;
+    $('#context-switch').disabled = $('#quick-ask').disabled = false;
     setConnected('connected', 'Connected locally');
     try {
       const existing = await api('/api/requests');

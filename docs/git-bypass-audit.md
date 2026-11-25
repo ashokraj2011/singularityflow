@@ -12,6 +12,11 @@ with the original argument array. Neither site runs Git. Download and installer 
 the existing `runtime/install.mjs` process supervisor; the updater adds no process owner or Git
 transport authority. Only this launcher's exact call-site digest is added to the baseline.
 
+Browser Chat uses the existing canonical CLI launch with a fixed argument list and a bounded
+JSON input on stdin. Search stays model-free. Chat requires the selected tab and checkout plus
+the user's explicit action. The model call uses the existing Copilot launcher with tools
+disabled. This updates the one canonical CLI launch fingerprint.
+
 The browser's existing canonical CLI launcher can honor an explicit Explain with Copilot action
 for the active Ask conversation. The server validates the tab, checkout and saved revision.
 The launcher admits the Ask explanation form and preserves the user's no-model setting. All other

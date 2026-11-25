@@ -1262,14 +1262,14 @@ export function typedSubmodules(root, revision) {
  * `excludes` are glob pathspecs the caller's policy names; large blobs are dropped afterwards by
  * size, and every exclusion that fired is returned so the reader is told what was not searched.
  */
-export function typedGrep(root, { revision, text, paths = [], excludes = [], max = 100, maxBlobBytes = 1024 * 1024 } = {}) {
+export function typedGrep(root, { revision, text, paths = [], excludes = [], max = 100, maxBlobBytes = 1024 * 1024, ignoreCase = false } = {}) {
   const needle = String(text ?? '');
   if (!needle || /[\u0000-\u001f\u007f]/u.test(needle) || needle.length > 500) {
     throw new SingularityFlowError('A search needs one line of literal text.', { code: 'TYPED_GIT_SEARCH_INVALID' });
   }
   const limit = Math.max(1, Math.min(Number(max) || 100, 500));
   const result = typedGit(root, [
-    'grep', '-n', '-I', '-F', '--no-color', '-z', `--max-count=${limit}`, '-e', needle, revision, '--',
+    'grep', '-n', '-I', '-F', ...(ignoreCase ? ['-i'] : []), '--no-color', '-z', `--max-count=${limit}`, '-e', needle, revision, '--',
     ...(paths.length ? paths.map(literalPathspec) : ['.']),
     ...excludes.map((glob) => `:(exclude,glob)${glob}`)
   ]);

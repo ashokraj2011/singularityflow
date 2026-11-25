@@ -111,9 +111,9 @@ function parsedManifest(specId, revision, bytes) {
 }
 
 /** One revision's manifest only, from the pinned commit. */
-export function readManifest(root, view, specId, revision, { env = process.env } = {}) {
+export function readManifest(root, view, specId, revision, { env = process.env, manifestBytes = null } = {}) {
   requireListed(view, specId, revision);
-  const bytes = committedFileBytes(root, view.commit, `${revisionDirectory(specId, revision)}/manifest.json`, { env });
+  const bytes = manifestBytes ?? committedFileBytes(root, view.commit, `${revisionDirectory(specId, revision)}/manifest.json`, { env });
   return { specId, revision, manifest: parsedManifest(specId, revision, bytes), manifestSha256: bytes ? digest(bytes) : null };
 }
 

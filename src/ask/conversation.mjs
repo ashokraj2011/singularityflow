@@ -189,7 +189,7 @@ function validateSessionRequest(request, audience, portable) {
   if (action === 'forget' && audience !== 'person') throw invalid('Forget saved conversations from your own SFlow session.');
 }
 
-export async function askConversation({ root, context = {}, audience = 'model', arguments: request, allowModel = false, portable = false }) {
+export async function askConversation({ root, context = {}, audience = 'model', arguments: request, allowModel = false, portable = false, workspaceSearch = false }) {
   portable ||= request.conversationId?.startsWith('askp-') === true;
   const scope = { root, context, audience };
   const requestId = randomUUID();
@@ -216,9 +216,14 @@ export async function askConversation({ root, context = {}, audience = 'model', 
     const open = async (link, detail) => portable
       ? (await import('./portable-view.mjs')).readPortableEvidence(scope, link, detail)
       : readEvidence(root, link, { audience, detail });
+    const searchFallback = async (value, query) => workspaceSearch && !portable
+      ? (await import('./workspace-search.mjs')).workspaceSearchFallback(root, query, value)
+      : null;
     const { sessionAction, conversationId, contextRevision } = request;
     if (!conversationId && sessionAction === 'query') {
       const { value, result } = await lookup(scope, request.query, { workId: request.workId });
+      const search = await searchFallback(value, request.query);
+      if (search) return finish(search);
       record = await store.create({ result, reads: 1, explanationUsed: false, selected: result.refs.length === 1 ? result.refs[0] : null }, portable ? value : undefined);
       return finish(await show(value, record));
     }
@@ -297,6 +302,10 @@ export async function askConversation({ root, context = {}, audience = 'model', 
     const freshWork = verified?.currentWork;
     const queried = freshWork ? answer('work', { work: freshWork, observedAt: new Date().toISOString() }) : null;
     const next = queried ? { value: queried, result: retainedResult(queried, null, 'work') } : await lookup(scope, choice ? choiceQuestion(choice, record.result.pending) : query ?? 'saved history', { replay, workId });
+    if (!replay && !choice && action === 'query') {
+      const search = await searchFallback(next.value, query);
+      if (search) return finish(search);
+    }
     if (replay && next.value.status === 'unavailable') return finish(present(next.value, record));
     const fields = { result: next.result, reads: replay ? record.reads + 1 : 1,
       explanationUsed: replay ? record.explanationUsed : false,

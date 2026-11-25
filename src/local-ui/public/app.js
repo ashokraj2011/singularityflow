@@ -9,7 +9,8 @@ const $ = selector => document.querySelector(selector);
 const state = {
   session: null, epoch: 0, page: 'home', draft: null, dirty: false, saving: false, creating: false,
   switching: false, uncertain: false, pendingSave: null, pendingCreation: null, pendingFork: null,
-  activities: [], recentSpecs: new Map(), eventSequence: 0, objectUrls: []
+  activities: [], recentSpecs: new Map(), eventSequence: 0, objectUrls: [], focusAsk: false,
+  disposeView: null, preparedQuestion: null
 };
 const preferences = {
   get(key, fallback) { try { return JSON.parse(localStorage.getItem(`sflow.view.${key}`)) ?? fallback; } catch { return fallback; } },
@@ -125,7 +126,7 @@ const activityLabels = {
   'spec.source.read': 'Read source', 'spec.source.add': 'Attach source', 'story.list': 'List Stories',
   'workflow.list': 'List Workflows', 'agent.list': 'List Agents', 'skill.list': 'List Skills',
   'instruction.list': 'List Instructions', 'decision.list': 'Read decisions',
-  'code.changes': 'Explain code changes', 'code.repository': 'Explore repository code',
+  'code.changes': 'Explain code changes', 'code.repository': 'Explore repository code', 'code.source': 'Open code excerpt',
   ...Object.fromEntries(runPanels)
 };
 function renderActivity() {
@@ -153,9 +154,10 @@ function activity(item) {
   renderActivity();
 }
 
-async function api(route, { method = 'GET', data, content, timeout = 15_000 } = {}) {
+async function api(route, { method = 'GET', data, content, timeout = 15_000, signal = null } = {}) {
   const tabId = state.session?.tabId ?? sessionStorage.getItem('sflow.tab');
-  const response = await fetch(route, { method, signal: AbortSignal.timeout(timeout),
+  const deadline = AbortSignal.timeout(timeout);
+  const response = await fetch(route, { method, signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
     headers: { ...(data ? content === undefined ? { 'Content-Type': 'application/json' }
       : { 'Content-Type': 'application/octet-stream', 'X-SFlow-Content': encodeURIComponent(JSON.stringify(data)) } : {}), ...(tabId ? { 'X-SFlow-Tab': tabId } : {}),
       ...(state.session?.csrf ? { 'X-SFlow-CSRF': state.session.csrf } : {}) }, ...(data ? { body: content === undefined ? JSON.stringify(data) : content } : {}) });
@@ -210,6 +212,14 @@ function nativeButton(menu, label) {
     ? `<button data-native="${menu}">${escape(label)} ${icon('external')}</button>` : '';
 }
 function go(hash) { location.hash = hash; }
+function focusAsk() {
+  if (!state.session) return;
+  const field = $('#ask-question:not([hidden]), #ask-chat-question:not([hidden])');
+  if (state.page === 'ask' && field) { field.focus(); return; }
+  state.focusAsk = true;
+  go('ask');
+}
+$('#quick-ask').onclick = focusAsk;
 function dirtyGuard() {
   if (state.saving || state.creating || state.switching) {
     banner('Wait for the current action to finish before switching views.');
@@ -525,16 +535,16 @@ function conflictActions() {
 const storyColumns = [['title', 'Story'], ['phase', 'Phase'], ['createdAt', 'Created'], ['createdBy', 'Creator']];
 function storyPhase(row) { return row.phaseLabel ?? (row.phase ? words(row.phase) : ''); }
 
-async function stories(epoch) {
+async function stories(epoch, initialId = '') {
   const result = await operation('story.list');
   if (epoch !== state.epoch) return;
   const rows = result.value.stories ?? [];
   const key = row => JSON.stringify([row.workId, row.checkoutPath]);
   const choices = new Map((result.choices ?? []).map(choice => [key(choice), choice.choiceId]));
-  $('#main').innerHTML = heading('Stories', 'Find a Story and open its checkout in this tab.',
+  $('#main').innerHTML = heading('Stories', 'Open a Story checkout on this computer.',
     '<button data-action="retry">Refresh</button>' + nativeButton('intake', 'Start a Story in VS Code'))
     + `<section class="card collection"><div class="toolbar">
-      ${searchField('story-search', 'Find a Story', 'Search by title, ID, creator or repository…')}
+      ${searchField('story-search', 'Find a Story', 'Search by title, ID, creator, repository or workspace…')}
       <div class="segmented" role="group" aria-label="Story filter">
         <button data-story-filter="all" aria-pressed="true">All</button><button data-story-filter="ready" aria-pressed="false">Can open here</button>
       </div><span id="story-count" class="results-count" role="status"></span>
@@ -543,6 +553,7 @@ async function stories(epoch) {
   if (!storyColumns.some(([field]) => field === sort?.field) || ![1, -1].includes(sort.direction)) {
     sort = { field: 'createdAt', direction: -1 };
   }
+  $('#story-search').value = initialId;
   let onlyReady = false;
   const sortValue = {
     title: row => row.title ?? row.workId,
@@ -560,7 +571,7 @@ async function stories(epoch) {
   const draw = () => {
     const query = searchText($('#story-search').value);
     const filtered = rows.filter(row => (!onlyReady || choices.has(key(row)))
-      && searchText([row.title, row.workId, storyPhase(row), row.createdBy, row.repository?.id].join(' ')).includes(query)).sort(compare);
+      && searchText([row.title, row.workId, storyPhase(row), row.createdBy, row.repository?.id, row.workspace?.name].join(' ')).includes(query)).sort(compare);
     $('#story-count').textContent = `${filtered.length} ${filtered.length === 1 ? 'Story' : 'Stories'}`;
     const columns = storyColumns.map(([field, label]) => {
       const direction = field === sort.field ? sort.direction === -1 ? 'descending' : 'ascending' : null;
@@ -569,12 +580,14 @@ async function stories(epoch) {
     $('#story-list').innerHTML = filtered.length ? table('Stories', 'story-table', columns, filtered.map(row => {
       const title = row.title ?? row.workId;
       const choice = choices.get(key(row));
-      const repository = row.repository?.id;
+      const location = [row.workId, row.repository?.id, row.workspace?.name].filter(Boolean).join(' · ');
+      const secondary = row.role === 'secondary';
       const name = choice
-        ? `<button class="story-title" data-context="${escape(choice)}" aria-label="Open ${escape(title)}"><span>${escape(title)}</span>${icon('right')}</button>`
+        ? `<button class="story-title" data-context="${escape(choice)}" aria-label="Open ${escape(title)}${secondary ? ` in ${escape(row.repository.id)}` : ''}"><span>${escape(title)}</span>${icon('right')}</button>`
         : `<span class="row-title">${escape(title)}</span>`;
       return `<tr>
-        <td>${name}<small>${escape(row.workId)}${repository ? ` · ${escape(repository)}` : ''}</small>
+        <td>${name}<small>${escape(location)}</small>
+          ${secondary ? '<small>Additional repository</small>' : ''}
           ${choice ? '' : `<small>${escape(row.reason ?? 'No local checkout')}</small>`}</td>
         <td>${pill(storyPhase(row) || words(row.availability), choice ? 'accent' : '')}</td>
         <td>${escape(date(row.createdAt))}</td><td>${escape(row.createdBy || 'Not recorded')}</td>
@@ -612,7 +625,7 @@ const catalogs = {
   skills: { type: 'skill', description: 'Find reusable skills by name, purpose or tag.' },
   instructions: { type: 'instruction', description: 'Find instructions available to workflows and agents.' }
 };
-async function catalog(page, epoch) {
+async function catalog(page, epoch, initialId = '') {
   const { type, description } = catalogs[page];
   const result = await operation(`${type}.list`);
   if (epoch !== state.epoch) return;
@@ -633,12 +646,16 @@ async function catalog(page, epoch) {
       : empty(query ? 'No results for this search' : 'Nothing listed yet', query ? 'Try a different name or keyword.'
         : 'Entries appear here when they are available in this checkout.', '', page);
   };
+  $('#catalog-search').value = initialId;
   $('#catalog-search').oninput = draw;
   draw();
 }
 
 async function runAndTest(epoch) {
-  $('#main').innerHTML = heading('Run & Test', 'Inspect configured commands, current app status and retained test results.',
+  const { story } = state.session.context;
+  $('#main').innerHTML = heading('Run & Test', story
+    ? `Application status for this checkout and test evidence for ${story.workId}.`
+    : 'Inspect configured commands, current app status and retained test results.',
     nativeButton('run', 'Open Run & Test in VS Code'))
     + `<div class="run-grid">${runPanels.map(([name, title]) => `<section class="card run-card"><h2>${title}</h2>
       <div data-run-panel="${name}">${loading('Reading…')}</div></section>`).join('')}</div>`;
@@ -674,7 +691,7 @@ async function about(epoch) {
       await api('/api/session/close', { method: 'POST', data: {} });
       sessionStorage.removeItem('sflow.tab');
       state.session = null; state.dirty = false;
-      $('#context-switch').disabled = true;
+      $('#context-switch').disabled = $('#quick-ask').disabled = true;
       $('#main').innerHTML = empty('This tab is disconnected', 'Open SFlow from the terminal or VS Code to reconnect.', '', 'about');
       setConnected('disconnected', 'Disconnected');
     } catch (error) { banner(error.message); }
@@ -689,6 +706,9 @@ async function navigate() {
     return;
   }
   state.page = page; state.draft = null; state.dirty = false; state.uncertain = false;
+  document.body.dataset.page = page;
+  state.disposeView?.();
+  state.disposeView = null;
   state.pendingSave = null; state.pendingFork = null;
   state.objectUrls.forEach(url => URL.revokeObjectURL(url)); state.objectUrls = [];
   const epoch = ++state.epoch;
@@ -708,16 +728,35 @@ async function navigate() {
   main.focus({ preventScroll: true });
   try {
     if (page === 'home') overview();
+    else if (page === 'ask') {
+      const { mountAsk } = await import('./ask.js');
+      if (epoch !== state.epoch) return;
+      const contextId = state.session.context.id;
+      const preparedQuestion = state.preparedQuestion?.contextId === contextId ? state.preparedQuestion.text : null;
+      state.preparedQuestion = null;
+      mountAsk(main, {
+        checkout: state.session.context.label,
+        preparedQuestion,
+        navigate: go,
+        read: async (input, { signal } = {}) => {
+          const timeout = ['task-start', 'task-prepare'].includes(input.interaction) ? 305_000 : input.interaction === 'chat' ? 58_000 : 22_000;
+          const value = await api('/api/ask', { method: 'POST', data: { ...input, contextId }, timeout, signal });
+          return epoch === state.epoch && contextId === state.session?.context.id ? value : null;
+        }
+      });
+      if (state.focusAsk) { state.focusAsk = false; $('#ask-question').focus(); }
+    }
     else if (page === 'specs') await library(epoch);
     else if (page === 'spec') await specification(decodeURIComponent(parts[1] ?? ''), parts[2] === 'published', epoch);
-    else if (page === 'stories') await stories(epoch);
-    else if (Object.hasOwn(catalogs, page)) await catalog(page, epoch);
+    else if (page === 'stories') await stories(epoch, decodeURIComponent(parts[1] ?? ''));
+    else if (Object.hasOwn(catalogs, page)) await catalog(page, epoch, decodeURIComponent(parts[1] ?? ''));
     else if (page === 'code') {
       const { mountCodeExplainer } = await import('./code-explainer.js');
       if (epoch !== state.epoch) return;
       const panel = document.createElement('div');
       main.replaceChildren(panel);
-      await mountCodeExplainer(panel, { operation, editor: nativeButton('code', 'Open in VS Code') });
+      state.disposeView = mountCodeExplainer(panel, { operation, navigate: go, editor: nativeButton('code', 'Open in VS Code'),
+        ask: text => { state.preparedQuestion = { contextId: state.session.context.id, text }; go('ask'); } });
     }
     else if (page === 'run') await runAndTest(epoch);
     else if (page === 'decisions') await decisions(epoch);
@@ -765,6 +804,11 @@ document.addEventListener('keydown', event => {
     if (document.body.classList.contains('nav-open')) navigationPanel(false);
     else if (!$('#activity').hidden && !document.querySelector('dialog[open]')) activityPanel(false);
   }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && state.session && !document.querySelector('dialog[open]')) {
+    event.preventDefault();
+    if (document.body.classList.contains('nav-open')) navigationPanel(false, false);
+    focusAsk();
+  }
   if ((event.metaKey || event.ctrlKey) && event.key === 's' && state.draft) {
     event.preventDefault();
     void saveDraft();
@@ -773,9 +817,10 @@ document.addEventListener('keydown', event => {
 async function boot() {
   $('#navigation').innerHTML = navigation();
   for (const [id, name] of [['about-icon', 'about'], ['mobile-menu', 'menu'], ['checkout-icon', 'checkout'],
-    ['checkout-chevron', 'down'], ['activity-icon', 'clock'], ['activity-close', 'close'], ['banner-close', 'close']]) {
+    ['checkout-chevron', 'down'], ['quick-ask-icon', 'search'], ['activity-icon', 'clock'], ['activity-close', 'close'], ['banner-close', 'close']]) {
     $(`#${id}`).innerHTML = icon(name);
   }
+  $('#quick-ask-key').textContent = /Mac|iPhone|iPad/u.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
   // Remove the one-use fragment before any asynchronous read or navigation.
   const ticket = new URLSearchParams(location.hash.slice(1)).get('ticket');
   if (ticket) history.replaceState(null, '', '#home');
@@ -788,7 +833,7 @@ async function boot() {
       state.session = { ...await api('/api/session'), tabId };
     }
     updateCheckout(state.session.context);
-    $('#context-switch').disabled = false;
+    $('#context-switch').disabled = $('#quick-ask').disabled = false;
     setConnected('connected', 'Connected locally');
     try {
       const existing = await api('/api/requests');

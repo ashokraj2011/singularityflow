@@ -1566,6 +1566,10 @@
         "icon": "$(folder-opened)"
       },
       {
+        "command": "singularityFlow.askSFlow",
+        "title": "Singularity Flow: Ask SFlow"
+      },
+      {
         "command": "singularityFlow.openHelp",
         "title": "Singularity Flow: Help Center",
         "icon": "$(question)"

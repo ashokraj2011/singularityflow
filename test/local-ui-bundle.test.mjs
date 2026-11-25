@@ -33,14 +33,36 @@ test('packaged CLI opens the independent service with original asset paths and z
   const directory = serviceDirectory(env); descriptor = await readPrivate(path.join(directory, 'instance.json'));
   assert.equal(launched.instance, descriptor.instance);
   assert.equal((await control(descriptor, 'status')).build.engineRoot, root.slice(0, -1), 'source paths are anchored to the selected package');
-  const [index, script, views, code, codeStyle] = await Promise.all(
-    ['/', '/app.js', '/views.js', '/code-explainer.js', '/code-explainer.css'].map(asset => fetch(`${descriptor.origin}${asset}`))
+  const [index, script, views, code, codeStyle, ask, askNavigation, askHistory, askResults, brand, favicon] = await Promise.all(
+    ['/', '/app.js', '/views.js', '/code-explainer.js', '/code-explainer.css', '/ask.js', '/ask-navigation.js', '/ask-history-display.js', '/ask-results.js',
+      '/sflow-brand.svg', '/favicon.svg'].map(asset => fetch(`${descriptor.origin}${asset}`))
   );
-  assert.equal(index.status, 200); assert.match(await index.text(), /SFlow Workspace/u);
+  assert.equal(index.status, 200);
+  const markup = await index.text();
+  assert.match(markup, /SFlow Workspace/u);
+  assert.match(markup, /href="\/favicon\.svg"/u);
+  assert.match(markup, /src="\/sflow-brand\.svg"/u);
+  for (const [asset, name] of [[brand, 'brand.svg'], [favicon, 'icon.svg']]) {
+    assert.equal(asset.status, 200);
+    assert.equal(asset.headers.get('content-type'), 'image/svg+xml');
+    assert.equal(await asset.text(), await readFile(path.join(root, 'apps/vscode/media', name), 'utf8'));
+  }
   assert.equal(script.status, 200); assert.match(await script.text(), /Spec Studio/u);
   assert.equal(views.status, 200); assert.match(await views.text(), /Workspace overview/u);
   assert.equal(code.status, 200); assert.match(await code.text(), /mountCodeExplainer/u);
   assert.equal(codeStyle.headers.get('content-type'), 'text/css; charset=utf-8');
+  const viewsAssets = await Promise.all([
+    ['/code-explainer-view.html', /id="cx-mode-explore"/u], ['/code-explainer-view.css', /#cx-root/u],
+    ['/code-explainer-view.js', /export default\s*\(function/u], ['/code-explainer-model.js', /export function copilotPrompt/u]
+  ].map(async ([asset, expected]) => {
+    const response = await fetch(`${descriptor.origin}${asset}`);
+    return { status: response.status, body: await response.text(), expected };
+  }));
+  for (const { status, body, expected } of viewsAssets) { assert.equal(status, 200); assert.match(body, expected); }
+  assert.equal(ask.status, 200); assert.match(await ask.text(), /mountAsk/u);
+  assert.equal(askNavigation.status, 200); assert.match(await askNavigation.text(), /askSuggestions/u);
+  assert.equal(askHistory.status, 200); assert.match(await askHistory.text(), /askHistoryDisplay/u);
+  assert.equal(askResults.status, 200); assert.match(await askResults.text(), /searchResultsView/u);
   const health = [];
   for (let i = 0; i < 5; i++) {
     const at = performance.now(); assert.equal((await fetch(`${descriptor.origin}/health`)).status, 200); health.push(performance.now() - at);
@@ -62,11 +84,19 @@ test('npm package includes the service, browser and Copilot skill assets', { tim
   const result = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: root, env: isolatedTestEnvironment(base), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 60_000 });
   assert.equal(result.status, 0, result.stderr);
   const files = new Set(JSON.parse(result.stdout)[0].files.map(file => file.path));
-  for (const file of ['src/commands/ui.mjs', 'src/local-ui/cli.mjs', 'src/local-ui/client.mjs', 'src/local-ui/server.mjs',
+  for (const file of ['apps/vscode/media/brand.svg', 'apps/vscode/media/icon.svg',
+    'src/commands/ui.mjs', 'src/local-ui/cli.mjs', 'src/local-ui/client.mjs', 'src/local-ui/server.mjs',
     'src/local-ui/native-auth.mjs', 'src/local-ui/cli-recovery.mjs',
     'src/local-ui/bridge-client.mjs', 'src/local-ui/public/index.html', 'src/local-ui/public/app.js',
     'src/local-ui/public/app.css', 'src/local-ui/public/views.js', 'src/local-ui/public/code-explainer.js',
-    'src/local-ui/public/code-explainer.css', 'src/comprehension/code-map.mjs', 'plugin/skills/sflow-ui/SKILL.md']) assert.ok(files.has(file), file);
+    'src/local-ui/public/code-explainer.css', 'src/ask/history-display.mjs', 'src/ask/retained-history.mjs',
+    'src/git-access-history.mjs', 'src/ask/conversation.mjs', 'src/ask/evidence.mjs', 'src/ask/explanation.mjs',
+    'src/task-handoff.mjs', 'src/task-admission.mjs', 'src/ask/task-handoff.mjs',
+    'src/ask/shared-contract.mjs', 'src/ask/shared-provider-server.mjs', 'src/ask/shared-conversations.mjs',
+    'src/ask/portable-view.mjs', 'src/ask/portable-evidence.mjs', 'src/ask/portable-task.mjs', 'src/ask/private-files.mjs',
+    'src/ask/workspace-search.mjs', 'src/ask/chat.mjs', 'src/local-ui/public/ask-results.js',
+    'src/comprehension/code-map.mjs', 'src/comprehension/code-map-panel.mjs', 'src/code-intelligence/code-explainer-view.mjs',
+    'src/code-intelligence/generated/code-explainer-model.mjs', 'plugin/skills/sflow-ui/SKILL.md']) assert.ok(files.has(file), file);
 });
 
 test('foreground JSON readiness is visible before shutdown and the native control closes it cleanly', { timeout: 30_000 }, async t => {

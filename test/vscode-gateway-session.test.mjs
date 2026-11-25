@@ -141,6 +141,18 @@ test('the editor bundles the shared docs planner with a verified package root', 
   assert.ok(bundle.includes(JSON.stringify(marker)), 'the shared documentation subsystem retains its runtime name');
 });
 
+test('the bundled editor gateway loads Ask SFlow from the staged engine on demand', async () => {
+  const runtime = createRequire(import.meta.url)(path.join(isolatedBundle, 'gateway-runtime.cjs'));
+  const session = runtime.gatewaySession({ root: null, workspaceId: null, workspaceName: null, repositoryId: null, origin: 'test' });
+  const resolved = await session.kernel.resolve({ utterance: 'ask sflow', arguments: { query: 'How do I publish?' } });
+  const answer = await session.kernel.read({ resolutionId: resolved.next[0].handle });
+  assert.equal(answer.operation.id, 'ask.lookup');
+  assert.equal(answer.data.help.id, 'artifacts-and-generation');
+  const map = JSON.parse(await readFile(path.join(isolatedBundle, 'gateway-runtime.cjs.map'), 'utf8'));
+  const deferred = ['/src/ask/read.mjs', '/src/ask/history.mjs', '/src/ask/conversation.mjs', '/src/ask/explanation.mjs', '/src/git-access-history.mjs'];
+  assert.ok(map.sources.every(source => deferred.every(module => !source.endsWith(module))));
+});
+
 test('compact packaged locals preserve public function names and their behavior', () => {
   const load = createRequire(import.meta.url);
   const runtime = load(path.join(isolatedBundle, 'gateway-runtime.cjs'));

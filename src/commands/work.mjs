@@ -36,7 +36,7 @@ function quoted(words) {
   return `"${words.replace(/(["\\$`])/gu, '\\$1')}"`;
 }
 
-function kindOf(words, options) {
+export function kindOf(words, options) {
   const named = optionString(options, 'kind');
   if (named) {
     if (!TASK_KINDS.includes(named)) {
@@ -88,7 +88,7 @@ export async function taskPlan(definition, { kind, touchedPaths = [], pullReques
 }
 
 /** The next free `<prefix>-<n>` among this repository's branches and Stories. */
-export function nextTaskWorkId(root, prefix, { remote = 'origin' } = {}) {
+export function nextTaskWorkId(root, prefix, { remote = 'origin', reserved = [] } = {}) {
   const pattern = new RegExp(`^${prefix}-(\\d+)$`, 'iu');
   const names = new Set();
   const add = (name) => { if (name) names.add(String(name).split('/').pop()); };
@@ -99,6 +99,7 @@ export function nextTaskWorkId(root, prefix, { remote = 'origin' } = {}) {
     const directory = path.join(root, folder);
     if (existsSync(directory)) readdirSync(directory).forEach(add);
   }
+  reserved.forEach(add);
   let highest = 0;
   for (const name of names) {
     const match = pattern.exec(name);
@@ -155,6 +156,10 @@ const WORK_ITEMS = ['singularity/work-items', '.sdlc/work-items'];
 // "… and open a pull request" in the task's own words: the plan ends with it [ITW:REQ-018].
 const ASKS_FOR_PULL_REQUEST = /\b(?:and|then)\s+(?:open|create|raise)\s+(?:a|the)\s+(?:pull request|PR)\b/iu;
 const REPORT_LIMIT = 16 * 1024;
+
+export const taskPlanForWords = (definition, words, options) => taskPlan(definition, {
+  ...options, pullRequest: ASKS_FOR_PULL_REQUEST.test(words)
+});
 
 /** A Story's record as its own branch holds it (this checkout's copy when it is on that branch). */
 function storyRecordOf(root, id, remote = 'origin') {
@@ -226,6 +231,7 @@ export function taskStatus(root, id, { remote = 'origin' } = {}) {
     schemaVersion: 1, resultType: 'sflow-task-status', id, kind: composition?.kind ?? null, title: workflow.workItem?.title ?? null,
     status: workflow.status, done, branch: workflow.workItem?.branch ?? id, base: workflow.workItem?.baseBranch ?? null,
     pullRequest: composition?.pullRequest === true, steps,
+    ...(workflow.executionOrigin?.mode === 'itw-handoff' ? { handoff: workflow.executionOrigin } : {}),
     personApproved: steps.filter((step) => step.approvedBy === 'person').map((step) => step.label),
     words: done
       ? `${id} is done: ${steps.map((step) => step.label).join(', ')}, on branch ${workflow.workItem?.branch ?? id}.`
@@ -262,6 +268,14 @@ function titleOf(words) {
   return line.length > 120 ? `${line.slice(0, 117).trimEnd()}…` : line;
 }
 
+export async function launchTask(id, { words, description = words, preview, base, documents = [], json, admission = null, isolated = false }) {
+  const { startTaskStory } = await import('./start.mjs');
+  return startTaskStory(['start', id], {
+    json, title: titleOf(words), description, base, 'work-type': preview.composition.workType, yes: true,
+    ...(documents.length ? { document: documents } : {}), ...(isolated ? { 'isolated-worktree': true } : {})
+  }, preview.composition, { plan: preview.plan, admission });
+}
+
 /**
  * `work add <STEP>` [ITW:REQ-009]: the task open on this checkout (or --work-id) gains a step after its current one,
  * recorded as a new revision of its pinned workflow (src/task-amendment.mjs). `work skip <STEP>` on a started task is
@@ -288,6 +302,7 @@ async function changeTask(positionals, options) {
 }
 
 export async function workCommand(positionals = [], options = {}) {
+  if (positionals[1] === 'handoff') return (await import('../task-handoff.mjs')).workHandoff(positionals, options);
   if (positionals[1] === 'add' || positionals[1] === 'skip') return changeTask(positionals, options);
   if (positionals[1] === 'status') {
     const root = await taskRepositoryRoot();
@@ -309,7 +324,7 @@ export async function workCommand(positionals = [], options = {}) {
   const use = optionStrings(options, 'use-skill');
   const without = optionStrings(options, 'without-skill');
   const { taskSkillChooser } = await import('../task-skills.mjs');
-  const preview = await taskPlan(definition, { kind, touchedPaths, pullRequest: ASKS_FOR_PULL_REQUEST.test(words),
+  const preview = await taskPlanForWords(definition, words, { kind, touchedPaths,
     add: optionStrings(options, 'add'), skip: optionStrings(options, 'skip'),
     chooseSkills: taskSkillChooser(root, definition, { words, touchedPaths, use, without }) }).catch((error) => {
     // A yes to a marketplace skill whose import is not in the library yet (it waits for its review): this task starts
@@ -360,20 +375,9 @@ export async function workCommand(positionals = [], options = {}) {
   const from = optionString(options, 'from');
   const report = from ? reportOf(root, from, remote) : null;
   const documents = optionStrings(options, 'document').map((file) => path.resolve(process.cwd(), file));
-  const startOptions = {
-    ...(optionBoolean(options, 'json') ? { json: true } : {}),
-    title: titleOf(words),
-    // A task that starts from an investigation carries its report as its intake [ITW:REQ-013]: nothing is asked again.
-    description: report ? `${words}\n\n## Starts from ${from}'s report (${report.artifact})\n\n${report.text}` : words,
-    // A document the task is about, pinned at the version it starts with [ITW:REQ-016].
-    ...(documents.length ? { document: documents } : {}),
-    'work-type': preview.composition.workType,
-    base,
-    yes: true
-  };
   if (!optionBoolean(options, 'json')) console.log(preview.plan);
-  const { startTaskStory } = await import('./start.mjs');
-  return startTaskStory(['start', id], startOptions, preview.composition, { plan: preview.plan }).catch((error) => {
+  return launchTask(id, { words, preview, base, documents, json: optionBoolean(options, 'json'),
+    description: report ? `${words}\n\n## Starts from ${from}'s report (${report.artifact})\n\n${report.text}` : words }).catch((error) => {
     // The plan read a skill this checkout has but the Story's base does not, or has otherwise: started without it.
     if (error?.code === 'TASK_SKILL_CHANGED' && error.details?.skill) {
       error.details.nextAction = { command: startCommand(words, kind, { ...options, 'use-skill': use.filter((skill) => skill !== error.details.skill),
@@ -404,6 +408,17 @@ export async function run(_argv, { positionals = ['work'], options = {} } = {}) 
   if (result?.resultType === 'sflow-task-change') {
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else console.log(`${result.words}\n${result.plan}`);
+    return result;
+  }
+  if (result?.resultType === 'sflow-task-handoff') {
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result));
+    else {
+      console.log(result.message);
+      if (result.plan) console.log(result.plan);
+      if (result.specification) console.log(`${result.specification.reference} · ${result.specification.clauseIds.join(', ') || 'whole revision'}`);
+      if (result.diagnostic) console.log(`${result.diagnostic.code} · ${result.diagnostic.message}`);
+      for (const action of result.actions) console.log(action.label + '\n- Shell: ' + action.command);
+    }
     return result;
   }
   if (result?.resultType === 'sflow-task-status') {

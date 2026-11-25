@@ -37,7 +37,7 @@ export const GATEWAY_PLANNERS = Object.freeze([
   'workspace-doctor-guide', 'workspace-explore-guide',
   'impact-quick', 'impact-quick-assisted', 'impact-what-if', 'impact-what-if-assisted',
   'problem-investigate', 'problem-investigate-assisted', 'investigation-bisect', 'build-read', 'repository-explore', 'repository-query', 'intent-trace',
-  'compare', 'watch-list', 'watch-create', 'watch-revoke', 'review-packet', 'review-open', 'help-explain'
+  'compare', 'watch-list', 'watch-create', 'watch-revoke', 'review-packet', 'review-open', 'help-explain', 'ask-read'
 ].map((name) => Object.freeze({ name, run: null })));
 
 /**
@@ -780,6 +780,18 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     argumentSchema: 'work-subject-v1',
     planner: 'review-open',
     noModelFixture: 'review-open-model-free'
+  },
+
+  {
+    ...READ,
+    id: 'ask.lookup',
+    kernelOperation: 'ask',
+    goals: ['help'],
+    aliases: en('ask sflow'),
+    subjects: ['workspace', 'repository', 'story', 'initiative'],
+    argumentSchema: 'ask-query-v1',
+    planner: 'ask-read',
+    noModelFixture: 'ask-lookup-model-free'
   },
 
   // §5.5 Cited, bounded, and never a way to turn a documentation answer into an action `[INT:CON-040]`.

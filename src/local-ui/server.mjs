@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROTOCOL, MAX_BODY, MAX_CONTENT, MAX_NATIVE_BODY, MAX_REPLY, MAX_PENDING, MAX_RUNNING, TICKET_MS, SESSION_MS, UiError, insist, record, text, identifier, idleMinutes, nativeEnvironment, environmentScope, errorData } from './contracts.mjs';
 import { buildIdentity, privateDirectory, readPrivate, writePrivate, removeOwnDescriptor, serviceDirectory } from './private-state.mjs';
-import { operationShape, executeOperation, disposeReadWorkers } from './operations.mjs';
+import { operationShape, executeOperation, disposeReadWorkers, runCanonical } from './operations.mjs';
 import { leaseOwnerAssessment, leaseOwnerIdentity } from '../lease-liveness.mjs';
 import { nativeEqual, requestProof, responseProof, openInput } from './native-auth.mjs';
 
@@ -14,15 +14,36 @@ const randomKey = () => randomBytes(32).toString('base64url');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const equal = (a, b) => typeof a === 'string' && typeof b === 'string'
   && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const explainerAsset = kind => async () => {
+  const { CX_STYLE, CODE_EXPLAINER_RUNTIME, codeExplainerMarkup } = await import('../code-intelligence/code-explainer-view.mjs');
+  if (kind === 'script') return `export default ${CODE_EXPLAINER_RUNTIME};\n`;
+  if (kind === 'style') return CX_STYLE;
+  const { icon } = await import('./public/views.js');
+  const names = { capability: 'checkout', collection: 'stories', impact: 'expand', refresh: 'history',
+    search: 'search', skill: 'skills', visual: 'specs', workflow: 'workflows' };
+  return codeExplainerMarkup(name => icon(names[name]));
+};
 const publicFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
+  ['/sflow-brand.svg', ['../../../apps/vscode/media/brand.svg', 'image/svg+xml']],
+  ['/favicon.svg', ['../../../apps/vscode/media/icon.svg', 'image/svg+xml']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/ask-navigation.js', ['../../ask/navigation.mjs', 'text/javascript; charset=utf-8']],
+  ['/ask-history-display.js', ['../../ask/history-display.mjs', 'text/javascript; charset=utf-8']],
+  ['/ask.js', ['ask.js', 'text/javascript; charset=utf-8']],
+  ['/ask-results.js', ['ask-results.js', 'text/javascript; charset=utf-8']],
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
   ['/views.js', ['views.js', 'text/javascript; charset=utf-8']],
   ['/code-explainer.js', ['code-explainer.js', 'text/javascript; charset=utf-8']],
-  ['/code-explainer.css', ['code-explainer.css', 'text/css; charset=utf-8']]
+  ['/code-explainer.css', ['code-explainer.css', 'text/css; charset=utf-8']],
+  ['/code-explainer-view.js', [explainerAsset('script'), 'text/javascript; charset=utf-8']],
+  ['/code-explainer-view.css', [explainerAsset('style'), 'text/css; charset=utf-8']],
+  ['/code-explainer-view.html', [explainerAsset('markup'), 'text/html; charset=utf-8']],
+  ['/code-explainer-model.js', ['../../code-intelligence/generated/code-explainer-model.mjs', 'text/javascript; charset=utf-8']]
 ]);
 const terminal = new Set(['succeeded', 'failed', 'unknown', 'expired']);
+const ASK_SELECTION_MS = 5 * 60_000;
+const ASK_CHAT_TURNS = 4;
 const RETENTION_MS = 7 * 24 * 60 * 60_000;
 const MAX_RECORDS = 8192;
 const MAX_RECORD_BYTES = MAX_REPLY * 2 + 64 * 1024;
@@ -99,6 +120,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
   }
   const cookieName = `sflow_${instance.replaceAll('-', '')}`;
   const tickets = new Map(), sessions = new Map(), browsers = new Map(), contexts = new Map(), jobs = new Map(), queue = [], runningRoots = new Set();
+  const storyBindings = new WeakMap();
   const admissions = new Map();
   const bridges = new Map(), handoffs = new Map(), resources = new Map(), nativeNonces = new Map();
   let running = 0, draining = false, lastActivity = Date.now(), origin, server, closed = false;
@@ -213,12 +235,13 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         job.receipt.state = 'running'; job.receipt.startedAt = new Date().toISOString();
         try {
           await persist(job.receipt);
-          const result = await execute({ ...job, directory, onProgress: progress => event(job.session, 'progress', { invocationId: job.receipt.invocationId, ...progress }) });
+          const story = job.machine ? null : await verifyStory(job.context);
+          const result = await execute({ ...job, story, directory, onProgress: progress => event(job.session, 'progress', { invocationId: job.receipt.invocationId, ...progress }) });
           if (job.operation === 'story.list') {
             job.session.choices.clear();
             result.choices = (result.value?.stories ?? []).filter(story => story.availability === 'ready').map(story => {
               const choiceId = randomUUID();
-              job.session.choices.set(choiceId, { root: story.checkoutPath, label: story.workId });
+              job.session.choices.set(choiceId, story);
               return { choiceId, checkoutPath: story.checkoutPath, workId: story.workId };
             });
           }
@@ -256,6 +279,28 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
     const resolved = await realpath(text(root, 'Checkout', 8192));
     insist((await stat(resolved)).isDirectory(), 'UI_CONTEXT_UNAVAILABLE', 'The selected checkout is not a directory.');
     return { id: randomUUID(), key: digest(resolved), root: resolved, label: path.basename(resolved) };
+  }
+  const sameStory = (entry, row) => entry?.workId === row.workId && entry.branch === row.branch
+    && entry.checkoutPath === row.checkoutPath && (entry.repository.id ?? null) === (row.repository.id ?? null)
+    && entry.workspace.id === row.workspace.id && (entry.role ?? 'story') === (row.role ?? 'story')
+    && (entry.lifecycle?.checkoutPath ?? null) === (row.lifecycle?.checkoutPath ?? row.lifecycleCheckoutPath ?? null);
+  function storyChanged(reason) {
+    return new UiError('UI_STORY_CHECKOUT_CHANGED',
+      `The selected Story checkout changed.${reason ? ' ' + reason + '.' : ''} Refresh Stories and open its current checkout.`, null, 409);
+  }
+  async function verifyStory(context) {
+    const entry = storyBindings.get(context);
+    if (!entry) return null;
+    const { verifyStoryEntry } = await import('../story-index.mjs');
+    const result = await verifyStoryEntry(entry);
+    if (result.status !== 'valid' || result.entry.checkoutPath !== context.root) throw storyChanged(result.reason);
+    return result.entry;
+  }
+  function bindStory(context, entry) {
+    storyBindings.set(context, entry);
+    context.label = entry.workId;
+    context.story = { workId: entry.workId, title: entry.title, repositoryId: entry.repository.id,
+      workspaceName: entry.workspace.name, role: entry.role ?? 'story' };
   }
   function browserCookie(req) {
     return String(req.headers.cookie ?? '').split(';').map(part => part.trim()).find(part => part.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
@@ -318,6 +363,9 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           insist(!previous?.environmentHash || previous.environmentHash === environmentHash, 'UI_CLIENT_SCOPE_CHANGED',
             'The native environment changed. Open a new browser client and inspect the original canonical draft/history using your current credentials; the old write will not be repeated.', 409);
           const context = await contextFor(previous?.root ?? input.root);
+          const { indexedCheckoutAt } = await import('../story-index.mjs');
+          const story = await indexedCheckoutAt(context.root, { env: environment }).catch(() => null);
+          if (story) bindStory(context, story);
           contexts.set(context.id, context);
           const ticket = randomKey(), link = `${origin}/#ticket=${ticket}`;
           const clientId = previous?.clientId ?? text(input.clientId, 'Client ID', 128);
@@ -378,7 +426,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         const browser = digest(token), tabId = randomUUID(); browsers.set(browser, Date.now());
         const session = { clientId: grant.clientId, csrf: randomKey(), contexts: new Set([grant.context.id]), contextId: grant.context.id,
           environment: grant.environment, environmentHash: grant.environmentHash,
-          browser, expiresAt: Date.now() + SESSION_MS, sequence: 0, events: [], choices: new Map() };
+          browser, expiresAt: Date.now() + SESSION_MS, sequence: 0, events: [], choices: new Map(), askSelections: new Map() };
         sessions.set(tabId, session);
         res.setHeader('Set-Cookie', `${cookieName}=${token}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=43200`);
         touch(); return send(res, 200, { tabId, csrf: session.csrf, context: grant.context, build: identity, capabilities: capabilitiesFor(session) });
@@ -407,10 +455,169 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         }
         if (route === '/api/session' && req.method === 'GET') return send(res, 200, { csrf: session.csrf, context: selected(session, session.contextId), build: identity,
           capabilities: capabilitiesFor(session) });
+        if (route === '/api/ask' && req.method === 'POST') {
+          const request = await body(req);
+          const interaction = request?.interaction;
+          const chat = interaction === 'chat';
+          const chatControl = ['chat-history', 'chat-reset'].includes(interaction);
+          const prepareTask = interaction === 'task-prepare';
+          const startTask = interaction === 'task-start';
+          const task = prepareTask || startTask || interaction === 'task-status';
+          const contextual = prepareTask || ['evidence', 'select', 'explain', 'forget'].includes(interaction);
+          insist(chat || chatControl || contextual || task || ['activate', 'open-file', 'submit', 'continue', 'resume'].includes(interaction), 'UI_REQUEST_INVALID', 'Choose an Ask SFlow action.');
+          const contextFields = ['conversationId', 'revision'];
+          const supplied = chat ? ['query', 'workspace'] : chatControl ? []
+            : prepareTask ? [...contextFields, 'target', 'words', 'kind', 'clauses', 'evidence']
+            : task ? ['admissionId'] : interaction === 'submit' ? ['query', 'remember', 'portable', 'workspaceSearch', ...contextFields]
+            : contextual ? [...contextFields, ...(['evidence', 'select'].includes(interaction) ? ['target'] : [])]
+              : interaction === 'resume' ? ['portable', 'conversationId'] : ['selection'];
+          const input = record(request, ['contextId', 'interaction', ...supplied]);
+          const context = selected(session, text(input.contextId, 'Context ID', 128));
+          insist(context.id === session.contextId, 'UI_ASK_CONTEXT_CHANGED', 'Switch to the original checkout or search here again.', 409);
+          const turns = session.askChat?.contextId === context.id ? session.askChat.turns : [];
+          if (chatControl) {
+            if (interaction === 'chat-reset') {
+              insist(!session.askReading, 'UI_ASK_BUSY', 'Wait for the current reply before starting a new chat.', 429);
+              session.askChat = null;
+            }
+            return send(res, 200, { kind: 'chat-history', turns: interaction === 'chat-reset' ? [] : turns });
+          }
+          if (interaction === 'resume' && input.conversationId !== undefined) {
+            insist(typeof input.conversationId === 'string' && /^askp?-[a-f0-9]{32}$/u.test(input.conversationId),
+              'UI_REQUEST_INVALID', 'Use an Ask conversation ID.');
+          } else if (contextual || input.conversationId !== undefined || input.revision !== undefined) {
+            const latest = session.askConversation;
+            insist(input.conversationId && latest?.id === input.conversationId && latest?.revision === input.revision && latest?.contextId === context.id,
+              'UI_ASK_CONVERSATION_CHANGED', 'Resume the current Ask conversation from this tab to continue.', 409);
+          }
+          const args = task ? ['work', 'handoff', '--for-person'] : ['ask', '--for-person'];
+          let stdin = null;
+          if (input.conversationId) args.push('--conversation=' + input.conversationId);
+          if (input.revision !== undefined) args.push('--revision=' + input.revision);
+          if (input.portable !== undefined) {
+            insist(input.portable === true && (interaction === 'resume' || input.remember === true && !input.conversationId),
+              'UI_REQUEST_INVALID', 'Choose a new or saved shared Ask conversation.');
+            args.push('--portable');
+          }
+          if (chat) {
+            const question = text(input.query, 'Question', 2000).trim();
+            insist(question && typeof input.workspace === 'boolean', 'UI_REQUEST_INVALID', 'Enter a question and choose whether to include workspace context.');
+            args.splice(1, 0, 'chat', '--query-stdin');
+            stdin = JSON.stringify({ question, workspace: input.workspace, previous: turns.map(({ question, answer }) => ({ question, answer })) });
+          } else if (prepareTask) {
+            const ids = (value, limit, label) => {
+              insist(Array.isArray(value) && value.length <= limit, 'UI_REQUEST_INVALID', `Choose up to ${limit} ${label}.`);
+              return value.map(id => text(id, label, 160));
+            };
+            args.push('--request=' + text(input.words, 'Task', 2000), '--kind=' + text(input.kind, 'Task kind', 24),
+              '--target=' + text(input.target, 'Selected evidence', 36),
+              ...ids(input.clauses ?? [], 32, 'clauses').map(id => '--clause=' + id),
+              ...ids(input.evidence ?? [], 7, 'evidence links').map(id => '--supporting-evidence=' + id));
+          } else if (task) {
+            const id = text(input.admissionId, 'Task handoff', 36);
+            insist(session.askTask?.id === id && session.askTask.contextId === context.id,
+              'UI_ASK_TASK_CHANGED', 'Resume the saved Ask conversation in this tab to open its task handoff.', 409);
+            args.push(id);
+            if (startTask) args.push('--start');
+          } else if (interaction === 'submit') {
+            insist(input.remember === undefined || (input.remember === true && !input.conversationId),
+              'UI_REQUEST_INVALID', 'Choose a new or an existing Ask conversation.');
+            args.push('--question=' + text(input.query, 'Question', 2000));
+            if (input.remember) args.push('--remember');
+            if (input.workspaceSearch !== undefined) {
+              insist(input.workspaceSearch === true, 'UI_REQUEST_INVALID', 'Choose workspace search.');
+              args.push('--all');
+            }
+          } else if (interaction === 'resume' || interaction === 'explain' || interaction === 'forget') {
+            args.push('--' + interaction);
+          } else if (interaction === 'evidence' || interaction === 'select') {
+            const target = text(input.target, 'Selection', 36);
+            insist(/^(?:ev-[a-f0-9]{24}|choice-[1-3])$/u.test(target), 'UI_REQUEST_INVALID', 'Choose a result or evidence link.');
+            args.push('--' + interaction + '=' + target);
+          } else {
+            const selection = session.askSelections.get(text(input.selection, 'Selection', 36));
+            insist(selection && selection.contextId === context.id && selection.expiresAt > Date.now()
+                && interaction === selection.interaction,
+              'UI_ASK_SELECTION_EXPIRED', 'Submit the original question again from this tab.', 409);
+            if (interaction === 'continue') {
+              args.push('--cursor=' + selection.cursor);
+            } else if (interaction === 'open-file') {
+              args.splice(1, 0, 'file');
+              args.push('--ref=' + selection.revision, '--path=' + selection.file);
+            } else {
+              const { reference, stateCommit, manifestSha256 } = selection.specification;
+              args.push('--question=' + reference, '--open-spec', '--state-commit=' + stateCommit, '--manifest-sha256=' + manifestSha256);
+            }
+          }
+          insist(!draining && running < MAX_RUNNING && !session.askReading, 'UI_ASK_BUSY', 'Wait for the current read or cancel it, then try again.', 429);
+          const controller = new AbortController();
+          const abort = () => controller.abort();
+          session.askReading = true;
+          running += 1;
+          if (!startTask) res.once('close', abort);
+          try {
+            await verifyStory(context);
+            const { value } = await runCanonical(context.root, args, {
+              timeoutMs: startTask || prepareTask ? 300_000 : chat ? 55_000 : 20_000,
+              signal: controller.signal, environment: session.environment, personAskModel: interaction === 'explain' || chat, stdin
+            });
+            insist(session.contextId === context.id && contexts.has(context.id),
+              'UI_ASK_CONTEXT_CHANGED', 'The checkout changed while reading. Search again in the selected checkout.', 409);
+            if (value.conversation) session.askConversation = { id: value.conversation.id, revision: value.conversation.revision, contextId: context.id };
+            const ended = ['workspace-search', 'forgotten'].includes(value.kind) || value.kind === 'conversation' && !value.conversation;
+            if (ended) session.askConversation = null;
+            const handoffId = value.resultType === 'sflow-task-handoff' ? value.id : value.conversation?.taskAdmissionId;
+            if (value.conversation || handoffId) session.askTask = handoffId ? { id: handoffId, contextId: context.id } : null;
+            if (ended) session.askTask = null;
+            for (const specification of value.conversation ? [] : value.specifications ?? []) {
+              const id = randomUUID();
+              // The input to activation is opaque. Only an exact revision issued to this tab can open.
+              session.askSelections.set(id, { interaction: 'activate', specification: { ...specification }, contextId: context.id, expiresAt: Date.now() + ASK_SELECTION_MS });
+              specification.selection = id;
+            }
+            for (const result of [...(value.results ?? []), ...(value.sources ?? [])]) {
+              const id = randomUUID();
+              const bound = { contextId: context.id, expiresAt: Date.now() + ASK_SELECTION_MS };
+              if (result.type === 'spec' && result.reference) {
+                session.askSelections.set(id, { ...bound, interaction: 'activate', specification: { ...result } });
+                result.selection = id;
+              } else if (result.type === 'file') {
+                session.askSelections.set(id, { ...bound, interaction: 'open-file', revision: result.revision, file: result.id });
+                result.selection = id;
+              }
+            }
+            if (chat && value.kind === 'chat' && value.status === 'resolved') {
+              session.askChat = { contextId: context.id, turns: [...turns, { question: value.question, answer: value.answer,
+                sources: value.sources }].slice(-ASK_CHAT_TURNS) };
+            }
+            if (value.continuation?.cursor) {
+              const id = randomUUID();
+              session.askSelections.set(id, { interaction: 'continue', cursor: value.continuation.cursor,
+                contextId: context.id, expiresAt: Date.now() + ASK_SELECTION_MS });
+              value.continuation = { selection: id, behavior: value.continuation.behavior };
+            }
+            while (session.askSelections.size > 32) session.askSelections.delete(session.askSelections.keys().next().value);
+            return send(res, 200, value);
+          } catch (error) {
+            if (!task && error?.code === 'UI_OPERATION_TIMEOUT') {
+              throw new UiError('UI_ASK_TIMEOUT', chat ? 'Copilot did not finish this reply. Your question is still in the composer.'
+                : 'Ask SFlow could not finish the read in 20 seconds. Submit the question again to retry.', error.details, 504);
+            }
+            throw error;
+          } finally {
+            res.off('close', abort);
+            session.askReading = false;
+            running -= 1;
+            pump();
+            if (draining) void finishShutdown();
+          }
+        }
         if (route === '/api/handoffs' && req.method === 'POST') {
           const input = record(await body(req), ['contextId', 'type', 'specId', 'menu']);
           const context = selected(session, text(input.contextId, 'Context ID', 128)), bridge = bridgeFor(session);
           insist(context.id === session.contextId && bridge, 'UI_BRIDGE_UNAVAILABLE', 'No matching VS Code window is connected to this tab and checkout.', 409);
+          await verifyStory(context);
+          insist(context.id === session.contextId, 'UI_BRIDGE_UNAVAILABLE', 'The selected checkout changed. Try the handoff in the current checkout.', 409);
           insist(['spec.assist', 'native.menu'].includes(input.type), 'UI_REQUEST_INVALID', 'Unknown editor handoff.');
           if (input.type === 'spec.assist') {
             insist(bridge.copilot, 'UI_COPILOT_UNAVAILABLE', 'Copilot handoff is unavailable in this window.', 409);
@@ -436,13 +643,28 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           insist(Boolean(input.choiceId) !== Boolean(input.contextId), 'UI_REQUEST_INVALID', 'Select one issued context or Story choice.');
           if (input.contextId) {
             const context = selected(session, text(input.contextId, 'Context ID', 128));
+            await verifyStory(context);
             insist(await realpath(context.root) === context.root, 'UI_CONTEXT_MOVED', 'This checkout moved. Reopen it through the native client.', 409);
             session.contextId = context.id;
             return send(res, 200, { context, capabilities: capabilitiesFor(session) });
           }
           const choice = session.choices.get(text(input.choiceId, 'Context choice', 128));
           insist(choice, 'UI_CONTEXT_DENIED', 'Refresh Stories and select a currently available checkout.', 403);
-          const context = await contextFor(choice.root); context.label = choice.label;
+          const { indexedCheckoutAt } = await import('../story-index.mjs');
+          const entry = await indexedCheckoutAt(choice.checkoutPath, { env: session.environment });
+          if (!sameStory(entry, choice)) throw storyChanged();
+          let context = [...session.contexts].map(id => contexts.get(id)).find(candidate => {
+            const known = storyBindings.get(candidate);
+            return sameStory(known, entry) && known.commonDir === entry.commonDir;
+          });
+          if (context) {
+            bindStory(context, entry);
+            session.contextId = context.id;
+            return send(res, 200, { context, capabilities: capabilitiesFor(session) });
+          }
+          context = await contextFor(entry.checkoutPath);
+          if (context.root !== entry.checkoutPath) throw storyChanged();
+          bindStory(context, entry);
           if (session.contexts.size >= 32) {
             const oldest = session.contexts.values().next().value;
             session.contexts.delete(oldest); contexts.delete(oldest);
@@ -468,7 +690,9 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           text(input.invocationId, 'Invocation ID', 36);
           insist(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(input.invocationId), 'UI_REQUEST_INVALID', 'Use a UUID invocation ID.');
           const shape = operationShape(text(input.operation, 'Operation', 128), input.input);
-          const inputHash = digest(JSON.stringify([context.root, session.environmentHash, input.operation, input.input]));
+          const binding = shape.machine || shape.mutation ? null : storyBindings.get(context);
+          const inputHash = digest(JSON.stringify([context.root, session.environmentHash, input.operation, input.input,
+            ...(binding ? [[binding.workId, binding.branch, binding.commonDir, binding.lifecycle?.checkoutPath]] : [])]));
           const previous = jobs.get(input.invocationId);
           if (previous) {
             insist(previous.clientId === session.clientId && previous.inputHash === inputHash, 'UI_INVOCATION_CONFLICT', 'This invocation ID belongs to different input or another client.', 409);
@@ -490,7 +714,8 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             throw error;
           }
           finally { admissions.delete(receipt.invocationId); }
-          queue.push({ operation: input.operation, input: input.input, root: context.root, invocationId: receipt.invocationId, environment: session.environment, session, receipt });
+          queue.push({ operation: input.operation, input: input.input, root: context.root, context, machine: shape.machine,
+            invocationId: receipt.invocationId, environment: session.environment, session, receipt });
           event(session, 'accepted', { invocationId: receipt.invocationId });
           send(res, 202, view(receipt)); pump(); return;
         }
@@ -498,7 +723,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
       }
       const asset = publicFiles.get(route);
       insist(req.method === 'GET' && asset, 'UI_ROUTE_UNSUPPORTED', 'Page not found.', 404);
-      const bytes = await readFile(new URL(`./public/${asset[0]}`, import.meta.url));
+      const bytes = typeof asset[0] === 'function' ? await asset[0]() : await readFile(new URL(`./public/${asset[0]}`, import.meta.url));
       res.writeHead(200, { 'Content-Type': asset[1] }); res.end(bytes);
     } catch (error) {
       if (!res.headersSent) send(res, error.status ?? 500, { error: errorData(error), requestId });

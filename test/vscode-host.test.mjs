@@ -1405,7 +1405,7 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   assert.match(navigation.webview.html, /<span>Singularity Flow<\/span>/);
   const primary = navigation.webview.html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)?.[1] ?? '';
   assert.deepEqual([...primary.matchAll(/data-action="([^"]+)"/g)].map(match => match[1]),
-      ['my-work', 'work-start', 'stories', 'reviews', 'workspace-manage', 'configuration-center']);
+      ['ask-sflow', 'my-work', 'work-start', 'stories', 'reviews', 'workspace-manage', 'configuration-center']);
   assert.match(navigation.webview.html, /data-state-key="pinned-shortcuts"/);
   assert.match(navigation.webview.html, /data-action="setup-wizard"/);
   assert.doesNotMatch(navigation.webview.html, /sf-help|help-popover|title=|mouseover|last-opened/);
@@ -1621,6 +1621,194 @@ test('Help is available without a workspace and opens the canonical offline manu
   assert.match(panel.webview.html, /Story intake/);
   assert.match(panel.webview.html, /CLI command reference/);
   assert.match(panel.webview.html, /\/sf-story-start/);
+});
+
+test('Ask SFlow opens from Navigator and uses offline suggestions and reviewed help', async t => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  await loadExtension(api).activate(context());
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  assert.match(navigation.webview.html, /data-action="ask-sflow"/u);
+  let query = 'specifcation';
+  let destination = 'specs';
+  let sawLocalSuggestion = false;
+  api.window.createQuickPick = () => {
+    let changed, accept, hidden;
+    const dispose = () => {};
+    const picker = {
+      value: '', items: [], activeItems: [], selectedItems: [], dispose,
+      onDidChangeValue(callback) { changed = callback; return { dispose }; },
+      onDidAccept(callback) { accept = callback; return { dispose }; },
+      onDidHide(callback) { hidden = callback; return { dispose }; },
+      show() {
+        picker.value = query;
+        changed();
+        const item = destination ? picker.items.find(value => value.destination === destination) : picker.items[0];
+        sawLocalSuggestion = item?.label === 'Spec Studio';
+        picker.selectedItems = item ? [item] : [];
+        accept();
+      },
+      hide() { hidden(); }
+    };
+    return picker;
+  };
+  registered.commands.set('singularityFlow.openSpecStudio', async () => {});
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.equal(sawLocalSuggestion, true);
+  assert.ok(registered.executedCommands.some(entry => entry.id === 'singularityFlow.openSpecStudio'));
+  query = 'How do I publish?'; destination = null;
+  let results;
+  api.window.showQuickPick = async (items) => { results = items; return undefined; };
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.ok(results?.some(item => item.label === 'Artifacts, templates, and publication'), JSON.stringify(registered.infos));
+});
+
+test('Ask SFlow opts in to shared resume and labels local-only results in the editor', { timeout: 60_000 }, async t => {
+  if (!requireBundle(t)) return;
+  const [{ createHash, randomBytes }, { serveAskProvider }] = await Promise.all([
+    import('node:crypto'), import('../src/ask/shared-provider-server.mjs')
+  ]);
+  const root = await demoRepository();
+  const base = path.dirname(root);
+  t.after(() => removeFixture(base));
+  const remote = run('git', ['remote', 'get-url', 'origin'], { cwd: root }).stdout.trim();
+  const second = path.join(base, 'resume-checkout');
+  run('git', ['clone', remote, second], { cwd: base });
+  run('git', ['commit', '--allow-empty', '-qm', 'Private editor commit'], { cwd: root });
+  const token = randomBytes(32).toString('base64url');
+  const server = path.join(base, 'server.json');
+  const client = path.join(base, 'client.json');
+  const tokenFile = path.join(base, 'client-token');
+  await writeFile(server, JSON.stringify({ schemaVersion: 1, name: 'editor-provider', directory: path.join(base, 'provider'), port: 0,
+    grants: [{ tokenSha256: createHash('sha256').update(token).digest('hex'), owner: 'operator', workspace: 'editor-test', repository: remote }] }), { mode: 0o600 });
+  await writeFile(tokenFile, token, { mode: 0o600 });
+  const service = await serveAskProvider(server);
+  t.after(() => service.close());
+  await writeFile(client, JSON.stringify({ schemaVersion: 1, bindings: [{ provider: 'editor-provider',
+    workspace: 'editor-test', repository: remote, endpoint: 'http://127.0.0.1:' + service.port, tokenFile }] }), { mode: 0o600 });
+  const previous = process.env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG;
+  process.env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG = client;
+  t.after(() => { if (previous == null) delete process.env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG;
+    else process.env.SINGULARITY_FLOW_ASK_PROVIDER_CONFIG = previous; });
+
+  async function readFrom(checkout, initialLabel, query) {
+    const { api, registered } = stubVscode();
+    api.workspace.workspaceFolders = [{ uri: { fsPath: checkout } }];
+    await loadExtension(api).activate(context());
+    api.window.createQuickPick = () => {
+      let changed, accept, hidden;
+      const dispose = () => {};
+      return {
+        value: '', items: [], activeItems: [], selectedItems: [], dispose,
+        onDidChangeValue(callback) { changed = callback; return { dispose }; },
+        onDidAccept(callback) { accept = callback; return { dispose }; },
+        onDidHide(callback) { hidden = callback; return { dispose }; },
+        show() {
+          this.value = query;
+          changed();
+          const item = this.items.find(value => value.label === initialLabel);
+          assert.ok(item, initialLabel);
+          this.selectedItems = [item];
+          accept();
+        },
+        hide() { hidden(); }
+      };
+    };
+    let result;
+    api.window.showQuickPick = async items => { result = items; return undefined; };
+    await registered.commands.get('singularityFlow.askSFlow')();
+    assert.ok(result, JSON.stringify(registered.infos));
+    return result;
+  }
+  const first = await readFrom(root, 'Ask and save across devices', 'commits from 2000-01-01 to 2099-12-31 on HEAD');
+  const original = first.find(item => item.label === 'Private editor commit');
+  assert.ok(original?.target, JSON.stringify(first));
+  const resumed = await readFrom(second, 'Resume Ask conversation across devices', '');
+  assert.ok(resumed.some(item => item.label === 'Result 1 · Available on the original device' && !item.action), JSON.stringify(resumed));
+  assert.ok(resumed.some(item => item.action === 'evidence' && item.target !== original.target));
+  assert.ok(resumed.every(item => !item.label.includes('Private editor commit')));
+});
+
+test('Ask SFlow shows and pages through pinned Git history from the VS Code Navigator', async t => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  t.after(() => rm(path.dirname(root), { recursive: true, force: true }));
+  let requestResume = false;
+  const query = 'commits from 2000-01-01 to 2099-12-31 on HEAD';
+  for (let index = 0; index < 21; index++) run('git', ['commit', '--allow-empty', '-qm', 'Editor history ' + index], { cwd: root });
+  const pinned = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  await loadExtension(api).activate(context());
+  api.window.createQuickPick = () => {
+    let changed, accept, hidden;
+    const dispose = () => {};
+    return {
+      value: '', items: [], activeItems: [], selectedItems: [], dispose,
+      onDidChangeValue(callback) { changed = callback; return { dispose }; },
+      onDidAccept(callback) { accept = callback; return { dispose }; },
+      onDidHide(callback) { hidden = callback; return { dispose }; },
+      show() {
+        this.value = requestResume ? '' : query;
+        changed();
+        this.selectedItems = this.items.slice(0, 1);
+        accept();
+      },
+      hide() { hidden(); }
+    };
+  };
+  const pages = [];
+  api.window.showQuickPick = async items => {
+    pages.push(items);
+    if (pages.length > 1) return undefined;
+    run('git', ['commit', '--allow-empty', '-qm', 'Later than the editor selection'], { cwd: root });
+    return items.find(item => item.label === 'Next page');
+  };
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.equal(pages.length, 2, JSON.stringify(registered.infos));
+  assert.ok(pages[0].some(item => item.label === 'Git commits by committer date' && item.detail.includes(pinned)));
+  assert.ok(pages[1].some(item => item.label === 'Git commits by committer date' && item.detail.includes(pinned)));
+  assert.ok(pages[1].some(item => item.label === 'Editor history 0'));
+  assert.ok(pages[1].every(item => item.label !== 'Later than the editor selection'));
+  requestResume = true;
+  let resumed, selectedEvidence;
+  api.window.showInputBox = async () => 'the first result';
+  api.window.showQuickPick = async items => {
+    if (resumed) { selectedEvidence = items; return undefined; }
+    resumed = items;
+    return items.find(item => item.action === 'follow-up');
+  };
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.ok(resumed?.some(item => item.label === 'Git commits by committer date' && item.detail.includes(pinned)));
+  assert.ok(resumed?.some(item => item.label === 'Editor history 0'));
+  assert.ok(resumed?.some(item => item.action === 'evidence'));
+  assert.ok(resumed?.every(item => item.label !== 'Later than the editor selection'));
+  assert.ok(selectedEvidence?.some(item => item.label === 'Editor history 0' && item.detail.startsWith('commit')));
+
+  const evidenceRevision = selectedEvidence.find(item => item.label === 'Editor history 0').detail.split(' · ')[1];
+  let handoff;
+  api.window.showInputBox = async ({ title }) => title === 'Ask a follow-up' ? 'the first result' : 'investigate the saved commit';
+  api.window.showQuickPick = async (items, options) => {
+    if (options?.canPickMany) return [];
+    if (items.includes('investigate')) return 'investigate';
+    if (items.some(item => item.action === 'task-prepare')) return items.find(item => item.action === 'task-prepare');
+    if (items.some(item => item.action === 'task-start')) { handoff = items; return undefined; }
+    return items.find(item => item.action === 'follow-up');
+  };
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.ok(handoff?.some(item => item.label === 'Evidence · ' + evidenceRevision), JSON.stringify(registered.infos));
+  assert.ok(handoff.some(item => item.label === 'Start this task'));
+  assert.equal(run('git', ['branch', '--list', 'TASK-*'], { cwd: root }).stdout.trim(), '');
+  let restoredHandoff;
+  api.window.showQuickPick = async items => {
+    const open = items.find(item => item.label === 'Open task handoff');
+    if (open) return open;
+    restoredHandoff = items;
+    return undefined;
+  };
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.ok(restoredHandoff?.some(item => item.label === 'Evidence · ' + evidenceRevision));
 });
 
 test('@sflow and Help Center share model-free cited resolution and only prefill actions', async (t) => {

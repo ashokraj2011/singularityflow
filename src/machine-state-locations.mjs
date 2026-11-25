@@ -30,6 +30,8 @@ export const MACHINE_STATE_LOCATIONS = Object.freeze({
   SINGULARITY_FLOW_CONFIRM_CODES: 'confirm-codes',
   SINGULARITY_FLOW_WORKFLOW_BUILD_STATE: 'workflow-builds',
   SINGULARITY_FLOW_REPOSITORY_CATALOG: 'repository-catalog',
+  SINGULARITY_FLOW_ASK_CONVERSATIONS: 'ask-conversations',
+  SINGULARITY_FLOW_ASK_PROVIDER_CONFIG: 'ask-provider.json',
   SINGULARITY_FLOW_LOCAL_MODE_ROOT: 'local-mode',
   SINGULARITY_FLOW_LOCAL_EXPORT_ROOT: 'local-mode-exports',
   SINGULARITY_FLOW_VSCODE_RESET_MARKER: 'vscode-fresh-reset-pending.json',

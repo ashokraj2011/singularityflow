@@ -16,7 +16,39 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
-import { run } from './util.mjs';
+import { gitReadOutput, run, SingularityFlowError } from './util.mjs';
+import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
+
+// Internal transport for typed, local Git readers. UI and gateway adapters call the
+// closed operations that own their argv; this transport is never a tool contract.
+export const TYPED_GIT_TIMEOUT_MS = 15_000;
+const TYPED_GIT_MAX_BUFFER = 8 * 1024 * 1024;
+
+export function typedGit(root, args, { maxBuffer = TYPED_GIT_MAX_BUFFER, env = {} } = {}) {
+  return read(root, ['-c', 'core.quotePath=false', '-c', 'core.fsmonitor=false', ...args], {
+    offline: true, timeoutMs: TYPED_GIT_TIMEOUT_MS, killSignal: 'SIGKILL', maxBytes: maxBuffer,
+    env: { ...withoutGitProcessOverrides(process.env), ...env, GIT_OPTIONAL_LOCKS: '0', GIT_ALLOW_PROTOCOL: '' }
+  });
+}
+
+export function typedOutput(result, label) {
+  return gitReadOutput(result, label, { code: 'TYPED_GIT_READ_UNAVAILABLE' });
+}
+
+/** A repository-relative path, or a refusal before anything reaches argv. */
+export function repositoryRelative(relative) {
+  const value = String(relative ?? '');
+  if (!value || value.startsWith('/') || value.startsWith('\\') || /^[A-Za-z]:/u.test(value)
+      || value.split(/[/\\]/u).includes('..') || /[\u0000-\u001f\u007f]/u.test(value)) {
+    throw new SingularityFlowError(`'${value}' is not a repository-relative path.`, { code: 'TYPED_GIT_PATH_INVALID' });
+  }
+  return value.replace(/\\/gu, '/');
+}
+
+/** The same path as a literal pathspec, so pathspec magic in the value cannot widen the read. */
+export function literalPathspec(relative) {
+  return `:(literal)${repositoryRelative(relative)}`;
+}
 
 const ABSENT_PATH = /path .* does not exist|exists on disk, but not in|not exist in/iu;
 
@@ -26,9 +58,9 @@ function gitEnvironment(env, offline) {
     : env;
 }
 
-function read(root, args, { env, offline, maxBytes = null, encoding = 'utf8' }) {
+function read(root, args, { env, offline, maxBytes = null, encoding = 'utf8', timeoutMs, killSignal }) {
   return run('git', args, {
-    cwd: root, allowFailure: true, env: gitEnvironment(env, offline),
+    cwd: root, allowFailure: true, timeoutMs, killSignal, env: gitEnvironment(env, offline),
     ...(maxBytes == null ? {} : { maxBuffer: maxBytes }),
     ...(encoding === 'buffer' ? { encoding: 'buffer' } : {})
   });

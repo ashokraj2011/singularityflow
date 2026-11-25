@@ -12,6 +12,22 @@ with the original argument array. Neither site runs Git. Download and installer 
 the existing `runtime/install.mjs` process supervisor; the updater adds no process owner or Git
 transport authority. Only this launcher's exact call-site digest is added to the baseline.
 
+Browser Chat uses the existing canonical CLI launch with a fixed argument list and a bounded
+JSON input on stdin. Search stays model-free. Chat requires the selected tab and checkout plus
+the user's explicit action. The model call uses the existing Copilot launcher with tools
+disabled. This updates the one canonical CLI launch fingerprint.
+
+The browser's existing canonical CLI launcher can honor an explicit Explain with Copilot action
+for the active Ask conversation. The server validates the tab, checkout and saved revision.
+The launcher admits the Ask explanation form and preserves the user's no-model setting. All other
+browser commands still force model-free execution. The provider starts through the registered
+model runner. The canonical launcher retains one process site.
+
+Ask SFlow's historical reads share the existing source-inspection launcher. The reviewed call
+adds optional process deadlines and a termination signal for typed reads. Those reads keep
+literal paths, exact revisions and bounded output, with Git transports disabled. The number of
+registered process sites is unchanged.
+
 Story-start configuration reuse adds closed local sites for exact object presence, a private
 retention ref, and a disposable configuration-only shared-object checkout. Only that checkout's
 origin and HEAD/ref/index are initialized; no source index, application branch, or history scan is

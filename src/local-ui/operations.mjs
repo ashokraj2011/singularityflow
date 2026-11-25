@@ -11,6 +11,18 @@ import { cliPath } from './private-state.mjs';
 import { MAX_REPLY, UiError, insist, record, text, identifier } from './contracts.mjs';
 
 export { disposeReadWorkers };
+function codeMapOptions(input) {
+  const depth = input.depth ?? 1;
+  insist([1, 2, 3].includes(depth), 'UI_REQUEST_INVALID', 'Choose a call depth of 1, 2 or 3.');
+  return ['--code-map-format=panel', `--code-map-depth=${depth}`,
+    ...(input.scope == null ? [] : [`--path=${text(input.scope, 'Repository path', 1000)}`])];
+}
+function sourceOptions(input) {
+  const file = text(input.file, 'Source file', 1000);
+  insist(typeof input.sha256 === 'string' && /^sha256:[a-f0-9]{64}$/u.test(input.sha256) &&
+    Number.isSafeInteger(input.line) && input.line > 0, 'UI_REQUEST_INVALID', 'Choose a line from the captured source.');
+  return [`--path=${file}`, `--source-sha256=${input.sha256}`, `--line=${input.line}`];
+}
 const reads = {
   about: () => ['about'],
   'workspace.list': () => ['workspace', 'list'],
@@ -30,9 +42,9 @@ const reads = {
   'agent.list': () => ['agents', 'list'],
   'skill.list': () => ['skill', 'list'],
   'instruction.list': () => ['instruction', 'list'],
-  'code.changes': () => ['explain', 'code', '--code-map=changes'],
-  'code.repository': input => ['explain', 'code', '--code-map=repository',
-    ...(input.scope == null ? [] : [`--path=${text(input.scope, 'Repository path', 1000)}`])],
+  'code.changes': input => ['explain', 'code', '--code-map=changes', ...codeMapOptions(input)],
+  'code.repository': input => ['explain', 'code', '--code-map=repository', ...codeMapOptions(input)],
+  'code.source': input => ['explain', 'code', '--code-map=source', ...sourceOptions(input)],
   'decision.list': input => ['decisions', ...(input.workId ? [identifier(input.workId, 'Story ID')] : [])],
   'app.plan': () => ['app', 'plan'],
   'app.status': () => ['app', 'status'],
@@ -41,7 +53,7 @@ const reads = {
 };
 const fields = {
   'story.read': ['workId'], 'decision.list': ['workId'],
-  'code.repository': ['scope'],
+  'code.changes': ['depth'], 'code.repository': ['scope', 'depth'], 'code.source': ['file', 'sha256', 'line'],
   ...Object.fromEntries(['read', 'show', 'check', 'history', 'sources', 'gaps'].map(name => [`spec.${name}`, ['specId']])),
   'spec.read': ['specId', 'operationId'],
   'spec.create': ['title', 'intent', 'kind'], 'spec.save': ['specId', 'sequence', 'content', 'title', 'kind'],
@@ -50,6 +62,8 @@ const fields = {
   'spec.source.link': ['specId', 'url']
 };
 const writes = new Set(['spec.create', 'spec.save', 'spec.fork', 'spec.source.add', 'spec.source.link']);
+// A multi-repository Story keeps these records in its primary checkout.
+const storyReads = new Set(['story.read', 'decision.list', 'tests.plan', 'tests.summary']);
 export function operationShape(operation, input) {
   insist(Object.hasOwn(reads, operation) || writes.has(operation),
     'UI_OPERATION_UNSUPPORTED', 'This operation is not available in the browser. Use its existing SFlow surface.');
@@ -96,23 +110,27 @@ function redactedValue(value, redact, depth = 0) {
 }
 
 /**
- * No shell, repository executable, model invocation, or caller-provided argv. The explicit context comes
+ * No shell, repository executable, or caller-provided argv. Only the person's explicit Ask actions allow models. The explicit context comes
  * first and every browser value is one `--name=value` word, so no value can end the options (`--`) or
  * name another root. Diagnostics, original errors and progress are redacted before anyone keeps them.
  */
-export async function runCanonical(root, args, { signal, timeoutMs = 300_000, onProgress = () => {}, environment = process.env, machine = false } = {}) {
+export async function runCanonical(root, args, { signal, timeoutMs = 300_000, onProgress = () => {}, environment = process.env, machine = false, personAskModel = false, stdin = null } = {}) {
   const started = performance.now();
   const redact = await redactor();
   const argv = [...(machine ? [] : [`--context-root=${root}`]), ...args];
   return new Promise((resolve, reject) => {
     let bytes = 0, stdout = '', stderr = '', deadline = false, tooLarge = false, settled = false;
-    const env = { ...environment, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_NO_MODEL: '1' };
+    const askModel = personAskModel && args[0] === 'ask' && args.includes('--for-person') &&
+      (args.includes('--explain') || args[1] === 'chat' && args.includes('--query-stdin') && typeof stdin === 'string');
+    const env = { ...environment, ELECTRON_RUN_AS_NODE: '1', ...(askModel ? {} : { SINGULARITY_FLOW_NO_MODEL: '1' }) };
     if (machine) delete env.SINGULARITY_FLOW_SURFACE_CONTEXT;
     else env.SINGULARITY_FLOW_SURFACE_CONTEXT = JSON.stringify({ schemaVersion: 1, repositoryPath: root }); // schema-transient: canonical process selector
-    const child = spawn(process.execPath, [cliPath, ...argv, '--json', '--no-model'], {
-      cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+    const child = spawn(process.execPath, [cliPath, ...argv, '--json', ...(askModel ? [] : ['--no-model'])], {
+      cwd: root, windowsHide: true, stdio: [stdin == null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       env
     });
+    child.stdin?.on('error', () => { /* An early refusal is delivered on the child's result channel. */ });
+    child.stdin?.end(stdin);
     const finish = (error, value) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); error ? reject(error) : resolve(value); };
     const abort = () => { child.kill(); };
     const timer = setTimeout(() => { deadline = true; child.kill(); }, timeoutMs);
@@ -152,9 +170,16 @@ export async function runCanonical(root, args, { signal, timeoutMs = 300_000, on
   });
 }
 
-export async function executeOperation({ operation, input, root, invocationId, directory, signal, onProgress, environment = process.env }) {
+export async function executeOperation({ operation, input, root, story, invocationId, directory, signal, onProgress, environment = process.env }) {
   const shape = operationShape(operation, input);
   let args = reads[operation]?.(input), temporary = null;
+  if (story && storyReads.has(operation)) {
+    insist(!input.workId || input.workId === story.workId, 'UI_STORY_CONTEXT_CHANGED', 'Switch to that Story before reading its workflow.', 409);
+    root = story.lifecycle?.checkoutPath ?? root;
+    args = ['decision.list', 'story.read'].includes(operation)
+      ? reads[operation]({ workId: story.workId })
+      : [...args, `--work-id=${story.workId}`];
+  }
   try {
     // Each browser value is one `--name=value` word: a title of `--` or `--context-root=…` stays a title.
     if (operation === 'spec.create') args = ['spec', 'author', 'new', `--title=${input.title}`, `--kind=${input.kind}`,

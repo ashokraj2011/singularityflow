@@ -35,7 +35,7 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'prompts',
   // Story lessons [LRN-v1]: sflow-lessons and sflow-lessons-change.
   'lessons',
-  'work',
+  'work', 'ask',
   // Returns another command's kept result as that command returned it, or why there is none.
   'result',
   // Runs the command a short confirmation code stands for: its result is that command's own, or why the code names none.

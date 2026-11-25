@@ -6,7 +6,7 @@ import { branch } from '../git.mjs';
 import { readRepositoryManifest } from '../repository-manifest.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import {
-  buildCodeExplainerModel, CX_LIMITS, isCodeLanguage, isExplainableRepositoryPath, languageOf, visibleCode
+  buildCodeExplainerModel, codeAreas, CX_LIMITS, fairSample, isCodeLanguage, isExplainableRepositoryPath, languageOf, visibleCode
 } from '../code-intelligence/generated/code-explainer-model.mjs';
 import { buildLenses } from '../code-intelligence/generated/code-explainer-lenses.mjs';
 import { repositoryCodeEntries, repositoryCodeInventory } from './repository-explanation.mjs';
@@ -25,12 +25,22 @@ function validPath(value) {
     && value.split('/').every(part => part && part !== '.' && part !== '..');
 }
 
-function codePath(file) {
-  return validPath(file) && isExplainableRepositoryPath(file) && isCodeLanguage(languageOf(file));
-}
+const explainablePath = file => validPath(file) && isExplainableRepositoryPath(file);
+const codePath = file => explainablePath(file) && isCodeLanguage(languageOf(file));
 
 const clip = value => visibleCode(value).slice(0, 320);
 const changePath = file => file.pathAfter ?? file.pathBefore ?? file.path;
+
+async function readSource(root, file, maxBytes = MAX_FILE_BYTES) {
+  const { bytes, links } = await readRepositoryManifest(root, file, { maxBytes });
+  if (links?.length) throw new Error('A source path contains a symbolic link.');
+  const text = decoder.decode(bytes);
+  if (text.includes('\0')) throw new Error('The source is not text.');
+  const lines = text.split(/\r\n|\n|\r/u);
+  if (lines.at(-1) === '') lines.pop();
+  return { path: file, language: languageOf(file), lines, symbols: null, bytes: bytes.length,
+    sha256: 'sha256:' + createHash('sha256').update(bytes).digest('hex') };
+}
 
 async function readSources(root, paths, affected) {
   const files = [];
@@ -38,20 +48,14 @@ async function readSources(root, paths, affected) {
   let unavailable = 0;
   for (const file of paths) {
     try {
-      const { bytes: source, links } = await readRepositoryManifest(root, file, {
-        maxBytes: Math.min(MAX_FILE_BYTES, MAX_SOURCE_BYTES - bytes)
-      });
-      bytes += source.length;
+      const source = await readSource(root, file, Math.min(MAX_FILE_BYTES, MAX_SOURCE_BYTES - bytes));
+      bytes += source.bytes;
       const location = affected.get(file)?.location;
-      if (links?.length || (location && location.contentAfterSha256 !== `sha256:${createHash('sha256').update(source).digest('hex')}`)) {
+      if (location && location.contentAfterSha256 !== source.sha256) {
         unavailable += 1;
         continue;
       }
-      const text = decoder.decode(source);
-      if (text.includes('\0')) { unavailable += 1; continue; }
-      const lines = text.split(/\r\n|\n|\r/u);
-      if (lines.at(-1) === '') lines.pop();
-      files.push({ path: file, language: languageOf(file), lines, symbols: null });
+      files.push(source);
     } catch {
       // The file may be absent in a sparse checkout, unavailable, or outside the read limits.
       unavailable += 1;
@@ -211,7 +215,26 @@ function currentBranch(root) {
   }
 }
 
-export async function loadCodeMap(root, { view, scope = null }) {
+export async function loadCodeExcerpt(root, { file, sha256, line }) {
+  if (!codePath(file) || !/^sha256:[a-f0-9]{64}$/u.test(sha256 ?? '') || !Number.isSafeInteger(line) || line < 1) {
+    throw new SingularityFlowError('Choose a line from the captured Code Explainer view.', { code: 'CMP_CODE_SOURCE_INVALID' });
+  }
+  const source = await readSource(root, file).catch(() => null);
+  if (!source || source.sha256 !== sha256) {
+    throw new SingularityFlowError('This file changed or became unavailable. Re-index Code Explainer to open the current source.', {
+      code: 'CMP_CODE_SOURCE_MOVED'
+    });
+  }
+  if (line > Math.max(1, source.lines.length)) {
+    throw new SingularityFlowError('This line is outside the captured source.', { code: 'CMP_CODE_SOURCE_INVALID' });
+  }
+  const first = Math.max(1, line - 36);
+  const { withholdForModel } = await import('../spec-library/share-check.mjs');
+  return { file, line, first, total: source.lines.length,
+    lines: withholdForModel(source.lines.slice(first - 1, line + 35).map(clip)).value };
+}
+
+export async function loadCodeMap(root, { view, scope = null, panel = false, depth = 1 }) {
   if (!['changes', 'repository'].includes(view) || (scope != null && (view !== 'repository' || !validPath(scope)))) {
     // Its way out names the view to ask for (scripts/plain-language-check.mjs: no generic help).
     throw new SingularityFlowError('Choose Changes or Repository and use a repository-relative folder or file.', {
@@ -231,10 +254,20 @@ export async function loadCodeMap(root, { view, scope = null }) {
     ? await repositoryCodeInventory(root, { scope, listOnly: true })
     : null;
   const tracked = [...new Set((inventory?.paths ?? []).filter(codePath))];
+  if (panel && view === 'repository' && scope && inventory?.complete && !tracked.length) {
+    throw new SingularityFlowError(`No tracked code was found under ${scope}. Choose a tracked folder or source file.`, {
+      code: 'CMP_CODE_MAP_SCOPE_EMPTY'
+    });
+  }
   const linkedInventory = inventory && { ...inventory, paths: tracked };
   const browser = !slice && linkedInventory ? repositoryCodeEntries(linkedInventory, scope) : null;
   const selectedChanges = new Set(changed.slice(0, MAX_FILES));
   const raw = slice?.explanationView;
+  if (panel && raw) {
+    for (const file of raw.inventory.files.map(changePath).filter(file => explainablePath(file) && !codePath(file)).slice(0, CX_LIMITS.otherFiles)) {
+      selectedChanges.add(file);
+    }
+  }
   const changeView = raw ? {
     ...raw,
     inventory: {
@@ -249,7 +282,9 @@ export async function loadCodeMap(root, { view, scope = null }) {
     ? [...changed.filter(file => affected.get(file).location.pathAfter),
       ...supportingPaths(tracked, affected, changed)]
     : tracked;
-  const selected = (!slice || changed.length) ? candidates.slice(0, MAX_FILES) : [];
+  const areas = panel ? codeAreas(tracked) : [];
+  const selected = !slice && panel ? fairSample(tracked, file => file, areas, MAX_FILES)
+    : (!slice || changed.length) ? candidates.slice(0, MAX_FILES) : [];
   const source = await readSources(root, selected, affected);
   const notices = [];
   if (inventory?.complete === false) notices.push('The tracked-file list is too large. Open a folder by path to see its code.');
@@ -264,7 +299,7 @@ export async function loadCodeMap(root, { view, scope = null }) {
   if (changed.length && slice?.diff.trackedRegions && slice.diff.fileProjectionStatus !== 'available') {
     notices.push('Changed-line previews are unavailable for this capture.');
   }
-  const result = project({
+  const input = {
     repository: { name: path.basename(root), branch: activeBranch, head: slice?.headCommit ?? null },
     story: null,
     change: {
@@ -276,7 +311,12 @@ export async function loadCodeMap(root, { view, scope = null }) {
     files: source.files, calls: [], callStatus: {}, references: [], referenceStatus: {}, hovers: {},
     focus: null, view: 'full', depth: 1, modelEnabled: false,
     ...(notices.length ? { status: 'partial' } : {})
-  });
+  };
+  if (panel) {
+    const { buildCodeMapPanel } = await import('./code-map-panel.mjs');
+    return buildCodeMapPanel(input, { scope, view, depth, areas, notices, inventory, browser, workId: slice?.context.workId ?? null });
+  }
+  const result = project(input);
   if (result.outlineLimited) notices.push(`Showing up to ${CX_LIMITS.symbols} declarations. Open a smaller folder or file for more detail.`);
   if (result.traceLimited) notices.push(`The trace shows up to ${MAX_TRACE_ROWS} entries each for requirements, tests and runs.`);
   return {

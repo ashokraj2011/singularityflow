@@ -12,10 +12,12 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 
-import { CODE_EXPLAINER_SCRIPT, CX_STYLE, codeExplainerBody } from '../apps/vscode/src/views/code-explainer-page.ts';
+import { CODE_EXPLAINER_SCRIPT, CX_STYLE, codeExplainerMarkup } from '../src/code-intelligence/code-explainer-view.mjs';
+import { escape, icon } from '../apps/vscode/src/views/webview.ts';
 import { codeOnly } from './source-text.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const codeExplainerBody = token => codeExplainerMarkup(icon, escape(token));
 
 function helpers() {
   const window = {};
@@ -115,7 +117,7 @@ test('the host accepts a closed set of messages, each naming ids, never a path, 
   // Every action that opens something resolves it from the host's own harvest.
   assert.match(source, /private locate\(symbolId: string \| null\)/);
   assert.match(source, /containedWorkingPath\(root, relative\)/, 'a repository file is opened only when it stays inside the repository');
-  const page = codeOnly(await readFile(path.join(root, 'apps/vscode/src/views/code-explainer-page.ts'), 'utf8'));
+  const page = codeOnly(await readFile(path.join(root, 'src/code-intelligence/code-explainer-view.mjs'), 'utf8'));
   const posted = [...page.matchAll(/post\('(cx\.[A-Za-z]+)'/g)].map((match) => match[1]);
   for (const type of new Set(posted)) assert.ok(accepted.includes(type), `the page only sends what the host accepts: ${type}`);
 });
@@ -198,7 +200,7 @@ test('three modes hold every view the panel had: Explore asks about one function
   assert.match(CODE_EXPLAINER_SCRIPT, /if \(view\.lens !== 'code'\) \{ view\.lens = 'code'; paintLensBar\(\); \}/);
   assert.match(CODE_EXPLAINER_SCRIPT, /if \(next !== view\.lens\) view\.lensItem = null;/);
   // Where it starts: the function under the cursor, a change, else the repository's map.
-  assert.match(CODE_EXPLAINER_SCRIPT, /if \(fresh && !view\.mode\) setMode\(message\.focus \|\| model\.focus \? 'explore' : model\.change\.status === 'available' \? 'change' : 'map'\);/);
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(fresh && !view\.mode\) setMode\(message\.focus \|\| \(vscode\.embedded \? model\.requested : model\.focus\) \? 'explore' : model\.change\.status === 'available' \? 'change' : 'map'\);/);
 });
 
 test('lens layouts: stacked top-down and wrapped to the panel; flowcharts never overlap and long switches grow downwards', () => {

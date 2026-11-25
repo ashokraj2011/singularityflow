@@ -1431,6 +1431,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.manageFavorites', () => sidebar.manageFavorites()
   ));
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.askSFlow', async () => {
+    try {
+      const { openAskSFlow } = helpRuntime();
+      await openAskSFlow(activeRepositoryContext, (root, args) => {
+        const client = new SingularityFlowClient({
+          location: resolveCli({ extensionPath: context.extensionPath }),
+          repository: root ?? process.cwd(),
+          surfaceBinding: Boolean(root),
+          environment: () => ({
+            ...process.env,
+            ...(vscode.workspace.getConfiguration('singularityFlow').get<'auto' | 'disabled'>('modelMode', 'auto') === 'disabled'
+              ? { SINGULARITY_FLOW_NO_MODEL: '1' } : {})
+          })
+        });
+        const taskWrite = args[1] === 'handoff' && args.some(arg => arg === '--start' || arg.startsWith('--request='));
+        const timeout = taskWrite ? 305_000 : 20_000;
+        return client.run(args, AbortSignal.timeout(timeout));
+      });
+    } catch (error) {
+      showRefusal(error, { headline: 'Could not complete the Ask SFlow action' });
+    }
+  }));
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openHelp', async (node?: TreeNode) => {
     try {
       const location = resolveCli({ extensionPath: context.extensionPath });

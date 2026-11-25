@@ -7,3 +7,4 @@
  */
 export { HelpPanel } from './views/help.ts';
 export { resolveHelp } from '../../../src/help-service.mjs';
+export { openAskSFlow } from './ask-sflow.ts';

@@ -47,7 +47,9 @@ export async function buildIdentity() {
     'src/local-ui/operations.mjs', 'src/local-ui/bridge-client.mjs', 'src/local-ui/public/app.js',
     'src/local-ui/public/app.css', 'src/local-ui/public/index.html', 'src/local-ui/public/views.js',
     'src/local-ui/public/code-explainer.js', 'src/local-ui/public/code-explainer.css',
-    'src/comprehension/code-map.mjs'];
+    'src/code-intelligence/code-explainer-view.mjs', 'src/code-intelligence/generated/code-explainer-model.mjs',
+    'src/code-intelligence/generated/code-explainer-lenses.mjs', 'src/comprehension/code-map.mjs',
+    'src/comprehension/code-map-panel.mjs'];
   names.push('src/local-ui/native-auth.mjs', 'src/local-ui/cli-recovery.mjs');
   const hash = createHash('sha256');
   for (const name of names) hash.update(name).update(await readFile(path.join(engineRoot, name)));

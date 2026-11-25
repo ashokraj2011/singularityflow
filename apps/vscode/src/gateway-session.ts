@@ -30,7 +30,7 @@ import {
 } from '../../../src/gateway/planners/ast-intelligence.mjs';
 import { developerNext, workNextSteps, workProgress } from '../../../src/gateway/planners/developer-next.mjs';
 import { contextBrief } from '../../../src/gateway/planners/context-brief.mjs';
-import { helpExplain } from '../../../src/gateway/planners/help-explain.mjs';
+import { askReadPlanner, helpExplain } from '../../../src/gateway/planners/help-explain.mjs';
 import {
   governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
   governedGoalTracePlanner
@@ -78,6 +78,7 @@ export function editorPlanners(): Map<string, unknown> {
     ['goal-trace', governedGoalTracePlanner],
     ['home-overview', homeOverview],
     ['help-explain', helpExplain],
+    ['ask-read', askReadPlanner],
     ['work-list', workList],
     ['work-continue', workContinue],
     // The Handoff view reads the packet through the kernel like any other read `[INT:REQ-178]`.

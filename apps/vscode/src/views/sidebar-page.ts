@@ -9,6 +9,7 @@ import type { SidebarNavigation } from './sidebar-navigation-model.ts';
  * Reviews, and After install in Help & diagnostics.
  */
 export const PRIMARY_NAVIGATION = [
+  { id: 'ask-sflow', label: 'Ask SFlow', icon: 'search', command: 'singularityFlow.askSFlow' },
   { id: 'my-work', label: 'My Work', icon: 'home', command: 'singularityFlow.myWork' },
   { id: 'work-start', label: 'Start new work', icon: 'start', command: 'singularityFlow.startWork' },
   { id: 'stories', label: 'Stories', icon: 'story', command: 'singularityFlow.openWorkspaceStories' },

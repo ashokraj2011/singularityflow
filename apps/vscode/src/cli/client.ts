@@ -249,6 +249,7 @@ function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
 }
 
 const READ_ONLY_COMMANDS = new Set([
+  'ask',
   'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'progress',
   'guide', 'logs', 'doctor', 'check', 'nextsteps', 'snapshot', 'validate', 'precheck', 'change', 'proof',
   'comprehension', 'outcome', 'result', 'prompts'
@@ -325,6 +326,7 @@ function cacheableRead(args: string[]): boolean {
     && !(args[0] === 'workflow' && args[1] === 'build')
     // A specification draft and a split proposal change with every save and in other hosts (the shell, Copilot).
     && !(args[0] === 'spec' && (args[1] === 'author' || args[1] === 'split'))
+    && args[0] !== 'ask'
     // An upload changes in a background process and on every retry; each look must see it now.
     && args[0] !== 'push'
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview

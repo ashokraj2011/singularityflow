@@ -50,7 +50,7 @@ function initiativeEntry(state, location) {
   return { kind: 'initiative', id, canonicalBranch, branches, aliases, state, location };
 }
 
-function parseEntry(relative, content, location) {
+export function parseSubjectStateRecord(relative, content, location) {
   const state = typeof content === 'string' ? JSON.parse(content) : content;
   if (relative.endsWith('/workflow.json')) return storyEntry(readRecord('story-workflow', state).record, { ...location, path: relative });
   if (relative.endsWith('/state.json')) return initiativeEntry(readRecord('initiative-state', state).record, { ...location, path: relative });
@@ -219,7 +219,7 @@ function cachedRefSubjects(key, load) {
   return value;
 }
 
-function safeRefRoot(value, fallback) {
+export function safeRefRoot(value, fallback) {
   const candidate = String(value ?? fallback).trim().replace(/\/$/, '');
   if (!candidate || candidate.startsWith(':') || path.posix.isAbsolute(candidate)
       || path.posix.normalize(candidate) !== candidate
@@ -237,7 +237,7 @@ function safeRefRoot(value, fallback) {
  * exact definition it was created under, so discovery reads only these two path settings from that
  * ref and still falls back to the caller's definition for legacy branches without a snapshot.
  */
-function localConfigurationAtRef(root, ref, relative, env = process.env) {
+export function localConfigurationAtRef(root, ref, relative, env = process.env) {
   const observed = sourceFileAt(root, ref, relative, { env, offline: true });
   if (observed.status === 'present') return { status: 'ok', content: observed.value };
   if (observed.status === 'absent') return { status: 'missing', content: null };
@@ -522,7 +522,7 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
       };
       let candidate;
       try {
-        candidate = content && parseEntry(relative, content, location);
+        candidate = content && parseSubjectStateRecord(relative, content, location);
       } catch (error) {
         index.unreadable.push(stateDiagnostic({ path: relative, location, reason: error.message }));
         continue;

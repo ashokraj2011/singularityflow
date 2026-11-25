@@ -200,6 +200,7 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
  * guessing wrong would swallow a real value, which is the worse failure.
  */
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
+  'suggest', 'open-spec', 'remember', 'forget', 'explain', 'portable',
   'drain',
   'heartbeat', 'not-applicable', 'submit',
   // work "<words>" --start starts the task's Story [ITW:REQ-001]; --new starts it over a task open on this checkout.
@@ -251,7 +252,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
  * of these is always its value. Every one is read with optionString only.
  */
 export const FREE_TEXT_OPTIONS = Object.freeze(new Set([
-  'title', 'description', 'acceptance-criteria', 'reason', 'message', 'note', 'notes', 'intent', 'answer', 'question', 'detail'
+  'title', 'description', 'acceptance-criteria', 'reason', 'message', 'note', 'notes', 'intent', 'answer', 'question', 'detail', 'request'
 ]));
 
 export function parseArgs(argv) {

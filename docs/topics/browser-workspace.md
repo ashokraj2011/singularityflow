@@ -8,7 +8,7 @@ related:
   - run-and-test
 commands:
   - ui
-version: 2
+version: 3
 ---
 # Open the local SFlow browser workspace
 
@@ -67,8 +67,12 @@ stays available to any chat.
 3. Attach supporting documents or images, up to 5 MiB per file in the browser. They use the existing
    local source store; only descriptors may later travel with a shared specification. A missing
    original requests the matching file on that computer.
-4. Search Stories, sort them by their column headings (creation date descending by default) and open
-   one into this tab's context.
+4. Search the Stories with checkouts on this computer, sort them by their column headings (creation
+   date descending by default) and open one in this tab. For a Story available on the remote,
+   attach it with `singularity-flow session open <WORK-ID>` or the VS Code Story picker first.
+   Once selected, a Story's Run & Test results and Decisions come from its workflow checkout.
+   If the Story spans repositories, Code Explainer and the application plan follow the repository
+   you opened. Open the primary checkout for Ask questions about the Story record.
 5. When a matching VS Code window is connected, **Continue with Copilot** prepares the existing
    `/sf-spec-author` request in that window. The person chooses Send. Delivery is not model execution,
    completion, acceptance or approval. A disconnected or different-checkout editor connection is refused.

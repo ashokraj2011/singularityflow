@@ -11930,6 +11930,7 @@ export async function main(argv) {
 async function dispatch(command, positionals, options, argv) {
   const handlers = validateCommandHandlers({
     about: async () => (await import('./commands/about.mjs')).run(argv, { positionals, options }),
+    ask: async () => (await import('./commands/ask.mjs')).run(argv, { positionals, options }),
     ui: async () => (await import('./commands/ui.mjs')).run(argv, { positionals, options }),
     update: async () => (await import('./commands/update.mjs')).run(argv, { positionals, options }),
     help: async () => (await import('./commands/help.mjs')).helpCommand(positionals, options),

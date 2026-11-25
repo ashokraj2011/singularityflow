@@ -79,6 +79,32 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  ask: {
+    summary: 'Find work, open an exact specification, inspect retained history, or compare revisions.',
+    options: [
+      ['--suggest', 'Find matching menu entries using local metadata.'],
+      ['--work-id ID', 'Read the named work in the selected checkout.'],
+      ['--open-spec', 'Open the published revision verified by the specification reader.'],
+      ['--for-person', 'Use your own terminal or viewer for full specification text or a bounded patch.'],
+      ['--cursor TOKEN', 'Continue a stateless history read with its original dates and revisions.'],
+      ['--remember', 'Save the answer’s ordered source references and filters privately on this machine.'],
+      ['--portable', 'Opt in to the configured private provider with --remember or --resume. Use --for-person.'],
+      ['--resume', 'Reopen and verify the last saved answer in the checkout and audience.'],
+      ['--conversation ID --revision N', 'Use the verified context revision for a follow-up or evidence link.'],
+      ['--explain', 'Organize a saved answer using an optional tool-free Copilot call. Use --for-person.']
+    ],
+    examples: [
+      ['singularity-flow ask "What is blocking me?"', 'Show current work and its recorded blockers.'],
+      ['singularity-flow ask "spec used for this Story"', 'Inspect the published revision pinned to the current Story.'],
+      ['singularity-flow ask SPEC-CHK-004@3 --open-spec --for-person', 'Read the exact revision.'],
+      ['singularity-flow ask "history for story STORY-1"', 'Read retained Story events.'],
+      ['singularity-flow ask "commits last week in UTC on main"', 'Filter reachable Git commits by committer date.'],
+      ['singularity-flow ask "compare main with release/v1"', 'Compare the two exact endpoint trees.'],
+      ['singularity-flow ask --resume --portable --for-person', 'Reopen the latest conversation from the configured provider.'],
+      ['singularity-flow ask provider serve --config FILE', 'Run the shared provider from a private server configuration.']
+    ],
+    seeAlso: ['help', 'home', 'spec']
+  },
   appeal: {
     summary: 'Resolve phase blockers and review exact extra-work scope without waiving tests or approving the phase.',
     description: ['preflight is read-only and names repair/human/configuration/external owners.',
@@ -529,7 +555,8 @@ const PAGES = Object.freeze({
       ['singularity-flow work "fix the login timeout on slow networks" --start', 'Start it as a Story.'],
       ['singularity-flow work "why do cancelled orders still send emails?" --kind investigate', 'An investigation: a report, no code change.'],
       ['singularity-flow work status', 'Where the task on this checkout stands: each step and who approved it.'],
-      ['singularity-flow work add review', 'Give the started task a review step after its tests.']
+      ['singularity-flow work add review', 'Give the started task a review step after its tests.'],
+      ['singularity-flow work handoff ITW-ID --for-person', 'Check a task prepared from saved Ask SFlow evidence. Use --start to start or retry that exact handoff.']
     ],
     seeAlso: ['start', 'workflow', 'lessons']
   },

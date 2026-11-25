@@ -47,6 +47,14 @@ Usage:
   singularity-flow --warm-runtime
     Prepare optional Node bytecode caches for this installed build; no repository commands or models.
   singularity-flow help [TOPIC|COMMAND] [--json]
+  singularity-flow ask [QUESTION] [--work-id ID] [--json]
+  singularity-flow ask --suggest [TEXT] [--json]
+  singularity-flow ask --cursor TOKEN [--json]
+  singularity-flow ask QUESTION --remember [--portable] [--for-person] [--json]
+  singularity-flow ask --resume [--portable | --conversation ID] [--for-person]
+  singularity-flow ask provider serve --config FILE [--json]
+  singularity-flow ask --conversation ID --revision N [QUESTION | --evidence=ID | --explain | --forget]
+  singularity-flow ask SPEC-ID@N --open-spec [--for-person]
   sflow specify [WORK-ID] [--json]
   sflow plan [WORK-ID] [--json]
   sflow implement [WORK-ID] [--json]
@@ -1131,6 +1139,8 @@ Usage:
   singularity-flow work "<words>" --start [--kind KIND] [--work-id ID] [--base BRANCH] [--from TASK-ID] [--document FILE]... [--add STEP]... [--skip STEP]... [--use-skill ID]... [--without-skill ID]... [--new] [--json]
   singularity-flow work status [TASK-ID] [--json]
   singularity-flow work add requirements|design|plan|review [--work-id ID] [--json]
+  singularity-flow work handoff --conversation ID --revision N --request TEXT [--kind KIND] [--target EVIDENCE-ID] [--clause ID]... [--supporting-evidence ID]... --for-person [--json]
+  singularity-flow work handoff ITW-ID [--start] --for-person [--json]
 
   singularity-flow initiative status [INIT-ID] [--json]
   singularity-flow initiative next [INIT-ID] [--json]

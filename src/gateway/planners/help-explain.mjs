@@ -10,6 +10,9 @@
  * question becomes a clarification with the nearest topic IDs, never the closest topic served as if
  * it were the answer.
  */
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from '../../package-root.mjs';
 import { DOCS_DEFAULT_PREVIEW_BYTES } from '../../docs-topics.mjs';
 import { resolveHelp } from '../../help-service.mjs';
 import { classifyHelpIntent } from '../../help-intents.mjs';
@@ -470,4 +473,12 @@ export function explainServedResult(resolution, { wantsHere = false, here = null
       hereUnavailable: wantsHere && !here ? { reason: situation?.reason ?? 'unknown', detail: situation?.detail ?? null } : null
     }
   });
+}
+
+/** Load ASK with the packaged CLI on first use rather than expanding the editor's cold gateway. */
+export async function askReadPlanner(request) {
+  const owner = globalThis.__SFLOW_EXTENSION_HOST__
+    ? await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'ask', 'read.mjs')).href)
+    : await import('../../ask/read.mjs');
+  return owner.askGatewayRead(request);
 }

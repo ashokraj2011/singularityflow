@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, rm, writeFile, readFile, readdir, chmod, utimes, stat, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile, readdir, chmod, utimes, stat, access, realpath } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { request as httpRequest, createServer as httpServer } from 'node:http';
@@ -20,7 +20,7 @@ import { withUiRecovery } from '../src/local-ui/cli-recovery.mjs';
 import { UiError, nativeEnvironment } from '../src/local-ui/contracts.mjs';
 import { browserLaunch } from '../src/local-ui/cli.mjs';
 
-async function fixture(t) {
+async function fixture(t, { checkout = 'project' } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-ui-'));
   const env = isolatedTestEnvironment(path.join(base, 'machine'));
   const previous = { ...process.env };
@@ -28,7 +28,7 @@ async function fixture(t) {
   for (const key of Object.keys(process.env)) if (!Object.hasOwn(env, key)) delete process.env[key];
   Object.assign(process.env, env);
   t.after(async () => { try { for (const cleanup of cleanups) await cleanup(); } finally { for (const key of Object.keys(process.env)) delete process.env[key]; Object.assign(process.env, previous); await rm(base, { recursive: true, force: true }); } });
-  const root = path.join(base, 'project'); await mkdir(root);
+  const root = path.join(base, checkout); await mkdir(root, { recursive: true });
   const mustGit = (...args) => { const result = spawnSync('git', args, { cwd: root, env, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); };
   mustGit('init', '-q', '-b', 'main');
   await writeFile(path.join(root, 'README.md'), '# Isolated local workspace fixture\n');
@@ -521,7 +521,7 @@ test('startup removes stale temporary files, aged and read receipts; a tab\'s st
   assert.deepEqual(nativeEnvironment({ PATH: '/usr/bin', 'BASH_FUNC_module%%': '() {  :; }' }), { PATH: '/usr/bin' });
 });
 
-test('browser Code Explainer follows changed code and browses tracked files without editing the checkout', async t => {
+test('browser Code Explainer shares the editor views and keeps actions bound to captured code', { timeout: 90_000 }, async t => {
   const screenshot = process.env.SINGULARITY_FLOW_CODE_EXPLAINER_SCREENSHOT;
   const { root, directory, mustGit, cleanup } = await fixture(t);
   await mkdir(path.join(root, 'src'));
@@ -543,6 +543,16 @@ test('browser Code Explainer follows changed code and browses tracked files with
     '  return quoteTotal(subtotal).toFixed(2);',
     '}',
     ''
+  ].join('\n'));
+  await writeFile(path.join(root, 'src', 'types.ts'), 'export interface Quote {\n  subtotal: number;\n  tax: number;\n}\n');
+  await writeFile(path.join(root, 'src', 'api.js'), [
+    "import { formatReceipt } from './receipt.js';",
+    'export function submitQuote(request, response) {',
+    '  response.send(formatReceipt(request.body.amount));',
+    '}',
+    'export function register(app) {',
+    "  app.post('/quote', submitQuote);",
+    '}', ''
   ].join('\n'));
   await mkdir(path.join(root, 'singularity'));
   await writeFile(path.join(root, 'singularity', 'private-example.js'), 'export function internalOnly() { return 7; }\n');
@@ -569,55 +579,108 @@ test('browser Code Explainer follows changed code and browses tracked files with
   const service = await startService({ directory }); cleanup(() => service.close());
   const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID() });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  page.setDefaultTimeout(12_000);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(launch.url);
   await page.getByRole('link', { name: 'Code Explainer', exact: true }).click();
-  await page.getByRole('heading', { name: 'Call map', exact: true }).waitFor();
-  await page.getByRole('region', { name: 'Selected declaration' }).getByText('quoteTotal').waitFor();
-  await page.getByRole('region', { name: 'Callers', exact: true }).getByRole('button', { name: /formatReceipt/ }).waitFor();
-  const callee = page.getByRole('region', { name: 'Called declarations' }).getByRole('button', { name: /calculateTax/ });
-  await callee.waitFor();
-  const diff = page.getByRole('table', { name: 'Changed lines' });
-  const addedLine = diff.getByRole('row').filter({ hasText: 'subtotal <= 0' });
-  const removedLine = diff.getByRole('row').filter({ hasText: 'subtotal < 0' });
-  assert.deepEqual((await addedLine.locator('td').allTextContents()).slice(0, 3), ['', '5', '+']);
-  assert.deepEqual((await removedLine.locator('td').allTextContents()).slice(0, 3), ['4', '', '-']);
+  await page.locator('#cx-nodes .cx-row').filter({ hasText: 'quoteTotal' }).waitFor();
+  assert.ok((await page.locator('#cx-canvas').boundingBox()).height > 250, 'the graph has room when its note is hidden');
+  assert.equal(await page.getByRole('tab', { name: /^My change/ }).getAttribute('aria-selected'), 'true');
   if (screenshot) await page.screenshot({ path: screenshot, fullPage: true, animations: 'disabled' });
-  await callee.click();
-  await page.getByRole('region', { name: 'Selected code' }).getByRole('heading', { name: 'calculateTax' }).waitFor();
-  const search = page.getByRole('searchbox', { name: 'Find a file or declaration' });
-  await search.fill('quoteTotal');
-  await page.getByRole('complementary').getByRole('button', { name: /quoteTotal/ }).click();
-  await page.getByRole('button', { name: 'Logic', exact: true }).click();
-  await page.locator('.cx-logic').getByText('subtotal <= 0', { exact: false }).waitFor();
-  await page.getByRole('button', { name: 'Requirements & tests', exact: true }).click();
-  await page.locator('summary').getByText('QUOTE-1:AC-001', { exact: true }).click();
-  await page.getByText('test/quote.test.js', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'src/quote.js', exact: true }).click();
-  await page.getByRole('heading', { name: 'Call map', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Requirements & tests', exact: true }).click();
-  await page.getByText('No test runs were retained for this change view.').waitFor();
-  await search.fill('temporaryDiscount');
-  await page.getByRole('complementary').getByRole('button', { name: /temporaryDiscount/ }).click();
-  await page.getByRole('table', { name: 'Source excerpt' }).getByText('return 0.05;', { exact: false }).waitFor();
 
-  await page.getByRole('group', { name: 'Code to explore' }).getByRole('button', { name: 'Repository', exact: true }).click();
-  await page.getByRole('heading', { name: 'Files', exact: true }).waitFor();
-  await page.getByText('Browse folders and files', { exact: true }).click();
-  await page.getByRole('button', { name: 'src · 3 files' }).click();
-  await page.getByRole('navigation', { name: 'Repository path' }).getByText('src', { exact: true }).waitFor();
-  await page.getByText('Browse folders and files', { exact: true }).click();
-  await page.getByRole('button', { name: 'tax.js', exact: true }).click();
-  await page.getByRole('navigation', { name: 'Repository path' }).getByText('tax.js', { exact: true }).waitFor();
-  await page.getByRole('region', { name: 'Selected code' }).getByRole('heading', { name: 'calculateTax' }).waitFor();
-  await page.getByRole('textbox', { name: 'Repository-relative path' }).fill('src/receipt.js');
-  await page.getByRole('button', { name: 'Go', exact: true }).click();
-  await page.getByRole('region', { name: 'Selected code' }).getByRole('heading', { name: 'formatReceipt' }).waitFor();
+  await page.getByRole('tab', { name: 'Explore', exact: true }).click();
+  const inspector = page.getByRole('complementary', { name: 'Inspector' });
+  await inspector.locator('.cx-ins-title').getByText('quoteTotal', { exact: true }).waitFor();
+  await page.getByRole('button', { name: /^Who calls it/ }).click();
+  await inspector.locator('[data-section="callers"]').getByRole('button', { name: /formatReceipt/ }).waitFor();
+  await inspector.locator('[data-section="callees"]').getByRole('button', { name: /calculateTax/ }).waitFor();
+  await page.locator('#cx-edges .edge.inferred').first().waitFor({ state: 'attached' });
+  const world = page.locator('#cx-world');
+  const transform = await world.evaluate(node => node.style.transform);
+  await page.locator('[data-action="zoom-in"]').click();
+  assert.notEqual(await world.evaluate(node => node.style.transform), transform);
+
+  await inspector.getByRole('button', { name: 'Compare diff', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  const diff = dialog.getByRole('list', { name: 'Captured diff' });
+  await diff.getByText(/subtotal <= 0/).waitFor();
+  assert.deepEqual((await diff.locator('li[data-diff="+"]').filter({ hasText: 'subtotal <= 0' }).locator('span').allTextContents()), ['', '5', '+']);
+  assert.deepEqual((await diff.locator('li[data-diff="-"]').filter({ hasText: 'subtotal < 0' }).locator('span').allTextContents()), ['4', '', '-']);
+  await dialog.getByRole('button', { name: 'Close preview' }).click();
+  await inspector.getByRole('button', { name: 'Open source' }).click();
+  await dialog.getByRole('list', { name: 'Source excerpt' }).getByText(/subtotal <= 0/).waitFor();
+  await dialog.getByRole('button', { name: 'Close preview' }).click();
+
+  const inView = await readFile(quote, 'utf8');
+  await writeFile(quote, inView.replace('subtotal <= 0', 'subtotal < 1'));
+  await inspector.getByRole('button', { name: 'Open source' }).click();
+  await dialog.getByRole('alert').getByText(/This file changed or became unavailable/).waitFor();
+  await dialog.getByRole('button', { name: 'Close preview' }).click();
+  await writeFile(quote, inView);
+
+  await page.getByRole('button', { name: 'Steps and decisions', exact: true }).click();
+  await page.locator('#cx-logic .cx-logic-node.decision').getByText(/subtotal <= 0/).waitFor();
+  await page.getByRole('tab', { name: /^My change/ }).click();
+  await page.getByRole('tab', { name: /^Requirements → tests/ }).click();
+  await page.locator('#cx-trace').getByRole('button', { name: /^QUOTE-1:AC-001/ }).waitFor();
+  await page.locator('#cx-trace').getByText('quote.test.js', { exact: true }).waitFor();
+  await page.locator('#cx-trace').getByText('No test run is recorded for this phase generation.').waitFor();
+  await page.getByRole('tab', { name: /^Walk through it/ }).click();
+  await page.locator('#cx-walk').getByText(/^Step 1 of/).waitFor();
+  await page.locator('#cx-walk').getByRole('button', { name: /Next/ }).click();
+  await page.locator('#cx-walk').getByText(/^Step 2 of/).waitFor();
+
+  const search = page.getByRole('searchbox', { name: 'Find a function' });
+  await search.fill('temporaryDiscount');
+  await search.press('Enter');
+  await page.getByRole('tab', { name: 'Explore', exact: true }).click();
+  await inspector.locator('.cx-ins-title').getByText('temporaryDiscount', { exact: true }).waitFor();
+  await inspector.getByRole('button', { name: 'Open source' }).click();
+  await dialog.getByRole('list', { name: 'Source excerpt' }).getByText('return 0.05;').waitFor();
+  await dialog.getByRole('button', { name: 'Close preview' }).click();
+  await search.fill('');
+
+  await page.getByRole('tab', { name: 'Map', exact: true }).click();
+  const repo = page.locator('#cx-repo');
+  await repo.getByRole('button', { name: /^src\// }).click();
+  await repo.getByRole('button', { name: /^src\/tax\.js/ }).waitFor();
+  const pathInput = page.getByRole('searchbox', { name: 'Repository-relative path' });
+  await pathInput.fill('src/tax.js');
+  await pathInput.press('Enter');
+  await repo.getByRole('button', { name: 'function calculateTax', exact: true }).click();
+  await inspector.locator('.cx-ins-title').getByText('calculateTax', { exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Map', exact: true }).click();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Folder the full view maps' }).selectOption('-1');
+  await page.locator('#cx-nodes .cx-row').filter({ hasText: 'formatReceipt' }).waitFor();
+  await page.getByRole('tab', { name: 'What it is about', exact: true }).click();
+  await page.locator('#cx-concepts').getByRole('heading', { name: /How it is organised/ }).waitFor();
+  await page.getByRole('tab', { name: 'The data it holds', exact: true }).click();
+  await page.locator('#cx-entities').getByText('Quote', { exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Explore', exact: true }).click();
+  await page.getByRole('button', { name: 'Data in and out', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Entry point' }).locator('option').filter({ hasText: 'POST /quote' }).waitFor({ state: 'attached' });
+
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth), true);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export JSON' }).click();
+  const report = JSON.parse(await readFile(await (await download).path(), 'utf8'));
+  assert.equal(report.authority, 'none');
+  assert.ok(report.symbols.some(symbol => symbol.name === 'calculateTax'));
+  assert.ok(report.symbols.every(symbol => symbol.name !== 'internalOnly'));
   const stored = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }));
   assert.ok(!JSON.stringify(stored).includes('calculateTax'));
+
+  await page.getByRole('button', { name: 'Ask Copilot', exact: true }).click();
+  const question = page.getByRole('textbox', { name: 'Ask a question' });
+  await question.waitFor();
+  assert.match(await question.inputValue(), /Code Explainer/u);
+  assert.equal(await page.getByRole('log', { name: 'Chat conversation' }).textContent(), '');
   assert.equal(mustGit('status', '--porcelain'), before);
   assert.deepEqual(errors, []);
 });
@@ -699,7 +762,7 @@ test('actual browser creates, edits, previews, saves and reloads a draft without
   assert.deepEqual(errors, []);
 });
 
-test('browser navigation, Story selection and readable summaries work on desktop and narrow screens', async t => {
+test('browser navigation, Story sorting and readable summaries work on desktop and narrow screens', async t => {
   const { root, base, directory, cleanup } = await fixture(t);
   const other = path.join(base, 'checkout-b');
   await mkdir(other);
@@ -750,9 +813,6 @@ test('browser navigation, Story selection and readable summaries work on desktop
   await page.getByRole('searchbox', { name: 'Find a Story' }).clear();
   await page.getByRole('button', { name: 'Can open here' }).click();
   assert.equal(await stories.getByRole('row').count(), 2);
-  await page.getByRole('button', { name: 'Open Checkout recovery' }).click();
-  await page.getByRole('heading', { name: 'Workspace overview' }).waitFor();
-  assert.equal(await page.locator('#context-name').textContent(), 'SW-1');
 
   await nav.getByRole('link', { name: 'Spec Studio' }).click();
   await page.getByRole('button', { name: 'Published', exact: true }).click();
@@ -793,6 +853,142 @@ test('browser navigation, Story selection and readable summaries work on desktop
   assert.deepEqual(errors, []);
 });
 
+test('browser Stories bind code, decisions, questions and test evidence to the real Story worktree', { timeout: 85_000 }, async t => {
+  const { root, base, directory, env, mustGit, cleanup } = await fixture(t, { checkout: 'workspace/repos/app' });
+  const workspacePath = path.join(base, 'workspace');
+  const remote = path.join(base, 'app.git');
+  const apiRemote = path.join(base, 'api.git');
+  const apiRoot = path.join(workspacePath, 'repos', 'api');
+  const id = 'BROWSER-101';
+  const title = 'Track invoice totals';
+  const git = (checkout, ...args) => mustGit('-C', checkout, ...args);
+  const cli = (checkout, ...args) => {
+    const result = spawnSync(process.execPath, [cliPath, ...args, '--no-model', '--json'], {
+      cwd: checkout, env, encoding: 'utf8', timeout: 30_000
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    return result.stdout;
+  };
+  const [{ default: YAML }, { readWorkspace }, { rememberWorkspace }, { chromium }] = await Promise.all([
+    import('yaml'), import('../src/workspace-manifest.mjs'), import('../src/workspace.mjs'), import('playwright-core')
+  ]);
+  cli(root, 'init');
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.git.publish = 'off';
+  config.repositoryReadiness.requiredBeforeStory = false;
+  await writeFile(configPath, YAML.stringify(config));
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.repositories = { app: { url: remote, defaultBranch: 'main', required: true },
+    api: { url: apiRemote, defaultBranch: 'main', required: true } };
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  await writeFile(path.join(root, 'singularity/capabilities.yml'), YAML.stringify({
+    version: 1, capabilities: {
+      enterprise: { kind: 'collection', parent: null, policy: {} },
+      product: { kind: 'collection', parent: 'enterprise', policy: {} },
+      delivery: { kind: 'delivery', parent: 'product', repositories: ['app', 'api'], policy: {} }
+    }
+  }));
+  await writeFile(path.join(root, 'invoice.js'), 'export function invoiceTotal(value) { return value; }\n');
+  mustGit('add', '.'); mustGit('commit', '-qm', 'Initialize application');
+  mustGit('branch', 'sflow/config');
+  mustGit('init', '--bare', '-q', '-b', 'main', remote);
+  mustGit('init', '--bare', '-q', '-b', 'main', apiRemote);
+  mustGit('remote', 'add', 'origin', remote);
+  mustGit('push', '-qu', 'origin', 'main', 'sflow/config');
+  mustGit('clone', '--no-local', '-q', remote, apiRoot);
+  git(apiRoot, 'remote', 'set-url', 'origin', apiRemote);
+  await writeFile(path.join(apiRoot, 'payments.js'), 'export function reconcileInvoice(value) { return value; }\n');
+  git(apiRoot, 'add', 'payments.js'); git(apiRoot, 'commit', '-qm', 'Initialize API');
+  git(apiRoot, 'push', '-qu', 'origin', 'main');
+  await writeFile(path.join(workspacePath, 'workspace.json'), JSON.stringify({
+    version: 1, id: 'browser-stories', name: 'Invoice workspace', anchor: { provider: 'workspace', key: 'browser-stories' },
+    leadRepository: 'app', capabilities: ['delivery'], repositories: {
+      app: { url: remote, path: 'repos/app', defaultBranch: 'main', capabilities: ['delivery'] },
+      api: { url: apiRemote, path: 'repos/api', defaultBranch: 'main', capabilities: ['delivery'] }
+    }
+  }));
+  await rememberWorkspace(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, await readWorkspace(workspacePath));
+  cli(root, 'workspace', 'use', workspacePath, '--repository', 'app');
+  cli(root, 'start', id, '--isolated-worktree', '--from-branch', 'main', '--capability', 'delivery', '--work-type', 'feature',
+    '--title', title, '--description', 'Return a normalized invoice total.');
+  const canonical = JSON.parse(cli(root, 'workspace', 'stories', id)).stories;
+  assert.deepEqual(canonical.map(({ role, availability }) => [role, availability]).sort(),
+    [['secondary', 'ready'], ['story', 'ready']]);
+  const { checkoutPath, branch } = canonical.find(item => item.role === 'story');
+  const { checkoutPath: apiCheckout } = canonical.find(item => item.role === 'secondary');
+  assert.notEqual(checkoutPath, await realpath(root));
+  await writeFile(path.join(checkoutPath, 'invoice.js'), 'export function invoiceTotal(value) { return Math.round(value); }\n');
+  await writeFile(path.join(apiCheckout, 'payments.js'), 'export function reconcileInvoice(value) { return Math.abs(value); }\n');
+  const storyBefore = git(checkoutPath, 'status', '--porcelain');
+  const refBefore = git(checkoutPath, 'rev-parse', 'HEAD');
+
+  const browser = await chromium.launch({ headless: true }); cleanup(() => browser.close());
+  const service = await startService({ directory }); cleanup(() => service.close());
+  const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID(), environment: env });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  page.setDefaultTimeout(12_000);
+  const nav = page.getByRole('navigation', { name: 'Main navigation' });
+  const openStory = page.getByRole('button', { name: 'Open ' + title, exact: true });
+  const responses = [];
+  page.on('response', async response => {
+    if (new URL(response.url()).pathname.startsWith('/api/requests/') && response.ok()) {
+      const receipt = await response.json();
+      if (receipt.state === 'succeeded') responses.push(receipt);
+    }
+  });
+  await page.goto(launch.url);
+  await nav.getByRole('link', { name: 'Stories' }).click();
+  await openStory.click();
+  await page.getByRole('heading', { name: 'Workspace overview' }).waitFor();
+  assert.equal(await page.locator('#context-name').textContent(), id);
+  assert.equal(await page.locator('#context-switch').getAttribute('title'), checkoutPath);
+
+  await nav.getByRole('link', { name: 'Code Explainer' }).click();
+  await page.locator('#cx-nodes .cx-row').filter({ hasText: 'invoiceTotal' }).waitFor();
+  const code = responses.find(item => item.operation === 'code.changes')?.result?.value;
+  assert.equal((code?.data ?? code)?.codeMap?.model?.story?.workId, id);
+  await nav.getByRole('link', { name: 'Ask SFlow' }).click();
+  const field = page.getByRole('searchbox', { name: 'Ask a question' });
+  await field.fill('current story');
+  await field.press('Enter');
+  await page.getByRole('heading', { name: title, exact: true }).waitFor();
+  await nav.getByRole('link', { name: 'Decisions' }).click();
+  await page.getByText(new RegExp('^' + id + ' ·')).waitFor();
+  await nav.getByRole('link', { name: 'Run & Test' }).click();
+  await page.getByText(`No retained test run for ${id} in this phase.`).waitFor();
+  const summary = responses.find(item => item.operation === 'tests.summary')?.result?.value;
+  assert.equal(summary?.scope?.workId, id, JSON.stringify(summary?.scope));
+  assert.equal(git(checkoutPath, 'status', '--porcelain'), storyBefore);
+  assert.equal(git(checkoutPath, 'rev-parse', 'HEAD'), refBefore);
+  assert.equal(mustGit('status', '--porcelain'), '');
+
+  await nav.getByRole('link', { name: 'Stories' }).click();
+  await page.getByRole('button', { name: 'Open ' + title + ' in api', exact: true }).click();
+  await page.getByRole('heading', { name: 'Selected Story' }).waitFor();
+  assert.equal(await page.locator('#context-switch').getAttribute('title'), apiCheckout);
+  await nav.getByRole('link', { name: 'Code Explainer' }).click();
+  await page.locator('#cx-nodes .cx-row').filter({ hasText: 'reconcileInvoice' }).waitFor();
+  assert.equal(await page.locator('#cx-nodes .cx-row').filter({ hasText: 'invoiceTotal' }).count(), 0);
+  await nav.getByRole('link', { name: 'Decisions' }).click();
+  await page.getByText(new RegExp('^' + id + ' ·')).waitFor();
+  await nav.getByRole('link', { name: 'Run & Test' }).click();
+  await page.getByText(`No retained test run for ${id} in this phase.`).waitFor();
+
+  await page.locator('#context-switch').click();
+  await page.getByRole('button', { name: /^app/ }).click();
+  await nav.getByRole('link', { name: 'Stories' }).click();
+  await openStory.waitFor();
+  // The folder still exists, but a different branch now occupies it.
+  git(checkoutPath, 'switch', '-qc', 'other-invoice');
+  await openStory.click();
+  await page.locator('#banner-message').filter({ hasText: 'Refresh Stories' }).waitFor();
+  assert.equal(await page.locator('#context-switch').getAttribute('title'), await realpath(root));
+  assert.equal(git(checkoutPath, 'branch', '--show-current'), 'other-invoice');
+  git(checkoutPath, 'switch', '-q', branch);
+});
+
 test('an agent turn only reads the service status: ui open, serve and stop with --for-agent are refused with the person\'s route', async () => {
   const { run } = await import('../src/local-ui/cli.mjs');
   for (const action of ['open', 'serve', 'stop']) {
@@ -805,4 +1001,352 @@ test('an agent turn only reads the service status: ui open, serve and stop with 
   // `ui status` is never refused for being an agent turn (it may still fail for another reason, never this one).
   await run(['ui', 'status', '--for-agent'], { positionals: ['ui', 'status'], options: { 'for-agent': true } })
     .then(() => {}, (error) => assert.notEqual(error.code, 'UI_FOREGROUND_NATIVE_ONLY'));
+});
+
+test('Ask SFlow agrees across CLI, browser and Copilot reads and reopens the issued revision', { timeout: 60_000 }, async t => {
+  const { root, directory, env, mustGit, cleanup } = await fixture(t);
+  const { revisionFiles } = await import('../src/spec-library/library.mjs');
+  const { revisionDirectory } = await import('../src/spec-library/ids.mjs');
+  const { createHash } = await import('node:crypto');
+  const { createHostGateway, boundedToolAnswer } = await import('../src/gateway/host.mjs');
+  const { gatewayPlanners } = await import('../src/gateway/planners/index.mjs');
+  const specId = 'SPEC-ASK-FIXTURE';
+  const secret = inventedValue('gh', 'p_', 'R7sV'.repeat(10));
+  const firstBody = ['# Checkout pricing', '', 'api_key = "' + secret + '"', ''].join('\n');
+  const originalBranch = mustGit('branch', '--show-current');
+  const now = '2026-01-10T12:00:00.000Z';
+  const hash = value => 'sha256:' + createHash('sha256').update(value).digest('hex');
+  const newRevision = async (revision, title, body, parent = null) => {
+    const built = revisionFiles({
+      specId, revision, parent, reviewState: 'reviewed', operationId: 'test-ask-revision-' + revision,
+      actor: { name: 'Example Reviewer', email: 'reviewer@example.test' }, recordedAt: now,
+      head: { sequence: revision, snapshotSha256: hash(body), draft: { title, kind: 'business', spec: body, gaps: [], research: [] } },
+      report: { counts: { d: 0, a: 0, h: 0 }, blocking: [] }
+    });
+    const target = path.join(root, revisionDirectory(specId, revision));
+    await mkdir(target, { recursive: true });
+    for (const [name, bytes] of Object.entries(built.files)) await writeFile(path.join(target, name), bytes);
+    mustGit('add', '-A'); mustGit('commit', '-qm', 'Fixture specification revision ' + revision);
+    return { revision, stateCommit: mustGit('rev-parse', 'HEAD'), manifestSha256: hash(built.files['manifest.json']) };
+  };
+  mustGit('switch', '-qc', 'state');
+  const original = await newRevision(1, 'Checkout pricing', firstBody);
+  mustGit('switch', '-qc', 'ask-order', originalBranch);
+  const stateDir = path.join(root, 'singularity/work-items/ASK-ORDER');
+  await mkdir(stateDir, { recursive: true });
+  await writeFile(path.join(stateDir, 'workflow.json'), JSON.stringify({
+    schemaVersion: 1, state: 'in-progress',
+    workItem: { id: 'ASK-ORDER', branch: 'ask-order', title: 'Order discount',
+      source: { specification: [{ ...original, revision: specId + '@1' }] } },
+    phaseOrder: ['implementation'], currentPhase: 'implementation',
+    phases: { implementation: { id: 'implementation', status: 'in-progress', generation: 0,
+      requiredArtifact: { path: 'implementation-summary.md' }, artifacts: [] } }
+  }));
+  mustGit('add', '-A'); mustGit('commit', '-qm', 'Fixture Story');
+  const stateFile = path.join(stateDir, 'workflow.json');
+  const workBefore = await readFile(stateFile, 'utf8');
+  const refsBefore = mustGit('show-ref');
+  const checkoutBefore = mustGit('rev-parse', 'HEAD');
+  const cli = (...args) => {
+    const child = spawnSync(process.execPath, [cliPath, 'ask', ...args, '--json', '--no-model'], { cwd: root, env, encoding: 'utf8' });
+    assert.equal(child.status, 0, child.stderr || child.stdout);
+    return JSON.parse(child.stdout);
+  };
+
+  const service = await startService({ directory }); cleanup(() => service.close());
+  const first = await connect(service, root);
+  const otherTab = await connect(service, root, { clientId: first.clientId, cookie: first.cookie });
+  const ask = (tab, input) => tab.api('/api/ask', { contextId: tab.session.context.id, ...input });
+  const query = 'spec used for this Story';
+  const native = cli(query, '--for-person');
+  assert.equal(native.work.id, 'ASK-ORDER', JSON.stringify(native));
+  assert.deepEqual(native.work.blockers, ['required-artifact-missing']);
+  assert.equal(native.specifications[0].reference, specId + '@1');
+  const submitted = await ask(first, { interaction: 'submit', query });
+  assert.equal(submitted.status, 200, JSON.stringify(submitted.value));
+  assert.deepEqual(submitted.value.work, native.work);
+  const [selection] = submitted.value.specifications;
+  const { selection: opaque, ...binding } = selection;
+  assert.deepEqual(binding, native.specifications[0]);
+  assert.equal(submitted.value.resultSetId, native.resultSetId);
+  assert.equal((await ask(otherTab, { interaction: 'activate', selection: opaque })).status, 409);
+  assert.equal((await ask(first, { interaction: 'activate', selection: opaque, reference: specId + '@2' })).status, 400);
+  assert.equal((await ask(first, { interaction: 'submit', query, operation: 'work.start' })).status, 400);
+
+  const host = createHostGateway({ root, hostSessionId: 'ask-fixture', planners: gatewayPlanners() });
+  const resolved = await host.kernel.resolve({ utterance: 'ask sflow', arguments: { query } });
+  const read = await host.kernel.read({ resolutionId: resolved.next[0]?.handle });
+  assert.equal(read.operation.id, 'ask.lookup', JSON.stringify(read));
+  assert.equal(JSON.stringify(read).includes(secret), false);
+  assert.deepEqual(read.data.work, native.work);
+  assert.deepEqual(read.data.specifications, native.specifications);
+  const onWire = boundedToolAnswer('sflow_read', read);
+  assert.equal(JSON.stringify(onWire).includes(secret), false);
+  assert.equal(argvAllowed([cliPath, 'ask', specId + '@1', '--open-spec', '--for-person'], 'read-only-review', {}), false);
+
+  assert.equal(await readFile(stateFile, 'utf8'), workBefore);
+  assert.equal(mustGit('show-ref'), refsBefore);
+  assert.equal(mustGit('rev-parse', 'HEAD'), checkoutBefore);
+  assert.equal(mustGit('status', '--porcelain'), '');
+  const modelArtifact = cli(specId + '@1', '--open-spec');
+  assert.equal(modelArtifact.artifact.content.includes(secret), false);
+  assert.equal(cli(specId + '@1', '--open-spec', '--for-person').artifact.content, firstBody);
+
+  mustGit('switch', '-q', 'state');
+  await newRevision(2, 'Newer checkout pricing', '# Revised terms\n', original);
+  mustGit('switch', '-q', 'ask-order');
+  const opened = await ask(first, { interaction: 'activate', selection: opaque });
+  assert.equal(opened.status, 200, JSON.stringify(opened.value));
+  assert.equal(opened.value.artifact.content, firstBody);
+  assert.equal(opened.value.artifact.reference, specId + '@1');
+  assert.equal(cli(specId).specifications[0].reference, specId + '@2');
+  assert.equal(cli(query).specifications[0].reference, specId + '@1');
+
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ headless: true }); cleanup(() => browser.close());
+  const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID() });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  const loads = [];
+  page.on('request', request => {
+    if (['/api/ask', '/api/operations'].includes(new URL(request.url()).pathname)) loads.push(request.url());
+  });
+  await page.goto(launch.url);
+  await page.getByRole('link', { name: 'Ask SFlow', exact: true }).click();
+  const field = page.getByRole('searchbox', { name: 'Ask a question' });
+  await field.fill('specifcation');
+  await page.getByRole('list', { name: 'Suggested destinations' }).getByRole('button', { name: /Spec Studio/ }).waitFor();
+  assert.deepEqual(loads, []);
+  await field.fill('How do I publish?');
+  await field.press('Enter');
+  await page.getByRole('heading', { name: 'Artifacts, templates, and publication' }).waitFor();
+  assert.equal(loads.length, 1);
+  await field.fill(query);
+  await field.press('Enter');
+  await page.getByRole('button', { name: 'Open ' + specId + '@1 · Checkout pricing' }).click();
+  await page.getByRole('heading', { name: 'Checkout pricing', exact: true, level: 2 }).waitFor();
+  await field.fill('story ASK-ORDER');
+  await field.press('Enter');
+  await page.getByRole('button', { name: 'Open ' + specId + '@1 · Checkout pricing' }).waitFor({ state: 'detached' });
+  const linked = page.waitForResponse(response => new URL(response.url()).pathname === '/api/ask' &&
+    response.request().postDataJSON().query === 'show the specification behind the first result');
+  await page.getByRole('button', { name: 'Open the spec used for this Story' }).click();
+  assert.equal((await (await linked).json()).evidence.revision, original.stateCommit);
+  assert.equal(mustGit('status', '--porcelain'), '');
+});
+
+test('Ask SFlow history follows its pinned next page in the browser', { timeout: 60_000 }, async t => {
+  const { root, directory, mustGit, cleanup } = await fixture(t);
+  for (let index = 0; index < 20; index++) mustGit('commit', '--allow-empty', '-qm', 'History row ' + index);
+  const pinned = mustGit('rev-parse', 'HEAD');
+  const initial = mustGit('rev-list', '--max-parents=0', 'HEAD');
+  const service = await startService({ directory });
+  cleanup(() => service.close());
+  const tab = await connect(service, root);
+  const otherTab = await connect(service, root, { clientId: tab.clientId, cookie: tab.cookie });
+  const query = 'commits from 2000-01-01 to 2099-12-31 in UTC on HEAD';
+  const first = await tab.api('/api/ask', { contextId: tab.session.context.id, interaction: 'submit', query });
+  assert.equal(first.status, 200);
+  assert.equal(first.value.history.scope.revision, pinned);
+  assert.equal(first.value.continuation.cursor, undefined);
+  const selection = first.value.continuation.selection;
+  assert.equal((await otherTab.api('/api/ask', { contextId: otherTab.session.context.id, interaction: 'continue', selection })).status, 409);
+  assert.equal((await tab.api('/api/ask', { contextId: tab.session.context.id, interaction: 'activate', selection })).status, 409);
+
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ headless: true });
+  cleanup(() => browser.close());
+  const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID() });
+  const page = await browser.newPage();
+  await page.goto(launch.url);
+  await page.getByRole('link', { name: 'Ask SFlow', exact: true }).click();
+  const field = page.getByRole('searchbox', { name: 'Ask a question' });
+  await field.fill(query);
+  const submitted = page.waitForResponse(response => new URL(response.url()).pathname === '/api/ask');
+  await field.press('Enter');
+  const response = await submitted;
+  const browserValue = await response.json();
+  assert.equal(browserValue.history?.scope?.revision, pinned, JSON.stringify(browserValue));
+  await page.waitForFunction(() => document.querySelector('#ask-status')?.textContent !== 'Reading…');
+  assert.equal(await page.locator('#ask-status').textContent(), 'Answer ready.');
+  await page.getByRole('heading', { name: 'Git commits by committer date' }).waitFor({ timeout: 5000 });
+  await page.getByText('20 commits retrieved so far · Partial coverage').waitFor();
+  mustGit('commit', '--allow-empty', '-qm', 'New after pinned history');
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await page.getByText('21 commits · Complete coverage', { exact: true }).waitFor();
+  assert.equal(await page.getByText('New after pinned history').count(), 0);
+  assert.equal(await page.getByText(new RegExp(initial)).count(), 1);
+
+  await field.fill('compare ' + initial + ' with ' + pinned);
+  await field.press('Enter');
+  await page.getByRole('heading', { name: 'Revision comparison' }).waitFor();
+  await page.getByText('No matching paths · Complete coverage').waitFor();
+  assert.equal(mustGit('status', '--porcelain'), '');
+});
+
+test('Ask SFlow resumes private context in a new browser tab and opens the saved evidence', { timeout: 45_000 }, async t => {
+  const { root, directory, env, mustGit, cleanup } = await fixture(t);
+  env.SINGULARITY_FLOW_NO_MODEL = '1';
+  const initial = mustGit('rev-parse', 'HEAD');
+  mustGit('commit', '--allow-empty', '-qm', 'First visible result');
+  const service = await startService({ directory });
+  cleanup(() => service.close());
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ headless: true });
+  cleanup(() => browser.close());
+  async function launchAsk() {
+    const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID(), environment: env });
+    const page = await browser.newPage();
+    await page.goto(launch.url);
+    await page.getByRole('link', { name: 'Ask SFlow', exact: true }).click();
+    return page;
+  }
+  const first = await launchAsk();
+  const field = first.getByRole('searchbox', { name: 'Ask a question' });
+  await field.fill('commits from 2000-01-01 to 2099-12-31 on HEAD');
+  await field.press('Enter');
+  await first.getByText('2 commits · Complete coverage').waitFor();
+  mustGit('commit', '--allow-empty', '-qm', 'Newer than the saved page');
+  await first.close();
+
+  const next = await launchAsk();
+  await next.getByRole('button', { name: 'Resume saved conversation' }).click();
+  await next.getByText('2 commits · Complete coverage').waitFor();
+  assert.equal(await next.getByText('Newer than the saved page').count(), 0);
+  const followUp = next.getByRole('searchbox', { name: 'Ask a question' });
+  await followUp.fill('the second result');
+  await followUp.press('Enter');
+  const evidence = next.getByRole('region', { name: 'Evidence and explanation' });
+  await evidence.getByText(new RegExp(initial)).waitFor();
+  await next.getByRole('button', { name: 'Explain with Copilot' }).click();
+  await evidence.getByRole('heading', { name: 'Explanation from recorded evidence' }).waitFor();
+  await assert.rejects(access(path.join(root, '.git/singularity-flow/model-invocations')));
+});
+
+test('browser search finds workspace records and pinned files, and Copilot chat uses explicit context and keeps follow-ups', { timeout: 65_000 }, async t => {
+  const { base, root, directory, env, mustGit, cleanup } = await fixture(t);
+  const [{ initializeDefinition }, { revisionFiles }, { revisionDirectory }, { chromium }, { default: YAML }] = await Promise.all([
+    import('../src/config.mjs'), import('../src/spec-library/library.mjs'), import('../src/spec-library/ids.mjs'), import('playwright-core'), import('yaml')
+  ]);
+  await initializeDefinition(root);
+  const standin = path.join(base, 'chat-standin.mjs');
+  const calls = path.join(base, 'chat-calls.jsonl');
+  const secret = inventedValue('gh', 'p_', 'M2sV'.repeat(10));
+  await writeFile(standin, [
+    'import { readFileSync, appendFileSync } from "node:fs";',
+    'const args = process.argv.slice(2);',
+    'const prompt = readFileSync(args[args.indexOf("--attachment") + 1], "utf8");',
+    'const input = JSON.parse(prompt.split("\\n").at(-1));',
+    'appendFileSync(' + JSON.stringify(calls) + ', JSON.stringify({ ...input, toolsDisabled: !args.includes("--allow-all-tools"), argvContainsQuestion: args.includes(input.question) }) + "\\n");',
+    'const spec = input.records.find(item => item.type === "spec");',
+    'const answer = spec ? "Read the Harbor invoice spec [" + spec.citation + "]. [S999]"',
+    '  : input.previous.length ? "This follows the earlier question about tidal power." : "Tidal power uses moving water. <img src=x onerror=alert(1)>";',
+    'process.stdout.write(answer);'
+  ].join('\n'));
+  const workflow = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflow, 'utf8'));
+  definition.models = { defaultProvider: 'chat-test', providers: { 'chat-test': {
+    type: 'copilot-cli', executable: process.execPath, arguments: [standin], promptTransport: 'attachment'
+  } } };
+  await writeFile(workflow, YAML.stringify(definition));
+  const code = path.join(root, 'harbor-invoice.mjs');
+  await writeFile(code, 'export const harborInvoice = true;\n// Harbor invoice marker\n// api_key = "' + secret + '"\n');
+  const storyDir = path.join(root, 'singularity/work-items/HARBOR-17');
+  await mkdir(storyDir, { recursive: true });
+  await writeFile(path.join(storyDir, 'workflow.json'), JSON.stringify({ schemaVersion: 1, status: 'in-progress',
+    workItem: { id: 'HARBOR-17', title: 'Harbor invoice retries', branch: 'main', description: 'LOCAL_DRAFT_CANARY' },
+    currentPhase: 'intake', phaseOrder: ['intake'], phases: { intake: { id: 'intake', status: 'in-progress', generation: 0 } }
+  }));
+  mustGit('add', '-A'); mustGit('commit', '-qm', 'Search fixtures');
+  const original = mustGit('rev-parse', 'HEAD');
+  const spec = 'SPEC-HARBOR-INVOICE';
+  const built = revisionFiles({ specId: spec, revision: 1, reviewState: 'reviewed', operationId: 'browser-search-fixture',
+    actor: { name: 'Fixture Reviewer', email: 'reviewer@example.test' }, recordedAt: '2026-11-06T00:00:00Z',
+    head: { sequence: 1, snapshotSha256: 'sha256:' + 'a'.repeat(64), draft: { title: 'Harbor invoice reconciliation',
+      kind: 'business', spec: '# Harbor invoice reconciliation\n\nKeep the receipt for each invoice.\n', gaps: [], research: [] } },
+    report: { counts: { d: 0, a: 0, h: 0 }, blocking: [] } });
+  mustGit('switch', '-qc', 'state', original);
+  const published = path.join(root, revisionDirectory(spec, 1));
+  await mkdir(published, { recursive: true });
+  for (const [name, bytes] of Object.entries(built.files)) await writeFile(path.join(published, name), bytes);
+  mustGit('add', '-A'); mustGit('commit', '-qm', 'Published invoice specification');
+  mustGit('switch', '-q', 'main');
+
+  const service = await startService({ directory });
+  cleanup(() => service.close());
+  const browser = await chromium.launch({ headless: true });
+  cleanup(() => browser.close());
+  const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID(), environment: env });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(launch.url);
+  await page.getByRole('button', { name: 'Search or ask SFlow' }).waitFor();
+  await page.keyboard.press('Control+k');
+  const search = page.getByRole('searchbox', { name: 'Ask a question' });
+  await search.waitFor();
+  await page.waitForFunction(() => document.activeElement?.id === 'ask-question');
+  await page.getByRole('button', { name: 'Publishing help' }).click();
+  await page.getByRole('region', { name: 'Answer', exact: true }).getByRole('heading', { name: /story lifecycle/i }).waitFor();
+  await search.fill('Harbor invoice');
+  await search.press('Enter');
+  const results = page.getByRole('region', { name: 'Workspace search results' });
+  await results.getByRole('button', { name: 'Harbor invoice retries' }).waitFor();
+  await results.getByRole('button', { name: 'Harbor invoice reconciliation' }).waitFor();
+  await results.getByRole('button', { name: /Files/ }).click();
+  assert.equal(await results.getByRole('button', { name: 'Harbor invoice retries' }).count(), 0);
+  const file = results.getByRole('button', { name: 'harbor-invoice.mjs' });
+  await file.waitFor();
+  await assert.rejects(access(calls));
+
+  await writeFile(code, 'export const harborInvoice = false; // newer changes\n');
+  mustGit('add', 'harbor-invoice.mjs'); mustGit('commit', '-qm', 'Change file after search');
+  await file.click();
+  const evidence = page.getByRole('region', { name: 'Evidence and explanation' });
+  await evidence.getByText('Commit', { exact: false }).first().waitFor();
+  const preview = await evidence.textContent();
+  assert.match(preview, /export const harborInvoice = true/u);
+  assert.ok(!preview.includes(secret) && !preview.includes('newer changes'));
+  await search.fill('RECEIPT FOR EACH INVOICE');
+  await search.press('Enter');
+  await results.getByRole('button', { name: 'Harbor invoice reconciliation' }).waitFor();
+  await results.getByText(/Keep the receipt for each invoice/).waitFor();
+
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  const question = page.getByRole('textbox', { name: 'Ask a question' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Explain a concept' }).click();
+  assert.equal(await question.inputValue(), 'Explain ');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 390);
+  await assert.rejects(access(calls));
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await question.fill('How does tidal power work?');
+  await page.getByRole('button', { name: 'Send' }).click();
+  const chat = page.getByRole('log', { name: 'Chat conversation' });
+  await chat.getByText('Tidal power uses moving water.', { exact: false }).waitFor();
+  assert.equal(await chat.locator('img').count(), 0);
+  await question.fill('Can you give me another example?');
+  await question.press('Enter');
+  await chat.getByText('This follows the earlier question about tidal power.').waitFor();
+  await page.getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByRole('button', { name: 'Search or ask SFlow' }).click();
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await chat.getByText('This follows the earlier question about tidal power.').waitFor();
+  await page.getByRole('checkbox', { name: 'Use workspace context' }).check();
+  await question.fill('Tell me about Harbor invoice ' + secret);
+  await question.press('Enter');
+  await chat.getByRole('button', { name: /Harbor invoice reconciliation/ }).waitFor();
+  assert.doesNotMatch(await chat.textContent(), /S999/u);
+  const requests = (await readFile(calls, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(requests.length, 3);
+  assert.deepEqual(requests[0].records, []);
+  assert.match(requests[1].previous[0].question, /tidal power/u);
+  assert.ok(requests[2].records.some(record => record.reference === spec + '@1'));
+  assert.ok(!JSON.stringify(requests).includes(secret) && !JSON.stringify(requests).includes('LOCAL_DRAFT_CANARY'));
+  assert.ok(requests.every(request => request.toolsDisabled && !request.argvContainsQuestion));
+
+  await page.getByRole('button', { name: 'New chat' }).click();
+  await chat.getByText('This follows the earlier question about tidal power.').waitFor({ state: 'detached' });
+  const noModel = await connect(service, root, { environment: { ...env, SINGULARITY_FLOW_NO_MODEL: '1' } });
+  const disabled = await noModel.api('/api/ask', { contextId: noModel.session.context.id, interaction: 'chat', query: 'An unrelated question', workspace: false });
+  assert.equal(disabled.status, 200);
+  assert.equal(disabled.value.diagnostic.code, 'MODEL_UNAVAILABLE');
+  assert.equal(mustGit('status', '--porcelain'), '');
 });

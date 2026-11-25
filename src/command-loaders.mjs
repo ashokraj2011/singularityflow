@@ -27,6 +27,9 @@ export const COMMAND_LOADERS = Object.freeze({
   './commands/delivery.mjs': () => import('./commands/delivery.mjs'),
   './commands/doctor.mjs': () => import('./commands/doctor.mjs'),
   './commands/environment.mjs': () => import('./commands/environment.mjs'),
+  ...(!globalThis.__SFLOW_EXTENSION_HOST__ && {
+    './commands/ask.mjs': () => import('./commands/ask.mjs')
+  }),
   './commands/explain.mjs': () => import('./commands/explain.mjs'),
   './commands/fast-path.mjs': () => import('./commands/fast-path.mjs'),
   './commands/fos.mjs': () => import('./commands/fos.mjs'),

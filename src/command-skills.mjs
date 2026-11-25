@@ -44,6 +44,7 @@ const entries = {
   about: ['sf-about'],
   ui: ['sf-ui'],
   help: ['sf-help'],
+  ask: ['sf-help'],
   explain: ['sf-docs', 'sf-explain-code', 'sf-explain'],
   show: ['sf-show'],
   harness: ['sf-harness'],

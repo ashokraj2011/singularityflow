@@ -13,6 +13,7 @@
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
 import { approvalRequirementsMet, matchApprovalAuthority } from '../approval-authority.mjs';
 import { subjectKey, validateSubjectKey } from '../subject-ref.mjs';
+import { recordSha256 } from '../records.mjs';
 import { LIFECYCLE_EVENT } from '../vocabularies/catalog.mjs';
 
 /** In render order. A reader scans top-down and should hit their own work first. */
@@ -278,9 +279,15 @@ function blockersOf(workflow, { recovery, counts = null }) {
  */
 export async function workRecords(root, {
   definition = {}, portfolio = null, actor = null, pendingPublications = null, includeCompleted = false,
-  repositoryId = null
+  repositoryId = null, selection = null
 } = {}) {
   const index = await buildRepositorySubjectIndex(root, { definition, portfolio });
+  const subjects = kind => {
+    if (!selection) return index.list(kind);
+    if (selection.kind && selection.kind !== kind) return [];
+    return index.matches(selection.reference, { kind })
+      .filter(subject => !selection.branchOnly || subject.branches.includes(selection.reference));
+  };
   const items = [];
 
   // Recovery is durable repository state, so the shared record reader owns discovering it. An
@@ -290,7 +297,7 @@ export async function workRecords(root, {
   if (pending == null) {
     const { inspectPendingPublication } = await import('../publication-pending.mjs');
     const discovered = await Promise.all(['story', 'initiative'].flatMap((kind) =>
-      index.list(kind).map(async (subject) => {
+      subjects(kind).map(async (subject) => {
         const recovery = await inspectPendingPublication(root, {
           kind, id: subject.id, migrate: false
         });
@@ -304,7 +311,7 @@ export async function workRecords(root, {
   }
 
   for (const kind of ['story', 'initiative']) {
-    for (const subject of index.list(kind)) {
+    for (const subject of subjects(kind)) {
       const workflow = subject.state ?? {};
       const recovery = pending.get?.(subjectKey({ kind, id: subject.id })) ?? { status: 'absent' };
       const { group, because } = classify(workflow, {
@@ -319,6 +326,15 @@ export async function workRecords(root, {
       items.push({
         kind,
         id: subject.id,
+        ...(selection ? {
+          workStatus: workflow.state ?? workflow.status ?? workflow.workItem?.status ?? workflow.initiative?.status ?? null,
+          recordPath: subject.location?.path ?? null,
+          recordCommit: subject.location?.commit ?? null,
+          ...(selection.withDigest ? { recordSha256: recordSha256(workflow) } : {}),
+          specification: (workflow.workItem?.source?.specification ?? []).map(entry => ({
+            reference: entry.revision, stateCommit: entry.stateCommit, manifestSha256: entry.manifestSha256
+          }))
+        } : {}),
         title: workflow.workItem?.title ?? workflow.initiative?.title ?? subject.id,
         repository: subject.location?.repository ?? repositoryId,
         /** Stable repository identity and every branch that can select this governed subject. */
@@ -360,7 +376,8 @@ export async function workRecords(root, {
   });
 
   const groups = Object.fromEntries(WORK_GROUP_ORDER.map((group) => [group, items.filter((item) => item.group === group)]));
-  return { items, groups, groupOrder: [...WORK_GROUP_ORDER] };
+  return { items, groups, groupOrder: [...WORK_GROUP_ORDER],
+    ...(selection ? { unreadable: index.unreadable.filter(entry => entry.claimedId === selection.reference) } : {}) };
 }
 
 /**

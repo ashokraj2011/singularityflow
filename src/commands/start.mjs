@@ -90,10 +90,13 @@ const CLONED_STORY_REQUEST = Symbol('cloned-story-request');
 const TASK_COMPOSITION = Symbol('task-composition');
 
 /** Start a Story whose workflow was composed for a task (src/task-composition.mjs) [ITW:REQ-006, REQ-007]. */
-export function startTaskStory(positionals, options, composition, { plan = null } = {}) {
-  options[TASK_COMPOSITION] = { composition, plan };
+export function startTaskStory(positionals, options, composition, { plan = null, admission = null } = {}) {
+  options[TASK_COMPOSITION] = { composition, plan, admission };
   return startCommand(positionals, options);
 }
+
+const occupiedTaskReservation = id => new SingularityFlowError(`The reserved branch '${id}' is already occupied. Inspect the retained task handoff.`,
+  { code: 'TASK_ADMISSION_BRANCH_OCCUPIED' });
 
 async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourceCommit = head(sourceRoot), baselineChoice = 'reuse') {
   intakeBaselineChoice(baselineChoice);
@@ -170,6 +173,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   // lifecycle state, so branch existence alone is not enough to skip the FOS snapshot.
   const canonicalBranch = optionString(options, 'ref', id);
   const durableLocalStory = await durableLocalStoryOnBranch(sourceRoot, id, canonicalBranch);
+  if (durableLocalStory && options[TASK_COMPOSITION]?.admission) throw occupiedTaskReservation(id);
   if (!durableLocalStory && refExists(sourceRoot, `refs/heads/${canonicalBranch}`)
       && fileAtRef(sourceRoot, `refs/heads/${canonicalBranch}`,
         posix(path.join('singularity', 'seeds', `${id}.yml`))) === null) {
@@ -431,6 +435,9 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
 }
 
 export async function startCommand(positionals, options) {
+  // A pinned task already owns its launch clone. Isolating its Story may create a linked worktree,
+  // but may not route the reservation to a different Git object store.
+  if (options[TASK_COMPOSITION]?.admission) return startCommandAtRoot(positionals, options);
   const previousDirectory = process.cwd();
   const { automaticWorkspaceStoryCheckout, rebaseAutomaticStoryFiles, withAutomaticStoryCheckout } = await import('../workspace-story-checkout.mjs');
   const checkout = await automaticWorkspaceStoryCheckout('start', positionals, options);
@@ -514,6 +521,7 @@ async function startCommandAtRoot(positionals, options) {
   let config = null;
   const taskComposition = options[TASK_COMPOSITION]?.composition ?? null;
   const taskPlan = options[TASK_COMPOSITION]?.plan ?? null;
+  const taskAdmission = options[TASK_COMPOSITION]?.admission ?? null;
   // Loaded only for a task's start: an ordinary start reads none of it.
   const { taskClosureWorkTypes, taskDefinition } = taskComposition ? await import('../task-composition.mjs') : {};
   const taskOverlays = new WeakMap();
@@ -618,6 +626,7 @@ async function startCommandAtRoot(positionals, options) {
     ? await durableStoryAtRef(localStoryRef, canonicalBranch)
     : null;
   if (localStory) {
+    if (taskAdmission) throw occupiedTaskReservation(id);
     if (referenceRequests.length) {
       throw new SingularityFlowError(
         `Story '${id}' already exists. Reference repositories are immutable intake inputs; inspect its pinned set with singularity-flow story references list --work-id ${id}.`,
@@ -812,6 +821,7 @@ async function startCommandAtRoot(positionals, options) {
     await measureCommandSpan('start.fetch', fetchObservedStoryDestination);
     const remoteStory = await durableStoryAtRef(remoteStoryRef, canonicalBranch);
     if (remoteStory) {
+      if (taskAdmission) throw occupiedTaskReservation(id);
       if (referenceRequests.length) {
         throw new SingularityFlowError(
           `Published Story '${id}' already exists. Reference repositories cannot be added during resume.`,
@@ -837,6 +847,7 @@ async function startCommandAtRoot(positionals, options) {
   const materializedSeedRef = approvedRemoteStoryExists && refExists(root, remoteStoryRef)
     ? remoteStoryRef
     : refExists(root, localStoryRef) ? localStoryRef : null;
+  if (taskAdmission && materializedSeedRef) throw occupiedTaskReservation(id);
   // Freeze the exact published seed tip even when workflow policy comes from the shared
   // configuration authority. The seed is separate governed input: configuration authority may
   // decide how a Story starts, but it cannot make a concurrently replaced Epic seed safe to use.
@@ -1511,14 +1522,15 @@ async function startCommandAtRoot(positionals, options) {
   if (targetOrigin) source = { ...source, targetOrigin };
   // An attached specification slice (SPEC-SPA v1.3 §6) is part of the requested outcome: one pinned
   // read of the library, before anything is created, and only when --spec is given.
-  if (optionStrings(options, 'spec').length) {
+  if (taskAdmission || optionStrings(options, 'spec').length) {
     const { resolveSlices } = await import('../spec-library/slice.mjs');
-    const specification = await measureCommandSpan('start.specification', () => resolveSlices(root, config, optionStrings(options, 'spec'), {
-      dependencyReason: optionBoolean(options, 'allow-partial-dependency') ? optionString(options, 'reason') ?? '' : null
-    }));
-    source = { ...source, specification };
+    const pinned = await measureCommandSpan('start.specification', async () => taskAdmission ? taskAdmission.verify(root, config, remote)
+      : { specification: await resolveSlices(root, config, optionStrings(options, 'spec'), {
+        dependencyReason: optionBoolean(options, 'allow-partial-dependency') ? optionString(options, 'reason') ?? '' : null
+      }) });
+    source = { ...source, ...pinned };
     const launchRepository = optionString(options, 'story-launch-repository');
-    if (launchRepository && path.resolve(launchRepository) !== path.resolve(root)) await (await import('../spec-library/sources.mjs')).copySliceSources(launchRepository, root, specification);
+    if (launchRepository && path.resolve(launchRepository) !== path.resolve(root)) await (await import('../spec-library/sources.mjs')).copySliceSources(launchRepository, root, pinned.specification);
   }
   // Security findings and TLM items the person picked [CQF:REQ-065]: each becomes a clause with its
   // proof. Read from the register this clone has; an ID that cannot be taken is said, never refused.
@@ -1722,6 +1734,7 @@ async function startCommandAtRoot(positionals, options) {
     : [];
   const startJournal = await beginStoryStartJournal(root, {
     id,
+    taskAdmission: taskAdmission?.origin,
     targetBranch: canonicalBranch,
     targetBranchExisted: refExists(root, localStoryRef),
     originalBranch,
@@ -1897,6 +1910,7 @@ async function startCommandAtRoot(positionals, options) {
         const create = () => createWorkflow(root, config, {
           id,
           ...(taskComposition ? { composition: taskComposition } : {}),
+          ...(taskAdmission ? { executionOrigin: taskAdmission.origin } : {}),
           title: optionString(options, 'title', source.title || id),
           source,
           baseBranch: base,
@@ -2216,7 +2230,7 @@ async function startCommandAtRoot(positionals, options) {
   // refused for a missing selection. A local record never turns a durable start into a failure.
   await recordStartedWorkItemSelection(root, config, workflow).catch((error) => console.warn(
     `Warning: Story '${workflow.workItem.id}' started, but this checkout's Copilot selection was not recorded: ${error.message}`));
-  emitCommandResult(startResult, { json: optionBoolean(options, 'json'), postState: workflow });
+  if (!taskAdmission) emitCommandResult(startResult, { json: optionBoolean(options, 'json'), postState: workflow });
   return startResult;
   } catch (error) {
     // One recovery implementation handles both an ordinary throw and the next process after a hard

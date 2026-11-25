@@ -20,10 +20,11 @@ commands:
   - about
   - help
   - explain
+  - ask
 related:
   - getting-started
   - nextsteps
-version: 8
+version: 14
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -52,6 +53,113 @@ available VS Code itself answers **Language model unavailable** and `@sflow` nev
 chat model is registered, SFlow panels mark each **VS Code (model-free)** route as unavailable,
 drop **Copy @sflow**, and Help Center says so. Use Help Center for the same reviewed answers, or
 the Shell route for the action.
+
+## Ask SFlow
+
+Open **Ask SFlow** in the browser workspace or VS Code Navigator. Type to find a screen, or submit a question about the current checkout. Ask SFlow can show recorded blockers and resolve the exact published specification used by the current Story. Type-ahead uses local menu metadata.
+
+- List local matches with `singularity-flow ask --suggest "spec studio"`.
+- Inspect recorded blockers with `singularity-flow ask "What is blocking me?"`.
+- Resolve a Story’s recorded spec revision with `singularity-flow ask "spec used for this Story"`.
+- In the existing Copilot tool session, use `sflow_resolve` with utterance `ask sflow` and the question in `arguments.query`, then pass the returned read handle to `sflow_read`.
+
+### Search or chat in the browser
+
+Open **Search or ask** from the workspace header with the button or with `⌘K` on Mac and `Ctrl+K` on Windows. Search ranks results from the selected checkout and SFlow Help. Use the filters for Stories, specifications, workflow assets, and tracked files. File previews open the commit found by the search.
+
+Switch to **Chat** to ask Copilot a general question and follow up in the same tab. To ask about your work, choose **Use workspace context** or **Ask about these results**. Copilot receives the recent conversation and a short selection of matching published record metadata when you include workspace context. The answer links to the workspace sources it cites. Choose **New chat** to clear this tab's recent conversation.
+
+### Work and source history
+
+Ask in the same browser workspace, VS Code Navigator, shell, or Copilot tool. The checkout identifies the repository. These are read-only requests.
+
+| Question | What it reads |
+| --- | --- |
+| `history for story STORY-1` or `history for initiative INITIATIVE-1` | Retained events from the configured state ledger, including work whose branch has been deleted. |
+| `currently completed stories` | The latest retained states that are complete. |
+| `stories completed last week` | Work with a retained transition to complete during the period. |
+| `initiatives with activity last week` | Work with a retained event during the period. |
+| `story STORY-1 as of 2026-11-07 in UTC` | The latest state before the next local midnight, when the ledger holds enough history. |
+| `commits from 2026-11-01 to 2026-11-07 in Asia/Kolkata on main` | Reachable commits filtered by committer timestamp from the exact revision resolved for `main`. |
+| `compare main with release/v1` | The direct tree difference between the two resolved revisions. Add `patch src/app.js` to view a bounded patch in your own viewer or with `--for-person`. |
+
+Both dates in a range are inclusive in the selected timezone. UTC is the default. A relative query uses the recorded query time and Monday as the start of the week. Author, integration, PR merge, deployment, and knowledge-time queries need separate evidence.
+
+Use **Next page** to keep the original revisions and dates. In the shell, pass the issued token to `singularity-flow ask --cursor TOKEN`. On the Copilot tool, resolve `ask sflow` with `arguments.query` set to `continue` and the issued token in `arguments.cursor`. Missing records, shallow ancestry, and scan limits report partial or unavailable coverage. An exact zero is shown only when the available provider completed the requested read without gaps.
+
+### Saved conversations and evidence
+
+Ask SFlow in the browser and VS Code can save the displayed order, date filters, and exact source references. Choose **Resume saved conversation** to continue on the same machine in the same checkout. A phrase such as `the second result` selects the second item from the answer you saw. `Show that spec` opens the selected published revision. `Next page` and `also include the previous week` keep the pinned Git revision and timezone.
+
+The local store is private to the user and checkout. A scope supports up to 16 saved conversations. Each expires 30 days after its last update, and expired records are removed when a new conversation is saved. It saves references and filters. Source text, questions, and generated explanations stay out of the conversation record. Use **Forget conversation** to remove its saved context. Source records stay with their owners.
+
+**View evidence** rechecks the selected revision or record digest before opening it. The view identifies the source commit, state snapshot, or document revision. If the source has changed or the library withdrew a revision, Ask reports the evidence as unavailable and withholds its cached display details.
+
+**Explain with Copilot** is an explicit action. It can send up to eight verified facts in one tool-free request and organize them by their evidence links. SFlow supplies the statements and keeps the underlying result unchanged. With models disabled or Copilot unavailable, the explanation uses the verified facts directly.
+
+- Start a private shell conversation with `singularity-flow ask "commits last week in UTC on main" --remember --for-person`.
+- Resume with `singularity-flow ask --resume --for-person`.
+- Use the ID and revision returned by Ask to follow up with `singularity-flow ask "the second result" --conversation=ID --revision=N --for-person`.
+- Add `--explain` in place of the question for an optional Copilot explanation, or use the evidence command returned with a result.
+- In the Copilot gateway, `sessionAction: "query"` starts a saved context. For later actions, pass its `conversationId` and `contextRevision`. To reopen evidence, use `sessionAction: "evidence"`, `query: "evidence"` and the returned link ID as `target`. The gateway provides verified facts without launching a second model.
+
+### Resume on another device
+
+**Save across devices** in the browser and **Ask and save across devices** in VS Code use the private provider configured for the selected repository. On the second device, open a checkout of the same repository and choose **Resume across devices**. Local saving remains the default. Both devices need a credential authorized for the same provider, workspace, repository, and owner.
+
+- Save from a terminal with `singularity-flow ask "commits last week in UTC on main" --remember --portable --for-person`.
+- Resume the most recent conversation with `singularity-flow ask --resume --portable --for-person`, or use `--resume --conversation=ID --for-person` with its shared ID.
+- If someone updated the same conversation revision on another device, choose **Resume latest version** or repeat the resume command for the returned ID. Inspect the newer selection before applying a change.
+
+Ask rechecks access to the published Git source, reads current work status from the published owner record, and keeps the saved evidence pinned. A local-only result keeps its place in the answer and displays **Available on the original device**. Provider records store bounded references and context. Questions, source content, local file paths, and unpublished evidence stay on the original device. The included provider expires records 30 days after the last update. **Forget conversation** removes the provider's context and selections. Story records and task receipts keep their own retention.
+
+An unfinished shared task handoff stays with the device that claimed it. After the Story is published and its origin has been verified, the second device can view its current status. The original device continues to own the task receipt and its retry.
+
+#### Configure the shared provider
+
+Use an HTTPS origin reachable from both devices. The included provider runs with `singularity-flow ask provider serve --config FILE`. Use one provider service over a private, persistent server-local directory. Give each device its own random 32-byte base64url token and store only the token's SHA-256 hex digest in the server's grants. A grant names the owner, workspace, and repository. Revoke a device by removing its grant from the server configuration. Use an OS account and filesystem permissions that limit the provider data and its private files to the service administrator. HTTP on loopback is available for local qualification.
+
+On the server, the private configuration takes the following fields. Credential-free Git URLs identify repositories.
+
+```json
+{
+  "schemaVersion": 1,
+  "name": "sflow-ask",
+  "directory": "./ask-provider-data",
+  "host": "0.0.0.0",
+  "port": 8787,
+  "tls": { "key": "./ask-provider.key", "cert": "./ask-provider.crt" },
+  "grants": [
+    { "tokenSha256": "<64-hex-digest>", "owner": "developer", "workspace": "platform", "repository": "<git_url>.git" }
+  ]
+}
+```
+
+On each device, save the following in `~/.singularity-flow/ask-provider.json` or set `SINGULARITY_FLOW_ASK_PROVIDER_CONFIG` to another private file. Save the device token as one line in the `tokenFile` beside the configuration, outside the checkout. On macOS, use permissions `0600` for both configurations, the token file, and the server's TLS private key. Use a TLS certificate both devices trust. Omit `remote` to use `origin`.
+
+```json
+{
+  "schemaVersion": 1,
+  "bindings": [
+    {
+      "provider": "sflow-ask",
+      "endpoint": "https://<ask-provider-host>:8787",
+      "workspace": "platform",
+      "repository": "<git_url>.git",
+      "remote": "origin",
+      "tokenFile": "./ask-provider.token"
+    }
+  ]
+}
+```
+
+### Start a task from evidence
+
+Open an evidence link in the browser or VS Code and choose **Prepare a task from this evidence**. Describe the work, choose a task type, and select any supporting evidence. For a reviewed specification, leave clause IDs empty to use the whole revision or name the clauses the task should deliver. Review the normal task plan and choose **Start this task**.
+
+In the shell, use `singularity-flow work handoff --conversation=ID --revision=N --request="Implement retry handling" --kind=change --for-person`. This uses the selected evidence in the saved conversation. `--target=EVIDENCE-ID` selects a particular link. Repeat `--clause=REQ-001` or `--supporting-evidence=EVIDENCE-ID` to narrow the clauses or add supporting evidence. The plan returns a handoff ID and its exact start command.
+
+If the response is lost, choose **Resume saved conversation** and **Open task handoff**, or run `singularity-flow work handoff ITW-ID --for-person`. The handoff can recover the existing Story even after another Ask question changes the conversation. Use the original handoff ID for retries.
 
 ## Purpose and prerequisites
 

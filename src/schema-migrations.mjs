@@ -3246,6 +3246,7 @@ const families = [
     paths: [/^\$git\/publication-journal\/[^/]+\.json$/]
   }),
   family({ id: 'story-start-journal', currentVersion: 1, paths: [/^\$git\/story-start\/[^/]+\.json$/] }),
+  family({ id: 'itw-task-admission', currentVersion: 1, paths: [/^\$git\/task-admissions\/itw-[a-f0-9]{32}\.json$/u] }),
   // Machine-local and short-lived: a sealed record of what a passing Story readiness preview saw,
   // presented back by Story start so it can verify instead of rediscover. It authorizes nothing.
   family({
@@ -3461,6 +3462,18 @@ const families = [
   family({
     id: 'local-work-journal', currentVersion: 1,
     paths: [/^\$local\/work-journal\/settings\.json$/, /^\$local\/work-journal\/events\/.+\.jsonl$/]
+  }),
+  family({
+    id: 'ask-conversation', currentVersion: 1,
+    paths: [/^\$local\/ask-conversations\/v1\/[a-f0-9]{64}\/ask-[a-f0-9]{32}\.json$/u]
+  }),
+  family({
+    id: 'ask-portable-conversation', currentVersion: 1,
+    paths: [/^\$provider\/v1\/[^/]+\/askp-.+\.json$/]
+  }),
+  family({
+    id: 'ask-portable-host', currentVersion: 1,
+    paths: [/^\$local\/ask-conversations\/device-v1\/[^/]+\/askp-.+\.json$/]
   }),
   family({ id: 'workspace-registry', currentVersion: 1, paths: [/^\$local\/workspaces\.json$/] }),
   family({

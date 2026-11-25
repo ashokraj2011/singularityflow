@@ -104,6 +104,7 @@ export function excludesActiveWorkspaceRouting(
   command, subcommand = null, options = {}, action = null
 ) {
   return ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)
+    || (command === 'work' && subcommand === 'handoff')
     // Local skill inspection reads an explicit directory and remains repository-independent.
     // Approved inspection selects the current repository or active workspace's authority.
     || (command === 'skill' && subcommand === 'inspect')
@@ -145,7 +146,7 @@ export function excludesActiveWorkspaceRouting(
  * only when no repository is open; otherwise a plain repository would be answered from another one.
  */
 export function readsOpenedRepository(command, subcommand = null) {
-  return (command === 'wm' && subcommand === 'knowledge') || (command === 'explain' && subcommand === 'code');
+  return command === 'ask' || (command === 'wm' && subcommand === 'knowledge') || (command === 'explain' && subcommand === 'code');
 }
 
 /**
@@ -632,27 +633,32 @@ export async function main(argv) {
   if (argv.includes('confirm') && parseArgs(argv).positionals[0] === 'confirm') argv = (await import('./confirm-entry.mjs')).expandConfirmArgv(argv);
   // Git answers earlier commands in this session already proved; see git-fact-store.mjs.
   installGitFactStore();
-  const uninstall = installFileLeaseSignalHandlers();
   const { positionals, options } = parseArgs(argv);
+  // The optional Ask provider owns cancellation once it starts. There is no lease held while
+  // it runs, so the generic handler must not re-raise the signal before the provider stops.
+  const uninstall = positionals[0] === 'ask' && (options.explain === true || positionals[1] === 'chat' && options['query-stdin'] === true) ? () => {} : installFileLeaseSignalHandlers();
   try {
     const utilityEntry = options['utility-entry'] !== undefined ? { operation: positionals.join(' ') } : null;
     if (utilityEntry) validateUtilityEntry(positionals, options);
     // Every command accepts --for-agent. The compact entries read it (and check a pause) themselves;
     // for the others it shapes the output only, and a paused SFlow answers before any Git or lookup.
     const agentFlag = options['for-agent'] !== undefined;
-    // `ui serve` prints its own JSON readiness and keeps running; the --for-agent refusal is the ui command's (local-ui/cli.mjs).
-    const foregroundUi = positionals[0] === 'ui' && positionals[1] === 'serve';
+    const taskHandoff = positionals[0] === 'work' && positionals[1] === 'handoff';
+    if (taskHandoff && agentFlag) throw new SingularityFlowError('Use the task handoff in your own Ask SFlow view or terminal.', { code: 'TASK_HANDOFF_PERSON_REQUIRED' });
+    const foregroundService = positionals[0] === 'ui' && positionals[1] === 'serve' ||
+      positionals[0] === 'ask' && positionals[1] === 'provider' && positionals[2] === 'serve';
     const ownsFlag = interpretsForAgent(positionals);
-    if ((utilityEntry || agentFlag && (!ownsFlag || positionals[0] === 'app-review')) && !['pause', 'hook'].includes(positionals[0])) {
+    if ((utilityEntry || agentFlag && (!ownsFlag || ['app-review', 'ask'].includes(positionals[0]))) && !['pause', 'hook'].includes(positionals[0])) {
       const paused = await copilotPause();
       if (paused) return console.log(optionBoolean(options, 'json') ? JSON.stringify(paused, null, 2) : paused.message);
     }
     const commandArgv = utilityEntry ? withoutUtilityEntry(argv) : argv;
     // A foreground server emits its readiness record before waiting for shutdown. Buffering this
     // one long-lived command until return would hide that record for the lifetime of the server.
-    const invoke = () => withCliJsonOutput(optionBoolean(options, 'json') && !foregroundUi,
+    const directAskPerson = (positionals[0] === 'ask' || taskHandoff) && options['for-person'] === true && !agentFlag;
+    const invoke = () => withCliJsonOutput(optionBoolean(options, 'json') && !foregroundService,
       () => runMain(agentFlag && !ownsFlag ? withoutAgentFlag(commandArgv) : commandArgv, utilityEntry, contextRequest.root),
-      { forAgent: agentViewRequested(options), kind: positionals[0], utilityEntry, argv: commandArgv });
+      { forAgent: !directAskPerson && agentViewRequested(options), kind: positionals[0], utilityEntry, argv: commandArgv });
     // Include the first-build gate, accounting and authoring in one bounded immutable capture.
     // No branch tip, identity authorization or working-tree validation is cached here.
     return await (positionals[0] === 'start'
@@ -841,6 +847,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     validateWorkflowAuthorRequest({ positionals, options });
   }
   validateStoryStartRequestShape(definition.name, positionals, options);
+  const askLocalOnly = !globalThis.__SFLOW_EXTENSION_HOST__ && definition.name === 'ask'
+    && (await import('./commands/ask.mjs')).validateAskCliRequest(positionals, options).repository === false;
   const timingInput = {
     started: globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT ?? process.hrtime.bigint(),
     commandClass: 'unknown', operationId: null, mode: timingMode(options)
@@ -857,7 +865,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   // existing command still verifies Git, accepted Story, permissions and publication freshness.
   const contextRoutingExcluded = excludesActiveWorkspaceRouting(definition.name,
     positionals[1] ?? null, options, positionals[2] ?? null);
-  const boundRoot = explicitContextRoot
+  const boundRoot = askLocalOnly ? null : explicitContextRoot
     ?? (contextRoutingExcluded ? null : surfaceContext()?.repositoryPath ?? null);
   if (boundRoot) {
     let selectedRoot;
@@ -899,10 +907,10 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   }
   // Root discovery is part of the command. Bind the timing context before the first Git probe so
   // --timings and durable events no longer omit dispatch work performed ahead of module loading.
-  root = automaticIntake?.repositoryPath ?? (localOnlyRequest ? null : withCommandTiming(timer, () => rootIfAvailable()));
+  root = automaticIntake?.repositoryPath ?? (localOnlyRequest || askLocalOnly ? null : withCommandTiming(timer, () => rootIfAvailable()));
   const subcommand = positionals[1] ?? null;
   const action = positionals[2] ?? null;
-  const routingExcluded = excludesActiveWorkspaceRouting(
+  const routingExcluded = askLocalOnly || excludesActiveWorkspaceRouting(
     definition.name, subcommand, options, action
   );
   await withCommandTiming(timer, async () => {
@@ -924,7 +932,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     }
   });
   // A command naming another Story runs in its checkout, or refuses (story-routing.mjs).
-  if (root && !boundRoot && !routingExcluded && !automaticIntake
+  if (root && definition.name !== 'ask' && !boundRoot && !routingExcluded && !automaticIntake
       && (options['work-id'] !== undefined || positionals.length > 1 && STORY_OPERAND_COMMANDS.has(definition.name))) {
     const routed = await withCommandTiming(timer, async () => (await import('./story-routing.mjs'))
       .routeNamedStory({ command: definition.name, positionals, options, argv: effectiveArgv, root }));
@@ -934,7 +942,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
       if (!optionBoolean(options, 'json')) process.stderr.write(`${routed.route.workId} → ${root}\n`);
     }
   }
-  if (!root && !routingExcluded) {
+  if (!root && !routingExcluded && definition.name !== 'ask') {
     // Git's refusal to read the repository the person is in, rather than a request for one.
     if (!localOnlyRequest) refuseUnreadableRepository(process.cwd());
     const { workspaceRegistryFile } = await import('./workspace-context.mjs');
@@ -950,7 +958,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   // A publication whose index refresh another program blocked finished anyway and left a record;
   // complete that refresh before this command reads the tree. Without a record this is one file
   // lookup and no Git process.
-  if (root) await (await import('./deferred-index-refresh.mjs')).completeDeferredIndexRefresh(root);
+  if (root && definition.name !== 'ask') await (await import('./deferred-index-refresh.mjs')).completeDeferredIndexRefresh(root);
   // A retained review publishes too (review-source submit, 2026-11-25).
   if (root && (['submit', 'approve', 'reject'].includes(definition.name) || (definition.name === 'phase' && subcommand === 'publish')
       || (definition.name === 'review-source' && subcommand === 'submit'))) {

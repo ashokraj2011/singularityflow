@@ -15,6 +15,8 @@ const icons = {
   code: '<path d="m8 6-6 6 6 6m8-12 6 6-6 6m-2-15-4 18"/>',
   run: '<circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/>',
   decisions: '<path d="m12 2 8 3.5v6c0 5-3.2 8.5-8 10.5-4.8-2-8-5.5-8-10.5v-6zM8.5 12l2.2 2.2 4.8-5"/>',
+  chat: '<path d="M20 11.5a8 8 0 0 1-8 8 8.4 8.4 0 0 1-3.3-.7L4 20l1.2-4.1a8 8 0 1 1 14.8-4.4Z"/><path d="M8.5 12h7"/>',
+  ask: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
   about: '<circle cx="12" cy="12" r="9"/><path d="M12 10v7M12 7h.01"/>',
   checkout: '<path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -37,7 +39,7 @@ export function icon(name) {
 }
 
 const groups = [
-  ['Workspace', [['home', 'Overview'], ['specs', 'Spec Studio'], ['stories', 'Stories']]],
+  ['Workspace', [['home', 'Overview'], ['ask', 'Ask SFlow'], ['specs', 'Spec Studio'], ['stories', 'Stories']]],
   ['Toolkit', [['workflows', 'Workflows'], ['agents', 'Agents'], ['skills', 'Skills'], ['instructions', 'Instructions']]],
   ['Tools', [['code', 'Code Explainer'], ['decisions', 'Decisions'], ['run', 'Run & Test']]]
 ];
@@ -110,6 +112,7 @@ function quickLink(href, name, title, description, color = '') {
 }
 
 export function overviewView(context, recent) {
+  const { story } = context;
   return heading('Workspace overview', 'Specifications, Stories and checks for your selected checkout.')
     + `<section class="hero" aria-labelledby="workspace-hero">
       <div class="hero-copy">
@@ -134,9 +137,12 @@ export function overviewView(context, recent) {
         </div>
       </section>
       <section class="card home-panel">
-        <h2>Selected checkout</h2>
-        <div class="checkout-info">${tile('checkout', 'mint')}<div><h3>${escape(context.label)}</h3><span class="checkout-path">${escape(context.root)}</span></div></div>
+        <h2>${story ? 'Selected Story' : 'Selected checkout'}</h2>
+        <div class="checkout-info">${tile('checkout', 'mint')}<div><h3>${escape(story?.title ?? context.label)}</h3>
+          ${story ? `<p class="muted">${escape([story.workId, story.repositoryId, story.workspaceName].filter(Boolean).join(' · '))}</p>` : ''}
+          <span class="checkout-path">${escape(context.root)}</span></div></div>
         <button data-action="choose-checkout">Switch checkout ${icon('down')}</button>
+        ${story?.role === 'secondary' ? `<p class="feature-note">For questions about the Story, <a class="text-link" href="#stories/${encodeURIComponent(story.workId)}">find its primary checkout</a>.</p>` : ''}
         ${recent ? `<div class="home-recent">${quickLink(specHref(recent.specId, recent.published), 'history', 'Continue in Spec Studio', recent.title ?? recent.specId)}</div>`
           : '<p class="feature-note">Switching checkout changes this tab.</p>'}
       </section>
@@ -194,7 +200,9 @@ function plannedEntry(entry) {
 }
 
 function testSummary(value) {
-  if (!value.run) return '<p>No retained test run has been reported for this checkout.</p>';
+  if (!value.run) return value.scope?.kind === 'story'
+    ? `<p>No retained test run for ${escape(value.scope.workId)} in this phase.</p>`
+    : '<p>No retained test run has been reported for this checkout.</p>';
   const totals = ['passed', 'failed', 'skipped'].filter(key => Number.isFinite(value.totals?.[key]));
   return `<p>${escape(value.run.label ?? value.run.id ?? 'Retained test run')}</p>
     ${totals.length ? `<div class="test-counts" aria-label="Reported test counts">${totals.map(key => `<span><strong>${value.totals[key]}</strong> ${key}</span>`).join('')}</div>` : ''}

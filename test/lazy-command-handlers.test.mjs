@@ -1007,7 +1007,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the exact text its plan read (workflow-snapshots.mjs), and a loaded definition's marketplaces validated again unchanged
     // (marketplace.mjs) [ITW:REQ-010]; the chooser loads only for a task. No new eager file.
     // 9,880,261 (measured on the merge of both, 2026-11-25): the two rises above together.
-    assert.ok(closure.bytes <= 9_880_261, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,884,367 (measured on the merge of Ask SFlow R1-R5, 2026-11-25): Ask's registry entry, its record families
+    // (schema-migrations.mjs), retained history in the ledger and source inspection, and its log fields. No new eager file.
+    assert.ok(closure.bytes <= 9_884_367, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1178,7 +1180,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // view is output-only like check's (cli-json-output.mjs). No new eager file.
   // 876,625 (+11, 2026-11-25): `skill catalog`, every skill here and in trusted marketplaces, a skill read (command-registry.mjs). No new eager file.
   // 876,774 (the two rises above together, 2026-11-25).
-  assert.ok(root.bytes <= 876_774, `root dispatch loads ${root.bytes} source bytes`);
+  // 878,930 (measured on the merge of Ask SFlow R1-R5, 2026-11-25): `ask` registered, its read skipping the deferred index
+  // refresh (cli-entry.mjs) and its record families (schema-migrations.mjs). No new eager file.
+  assert.ok(root.bytes <= 878_930, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1569,7 +1573,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,346,418 (+2,503, 2026-11-25): a task's skills frozen into its snapshot (workflow-snapshots.mjs) and marketplaces
   // validated again unchanged (marketplace.mjs) [ITW:REQ-010]. No new eager file.
   // 4,350,087 (measured on the merge of both, 2026-11-25): the two rises above together.
-  assert.ok(current.bytes <= 4_350_087, `session current loads ${current.bytes} source bytes`);
+  // 4,353,049 (measured on the merge of Ask SFlow R1-R5, 2026-11-25): `ask` registered and its record families. No new eager file.
+  assert.ok(current.bytes <= 4_353_049, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

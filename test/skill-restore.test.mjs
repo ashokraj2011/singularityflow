@@ -101,7 +101,7 @@ test('real CLI: skill restore refuses an edit with the person\'s own command and
   assert.notEqual(refused.status, 0, refused.stdout);
   const said = `${refused.stdout}${refused.stderr}`;
   assert.match(said, /SKILL_RESTORE_EDITED/u);
-  assert.match(said, /it was edited in this repository \(2 lines\), and restoring replaces that edit with SFlow's packaged text\. Nothing was changed\./u);
+  assert.match(said, /here was edited in this repository \(2 lines\): restoring replaces that edit with SFlow's text\. Nothing changed\./u);
   assert.ok(said.includes(`singularity-flow skill restore ${SKILL} --discard-edits --dry-run --json`), said);
   const preview = JSON.parse(cli(['skill', 'restore', SKILL, '--discard-edits', '--dry-run', '--json']).stdout);
   assert.deepEqual([preview.valid, preview.files.map((entry) => entry.path)], [true, [librarySkillPath(SKILL)]]);

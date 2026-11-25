@@ -1457,7 +1457,7 @@ class StudioCandidate {
     }
     if (state.edited && discardEdits !== true) {
       const command = `singularity-flow skill restore ${skillId} --discard-edits`;
-      throw new SingularityFlowError(`Skill '${skillId}' here is not a text SFlow shipped: it was edited in this repository, and restoring replaces that edit with SFlow's packaged text. To replace it, run ${command}.`,
+      throw new SingularityFlowError(`Skill '${skillId}' here was edited in this repository: restoring replaces that edit with SFlow's text. To replace it, run ${command}.`,
         { code: 'STUDIO_SKILL_RESTORE_EDITED', details: { skillId, nextAction: { command, label: 'Replace the edited text with SFlow\'s packaged skill.' } } });
     }
     const skill = parseLibrarySkill(state.packaged, { id: skillId });

@@ -84,7 +84,7 @@ async function assertRestorable(root, id, options, withApprovedConfigurationRead
   const lines = state.current.toString('utf8').split(/\r?\n/u).length;
   const command = ['singularity-flow skill restore', id, '--discard-edits', options['dry-run'] === true ? '--dry-run' : null,
     options.propose === true ? '--propose' : null, options.json === true ? '--json' : null].filter(Boolean).join(' ');
-  throw new SingularityFlowError(`Skill '${id}' here is not a text SFlow shipped: it was edited in this repository (${lines} lines), and restoring replaces that edit with SFlow's packaged text. Nothing was changed. To replace it, run ${command}.`,
+  throw new SingularityFlowError(`Skill '${id}' here was edited in this repository (${lines} lines): restoring replaces that edit with SFlow's text. Nothing changed. To replace it, run ${command}.`,
     { code: 'SKILL_RESTORE_EDITED', details: { skillId: id, nextAction: { command, label: 'Replace the edited text with SFlow\'s packaged skill.' } } });
 }
 

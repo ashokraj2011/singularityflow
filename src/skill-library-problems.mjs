@@ -172,7 +172,7 @@ export function librarySkillRepairs(problem, { approved = false } = {}) {
     label: `Or stop using it: detach it from ${problem.workflowId ? `workflow ${problem.workflowId}` : `agent ${problem.agentId}`}.` }] : [];
   if (problem.reason === 'unreadable' && shipsLibrarySkill(id)) {
     return [{ command: `singularity-flow skill restore ${id}${propose}`,
-      label: `Replace its text here with SFlow's packaged skill ${id}${approved ? ', as a configuration proposal' : ''}.` }, ...detach];
+      label: `Write back SFlow's packaged skill ${id}${approved ? ' as a proposal' : ''}.` }, ...detach];
   }
   return [
     { command: `singularity-flow skill create ${id} --description "<what it does and when to use it>" --instructions "<the steps the agent follows>"${propose}`,

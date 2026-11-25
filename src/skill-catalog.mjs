@@ -13,10 +13,11 @@
  * of them is for any kind), and their names share most of their words, or their names, descriptions and tags do: plain
  * word overlap, so the same skills always give the same answer, and the answer names the words.
  *
- * Read only, as a task reads them (task-skills.mjs): this checkout's library and workflow.yml, a Git-repository
- * marketplace at the commit the repository trusts through that module's per-commit listing, and an index marketplace
- * through its index, read now, as `marketplace browse` reads it (its listing is kept for the next task's plan). A
- * marketplace that cannot be read is one warning on its source; the rest is listed.
+ * Read only, as a task reads them (task-skills.mjs), from the approved configuration Stories use: its library and
+ * workflow.yml, a Git-repository marketplace at the commit it trusts through that module's per-commit listing, and an
+ * index marketplace through its index, read now, as `marketplace browse` reads it (its listing is kept for the next
+ * task's plan). A marketplace this checkout's workflow.yml trusts that is not approved yet is named on its row, never
+ * read. A marketplace that cannot be read is one warning on its source; the rest is listed.
  *
  * analyzeSkillCatalog is pure; readSkillCatalog reads.
  */
@@ -172,7 +173,8 @@ const count = (rows, keyOf) => {
  * task-skills.mjs lists them, `definition` the workflow configuration, `kinds` the repository's kinds of software, `uses`
  * a map of skill ID to `{ agents, workflows }`, and `stories` the task Stories `{ workId, kind, skills }` in this checkout.
  */
-export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces = [], definition = {}, kinds = [], uses = new Map(), stories = [], warnings = [] } = {}) {
+export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces = [], definition = {}, kinds = [], uses = new Map(), stories = [], warnings = [],
+  unapproved = [] } = {}) {
   const libraryIds = new Set(library.map((skill) => skill.id));
   const recordOf = (id) => {
     const source = imports[`library-skill:${id}`]?.source ?? null;
@@ -240,13 +242,18 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
     for (const [index, key] of overlap.skills.entries()) rows.find((row) => row.key === key).overlaps.push(overlap.skills[1 - index]);
   }
   const coverage = coverageOf(rows, definition, kinds);
+  const pending = new Map(unapproved.map((entry) => [entry.id, entry]));
   const sources = [
-    { id: 'library', kind: 'library', label: 'This repository\'s skill library', read: true, skills: rows.filter((row) => row.source === 'library').length },
+    { id: 'library', kind: 'library', label: 'This repository\'s skill library', read: true, approved: true, skills: rows.filter((row) => row.source === 'library').length },
     ...[...marketplaces].sort((left, right) => byText(left.id, right.id)).map((marketplace) => ({
-      id: marketplace.id, kind: marketplace.kind, label: marketplace.label ?? marketplace.id, read: !marketplace.warning,
+      id: marketplace.id, kind: marketplace.kind, label: marketplace.label ?? marketplace.id, read: !marketplace.warning, approved: true,
       skills: rows.filter((row) => row.marketplace === marketplace.id && row.source === 'marketplace').length,
-      ...(marketplace.warning ? { warning: marketplace.warning } : {})
-    }))
+      ...(marketplace.warning ? { warning: marketplace.warning } : {}),
+      ...(pending.has(marketplace.id) ? { notApproved: pending.get(marketplace.id).words } : {})
+    })),
+    // Trusted only in the working copy: never read, and never presented as trusted.
+    ...unapproved.filter((entry) => entry.change === 'added').map((entry) => ({
+      id: entry.id, kind: entry.kind, label: entry.label, read: false, approved: false, skills: 0, notApproved: entry.words }))
   ];
   return {
     schemaVersion: 1, resultType: SKILL_CATALOG_RESULT,
@@ -308,17 +315,60 @@ function usesFrom(model) {
   }]));
 }
 
+const NOT_APPROVED_WORDS = Object.freeze({
+  added: 'Trusted only in your working copy of workflow.yml, and not approved yet: Stories do not use it, so its skills are not read.',
+  changed: 'Your working copy of workflow.yml reads it elsewhere (another commit or index), and that is not approved yet: these are the skills Stories use.',
+  removed: 'Your working copy of workflow.yml stops trusting it, and that is not approved yet: Stories still use it.'
+});
+const sameTrust = (left, right) => ['repository', 'ref', 'commit', 'index'].every((key) => (left[key] ?? null) === (right[key] ?? null))
+  && JSON.stringify([...(left.allowedOrigins ?? [])].sort()) === JSON.stringify([...(right.allowedOrigins ?? [])].sort());
+
 /**
- * Read and analyze every skill: `marketplace` reads only that trusted marketplace (with the library). `fetchImpl` reads
- * an index marketplace's index.
+ * What this checkout's own workflow.yml trusts that the approved configuration does not, or trusts otherwise: each
+ * `{ id, label, kind, change, words }`, `change` one of added, changed or removed. Empty when the working tree is the
+ * configuration (no approved one is known here).
+ */
+export function unapprovedMarketplaces(approved = {}, working = {}) {
+  const found = [];
+  for (const id of [...new Set([...Object.keys(approved), ...Object.keys(working)])].sort(byText)) {
+    const here = working[id]; const there = approved[id];
+    const change = here && !there ? 'added' : there && !here ? 'removed' : sameTrust(here, there) ? null : 'changed';
+    if (!change) continue;
+    const entry = here ?? there;
+    found.push({ id, label: entry.label ?? id, kind: entry.repository ? 'repository' : 'index', change, words: NOT_APPROVED_WORDS[change] });
+  }
+  return found;
+}
+
+/**
+ * Read and analyze every skill, from the approved configuration: what Stories actually use [owner, 2026-11-25]. A
+ * marketplace this checkout's workflow.yml trusts that is not approved yet is never read; its row says so, as does a
+ * trusted one the working copy changes or drops. `marketplace` reads only that trusted marketplace (with the library).
+ * `fetchImpl` reads an index marketplace's index.
  */
 export async function readSkillCatalog(root, { marketplace: only = null, fetchImpl = globalThis.fetch } = {}) {
+  const [{ withApprovedConfigurationRead }, { withoutConfigurationReadScope }, { configuredMarketplaces }] = await Promise.all([
+    import('./approved-configuration-reader.mjs'), import('./configuration-read-scope.mjs'), import('./marketplace.mjs')]);
+  // This checkout's own workflow.yml, read before the approved one is in scope, to name what is not approved yet.
+  const working = await withoutConfigurationReadScope(() => configuredMarketplaces(root)).catch(() => null);
+  return withApprovedConfigurationRead(root, (authority) => readApprovedSkillCatalog(root, {
+    only, fetchImpl, working: authority && authority.kind !== 'working-tree' ? working : null
+  }), { preferAuthority: true });
+}
+
+async function readApprovedSkillCatalog(root, { only, fetchImpl, working }) {
   const [{ configurationReadRoot }, { loadDefinition }, { loadSkillLibrary }, { loadImportsLedger }, { readAssetCatalog }, { taskSoftwareKinds, trustedSkillsOf }] = await Promise.all([
     import('./configuration-read-scope.mjs'), import('./config.mjs'), import('./skill-library.mjs'), import('./imports-ledger.mjs'),
     import('./asset-catalog.mjs'), import('./task-skills.mjs')]);
   const configRoot = configurationReadRoot(root);
   const definition = await loadDefinition(root);
   const trusted = Object.values(definition.marketplaces ?? {}).sort((left, right) => byText(left.id, right.id));
+  const unapproved = working ? unapprovedMarketplaces(definition.marketplaces ?? {}, working) : [];
+  const waiting = unapproved.find((entry) => entry.id === only && entry.change === 'added');
+  if (waiting) {
+    throw refusal('SKILL_CATALOG_MARKETPLACE_NOT_APPROVED', `Marketplace '${only}' is trusted only in your working copy of workflow.yml, and that is not approved yet, so its skills are not read.`,
+      { command: 'singularity-flow configuration proposals', label: 'See whether the change that trusts it waits for approval.' }, { marketplace: only });
+  }
   if (only != null && !trusted.some((marketplace) => marketplace.id === only)) {
     throw refusal('SKILL_CATALOG_MARKETPLACE_UNKNOWN', `This repository does not trust a marketplace called '${only}'.${trusted.length
       ? ` It trusts ${listWords(trusted.map((marketplace) => marketplace.id))}.` : ' It trusts none yet.'}`,
@@ -348,7 +398,8 @@ export async function readSkillCatalog(root, { marketplace: only = null, fetchIm
     }
   }
   return analyzeSkillCatalog({ library: [...library.skills.values()], imports: ledger.imports ?? {}, marketplaces, definition, kinds,
-    uses: usesFrom(model), stories: await taskStories(root, definition), warnings });
+    uses: usesFrom(model), stories: await taskStories(root, definition), warnings,
+    unapproved: unapproved.filter((entry) => only == null || entry.id === only) });
 }
 
 /** The catalog as a person reads it in a terminal. */
@@ -356,7 +407,7 @@ export function skillCatalogLines(catalog) {
   const lines = [];
   const { summary } = catalog;
   const sourceWords = catalog.sources.map((source) => (source.kind === 'library' ? `${source.skills} in the library`
-    : `${source.read ? source.skills : 'none'} in marketplace ${source.id}${source.read ? '' : ' (not read)'}`));
+    : `${source.read ? source.skills : 'none'} in marketplace ${source.id}${source.approved === false ? ' (not approved yet)' : source.read ? '' : ' (not read)'}`));
   lines.push(`${summary.skills === 1 ? '1 skill' : `${summary.skills} skills`}: ${listWords(sourceWords)}. ${catalog.repository.words}`);
   for (const row of catalog.rows) {
     const where = row.source === 'library' ? 'library' : row.marketplace;
@@ -378,6 +429,7 @@ export function skillCatalogLines(catalog) {
     for (const overlap of summary.overlaps) lines.push(`  ${overlap.why}`);
   }
   for (const entry of summary.coverage.filter((item) => item.status !== 'library')) lines.push(entry.words);
+  for (const source of catalog.sources.filter((item) => item.notApproved)) lines.push(`Note: marketplace ${source.id}: ${source.notApproved}`);
   for (const warning of catalog.warnings) lines.push(`Note: ${warning}`);
   return lines;
 }

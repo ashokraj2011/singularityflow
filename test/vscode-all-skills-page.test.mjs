@@ -14,7 +14,7 @@ import { runInNewContext } from 'node:vm';
 import YAML from 'yaml';
 
 import { ALL_SKILLS_SCRIPT, allSkillsPageHtml, libraryWords, skillCatalogFrom } from '../apps/vscode/src/views/all-skills-page.ts';
-import { analyzeSkillCatalog } from '../src/skill-catalog.mjs';
+import { analyzeSkillCatalog, unapprovedMarketplaces } from '../src/skill-catalog.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = YAML.parse(readFileSync(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
@@ -150,4 +150,20 @@ test('the host takes a row\'s key, never a reference or a command, and opens Wor
   assert.match(extension, /'singularityFlow\.lessons', 'singularityFlow\.allSkills',/u);
   assert.match(extension, /'singularityFlow\.allSkills': async \(\) => lazyPanels\(\)\.AllSkillsPanel\.show\(client\)/u);
   assert.match(source('apps/vscode/src/lazy-panels-runtime.ts'), /export \{ AllSkillsPanel \} from '\.\/views\/all-skills\.ts';/u);
+});
+
+test('a marketplace trusted only in the working copy is never shown as trusted: its row says it is not approved yet', () => {
+  const approved = { acme: { id: 'acme', label: 'Acme', repository: '/srv/acme', commit: 'a'.repeat(40) } };
+  const working = { shared: { id: 'shared', label: 'Shared catalog', index: 'https://catalog.example.org/index.json', allowedOrigins: [] },
+    acme: { ...approved.acme, commit: 'b'.repeat(40) } };
+  const unapproved = unapprovedMarketplaces(approved, working);
+  assert.deepEqual(unapproved.map(({ id, change }) => [id, change]), [['acme', 'changed'], ['shared', 'added']]);
+  assert.deepEqual(unapprovedMarketplaces(approved, approved), [], 'the same trust is nothing to say');
+  const catalog = skillCatalogFrom(JSON.parse(JSON.stringify(analyzeSkillCatalog({ library: [], definition: structuredClone(BASE), kinds: [], unapproved,
+    marketplaces: [{ id: 'acme', label: 'Acme', kind: 'repository', warning: null, skills: [] }] }))));
+  assert.deepEqual(catalog.sources.map(({ id, read, approved: ok }) => [id, read, ok]), [['library', true, true], ['acme', true, true], ['shared', false, false]]);
+  const html = allSkillsPageHtml({ catalog, busy: false, error: null, notice: null });
+  assert.match(html, /<li>Shared catalog: <span class="ask-warn">not approved yet<\/span> <span class="ask-dim">Trusted only in your working copy of workflow\.yml, and not approved yet/u);
+  assert.match(html, /<li>Acme: 0 skills <span class="ask-dim">Your working copy of workflow\.yml reads it elsewhere \(another commit or index\), and that is not approved yet/u);
+  assert.doesNotMatch(html, /<option value="shared">/u, 'a source not approved is no filter choice');
 });

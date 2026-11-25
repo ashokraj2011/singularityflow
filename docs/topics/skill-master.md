@@ -17,7 +17,7 @@ related:
   - agents-and-routing
   - importing-assets
   - workflow-authoring
-version: 11
+version: 12
 ---
 The skill master is the repository's collection of named skills. Attach a skill to a **workflow** to apply it only within that workflow, or to an **agent** to apply it wherever that agent is selected. Each attachment can restrict its steps and say when to use it. Both scopes eagerly inject exact instructions by default; explicitly optional procedures can instead use a retained catalog.
 
@@ -146,7 +146,7 @@ These skills are not the compiled skill packages under `singularity/skills/` tha
 - **Whether you have it:** in the library or not, the version imported, and whether its marketplace now has a newer one.
 - **Who uses it:** the agents and workflows it is attached to, and the task Stories in this checkout that chose it.
 
-The summary counts the skills, names skills that look alike (two skills for the same kind of step and software whose names, or names, descriptions and tags, share most of their words; it says which words) and lists the step intents no skill covers for this repository's kinds of software, and those only a marketplace covers. A marketplace that cannot be read is one warning; the others are still listed. `--marketplace <ID>` reads only that one, with the library. Nothing is written but the marketplace listings a task already keeps in the clone's Git folder: per commit for a Git repository, and the index's list for an hour. In VS Code, **Singularity Flow: All Skills** (or **All skills** in Workflow Studio's Skill master) opens the same page, with filters and a detail view; **Preview** opens the marketplace skill's exact text in Workflow Studio's Library, and **Open in Skill master** shows a library skill.
+The summary counts the skills, names skills that look alike (two skills for the same kind of step and software whose names, or names, descriptions and tags, share most of their words; it says which words) and lists the step intents no skill covers for this repository's kinds of software, and those only a marketplace covers. It reads the approved configuration, which is what Stories use: a marketplace only your working copy of `singularity/workflow.yml` trusts is listed as not approved yet and never read, and a trusted one your working copy changes or drops says so on its row. A marketplace that cannot be read is one warning; the others are still listed. `--marketplace <ID>` reads only that one, with the library. Nothing is written but the marketplace listings a task already keeps in the clone's Git folder: per commit for a Git repository, and the index's list for an hour. In VS Code, **Singularity Flow: All Skills** (or **All skills** in Workflow Studio's Skill master) opens the same page, with filters and a detail view; **Preview** opens the marketplace skill's exact text in Workflow Studio's Library, and **Open in Skill master** shows a library skill.
 
 ## Use it from each surface
 

@@ -61,6 +61,10 @@ test('a refusal routed to the very command it refused is found; another command 
   assert.equal(refusalViolations(['decisions', 'record', 'D', '--json'], refusal('singularity-flow decisions record D'))[0]?.invariant, 'refusal-routes-to-itself');
   assert.deepEqual(refusalViolations(['decisions', 'record', 'D', '--answers', 'a.json'], refusal('singularity-flow decisions record D')), []);
   assert.deepEqual(refusalViolations(['status'], { message: 'no route' }), []);
+  // The same command for a person's own terminal (SF Guard's presence signature, a confirmation only a person gives) is a
+  // hand-over, not a loop.
+  assert.deepEqual(refusalViolations(['spec', 'author', 'settle', 'SPEC-1'],
+    { code: 'PSS_CARD_NOT_SHOWN', details: { nextAction: { command: 'singularity-flow spec author settle SPEC-1', where: 'own-terminal' } } }), []);
 });
 
 test('every isolated test run logs what the checks find, and the runner fails on what the known list does not cover', async (t) => {

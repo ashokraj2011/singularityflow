@@ -3,11 +3,6 @@
   "entries": [
     {
       "invariant": "refusal-routes-to-itself",
-      "code": "DECISIONS_CONFIRMATION_REQUIRED",
-      "why": "By design: choices a chat may not record are recorded in the person's own terminal, where the same `decisions record` command shows the summary and asks them to confirm. Refused only where nobody can answer (--json, no terminal). The route is for the person, not a loop."
-    },
-    {
-      "invariant": "refusal-routes-to-itself",
       "code": "VERSION_OPENING_OUTCOME_UNKNOWN",
       "why": "By design: whether a version's opening reached the shared branch is unknown while the remote cannot be read, and the route is to settle the same operation again once it answers (osa-stage2-journey-h.test.mjs). A retry later, never a second opening."
     }

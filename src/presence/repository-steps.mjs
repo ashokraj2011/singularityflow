@@ -116,7 +116,7 @@ export async function signRepositoryStep(root, { action, title, lines = [], reco
   const terminal = (dependencies.personTerminal ?? personTerminal)();
   if (!terminal.person) {
     fail(`SF Guard: ${action} needs your presence signature, taken in your own terminal (${terminal.reason}). Nothing was written. Run it there: ${command}`,
-      'PSS_CARD_NOT_SHOWN', { approver, nextAction: { command, label: `Run in your own terminal: ${command}` }, routes });
+      'PSS_CARD_NOT_SHOWN', { approver, nextAction: { command, label: `Run in your own terminal: ${command}`, where: 'own-terminal' }, routes });
   }
   if (!await (dependencies.holdsKey ?? holdsKey)(pin.keyId)) {
     fail(`SF Guard: this Mac does not hold your pinned presence key ${pin.keyId}. Nothing was written. Run this step on the Mac that holds it, rotate to a key on this Mac (singularity-flow guard rotate --key <NEW-KEY-ID>), or ${routes.others}. If you never registered ${pin.keyId}, revoke it: singularity-flow guard revoke ${approver} --reason "not my key".`,

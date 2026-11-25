@@ -1013,7 +1013,8 @@ async function record(root, options, workId, io) {
         : `These decisions are recorded in a person's own terminal, which shows the summary and asks them to confirm: ${preview.record?.command ?? packet.record.form}`,
         'DECISIONS_CONFIRMATION_REQUIRED', { summary: preview.summary, record: preview.record, packetSha256: packet.packetSha256,
           // The exact record command, confirmed, never the list again [owner, 2026-11-19, loop 2].
-          nextAction: { command: preview.record?.command ?? packet.record.form, label: 'Record these choices with the summary confirmed.' } });
+          nextAction: { command: preview.record?.command ?? packet.record.form, label: 'Record these choices with the summary confirmed.',
+            ...(preview.record?.recordInChat ? {} : { where: 'own-terminal' }) } });
     }
     if (!DIGEST.test(confirm)) refused('--confirm takes the list\'s digest from its preview (`--json`, packetSha256). In your own terminal, leave --confirm out: it shows the summary and asks you to confirm.', 'DECISIONS_OPTIONS_INVALID', { packetSha256: packet.packetSha256 });
     if (!plan.steps.length) {

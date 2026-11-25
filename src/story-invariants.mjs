@@ -142,6 +142,9 @@ const commandWords = (text) => String(text ?? '').trim().replace(/^singularity-f
 export function refusalViolations(argv, error) {
   const route = error?.details?.nextAction?.command;
   if (!route || !argv?.length) return [];
+  // The same command handed to a person's own terminal (a presence signature, a confirmation only a person gives) runs
+  // there, where it was refused here for want of a person: a hand-over, not a loop.
+  if (error.details.nextAction.where === 'own-terminal') return [];
   return commandWords(route) === commandWords(argv.join(' '))
     ? [{ invariant: 'refusal-routes-to-itself', code: error.code ?? null, words: `refused '${commandWords(argv.join(' '))}' and routed to the same command` }]
     : [];

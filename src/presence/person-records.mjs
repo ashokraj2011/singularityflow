@@ -485,7 +485,7 @@ export async function preparePersonPresence(root, { workflow, phase, actor, acti
   const terminal = (dependencies.personTerminal ?? personCardShown)();
   if (!terminal.person) {
     fail(`SF Guard: ${{ approve: 'approving', reject: 'rejecting', reopen: 'reopening' }[verb] ?? 'deciding'} this step needs your presence signature, taken in your own terminal (${terminal.reason}). Nothing was written. Run it there: ${command}`,
-      'PSS_CARD_NOT_SHOWN', { approver, nextAction: { command, label: `Run in your own terminal: ${command}` }, routes });
+      'PSS_CARD_NOT_SHOWN', { approver, nextAction: { command, label: `Run in your own terminal: ${command}`, where: 'own-terminal' }, routes });
   }
   const held = await (dependencies.holdsKey ?? holdsKey)(pin.keyId);
   if (!held) {

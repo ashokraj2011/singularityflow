@@ -4668,8 +4668,19 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     return state.library || (state.library = { reference: '', as: 'skill', preview: null, busy: null, error: null, target: null, market: null, entries: null, check: null, newMarket: null });
   }
 
-  /** The link or marketplace entry to preview, as the engine names it. */
-  function importReference(entry, marketplaceId) { return 'market:' + marketplaceId + '/' + entry.id + '@' + entry.version; }
+  /** The link or marketplace entry to preview, as the engine names it (a Git repository marketplace's, at its pinned commit). */
+  function importReference(entry, marketplaceId) { return entry.importReference || 'market:' + marketplaceId + '/' + entry.id + '@' + entry.version; }
+
+  /**
+   * A Git repository marketplace's skill, on its own: its exact text previewed for the skill master, where any agent or
+   * step can attach it; an update when the skill master already has it from an import.
+   */
+  function previewMarketplaceSkill(entry, market) {
+    var lib = library();
+    var imported = (state.model.imports || []).some(function (row) { return row.key === 'library-skill:' + entry.id; });
+    lib.as = 'library-skill'; lib.attachTo = null; lib.target = null; lib.replace = imported && Boolean((state.draft.skills || {})[entry.id]);
+    previewImport(importReference(entry, market.id), 'library-skill', null);
+  }
 
   /** The ID an import suggests: its own name, the marketplace entry's ID, or the link's file name. */
   function suggestedId(preview) {
@@ -4726,7 +4737,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var target = lib.target || (lib.target = { agent: '', id: suggestedId(preview), phases: (preview.marketplace && preview.marketplace.phases) || [], optional: false, label: '', withoutDefaults: false, replace: false });
     var card = el('section', { class: 'studio-card', 'aria-label': 'Import preview' });
     card.appendChild(el('div', { class: 'studio-row spread' },
-      el('h2', { text: (KIND_WORDS[preview.as] || preview.as) + (preview.marketplace ? ': ' + preview.marketplace.label + ' ' + preview.marketplace.version : preview.source && preview.source.kind === 'mcp' ? ' from an MCP server' : ' from a link') }),
+      el('h2', { text: (KIND_WORDS[preview.as === 'skill' && lib.as === 'library-skill' ? 'library-skill' : preview.as] || preview.as) + (preview.marketplace ? ': ' + preview.marketplace.label + (preview.marketplace.version ? ' ' + preview.marketplace.version : '') : preview.source && preview.source.kind === 'mcp' ? ' from an MCP server' : ' from a link') }),
       el('span', { class: 'pill', text: preview.bytes + ' bytes' })));
     card.appendChild(el('span', { class: 'muted', text: 'From ' + preview.reference + (preview.source && preview.source.resolvedUrl && preview.source.resolvedUrl !== preview.reference ? ', served from ' + preview.source.resolvedUrl : '') }));
     if (preview.source && preview.source.kind === 'mcp') {
@@ -4952,10 +4963,14 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var grid = el('div', { class: 'agents-grid' });
     entries.forEach(function (entry) {
       grid.appendChild(el('article', { class: 'studio-card' },
-        el('div', { class: 'studio-row spread' }, el('strong', { text: entry.label }), el('span', { class: 'pill', text: (KIND_WORDS[entry.kind] || entry.kind) + ' ' + entry.version })),
+        el('div', { class: 'studio-row spread' }, el('strong', { text: entry.label }), el('span', { class: 'pill', text: (KIND_WORDS[entry.kind] || entry.kind) + (entry.version ? ' ' + entry.version : '') })),
         entry.description ? el('span', { class: 'muted', text: entry.description }) : null,
         (entry.tags || []).length ? el('div', { class: 'rail' }, entry.tags.map(function (tag) { return el('span', { class: 'pill', text: tag }); })) : null,
-        entry.importable
+        // A Git repository marketplace's skill: on its own, into the skill master (it also comes with the agents that use it).
+        entry.importable && market.repository && entry.kind === 'skill'
+          ? button('Add to the skill master', function () { previewMarketplaceSkill(entry, market); },
+            { class: 'secondary', disabled: Boolean(lib.busy), 'aria-label': 'Preview ' + entry.label + ' for the skill master' })
+          : entry.importable
           ? button(entry.kind === 'generated' ? 'Set up' : 'Preview', function () {
             if (entry.kind === 'generated') { lib.generated = entry; lib.preview = null; render(); return; }
             previewImport(importReference(entry, market.id), entry.kind, null);

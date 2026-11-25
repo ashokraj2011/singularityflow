@@ -175,7 +175,10 @@ proposal.
   its row and never read.)
 - A marketplace skill marked approved or `ga` is offered directly. One marked proposed or beta needs the person's yes.
 - A marketplace skill not yet in the repository costs one yes the first time, with its exact text shown, as any import.
-  It is then in the library, and the next task uses it without asking.
+  It is then in the library, and the next task uses it without asking. (Built 2026-11-25: a Git repository
+  marketplace's skill can also be imported on its own, before any task asks: `marketplace browse` names its
+  `import preview "market:<id>/<skill>" --as skill`, and Workflow Studio's Library gives it **Add to the skill master**,
+  through the same preview and review.)
 - The plan line names the skills it uses: "code → tests (with web-e2e-test-generation from acme, new here: add it?)".
 - The exact skill text a Story uses is frozen into its snapshot.
 

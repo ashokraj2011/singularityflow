@@ -8,7 +8,7 @@ const sourcesMax = 6;
 export const CHAT_PAIRS = 4;
 const clipped = (value, bytes) => Buffer.from(value).subarray(0, bytes).toString('utf8');
 
-const invalid = () => new SingularityFlowError('Send one chat question and the recent conversation.', { code: 'ASK_CHAT_INPUT_INVALID' });
+const invalid = () => new SingularityFlowError('Send one chat question and the recent conversation.', { code: 'ASK_CHAT_INPUT_INVALID', details: { nextAction: { command: 'singularity-flow help ask', label: 'See how Ask SFlow takes a question.' } } });
 const unavailable = (code, message) => ({ kind: 'chat', status: 'unavailable', diagnostic: { code, message } });
 
 export async function readChatInput(input = process.stdin) {

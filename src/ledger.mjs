@@ -99,7 +99,7 @@ function safeSegment(value, label) {
 }
 
 export function ledgerEntryFile(capabilityId, entryHash) {
-  if (!/^[a-f0-9]{64}$/u.test(entryHash ?? '')) throw new SingularityFlowError('A ledger entry file requires an exact hash.');
+  if (!/^[a-f0-9]{64}$/u.test(entryHash ?? '')) throw new SingularityFlowError('A record file is named by its full 64-character fingerprint.', { code: 'LEDGER_ENTRY_NAME_INVALID', details: { nextAction: { command: 'singularity-flow doctor --json', label: 'Check the capability records.' } } });
   return ['ledger/entries', safeSegment(capabilityId, 'Ledger capability ID'), entryHash + '.json'].join('/');
 }
 

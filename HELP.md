@@ -3774,6 +3774,14 @@ singularity-flow explain --subject change|clause|test|line|gap|generation [--id 
   [--work-id ID] [--for reviewer|auditor|developer] [--max-bytes N]
   [--narrate [--length brief|standard|long] [--commentary]] [--json]
 singularity-flow why [QUESTION] [--json]
+singularity-flow ask [QUESTION] [--work-id ID] [--json]
+singularity-flow ask --suggest [TEXT] [--json]
+singularity-flow ask --cursor TOKEN [--json]
+singularity-flow ask QUESTION --remember [--portable] [--for-person] [--json]
+singularity-flow ask --resume [--portable | --conversation ID] [--for-person]
+singularity-flow ask --conversation ID --revision N [QUESTION | --evidence=ID | --explain | --forget]
+singularity-flow ask SPEC-ID@N --open-spec [--for-person]
+singularity-flow work handoff ITW-ID [--start] --for-person [--json]
 ```
 
 `explain` serves the shipped documentation topics. It never invokes a model and never needs a repository, so it answers from a global install with no clone at all. With no argument it lists every topic. Resolution is exact id, then alias, then unique prefix; an ambiguous prefix returns the candidates rather than guessing, and an unknown topic returns the nearest ids. Every response carries the topic id, its version, and the commit the docs manifest was stamped from. `--here` adds the current work item's situation as a second, separately cited part, and degrades to the concept alone when no work item resolves. In Copilot use `/sf-docs`.

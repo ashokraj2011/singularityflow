@@ -5,6 +5,9 @@ import path from 'node:path';
 import { literalPathspec, repositoryRelative, typedGit, typedOutput } from './source-inspection.mjs';
 import { SingularityFlowError } from './util.mjs';
 
+/** Where a person goes when Git answers a history read it should not have: a check of this checkout. */
+const GIT_CHECK = Object.freeze({ command: 'singularity-flow doctor --json', label: 'Check this checkout with Git.' });
+
 const MAX_SUBJECT_CHARS = 240;
 
 /** The local shallow boundaries, which can change independently of the selected commit. */
@@ -15,7 +18,7 @@ export async function typedHistoryView(root) {
   const [shallow, file] = output.trimEnd().split(/\r?\n/u);
   if (shallow === 'false') return null;
   if (shallow !== 'true' || !path.isAbsolute(file ?? '')) {
-    throw new SingularityFlowError('Git did not identify its ancestry boundary.', { code: 'TYPED_GIT_READ_UNAVAILABLE' });
+    throw new SingularityFlowError('Git did not identify its ancestry boundary.', { code: 'TYPED_GIT_READ_UNAVAILABLE', details: { nextAction: { command: 'singularity-flow doctor --json', label: 'Check this checkout with Git.' } } });
   }
   return createHash('sha256').update(await readFile(file)).digest('hex');
 }
@@ -24,7 +27,7 @@ export async function typedHistoryView(root) {
 export function typedCommitterPage(root, revision, { offset = 0, limit = 200 } = {}) {
   if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(revision) ||
       !Number.isSafeInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 500) {
-    throw new SingularityFlowError('A commit page requires an exact revision and a bounded range.', { code: 'TYPED_GIT_HISTORY_INVALID' });
+    throw new SingularityFlowError('A commit page requires an exact revision and a bounded range.', { code: 'TYPED_GIT_HISTORY_INVALID', details: { nextAction: { command: 'singularity-flow help ask', label: 'Start the history search again.' } } });
   }
   const output = typedOutput(typedGit(root, [
     'log', '--topo-order', `--skip=${offset}`, `--max-count=${limit + 1}`, '--no-notes', '--no-show-signature',
@@ -32,14 +35,14 @@ export function typedCommitterPage(root, revision, { offset = 0, limit = 200 } =
   ], { env: { GIT_GRAFT_FILE: '' } }), 'Git committer history');
   const fields = output ? output.slice(0, -1).split('\0') : [];
   if (output && (!output.endsWith('\0') || fields.length % 3 !== 0 || fields.length > (limit + 1) * 3)) {
-    throw new SingularityFlowError('Git returned an incomplete commit history page.', { code: 'TYPED_GIT_HISTORY_INVALID' });
+    throw new SingularityFlowError('Git returned an incomplete commit history page.', { code: 'TYPED_GIT_HISTORY_INVALID', details: { nextAction: GIT_CHECK } });
   }
   const commits = [];
   for (let index = 0; index < fields.length; index += 3) {
     const [commit, stamp, subject] = fields.slice(index, index + 3);
     const date = new Date(Number(stamp) * 1000);
     if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(commit) || !/^-?\d+$/u.test(stamp) || !Number.isFinite(date.valueOf())) {
-      throw new SingularityFlowError('Git returned a commit without a valid object ID or committer date.', { code: 'TYPED_GIT_HISTORY_INVALID' });
+      throw new SingularityFlowError('Git returned a commit without a valid object ID or committer date.', { code: 'TYPED_GIT_HISTORY_INVALID', details: { nextAction: GIT_CHECK } });
     }
     commits.push({ commit, committedAt: date.toISOString(), subject: subject.slice(0, MAX_SUBJECT_CHARS) });
   }
@@ -59,7 +62,7 @@ function typedEndpointNames(root, left, right, renames) {
   const output = typedOutput(result, 'The endpoint changes');
   const fields = output ? output.slice(0, -1).split('\0') : [];
   if (output && !output.endsWith('\0')) {
-    throw new SingularityFlowError('Git returned an incomplete endpoint path listing.', { code: 'TYPED_GIT_READ_UNAVAILABLE' });
+    throw new SingularityFlowError('Git returned an incomplete endpoint path listing.', { code: 'TYPED_GIT_READ_UNAVAILABLE', details: { nextAction: GIT_CHECK } });
   }
   const entries = [];
   for (let index = 0; index < fields.length;) {
@@ -68,7 +71,7 @@ function typedEndpointNames(root, left, right, renames) {
     const oldPath = renamed ? fields[index++] : null;
     const file = fields[index++];
     if (!file || (renamed && !oldPath) || !/^(?:[ADMTU]|[RM][0-9]{1,3})$/u.test(status)) {
-      throw new SingularityFlowError('Git returned an incomplete endpoint path listing.', { code: 'TYPED_GIT_READ_UNAVAILABLE' });
+      throw new SingularityFlowError('Git returned an incomplete endpoint path listing.', { code: 'TYPED_GIT_READ_UNAVAILABLE', details: { nextAction: GIT_CHECK } });
     }
     entries.push({ status: status[0], path: file, ...(renamed ? { oldPath, similarity: Number(status.slice(1)) } : {}) });
   }
@@ -96,7 +99,7 @@ function endpointCounts(root, left, right, scope, renames) {
 /** Direct tree-to-tree path metadata, with separate coverage for rename detection and blob reads. */
 export function typedEndpointChanges(root, left, right, { relative = null } = {}) {
   if (![left, right].every(commit => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(commit))) {
-    throw new SingularityFlowError('A tree comparison requires two exact commits.', { code: 'TYPED_GIT_HISTORY_INVALID' });
+    throw new SingularityFlowError('A tree comparison requires two exact commits.', { code: 'TYPED_GIT_HISTORY_INVALID', details: { nextAction: GIT_CHECK } });
   }
   const selected = relative ? repositoryRelative(relative) : null;
   const selectedPaths = file => file === selected || file?.startsWith(selected.replace(/\/$/u, '') + '/');

@@ -317,13 +317,13 @@ export async function workCommand(positionals = [], options = {}) {
   // A skill's name alone ("/sf-task" typed with nothing after it) says what to run, not what to do: it never names a
   // task. With a task open on this checkout it means "carry that one on" (a chat its hooks did not bind, 2026-11-25).
   if (SKILL_NAME_ONLY.test(words)) {
-    const open = openStoryHere(root);
-    throw new SingularityFlowError(open
-      ? `${open} is open on this checkout; "${words}" carries it on and starts nothing new.`
+    const openTask = openStoryHere(root);
+    throw new SingularityFlowError(openTask
+      ? `${openTask} is open on this checkout; "${words}" carries it on and starts nothing new.`
       : 'Say what the task is, in your own words: a skill\'s name alone is not a task.', {
-      code: open ? 'TASK_OPEN_HERE' : 'TASK_WORDS_MISSING',
-      details: open
-        ? { openTask: open, nextAction: { command: `singularity-flow work status ${open}`, label: `Carry ${open} on.` } }
+      code: openTask ? 'TASK_OPEN_HERE' : 'TASK_WORDS_MISSING',
+      details: openTask
+        ? { openTask, nextAction: { command: `singularity-flow work status ${openTask}`, label: `Carry ${openTask} on.` } }
         : { nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Say what you want done, in your own words.' } }
     });
   }

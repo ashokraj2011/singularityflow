@@ -126,7 +126,7 @@ async function runCodeMap(root, options, operation) {
   const depth = Number(optionString(options, 'code-map-depth', '1'));
   const format = optionString(options, 'code-map-format', 'summary');
   if (![1, 2, 3].includes(depth) || !['panel', 'summary'].includes(format)) {
-    throw new SingularityFlowError('Choose a Code Explainer view and a call depth of 1, 2 or 3.', { code: 'CMP_CODE_MAP_QUERY_INVALID' });
+    throw new SingularityFlowError('Choose a Code Explainer view and a call depth of 1, 2 or 3.', { code: 'CMP_CODE_MAP_QUERY_INVALID', details: { nextAction: { command: 'singularity-flow help explain', label: 'See the Code Explainer views and depths.' } } });
   }
   const codeMap = view === 'source'
     ? await loadCodeExcerpt(root, { file: scope, sha256: optionString(options, 'source-sha256'), line: Number(optionString(options, 'line')) })

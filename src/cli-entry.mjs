@@ -644,7 +644,10 @@ export async function main(argv) {
     // for the others it shapes the output only, and a paused SFlow answers before any Git or lookup.
     const agentFlag = options['for-agent'] !== undefined;
     const taskHandoff = positionals[0] === 'work' && positionals[1] === 'handoff';
-    if (taskHandoff && agentFlag) throw new SingularityFlowError('Use the task handoff in your own Ask SFlow view or terminal.', { code: 'TASK_HANDOFF_PERSON_REQUIRED' });
+    if (taskHandoff && agentFlag) {
+      throw new SingularityFlowError('Use the task handoff in your own Ask SFlow view or terminal.', { code: 'TASK_HANDOFF_PERSON_REQUIRED',
+        details: { nextAction: { command: `singularity-flow ${positionals.join(' ')} --for-person`, label: 'Run it in your own terminal.', where: 'own-terminal' } } });
+    }
     const foregroundService = positionals[0] === 'ui' && positionals[1] === 'serve' ||
       positionals[0] === 'ask' && positionals[1] === 'provider' && positionals[2] === 'serve';
     const ownsFlag = interpretsForAgent(positionals);

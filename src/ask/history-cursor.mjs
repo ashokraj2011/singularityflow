@@ -9,7 +9,7 @@ const MAX_ENCODED_LENGTH = 3600;
 
 const invalid = () => new SingularityFlowError(
   'This continuation expired or belongs to another checkout or audience. Start the search again.',
-  { code: 'ASK_CONTINUATION_INVALID' }
+  { code: 'ASK_CONTINUATION_INVALID', details: { nextAction: { command: 'singularity-flow help ask', label: 'Start the search again.' } } }
 );
 
 export async function checkoutScope(root, context, audience) {

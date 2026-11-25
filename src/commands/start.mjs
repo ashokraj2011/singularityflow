@@ -95,8 +95,8 @@ export function startTaskStory(positionals, options, composition, { plan = null,
   return startCommand(positionals, options);
 }
 
-const occupiedTaskReservation = id => new SingularityFlowError(`The reserved branch '${id}' is already occupied. Inspect the retained task handoff.`,
-  { code: 'TASK_ADMISSION_BRANCH_OCCUPIED' });
+const occupiedTaskReservation = id => new SingularityFlowError(`The branch '${id}' kept for this task already holds other work. See what is on it.`,
+  { code: 'TASK_ADMISSION_BRANCH_OCCUPIED', details: { nextAction: { command: `singularity-flow work status ${id}`, label: `See what ${id} holds.` } } });
 
 async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourceCommit = head(sourceRoot), baselineChoice = 'reuse') {
   intakeBaselineChoice(baselineChoice);

@@ -217,16 +217,16 @@ function currentBranch(root) {
 
 export async function loadCodeExcerpt(root, { file, sha256, line }) {
   if (!codePath(file) || !/^sha256:[a-f0-9]{64}$/u.test(sha256 ?? '') || !Number.isSafeInteger(line) || line < 1) {
-    throw new SingularityFlowError('Choose a line from the captured Code Explainer view.', { code: 'CMP_CODE_SOURCE_INVALID' });
+    throw new SingularityFlowError('Choose a line from the captured Code Explainer view.', { code: 'CMP_CODE_SOURCE_INVALID', details: { nextAction: { command: 'singularity-flow explain code --json', label: 'Read the code again and choose a line.' } } });
   }
   const source = await readSource(root, file).catch(() => null);
   if (!source || source.sha256 !== sha256) {
     throw new SingularityFlowError('This file changed or became unavailable. Re-index Code Explainer to open the current source.', {
-      code: 'CMP_CODE_SOURCE_MOVED'
+      code: 'CMP_CODE_SOURCE_MOVED', details: { nextAction: { command: 'singularity-flow explain code --json', label: 'Read the current code again.' } }
     });
   }
   if (line > Math.max(1, source.lines.length)) {
-    throw new SingularityFlowError('This line is outside the captured source.', { code: 'CMP_CODE_SOURCE_INVALID' });
+    throw new SingularityFlowError('This line is outside the captured source.', { code: 'CMP_CODE_SOURCE_INVALID', details: { nextAction: { command: 'singularity-flow explain code --json', label: 'Read the code again and choose a line.' } } });
   }
   const first = Math.max(1, line - 36);
   const { withholdForModel } = await import('../spec-library/share-check.mjs');
@@ -256,7 +256,7 @@ export async function loadCodeMap(root, { view, scope = null, panel = false, dep
   const tracked = [...new Set((inventory?.paths ?? []).filter(codePath))];
   if (panel && view === 'repository' && scope && inventory?.complete && !tracked.length) {
     throw new SingularityFlowError(`No tracked code was found under ${scope}. Choose a tracked folder or source file.`, {
-      code: 'CMP_CODE_MAP_SCOPE_EMPTY'
+      code: 'CMP_CODE_MAP_SCOPE_EMPTY', details: { nextAction: { command: 'singularity-flow explain code --json', label: 'Explain the code of the whole checkout.' } }
     });
   }
   const linkedInventory = inventory && { ...inventory, paths: tracked };

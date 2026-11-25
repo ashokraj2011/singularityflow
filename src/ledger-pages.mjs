@@ -63,7 +63,7 @@ export async function ledgerPage(root, rawConfig, {
     throw new SingularityFlowError(`A ledger page holds 1 to ${LEDGER_PAGE_MAX} entries.`, { code: 'LEDGER_PAGE_LIMIT_INVALID' });
   }
   if (pinned != null && (continuation != null || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(pinned))) {
-    throw new SingularityFlowError('Supply a ledger continuation or one exact snapshot commit.', { code: 'LEDGER_CONTINUATION_INVALID' });
+    throw new SingularityFlowError('Give either the next-page token or one exact commit, not both.', { code: 'LEDGER_CONTINUATION_INVALID' });
   }
   const namespace = `${config.remote}/${config.branch}`;
   let snapshot;

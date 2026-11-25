@@ -84,6 +84,13 @@ const OVERRIDES = {
   'lesson-refusals.mjs': 'local-operational',
   // A trusted marketplace's skill list kept per pinned commit in the clone's Git folder, so it is not read again [ITW:REQ-010].
   'task-skills.mjs': 'projection',
+  // Ask SFlow (codex/spec-ask-r1): a saved conversation is this person's own data on this machine, and the copy shared
+  // to resume elsewhere is theirs too; neither is a Story's record. Its reads cite the Git history they read.
+  'ask/conversation-store.mjs': 'local-authored',
+  'ask/shared-conversations.mjs': 'local-authored',
+  'ask/read.mjs': 'source-control',
+  // The receipt of a task handed over from Ask SFlow, kept in the clone's Git folder so a retry keeps its Work ID.
+  'task-admission.mjs': 'local-authored',
   // Moves SFlow's agents inside a refresh candidate of the approved configuration [SPEC-AGH].
   'agents-home-migration.mjs': 'shared-state',
   // Creates workspaces and clones their repositories; the registry it also writes is a local locator.

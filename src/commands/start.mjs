@@ -85,6 +85,15 @@ const ISOLATED_STORY_INTAKE_HANDOFF = Symbol('isolated-story-intake-handoff');
 const ISOLATED_STORY_SELECTION_HANDOFF = Symbol('isolated-story-selection-handoff');
 // An immutable request copied once in the launch repository, also carried into its new worktree.
 const CLONED_STORY_REQUEST = Symbol('cloned-story-request');
+// A task's composed workflow [ITW:REQ-006]: set only by `work` (startTaskStory below), never from flags. The start lays
+// it over each definition it reads, in memory, and the Story records it; workflow.yml is never written.
+const TASK_COMPOSITION = Symbol('task-composition');
+
+/** Start a Story whose workflow was composed for a task (src/task-composition.mjs) [ITW:REQ-006, REQ-007]. */
+export function startTaskStory(positionals, options, composition, { plan = null } = {}) {
+  options[TASK_COMPOSITION] = { composition, plan };
+  return startCommand(positionals, options);
+}
 
 async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourceCommit = head(sourceRoot), baselineChoice = 'reuse') {
   intakeBaselineChoice(baselineChoice);
@@ -503,6 +512,17 @@ async function startCommandAtRoot(positionals, options) {
   // refs and cheap input errors first; load the local workflow only if authority discovery later
   // proves there is no approved snapshot and the legacy branch-local fallback is needed.
   let config = null;
+  const taskComposition = options[TASK_COMPOSITION]?.composition ?? null;
+  const taskPlan = options[TASK_COMPOSITION]?.plan ?? null;
+  // Loaded only for a task's start: an ordinary start reads none of it.
+  const { taskClosureWorkTypes, taskDefinition } = taskComposition ? await import('../task-composition.mjs') : {};
+  const taskOverlays = new WeakMap();
+  // Every definition this start reads gains the task's composed work type, in memory only [ITW:REQ-006].
+  const withTask = (definition) => {
+    if (!taskComposition || !definition) return definition;
+    if (!taskOverlays.has(definition)) taskOverlays.set(definition, taskDefinition(definition, taskComposition));
+    return taskOverlays.get(definition);
+  };
   // At this point the command has not established whether this is new work or an existing Story
   // carrying an older pinned policy. Enforce the transport-safe shape now; the selected lifecycle
   // branch enforces its exact `idPattern` below, while genuinely new work uses current configuration.
@@ -698,8 +718,8 @@ async function startCommandAtRoot(positionals, options) {
           session: storyRemoteSession, useObjectCache: true, reuseAuthorityObservation: true
         }))
       : null);
-  config = approvedConfigurationSnapshot?.definition
-    ?? (existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : null);
+  config = withTask(approvedConfigurationSnapshot?.definition
+    ?? (existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : null));
   if (!config) {
     throw storyConfigurationUnavailableError();
   }
@@ -894,11 +914,11 @@ async function startCommandAtRoot(positionals, options) {
       );
     }
     if (!approvedConfigurationSnapshot) {
-      config = await loadLegacyMaterializedStoryDefinition(root, {
+      config = withTask(await loadLegacyMaterializedStoryDefinition(root, {
         remote,
         storyBranch: canonicalBranch,
         seedCommit: materializedSeedCommit
-      });
+      }));
       validateId(config, id);
     }
   }
@@ -1080,7 +1100,7 @@ async function startCommandAtRoot(positionals, options) {
       remote, baseBranch: baseAtStart, baseCommit: legacyBaseConfigurationCommit,
       capabilityId: workflowCapabilityId
     });
-    config = selectedBaseConfiguration.definition;
+    config = withTask(selectedBaseConfiguration.definition);
     legacyCapabilityEvidence = selectedBaseConfiguration.capabilityEvidence;
     if (storyBase.scope === 'capability') {
       assertApprovedCapabilityRepositoryPlan(
@@ -1139,7 +1159,7 @@ async function startCommandAtRoot(positionals, options) {
   // `--agent NAME` alone starts the Story on the workflow a user-defined agent owns (call add made both
   // under one name); for any other agent it keeps choosing the step's agent.
   let deterministicWorkType = preselectedWorkType
-    ?? userDefinedAgentWorkType(approvedConfigurationSnapshot?.definition ?? config, optionString(options, 'agent'))
+    ?? userDefinedAgentWorkType(withTask(approvedConfigurationSnapshot?.definition) ?? config, optionString(options, 'agent'))
     ?? materializedSeed?.suggestedWorkType ?? null;
   const validateDeterministicStartPolicy = async (definition, snapshot, evidence = []) => {
     let resolved = null;
@@ -1197,7 +1217,7 @@ async function startCommandAtRoot(positionals, options) {
     return { resolved, policy, maximumFileBytes, allowedMimeTypes };
   };
   let deterministicPolicy = await validateDeterministicStartPolicy(
-    approvedConfigurationSnapshot?.definition ?? config,
+    withTask(approvedConfigurationSnapshot?.definition) ?? config,
     approvedConfigurationSnapshot
   );
   // The POC workflow needs the Story's authorized origin now, so refuse before any branch or session;
@@ -1362,7 +1382,7 @@ async function startCommandAtRoot(positionals, options) {
       });
   }
   deterministicPolicy = await validateDeterministicStartPolicy(
-    approvedConfigurationSnapshot?.definition ?? config,
+    withTask(approvedConfigurationSnapshot?.definition) ?? config,
     approvedConfigurationSnapshot,
     documentCapture.evidence
   );
@@ -1413,22 +1433,22 @@ async function startCommandAtRoot(positionals, options) {
     capabilityPreflight?.map((entry) => ({
       id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
     })) ?? [{ id: 'lifecycle', root, baseCommit: baseCommitAtStart }],
-    { scope: requiredRepositoryReadinessScope(approvedConfigurationSnapshot?.definition ?? config),
-      testRuntime: (approvedConfigurationSnapshot?.definition ?? config).repositoryReadiness?.testRuntime,
-      advisory: !repositoryReadinessRequired(approvedConfigurationSnapshot?.definition ?? config) }
+    { scope: requiredRepositoryReadinessScope(withTask(approvedConfigurationSnapshot?.definition) ?? config),
+      testRuntime: (withTask(approvedConfigurationSnapshot?.definition) ?? config).repositoryReadiness?.testRuntime,
+      advisory: !repositoryReadinessRequired(withTask(approvedConfigurationSnapshot?.definition) ?? config) }
   ));
   const testRecoveryPreview = await prepareTestRecoveryIntake(root, {
-    definition: approvedConfigurationSnapshot?.definition ?? config, workId: id,
+    definition: withTask(approvedConfigurationSnapshot?.definition) ?? config, workId: id,
     workType: deterministicWorkType, repositories: readinessRepositories, repositoryReadiness,
     choices: testRecoveryChoices(options),
-    phaseDefinitions: testRecoveryIntakePhases(approvedConfigurationSnapshot?.definition ?? config,
+    phaseDefinitions: testRecoveryIntakePhases(withTask(approvedConfigurationSnapshot?.definition) ?? config,
       deterministicWorkType, approvedConfigurationSnapshot, workflowCapabilityId, legacyCapabilityEvidence)
   });
   const testRecoveryPlan = confirmTestRecoveryIntake(testRecoveryPreview,
     optionString(options, 'test-policy-confirm'), options);
   startReadiness = inspectStoryStartReadiness({
     workId: id,
-    definition: approvedConfigurationSnapshot?.definition ?? config,
+    definition: withTask(approvedConfigurationSnapshot?.definition) ?? config,
     configurationSnapshot: approvedConfigurationSnapshot,
     workType: deterministicWorkType,
     capabilityId: workflowCapabilityId,
@@ -1650,7 +1670,7 @@ async function startCommandAtRoot(positionals, options) {
         loadStoryConfigurationSnapshot(configurationAuthority, {
           session: storyRemoteSession, useObjectCache: true
         }));
-      config = approvedConfigurationSnapshot.definition;
+      config = withTask(approvedConfigurationSnapshot.definition);
       validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
         capabilityId: workflowCapabilityId
       });
@@ -1783,17 +1803,18 @@ async function startCommandAtRoot(positionals, options) {
       authority: configurationAuthority,
       snapshot: approvedConfigurationSnapshot,
       remoteName: remote,
-      // The Story branch carries its own workflow's closure, not every approved workflow.
-      workTypes: [workType],
+      // The Story branch carries its own workflow's closure, not every approved workflow. A task's composed workflow
+      // has none of its own: the configured workflows that own its steps carry what they need.
+      workTypes: taskComposition ? taskClosureWorkTypes(approvedConfigurationSnapshot.definition, taskComposition) : [workType],
       agents: [optionString(options, 'agent')].filter(Boolean)
     }));
   }
   // The selected lifecycle branch, not the checkout the user happened to start from, owns the
   // workflow definition. Reload after materialization so a newly fetched phase graph, agent,
   // template, or world-model policy is what gets pinned into the Story.
-  config = await measureCommandSpan('start.configuration-bind', async () => configurationSnapshot
+  config = withTask(await measureCommandSpan('start.configuration-bind', async () => configurationSnapshot
     ? await (await import('./start-configuration.mjs')).loadMaterializedConfigurationDefinition(root, approvedConfigurationSnapshot)
-    : await loadConfig(root));
+    : await loadConfig(root)));
   validateId(config, id);
   await updateStoryStartJournal(root, id, startJournal.transactionId, {
     stage: 'configuration-ready', workItemRelative: workDirRelative(config, id)
@@ -1875,6 +1896,7 @@ async function startCommandAtRoot(positionals, options) {
       write: async (creationPreimage) => {
         const create = () => createWorkflow(root, config, {
           id,
+          ...(taskComposition ? { composition: taskComposition } : {}),
           title: optionString(options, 'title', source.title || id),
           source,
           baseBranch: base,
@@ -2030,6 +2052,9 @@ async function startCommandAtRoot(positionals, options) {
     data: {
       workItem: { id: workflow.workItem.id, branch: workflow.workItem.branch, title: workflow.workItem.title },
       id: workflow.workItem.id,
+      // The task this Story does, as its plan line said it [ITW:REQ-012].
+      ...(taskComposition ? { task: { kind: taskComposition.kind, plan: taskPlan,
+        steps: taskComposition.steps.map((step) => ({ id: step.id, label: step.label })) } } : {}),
       testPolicy: sealedTestPolicy ? {
         path: workflow.testPolicy.path, sha256: workflow.testPolicy.sha256, baselineFailures: sealedTestPolicy.baselineFailures,
         executionScope: sealedTestPolicy.executionScope, capability: sealedTestPolicy.capability

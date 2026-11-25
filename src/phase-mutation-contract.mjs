@@ -32,7 +32,7 @@ export const MUTATION_CONTRACT_VERSION = 1;
 const KERNEL_ONLY_SKILLS = new Set([
   'inputs', 'recover', 'appeal', 'clarify', 'revise', 'submit', 'continue',
   'admin', 'init', 'configuration', 'documents', 'upload', 'workflows', 'workflow-rules', 'skills', 'instructions',
-  'capability-map', 'workspace', 'worldmodel', 'start', 'test-setup',
+  'capability-map', 'workspace', 'worldmodel', 'start', 'task', 'test-setup',
   // Story lifecycle actions on a bound Story.
   'assign', 'cancel', 'finalize', 'fix', 'gate', 'pr', 'refresh-branch', 'review', 'revision-attachments',
   'spec', 'story-checks', 'story-skill-version', 'visual', 'work-interval',

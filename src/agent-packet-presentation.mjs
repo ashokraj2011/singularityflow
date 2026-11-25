@@ -162,9 +162,9 @@ export function phaseEntryEvidenceInContext(packet) {
 /** Where the guide sends the agent for governed outcomes: the composed context when it states them, else the records. */
 function evidenceWords({ execution, consistency }) {
   if (execution && consistency) {
-    return 'Governed outcomes and evidence consistency are stated in context.text (# Governed execution evidence, # Evidence consistency): read them there; retainedExecutionEvidence and evidenceConsistency hold the same records with their hashes, for when one is needed';
+    return 'The recorded outcomes and evidence consistency are stated in context.text, under its execution-evidence and evidence-consistency headings: read them there; retainedExecutionEvidence and evidenceConsistency hold the same records with their hashes, for when one is needed';
   }
-  if (execution) return 'Governed outcomes are stated in context.text (# Governed execution evidence): read them there; retainedExecutionEvidence holds the same records with their hashes, for when one is needed';
+  if (execution) return 'The recorded outcomes are stated in context.text, under its execution-evidence heading: read them there; retainedExecutionEvidence holds the same records with their hashes, for when one is needed';
   return 'Use retainedExecutionEvidence for governed outcomes';
 }
 

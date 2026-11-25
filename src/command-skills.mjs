@@ -219,6 +219,8 @@ const entries = {
   copilot: ['sf-workspace-session'],
   knowledge: ['sf-knowledge'],
   lessons: ['sf-knowledge'],
+  // Intent to work: a task's plan and its Story [ITW:REQ-001].
+  work: ['sf-task'],
   capability: [
     'sf-capability-map', 'sf-capabilities', 'sf-capability-doctor',
     'sf-capability-add', 'sf-capability-protect', 'sf-capability-depend', 'sf-test-setup'

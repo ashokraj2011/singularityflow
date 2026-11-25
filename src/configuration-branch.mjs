@@ -2244,6 +2244,15 @@ export async function resolveApprovedStoryWorkTypeFor(snapshot, workflow) {
   const workTypeId = workflow?.workItem?.workType;
   const closure = workflow?.resolution?.configurationSource?.closure;
   const intentProfile = storyIntentProfile(workflow?.resolution);
+  // A task's Story composed its workflow from the approved steps [ITW:REQ-006]: the newer revision is read through the
+  // same composition, so an amendment compares the same steps.
+  const { definitionForStory, storyComposition } = await import('./task-composition.mjs');
+  if (storyComposition(workflow)) {
+    const base = closure?.kind === 'work-type' && Array.isArray(closure.workTypes)
+      ? (await storyConfigurationClosure(snapshot, closure.workTypes)).copyDefinition()
+      : structuredClone(verifiedStoryDefinition(snapshot));
+    return resolveWorkType(definitionForStory(base, workflow), workTypeId, { intentProfile });
+  }
   if (closure?.kind !== 'work-type' || !Array.isArray(closure.workTypes)) return resolveApprovedStoryWorkType(snapshot, workTypeId, { intentProfile });
   return resolveWorkType((await storyConfigurationClosure(snapshot, closure.workTypes)).copyDefinition(), workTypeId, { intentProfile });
 }

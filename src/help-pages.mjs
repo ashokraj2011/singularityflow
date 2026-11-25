@@ -484,6 +484,35 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['initiative', 'story', 'artifact']
   },
+  work: {
+    summary: 'Say what you want done; SFlow composes the steps from the kind of task and starts its Story.',
+    description: [
+      'The kind of task (fix, feature, change, refactor, tests, docs, investigate, review or chore) gives',
+      'its steps, the same way every time: a fix is intake, code and tests; a feature adds requirements',
+      'and a plan; an investigation ends with a report and changes no code. Each step is one of the',
+      'repository\'s own steps, so it keeps that step\'s agent and template. The team\'s tasks: rules in',
+      'workflow.yml may add a step or a person\'s approval; nothing removes one.',
+      '',
+      'Without --start it shows the plan and writes nothing. With --start it starts the Story: its ID is',
+      'a Jira key the words or --work-id name, else the next free TASK-<n> (tasks.idPrefix); its base is',
+      'the default branch; its intake is your words. The composed workflow is recorded with the Story and',
+      'never written to workflow.yml. In Copilot, /sf-task does this and names the kind for you.'
+    ],
+    options: [
+      ['--kind KIND', 'The kind of task; without it SFlow reads it from the words.'],
+      ['--path FILE', 'A file the task touches, so the team\'s path rules apply (repeatable).'],
+      ['--start', 'Start the Story.'],
+      ['--work-id ID', 'The Story ID to use instead of a Jira key or the next TASK-<n>.'],
+      ['--base BRANCH', 'The branch to start from instead of the default branch.'],
+      ['--json', 'Emit the plan, or the started Story, as JSON.']
+    ],
+    examples: [
+      ['singularity-flow work "fix the login timeout on slow networks"', 'Show the plan a fix gets.'],
+      ['singularity-flow work "fix the login timeout on slow networks" --start', 'Start it as a Story.'],
+      ['singularity-flow work "why do cancelled orders still send emails?" --kind investigate', 'An investigation: a report, no code change.']
+    ],
+    seeAlso: ['start', 'workflow', 'lessons']
+  },
   lessons: {
     summary: 'Read, drop, keep or edit the lessons earlier Stories left for the files they touched.',
     description: [

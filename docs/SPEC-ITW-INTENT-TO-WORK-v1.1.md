@@ -2,7 +2,7 @@
 
 **Specification ID:** `ITW-v1.1`
 
-**Status:** Proposed, not built. Replaces [ITW v1](SPEC-ITW-INTENT-TO-WORK-v1.md). Also takes in the useful parts of
+**Status:** M1 built (2026-11-25): kinds, the composer, team rules, the Story's own workflow, `singularity-flow work`, and a first `/sf-task` that starts the task. M2 to M5 not built. Replaces [ITW v1](SPEC-ITW-INTENT-TO-WORK-v1.md). Also takes in the useful parts of
 an outside draft, "SPEC-IEX v1.1, Intent to Verified Execution" (2026-11-07); section 5 lists what was left out of it and
 why.
 
@@ -83,8 +83,8 @@ make the date range part of the file name                → the same document, 
 
 **ITW:REQ-001, the front door.**
 - `/sf-task <words>` in Copilot: VS Code, Copilot CLI and IntelliJ.
-- `singularity-flow task "<words>" [--kind KIND] [--json]` in the terminal shows the plan and writes nothing; `--start`
-  starts it.
+- `singularity-flow work "<words>" [--kind KIND] [--json]` in the terminal shows the plan and writes nothing; `--start`
+  starts it. (`task` was taken: it is SGOS's `task list|show|evidence|retry`.)
 - `/sf-task` with no words continues the person's open task.
 - A question asked in a plain chat needs no task. `/sf-task` is for work whose result should be kept.
 
@@ -305,7 +305,8 @@ These already hold in SFlow, and `/sf-task` keeps them:
 - **A9:** The Story's snapshot holds the composed steps and the skill texts. A second laptop resumes the same steps.
 - **A10:** A journey test walks `/sf-task` to the checked change on VS Code and the Copilot CLI, then "open the pull
   request" opens it. The Story fuzzer composes tasks of every kind, and the invariant checks hold.
-- **A11:** A fix with no real question takes exactly two person actions: the words and the code approval.
+- **A11:** A fix with no real question takes three person actions: the words, the plan approval (a fix's intake is its
+  plan) and the code approval. Every other kind also asks a person for exactly two approvals.
 - **A12:** "Fix it" after an investigation starts a fix whose intake is the report. No question is asked twice.
 - **A13:** A refactor that changes the order of two errors stops at its test step and names the change. A refactor with
   every check unchanged ends by listing the checks that ran.
@@ -330,7 +331,7 @@ These already hold in SFlow, and `/sf-task` keeps them:
 
 | Milestone | Scope | Size |
 |---|---|---|
-| M1 | Kinds (with refactor and review), the composer, team rules, the Story's own workflow, `singularity-flow task` (REQ-002 to 007) | about 1 week |
+| M1 | Kinds (with refactor and review), the composer, team rules, the Story's own workflow, `singularity-flow work` (REQ-002 to 007); built 2026-11-25 | about 1 week |
 | M2 | `/sf-task` in Copilot: running step after step, carrying on after an answer, quiet progress, changing and growing the plan, the last message (REQ-001, 008, 009, 012, 014, 017, 018) | about 1 week |
 | M3 | Investigate then fix, refactor checks before and after, documents bound to a version (REQ-013, 015, 016) | 3 to 4 days |
 | M4 | Skills from the library and trusted marketplaces, first-use import, a marketplace agent as the plan (REQ-010, 011) | 3 to 4 days |

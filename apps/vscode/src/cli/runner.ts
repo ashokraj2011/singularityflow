@@ -99,7 +99,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'prefetch', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-hooks', 'repair-on-fault', 'restore-remote', 'run', 'feedback-stdin', 'saved-buffers-confirmed',
   'remove-stale', 'repair-projections', 'replace', 'replace-server', 'replay', 'resume', 'review-only', 'risk-status', 'rollback', 'send-test', 'set', 'set-aside', 'settings', 'sign', 'solo',
-  'refresh-readiness', 'review-ui', 'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'table', 'terminal', 'timeline', 'timings', 'today', 'update', 'write',
+  'refresh-readiness', 'review-ui', 'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'start', 'state-only', 'stdin', 'strict', 'submission-readiness', 'table', 'terminal', 'timeline', 'timings', 'today', 'update', 'write',
   'yes', 'verbose', 'show-artifact', 'brief', 'without-defaults', 'launch', 'allow-not-ready',
   'compose', 'for-agent', 'publish-if-ready', 'submit-if-ready', 'review-packet', 'background-sync',
   'host-review', 'presence', 'recipe', 'state-records',

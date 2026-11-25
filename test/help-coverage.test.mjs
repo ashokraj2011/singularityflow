@@ -77,7 +77,8 @@ test('every served topic is a surface-aware tutorial', async () => {
   // 92: plain-chat-routing (each setting, the repository's hooks and when they do not run) [PCR:REQ-043].
   // 93: changing-requirements (the user's guide to an intent amendment partway through a Story, SPEC-CIC v1.1).
   // 94: browser-workspace (the ui command: the local browser service and Spec Studio drafts).
-  assert.equal(topics.length, 94);
+  // 95: tasks (the work command and /sf-task, docs/SPEC-ITW-INTENT-TO-WORK-v1.1.md).
+  assert.equal(topics.length, 95);
   for (const topic of topics) {
     for (const section of requiredSections) {
       assert.match(topic.body, new RegExp(`^## ${section}$`, 'm'), `${topic.file} lacks ${section}`);

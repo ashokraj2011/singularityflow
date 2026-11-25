@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "69c4e571a613425b75332c74c592eb536fe1031c",
-  "topicCount": 94,
-  "contentSha256": "f6c666ae0fe84e7165e02f9c3528997fe698c93bad5a70ff800ab12992ec31c2",
+  "sourceCommit": "2a7a8576d7ca5ca898204162339b37a3b88645dd",
+  "topicCount": 95,
+  "contentSha256": "d75e461f8d730e34e0312d2beac7683d31a9d23f9763e784dca3c509d0cc58d4",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -660,6 +660,14 @@
       "sha256": "7188dc759aa2c44a73210fec6486431bcd23559af35d096dcd9bf8a8a1463402",
       "routingSha256": "e999b62cfd8ab0711c2320feca3f5d0f54656404584de22af6de4aa30060db1c",
       "file": "supporting-documents.md"
+    },
+    {
+      "id": "tasks",
+      "title": "Tasks: say what you want done",
+      "version": 1,
+      "sha256": "a23757b0bc1e10a19f944d7510ce150c7e7ef444621f625164ec341c5fcfca25",
+      "routingSha256": "1a1fcc7163ff59b9ed320743d473a84207b520bae38e1e42f2bb43617d1f4786",
+      "file": "tasks.md"
     },
     {
       "id": "telemetry-and-cost",

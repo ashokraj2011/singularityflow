@@ -1857,7 +1857,9 @@ const NO_STORY_COMMANDS = Object.freeze({
   'refresh-configuration': ['workspace'], 'reset-all': ['reset-all'], return: ['return'], secrets: ['secrets'],
   sgos: ['intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit',
     'device', 'authority-store', 'pack', 'memory', 'meta-tool'],
-  'sgos-create': ['intent'], stack: ['stack'], 'story-branch': ['story'], 'story-fetch': ['story'],
+  'sgos-create': ['intent'], stack: ['stack'],
+  // /sf-task composes a task's steps and starts its Story [ITW:REQ-001].
+  task: ['work'], 'story-branch': ['story'], 'story-fetch': ['story'],
   'story-start': ['story'], telemetry: ['telemetry'], watch: ['watch'],
   'workspace-bootstrap': ['workspace'], 'workspace-impact': ['workspace']
 });

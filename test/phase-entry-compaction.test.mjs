@@ -73,7 +73,7 @@ test('the guide reads governed outcomes once: in the composed context when it st
   const read = phaseEntryAgentPresentation({ ready: true, ...records, context: { text: stated } });
   assert.deepEqual(read.agentGuide.readOrder.filter((key) => /Evidence|Consistency|Visual/u.test(key)), ['retainedExecutionEvidence.reconciliation'],
     'what to act on is still read; the records the context states are not read twice');
-  assert.match(read.agentGuide.instruction, /Governed outcomes and evidence consistency are stated in context\.text/u);
+  assert.match(read.agentGuide.instruction, /The recorded outcomes and evidence consistency are stated in context\.text/u);
   assert.match(read.agentGuide.instruction, /not absence of upstream execution/u);
   assert.deepEqual(read.retainedExecutionEvidence, records.retainedExecutionEvidence, 'the records stay in the result');
   // A refresh on a reused prompt counts as stated.

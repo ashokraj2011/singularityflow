@@ -971,7 +971,7 @@ async function updateArtifactMetadata(root, config, workflow, phase) {
 export async function createWorkflow(root, config, {
   id, title, source, baseBranch, baseCommit = null, baseRemote = null,
   repositoryId = null,
-  canonicalBranch = id, workType, agent, resolved, capabilityId = null,
+  canonicalBranch = id, workType, agent, resolved, capabilityId = null, composition = null,
   capabilityMapSha256 = null,
   referenceRepositories = [],
   repositoryReadiness = null,
@@ -1256,6 +1256,8 @@ export async function createWorkflow(root, config, {
     resolution: {
       ...snapshotState,
       workType: selectedType,
+      // A task's composed workflow [ITW:REQ-006]: every later command rebuilds this Story's work type from it.
+      ...(composition ? { composition: structuredClone(composition) } : {}),
       workTypeLabel: resolution.label,
       approvalAuthorities: structuredClone(pinnedApprovalAuthorities),
       sequenceGates: snapshotState.sequenceGates ?? resolution.sequenceGates ?? { default: 'hard' },

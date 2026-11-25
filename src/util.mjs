@@ -202,6 +202,8 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'drain',
   'heartbeat', 'not-applicable', 'submit',
+  // work "<words>" --start starts the task's Story [ITW:REQ-001].
+  'start',
   // guard register|rotate|recover --author (src/commands/guard.mjs).
   'author', 'attest',
   // reject --beyond-budget: a person's one more rework round past a spent repair budget (repair-budget.mjs).

@@ -51,7 +51,9 @@ export class AllSkillsPanel implements vscode.Disposable {
     'allSkills.refresh': () => this.load(),
     'allSkills.preview': (message) => this.preview(stringField(message, 'key')),
     'allSkills.open': (message) => this.open(stringField(message, 'key')),
-    'allSkills.skillMaster': () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'skills' })
+    'allSkills.skillMaster': () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'skills' }),
+    // The Marketplace: the same marketplaces as an app store, with Install, Update and Remove.
+    'allSkills.marketplace': () => vscode.commands.executeCommand('singularityFlow.marketplace')
   });
 
   private row(key: string | null | undefined) {

@@ -1279,7 +1279,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.guideDeliveryValidation', 'singularityFlow.applicationReview', 'singularityFlow.openApmPackages',
     'singularityFlow.showImpact', 'singularityFlow.showPrompts', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.reviewWitness', 'singularityFlow.adjudicate', 'singularityFlow.decide', 'singularityFlow.sfGuard',
-    'singularityFlow.findings', 'singularityFlow.uploadFindings', 'singularityFlow.lessons', 'singularityFlow.allSkills',
+    'singularityFlow.findings', 'singularityFlow.uploadFindings', 'singularityFlow.lessons', 'singularityFlow.allSkills', 'singularityFlow.marketplace',
     'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
     'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
@@ -9848,8 +9848,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { agent, newAgent } = (target && typeof target === 'object' ? target : {}) as { agent?: unknown; newAgent?: unknown };
       // `{ importBundle }`: start Import… with a bundle file the team-import panel wrote.
       const importBundle = (target as { importBundle?: unknown } | undefined)?.importBundle;
-      // All skills opens the Library on one marketplace skill's import preview, or the Skill master on one skill.
+      // All skills and the Marketplace open the Library on one marketplace item's import preview or an agent's conversion
+      // review, the Skill master on one skill, a removal, or a workflow's Archive or Restore; Studio checks each.
       const { preview, skill } = (target && typeof target === 'object' ? target : {}) as { preview?: unknown; skill?: unknown };
+      const marketplaceFocus = target && typeof target === 'object' && ['agentWorkflow', 'removeImport', 'retire'].some((key) => key in target) ? target : null;
       const focus = (STUDIO_FOCUS_VIEWS as readonly unknown[]).includes(requested) ? requested as typeof STUDIO_FOCUS_VIEWS[number] : null;
       WorkflowStudioPanel.show(client, output, {
         refresh: refreshAfterKnownMutation,
@@ -9887,7 +9889,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }, focus, typeof workflowId === 'string' ? workflowId : null,
       typeof importBundle === 'string' && path.isAbsolute(importBundle) && importBundle.endsWith('.json') ? importBundle : null,
       newAgent === true ? { newAgent: true } : typeof agent === 'string' ? { agent } : null,
-      preview && typeof preview === 'object' ? { preview: preview as { reference?: unknown; replace?: unknown } } : typeof skill === 'string' ? { skill } : null);
+      marketplaceFocus ?? (preview && typeof preview === 'object' ? { preview: preview as { reference?: unknown; replace?: unknown; as?: unknown } }
+        : typeof skill === 'string' ? { skill, remove: (target as { remove?: unknown }).remove === true } : null));
     },
     // The Workflow Designer is gone: Workflow Studio does what it did. The command stays for one
     // release, so links and habits land in Studio.
@@ -10102,6 +10105,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.lessons': async (filter?: unknown) => lazyPanels().LessonsPanel.show(client, typeof filter === 'string' ? filter : null),
     // Every skill in the library and the trusted marketplaces, with what each is for, look-alikes and gaps [owner, 2026-11-25].
     'singularityFlow.allSkills': async () => lazyPanels().AllSkillsPanel.show(client),
+    // Every marketplace item and what is installed here, like an app store; its buttons open Workflow Studio [owner, 2026-11-25].
+    'singularityFlow.marketplace': async () => lazyPanels().MarketplacePanel.show(client),
     'singularityFlow.uploadFindings': async () => {
       const { uploadFindings, FindingsPanel, findingsImportSummary } = lazyPanels();
       const result = await uploadFindings(client, { output, refresh: refreshAfterKnownMutation });

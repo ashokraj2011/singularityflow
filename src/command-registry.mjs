@@ -169,7 +169,6 @@ const LAZY_MODULES = Object.freeze({
   revision: './commands/revision.mjs',
   revise: './commands/revise.mjs',
   skill: './commands/skill.mjs',
-  // `marketplace catalog`, the marketplace page; the other marketplace actions run in the monolith it loads for them.
   marketplace: './commands/marketplace.mjs',
   instruction: './commands/instruction.mjs',
   'upstream-issue': './commands/upstream-issue.mjs',

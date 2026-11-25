@@ -190,6 +190,7 @@ function rowHtml(catalog: SkillCatalog, row: SkillCatalogRow, index: number): st
 export function allSkillsPageHtml({ catalog, busy, error, notice }: { catalog: SkillCatalog | null; busy: boolean; error: string | null; notice: string | null }): string {
   const header = `<header class="ask-bar"><h1>All skills</h1>
     <span class="ask-lede">The skill library and every marketplace this repository trusts, in one table.</span>
+    <button type="button" class="secondary" data-marketplace title="Install, update and remove skills, agents and workflows from the trusted marketplaces">Marketplace</button>
     <button type="button" class="secondary" data-skill-master>Skill master</button>
     <button type="button" data-refresh ${busy ? 'disabled' : ''}>${busy ? 'Reading…' : 'Refresh'}</button></header>`;
   const messages = `${notice ? `<p class="ask-notice" role="status">${escape(notice)}</p>` : ''}${error ? `<p class="ask-error" role="alert">${escape(error)}</p>` : ''}${(catalog?.warnings ?? [])
@@ -363,7 +364,7 @@ export const ALL_SKILLS_SCRIPT = String.raw`
   document.addEventListener('input', function (event) { if (event.target && event.target.id && event.target.id.indexOf('ask-') === 0) { state.filters = readFilters(); apply(); } });
   document.addEventListener('change', function (event) { if (event.target && event.target.id && event.target.id.indexOf('ask-') === 0) { state.filters = readFilters(); apply(); } });
   document.addEventListener('click', function (event) {
-    var target = event.target.closest('[data-detail],[data-sort],[data-preview],[data-open],[data-refresh],[data-skill-master],[data-clear]');
+    var target = event.target.closest('[data-detail],[data-sort],[data-preview],[data-open],[data-refresh],[data-skill-master],[data-marketplace],[data-clear]');
     if (!target || target.disabled) return;
     if (target.dataset.detail) {
       var key = target.closest('tr').dataset.key;
@@ -377,6 +378,7 @@ export const ALL_SKILLS_SCRIPT = String.raw`
     else if (target.dataset.open) api.postMessage({ type: 'allSkills.open', key: target.dataset.open });
     else if (target.hasAttribute('data-refresh')) api.postMessage({ type: 'allSkills.refresh' });
     else if (target.hasAttribute('data-skill-master')) api.postMessage({ type: 'allSkills.skillMaster' });
+    else if (target.hasAttribute('data-marketplace')) api.postMessage({ type: 'allSkills.marketplace' });
     else if (target.hasAttribute('data-clear')) { state.filters = {}; writeFilters(); FILTERS.forEach(function (name) { var input = control(name); if (input && input.type !== 'checkbox') input.value = ''; }); apply(); }
   });
 })();

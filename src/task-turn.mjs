@@ -1,5 +1,5 @@
 /**
- * `/sf-task` with no words: "do what comes next" [ITW:REQ-001, REQ-008, docs/SPEC-ITW-INTENT-TO-WORK-v1.1.md].
+ * `/sf-task` on an open task: "do what comes next" [ITW:REQ-001, REQ-008, docs/SPEC-ITW-INTENT-TO-WORK-v1.1.md].
  *
  * The person types one command between steps instead of choosing among /sf-next, /sf-approve and /sf-decide. The turn
  * is recorded as the skill the Story's next action needs, so every existing rule of that turn applies unchanged: a
@@ -31,12 +31,12 @@ export function taskTurnSkillFor(workflow, guide) {
   return 'sf-next';
 }
 
-/** The skill a typed `/sf-task` with no words takes, from the Story this chat is bound to; null keeps /sf-task. */
+/** The skill a typed `/sf-task` takes, from the Story this chat is bound to and in progress; null keeps /sf-task (it starts a task). */
 export async function taskTurnSkill(payload, {
   resolveRoot = async (value) => (await import('./copilot-repository-boundary.mjs')).resolveCopilotDiscoveryRoot(value),
   load = async (root) => (await import('./accepted-story-execution.mjs')).loadAcceptedStoryExecution(root)
 } = {}) {
-  if (typedAfterSkill(payload?.prompt)) return null;
+  // Words typed while a task is open (an answer, "go on", a change) are that Story's next turn too; the skill reads them.
   const root = await resolveRoot(payload).catch(() => null);
   if (!root) return null;
   const accepted = await load(root).catch(() => null);

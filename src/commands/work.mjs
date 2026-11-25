@@ -7,7 +7,7 @@
  * workflow is laid over the definition in memory and recorded on the Story, never written to workflow.yml. `/sf-task`
  * in Copilot runs this with the kind the agent named.
  */
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { assertWorkTypeStartable, resolveWorkType, validateDefinition, WORKFLOW_PATH } from '../config.mjs';
@@ -138,6 +138,22 @@ async function taskRepositoryRoot() {
   });
 }
 
+/** The Story in progress on this checkout's branch, if any. */
+function openStoryHere(root) {
+  let current = null;
+  try { current = branch(root); } catch { return null; }
+  if (!current) return null;
+  for (const folder of ['singularity/work-items', '.sdlc/work-items']) {
+    const file = path.join(root, folder, current, 'workflow.json');
+    if (!existsSync(file)) continue;
+    try {
+      const workflow = JSON.parse(readFileSync(file, 'utf8'));
+      if (workflow?.status === 'in_progress') return workflow.workItem?.id ?? current;
+    } catch { return null; }
+  }
+  return null;
+}
+
 function titleOf(words) {
   const line = words.split(/\r?\n/u)[0].trim();
   return line.length > 120 ? `${line.slice(0, 117).trimEnd()}…` : line;
@@ -162,6 +178,16 @@ export async function workCommand(positionals = [], options = {}) {
       rules: preview.composition.rules, added: preview.composition.added,
       next: { command: `singularity-flow work ${quoted(words)} --kind ${kind} --start`, label: 'Start the task.' }
     };
+  }
+  // A task open on this checkout takes the words as its own: an answer, or the change wanted. Only "new task" (--new)
+  // starts another here [ITW:REQ-017]; a model's guess never starts a second Story over the first one.
+  const open = openStoryHere(root);
+  if (open && !optionBoolean(options, 'new')) {
+    throw new SingularityFlowError(`${open} is open on this checkout, so these words are for it: its question's answer, or the change you want.`, {
+      code: 'TASK_OPEN_HERE',
+      details: { openTask: open, newTask: `singularity-flow work ${quoted(words)} --kind ${kind} --start --new`,
+        nextAction: { command: `singularity-flow nextsteps ${open} --for-agent --json`, label: `Carry ${open} on with the person's words.` } }
+    });
   }
   const id = workIdFor(root, words, definition, options);
   const remote = definition.git?.remote ?? 'origin';

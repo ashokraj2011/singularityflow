@@ -996,7 +996,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,872,232 (measured for submit.mjs, +1,511, 2026-11-25): `work` registered, a task's composed workflow laid over the
     // definition a start reads, and the amendment read through a task Story's composition (command-registry.mjs, state.mjs,
     // start.mjs, configuration-branch.mjs) [ITW M1]; the composer itself loads only for a task. No new eager file.
-    assert.ok(closure.bytes <= 9_872_232, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,872,488 (+256, 2026-11-25): --new, a task started over one open on its checkout (util.mjs), and /sf-task as the
+    // route `nextsteps` names (safe-command-guidance.mjs) [ITW M2]. No new eager file.
+    assert.ok(closure.bytes <= 9_872_488, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1161,7 +1163,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 875,350 (+16, 2026-11-24): `lessons rule` (command-registry.mjs). No new eager file.
   // 875,926 (+576, 2026-11-25): `work`, a task's plan and Story, registered with --start read as a flag (command-registry.mjs,
   // command-loaders.mjs, util.mjs) [ITW M1]. No new eager file.
-  assert.ok(root.bytes <= 875_926, `root dispatch loads ${root.bytes} source bytes`);
+  // 875,984 (+58, 2026-11-25): --new read as a flag (util.mjs) [ITW M2]. No new eager file.
+  assert.ok(root.bytes <= 875_984, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1545,7 +1548,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,342,998 (+16, 2026-11-24): `lessons rule` (command-registry.mjs). No new eager file.
   // 4,343,659 (+661, 2026-11-25): `work` and /sf-task in the tables the guard reads (command-registry.mjs, command-skills.mjs,
   // copilot-mutation-guard.mjs, phase-mutation-contract.mjs, util.mjs) [ITW M1]. No new eager file.
-  assert.ok(current.bytes <= 4_343_659, `session current loads ${current.bytes} source bytes`);
+  // 4,343,915 (+256, 2026-11-25): --new (util.mjs) and /sf-task as `nextsteps`' route (safe-command-guidance.mjs) [ITW M2].
+  // No new eager file.
+  assert.ok(current.bytes <= 4_343_915, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

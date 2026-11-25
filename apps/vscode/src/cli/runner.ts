@@ -92,7 +92,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'archive-readiness', 'allow-empty-output', 'allow-unavailable-verification', 'authority-local', 'as-question',
   'accept', 'accept-bundled-conflicts', 'accept-partial', 'decline', 'accept-test-risk', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'adopt-without-ancestry', 'all', 'allow-dirty', 'allow-model', 'allow-synced-folder', 'apply', 'assigned-to-me', 'ast',
   'again', 'assisted', 'auto', 'automatic', 'beyond-budget', 'blocking', 'bootstrap', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'commit-reviewed', 'concat',
-  'confirm-evidence', 'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'design-review', 'dev', 'dry-run', 'evidence', 'no-index', 'not-applicable',
+  'confirm-evidence', 'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'design-review', 'dev', 'dry-run', 'evidence', 'new', 'no-index', 'not-applicable',
   'diagnose-only', 'diagnostics', 'disclose-provider-results', 'discard-pending-publications', 'draft-stdin', 'drain', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-artifact', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
   'include-existing', 'include-local-documents', 'include-local-metadata', 'independent', 'isolated-worktree',
   'git-shadow', 'git-speed', 'keep', 'latest', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'mint-intake-receipt', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',

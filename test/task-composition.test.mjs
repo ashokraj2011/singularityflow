@@ -143,12 +143,17 @@ test('ITW REQ-001, REQ-007: work shows the plan and writes nothing; --start star
   const shownStep = JSON.parse(story.cli('phase', 'show', 'intake', '--json'));
   assert.equal((shownStep.data ?? shownStep).phase?.id ?? (shownStep.data ?? shownStep).id ?? 'intake', 'intake');
   // The next task takes the next free ID.
+  // On TASK-1's own checkout the words are TASK-1's; "new task" (--new) starts another there.
+  story.git('checkout', '-q', 'TASK-1');
+  const held = story.raw(['work', 'investigate why the value is 1', '--start', '--json']);
+  assert.notEqual(held.status, 0);
+  assert.match(`${held.stdout}${held.stderr}`, /TASK_OPEN_HERE/u);
   story.git('checkout', '-q', 'main');
   const second = JSON.parse(story.cli('work', 'investigate why the value is 1', '--start', '--json'));
   assert.equal((second.data ?? second).id, 'TASK-2');
 });
 
-test('ITW REQ-008: /sf-task with no words takes the turn of what the Story needs next; with words it stays a task turn', async (t) => {
+test('ITW REQ-008: /sf-task on an open task takes the turn of what the Story needs next; with no Story it stays a task turn', async (t) => {
   assert.equal(typedAfterSkill('/sf-task'), '');
   assert.equal(typedAfterSkill('/sf-task fix the login'), 'fix the login');
   assert.equal(typedAfterSkill('<skill-context name="sf-task">x ARGUMENTS: add a design step </skill-context>'), 'add a design step');
@@ -167,7 +172,9 @@ test('ITW REQ-008: /sf-task with no words takes the turn of what the Story needs
   assert.equal(taskTurnSkillFor({ ...record, status: 'closed' }, workflowGuide(record)), null);
   // From the real Story: the chat bound to it gets /sf-next's turn, and typed words keep /sf-task's.
   assert.equal(await taskTurnSkill({ prompt: '/sf-task', cwd: story.root }, { resolveRoot: async () => story.root }), 'sf-next');
-  assert.equal(await taskTurnSkill({ prompt: '/sf-task fix another thing', cwd: story.root }, { resolveRoot: async () => story.root }), null);
+  // Words while the task is open are its next turn too (an answer, "go on"); the skill reads them.
+  assert.equal(await taskTurnSkill({ prompt: '/sf-task go ahead', cwd: story.root }, { resolveRoot: async () => story.root }), 'sf-next');
+  assert.equal(await taskTurnSkill({ prompt: '/sf-task', cwd: story.base }, { resolveRoot: async () => null }), null, 'no Story: a task turn');
   let captured = null;
   await recordRepositoryBoundaryTurn({ sessionId: 'task-turn', cwd: story.root, timestamp: Date.now(), prompt: '/sf-task' },
     { captureMutation: async (_payload, turn) => { captured = turn; return {}; } });

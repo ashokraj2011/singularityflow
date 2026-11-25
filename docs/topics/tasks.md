@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 2
+version: 3
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -68,6 +68,9 @@ Use this topic to start work by saying what you want done. The repository must u
 4. Carry on with `/sf-task`, with no words, each time: it does whatever comes next, the step's own work, or your
    approval, asked in the chat. In VS Code, approving a task's step on the approval page carries the chat on by itself.
 5. When the last step is done, say `/sf-task open the pull request` if you want one.
+
+While a task is open, words after `/sf-task` belong to it: an answer to its question, or a change you want. Start
+another task while one is open with `/sf-task new task: <what you want done>`.
 
 ## State and safety
 

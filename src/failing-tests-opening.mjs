@@ -62,11 +62,13 @@ export async function returnFailingTests(root, workId, phaseId, options = {}) {
 function withReport(result) {
   if (!result?.applies) return result;
   const returned = result.returned === true;
-  const lines = returned ? [result.line] : [`Its tests failed. SFlow did not return it on its own: ${result.held?.words ?? 'its approvers decide.'} Your choices:`,
+  const lines = returned ? [result.line] : [result.refactor ? `${result.held.words} Your choices:`
+    : `Its tests failed. SFlow did not return it on its own: ${result.held?.words ?? 'its approvers decide.'} Your choices:`,
     ...(result.choices ?? []).map((choice) => `- ${choice.label}: ${choice.command}`)];
   const data = { returned, code: result.code, line: result.line ?? null,
     ...(returned ? { changeRequest: result.changeRequest, opened: result.opened, settled: result.settled ?? null, nextAction: result.nextAction ?? null }
-      : { held: result.held, choices: result.choices ?? [] }),
+      : { held: result.held, choices: result.choices ?? [],
+        ...(result.refactor ? { refactor: { reason: result.refactor.reason, changed: result.refactor.changed ?? [], before: result.refactor.before ?? [] } } : {}) }),
     failing: { tests: result.facts?.tests?.slice(0, 12) ?? [], clauses: result.facts?.clauses ?? [], files: result.facts?.files ?? [] } };
   return { ...result, lines, data };
 }
@@ -80,9 +82,10 @@ async function returnNow(root, workId, phaseId, { actor = null } = {}) {
   const failed = failingTestChecks(phase);
   const code = failed ? codeStepOf(workflow, phase) : null;
   if (!failed || !code) return { applies: false };
-  const { facts, choices } = await brakeChoices(root, workflow, phase, code, failed);
-  const held = failingTestsHold(workflow, phase, code, facts.keys);
-  if (held) return { applies: true, returned: false, held, facts, code: code.id, choices };
+  const { facts, choices, refactor = null } = await brakeChoices(root, workflow, phase, code, failed, { config });
+  // A refactor's test step stops on what it changed, or cannot tell, and its person chooses [ITW:REQ-015].
+  const held = refactor ? { reason: refactor.reason, words: refactor.words } : failingTestsHold(workflow, phase, code, facts.keys);
+  if (held) return { applies: true, returned: false, held, facts, code: code.id, choices, ...(refactor ? { refactor } : {}) };
   const from = { test: Number(phase.generation), code: Number(code.generation) };
   const [{ transactStory, rejectPhase }, { LIFECYCLE_EVENT }] = await Promise.all([import('./state-stores.mjs'), import('./lifecycle-event.mjs')]);
   const returner = { ...AUTOMATIC_RETURNER };

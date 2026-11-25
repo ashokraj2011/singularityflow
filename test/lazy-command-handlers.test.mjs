@@ -1009,7 +1009,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,880,261 (measured on the merge of both, 2026-11-25): the two rises above together.
     // 9,884,367 (measured on the merge of Ask SFlow R1-R5, 2026-11-25): Ask's registry entry, its record families
     // (schema-migrations.mjs), retained history in the ledger and source inspection, and its log fields. No new eager file.
-    assert.ok(closure.bytes <= 9_884_367, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,886,373 (measured for submit.mjs, +2,006, 2026-11-25): a task that grows [ITW:REQ-014, REQ-015]: the code's next
+    // version after a grown task's plan and the `submit.grown` outcome (submit.mjs, narration/messages.mjs, agent-output.mjs),
+    // the migration folders named once (application-paths.mjs MIGRATION_PATH, delivery-evidence.mjs), the `task-grown`
+    // settled kind and opening (settled-decisions.mjs, story-version-opening.mjs) and a refactor's after-check at the test
+    // step's approval (state.mjs). The growth, its return and the after-check load only for a task. No new eager file.
+    assert.ok(closure.bytes <= 9_886_373, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1574,7 +1579,9 @@ test('the common session projection does not import attach, state stores or publ
   // validated again unchanged (marketplace.mjs) [ITW:REQ-010]. No new eager file.
   // 4,350,087 (measured on the merge of both, 2026-11-25): the two rises above together.
   // 4,353,049 (measured on the merge of Ask SFlow R1-R5, 2026-11-25): `ask` registered and its record families. No new eager file.
-  assert.ok(current.bytes <= 4_353_049, `session current loads ${current.bytes} source bytes`);
+  // 4,353,387 (+338, 2026-11-25): the migration folders named once, for the delivery receipt and a task that grows
+  // (application-paths.mjs MIGRATION_PATH) [ITW:REQ-014]. No new eager file.
+  assert.ok(current.bytes <= 4_353_387, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

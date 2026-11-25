@@ -547,10 +547,13 @@ export function agentAct(result) {
   // So did a test step whose tests failed: SFlow returned it to its code step and started that step's next version (D1); its
   // fix is the code step's own work, in a new turn.
   const returned = result.submitIfReady?.result?.status === 'returned';
-  if (result.submitIfReady?.submitted && (result.submitIfReady.result?.status === 'completed' || returned) && done) {
+  // A fix whose code changes the data or a public interface is a change now: its code waits for the plan [ITW:REQ-014].
+  const grown = result.submitIfReady?.result?.status === 'grown';
+  if (result.submitIfReady?.submitted && (result.submitIfReady.result?.status === 'completed' || returned || grown) && done) {
     const reset = done.contextBoundary?.commands?.length ? done.contextBoundary.commands.join(', then ') : null;
     return withRoute({ state: 'end-turn', do: null, read: ['submitIfReady.next', 'submitIfReady.result'],
       said: oneLine(`${returned ? `Submitted ${result.submitIfReady.result.phase ?? 'the step'}; its tests failed, so SFlow returned it to the code step and started that step's next version to fix them, with nothing for the person to answer.`
+        : grown ? `Submitted ${result.submitIfReady.result.phase ?? 'the code'}; say submitIfReady.result.taskSteps' line: the fix is a change now, and its code waits for the plan SFlow added before it.`
         : `Submitted, and that completed ${result.submitIfReady.result.phase ?? 'the step'}.`} End this turn. Name the next step for the person: ${reset ?? (done.commandGuidance ? 'do.copilot' : 'as submitIfReady.next says')}, in a new turn; never start it here.`) },
     done.commandGuidance ? { commandGuidance: done.commandGuidance, reason: done.reason, turn: 'new-turn' } : null);
   }

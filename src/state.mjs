@@ -7288,12 +7288,15 @@ export async function evaluateApproval(root, config, workflow, {
           && unacceptedFailed.every((check) => check.source === 'repository-tests' || (d1 && check.kind === 'test'));
         const returnable = (candidate) => candidate.id !== phase.id && (phase.approvalPolicy?.rejectTo ?? []).includes(candidate.id);
         const code = regression ? reviewCodeSource(workflow, phase) ?? latestStepBefore(workflow, phase.id, returnable) : null;
-        const choices = d1 && code && returnable(code) ? (await d1.brakeChoices(root, workflow, phase, code, unacceptedFailed)).choices : null;
+        // A refactor's test step names what changed since before the change, and its person's choices [ITW:REQ-015].
+        const brake = d1 && code && returnable(code) ? await d1.brakeChoices(root, workflow, phase, code, unacceptedFailed, { config }) : null;
+        const choices = brake?.choices ?? null;
         const repairCommand = choices ? choices[0].command : code && returnable(code)
           ? `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --to ${code.id} --reason <REASON>` : null;
         throw new SingularityFlowError(
           `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed and ${unavailableRequiredChecks.length} required command(s) were unavailable. `
             + (lapsed ? `${lapsed.words} Otherwise reject it to an allowed repair phase.`
+              : brake?.refactor ? brake.refactor.words
               : choices ? d1.heldWords(phase, code, choices)
               : code ? `The repository's own tests fail on the code ${code.id} delivered, which ${code.id} repairs: ${repairCommand
                 ? `reject it to ${code.id} (${repairCommand}).` : `${phase.id} may not return work there, so a workflow maintainer decides how ${code.id} is corrected.`}`

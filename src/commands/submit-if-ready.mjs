@@ -64,7 +64,9 @@ export function submittedResult(value) {
     phase: value?.outcome?.slots?.phase ?? null,
     generation: data.generation ?? null,
     // `returned`: its tests failed, and SFlow returned it to its code step, whose next version is open (D1).
-    status: messageId === 'submit.completed' ? 'completed' : messageId === 'submit.returned' ? 'returned' : messageId === 'submit.noop' ? 'already-submitted' : 'submitted',
+    // `grown`: the fix is a change now; SFlow added its plan step and returned the code to it [ITW:REQ-014].
+    status: messageId === 'submit.completed' ? 'completed' : messageId === 'submit.returned' ? 'returned' : messageId === 'submit.grown' ? 'grown'
+      : messageId === 'submit.noop' ? 'already-submitted' : 'submitted',
     committed: typeof data.commit === 'string',
     pushedTo: data.pushedTo ?? null,
     // A task's code touched a team's path rule: the steps it added, one line each [ITW:REQ-014].
@@ -97,7 +99,7 @@ export async function run({ positionals, options }) {
   // A step its submission completed (nobody approves it) is behind the Story now: what follows is the step that is current,
   // as every view names it, never a hand-off to next steps (journey Q, 2026-11-17). A Story that ended keeps the step's own.
   // So is a test step SFlow returned to its code step for its failing tests: that step's next version is what follows (D1).
-  const following = ['completed', 'returned'].includes(result?.status) ? await show() : null;
+  const following = ['completed', 'returned', 'grown'].includes(result?.status) ? await show() : null;
   // First, with what follows: the readiness fields after it describe the step before submission.
   console.log(JSON.stringify({ submitIfReady: {
     submitted: true, next: nextAfterStep(following?.ok && following.value?.continuation ? following.value : shown.value, 'Submitted.'), command: readiness.nextCommand,

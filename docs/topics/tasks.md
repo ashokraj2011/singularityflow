@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 12
+version: 13
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -18,7 +18,7 @@ Say what you want done and SFlow does the rest of the setting up: `/sf-task fix 
 | fix, chore | intake → code → tests |
 | change | intake → plan → code → tests |
 | feature | intake → requirements → plan → code → tests |
-| refactor | intake → plan (what must not change) → code → tests; before any edit, the tests run once on the base (`sflow tests base`), so what already fails there is never read as a change |
+| refactor | intake → plan (what must not change) → code → tests; before any edit, the tests run once on the base (`sflow tests base`), and the test step compares its run with it: a test that passed before and fails after is a behaviour change, one that failed before is a finding |
 | tests | intake → write the tests → tests |
 | docs | intake → write the document (kept with the Story; a later task starts from it with `--from`) |
 | investigate | intake → investigate, ending with a report; no code changes |
@@ -105,12 +105,25 @@ goes, after the step being worked on: a review after the tests, a design or a pl
 started yet. Done steps and the current one stay exactly as they are; the steps after it read the new one. It is
 recorded with who asked, as a new version of the task's workflow, and needs no approval of its own, since it only adds
 work. A step whose place has passed is refused with the reason ("The code is already being written; a plan step goes
-before it."), and so is taking a step out after the start.
+before it."), and so is taking a step out after the start. A step a team rule gives a person to approve (`personApproves`) is
+theirs when it is added after the start too, and the line says so ("You approve it."). A Story whose test agreement was
+confirmed for its steps keeps them: the refusal gives the command that starts the task again with the step.
 
 **A fix that grows.** A `paths` rule also applies to what the code step actually changed: when the code is submitted and
 its files match a rule, the rule's steps are added the same way, after the step being worked on, recorded as the rule's
 with its `because`, and the submission says so in one line ("Added a review step after the tests: Changes to sign-in are
 reviewed."). A rule's step whose place has passed, such as a plan once the code is written, is named and not added.
+
+A fix whose code changes the data (a migration, or `schema.prisma`, `db/schema.rb`, `db/structure.sql`) or a public
+interface (an OpenAPI, Swagger or AsyncAPI document, a `.proto`, a GraphQL schema) is a change: the submission says so in
+one line, SFlow adds a plan step before the code and returns the code to it, so you approve the plan before the code. The
+code is kept on the branch; once the plan is approved SFlow starts the code's next version itself, and you approve the
+code as before. Nothing else asks you anything. Tests' own files never count.
+
+**A refactor that changes behaviour.** Run its `task.before` (`sflow tests base`) before any edit. When the refactor's
+tests fail, the test step stops and names each test that passed before and fails after. You choose: keep the old
+behaviour (the code step's next version restores it) or accept the new one (the task becomes a change, and its plan is
+revised first). A test that already failed before is a finding the refactor does not approve.
 
 ## Tasks from Ask SFlow evidence
 

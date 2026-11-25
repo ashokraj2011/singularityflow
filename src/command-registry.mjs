@@ -1657,8 +1657,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   // The decision list reads; only `decisions record` and a person's `decisions undo` write (its second word may be a Story ID).
   // `decisions learn` reads the advice records only [Q13].
   // Lessons read; a person's drop, keep and edit write [LRN:REQ-004].
-  // A task's plan reads; `--start` starts its Story [ITW:REQ-001]; `add` and `skip` change a started one [ITW:REQ-009].
-  if (definition.name === 'work') return ['add', 'skip'].includes(positionals[1]) ? never(`work.${positionals[1]}`, definition, 'mutation')
+  // A task's plan reads; `--start` starts its Story [ITW:REQ-001]; `add`, `skip`, `behaviour` change a started one [ITW:REQ-009, 015].
+  if (definition.name === 'work') return ['add', 'skip', 'behaviour'].includes(positionals[1]) ? never(`work.${positionals[1]}`, definition, 'mutation')
     : optionBoolean(options, 'start') ? never('work.start', definition, 'mutation') : never('work.plan', definition, 'read');
   if (definition.name === 'lessons') {
     return ['drop', 'keep', 'edit', 'rule'].includes(positionals[1]) ? never(`lessons.${positionals[1]}`, definition, 'mutation') : never('lessons.list', definition, 'read');

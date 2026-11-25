@@ -85,6 +85,8 @@ const COMMANDS = Object.freeze({
   // Undoing what was settled for a person hands it back to them; no turn undoes it [owner, 2026-11-13].
   'settled-undo': ['singularity-flow decisions undo PMC-1 --settled STL-001', 'singularity-flow decisions undo PMC-1 --settled STL-001 --reason "Not the Story I meant." --json'],
   'set-aside': [`singularity-flow recover PMC-1 --phase custom-step --set-aside --confirm ${digest} --json`],
+  // Keeping or accepting what a refactor's code changed is the person's own [ITW:REQ-015].
+  'refactor-behaviour': ['singularity-flow work behaviour keep --work-id PMC-1', 'singularity-flow work behaviour accept --work-id PMC-1 --json'],
   'publication-set-aside': [`singularity-flow sync PMC-1 --set-aside --confirm ${'a'.repeat(40)}`, `singularity-flow initiative sync INIT-1 --set-aside --confirm ${'a'.repeat(40)}`],
   'workflow-delete': [`singularity-flow workflow delete team-flow --confirm ${digest}`],
   'test-run-set-aside': [`singularity-flow tests held --work-id PMC-1 --phase custom-step --command unit --set-aside --confirm ${'a'.repeat(24)}`],

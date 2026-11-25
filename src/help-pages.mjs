@@ -528,6 +528,11 @@ const PAGES = Object.freeze({
       'after its current step, recorded as a new version of its workflow with who asked. Done steps and',
       'the current one stay as they are, and a started task never loses a step.',
       '',
+      'A refactor runs its tests on the base before any edit. When its code changes what passed there,',
+      'its code step stops and names the test, and the person chooses: `work behaviour keep` keeps the',
+      'old behaviour (the code step goes on and restores it), `work behaviour accept` takes the new one',
+      '(the task becomes a change, and its plan is revised first). Only a person runs it.',
+      '',
       'Each step gets the skills that fit it: a skill from the repository\'s skill library whose task is',
       'what the step is for, and that is for the kind of software this repository is or that your words',
       'name. A step the library has nothing for may be offered a skill from a marketplace the repository',
@@ -563,6 +568,7 @@ const PAGES = Object.freeze({
       ['singularity-flow work "why do cancelled orders still send emails?" --kind investigate', 'An investigation: a report, no code change.'],
       ['singularity-flow work status', 'Where the task on this checkout stands: each step and who approved it.'],
       ['singularity-flow work add review', 'Give the started task a review step after its tests.'],
+      ['singularity-flow work behaviour keep', 'A refactor\'s code changed what passed before the change: keep the old behaviour.'],
       ['singularity-flow work handoff ITW-ID --for-person', 'Check a task prepared from saved Ask SFlow evidence. Use --start to start or retry that exact handoff.']
     ],
     seeAlso: ['start', 'workflow', 'lessons']

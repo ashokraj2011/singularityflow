@@ -1143,6 +1143,7 @@ Usage:
   singularity-flow work "<words>" --start [--kind KIND] [--work-id ID] [--base BRANCH] [--from TASK-ID] [--document FILE]... [--add STEP]... [--skip STEP]... [--use-agent MARKETPLACE/AGENT | --without-agent MARKETPLACE/AGENT] [--use-skill ID]... [--without-skill ID]... [--new] [--json]
   singularity-flow work status [TASK-ID] [--json]
   singularity-flow work add requirements|design|plan|review [--work-id ID] [--json]
+  singularity-flow work behaviour keep|accept [--work-id ID] [--json]
   singularity-flow work handoff --conversation ID --revision N --request TEXT [--kind KIND] [--target EVIDENCE-ID] [--clause ID]... [--supporting-evidence ID]... --for-person [--json]
   singularity-flow work handoff ITW-ID [--start] --for-person [--json]
 

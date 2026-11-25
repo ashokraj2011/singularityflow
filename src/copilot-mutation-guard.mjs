@@ -980,6 +980,8 @@ export function argvAllowed(argv, mode, value) {
   if (positionals[0] === 'spec' && positionals[1] === 'split' && options.publish === true) return false;
   // Setting held changes aside drops them from the checkout: the person who looked at them decides.
   if (positionals[0] === 'recover' && options['set-aside'] === true) return false;
+  // Keeping or accepting what a refactor's code changed is the person's, never its author's [ITW:REQ-015].
+  if (positionals[0] === 'work' && positionals[1] === 'behaviour') return false;
   if (publicationSetAside(positionals, options)) return false;
   // Witnessing evidence and accepting a dated obligation risk are a person's word on what they looked
   // at, in no turn: run under the person's Git identity, an agent would sign off its own work.

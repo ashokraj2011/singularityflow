@@ -1032,7 +1032,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,895,191 (measured on itw-all with itw-route merged, 2026-11-25): the rises above together. No new eager file.
     // 9,886,741 (measured for submit.mjs, +56, 2026-11-25 on itw-store): `marketplace catalog`, the Marketplace page, a
     // marketplace read with its own command module (command-registry.mjs); the page engine loads only for it. No new eager file.
-    assert.ok(closure.bytes <= 9_895_191, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,896,006 (measured for submit.mjs, +1,461 over 9,894,545 at eb20cd6a4, 2026-11-26 on itw-walks): a refactor's code step
+    // stops on a behaviour change before its publication and a person's acceptance returns it to its plan (state.mjs), and
+    // `work behaviour` is a person's own step and a registered mutation (person-step-catalog.mjs, command-registry.mjs)
+    // [ITW:REQ-015]; the check, the choice and the last message's checks load only for a task. No new eager file.
+    assert.ok(closure.bytes <= 9_896_006, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1211,7 +1215,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 879,142 (+56, measured on itw-store, 2026-11-25): `marketplace catalog`, the Marketplace page, a marketplace read with its
   // own command module (command-registry.mjs; command-loaders.mjs names it in an import the root does not follow). No new eager file.
   // 879,142 (measured on itw-all with itw-store, 2026-11-25): `marketplace catalog` registered (command-registry.mjs). No new eager file.
-  assert.ok(root.bytes <= 879_142, `root dispatch loads ${root.bytes} source bytes`);
+  // 879,170 (measured, +28, 2026-11-26 on itw-walks): `work behaviour` registered as a mutation (command-registry.mjs)
+  // [ITW:REQ-015]. No new eager file.
+  assert.ok(root.bytes <= 879_170, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

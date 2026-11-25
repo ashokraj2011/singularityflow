@@ -218,9 +218,11 @@ function reportOf(root, id, remote) {
 
 /**
  * Where a task stands, for its last message [ITW:REQ-018]: each step and who approved it, the branch the change is on,
- * whether the person asked for a pull request, and the documents a person reads for what was checked. Reads only.
+ * whether the person asked for a pull request, and the documents a person reads for what was checked. Once it is done,
+ * `checksOf` (task-checks.mjs) adds the checks that ran and, for a refactor, what its plan says must not change that no
+ * check covered [ITW:REQ-015, A13]. Reads only.
  */
-export function taskStatus(root, id, { remote = 'origin' } = {}) {
+export function taskStatus(root, id, { remote = 'origin', checksOf = null } = {}) {
   const record = storyRecordOf(root, id, remote);
   if (!record) {
     throw new SingularityFlowError(`There is no task ${id} here.`, {
@@ -236,14 +238,19 @@ export function taskStatus(root, id, { remote = 'origin' } = {}) {
   });
   const composition = workflow.resolution?.composition ?? null;
   const done = steps.length > 0 && steps.every((step) => step.status === 'approved' || step.status === 'skipped');
+  // What its checks ran and, for a refactor, what its plan says must not change that none covered [ITW:REQ-015, A13, A20].
+  const read = (relative) => (record.ref ? committedFileText(root, record.ref, relative)
+    : existsSync(path.join(root, relative)) ? readFileSync(path.join(root, relative), 'utf8') : null);
+  const checks = done && checksOf ? checksOf.taskChecks(workflow, read, { item: `${record.folder}/${id}` }) : null;
   return {
     schemaVersion: 1, resultType: 'sflow-task-status', id, kind: composition?.kind ?? null, title: workflow.workItem?.title ?? null,
     status: workflow.status, done, branch: workflow.workItem?.branch ?? id, base: workflow.workItem?.baseBranch ?? null,
     pullRequest: composition?.pullRequest === true, steps,
     ...(workflow.executionOrigin?.mode === 'itw-handoff' ? { handoff: workflow.executionOrigin } : {}),
     personApproved: steps.filter((step) => step.approvedBy === 'person').map((step) => step.label),
+    ...(checks ? { checks } : {}),
     words: done
-      ? `${id} is done: ${steps.map((step) => step.label).join(', ')}, on branch ${workflow.workItem?.branch ?? id}.`
+      ? `${id} is done: ${steps.map((step) => step.label).join(', ')}, on branch ${workflow.workItem?.branch ?? id}.${checks ? checksOf.checksWords(checks) : ''}`
       : `${id} is at ${steps.find((step) => step.status !== 'approved' && step.status !== 'skipped')?.label ?? 'its next step'}.`
   };
 }
@@ -310,14 +317,30 @@ async function changeTask(positionals, options) {
   return amendment.addTaskStep(root, loaded.config ?? loaded.definition, loaded.workflow, { intent, definition: await loadConfig(root) });
 }
 
+/**
+ * `work behaviour keep|accept` [ITW:REQ-015]: the person's choice when a refactor's code step changed what passed before the
+ * change (src/refactor-behaviour.mjs). A person's own step: the Copilot guard refuses it to an agent.
+ */
+async function behaviourCommand(positionals, options) {
+  const root = await taskRepositoryRoot();
+  const id = optionString(options, 'work-id') ?? openStoryHere(root);
+  if (!id) {
+    throw new SingularityFlowError('There is no task open on this checkout. Check out its branch, or name it with --work-id.', {
+      code: 'TASK_UNKNOWN', details: { nextAction: { command: 'singularity-flow work status', label: 'See the task open on this checkout.' } } });
+  }
+  return (await import('../refactor-behaviour.mjs')).decideBehaviour(root, positionals[2], { workId: id });
+}
+
 export async function workCommand(positionals = [], options = {}) {
   if (positionals[1] === 'handoff') return (await import('../task-handoff.mjs')).workHandoff(positionals, options);
   if (positionals[1] === 'add' || positionals[1] === 'skip') return changeTask(positionals, options);
+  if (positionals[1] === 'behaviour') return behaviourCommand(positionals, options);
   if (positionals[1] === 'status') {
     const root = await taskRepositoryRoot();
     const definition = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : {};
     const id = positionals[2] ?? openStoryHere(root) ?? branchName(root);
-    return taskStatus(root, id, { remote: definition.git?.remote ?? 'origin' });
+    // Its checks are read only for a task that is done, from their own module (task-checks.mjs).
+    return taskStatus(root, id, { remote: definition.git?.remote ?? 'origin', checksOf: await import('../task-checks.mjs') });
   }
   const words = wordsOf(positionals);
   const root = await taskRepositoryRoot();
@@ -474,6 +497,14 @@ export async function run(_argv, { positionals = ['work'], options = {} } = {}) 
   if (result?.resultType === 'sflow-task-change') {
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else console.log(`${result.words}\n${result.plan}`);
+    return result;
+  }
+  if (result?.resultType === 'sflow-task-behaviour') {
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(result.words);
+      if (result.nextAction) console.log(`Next: ${result.nextAction.label}\n- Copilot: ${result.nextAction.copilotCommand ?? 'not available'}\n- Shell: ${result.nextAction.command}`);
+    }
     return result;
   }
   if (result?.resultType === 'sflow-task-handoff') {

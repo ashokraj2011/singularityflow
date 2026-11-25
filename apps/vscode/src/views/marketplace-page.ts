@@ -192,7 +192,8 @@ function summaryHtml(catalog: MarketplaceCatalog): string {
     escape(String(catalog.summary.byStatus[status] ?? 0))}</strong><span>${escape(STATUS_WORDS[status])}</span></div>`).join('');
   const sources = catalog.sources.filter((source) => source.approved).map((source) => `<li>${escape(source.label)}: ${source.read
     ? escape(plural(source.items, 'item')) : '<span class="mkt-warn">not read</span>'}${source.notApproved ? ` <span class="mkt-dim">${escape(source.notApproved)}</span>` : ''}</li>`).join('');
-  return `<section class="mkt-summary" aria-label="Summary"><div class="mkt-tiles">${tiles}</div>${sources
+  return `<section class="mkt-summary" aria-label="Summary"><div class="mkt-tiles">${tiles}</div>
+  <p class="mkt-dim">This is what Stories use now: an install, update or removal shows here once its change is approved.</p>${sources
     ? `<ul class="mkt-sources" aria-label="Trusted marketplaces">${sources}</ul>` : '<p class="mkt-dim">This repository trusts no marketplace yet. Trust one in Workflow Studio\'s Library.</p>'}</section>`;
 }
 

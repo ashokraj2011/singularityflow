@@ -130,6 +130,7 @@ test('the page shows tabs, filters and one row per item with its status, and no 
   // The marketplace not approved yet: above the tabs, with its way to the waiting change; never a tab row.
   assert.match(html, /<section class="mkt-pending" aria-label="Marketplaces not approved yet"><h2>Not approved yet<\/h2>[\s\S]*Pending catalog[\s\S]*data-act="approve" data-key="marketplace:pending">See waiting changes<\/button>/u);
   assert.doesNotMatch(html, /<tr class="mkt-row" data-key="marketplace:pending"/u);
+  assert.match(html, /an install, update or removal shows here once its change is approved\./u);
   // Summary tiles: every status in words.
   for (const words of ['Update available', 'Installed', 'Not installed', 'Only here']) assert.match(html, new RegExp(`<span>${words}</span>`, 'u'), words);
   // Busy, failed and empty.

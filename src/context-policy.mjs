@@ -1,5 +1,6 @@
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { isTaskStory } from './safe-command-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const CONTEXT_BOUNDARY_MODES = new Set(['keep', 'compact', 'new']);
@@ -40,6 +41,15 @@ export function normalizeContextPolicy(value = {}, { phaseIds = null, label = 'c
   return { onApproval, onRejection, phaseOverrides };
 }
 
+/**
+ * The context policy a Story's boundaries follow: its pinned one, except a task's. A task's steps run one after another in
+ * the same chat, and /sf-task carries it on there [ITW:REQ-008]: no /clear or new chat between them.
+ */
+const TASK_CONTEXT_POLICY = Object.freeze({ onApproval: 'keep', onRejection: 'keep', phaseOverrides: Object.freeze({}) });
+export function storyContextPolicy(workflow) {
+  return isTaskStory(workflow) ? TASK_CONTEXT_POLICY : workflow?.resolution?.contextPolicy ?? {};
+}
+
 export function contextBoundaryMode(policy, phaseId, event = 'approval') {
   const normalized = normalizeContextPolicy(policy);
   if (event === 'rejection') return normalized.onRejection;
@@ -73,13 +83,20 @@ export function contextBoundaryHandoff(policy, phaseId, {
   };
 }
 
+/** The chat reset a boundary asks for (`/clear` or `/compact`), never the step's own command after it. */
+const chatReset = (handoff) => (handoff?.commands ?? []).filter((command) => command === '/clear' || command === '/compact');
+
 export function formatContextBoundaryHandoff(handoff) {
   if (!handoff) return [];
   const lines = [`Context boundary: ${handoff.mode}. ${handoff.reason}`];
-  if (handoff.commands.length) {
-    lines.push('Next Copilot actions:');
-    handoff.commands.forEach(command => lines.push(...formatCommandRouteLines({ copilotCommand: command }), ''));
+  // The reset is a chat operation with no Shell route; the step's own command is its action's, with all of its routes.
+  const reset = chatReset(handoff);
+  const after = (handoff.commands ?? []).filter((command) => !reset.includes(command));
+  if (reset.length) {
+    lines.push('Before the next action, in Copilot:');
+    reset.forEach(command => lines.push(...formatCommandRouteLines({ copilotCommand: command }), ''));
   }
+  if (after.length) lines.push(`Then ${after.join(', then ')} in that chat: the next action's own command.`, '');
   return lines;
 }
 
@@ -90,7 +107,8 @@ export function contextBoundaryPresentation(handoff) {
     instruction: handoff.instruction ?? (handoff.complete
       ? `The Story is closed. End this approval turn; ${handoff.commands.join(', then ')} is a chat cleanup action, not another phase.`
       : `End this approval turn. Run ${handoff.commands.join(', then ')} before next-phase authoring.`),
-    commandGuidance: { copilotCommand: handoff.commands.join(', then '), command: null,
+    // One real command: the reset (a person read "Copilot: /clear, then /sf-code" beside "Shell: not available").
+    commandGuidance: { copilotCommand: chatReset(handoff).join(' ') || null, command: null,
       modelFreeCommand: null, copyable: false,
       shellReason: 'Conversation reset is a Copilot chat operation, not a Shell or Story mutation.' } };
 }
@@ -115,7 +133,7 @@ export function pendingContextBoundary(workflow, commandOf) {
   const order = workflow.phaseOrder ?? [];
   const previous = order[order.indexOf(phaseId) - 1];
   if (!previous || workflow.phases?.[previous]?.status !== 'approved') return null;
-  const handoff = contextBoundaryHandoff(workflow.resolution?.contextPolicy ?? {}, previous, { nextPhase: phaseId, nextSkill: commandOf?.(workflow) });
+  const handoff = contextBoundaryHandoff(storyContextPolicy(workflow), previous, { nextPhase: phaseId, nextSkill: commandOf?.(workflow) });
   if (handoff.mode === 'keep') return null;
   return { ...handoff, instruction: `If this conversation already worked on an earlier phase of this Story, ask the user to run ${handoff.commands.join(', then ')} and stop. A conversation that starts here continues.` };
 }

@@ -490,8 +490,9 @@ test('a code step\'s next steps name /sf-code as its writer and its real approva
       verify: phase('verify', 'Verify', 'not_started', 0, { generationPolicy: { requirement: 'required', defaultProducer: 'deterministic', allowedProducers: ['deterministic'], task: 'analyze' } }) } };
   const steps = workflowNextSteps(story, { modelMode: { enabled: false } });
   const publication = steps.find((entry) => entry.operationId === 'phase');
-  assert.deepEqual([publication.timing, publication.skill, publication.command], ['then', '/sf-code', actionCommandLine('publish-version', 'prepublish', { step: 'implement' })]);
-  assert.equal(publication.label, 'Check and publish the code for Implement');
+  // A person's route is the check a person runs; --publish-if-ready is the agent's own (owner, 2026-11-25).
+  assert.deepEqual([publication.timing, publication.skill, publication.command], ['then', '/sf-code', actionCommandLine('publish-version', 'draft', { step: 'implement' })]);
+  assert.equal(publication.label, 'Check the code for Implement, then publish it');
   assert.doesNotMatch(JSON.stringify(steps), /deterministically generated Implement|\/sf-publish implement/u);
   const submit = nextStepsSnapshot({ workflow: story, modelMode: { enabled: false } }).actions.find((entry) => /^singularity-flow submit implement/u.test(entry.command));
   assert.equal(submit.label, 'Submit the Implement; it completes without approval');

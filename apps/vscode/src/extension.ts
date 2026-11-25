@@ -43,7 +43,7 @@ import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedA
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import { buildJourney } from './views/journey-model.ts';
-import { CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING, removeOldCopilotTurns } from './chat-prefill.ts';
+import { CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING, removeOldCopilotTurns, taskChatContinuation } from './chat-prefill.ts';
 import { copilotTurnDirectory } from '../../../src/copilot-mode.mjs';
 import {
   phaseGenerationChatPrefill, startsFreshChat, submissionCommandArgv
@@ -153,6 +153,7 @@ import {
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
 import { formatCommandRouteLines } from '../../../src/model-free-commands.mjs';
+import { isTaskStory } from '../../../src/safe-command-guidance.mjs';
 import { vscodeVersionLimits, vscodeVersionWarning } from '../../../src/vscode-host-version.mjs';
 import { createTerminalIn } from './terminal-start.ts';
 import { idleMinutesSetting, noteLaptopActivity, watchLaptopActivity } from './laptop-activity.ts';
@@ -6470,7 +6471,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const runNode = async (node?: TreeNode): Promise<void> => {
     if (node?.approve) {
-      if (await approveWithReceipt(client, node.approve, output)) await refreshAfterKnownMutation();
+      if (!(await approveWithReceipt(client, node.approve, output))) return;
+      await refreshAfterKnownMutation();
+      // A task's Story carries on in the chat once its person approves on any page [ITW:REQ-008]: nothing to type.
+      if (node.approve.kind === 'story') await continueTaskInChat(node.approve.workId, node.approve.phaseId);
       return;
     }
     if (!node?.command) return;
@@ -7666,8 +7670,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             summary: `Approve ${approval.label}`
           }
       });
-      // A task's Story carries on in the chat once its person approves here [ITW:REQ-008]: nothing to type.
-      if (approval.source === 'story') await continueTaskInChat(approval.workId ?? '', approval.phase);
+      // A task's Story then carries on in the chat (runNode, continueTaskInChat) [ITW:REQ-008].
       return;
     }
     let target = approval.phase;
@@ -8083,10 +8086,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const continueTaskInChat = async (workId: string, phaseId: string): Promise<void> => {
     const workflow = store.current.snapshot?.workflow;
-    if (!workflow || workflow.workItem?.id !== workId || !/^task-[a-z]+$/u.test(workflow.workItem?.workType ?? '')) return;
-    if (workflow.phases?.[phaseId]?.status !== 'approved') return;
+    if (!workflow || workflow.workItem?.id !== workId || !isTaskStory(workflow)) return;
+    // The view may not have read the approval yet: then one read of the Story itself says whether the step reads approved.
+    const route = taskChatContinuation(workflow, workId, phaseId)
+      ?? taskChatContinuation(await client.run<unknown>(['status', workId, '--json']).catch(() => null), workId, phaseId);
+    if (!route) return;
+    // The same chat, never a new one: VS Code sends it to the chat the person used last, as they would type it.
     chatPrefill.noteRequestSent();
-    await vscode.commands.executeCommand('workbench.action.chat.open', { query: '/sf-task', isPartialQuery: false });
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: route, isPartialQuery: false });
   };
 
   const openGovernedCopilot = async (requestedWorkId?: string | null): Promise<void> => {

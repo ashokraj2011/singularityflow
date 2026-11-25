@@ -1018,7 +1018,19 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // its way on (marketplace.mjs, which every configuration load validates with). No new eager file.
     // 9,886,685 (measured on itw-all with the growth and marketplace merges, 2026-11-25): the two rises above together, the
     // ledger entry refusal's code and the Ask refusals' ways out (ce20208d3). No new eager file.
-    assert.ok(closure.bytes <= 9_886_685, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,886,541 (measured for submit.mjs at f4427ddba, the merge of itw-grow and itw-agentplan, unrecorded there).
+    // 9,891,741 (measured for submit.mjs, +5,200, 2026-11-25 on itw-route): a task's Story carried on by /sf-task in the same
+    // chat [ITW:REQ-008]: the task route and its reviewed check (safe-command-guidance.mjs), named on every planner's next
+    // actions (guide.mjs, nextsteps.mjs, narration/continuation.mjs, phase-continuation.mjs, step-decision.mjs), and a
+    // task's chat kept between its steps (context-policy.mjs, state.mjs, approval-agent-result.mjs, agent-output.mjs,
+    // cli-steps.mjs). No new eager file.
+    // 9,895,047 (measured for submit.mjs, +3,306, 2026-11-25 on itw-route): a person-facing route is one real command that
+    // does what its Copilot route does (owner, 2026-11-25): a closed task's last message as its next action, a started
+    // task's /sf-task beside its first step's command (start.mjs), a later step's Shell route as a person runs it
+    // (action-command-map.mjs personCommand), the context boundary's one route its reset, and the approval receipt's command
+    // marked as a private run (choices.mjs). No new eager file.
+    // 9,895,191 (measured on itw-all with itw-route merged, 2026-11-25): the rises above together. No new eager file.
+    assert.ok(closure.bytes <= 9_895_191, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1193,6 +1205,7 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // refresh (cli-entry.mjs) and its record families (schema-migrations.mjs). No new eager file.
   // 879,086 (+156, measured on itw-all, 2026-11-25): the Ask handoff's for-agent refusal names `help work` (cli-entry.mjs) and
   // `work` refuses a skill's name as a task's words (command-registry help). No new eager file.
+  // 879,110 (measured at f4427ddba, the merge of itw-grow and itw-agentplan, unrecorded there; itw-route adds nothing here).
   assert.ok(root.bytes <= 879_086, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
@@ -1590,7 +1603,12 @@ test('the common session projection does not import attach, state stores or publ
   // 4,353,193 (+144, 2026-11-25 on itw-market): MARKETPLACE_UNKNOWN names `marketplace list` as its way on (marketplace.mjs).
   // No new eager file.
   // 4,353,531 (measured on itw-all, 2026-11-25): the growth and marketplace rises above together. No new eager file.
-  assert.ok(current.bytes <= 4_353_531, `session current loads ${current.bytes} source bytes`);
+  // 4,357,681 (+4,294, 2026-11-25 on itw-route): /sf-task as a task Story's route and its reviewed check
+  // (safe-command-guidance.mjs) and a task's chat kept between its steps (context-policy.mjs) [ITW:REQ-008]. No new eager file.
+  // 4,359,058 (+1,377, 2026-11-25 on itw-route): a closed task's last message as its next action and the context boundary's
+  // one route its reset (safe-command-guidance.mjs, context-policy.mjs). No new eager file.
+  // 4,359,202 (measured on itw-all with itw-route merged, 2026-11-25): the rises above together. No new eager file.
+  assert.ok(current.bytes <= 4_359_202, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

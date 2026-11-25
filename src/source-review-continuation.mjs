@@ -3,6 +3,7 @@ import { stepBeingWritten } from './phase-generation-need.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
+import { taskDoneRoute, withTaskRoutes } from './safe-command-guidance.mjs';
 import { formatCommandRouteLines, modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
@@ -127,7 +128,9 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
   if (hold) { classification = hold.classification; actions = hold.actions; }
   else if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress') {
     classification = 'lifecycle-review-required';
-    actions = [action('/sf-nextsteps', `singularity-flow nextsteps ${workflow.workItem.id} --json`,
+    // A closed task's next is its last message (work status) [ITW:REQ-018].
+    const done = taskDoneRoute(workflow);
+    actions = done ? [done] : [action('/sf-nextsteps', `singularity-flow nextsteps ${workflow.workItem.id} --json`,
       'Inspect the current lifecycle. Submitted evidence requires an authorized return before authoring a successor.', 'See where the Story stands')];
   } else if (!stepBeingWritten(workflow, phase) && reviewUpstreamRoute(workflow, phase, review)) {
     const route = reviewUpstreamRoute(workflow, phase, review);
@@ -190,6 +193,8 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
         .map((entry) => action(entry.skill, entry.command, entry.detail));
     }
   }
+  // A task's Story names /sf-task for each turn it takes, in the same chat [ITW:REQ-008].
+  actions = withTaskRoutes(workflow, actions);
   const presentation = continuationPresentation(actions[0]);
   // A ready version is submitted in the turn that wrote it, never a /sf-submit turn of its own (owner, 2026-11-19), unless it
   // records decision values: those are the person's, given in /sf-submit, never guessed here.

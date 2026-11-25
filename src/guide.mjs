@@ -6,7 +6,7 @@ import { stepBeingWritten } from './phase-generation-need.mjs';
 import { ASKED_FOR_HOLD, decisionRoutes, stepDecisionOf } from './step-decision.mjs';
 import { approveRoute, handoffSubmitRoute, returnRoute, versionPreviewCommand, versionQuestionRoute } from './action-command-map.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
-import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
+import { safeCommandGuidance, commandRouteLines, withTaskRoutes } from './safe-command-guidance.mjs';
 import { phaseRequiresCodeDelivery, successorSkillForPhase } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
@@ -189,7 +189,8 @@ export function workflowGuide(workflow, { sourceReviewEvidence = null, authoring
         approvalsRequired: phase.approvalPolicy?.minimum ?? 0
       };
     }),
-    nextActions: [
+    // A task's Story names /sf-task for each turn it takes, in the same chat [ITW:REQ-008]; each action keeps its skill.
+    nextActions: withTaskRoutes(workflow, [
       ...nextActions(workflow, active, sourceReviewEvidence, authoringProgress, taskOutcome),
       // Offered only where it can succeed: none waits for a decision or an acknowledgement [owner, 2026-11-13].
       ...(intentAmendmentProposable(workflow) ? [copilotAction({
@@ -198,7 +199,7 @@ export function workflowGuide(workflow, { sourceReviewEvidence = null, authoring
         reason: 'If the approved intent must change, draft an amendment: the draft gives the command that proposes it. The intent stays approved until its approvers decide on the decisions card; this step waits.',
         optional: true
       })] : [])
-    ]
+    ])
   };
 }
 

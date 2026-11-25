@@ -217,7 +217,8 @@ test('Classic delivery commits passing test results before Testing and Code chec
   cli('submit', 'intake');
   // The approval's clean-chat item names Code's own command, the one VS Code's chat prefill puts in (owner, 2026-11-17).
   // The chat reset stays between steps (owner, 2026-11-19): the next step rebuilds from approved records only.
-  assert.match(cli('approve', 'intake', '--yes').stdout, /Next Copilot actions:\n- Copilot: \/clear\n[\s\S]*?\n- Copilot: \/sf-code\n/u);
+  // The reset is its own route; the step's command is named after it, never as a route with no Shell (owner, 2026-11-25).
+  assert.match(cli('approve', 'intake', '--yes').stdout, /Before the next action, in Copilot:\n- Copilot: \/clear\n[\s\S]*?\nThen \/sf-code in that chat: the next action's own command\./u);
 
   measuredPhase = 'implementation';
   // Intake was approved here, outside any Copilot conversation: the next agent entry repeats the

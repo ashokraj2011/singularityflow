@@ -28,6 +28,7 @@ import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { getIssue } from '../jira.mjs';
 import { runDraftTransaction } from '../draft-unit-of-work.mjs';
 import { assertWorkTypeStartable, resolveWorkType, WORKFLOW_PATH } from '../config.mjs';
+import { assertStoryLibrarySkills } from '../skill-library-problems.mjs';
 import { loadCopilotSession, loadSession, recordStartedWorkItemSelection, selectIntakeSource, selectWorkType } from '../session.mjs';
 import { documentSetLifecycleBinding } from '../document-publication.mjs';
 import { loadManualStory, promptManualStory } from '../intake.mjs';
@@ -1518,6 +1519,9 @@ async function startCommandAtRoot(positionals, options) {
   let supportingDocuments = documentCapture.inputs;
   const workType = deterministicWorkType;
   let resolvedWorkType = assertWorkTypeStartable(resolveWorkType(config, workType));
+  // A skill this workflow's agents use that the approved configuration lacks is refused here, with its way out, before
+  // anything changes. Another workflow's skill is never read, so it never stops this Story.
+  if (approvedConfigurationSnapshot) await assertStoryLibrarySkills(config, workType, resolvedWorkType, { snapshot: approvedConfigurationSnapshot });
   const targetOrigin = storyStartTargetOrigin(optionString(options, 'target-url'), resolvedWorkType.phases, { workType });
   if (targetOrigin) source = { ...source, targetOrigin };
   // An attached specification slice (SPEC-SPA v1.3 §6) is part of the requested outcome: one pinned
@@ -1838,6 +1842,8 @@ async function startCommandAtRoot(positionals, options) {
   // Re-run the same pure gate against the exact definition materialized onto the Story checkout
   // before any governed state, commit, or publication is created, closing the preflight race.
   resolvedWorkType = assertWorkTypeStartable(resolveWorkType(config, workType));
+  // Without an approved configuration the Story's skills are the files it now has; the journal restores the checkout.
+  if (!approvedConfigurationSnapshot) await assertStoryLibrarySkills(config, workType, resolvedWorkType, { root });
   startReadiness = inspectStoryStartReadiness({
     workId: id,
     definition: config,

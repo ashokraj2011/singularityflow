@@ -1,5 +1,6 @@
 import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs';
 import { SKILL_LIBRARY_ROOT } from './skill-library.mjs';
+import { addedSkillProblem, approvedConfigurationIn, configurationSkillProblems, librarySkillRefusal } from './skill-library-problems.mjs';
 import { LEGACY_AGENTS_ROOT, AGENTS_HOME } from './configuration-assets.mjs';
 import { INSTRUCTION_LIBRARY_ROOT } from './instruction-library.mjs';
 import { isConfigurationStatePath } from './configuration-state-contract.mjs';
@@ -1745,7 +1746,7 @@ async function validateConfigurationCandidate(root, relative, content, definitio
  * `inspect`, when given, reads the validated candidate copy before it is removed (workflow check of a
  * Studio draft runs there).
  */
-export async function validateConfigurationCandidates(root, candidates, definition, portfolio, { inspect = null } = {}) {
+export async function validateConfigurationCandidates(root, candidates, definition, portfolio, { inspect = null, approved = null } = {}) {
   const validationRoot = await mkdtemp(path.join(tmpdir(), 'singularity-flow-configuration-'));
   try {
     const sources = new Set([
@@ -1780,6 +1781,7 @@ export async function validateConfigurationCandidates(root, candidates, definiti
 
     const updatedDefinition = await loadDefinition(validationRoot);
     assertWorkflowReadinessChanges(definition, updatedDefinition);
+    await assertNoAddedSkillProblem(root, validationRoot, updatedDefinition, { approved });
     if (existsSync(path.join(validationRoot, IMPACT_CONFIG_PATH))) {
       await loadImpactDefinition(validationRoot, { required: true });
     }
@@ -1795,6 +1797,20 @@ export async function validateConfigurationCandidates(root, candidates, definiti
   } finally {
     await rm(validationRoot, { recursive: true, force: true });
   }
+}
+
+/**
+ * A change that leaves an agent or workflow using a skill the skill master lacks, or cannot read,
+ * is refused where it is made, with its way out. Loading configuration reads no skill, so this is
+ * where such a change is caught; a problem the configuration already had is doctor's to list and
+ * never stops an unrelated change [owner, 2026-11-25].
+ */
+async function assertNoAddedSkillProblem(root, validationRoot, candidate, { approved = null } = {}) {
+  const after = await configurationSkillProblems(validationRoot, candidate);
+  if (!after.length) return;
+  const before = await loadDefinition(root).then((current) => configurationSkillProblems(root, current), () => []);
+  const added = addedSkillProblem(before, after);
+  if (added) throw librarySkillRefusal(added, { approved: approved ?? approvedConfigurationIn(root), where: 'This change would leave it so; nothing was saved.' });
 }
 
 /**

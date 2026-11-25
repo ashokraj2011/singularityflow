@@ -863,6 +863,22 @@ async function apiUnprovided([finding], ctx) {
         apply: (draft) => draft.edit(target, (text) => { const at = lineNumberOf(text, said, line); return at ? removeLine(text, at) ?? text : text; }) }] : [])] }] };
 }
 
+/**
+ * A skill an agent or workflow uses that the skill master lacks or cannot read (workflow-check.mjs). Its text is its
+ * authors' words, so only detaching it can be drafted; writing or restoring it is the finding's own way out.
+ */
+async function missingSkill([finding], ctx) {
+  const { skill, agent, workflow } = finding.subject;
+  const user = ctx.model.agents.find((entry) => entry.id === agent);
+  const owned = workflow || user?.scope === 'repository'
+    || (user?.skills ?? []).some((entry) => entry.id === skill && entry.origin === 'attachments');
+  return { questions: [{ ask: `${finding.title}. Restore or write it again, or stop using it?`,
+    why: 'What a skill says is its authors\' own words, and whether the agent still needs it is the team\'s decision.',
+    choices: [keep(`Keep using it: ${finding.fix?.command ?? 'restore or write it'}`),
+      ...(owned ? [{ id: 'detach', label: `Stop using it: detach ${skill} from ${workflow ? `workflow ${workflow}` : `agent ${agent}`}`,
+        effect: `${workflow ?? agent} no longer reads ${skill}.`, apply: (draft) => draft.op({ op: 'skill.detach', skill, ...(workflow ? { workflow } : { agent }) }) }] : [])] }] };
+}
+
 async function externalLinks([finding], ctx) {
   return { questions: [{ ask: `${finding.title}. Agents see them as text; nothing fetches them. Keep them?`, why: NOTICE_WHY,
     choices: [keep('Keep them as text the agents read')] }] };
@@ -1071,6 +1087,7 @@ export const WORKFLOW_FIXERS = Object.freeze({
   AGENT_PHASE_UNKNOWN: change(8, agentUnknownStep, { group: () => 'agents' }),
   CHECK_INSTRUCTION_DUPLICATE: change(9, duplicateInstruction),
   CHECK_SKILL_STEP_UNUSED: either(14, 'Whether a skill belongs in other teams\' workflows is a decision for the people who own them.', skillStepUnused),
+  CHECK_SKILL_MISSING: question(15, 'What a skill says is its authors\' own words, and whether the agent still needs it is the team\'s decision.', missingSkill),
   // Templates: a missing one is made first, its tokens fixed, then anchors before the table that cites them.
   CHECK_TEMPLATE_MISSING: change(20, templateMissing),
   CHECK_TEMPLATE_TOKEN_UNSUPPORTED:

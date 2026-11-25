@@ -30,6 +30,7 @@ import {
 } from './agents-home-migration.mjs';
 import { parseAgentDependencies } from './agents.mjs';
 import { librarySkillPath, parseLibrarySkill, parseSkillAttachments, SKILL_ATTACHMENTS_PATH } from './skill-library.mjs';
+import { addedSkillProblem, configurationSkillProblems, librarySkillRefusal } from './skill-library-problems.mjs';
 import { instructionPath } from './instruction-library.mjs';
 import { configurationCommitIdentity, refHead } from './git.mjs';
 import {
@@ -1711,6 +1712,9 @@ export async function refreshPackagedConfiguration(root, {
   const selectedDependencies = preserveSmartInitSelections
     ? await selectedSmartDependencyAssets(root, merged.value, assets, { movedFrom: new Map(migratingAgents
       ? [...agentsHome.moves, ...agentsHome.completed].map((move) => [move.to, move.from]) : []) }) : new Set();
+  // The skills agents and workflows use, before anything is written: the refresh refuses only a problem it adds.
+  const skillProblemsBefore = dryRun ? null
+    : await loadDefinition(root).then((definition) => configurationSkillProblems(root, definition)).catch(() => null);
   const conflicts = [...merged.conflicts];
   const changedFiles = new Set();
   const removedFiles = new Set();
@@ -1944,6 +1948,11 @@ export async function refreshPackagedConfiguration(root, {
         }
       );
     }
+    // Loading reads no skill (skill-library.mjs). A skill the refresh leaves an agent or workflow using, missing or not
+    // valid (a retired packaged skill still attached), is refused with its way out; one the repository already lacked is
+    // doctor's to list, and a packaged one the refresh restores is gone from the list.
+    const skillAdded = skillProblemsBefore ? addedSkillProblem(skillProblemsBefore, await configurationSkillProblems(root, loaded)) : null;
+    if (skillAdded) throw librarySkillRefusal(skillAdded, { approved: true, where: 'The refreshed configuration would leave it so; nothing was published.' });
     // Step intents (spec §8, Stage 5): the repository's own workflows whose steps do not say what they are for yet are
     // offered their intents on one screen, keeping every setting as it was, and written only when a person confirmed
     // that screen by its code. Never part of the packaged refresh itself: it holds nothing up.
@@ -3009,7 +3018,9 @@ function refreshPreflightFailure(observation, error) {
   const route = error?.code === 'CONFIGURATION_REFRESH_INVALID' && resolve.length
     ? ['singularity-flow', 'workspace', 'refresh-configuration', '--repository', observation.repository.id,
       ...resolve.flatMap((relative) => ['--resolve', `${relative}=bundled`])].join(' ')
-    : null;
+    // A skill the refresh would leave missing names its own way out (skill-library-problems.mjs).
+    : error?.code === 'SKILL_LIBRARY_MISSING' && typeof error.details?.nextAction?.command === 'string' ? error.details.nextAction.command
+      : null;
   const repairPaths = conflicts
     .filter((entry) => /^(?:\.github|singularity)\/agents\//u.test(entry.path)
       && (entry.resolution === 'preserved-local' || entry.resolution === 'preserved-local-deletion'))

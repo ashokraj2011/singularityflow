@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { changes, hasRemote, hasUpstream, head } from './git.mjs';
 import { initializationStatus, loadDefinition, pinnedInitializationStatus, WORKFLOW_PATH } from './config.mjs';
 import { CONFIGURATION_SOURCE_PATH } from './configuration-assets.mjs';
+import { approvedConfigurationIn, configurationSkillProblems, librarySkillRepairs } from './skill-library-problems.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { loadSession } from './session.mjs';
 import { VERSION } from './version.mjs';
@@ -298,6 +299,17 @@ export async function doctorSnapshot(root, {
       : 'Every agent with a terminal has it in VS Code too.',
     withoutTerminal.length ? 'Run Upgrade / migrate SFlow (singularity-flow workspace reinitialize) for unedited packaged agents, and add execute to the tools of the others.' : null,
     withoutTerminal.length ? { agents: withoutTerminal } : {}));
+    // Loading configuration reads no skill, so one missing skill never stops an unrelated Story or step; each is listed
+    // here with its way out, and refused only where it is used (a Story of a workflow that keeps it, a step that reads it).
+    const skillProblems = await configurationSkillProblems(root, definition).catch(() => []);
+    const approved = approvedConfigurationIn(root);
+    const skillRoutes = skillProblems.map((problem) => ({ ...problem, repairs: librarySkillRepairs(problem, { approved }) }));
+    checks.push(check('library-skills', skillProblems.length ? 'warn' : 'pass', skillProblems.length
+      ? `${skillProblems.length} skill attachment(s) cannot be used, so Stories of the workflows that use them cannot start and their steps cannot run: `
+        + `${skillRoutes.map((entry) => `${entry.skillId} (${entry.workflowId ? `workflow ${entry.workflowId}` : `agent ${entry.agentId}`}): ${entry.detail}`).join('; ')}.`
+      : 'Every skill an agent or workflow uses is in the skill master and readable.',
+    skillProblems.length ? [...new Set(skillRoutes.map((entry) => `Run ${entry.repairs[0].command} (${entry.repairs[0].label})`))].join(' ') : null,
+    skillProblems.length ? { problems: skillRoutes } : {}));
     const removed = removedSettings(definition);
     if (removed.length) checks.push(check('removed-settings', 'warn',
       `${removed.length} setting(s) of removed features are ignored: ${removed.slice(0, 12).join(', ')}${removed.length > 12 ? ', …' : ''}.`,

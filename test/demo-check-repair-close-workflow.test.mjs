@@ -15,6 +15,7 @@ import { decisionOutcome, pendingDecisionRecord, resolveDecisionChoice } from '.
 import { installWorkflow, simulateWorkflow, workflowCatalog } from '../src/workflow-catalog.mjs';
 import { applyWorkflowImport, exportWorkflowBundle, planWorkflowImport } from '../src/workflow-transfer.mjs';
 import { librarySkillPath, loadSkillLibrary, SKILL_ATTACHMENTS_PATH } from '../src/skill-library.mjs';
+import { assertStoryLibrarySkills, configurationSkillProblems } from '../src/skill-library-problems.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 import { codeReport, retainStepReview, reviewStep } from './helpers/step-review.mjs';
@@ -142,11 +143,108 @@ test('skills are physically linked in agents, rendered once, and scoped to their
   assert.deepEqual(reused.skills.map((entry) => entry.id), [SKILLS[1]], 'agent skills follow reused agents');
 });
 
-test('active starter agent dependencies still refuse missing library bytes', async (t) => {
+test('a missing starter skill stops only its step and its workflow\'s Stories, and init --repair restores it', async (t) => {
   const root = await temporary(t);
+  const shipped = await readFile(path.join(ROOT, 'templates/skill-library', SKILLS[1], 'SKILL.md'), 'utf8');
   await rm(path.join(root, librarySkillPath(SKILLS[1])));
-  await assert.rejects(() => loadDefinition(root), (error) => error.code === 'SKILL_LIBRARY_MISSING'
-    && error.details?.agentId === AGENTS[1] && error.details?.skillId === SKILLS[1]);
+  // Configuration loads: every command, Story and step that does not use the skill goes on [owner, 2026-11-25].
+  const definition = await loadDefinition(root);
+  const problems = await configurationSkillProblems(root, definition);
+  assert.deepEqual(problems.map((problem) => [problem.agentId, problem.skillId, problem.reason]), [[AGENTS[1], SKILLS[1], 'missing']]);
+  // SFlow ships it, and this repository's configuration is its own files: the way out restores it.
+  const restore = (error) => error.code === 'SKILL_LIBRARY_MISSING' && error.details?.agentId === AGENTS[1]
+    && error.details?.skillId === SKILLS[1] && error.details?.packaged === true
+    && error.details.nextAction.command === 'singularity-flow init --repair' && error.details.recoveryCommands.length === 1;
+  const resolved = resolveWorkType(definition, ID);
+  const story = { workItem: { id: 'DEMO-1', workType: ID } };
+  await assert.rejects(() => renderAgentSkills(root, story, resolved.phases[1], { agent: AGENTS[1] }), restore);
+  assert.deepEqual((await renderAgentSkills(root, story, resolved.phases[0], { agent: AGENTS[0] })).skills.map((entry) => entry.id), [SKILLS[0]]);
+  await assert.rejects(() => assertStoryLibrarySkills(definition, ID, resolved, { root }), restore);
+  await assertStoryLibrarySkills(definition, 'feature', resolveWorkType(definition, 'feature'), { root });
+  // `init --repair` restores what this build ships and is missing (initializeDefinition), leaving edits as they are.
+  await initializeDefinition(root);
+  assert.equal(await readFile(path.join(root, librarySkillPath(SKILLS[1])), 'utf8'), shipped);
+  const repaired = await loadDefinition(root);
+  assert.deepEqual(await configurationSkillProblems(root, repaired), []);
+  await assertStoryLibrarySkills(repaired, ID, resolveWorkType(repaired, ID), { root });
+  assert.deepEqual((await renderAgentSkills(root, story, resolved.phases[1], { agent: AGENTS[1] })).skills.map((entry) => entry.id), [SKILLS[1]]);
+});
+
+test('real CLI: an unrelated Story records its intake answers while a starter skill is missing; the starter refuses with init --repair, which restores it', slowLane(), async (t) => {
+  // The office dead end (2026-11-25): every command of a Story at intake was refused for demo-code-checker's missing skill.
+  const root = await temporary(t);
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Demo Reviewer',
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.git/test-active-workspace.json'),
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.git/test-workspaces.json'),
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }) };
+  delete env.NODE_TEST_CONTEXT;
+  const spawn = (command, args) => spawnSync(command, args, { cwd: root, env, encoding: 'utf8', timeout: childTimeout(120000) });
+  const run = (command, args) => {
+    const result = spawn(command, args);
+    assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result.stdout;
+  };
+  const cliArgs = (args) => [path.join(ROOT, 'bin/singularity-flow.mjs'), '--no-model', ...args];
+  const cli = (...args) => run(process.execPath, cliArgs(args));
+  run('git', ['init', '-b', 'main']); run('git', ['config', 'user.name', 'Demo Reviewer']);
+  run('git', ['config', 'user.email', 'demo@example.test']);
+  await writeFile(path.join(root, 'README.md'), '# Missing skill fixture\n');
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.git.publish = 'off'; config.worldModel.grounding = 'off';
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  await writeFile(configPath, YAML.stringify(config));
+  const skill = path.join(root, librarySkillPath(SKILLS[1]));
+  const shipped = await readFile(skill, 'utf8');
+  await rm(skill);
+  run('git', ['add', '.']); run('git', ['commit', '-m', 'Initialize fixture without one starter skill']);
+  const remote = `${root}.git`;
+  t.after(() => rm(remote, { recursive: true, force: true }));
+  run('git', ['init', '--bare', '-b', 'main', remote]);
+  run('git', ['remote', 'add', 'origin', remote]); run('git', ['push', '-u', 'origin', 'main']);
+
+  // doctor lists it with its way out.
+  const doctor = JSON.parse(spawn(process.execPath, cliArgs(['doctor', '--json'])).stdout);
+  const listed = doctor.checks.find((entry) => entry.id === 'library-skills');
+  assert.equal(listed.status, 'warn');
+  assert.deepEqual(listed.problems.map((entry) => [entry.agentId, entry.skillId, entry.repairs[0].command]),
+    [[AGENTS[1], SKILLS[1], 'singularity-flow init --repair']]);
+
+  // A Story of another workflow starts, and its intake records the person's answers.
+  cli('start', 'FEAT-1', '--from-branch', 'main', '--work-type', 'feature',
+    '--title', 'Show the account balance', '--description', 'Show the current balance on the account page.');
+  cli('wm', 'compose', '--phase', 'intake');
+  const responsePath = path.resolve(root, run('git', ['rev-parse', '--git-path', 'singularity-flow/clarification-responses/intake.json']).trim());
+  await mkdir(path.dirname(responsePath), { recursive: true });
+  await writeFile(responsePath, JSON.stringify({ responses: [{
+    question: 'Which balance is shown, and to whom?',
+    answer: 'The available balance of the signed-in customer\'s own account, refreshed when the page opens.'
+  }] }));
+  cli('clarification', 'record', 'intake', '--response-file', responsePath);
+
+  // A Story of the starter that keeps the missing skill is refused with the command that restores it, and nothing is left.
+  run('git', ['checkout', '--quiet', 'main']);
+  env.SINGULARITY_FLOW_TEST_SELECTION = JSON.stringify({ workType: ID, agent: AGENTS[0] });
+  const startDemo = ['start', 'DEMO-2', '--from-branch', 'main', '--work-type', ID,
+    '--title', 'Check the provided screenshot', '--description', 'Check, repair and independently retest before closing.'];
+  const refused = spawn(process.execPath, cliArgs([...startDemo, '--json']));
+  assert.notEqual(refused.status, 0, refused.stdout);
+  const said = `${refused.stdout}\n${refused.stderr}`;
+  assert.match(said, /SKILL_LIBRARY_MISSING/u);
+  assert.match(said, new RegExp(`Agent '${AGENTS[1]}' attaches skill '${SKILLS[1]}', but it is not in the skill master`, 'u'));
+  assert.match(said, /singularity-flow init --repair/u);
+  assert.equal(run('git', ['branch', '--show-current']).trim(), 'main');
+  assert.notEqual(spawn('git', ['rev-parse', '--verify', '--quiet', 'refs/heads/DEMO-2']).status, 0, 'no Story branch is left');
+
+  // The route restores exactly what this build ships; committed, the starter's Story starts.
+  cli('init', '--repair');
+  assert.equal(await readFile(skill, 'utf8'), shipped);
+  run('git', ['add', '-A']); run('git', ['commit', '-m', 'Restore the packaged starter skill']); run('git', ['push', 'origin', 'main']);
+  cli(...startDemo);
+  const manifestPath = JSON.parse(await readFile(path.join(root, 'singularity/work-items/DEMO-2/workflow.json'), 'utf8')).workflowSnapshot.manifestPath;
+  const manifest = JSON.parse(await readFile(path.join(root, manifestPath), 'utf8'));
+  assert.ok(manifest.assets.some((entry) => entry.logicalId.endsWith(`:skill:${SKILLS[1]}`)), 'the Story keeps the restored skill');
 });
 
 test('starter installation carries agent-owned skill files, dry-run writes nothing and customizations survive replacement', async (t) => {

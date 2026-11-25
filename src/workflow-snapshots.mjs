@@ -289,10 +289,10 @@ async function captureAttachedLibrarySkills(root, config, workId, agent, phaseId
     const logicalId = `agent:${agent.id}:skill:${attachment.id}`;
     const label = `Skill '${attachment.id}' attached to agent '${agent.id}'`;
     const source = await secureRepositoryPath(configurationReadRoot(root), librarySkillPath(attachment.id), { label, type: 'file' });
-    if (!source.exists) fail(`${label} is not in the skill master.`, 'WFA_DEPENDENCY_UNAVAILABLE');
+    if (!source.exists) throw await unusableSkill(root, { agent }, attachment.id);
     const captured = await stableFile(source.absolute, label);
     try { parseLibrarySkill(captured.bytes.toString('utf8'), { id: attachment.id }); }
-    catch (error) { fail(`${label} is not a valid skill: ${error.message}`, 'WFA_DEPENDENCY_UNAVAILABLE'); }
+    catch (error) { throw await unusableSkill(root, { agent }, attachment.id, error); }
     const referenceSha256 = domainHash(
       'wfa.dependency-reference.v1', `skill\0${attachment.id}\0${librarySkillReference(attachment.id)}`
     );
@@ -312,6 +312,10 @@ async function captureAttachedLibrarySkills(root, config, workId, agent, phaseId
   }
   return { assets, dependencies };
 }
+
+/** A skill the Story would keep, missing or not valid: refused with its way out (skill-library-problems.mjs). */
+const unusableSkill = async (root, owner, skillId, error = null) => (await import('./skill-library-problems.mjs'))
+  .unusableSkillRefusal(root, owner, skillId, error, 'The Story keeps the skills its steps use, so nothing was saved.');
 
 async function captureAgentExecutionDependencies(root, config, workId, agent, phaseIds) {
   const library = await captureAttachedLibrarySkills(root, config, workId, agent, phaseIds);
@@ -336,7 +340,8 @@ async function captureWorkflowLibrarySkills(root, config, workflow) {
   for (const entry of entries) {
     const logicalId = `workflow:${workflowId}:skill:${entry.id}`;
     // installBlob must target the Story repository, not an approved-configuration read checkout.
-    const source = await secureRepositoryPath(configurationReadRoot(root), librarySkillPath(entry.id), { mustExist: !entry.planned, type: 'file' });
+    const source = await secureRepositoryPath(configurationReadRoot(root), librarySkillPath(entry.id), { type: 'file' });
+    if (!entry.planned && !source.exists) throw await unusableSkill(root, { workflowId }, entry.id);
     if (entry.planned && !source.exists) {
       throw new SingularityFlowError(`The task's plan uses skill ${entry.id}, which is not in the skill library the Story starts from (its base branch, or the approved configuration). Push the change that adds it, or start without it.`,
         { code: 'TASK_SKILL_CHANGED', details: { skill: entry.id, nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Show the task\'s plan again.' } } });
@@ -347,7 +352,11 @@ async function captureWorkflowLibrarySkills(root, config, workflow) {
       throw new SingularityFlowError(`Skill ${entry.id} in the plan differs from the one the Story starts from (its base branch, or the approved configuration). Push the change, or start without it.`,
         { code: 'TASK_SKILL_CHANGED', details: { skill: entry.id, nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Show the task\'s plan again.' } } });
     }
-    parseLibrarySkill(captured.bytes.toString('utf8'), { id: entry.id });
+    try { parseLibrarySkill(captured.bytes.toString('utf8'), { id: entry.id }); }
+    catch (error) {
+      if (entry.planned) throw error;
+      throw await unusableSkill(root, { workflowId }, entry.id, error);
+    }
     const blob = await installBlob(root, config, workflow.workItem.id, { ...captured, mediaType: 'text/markdown; charset=utf-8' });
     assets.push({ logicalId, purpose: 'workflow-skill', dependencies: [], blob,
       source: { kind: 'reviewed-workflow-skill', workflowId, skillId: entry.id, sha256: blob.sha256 } });

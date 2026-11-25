@@ -19,7 +19,8 @@ import {
   CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, resolveConfigurationRemote,
   STATE_CONFIGURATION_BRANCH
 } from './configuration-branch.mjs';
-import { assertWorkflowReadinessChanges, validateDefinition } from './config.mjs';
+import { assertWorkflowReadinessChanges, loadDefinition, validateDefinition } from './config.mjs';
+import { addedSkillProblem, configurationSkillProblems } from './skill-library-problems.mjs';
 import { isConfigurationReadPath } from './configuration-read-scope.mjs';
 import { configurationAssetPolicy } from './configuration-assets.mjs';
 import { createGitRuntime } from './git-access.mjs';
@@ -884,6 +885,9 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       // What `workflow validate` finds in each workflow this changes, before and after [finding ER-F7].
       const changedWorkflows = (reviewed.workflows ?? []).filter((row) => row.governs === 'story' && row.change !== 'removed').map((row) => row.id);
       const problemsBefore = await workflowProblems(scratch, changedWorkflows).catch(() => null);
+      // Every skill an agent or workflow uses, before and after: loading configuration reads none (skill-library.mjs).
+      const skillProblems = () => loadDefinition(scratch).then((definition) => configurationSkillProblems(scratch, definition));
+      const skillProblemsBefore = await skillProblems().catch(() => null);
       prepared = await measureCommandSpan('proposal.prepare', () => prepareConfigurationStateTransaction(scratch, transport.remote, reviewed, {
         env: transport.env, runRemoteCommand: runRemoteGitAsync, actor: { name: actor.name, email: actor.email },
         proposalId: stateService.identity(proposalBranch), objectReader: transport.reader, choices,
@@ -947,6 +951,15 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
               command: `singularity-flow configuration reject ${proposalBranch} --confirm ${reviewed.proposalCommit} --reason "${why}"` } } }
           );
         }
+      }
+      const skillAdded = skillProblemsBefore ? addedSkillProblem(skillProblemsBefore, await skillProblems()) : null;
+      if (skillAdded) {
+        const owner = skillAdded.workflowId ? `workflow ${skillAdded.workflowId}` : `agent ${skillAdded.agentId}`;
+        const why = `it leaves ${owner} using skill ${skillAdded.skillId}, which is ${skillAdded.reason === 'missing' ? 'not in the skill master' : 'not a valid skill'}`;
+        throw new SingularityFlowError(`Approving ${proposalBranch} would leave ${owner} using skill '${skillAdded.skillId}', but ${skillAdded.detail}. `
+          + 'Nothing was changed. Reject it with that reason: its proposer fixes it and proposes it again.', {
+          code: 'SKILL_LIBRARY_MISSING', details: { ...skillAdded, nextAction: { label: 'Reject it, so its proposer fixes it',
+            command: `singularity-flow configuration reject ${proposalBranch} --confirm ${reviewed.proposalCommit} --reason "${why}"` } } });
       }
       if (prepared.receipt) await stateService.prepare(prepared.transaction, prepared.targetCommit);
     }

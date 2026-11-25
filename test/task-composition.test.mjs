@@ -157,6 +157,7 @@ test('ITW REQ-001, REQ-007: work shows the plan and writes nothing; --start star
   assert.equal(data.id, 'TASK-1');
   assert.equal(data.task.kind, 'fix');
   assert.match(data.task.plan, /^Plan: code → tests\./u);
+  assert.equal(data.task.before, undefined, 'only a refactor runs its checks on the base first');
   story.item = 'singularity/work-items/TASK-1';
   const record = storyRecord(story);
   assert.equal(record.workItem.workType, 'task-fix');
@@ -193,6 +194,10 @@ test('ITW REQ-001, REQ-007: work shows the plan and writes nothing; --start star
   const fix = JSON.parse(story.cli('work', 'fix it', '--kind', 'fix', '--from', 'TASK-2', '--new', '--start', '--json'));
   assert.equal((fix.data ?? fix).id, 'TASK-3');
   assert.match(story.git('show', 'TASK-3:singularity/work-items/TASK-3/USER-STORY.md'), /Starts from TASK-2's report[^]*the tests expect 2/u);
+  // A refactor names the run of its checks on the base, before any edit.
+  story.git('checkout', '-q', 'main');
+  const refactor = JSON.parse(story.cli('work', 'refactor the value module without changing behaviour', '--start', '--json'));
+  assert.equal((refactor.data ?? refactor).task.before, `singularity-flow tests base --work-id ${(refactor.data ?? refactor).id} --phase verification --within 600 --json`);
   // "… and open a pull request" puts it at the end of the plan.
   const asked = JSON.parse(story.cli('work', 'fix the value module and open a pull request', '--json'));
   assert.match(asked.plan, /→ pull request\./u);

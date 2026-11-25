@@ -2054,7 +2054,12 @@ async function startCommandAtRoot(positionals, options) {
       id: workflow.workItem.id,
       // The task this Story does, as its plan line said it [ITW:REQ-012].
       ...(taskComposition ? { task: { kind: taskComposition.kind, plan: taskPlan,
-        steps: taskComposition.steps.map((step) => ({ id: step.id, label: step.label })) } } : {}),
+        steps: taskComposition.steps.map((step) => ({ id: step.id, intent: step.intent, label: step.label })),
+        // A refactor runs its checks on the base before any edit [ITW:REQ-015]: what already fails there is a finding,
+        // never a behaviour the refactor changed (tests base: a fact for a person, never evidence).
+        ...(taskComposition.kind === 'refactor' && taskComposition.steps.some((step) => step.intent === 'test') ? {
+          before: `singularity-flow tests base --work-id ${workflow.workItem.id} --phase ${taskComposition.steps.find((step) => step.intent === 'test').id} --within 600 --json`
+        } : {}) } } : {}),
       testPolicy: sealedTestPolicy ? {
         path: workflow.testPolicy.path, sha256: workflow.testPolicy.sha256, baselineFailures: sealedTestPolicy.baselineFailures,
         executionScope: sealedTestPolicy.executionScope, capability: sealedTestPolicy.capability

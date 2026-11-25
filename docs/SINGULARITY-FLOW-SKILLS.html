@@ -11958,7 +11958,7 @@ TRP: `singularity-flow explain test-recovery`.
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1133 body tokens</span>
+          <span class="pill">~1163 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-task</code></dd></div>
@@ -11996,7 +11996,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. Words that ask for a pull request when the Story has no step left: run `singularity-flow pr &lt;WORK-ID&gt; --json`, show its head, base and title, then `singularity-flow pr &lt;WORK-ID&gt; --create --yes`, and give its link. No new task.
 3. Otherwise (no Story open, or words beginning &quot;new task&quot;) name the kind from the person&#39;s words only: fix, feature, change, refactor, tests, docs, investigate, review or chore. A question about why something happens is investigate. Only when two kinds fit equally, ask_user once with those two as the choices.
 4. Run `singularity-flow work &quot;&lt;the person&#39;s words, exactly&gt;&quot; --kind &lt;KIND&gt; --start --json` from cwd as is (add `--new` only after &quot;new task&quot;; &quot;fix it&quot; after an investigation or review in this chat: `--from &lt;ITS-ID&gt;`; a document the person names: `--document &lt;PATH&gt;`; &quot;add a design step&quot; or &quot;skip the plan&quot;: `--add &lt;STEP&gt;` or `--skip &lt;STEP&gt;`); a workspace folder is fine. Never choose an ID, base or workflow: SFlow does.
-5. Say `data.task.plan` as one line. Never show a commit, digest or step ID.
+5. Say `data.task.plan` as one line. Never show a commit, digest or step ID. A refactor: run `data.task.before` once now, before any edit, and say in one line which tests already fail on the base.
 6. On a refusal follow its `details.nextAction`; `TASK_OPEN_HERE`: do step 1 with the person&#39;s words; `TASK_KIND_UNKNOWN`: choose from `details.kinds` as in step 3 and run step 4 once more.
 7. Show start&#39;s readiness lines in one line, then `/sf-task` as what carries the task on.
 </code></pre>

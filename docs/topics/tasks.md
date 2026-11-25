@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 6
+version: 7
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -18,7 +18,7 @@ Say what you want done and SFlow does the rest of the setting up: `/sf-task fix 
 | fix, chore | intake → code → tests |
 | change | intake → plan → code → tests |
 | feature | intake → requirements → plan → code → tests |
-| refactor | intake → plan (what must not change) → code → tests |
+| refactor | intake → plan (what must not change) → code → tests; before any edit, the tests run once on the base (`sflow tests base`), so what already fails there is never read as a change |
 | tests | intake → write the tests → tests |
 | docs | intake → write the document (kept with the Story; a later task starts from it with `--from`) |
 | investigate | intake → investigate, ending with a report; no code changes |

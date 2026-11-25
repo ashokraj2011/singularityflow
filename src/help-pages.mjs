@@ -504,12 +504,16 @@ const PAGES = Object.freeze({
       ['--start', 'Start the Story.'],
       ['--work-id ID', 'The Story ID to use instead of a Jira key or the next TASK-<n>.'],
       ['--base BRANCH', 'The branch to start from instead of the default branch.'],
+      ['--from TASK-ID', 'Start from an earlier task\'s report (an investigation or review): it becomes the intake.'],
+      ['--document FILE', 'A document the task is about, pinned at the version it starts with (repeatable).'],
+      ['--new', 'Start another task even though one is open on this checkout.'],
       ['--json', 'Emit the plan, or the started Story, as JSON.']
     ],
     examples: [
       ['singularity-flow work "fix the login timeout on slow networks"', 'Show the plan a fix gets.'],
       ['singularity-flow work "fix the login timeout on slow networks" --start', 'Start it as a Story.'],
-      ['singularity-flow work "why do cancelled orders still send emails?" --kind investigate', 'An investigation: a report, no code change.']
+      ['singularity-flow work "why do cancelled orders still send emails?" --kind investigate', 'An investigation: a report, no code change.'],
+      ['singularity-flow work status', 'Where the task on this checkout stands: each step and who approved it.']
     ],
     seeAlso: ['start', 'workflow', 'lessons']
   },

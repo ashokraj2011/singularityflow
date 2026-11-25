@@ -20,10 +20,10 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    - a person's approval (`/sf-approve`): run `singularity-flow choices begin approve <WORK-ID> --fetch --for-agent --json --review-packet`, ask its `act.ask` question with ask_user, and on the person's own Yes run its `onYes` commands in order. Never answer it yourself.
    - a decision (`/sf-decide`): show its route; the person decides it on the decisions card.
    - anything else: do the current step's own work in this turn, from `singularity-flow phase enter --compose --for-agent --json` to its own boundary, as `/sf-next` does.
-   Then say in one line what finished and what comes next. When the Story has no step left, say what was done and where it is, which checks ran, and what the person approved.
+   Then say in one line what finished and what comes next. When the Story has no step left, run `singularity-flow work status --json`: say its `words`, what the person approved, and link each step's `document`; when `pullRequest` is true, open it as in step 2.
 2. Words that ask for a pull request when the Story has no step left: run `singularity-flow pr <WORK-ID> --json`, show its head, base and title, then `singularity-flow pr <WORK-ID> --create --yes`, and give its link. No new task.
 3. Otherwise (no Story open, or words beginning "new task") name the kind from the person's words only: fix, feature, change, refactor, tests, docs, investigate, review or chore. A question about why something happens is investigate. Only when two kinds fit equally, ask_user once with those two as the choices.
-4. Run `singularity-flow work "<the person's words, exactly>" --kind <KIND> --start --json` from cwd as is (add `--new` only after "new task"); a workspace folder is fine. Never choose an ID, base or workflow: SFlow does.
+4. Run `singularity-flow work "<the person's words, exactly>" --kind <KIND> --start --json` from cwd as is (add `--new` only after "new task"; "fix it" after an investigation or review in this chat: `--from <ITS-ID>`; a document the person names: `--document <PATH>`); a workspace folder is fine. Never choose an ID, base or workflow: SFlow does.
 5. Say `data.task.plan` as one line. Never show a commit, digest or step ID.
 6. On a refusal follow its `details.nextAction`; `TASK_OPEN_HERE`: do step 1 with the person's words; `TASK_KIND_UNKNOWN`: choose from `details.kinds` as in step 3 and run step 4 once more.
 7. Show start's readiness lines in one line, then `/sf-task` as what carries the task on.

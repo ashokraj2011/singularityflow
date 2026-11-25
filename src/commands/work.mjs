@@ -12,7 +12,7 @@ import path from 'node:path';
 
 import { assertWorkTypeStartable, resolveWorkType, validateDefinition, WORKFLOW_PATH } from '../config.mjs';
 import { loadConfig } from '../state-stores.mjs';
-import { branch, localBranches, remoteBranches, remoteDefaultBranchName } from '../git.mjs';
+import { branch, commitOfRef, committedFileText, localBranches, remoteBranches, remoteDefaultBranchName } from '../git.mjs';
 import { repoRoot } from '../git-execution.mjs';
 import { composeTask, kindFromWords, planLine, TASK_KINDS, taskDefinition, taskRules } from '../task-composition.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
@@ -68,8 +68,8 @@ const approvalOf = (phase) => phase.approval?.mode === 'none' ? 'none'
   : phase.approval?.automatic === 'when-ready' ? 'sflow' : 'person';
 
 /** The task's plan: composed, checked and walked as a Story start would, with nothing written. */
-export async function taskPlan(definition, { kind, touchedPaths = [] } = {}) {
-  const composition = composeTask(definition, { kind, touchedPaths });
+export async function taskPlan(definition, { kind, touchedPaths = [], pullRequest = false } = {}) {
+  const composition = { ...composeTask(definition, { kind, touchedPaths }), ...(pullRequest ? { pullRequest: true } : {}) };
   const overlaid = validateDefinition(structuredClone(taskDefinition(definition, composition)));
   const resolved = assertWorkTypeStartable(resolveWorkType(overlaid, composition.workType));
   const { quickWalkResolved, walkHosts } = await import('../workflow-walk/quick.mjs');
@@ -84,7 +84,7 @@ export async function taskPlan(definition, { kind, touchedPaths = [] } = {}) {
   const approvals = Object.fromEntries(resolved.phases.map((phase) => [phase.id, approvalOf(phase)]));
   return {
     composition,
-    plan: planLine(composition, { approvals }),
+    plan: planLine(composition, { approvals, pullRequest }),
     steps: composition.steps.map((step) => ({ id: step.id, intent: step.intent, label: step.label, approvedBy: approvals[step.id] })),
     walk: walk.outcome
   };
@@ -154,12 +154,100 @@ function openStoryHere(root) {
   return null;
 }
 
+const WORK_ITEMS = ['singularity/work-items', '.sdlc/work-items'];
+// "… and open a pull request" in the task's own words: the plan ends with it [ITW:REQ-018].
+const ASKS_FOR_PULL_REQUEST = /\b(?:and|then)\s+(?:open|create|raise)\s+(?:a|the)\s+(?:pull request|PR)\b/iu;
+const REPORT_LIMIT = 16 * 1024;
+
+/** A Story's record as its own branch holds it (this checkout's copy when it is on that branch). */
+function storyRecordOf(root, id, remote = 'origin') {
+  for (const folder of WORK_ITEMS) {
+    const file = path.join(root, folder, id, 'workflow.json');
+    if (existsSync(file) && branchName(root) === id) {
+      try { return { workflow: JSON.parse(readFileSync(file, 'utf8')), folder, ref: null }; } catch { return null; }
+    }
+  }
+  for (const ref of [id, `${remote}/${id}`]) {
+    if (!commitOfRef(root, ref)) continue;
+    for (const folder of WORK_ITEMS) {
+      const text = committedFileText(root, ref, `${folder}/${id}/workflow.json`);
+      if (text) { try { return { workflow: JSON.parse(text), folder, ref }; } catch { return null; } }
+    }
+  }
+  return null;
+}
+
+function branchName(root) { try { return branch(root); } catch { return null; } }
+
+function storyFileText(root, record, id, relative) {
+  const inItem = `${record.folder}/${id}/${relative}`;
+  if (!record.ref) {
+    const file = path.join(root, inItem);
+    return existsSync(file) ? readFileSync(file, 'utf8') : null;
+  }
+  return committedFileText(root, record.ref, inItem);
+}
+
+/** The report an investigation or review left (its last step's document), for a task that starts from it [ITW:REQ-013]. */
+function reportOf(root, id, remote) {
+  const record = storyRecordOf(root, id, remote);
+  if (!record) {
+    throw new SingularityFlowError(`There is no task ${id} here to start from.`, {
+      code: 'TASK_FROM_UNKNOWN', details: { nextAction: { command: 'singularity-flow work status', label: 'See the task open on this checkout.' } } });
+  }
+  const last = record.workflow.phaseOrder?.at(-1);
+  const artifact = record.workflow.phases?.[last]?.requiredArtifact?.path;
+  const text = artifact ? storyFileText(root, record, id, artifact) : null;
+  if (!text) {
+    throw new SingularityFlowError(`${id} has no report yet to start from: its last step has not written one.`, {
+      code: 'TASK_FROM_NO_REPORT', details: { nextAction: { command: `singularity-flow work status ${id}`, label: `See where ${id} stands.` } } });
+  }
+  return { artifact, text: text.length > REPORT_LIMIT ? `${text.slice(0, REPORT_LIMIT)}\n\n[… the report continues in ${id}'s ${artifact}]` : text };
+}
+
+/**
+ * Where a task stands, for its last message [ITW:REQ-018]: each step and who approved it, the branch the change is on,
+ * whether the person asked for a pull request, and the documents a person reads for what was checked. Reads only.
+ */
+export function taskStatus(root, id, { remote = 'origin' } = {}) {
+  const record = storyRecordOf(root, id, remote);
+  if (!record) {
+    throw new SingularityFlowError(`There is no task ${id} here.`, {
+      code: 'TASK_UNKNOWN', details: { nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Start a task.' } } });
+  }
+  const { workflow } = record;
+  const steps = (workflow.phaseOrder ?? []).map((stepId) => {
+    const phase = workflow.phases?.[stepId] ?? {};
+    const approvedBy = phase.status !== 'approved' ? null
+      : phase.approvalDisposition === 'approved_automatically' ? 'sflow' : phase.approvedBy ? 'person' : 'none-needed';
+    return { id: stepId, label: phase.label ?? stepId, status: phase.status ?? 'not_started', approvedBy,
+      document: phase.requiredArtifact?.path ? `${record.folder}/${id}/${phase.requiredArtifact.path}` : null };
+  });
+  const composition = workflow.resolution?.composition ?? null;
+  const done = steps.length > 0 && steps.every((step) => step.status === 'approved' || step.status === 'skipped');
+  return {
+    schemaVersion: 1, resultType: 'sflow-task-status', id, kind: composition?.kind ?? null, title: workflow.workItem?.title ?? null,
+    status: workflow.status, done, branch: workflow.workItem?.branch ?? id, base: workflow.workItem?.baseBranch ?? null,
+    pullRequest: composition?.pullRequest === true, steps,
+    personApproved: steps.filter((step) => step.approvedBy === 'person').map((step) => step.label),
+    words: done
+      ? `${id} is done: ${steps.map((step) => step.label).join(', ')}, on branch ${workflow.workItem?.branch ?? id}.`
+      : `${id} is at ${steps.find((step) => step.status !== 'approved' && step.status !== 'skipped')?.label ?? 'its next step'}.`
+  };
+}
+
 function titleOf(words) {
   const line = words.split(/\r?\n/u)[0].trim();
   return line.length > 120 ? `${line.slice(0, 117).trimEnd()}…` : line;
 }
 
 export async function workCommand(positionals = [], options = {}) {
+  if (positionals[1] === 'status') {
+    const root = await taskRepositoryRoot();
+    const definition = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : {};
+    const id = positionals[2] ?? openStoryHere(root) ?? branchName(root);
+    return taskStatus(root, id, { remote: definition.git?.remote ?? 'origin' });
+  }
   const words = wordsOf(positionals);
   const kind = kindOf(words, options);
   const root = await taskRepositoryRoot();
@@ -171,7 +259,7 @@ export async function workCommand(positionals = [], options = {}) {
   }
   const definition = await loadConfig(root);
   const touchedPaths = optionStrings(options, 'path');
-  const preview = await taskPlan(definition, { kind, touchedPaths });
+  const preview = await taskPlan(definition, { kind, touchedPaths, pullRequest: ASKS_FOR_PULL_REQUEST.test(words) });
   if (!optionBoolean(options, 'start')) {
     return {
       schemaVersion: 1, resultType: 'sflow-task-plan', kind, words, plan: preview.plan, steps: preview.steps,
@@ -192,10 +280,16 @@ export async function workCommand(positionals = [], options = {}) {
   const id = workIdFor(root, words, definition, options);
   const remote = definition.git?.remote ?? 'origin';
   const base = optionString(options, 'base') ?? remoteDefaultBranchName(root, definition, remote) ?? 'main';
+  const from = optionString(options, 'from');
+  const report = from ? reportOf(root, from, remote) : null;
+  const documents = optionStrings(options, 'document').map((file) => path.resolve(process.cwd(), file));
   const startOptions = {
     ...(optionBoolean(options, 'json') ? { json: true } : {}),
     title: titleOf(words),
-    description: words,
+    // A task that starts from an investigation carries its report as its intake [ITW:REQ-013]: nothing is asked again.
+    description: report ? `${words}\n\n## Starts from ${from}'s report (${report.artifact})\n\n${report.text}` : words,
+    // A document the task is about, pinned at the version it starts with [ITW:REQ-016].
+    ...(documents.length ? { document: documents } : {}),
     'work-type': preview.composition.workType,
     base,
     yes: true
@@ -216,6 +310,14 @@ function printPlan(result) {
 
 export async function run(_argv, { positionals = ['work'], options = {} } = {}) {
   const result = await workCommand(positionals, options);
+  if (result?.resultType === 'sflow-task-status') {
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(result.words);
+      for (const step of result.steps) console.log(`  ${step.label}: ${step.status.replace(/_/gu, ' ')}${step.approvedBy === 'person' ? ', approved by a person' : step.approvedBy === 'sflow' ? ', approved by SFlow' : ''}`);
+    }
+    return result;
+  }
   if (result?.resultType === 'sflow-task-plan') {
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else printPlan(result);

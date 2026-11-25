@@ -1124,7 +1124,8 @@ Usage:
   singularity-flow lessons drop|keep|rule <K-ID> [--json]
   singularity-flow lessons edit <K-ID> --text TEXT [--json]
   singularity-flow work "<words>" [--kind KIND] [--path FILE]... [--json]
-  singularity-flow work "<words>" --start [--kind KIND] [--work-id ID] [--base BRANCH] [--json]
+  singularity-flow work "<words>" --start [--kind KIND] [--work-id ID] [--base BRANCH] [--from TASK-ID] [--document FILE]... [--new] [--json]
+  singularity-flow work status [TASK-ID] [--json]
 
   singularity-flow initiative status [INIT-ID] [--json]
   singularity-flow initiative next [INIT-ID] [--json]

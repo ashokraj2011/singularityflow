@@ -142,6 +142,11 @@ test('ITW REQ-001, REQ-007: work shows the plan and writes nothing; --start star
   // A later command reads the Story's own workflow.
   const shownStep = JSON.parse(story.cli('phase', 'show', 'intake', '--json'));
   assert.equal((shownStep.data ?? shownStep).phase?.id ?? (shownStep.data ?? shownStep).id ?? 'intake', 'intake');
+  // Where the task stands, for its last message.
+  const status = JSON.parse(story.cli('work', 'status', 'TASK-1', '--json'));
+  assert.deepEqual([status.id, status.kind, status.done, status.branch], ['TASK-1', 'fix', false, 'TASK-1']);
+  assert.deepEqual(status.steps.map((step) => step.status), ['in_progress', 'not_started', 'not_started']);
+  assert.match(status.words, /^TASK-1 is at Intake\./u);
   // The next task takes the next free ID.
   // On TASK-1's own checkout the words are TASK-1's; "new task" (--new) starts another there.
   story.git('checkout', '-q', 'TASK-1');
@@ -151,6 +156,20 @@ test('ITW REQ-001, REQ-007: work shows the plan and writes nothing; --start star
   story.git('checkout', '-q', 'main');
   const second = JSON.parse(story.cli('work', 'investigate why the value is 1', '--start', '--json'));
   assert.equal((second.data ?? second).id, 'TASK-2');
+  // "fix it" after the investigation starts from its report, carried as the intake.
+  story.git('checkout', '-q', 'main');
+  const early = story.raw(['work', 'fix it', '--kind', 'fix', '--from', 'TASK-2', '--start', '--json']);
+  assert.notEqual(early.status, 0);
+  assert.match(`${early.stdout}${early.stderr}`, /TASK_FROM_NO_REPORT/u, 'no report yet');
+  story.git('checkout', '-q', 'TASK-2');
+  const investigation = JSON.parse(await story.read('singularity/work-items/TASK-2/workflow.json'));
+  await story.write(`singularity/work-items/TASK-2/${investigation.phases.design.requiredArtifact.path}`, '# Findings\n\nThe value module exports 1; the tests expect 2.\n');
+  const fix = JSON.parse(story.cli('work', 'fix it', '--kind', 'fix', '--from', 'TASK-2', '--new', '--start', '--json'));
+  assert.equal((fix.data ?? fix).id, 'TASK-3');
+  assert.match(story.git('show', 'TASK-3:singularity/work-items/TASK-3/USER-STORY.md'), /Starts from TASK-2's report[^]*the tests expect 2/u);
+  // "… and open a pull request" puts it at the end of the plan.
+  const asked = JSON.parse(story.cli('work', 'fix the value module and open a pull request', '--json'));
+  assert.match(asked.plan, /→ pull request\./u);
 });
 
 test('ITW REQ-008: /sf-task on an open task takes the turn of what the Story needs next; with no Story it stays a task turn', async (t) => {

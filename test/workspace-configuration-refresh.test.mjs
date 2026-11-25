@@ -18,7 +18,9 @@ import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import { gitEmptyConfigPath } from '../src/git-isolation-paths.mjs';
 import { rememberWorkspace } from '../src/workspace.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
-import { loadDefinition } from '../src/config.mjs';
+import { loadDefinition, resolveWorkType } from '../src/config.mjs';
+import { librarySkillPath } from '../src/skill-library.mjs';
+import { assertStoryLibrarySkills, configurationSkillProblems, librarySkillRepairs } from '../src/skill-library-problems.mjs';
 import { withAgentsHomeSetting } from '../src/initialization-assets.mjs';
 import { reinitializeWorkspaces } from '../src/workspace-reinitialize.mjs';
 import { schemaCensus } from '../src/schema-census.mjs';
@@ -978,6 +980,40 @@ test('repository refresh restores seeded instruction closure and preserves custo
   assert.equal(await readFile(path.join(root, customized), 'utf8'), local);
   const definition = await loadDefinition(root);
   assert.ok(definition.workTypes['demo-instruction-test-loop']);
+});
+
+test('workspace refresh-configuration, the way out of a missing packaged skill, restores it to sflow/config', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-skill-restore-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'skills');
+  const first = await refreshWorkspaceConfigurations({ registryFile: registry });
+  assert.equal(first.status, 'complete', JSON.stringify(first, null, 2));
+  const skill = librarySkillPath('demo-code-acceptance-check');
+  // An outside edit deletes SFlow's packaged skill from the approved configuration.
+  const editor = path.join(root, 'configuration-editor');
+  run('git', ['clone', '--quiet', '--branch', 'sflow/config', remote, editor]);
+  git(editor, ['config', 'user.name', 'Configuration Test']);
+  git(editor, ['config', 'user.email', 'configuration@example.test']);
+  git(editor, ['rm', '--quiet', skill]);
+  git(editor, ['commit', '-m', 'Delete a packaged skill']);
+  git(editor, ['push', 'origin', 'HEAD:sflow/config']);
+  // Configuration still loads; the skill is listed, and its way out with an approved configuration is the refresh.
+  const definition = await loadDefinition(editor);
+  const [problem, ...others] = await configurationSkillProblems(editor, definition);
+  assert.deepEqual(others, []);
+  assert.deepEqual([problem.agentId, problem.skillId, problem.reason], ['demo-code-checker', 'demo-code-acceptance-check', 'missing']);
+  assert.deepEqual(librarySkillRepairs(problem, { approved: true }).map((entry) => entry.command), ['singularity-flow workspace refresh-configuration']);
+  await assert.rejects(() => assertStoryLibrarySkills(definition, 'demo-check-repair-close', resolveWorkType(definition, 'demo-check-repair-close'), { root: editor }),
+    (error) => error.code === 'SKILL_LIBRARY_MISSING' && error.details.packaged === true);
+  // Following the route restores the exact packaged bytes on sflow/config, and a Story of that workflow can start again.
+  const repaired = await refreshWorkspaceConfigurations({ registryFile: registry });
+  assert.equal(repaired.status, 'complete', JSON.stringify(repaired, null, 2));
+  assert.equal(run('git', ['--git-dir', remote, 'show', `sflow/config:${skill}`]).stdout,
+    await readFile(path.join(ROOT, 'templates/skill-library/demo-code-acceptance-check/SKILL.md'), 'utf8'));
+  git(editor, ['pull', '--quiet', '--ff-only', 'origin', 'sflow/config']);
+  const restored = await loadDefinition(editor);
+  assert.deepEqual(await configurationSkillProblems(editor, restored), []);
+  await assertStoryLibrarySkills(restored, 'demo-check-repair-close', resolveWorkType(restored, 'demo-check-repair-close'), { root: editor });
 });
 
 test('repository refresh changes only the lines it restores in a workflow folded at 80 columns', async (t) => {

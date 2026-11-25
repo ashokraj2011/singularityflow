@@ -27,6 +27,7 @@ import {
   SKILL_ATTACHMENTS_PATH, librarySkillPath, librarySkillText, loadSkillLibrary, normalizeSkillUse,
   parseLibrarySkill, parseSkillAttachments, readSkillAttachments, skillAttachmentsText, withoutAttachedSkills
 } from './skill-library.mjs';
+import { approvedConfigurationIn } from './skill-library-problems.mjs';
 import { instructionPath, instructionText, parseInstruction, loadInstructionLibrary } from './instruction-library.mjs';
 import { skillUses, projectSkills, projectInstructions } from './asset-catalog-projection.mjs';
 import { constitutionPolicy, parseConstitution } from './constitution.mjs';
@@ -3613,12 +3614,14 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   const inspectCandidate = inspect ? async (candidateRoot) => { inspection = await inspect(candidateRoot); } : null;
   if (!problems.length && files.length) {
     try {
-      await validateStudioCandidate(sources, files, inspectCandidate);
+      await validateStudioCandidate(sources, files, inspectCandidate, { approved: proposing || approvedConfigurationIn(root) });
     } catch (error) {
       // The located problems say where in the changed file; the person fixes the draft from them.
       const located = error?.details?.configurationProblems;
       problems.push({ code: error?.code ?? 'CONFIGURATION_INVALID', message: String(error.message).replace(/^Change was not saved because configuration validation failed: /, ''),
-        ...(Array.isArray(located) && located.length ? { located } : {}) });
+        ...(Array.isArray(located) && located.length ? { located } : {}),
+        // A refusal that names its way out keeps it (a skill the change would leave missing: skill-library-problems.mjs).
+        ...(error?.details?.nextAction ? { nextAction: error.details.nextAction, recoveryCommands: error.details.recoveryCommands ?? [] } : {}) });
     }
   } else if (!problems.length && inspectCandidate) await inspectCandidate(root);
   if (!problems.length) problems.push(...reasonProblems);
@@ -3645,7 +3648,8 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   };
   if (!write) return plan;
   if (!plan.valid) {
-    throw new SingularityFlowError(`Workflow Studio changes were not applied: ${problems[0].message}`, { code: 'STUDIO_CHANGES_INVALID', details: { problems } });
+    throw new SingularityFlowError(`Workflow Studio changes were not applied: ${problems[0].message}`, { code: 'STUDIO_CHANGES_INVALID',
+      details: { problems, ...(problems[0].nextAction ? { nextAction: problems[0].nextAction, recoveryCommands: problems[0].recoveryCommands } : {}) } });
   }
   if (refused.length && proposing) {
     const { problemLines } = await import('./workflow-autofix.mjs');
@@ -3750,7 +3754,7 @@ function obligationFindings(files, touched) {
   return warnings;
 }
 
-async function validateStudioCandidate(sources, files, inspect = null) {
+async function validateStudioCandidate(sources, files, inspect = null, { approved = null } = {}) {
   const readCandidate = (file, fallback) => {
     const changed = files.find((entry) => entry.path === file);
     return changed ? parseYamlText(asText(changed.after) ?? '') ?? {} : fallback;
@@ -3772,7 +3776,7 @@ async function validateStudioCandidate(sources, files, inspect = null) {
   const definition = sources.definition ?? { templatesRoot: sources.templatesRoot };
   // A removed file is removed from the copy validation reads (content null); the attachments file is checked empty.
   await validateConfigurationCandidates(sources.configRoot, files.map((file) => ({ path: file.path,
-    content: file.after == null ? (file.path === SKILL_ATTACHMENTS_PATH ? 'attachments: []\n' : null) : asText(file.after) })), definition, sources.portfolio, { inspect });
+    content: file.after == null ? (file.path === SKILL_ATTACHMENTS_PATH ? 'attachments: []\n' : null) : asText(file.after) })), definition, sources.portfolio, { inspect, approved });
 }
 
 export function readStudioChangeSet(text) {

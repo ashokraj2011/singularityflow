@@ -623,8 +623,7 @@ export async function renderAgentSkills(root, workflow, phase, session, {
   if (!saved) {
     for (const entry of (await readSkillAttachments(configurationReadRoot(root)))
       .filter((entry) => entry.workflow === workflow?.workItem?.workType && matches(phase.id, entry.phases))) {
-      const skill = await readLibrarySkill(configurationReadRoot(root), entry.id);
-      if (!skill) throw new SingularityFlowError(`Workflow '${entry.workflow}' attaches missing skill '${entry.id}'.`, { code: 'SKILL_LIBRARY_MISSING' });
+      const skill = await usableLibrarySkill(root, { workflowId: entry.workflow }, entry.id, phase);
       library.skills.push({ ...skill, use: entry.use, scopes: [`workflow ${entry.workflow}`] });
     }
   }
@@ -725,15 +724,19 @@ async function attachedLibrarySkills(root, phase, executionContext, agent, agent
   }
   for (const attachment of effectiveLibrarySkills(agent)) {
     if (!matches(phase.id, attachment.phases)) continue;
-    const skill = await readLibrarySkill(configurationReadRoot(root), attachment.id);
-    if (!skill) {
-      throw new SingularityFlowError(`Skill '${attachment.id}' is attached to ${agentId} but is not in the skill master.`, {
-        code: 'SKILL_LIBRARY_MISSING', details: { agentId, skillId: attachment.id }
-      });
-    }
+    const skill = await usableLibrarySkill(root, { agent: { ...agent, id: agentId } }, attachment.id, phase);
     skills.push({ ...skill, use: attachment.use, scopes: [`agent ${agentId}`] });
   }
   return { skills, warnings };
+}
+
+/** A skill this step uses. Missing or not valid, it refuses this step only, with its way out. */
+async function usableLibrarySkill(root, owner, skillId, phase) {
+  let skill = null; let error = null;
+  try { skill = await readLibrarySkill(configurationReadRoot(root), skillId); } catch (caught) { error = caught; }
+  if (skill) return skill;
+  throw (await import('./skill-library-problems.mjs')).unusableSkillRefusal(root, owner, skillId, error,
+    `Step '${phase.id}' uses it, so its prompt was not composed.`);
 }
 
 function expandUrl(template, workflow, phase) {

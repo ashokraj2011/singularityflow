@@ -18,12 +18,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { initializeDefinition, loadDefinition } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { parseAgentDependencies, renderAgentSkills } from '../src/agents.mjs';
 import {
   defaultSkillLabel, librarySkillText, loadSkillLibrary, normalizeSkillUse, parseLibrarySkill, parseSkillAttachments, renderLibrarySkills,
   skillAttachmentsText, withoutAttachedSkills
 } from '../src/skill-library.mjs';
+import { assertStoryLibrarySkills, configurationSkillProblems, storySkillScope } from '../src/skill-library-problems.mjs';
+import { validateConfigurationCandidates } from '../src/editor.mjs';
+import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { checkWorkflowConfiguration } from '../src/workflow-check.mjs';
 import { importsStatus, readStagedImport, stageImport } from '../src/asset-import.mjs';
 import { buildStudioModel, planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../src/workflow-studio.mjs';
 import { operationCatalog, resolveOperation } from '../src/command-registry.mjs';
@@ -334,7 +338,7 @@ ${TABLE.replace('| security-review | implementation |', '| security-review | imp
   }
 });
 
-test('configuration refuses an agent that attaches a skill the skill master lacks, or names a step that does not exist', async (t) => {
+test('a skill the skill master lacks stops only the steps and Stories that use it, with its way out; a step that does not exist still refuses configuration', async (t) => {
   const root = await repository(t);
   await writeSkill(root);
   await attach(root);
@@ -342,12 +346,41 @@ test('configuration refuses an agent that attaches a skill the skill master lack
   assert.deepEqual(definition.agents.developer.librarySkills,
     [{ id: 'security-review', phases: ['implementation'], use: 'After you write the code, before you publish it' }]);
 
+  // Loading reads no skill: every command that does not use this one goes on [owner, 2026-11-25].
   await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
-  await assert.rejects(() => loadDefinition(root), (error) => error.code === 'SKILL_LIBRARY_MISSING'
-    && error.details?.agentId === 'developer' && error.details?.skillId === 'security-review'
-    && /not in the skill master \(singularity\/skill-library\/security-review\/SKILL\.md\)/.test(error.message));
+  const loaded = await loadDefinition(root);
+  const problems = await configurationSkillProblems(root, loaded);
+  assert.deepEqual(problems.map((problem) => [problem.agentId, problem.skillId, problem.reason]), [['developer', 'security-review', 'missing']]);
+  // Not a skill SFlow ships, and this repository's configuration is its own files: written again, or detached.
+  const create = 'singularity-flow skill create security-review --description "<what it does and when to use it>" --instructions "<the steps the agent follows>"';
+  const detach = 'singularity-flow skill detach security-review --agent developer';
+  const refusedWithItsWayOut = (error) => error.code === 'SKILL_LIBRARY_MISSING'
+    && error.details?.agentId === 'developer' && error.details?.skillId === 'security-review' && error.details?.packaged === false
+    && /not in the skill master \(singularity\/skill-library\/security-review\/SKILL\.md\)/.test(error.message)
+    && error.details.nextAction.command === create
+    && JSON.stringify(error.details.recoveryCommands.map((entry) => entry.command)) === JSON.stringify([create, detach])
+    && refusalRemediationPlan(error, ['phase', 'prepare', 'implementation']).steps.some((entry) => entry.command === detach);
+  const workflow = { workItem: { id: 'SEC-1', workType: 'feature' } };
+  await assert.rejects(() => renderAgentSkills(root, workflow, { id: 'implementation' }, { agent: 'developer' }), refusedWithItsWayOut);
+  assert.equal((await renderAgentSkills(root, workflow, { id: 'verification' }, { agent: 'developer' })).text, '', 'a step that does not use it goes on');
+  // This fixture's workflows are the repository's own copies (repo-<id>).
+  await assert.rejects(() => assertStoryLibrarySkills(loaded, 'repo-feature', resolveWorkType(loaded, 'repo-feature'), { root }), refusedWithItsWayOut);
+  // A Story of a workflow whose agents never use it starts.
+  const unrelated = Object.keys(loaded.workTypes).find((id) => !storySkillScope(loaded, id, resolveWorkType(loaded, id)).agentIds.has('developer'));
+  assert.ok(unrelated, 'some workflow here has no step developer drafts');
+  await assertStoryLibrarySkills(loaded, unrelated, resolveWorkType(loaded, unrelated), { root });
+  // `workflow check` lists it with its fix, against the workflows whose Stories keep it; the others are not affected.
+  const checked = await checkWorkflowConfiguration(root);
+  const listed = checked.repository.findings.find((finding) => finding.code === 'CHECK_SKILL_MISSING');
+  assert.equal(listed.subject.skill, 'security-review');
+  assert.equal(listed.fix.command, create);
+  assert.ok(listed.subject.workflows.includes('repo-feature') && !listed.subject.workflows.includes(unrelated), JSON.stringify(listed.subject));
+  // The repair itself is not blocked by what it repairs: writing the skill again is an ordinary change set.
+  const repaired = await planStudioChangeSet(root, changeSet([{ op: 'skill.create', ...SECURITY_REVIEW }]), { write: true });
+  assert.equal(repaired.valid, true, JSON.stringify(repaired.problems));
+  assert.deepEqual(await configurationSkillProblems(root, await loadDefinition(root)), []);
+  assert.deepEqual((await renderAgentSkills(root, workflow, { id: 'implementation' }, { agent: 'developer' })).skills.map((skill) => skill.id), ['security-review']);
 
-  await writeSkill(root);
   const file = path.join(root, 'singularity/agents/developer.agent.md');
   await writeFile(file, (await readFile(file, 'utf8')).replace('| security-review | implementation |', '| security-review | nowhere |'));
   await assert.rejects(() => loadDefinition(root), (error) => error.code === 'AGENT_PHASE_UNKNOWN'
@@ -1230,13 +1263,43 @@ test('the attachments file attaches a skill to a seeded workflow\'s agent for th
   const refusals = [
     [['- skill: security-review', '  agent: nobody'], 'SKILL_ATTACHMENT_AGENT_UNKNOWN', /attaches skill 'security-review' to agent 'nobody', which is not an agent here/],
     [['- skill: security-review', '  agent: developer', '  steps: [nowhere]'], 'AGENT_PHASE_UNKNOWN', /attaches skill 'security-review' to agent 'developer' for unknown step 'nowhere'/],
-    [['- skill: style-guide', '  agent: developer'], 'SKILL_LIBRARY_MISSING', /Agent 'developer' attaches skill 'style-guide', but it is not in the skill master/],
     [['- skill: security-review', '  agent: developer', '  surprise: true'], 'SKILL_ATTACHMENTS_INVALID', /unknown key\(s\) surprise/]
   ];
   for (const [lines, code, message] of refusals) {
     await attachment(lines);
     await assert.rejects(() => loadDefinition(root), (error) => error.code === code && message.test(error.message), code);
   }
+
+  // A skill the skill master lacks is no structural error: configuration loads, and the step that uses it is refused,
+  // naming the attachment to detach (the agent is seeded, so it is the attachments file's) [owner, 2026-11-25].
+  await attachment(['- skill: style-guide', '  agent: developer']);
+  await loadDefinition(root);
+  await assert.rejects(() => renderAgentSkills(root, workflow, { id: 'implementation' }, { agent: 'developer' }), (error) => error.code === 'SKILL_LIBRARY_MISSING'
+    && /Agent 'developer' attaches skill 'style-guide', but it is not in the skill master/.test(error.message)
+    && error.details.recoveryCommands.some((entry) => entry.command === 'singularity-flow skill detach style-guide --agent developer'));
+  // Doing that detach is an ordinary change set, which the missing skill does not block.
+  const detached = await planStudioChangeSet(root, changeSet([{ op: 'skill.detach', skill: 'style-guide', agent: 'developer' }]), { write: true });
+  assert.equal(detached.valid, true, JSON.stringify(detached.problems));
+  assert.deepEqual(await configurationSkillProblems(root, await loadDefinition(root)), []);
+});
+
+test('a configuration change that would leave an agent using a missing skill is refused where it is made; one already missing never stops another change', async (t) => {
+  const root = await seededRepository(t, 'sflow-skill-change-check-');
+  await writeSkill(root);
+  const definition = await loadDefinition(root);
+  const missing = 'attachments:\n  - skill: style-guide\n    agent: developer\n';
+  await assert.rejects(() => validateConfigurationCandidates(root, [{ path: ATTACHMENTS_PATH, content: missing }], definition, null),
+    (error) => error.code === 'SKILL_LIBRARY_MISSING' && error.details.skillId === 'style-guide' && /nothing was saved/.test(error.message)
+      && error.details.nextAction.command.startsWith('singularity-flow skill create style-guide '));
+  // Already missing (written outside SFlow): an unrelated change is checked on what it adds, so it goes on.
+  await writeAttachments(root, missing);
+  await validateConfigurationCandidates(root, [{ path: ATTACHMENTS_PATH,
+    content: `${missing}  - skill: security-review\n    agent: qa\n` }], await loadDefinition(root), null);
+  // A skill that is not valid text is a problem the change adds too.
+  const current = await loadDefinition(root);
+  await assert.rejects(() => validateConfigurationCandidates(root, [{ path: SKILL_PATH, content: '---\nname: security-review\n---\nDo it.\n' },
+    { path: ATTACHMENTS_PATH, content: 'attachments:\n  - skill: security-review\n    agent: qa\n' }], current, null),
+  (error) => error.code === 'SKILL_LIBRARY_MISSING' && error.details.reason === 'unreadable' && error.details.skillId === 'security-review');
 });
 
 test('a skill attached to an agent must not share the ID of one of the agent\'s remote resources', async (t) => {

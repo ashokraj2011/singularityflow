@@ -170,12 +170,14 @@ test('Story snapshots omit an agent library skill scoped only to phases outside 
   assert.ok(!rendered.warnings.some(warning => warning.includes('uninstalled-skill')));
 });
 
-test('Story snapshots still refuse missing applicable or unscoped agent library skills', async t => {
+test('Story snapshots still refuse missing applicable or unscoped agent library skills, naming the way out', async t => {
   for (const phases of [['implementation'], []]) {
     const value = await fixture(); t.after(() => rm(value.root, { recursive: true, force: true }));
     value.config.agentCatalog[0].librarySkills = [{ id: 'required-skill', phases, use: 'Required for this agent.' }];
+    // Not a skill SFlow ships: written again, or detached [owner, 2026-11-25].
     await assert.rejects(captureWorkflowSnapshot(value.root, value.config, value.workflow),
-      error => error.code === 'WFA_DEPENDENCY_UNAVAILABLE' && error.message.includes('required-skill'));
+      error => error.code === 'SKILL_LIBRARY_MISSING' && error.message.includes('required-skill')
+        && error.details.nextAction.command.startsWith('singularity-flow skill create required-skill '));
   }
 });
 

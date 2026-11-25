@@ -3,6 +3,7 @@ import { normalizeQualityGateMode } from './phase-quality-risk.mjs';
 import {
   assertWorkTypeStartable, loadDefinition, resolveWorkType
 } from './config.mjs';
+import { assertStoryLibrarySkills } from './skill-library-problems.mjs';
 import {
   assertClean,
   branch,
@@ -433,6 +434,8 @@ export async function startStory(root, {
       capabilityId: selectedCapabilityId
     });
     const resolvedStartWorkType = assertWorkTypeStartable(resolveWorkType(initialDefinition, workType));
+    // A skill this workflow's agents use that the approved configuration lacks is refused before anything changes.
+    if (approvedConfigurationSnapshot) await assertStoryLibrarySkills(initialDefinition, workType, resolvedStartWorkType, { snapshot: approvedConfigurationSnapshot });
     const resolvedDocumentPolicy = resolvedStartWorkType.documents ?? initialDefinition.documents ?? {};
     const capabilityPolicy = retainedCapabilityMap?.definition && retainedCapabilityMap.capabilityId
       ? resolveEffectiveCapabilityPolicy(
@@ -724,6 +727,7 @@ export async function startStory(root, {
   validateId(definition, id);
   if (!definition.workTypes?.[workType]) throw new SingularityFlowError(`Unknown work type '${workType ?? ''}'.`);
   const resolved = assertWorkTypeStartable(resolveWorkType(definition, workType));
+  if (!existed && !approvedConfigurationSnapshot) await assertStoryLibrarySkills(definition, workType, resolved, { root });
   if (!existed) {
     const selectedScope = requiredRepositoryReadinessScope(definition);
     if (selectedScope !== repositoryReadinessScope) {

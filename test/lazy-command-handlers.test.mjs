@@ -1006,7 +1006,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,874,991 (measured for submit.mjs, +2,503, 2026-11-25): a task's chosen skills frozen into its Story's snapshot with
     // the exact text its plan read (workflow-snapshots.mjs), and a loaded definition's marketplaces validated again unchanged
     // (marketplace.mjs) [ITW:REQ-010]; the chooser loads only for a task. No new eager file.
-    assert.ok(closure.bytes <= 9_877_758, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,880,261 (measured on the merge of both, 2026-11-25): the two rises above together.
+    assert.ok(closure.bytes <= 9_880_261, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1563,7 +1564,8 @@ test('the common session projection does not import attach, state stores or publ
   // schema-migrations.mjs) and `work add` registered [ITW:REQ-009]; the rest loads only for a task change. No new eager file.
   // 4,346,418 (+2,503, 2026-11-25): a task's skills frozen into its snapshot (workflow-snapshots.mjs) and marketplaces
   // validated again unchanged (marketplace.mjs) [ITW:REQ-010]. No new eager file.
-  assert.ok(current.bytes <= 4_347_584, `session current loads ${current.bytes} source bytes`);
+  // 4,350,087 (measured on the merge of both, 2026-11-25): the two rises above together.
+  assert.ok(current.bytes <= 4_350_087, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

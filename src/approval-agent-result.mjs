@@ -1,4 +1,4 @@
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { safeCommandGuidance, TASK_ROUTE } from './safe-command-guidance.mjs';
 import { contextBoundaryPresentation } from './context-policy.mjs';
 
 /** One decision receipt, not a new-phase execution instruction. Full evidence remains retained. */
@@ -11,7 +11,7 @@ export function approvalAgentResult(result) {
     operation: result.operation, subject: result.subject, outcome: result.outcome,
     effects: result.effects, turnBoundary: 'end',
     instruction: contextBoundary?.instruction ?? (nextStep
-      ? `End this turn. Name the next step for the person: ${nextStep}. Do not repeat approval or author the next phase here.`
+      ? `End this turn. Name the next step for the person: ${nextStep}${nextStep === TASK_ROUTE ? ', typed in this chat' : ''}. Do not repeat approval or author the next phase here.`
       : 'End this approval-only turn. Do not repeat approval or author the next phase. Inspect the returned next action in a new turn.'),
     ...(contextBoundary ? { contextBoundary } : {}), ...(nextStep ? { nextStep: { copilotCommand: nextStep, phase: handoff.nextPhase ?? null } } : {}),
     decision: { commit: result.data?.commit, pushed: result.data?.pushed,

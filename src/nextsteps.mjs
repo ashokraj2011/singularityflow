@@ -6,7 +6,7 @@ import { phasePublicationCommandForMode } from './sequence.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
-import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
+import { commandRouteLines, safeCommandGuidance, withTaskRoutes } from './safe-command-guidance.mjs';
 import { generationSkillForPhase, applicationReviewOffer, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommandForProducer
@@ -255,10 +255,11 @@ function visualCoverageActions(hold, timing) {
  */
 export function workflowNextSteps(workflow, options = {}) {
   const seen = new Set();
-  return plannedNextSteps(workflow, options).filter((step) => {
+  // A task's Story names /sf-task for each turn it takes, in the same chat [ITW:REQ-008]; each step keeps its skill.
+  return withTaskRoutes(workflow, plannedNextSteps(workflow, options).filter((step) => {
     const key = `${step.command ?? ''}\u0000${step.reason ?? ''}`;
     return seen.has(key) ? false : Boolean(seen.add(key));
-  });
+  }));
 }
 
 function plannedNextSteps(workflow, {

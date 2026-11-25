@@ -1,15 +1,16 @@
 import { pendingBoundary, workflowNextSteps } from './nextsteps.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
-import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
+import { commandRouteLines, safeCommandGuidance, withTaskRoutes } from './safe-command-guidance.mjs';
 
 /** Presentation of post-state only: this neither executes a next action nor grants authority. */
 export function phaseContinuation(workflow, { reviewedPhaseId = null, primary = null, snapshot = null, ...options } = {}) {
   const historical = reviewedPhaseId && reviewedPhaseId !== workflow.currentPhase;
-  const actions = historical ? [copilotAction({
+  // A task's Story names /sf-task for each turn it takes, in the same chat [ITW:REQ-008]: the primary action too.
+  const actions = withTaskRoutes(workflow, historical ? [copilotAction({
     timing: 'now', skill: '/sf-nextsteps',
     command: `singularity-flow nextsteps ${workflow.workItem.id} --json`,
     reason: 'This is not the active phase. Inspect the current lifecycle before taking another action.'
-  })] : primary ? [copilotAction({ timing: 'now', ...primary })] : snapshot?.actions ?? workflowNextSteps(workflow, options);
+  })] : primary ? [copilotAction({ timing: 'now', ...primary })] : snapshot?.actions ?? workflowNextSteps(workflow, options));
   const nextAction = actions.find(entry => ['now', 'blocked'].includes(entry.timing)) ?? null;
   const contextBoundary = snapshot?.contextBoundary ?? (options.publicationPending || options.recovery?.requiresRecovery
     || workflow.pendingDecision || options.stepActionHold?.missing?.length ? null : pendingBoundary(workflow));

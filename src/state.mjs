@@ -98,7 +98,7 @@ import { amendmentRetentionCandidates, retainUnchangedPhases } from './phase-ret
 import { retainedByRule } from './evidence/equivalence-rules.mjs';
 import { forwardAmendmentDecision, nextForwardAmendmentProposal, pendingAmendmentRevalidations, pendingForwardAmendments, revalidateCommand } from './forward-amendments.mjs';
 import { phaseUpstream } from './phase-upstream.mjs';
-import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
+import { contextBoundaryHandoff, normalizeContextPolicy, storyContextPolicy } from './context-policy.mjs';
 import { stepChatCommand, stepDecisionOf } from './step-decision.mjs';
 import {
   approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
@@ -7761,7 +7761,7 @@ export async function approvePhase(root, config, workflow, options = {}) {
   }
   const next = reached ? currentPhase(workflow) : phase;
   const contextBoundary = reached
-    ? contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
+    ? contextBoundaryHandoff(storyContextPolicy(workflow), phase.id, {
       nextPhase: next?.id ?? null,
       nextSkill: stepChatCommand(workflow),
       complete: workflow.status === 'closed'
@@ -8441,7 +8441,7 @@ export async function decideStory(root, config, workflow, {
     pendingKey: pending.key,
     next: upcoming ?? (outcome.kind === 'loop' ? workflow.phases[outcome.target] : null),
     authority,
-    contextBoundary: contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
+    contextBoundary: contextBoundaryHandoff(storyContextPolicy(workflow), phase.id, {
       event: outcome.kind === 'loop' ? 'rejection' : undefined,
       nextPhase: workflow.currentPhase ?? null,
       nextSkill: stepChatCommand(workflow),
@@ -8742,7 +8742,7 @@ export async function rejectPhase(root, config, workflow, {
     ...workflow.phases[targetId],
     changeRequest,
     ...(repairBudget ? { repairBudget } : {}),
-    contextBoundary: contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
+    contextBoundary: contextBoundaryHandoff(storyContextPolicy(workflow), phase.id, {
       event: 'rejection',
       nextPhase: targetId,
       nextSkill: stepChatCommand(workflow, targetId)

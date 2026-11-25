@@ -247,6 +247,49 @@ function normalizedSkill(value) {
   return direct === id ? id : null;
 }
 
+/**
+ * A task's Story is carried on by `/sf-task` [ITW:REQ-008, docs/SPEC-ITW-INTENT-TO-WORK-v1.1.md]: typed with no words in
+ * the same chat, it takes the turn of what the Story needs next (task-turn.mjs), so the person types one command between
+ * steps. A Story is a task's when its resolution records the composition its workflow came from (`work --start`), or its
+ * work type is a composed task's (`task-<kind>`).
+ */
+export const TASK_ROUTE = '/sf-task';
+export function isTaskStory(workflow) {
+  const composition = workflow?.resolution?.composition;
+  return /^task-[a-z]+$/u.test(String(workflow?.workItem?.workType ?? ''))
+    || Boolean(composition && typeof composition === 'object' && typeof composition.kind === 'string' && Array.isArray(composition.steps));
+}
+
+/**
+ * The turns /sf-task takes, by the skill a route names: a person's approval, and the step's own work (its work command or
+ * drafting skill, publication, submission), which it does as /sf-next does. A decision keeps /sf-decide, whose card is
+ * where the person decides; a return keeps /sf-reject, with the person's reason; every other route keeps its own skill.
+ */
+export function taskTakesTurn(skill) {
+  const id = directCopilotSkillId(skill);
+  return Boolean(id) && (['/sf-approve', '/sf-next', '/sf-publish', '/sf-submit'].includes(id) || Boolean(authoringSkillEntry(id.slice(1))));
+}
+
+const REVIEWED_VALUE_ROUTE = (route) => directCopilotSkillId(route) === '/sf-confirm' || /\s--confirm(?:\s|$)/u.test(route);
+
+/**
+ * One next action of `workflow` as a person reads it: on a task's Story, an action whose turn /sf-task takes shows
+ * `/sf-task` as its Copilot route, and its skill (the turn it needs), Shell and model-free routes stay its own. An offer
+ * (optional, an alternative) and a route that carries a reviewed value keep their own route. Every other Story: unchanged.
+ */
+export function withTaskRoute(workflow, action) {
+  if (!action || typeof action !== 'object' || !isTaskStory(workflow)) return action;
+  const route = action.copilotCommand ?? action.commandGuidance?.copilotCommand ?? null;
+  if (typeof route !== 'string' || route === TASK_ROUTE || action.optional === true || action.rank === 'LATER'
+      || ['alternative', 'optional', 'later'].includes(action.timing) || !taskTakesTurn(action.skill ?? route) || REVIEWED_VALUE_ROUTE(route)) return action;
+  const guidance = action.commandGuidance?.copilotCommand ? { commandGuidance: Object.freeze({ ...action.commandGuidance, copilotCommand: TASK_ROUTE }) } : {};
+  const mapped = { ...action, copilotCommand: TASK_ROUTE, ...guidance };
+  return Object.isFrozen(action) ? Object.freeze(mapped) : mapped;
+}
+
+export const withTaskRoutes = (workflow, actions) => (Array.isArray(actions) && isTaskStory(workflow)
+  ? actions.map((action) => withTaskRoute(workflow, action)) : actions);
+
 // Receipt capabilities belong in private execution, never in reusable command guidance.
 // This is syntax validation only: the CLI still authenticates the exact receipt, packet,
 // phase, identity, expiry and one-time consumption before recording a decision.
@@ -404,9 +447,11 @@ export function safeCommandGuidance(value) {
   if (safe.argv[0] === 'status' && safe.argv.includes('--submission-readiness')) allowedSkills.add('/sf-submit');
   // A `/sf-confirm` route names the runner of a reviewed digest, not the command's owning skill; the
   // skill comes from the command, and the supplied route must still equal the canonical one below.
+  // So does a task's `/sf-task` (withTaskRoute): the skill stays the turn the command needs.
+  const taskRoute = typeof input.copilotCommand === 'string' && input.copilotCommand.trim() === TASK_ROUTE;
   const assertedSkill = input.skill != null
     ? normalizedSkill(input.skill)
-    : input.copilotCommand != null && directCopilotSkillId(input.copilotCommand) !== '/sf-confirm'
+    : input.copilotCommand != null && !taskRoute && directCopilotSkillId(input.copilotCommand) !== '/sf-confirm'
       ? directCopilotSkillId(input.copilotCommand)
       : null;
   if (phaseId && !(safe.argv[0] === 'phase' && safe.argv[1] === 'show')
@@ -422,6 +467,12 @@ export function safeCommandGuidance(value) {
     const suppliedSkill = normalizedSkill(input.skill);
     if (!suppliedSkill || suppliedSkill !== selectedSkill) return null;
   }
+  // The reviewed task-Story exception [ITW:REQ-008]: exactly `/sf-task`, beside a command whose own route is a turn
+  // /sf-task takes (taskTakesTurn) and carries no reviewed value. It runs nothing itself: typed, it re-reads the Story
+  // it is in and takes that Story's next turn under that turn's own rules (task-turn.mjs), so for any Story it can name
+  // no other command than the Story's own next one. Producers name it only on a task's Story (withTaskRoute).
+  const taskAccepted = taskRoute && taskTakesTurn(selectedSkill) && typeof canonicalCopilotCommand === 'string'
+    && !REVIEWED_VALUE_ROUTE(canonicalCopilotCommand);
   if (input.copilotCommand != null) {
     const supplied = typeof input.copilotCommand === 'string'
       ? input.copilotCommand.trim() : '';
@@ -430,7 +481,7 @@ export function safeCommandGuidance(value) {
     const recordedConfirm = canonicalCopilotCommand?.startsWith('/sf-confirm ')
       && (supplied === `/sf-confirm ${safe.command.replace(/^(?:singularity-flow|sflow)\s+/u, '')}`
         || supplied === recordedValueRoute(safe.command, selectedSkill));
-    if (!supplied || (supplied !== canonicalCopilotCommand && !recordedConfirm) || SECRET_SHAPE.test(supplied)
+    if (!supplied || (supplied !== canonicalCopilotCommand && !recordedConfirm && !taskAccepted) || SECRET_SHAPE.test(supplied)
         || /[\r\n\u0000-\u001f\u007f]/u.test(supplied)) return null;
   }
 
@@ -439,7 +490,7 @@ export function safeCommandGuidance(value) {
     // Older producers can assert their authoring skill, but every consumer must see the
     // publication-only route, including consumers that read `skill` instead of copilotCommand.
     skill: safe.argv[0] === 'phase' && safe.argv[1] === 'publish' ? canonicalSkill : selectedSkill,
-    copilotCommand: canonicalCopilotCommand,
+    copilotCommand: taskAccepted ? TASK_ROUTE : canonicalCopilotCommand,
     modelFreeCommand: modelFreeCommandForArgv(safe.argv)
   });
 }

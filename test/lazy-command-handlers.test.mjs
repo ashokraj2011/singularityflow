@@ -1014,7 +1014,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the migration folders named once (application-paths.mjs MIGRATION_PATH, delivery-evidence.mjs), the `task-grown`
     // settled kind and opening (settled-decisions.mjs, story-version-opening.mjs) and a refactor's after-check at the test
     // step's approval (state.mjs). The growth, its return and the after-check load only for a task. No new eager file.
-    assert.ok(closure.bytes <= 9_886_373, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,886,541 (measured for submit.mjs at f4427ddba, the merge of itw-grow and itw-agentplan, unrecorded there).
+    // 9,891,741 (measured for submit.mjs, +5,200, 2026-11-25 on itw-route): a task's Story carried on by /sf-task in the same
+    // chat [ITW:REQ-008]: the task route and its reviewed check (safe-command-guidance.mjs), named on every planner's next
+    // actions (guide.mjs, nextsteps.mjs, narration/continuation.mjs, phase-continuation.mjs, step-decision.mjs), and a
+    // task's chat kept between its steps (context-policy.mjs, state.mjs, approval-agent-result.mjs, agent-output.mjs,
+    // cli-steps.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_891_741, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1187,7 +1193,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 876,774 (the two rises above together, 2026-11-25).
   // 878,930 (measured on the merge of Ask SFlow R1-R5, 2026-11-25): `ask` registered, its read skipping the deferred index
   // refresh (cli-entry.mjs) and its record families (schema-migrations.mjs). No new eager file.
-  assert.ok(root.bytes <= 878_930, `root dispatch loads ${root.bytes} source bytes`);
+  // 879,110 (measured at f4427ddba, the merge of itw-grow and itw-agentplan, unrecorded there; itw-route adds nothing here).
+  assert.ok(root.bytes <= 879_110, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1581,7 +1588,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,353,049 (measured on the merge of Ask SFlow R1-R5, 2026-11-25): `ask` registered and its record families. No new eager file.
   // 4,353,387 (+338, 2026-11-25): the migration folders named once, for the delivery receipt and a task that grows
   // (application-paths.mjs MIGRATION_PATH) [ITW:REQ-014]. No new eager file.
-  assert.ok(current.bytes <= 4_353_387, `session current loads ${current.bytes} source bytes`);
+  // 4,357,681 (+4,294, 2026-11-25 on itw-route): /sf-task as a task Story's route and its reviewed check
+  // (safe-command-guidance.mjs) and a task's chat kept between its steps (context-policy.mjs) [ITW:REQ-008]. No new eager file.
+  assert.ok(current.bytes <= 4_357_681, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

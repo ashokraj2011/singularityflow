@@ -1,5 +1,6 @@
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { isTaskStory } from './safe-command-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const CONTEXT_BOUNDARY_MODES = new Set(['keep', 'compact', 'new']);
@@ -38,6 +39,15 @@ export function normalizeContextPolicy(value = {}, { phaseIds = null, label = 'c
     phaseOverrides[phaseId] = mode(selected, `${label}.phaseOverrides.${phaseId}`);
   }
   return { onApproval, onRejection, phaseOverrides };
+}
+
+/**
+ * The context policy a Story's boundaries follow: its pinned one, except a task's. A task's steps run one after another in
+ * the same chat, and /sf-task carries it on there [ITW:REQ-008]: no /clear or new chat between them.
+ */
+const TASK_CONTEXT_POLICY = Object.freeze({ onApproval: 'keep', onRejection: 'keep', phaseOverrides: Object.freeze({}) });
+export function storyContextPolicy(workflow) {
+  return isTaskStory(workflow) ? TASK_CONTEXT_POLICY : workflow?.resolution?.contextPolicy ?? {};
 }
 
 export function contextBoundaryMode(policy, phaseId, event = 'approval') {
@@ -115,7 +125,7 @@ export function pendingContextBoundary(workflow, commandOf) {
   const order = workflow.phaseOrder ?? [];
   const previous = order[order.indexOf(phaseId) - 1];
   if (!previous || workflow.phases?.[previous]?.status !== 'approved') return null;
-  const handoff = contextBoundaryHandoff(workflow.resolution?.contextPolicy ?? {}, previous, { nextPhase: phaseId, nextSkill: commandOf?.(workflow) });
+  const handoff = contextBoundaryHandoff(storyContextPolicy(workflow), previous, { nextPhase: phaseId, nextSkill: commandOf?.(workflow) });
   if (handoff.mode === 'keep') return null;
   return { ...handoff, instruction: `If this conversation already worked on an earlier phase of this Story, ask the user to run ${handoff.commands.join(', then ')} and stop. A conversation that starts here continues.` };
 }

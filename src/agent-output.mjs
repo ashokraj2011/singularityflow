@@ -22,7 +22,7 @@ import path from 'node:path';
 import { AGENT_OUTPUT_FOLDER, agentOutputDirectory, excludeAgentOutput, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { observeFindingStreak } from './finding-escalation.mjs';
 import { gitCommonDir, repoRoot } from './git-execution.mjs';
-import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
+import { CLI_PATH_REFERENCE, safeCommandGuidance, TASK_ROUTE, validateSafeSflowCommand } from './safe-command-guidance.mjs';
 import { ownTerminalStep } from './command-skills.mjs';
 import { blockingHolds, sheetForAgent } from './step-sheet-route.mjs';
 import { validateAgentEntryRequest } from './agent-entry-options.mjs';
@@ -350,7 +350,8 @@ export function agentAct(result) {
     return { state: 'end-turn', do: null, read: ['outcome', 'decision', 'warnings', ...(result.contextBoundary ? ['contextBoundary'] : []), ...(result.nextStep ? ['nextStep'] : []),
       ...(result.lessons ? ['lessons'] : []), ...(result.lessonsUse ? ['lessonsUse'] : []), ...(result.ruleOffers ? ['ruleOffers'] : [])],
       said: (boundary ? `Approved. End this turn; the one next step is ${boundary} (${result.contextBoundary.nextPhase ?? 'the next step'}). Offer no other route.`
-        : result.nextStep?.copilotCommand ? `Approved. End this turn. Name the next step for the person: ${result.nextStep.copilotCommand} (${result.nextStep.phase ?? 'the next step'}). Offer no other route.`
+        // A task's next step is /sf-task, typed in this same chat (context-policy.mjs storyContextPolicy) [ITW:REQ-008].
+        : result.nextStep?.copilotCommand ? `Approved. End this turn. Name the next step for the person: ${result.nextStep.copilotCommand} (${result.nextStep.phase ?? 'the next step'})${result.nextStep.copilotCommand === TASK_ROUTE ? ', typed in this chat' : ''}. Offer no other route.`
           : 'Approved. End this turn; the next step continues in a new turn. Offer no other route.')
         // Story lessons [LRN:REQ-014]: one line, numbered, never a question.
         + (result.lessons ? ' Say in one line the lessons SFlow kept (data.lessons, numbered), and that the person drops one with singularity-flow lessons drop <its id> or in VS Code\'s Lessons.' : '')

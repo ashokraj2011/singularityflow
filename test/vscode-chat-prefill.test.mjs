@@ -107,6 +107,32 @@ test('nothing is filled for a terminal-only step, someone else\'s step, or no St
   assert.equal(nextChatPrefill(ended), null, 'a Story with no current step');
 });
 
+test('ITW REQ-008: a task\'s Story says /sf-task in the status bar and the chat box, in the same chat; a decision keeps its card', () => {
+  // A real VS Code run showed "TASK-1 · intake" beside "Next: /sf-phase" for a task Story.
+  const task = (snapshot) => {
+    Object.assign(snapshot.workflow.workItem, { id: 'TASK-1', workType: 'task-fix' });
+    snapshot.workflow.resolution = { composition: { kind: 'fix', steps: [{ id: 'code', intent: 'code' }] } };
+    return snapshot;
+  };
+  const writing = nextChatPrefill(task(generation()));
+  assert.deepEqual([writing.command, writing.head, writing.freshChat], ['/sf-task', '/sf-task', false]);
+  assert.match(writing.label, /Generate and publish/, 'the label still says what comes next');
+  const submission = nextChatPrefill(task(submit()));
+  assert.deepEqual([submission.command, submission.freshChat], ['/sf-task', false], 'never a new chat for a task');
+  const approval = nextChatPrefill(task(awaiting({
+    next: { effect: 'approves', available: true, where: { copilot: '/sf-approve code --work-id TASK-1' } }, waitingFor: null
+  })));
+  assert.deepEqual([approval.command, approval.head, approval.label], ['/sf-task', '/sf-task', 'Review and approve Code']);
+  assert.notEqual(approval.stateKey, writing.stateKey, 'each step state still fills once');
+  const held = task(submit());
+  held.submissionReadiness.sheet = { holds: [{ key: 'hold:1', title: 'Acknowledge the amendment' }], waitingFor: null, owedLater: [],
+    next: { id: 'choose', label: 'Acknowledge the amendment', effect: 'reads', available: true,
+      command: 'singularity-flow decisions TASK-1', where: { copilot: '/sf-decide TASK-1', terminal: true, vscode: 'singularityFlow.decisions' } } };
+  assert.equal(nextChatPrefill(held).command, '/sf-decide TASK-1', 'a decision is decided on its card, which /sf-decide opens');
+  // A classic Story is unchanged.
+  assert.equal(nextChatPrefill(generation()).command, '/sf-code');
+});
+
 test('only a /sf- skill or an @sflow command with plain arguments is a chat route', () => {
   for (const route of ['/sf-code', '/sf-approve code --work-id STORY-1', '/sf-confirm K7Q2-M8DX', '@sflow /next', '/sf-decide STORY-1']) {
     assert.equal(isChatRoute(route), true, route);

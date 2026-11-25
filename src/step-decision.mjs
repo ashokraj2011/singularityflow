@@ -12,7 +12,7 @@ import { stepState } from './kernel/step-state.mjs';
 import { pendingIntentAmendmentAcknowledgement, sourceReviewRequired } from './source-review-policy.mjs';
 import { phaseKernelOwned, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { intentAmendmentPause } from './intent-amendment-pause.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { safeCommandGuidance, withTaskRoute } from './safe-command-guidance.mjs';
 import { submitRoute } from './action-command-map.mjs';
 import { ACTION_SKILLS, actionCommand, actionSkill } from './action-command-map.mjs';
 
@@ -135,9 +135,12 @@ export function stepRoute(workflow, phase, options) {
   try { return decisionRoutes(stepDecisionOf(workflow, phase), workflow, phase, options).find((entry) => entry?.command) ?? null; } catch { return null; }
 }
 
-/** The current step's own chat command: what a context boundary names after its reset, as VS Code's chat prefill does. */
+/**
+ * The current step's own chat command: what a context boundary names after its reset, as VS Code's chat prefill does.
+ * On a task's Story, /sf-task when it takes that turn, typed in the same chat [ITW:REQ-008].
+ */
 export const stepChatCommand = (workflow, id = workflow?.currentPhase) =>
-  (id && id === workflow?.currentPhase && stepRoute(workflow, workflow.phases?.[id])?.copilotCommand) || undefined;
+  (id && id === workflow?.currentPhase && withTaskRoute(workflow, stepRoute(workflow, workflow.phases?.[id]))?.copilotCommand) || undefined;
 
 /** What a step's task waits for, in the person's words: its original code is kept, and nothing is retried meanwhile. */
 function taskOutcomeWords(inputs, phase) {

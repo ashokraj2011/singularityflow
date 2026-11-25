@@ -113,7 +113,10 @@ export function skillEntries(skillsRoot = SKILLS) {
     const worksInTurn = /The current step's own agent work is this turn's/u.test(body);
     // "`/sf-code` and `/sf-phase` are one work command": a route naming either is the turn's own work (D1).
     const oneWorkCommand = /`\/sf-code` and `\/sf-phase` are one work command/u.test(body);
+    // /sf-task on an open task: "anything else: do the current step's own work in this turn, from `<entry>`" [ITW:REQ-008].
+    const stepWork = /anything else: do the current step's own work in this turn, from `(singularity-flow [^`]+)`/u.exec(own.join('\n'))?.[1] ?? null;
     map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint, refreshAfterBegin, worksInTurn, oneWorkCommand,
+      ...(stepWork ? { stepWork } : {}),
       ...(delegate && !entry ? { delegate: `/sf-${delegate}` } : {}), ...(choice ? { choice: true } : {}) });
   }
   for (const known of map.values()) {
@@ -465,6 +468,18 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       continue;
     }
     if (done({ story, result: taken.result, record: storyRecord(story), trail })) return { reached: true, findings, trail, steps: step, next: taken.next ?? null, last: taken.result ?? null, views };
+    // /sf-task on an open task takes the turn of what comes next (its SKILL.md step 1, task-turn.mjs) [ITW:REQ-008]: a
+    // person's approval stays the person's (its Shell route says so); anything else is the current step's own work, which
+    // the task's turn does from the work command's entry, as /sf-next does. In the work command's own turn its route is that
+    // turn's work; in the task's turn it is hosted there; after a person's answer the person types /sf-task in the same chat.
+    const task = taken.next?.copilot ? entries.get(taken.next.copilot.trim()) : null;
+    if (task?.stepWork && !isPersonRoute({ ...taken.next, inTurn: false }) && !/^singularity-flow work\b/u.test(taken.next.shell ?? '') && current()) {
+      const work = [...entries.values()].find((known) => known.oneWorkCommand && known.entry === task.stepWork)?.skill ?? null;
+      const resolved = work ? { ...taken.next, copilot: work, source: `${taken.next.source ?? 'route'} (${task.skill}: the step's own work)` } : null;
+      if (resolved) taken.next = entries.get(turn)?.oneWorkCommand && taken.next.turn !== 'new-turn' ? { ...resolved, inTurn: Boolean(resolved.shell) }
+        : guard.skill === task.skill && taken.next.turn !== 'new-turn' ? { ...resolved, inTurn: false, within: task.skill }
+          : { ...resolved, inTurn: false, typed: task.skill };
+    }
     // D1: in a turn of the work command, a route naming its other name is this turn's own work, run here by its command;
     // never a route the result says is for a new turn (a submission that completed the step ends the turn, decision 7).
     const named = taken.next?.copilot ? skillOf(taken.next.copilot) : null;
@@ -675,9 +690,11 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
       // The person types the skill: a new turn of the chat, as Copilot's hooks see it. What they typed first reaches the
       // prompt hook whole, so words after the skill (`/sf-code <what to change>`) are kept as they are in a real chat.
       guard.turn = copilotTurn(story, guard.sessionId);
-      guard.turn.prompt(route.source === 'start' ? route.copilot.trim() : skill);
-      guard.skill = skill;
-      guard.hosts = {};
+      // A task's step work is typed as /sf-task, and its work command's steps run in that turn (`typed`) [ITW:REQ-008].
+      guard.turn.prompt(route.typed ?? (route.source === 'start' ? route.copilot.trim() : skill));
+      guard.skill = route.typed ?? skill;
+      guard.hosts = route.typed ? { [skill]: route.typed } : {};
+      if (route.typed) entry.did = `the person types ${route.typed}; it does the step's own work in its turn, by ${skill}'s steps`;
       if (!route.subagent && !['refresh entry', 'after answers'].includes(route.source)) entry.typed = true;
     }
   }

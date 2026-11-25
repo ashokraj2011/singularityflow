@@ -61,7 +61,7 @@ async function startedTask(workflow) {
   }
   if (workflow.pendingDecision) {
     throw refused(`${id} is waiting for a decision after ${workflow.phases?.[workflow.currentPhase]?.label ?? 'its step'}; answer it first, then add the step.`,
-      { command: `singularity-flow nextsteps ${id}`, label: 'See the decision it is waiting for.' });
+      { command: `singularity-flow decision show ${id}`, label: 'See the decision it is waiting for.' });
   }
   return composition;
 }
@@ -387,7 +387,7 @@ export async function addTaskStep(root, config, workflow, { intent, definition, 
       applied: true, stateChanged: true, id, changeId: value.changeId, change: initial.decision.change,
       added: { ...initial.step, approvedBy: said.approvedBy }, steps: initial.composition.steps.map((entry) => entry.label),
       plan: said.plan, words: said.words, workflowSnapshot: value.workflowSnapshot, publication,
-      next: { command: `singularity-flow nextsteps ${id}`, label: `Carry ${id} on: ${said.current} is still the step being worked on.` }
+      next: { command: `singularity-flow work status ${id}`, label: `Carry ${id} on: ${said.current} is still the step being worked on.` }
     };
   } finally { PROSPECTIVE.delete(workflow); }
 }

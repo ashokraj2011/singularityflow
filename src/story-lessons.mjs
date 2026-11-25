@@ -422,9 +422,9 @@ export async function testCommandLessons(root, folders = []) {
 /** Edit: a person's words replace SFlow's, and the lesson is confirmed. */
 export async function editLesson(root, wanted, text) {
   const words = clip(text);
-  if (!words) throw new SingularityFlowError('Editing a lesson requires its new words (--text).', { code: 'LESSON_TEXT_MISSING', details: { nextAction: { command: 'singularity-flow lessons edit <K-ID> --text "…"', label: 'Give the lesson\'s new words with --text.' } } });
+  if (!words) throw new SingularityFlowError('Editing a lesson requires its new words (--text).', { code: 'LESSON_TEXT_MISSING', details: { nextAction: { command: `singularity-flow lessons edit ${wanted} --text "<the lesson in your words>"`, label: 'Give the lesson\'s new words with --text.' } } });
   const secrets = lessonSecretFindings(words);
-  if (secrets.length) throw new SingularityFlowError(`A lesson cannot hold ${secrets[0].label}. Write it without the value.`, { code: 'LESSON_SECRET', details: { nextAction: { command: 'singularity-flow lessons edit <K-ID> --text "…"', label: 'Write the lesson again without the value.' } } });
+  if (secrets.length) throw new SingularityFlowError(`A lesson cannot hold ${secrets[0].label}. Write it without the value.`, { code: 'LESSON_SECRET', details: { nextAction: { command: `singularity-flow lessons edit ${wanted} --text "<the lesson in your words>"`, label: 'Write the lesson again without the value.' } } });
   const { entries } = await readAllLessons(root);
   const entry = findLesson(entries, wanted);
   if (entry.record.status !== 'active') throw new SingularityFlowError(`Lesson ${entry.record.id} was dropped; it cannot be edited.`, { code: 'LESSON_ALREADY_DROPPED', details: { nextAction: { command: 'singularity-flow lessons', label: 'List the lessons with their IDs (K-…).' } } });

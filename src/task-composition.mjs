@@ -227,7 +227,7 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
     if (!id) {
       throw taskRefusal('TASK_STEP_UNAVAILABLE',
         `This repository's workflow has no ${intent} step, which a ${kind} task needs. Add a step whose intent is ${intent} in Workflow Studio, or start the Story with a workflow of your own.`,
-        { command: 'singularity-flow start <ID> --work-type <workflow>', label: 'Start the Story with one of the repository\'s workflows instead.' },
+        { command: 'singularity-flow workflow list', label: 'Start the Story with one of these workflows.' },
         { kind, intent });
     }
     return { id, intent, label: taskStepLabel(kind, intent) };
@@ -235,7 +235,7 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
   const ids = steps.map((step) => step.id);
   if (new Set(ids).size !== ids.length) {
     throw taskRefusal('TASK_STEP_UNAVAILABLE', `This repository's workflow uses one step for two intents (${ids.join(', ')}), so a ${kind} task cannot be composed from it.`,
-      { command: 'singularity-flow start <ID> --work-type <workflow>', label: 'Start the Story with one of the repository\'s workflows instead.' }, { kind });
+      { command: 'singularity-flow workflow list', label: 'Start the Story with one of these workflows.' }, { kind });
   }
   return {
     schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: taskWorkTypeId(kind), steps,

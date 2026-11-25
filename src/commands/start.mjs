@@ -2151,7 +2151,7 @@ async function startCommandAtRoot(positionals, options) {
       taskComposition ? plannedNarrationAction({
         id: 'start.task',
         label: 'Carry the task on',
-        command: `singularity-flow nextsteps ${workflow.workItem.id}`
+        command: `singularity-flow work status ${workflow.workItem.id}`
       }, '/sf-task') : plannedNarrationAction({
         id: 'start.prepare',
         label: `Materialise the ${workflow.currentPhase} artifact so it can be filled in`,

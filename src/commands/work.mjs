@@ -131,7 +131,7 @@ async function taskRepositoryRoot() {
   }
   throw new SingularityFlowError('Run this inside the repository, or select its workspace first, so the task knows which repository it is for.', {
     code: 'TASK_REPOSITORY_UNKNOWN',
-    details: { nextAction: { command: 'singularity-flow workspace use <WORKSPACE-ID>', label: 'Select the workspace that holds the repository.' } }
+    details: { nextAction: { command: 'singularity-flow workspace list', label: 'See the workspaces; select the one that holds the repository.' } }
   });
 }
 
@@ -339,7 +339,7 @@ export async function workCommand(positionals = [], options = {}) {
     throw new SingularityFlowError(`${open} is open on this checkout, so these words are for it: its question's answer, or the change you want.`, {
       code: 'TASK_OPEN_HERE',
       details: { openTask: open, newTask: `singularity-flow work ${quoted(words)} --kind ${kind} --start --new`,
-        nextAction: { command: `singularity-flow nextsteps ${open} --for-agent --json`, label: `Carry ${open} on with the person's words.` } }
+        nextAction: { command: `singularity-flow work status ${open}`, label: `Carry ${open} on with the person's words.` } }
     });
   }
   // A skill that needs the person's yes is asked before the Story starts: its snapshot then freezes what they chose

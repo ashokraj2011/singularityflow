@@ -177,6 +177,20 @@ proposal.
 **ITW:REQ-011, a marketplace agent as the plan.** When one marketplace agent's stages cover the task, SFlow offers that
 agent's workflow as the plan, through the conversion review. Its steps then replace the composed ones, with the team
 rules still applied.
+(Built 2026-11-25: `src/task-agents.mjs`. The plan reads each trusted marketplace's agents at its pinned commit, kept per
+commit like its skills, and converts each as `workflow from-agent` does, with the answers its import recorded. An agent
+covers the task when its workflow has a step for each of the task's own steps but the intake (a requirements step
+before the code also plans it), and its code is the task's kind of code: an agent whose code steps only write tests
+covers a tests task, and one with a code step never covers a task that changes no code. One agent is offered: one
+already imported first, then the fewest extra steps. The plan result's `agentOffer` asks one question, with
+`workflow from-agent --review` to read first; `--use-agent MARKETPLACE/AGENT` is yes, `--without-agent` is no, and
+`--start` with the offer unanswered is refused (`TASK_AGENT_YES_NEEDED`). A yes to an agent whose workflow is not in the
+repository is refused at the start (`TASK_AGENT_IMPORT_NEEDED`) with its import through the conversion review as the
+next action, and a start without it; in Copilot the yes confirms the import the review proposed and the task keeps its
+own steps, as for a marketplace skill. Once imported, the task's steps are that workflow's, the team's `always` and
+`paths` rules still adding steps and approvals, and the composition records the marketplace, the agent, its version and
+the commit its import read, so the Story's snapshot and a second laptop have the same steps. Tested by
+test/task-agents.test.mjs.)
 
 **ITW:REQ-012, words and progress.**
 - The plan is one line.

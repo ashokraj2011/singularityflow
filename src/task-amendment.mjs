@@ -148,8 +148,10 @@ async function taskStepChange(root, definition, workflow, { intent, rule = null,
     // this kind of step comes with it.
     const asked = (composition.changes ?? []).filter((entry) => entry.change === 'add' && !entry.rule).map((entry) => entry.intent);
     const ruled = new Set((composition.changes ?? []).filter((entry) => entry.change === 'add' && entry.rule).map((entry) => entry.intent));
+    // A task that follows a marketplace agent's workflow is composed again from that workflow [ITW:REQ-011].
     const recomposed = composer.composeTask(definition, { kind, touchedPaths: composition.touchedPaths ?? [], add: [...asked, intent],
-      skip: (composition.changes ?? []).filter((entry) => entry.change === 'skip').map((entry) => entry.intent) });
+      skip: (composition.changes ?? []).filter((entry) => entry.change === 'skip').map((entry) => entry.intent),
+      ...(composition.agent ? { agent: composition.agent } : {}) });
     const raised = recomposed.personApproves.filter((entry) => !(composition.personApproves ?? []).includes(entry));
     if (!same(recomposed.steps.map((entry) => entry.id), nextComposition.steps.filter((entry) => !ruled.has(entry.intent)).map((entry) => entry.id))
         || raised.some((entry) => entry !== intent)) {

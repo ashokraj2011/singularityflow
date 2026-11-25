@@ -533,7 +533,12 @@ const PAGES = Object.freeze({
       'name. A step the library has nothing for may be offered a skill from a marketplace the repository',
       'trusts, read at the commit it trusts. The plan line names them. A marketplace skill new here, or',
       'one marked proposed or beta, needs your yes before the task starts; the Story keeps the exact text',
-      'of every skill it uses.'
+      'of every skill it uses.',
+      '',
+      'When one agent of a marketplace the repository trusts has stages that cover the task, the plan',
+      'offers that agent\'s workflow instead of the composed steps, with its conversion review to read',
+      'first. A yes uses its steps, with the team\'s task rules still adding to them; an agent whose',
+      'workflow is not in the repository yet is imported through its conversion review first.'
     ],
     options: [
       ['--kind KIND', 'The kind of task; without it SFlow reads it from the words.'],
@@ -546,6 +551,8 @@ const PAGES = Object.freeze({
       ['--new', 'Start another task even though one is open on this checkout.'],
       ['--add STEP', 'Add a requirements, design, plan or review step before the task starts (repeatable).'],
       ['--skip STEP', 'Take a step out before the task starts; a team rule\'s step, the intake and a code task\'s tests stay.'],
+      ['--use-agent MARKETPLACE/AGENT', 'Yes to the marketplace agent the plan offers: its workflow, once in this repository, is the plan.'],
+      ['--without-agent MARKETPLACE/AGENT', 'No to the marketplace agent the plan offers: the task keeps its own steps.'],
       ['--use-skill ID', 'Yes to a skill the plan offers: a library skill marked proposed or beta, or one imported for it (repeatable).'],
       ['--without-skill ID', 'No to a skill the plan offers or uses: the task starts without it (repeatable).'],
       ['--json', 'Emit the plan, or the started Story, as JSON.']

@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 11
+version: 12
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -62,6 +62,15 @@ tasks:
 
 A task with a skill that needs your yes does not start until you answer: `--use-skill <ID>` is yes, `--without-skill <ID>` is no. The Story keeps the exact text of each skill it uses with its steps, so a later change to the library, or a second laptop, uses the same text.
 
+**A marketplace agent as the plan.** When one agent of a marketplace the repository trusts has stages that cover the task, the plan offers that agent's workflow instead: "acme's qa-test-automation agent covers this task: use its workflow as the plan, requirements → write the tests → tests?". What each stage is for comes from the same conversion `sflow workflow from-agent` makes, read at the commit the repository trusts. The agent covers the task when it has a step for each of the task's own steps (a requirements step before the code also plans it), and its code is the task's kind of code: an agent whose code steps only write tests is offered for a tests task, and one with a code step is never offered for a task that changes no code. Only one agent is offered: one whose workflow is already in the repository first, then the closest fit. An agent marked deprecated is never offered; one marked proposed says so.
+
+- Read what it becomes first: `sflow workflow from-agent acme/qa-test-automation-agent --review` shows its conversion review.
+- `--use-agent acme/qa-test-automation-agent` is yes: the task's steps are that workflow's, in its order, and the team's `tasks:` rules still add their steps and approvals. The plan line says whose they are ("Plan, from acme's qa-test-automation agent: …"), and the Story records the marketplace, the agent and its version with its steps, so a second laptop resumes the same steps.
+- An agent whose workflow is not in the repository yet comes in first through its conversion review, as a reviewed configuration change (`sflow workflow from-agent acme/qa-test-automation-agent --propose`, then the import it shows). Until that change is approved, a start with `--use-agent` says so; `--without-agent` starts the task with its own steps now, and a later task uses the agent's workflow.
+- `--without-agent acme/qa-test-automation-agent` is no: the task keeps its own steps and nothing more is asked.
+
+With no agent that covers the task, the plan is as above and nothing is asked.
+
 `/sf-start` stays the route for choosing the base, the intake and the workflow by hand.
 
 ## Purpose and prerequisites
@@ -111,7 +120,7 @@ An Ask SFlow task handoff carries the selected reviewed specification revision, 
 
 ## State and safety
 
-`work` without `--start` reads only; it keeps the list of a trusted marketplace's skills at the commit it reads, in the clone's Git folder, so the same commit is not fetched again. `--start` creates the Story's branch and its record, as `start` does, under the same identity, authority, branch and publication checks. The composed steps are recorded with the Story; `singularity/workflow.yml` is never written. `work add` writes one Story commit: the step, its decision record and the new version of the task's workflow; every later command checks that version against its history.
+`work` without `--start` reads only; it keeps the list of a trusted marketplace's skills and agents at the commit it reads, in the clone's Git folder, so the same commit is not fetched again. `--start` creates the Story's branch and its record, as `start` does, under the same identity, authority, branch and publication checks. The composed steps are recorded with the Story; `singularity/workflow.yml` is never written. `work add` writes one Story commit: the step, its decision record and the new version of the task's workflow; every later command checks that version against its history.
 
 ## Troubleshooting
 
@@ -120,6 +129,7 @@ An Ask SFlow task handoff carries the selected reviewed specification revision, 
 - If a `tasks:` rule is refused, fix the rule its words name; the plan is shown again once it is valid.
 - If the start says a skill needs your yes, read the skill (a marketplace one's text is shown), then start again with `--use-skill <ID>` or `--without-skill <ID>`.
 - If the start says a skill changed since the plan was shown, show the plan again: it chooses from the library as it is now.
+- If the start says an agent's workflow needs your yes, read its conversion review, then start again with `--use-agent <MARKETPLACE/AGENT>` or `--without-agent <MARKETPLACE/AGENT>`. If it says the workflow is not in the repository yet, import it through its conversion review, or start with `--without-agent` for now.
 
 ## Related topics
 

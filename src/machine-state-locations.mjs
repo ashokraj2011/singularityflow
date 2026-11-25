@@ -56,6 +56,9 @@ export const ISOLATED_RUN_SWITCHES = Object.freeze({
   SINGULARITY_FLOW_INDEX_REFRESH: 'off',
   // The person's own keyboard and pointer idle time never decides anything in an isolated run (src/automatic-work.mjs).
   SINGULARITY_FLOW_OS_IDLE: 'off',
+  // macOS's temporary folder is a link (/var is /private/var), so every fixture a VS Code test opens from it would get the
+  // window's warning about a folder opened through a link (apps/vscode/src/extension.ts); its own test turns it back on.
+  SINGULARITY_FLOW_LINKED_FOLDER_WARNING: 'off',
   // A development checkout never proposes packaged configuration to a real repository (SCF:REQ-015); an isolated
   // run's throwaway repositories are where it is tested (src/workspace-configuration-refresh.mjs).
   SINGULARITY_FLOW_DEVELOPMENT_PROPOSALS: 'allow'

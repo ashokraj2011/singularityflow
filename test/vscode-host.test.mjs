@@ -312,6 +312,7 @@ function stubVscode() {
 
   const windowState = new EventEmitter();
   const configurationChanged = new EventEmitter();
+  const workspaceFoldersChanged = new EventEmitter();
   const api = {
     EventEmitter,
     TreeItem,
@@ -327,6 +328,7 @@ function stubVscode() {
     workspace: {
       workspaceFolders: null,
       onDidChangeConfiguration: configurationChanged.event,
+      onDidChangeWorkspaceFolders: workspaceFoldersChanged.event,
       registerTextDocumentContentProvider: () => ({ dispose() {} }),
       getConfiguration: () => ({ get: () => '' }),
       onDidSaveTextDocument: (listener) => { registered.saveListeners.push(listener); return { dispose() {} }; },
@@ -835,6 +837,53 @@ test('a VS Code older than 1.141 is warned once as the extension activates, whic
     assert.match(details, /chat\.plugins\.enabled[^]*singularity-flow plugin install[^]*Fix: Update VS Code/u, 'the output names what does not work and the fix');
     assert.deepEqual(registered.errors, [], 'a warning, never an error');
   }
+});
+
+test('a window whose SFlow folder VS Code opened through a link says SFlow\'s guard is off there, with one button that reopens it at its real path', async (t) => {
+  // VS Code's Copilot chat runs no hooks in such a folder (src/copilot-chat-hooks.mjs, 2026-11-25). Isolated runs turn the
+  // warning off because their temporary folder is itself a link on macOS; this test turns it back on.
+  if (!requireBundle(t)) return;
+  const previous = process.env.SINGULARITY_FLOW_LINKED_FOLDER_WARNING;
+  delete process.env.SINGULARITY_FLOW_LINKED_FOLDER_WARNING;
+  t.after(() => { if (previous === undefined) delete process.env.SINGULARITY_FLOW_LINKED_FOLDER_WARNING; else process.env.SINGULARITY_FLOW_LINKED_FOLDER_WARNING = previous; });
+  const real = await realpath(await demoRepository());
+  const link = path.join(path.dirname(real), `${path.basename(real)}-link`);
+  await symlink(real, link);
+  t.after(() => rm(link, { force: true }));
+  const open = async (folder, { answer = undefined, warning = undefined } = {}) => {
+    if (warning !== undefined) process.env.SINGULARITY_FLOW_LINKED_FOLDER_WARNING = warning;
+    else delete process.env.SINGULARITY_FLOW_LINKED_FOLDER_WARNING;
+    const { api, registered } = stubVscode();
+    api.workspace.workspaceFolders = [{ uri: api.Uri.file(folder) }];
+    const warned = [];
+    api.window.showWarningMessage = async (message, ...rest) => {
+      const items = rest.filter((item) => typeof item === 'string');
+      warned.push({ message, items });
+      return answer && items.includes(answer) ? answer : undefined;
+    };
+    await loadExtension(api).activate(context());
+    let shown;
+    for (let attempt = 0; attempt < 50 && !shown; attempt += 1) {
+      shown = warned.find((entry) => String(entry.message).startsWith('SFlow\'s guard is off'));
+      if (!shown) await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    await settle();
+    return { registered, shown, item: registered.statusBars.find((entry) => entry.text === '$(warning) SFlow guard off' && entry.shown) };
+  };
+  const linked = await open(link, { answer: 'Reopen at real path' });
+  assert.equal(linked.shown.message, `SFlow's guard is off in this window's Copilot chats: VS Code opened this folder as ${link}, a link to ${real}, and VS Code's Copilot chat runs no hooks in a folder opened through a link. Reopen the folder at its real path to turn it back on.`);
+  assert.deepEqual(linked.shown.items, ['Reopen at real path'], 'one button');
+  assert.ok(linked.item, 'the status bar says it while the window stays');
+  assert.equal(linked.item.command.command, 'vscode.openFolder');
+  assert.equal(linked.item.command.arguments[0].fsPath, real);
+  assert.deepEqual(linked.item.command.arguments[1], { forceReuseWindow: true });
+  const reopened = linked.registered.executedCommands.find((entry) => entry.id === 'vscode.openFolder');
+  assert.equal(reopened?.args[0].fsPath, real, 'the button reopens this window at the real path');
+  const byRealPath = await open(real);
+  assert.equal(byRealPath.shown, undefined, 'opened by its real path: nothing to say');
+  assert.equal(byRealPath.item, undefined);
+  const switchedOff = await open(link, { warning: 'off' });
+  assert.equal(switchedOff.shown, undefined, 'an isolated run keeps it off');
 });
 
 test('a legacy workflow blocks Lifecycle but leaves all repairable configuration visible', async (t) => {

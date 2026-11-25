@@ -398,11 +398,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // VS Code's Copilot chat runs no hooks in a folder opened through a link (/tmp/x is /private/tmp/x on macOS), so
   // SFlow's turn boundary and change guard are off there while the chat seems to work (src/copilot-chat-hooks.mjs). The
   // window says so in the status bar and once per folder in a warning, whose button reopens the folder at its real path.
-  const linkedFolderStatus = vscode.window.createStatusBarItem('singularityFlow.linkedFolder', vscode.StatusBarAlignment.Left, 98);
-  linkedFolderStatus.name = 'Singularity Flow: folder opened through a link';
-  context.subscriptions.push(linkedFolderStatus);
+  // The item exists only once there is something to say, so the window's other status items keep their places.
+  let linkedFolderStatus: vscode.StatusBarItem | undefined;
+  context.subscriptions.push({ dispose: () => linkedFolderStatus?.dispose() });
   const warnedLinkedFolders = new Set<string>();
   const checkLinkedFolders = async (): Promise<void> => {
+    if (process.env.SINGULARITY_FLOW_LINKED_FOLDER_WARNING === 'off') { linkedFolderStatus?.hide(); return; }
     const folders = (vscode.workspace.workspaceFolders ?? []).filter((folder) => folder.uri.scheme === 'file');
     const exists = (target: string) => access(target).then(() => true, () => false);
     const linked = [];
@@ -410,10 +411,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (await usesSflowFolder(entry.real, exists)) linked.push(entry);
     }
     const first = linked[0];
-    if (!first) { linkedFolderStatus.hide(); return; }
+    if (!first) { linkedFolderStatus?.hide(); return; }
     const prompt = linkedFolderPrompt(first, { multiRoot: folders.length > 1 || Boolean(vscode.workspace.workspaceFile) });
     const reopen: vscode.Command = { command: 'vscode.openFolder', title: prompt.action,
       arguments: [vscode.Uri.file(first.real), prompt.newWindow ? { forceNewWindow: true } : { forceReuseWindow: true }] };
+    linkedFolderStatus ??= vscode.window.createStatusBarItem('singularityFlow.linkedFolder', vscode.StatusBarAlignment.Left, 98);
+    linkedFolderStatus.name = 'Singularity Flow: folder opened through a link';
     linkedFolderStatus.text = prompt.status;
     linkedFolderStatus.tooltip = prompt.tooltip;
     linkedFolderStatus.command = reopen;

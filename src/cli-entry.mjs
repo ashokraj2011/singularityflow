@@ -646,7 +646,7 @@ export async function main(argv) {
     const taskHandoff = positionals[0] === 'work' && positionals[1] === 'handoff';
     if (taskHandoff && agentFlag) {
       throw new SingularityFlowError('Use the task handoff in your own Ask SFlow view or terminal.', { code: 'TASK_HANDOFF_PERSON_REQUIRED',
-        details: { nextAction: { command: `singularity-flow ${positionals.join(' ')} --for-person`, label: 'Run it in your own terminal.', where: 'own-terminal' } } });
+        details: { nextAction: { command: 'singularity-flow help work', label: 'Run the handoff in your own Ask SFlow view or terminal.' } } });
     }
     const foregroundService = positionals[0] === 'ui' && positionals[1] === 'serve' ||
       positionals[0] === 'ask' && positionals[1] === 'provider' && positionals[2] === 'serve';

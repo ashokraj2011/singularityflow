@@ -111,7 +111,7 @@ function answerView(value) {
   ${value.status === 'empty' && !value.coverage && !diagnostics.length ? '<p class="muted">Enter a screen name, a work question, or a specification ID.</p>' : ''}`;
 }
 
-export function mountAsk(root, { checkout, navigate, read }) {
+export function mountAsk(root, { checkout, navigate, read, preparedQuestion = null }) {
   root.innerHTML = `<div class="ask-page" data-mode="search">
     <header class="ask-hero">
       <div class="segmented ask-modes" role="group" aria-label="Search or chat">
@@ -439,5 +439,6 @@ export function mountAsk(root, { checkout, navigate, read }) {
     event.preventDefault();
   });
   draw();
-  field.focus();
+  if (preparedQuestion) changeMode('chat', preparedQuestion);
+  else field.focus();
 }

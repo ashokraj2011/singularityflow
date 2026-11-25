@@ -47,11 +47,11 @@ function javaCallHierarchyHint(): string {
   if (mode === 'LightWeight') return 'Java is running in LightWeight mode, which has no call hierarchy. Run "Java: Switch to Standard Mode" for the editor\'s own callers and callees.';
   return 'The Java language server gave no call hierarchy yet; it may still be importing the project. Refresh when the Java status in the status bar shows it is ready.';
 }
-import { CODE_EXPLAINER_SCRIPT, codeExplainerBody } from './code-explainer-page.ts';
+import { CODE_EXPLAINER_SCRIPT, codeExplainerMarkup } from '../../../../src/code-intelligence/code-explainer-view.mjs';
 import { commandData } from './surface-adapters.ts';
 import { enumField, integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import { navigateTo } from './navigate.ts';
-import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 
 /** A file and, from the editor, the line the person asked about. */
 export interface CodeExplainerFocus { path: string; line: number | null }
@@ -235,7 +235,7 @@ export class CodeExplainerPanel {
       if (revision && this.builtRevision && revision !== this.builtRevision) this.post({ type: 'cx.stale' });
     });
     const token = nonce();
-    panel.webview.html = page('Code Explainer', codeExplainerBody(token), contentSecurityPolicy(panel.webview, token), token, CODE_EXPLAINER_SCRIPT);
+    panel.webview.html = page('Code Explainer', codeExplainerMarkup(icon, escape(token)), contentSecurityPolicy(panel.webview, token), token, CODE_EXPLAINER_SCRIPT);
   }
 
   /** Open the explainer, or bring it forward focused on a file and line. */

@@ -521,7 +521,7 @@ test('startup removes stale temporary files, aged and read receipts; a tab\'s st
   assert.deepEqual(nativeEnvironment({ PATH: '/usr/bin', 'BASH_FUNC_module%%': '() {  :; }' }), { PATH: '/usr/bin' });
 });
 
-test('browser Code Explainer follows changed code and browses tracked files without editing the checkout', async t => {
+test('browser Code Explainer shares the editor views and keeps actions bound to captured code', { timeout: 90_000 }, async t => {
   const screenshot = process.env.SINGULARITY_FLOW_CODE_EXPLAINER_SCREENSHOT;
   const { root, directory, mustGit, cleanup } = await fixture(t);
   await mkdir(path.join(root, 'src'));
@@ -543,6 +543,16 @@ test('browser Code Explainer follows changed code and browses tracked files with
     '  return quoteTotal(subtotal).toFixed(2);',
     '}',
     ''
+  ].join('\n'));
+  await writeFile(path.join(root, 'src', 'types.ts'), 'export interface Quote {\n  subtotal: number;\n  tax: number;\n}\n');
+  await writeFile(path.join(root, 'src', 'api.js'), [
+    "import { formatReceipt } from './receipt.js';",
+    'export function submitQuote(request, response) {',
+    '  response.send(formatReceipt(request.body.amount));',
+    '}',
+    'export function register(app) {',
+    "  app.post('/quote', submitQuote);",
+    '}', ''
   ].join('\n'));
   await mkdir(path.join(root, 'singularity'));
   await writeFile(path.join(root, 'singularity', 'private-example.js'), 'export function internalOnly() { return 7; }\n');
@@ -569,55 +579,108 @@ test('browser Code Explainer follows changed code and browses tracked files with
   const service = await startService({ directory }); cleanup(() => service.close());
   const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID() });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  page.setDefaultTimeout(12_000);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(launch.url);
   await page.getByRole('link', { name: 'Code Explainer', exact: true }).click();
-  await page.getByRole('heading', { name: 'Call map', exact: true }).waitFor();
-  await page.getByRole('region', { name: 'Selected declaration' }).getByText('quoteTotal').waitFor();
-  await page.getByRole('region', { name: 'Callers', exact: true }).getByRole('button', { name: /formatReceipt/ }).waitFor();
-  const callee = page.getByRole('region', { name: 'Called declarations' }).getByRole('button', { name: /calculateTax/ });
-  await callee.waitFor();
-  const diff = page.getByRole('table', { name: 'Changed lines' });
-  const addedLine = diff.getByRole('row').filter({ hasText: 'subtotal <= 0' });
-  const removedLine = diff.getByRole('row').filter({ hasText: 'subtotal < 0' });
-  assert.deepEqual((await addedLine.locator('td').allTextContents()).slice(0, 3), ['', '5', '+']);
-  assert.deepEqual((await removedLine.locator('td').allTextContents()).slice(0, 3), ['4', '', '-']);
+  await page.locator('#cx-nodes .cx-row').filter({ hasText: 'quoteTotal' }).waitFor();
+  assert.ok((await page.locator('#cx-canvas').boundingBox()).height > 250, 'the graph has room when its note is hidden');
+  assert.equal(await page.getByRole('tab', { name: /^My change/ }).getAttribute('aria-selected'), 'true');
   if (screenshot) await page.screenshot({ path: screenshot, fullPage: true, animations: 'disabled' });
-  await callee.click();
-  await page.getByRole('region', { name: 'Selected code' }).getByRole('heading', { name: 'calculateTax' }).waitFor();
-  const search = page.getByRole('searchbox', { name: 'Find a file or declaration' });
-  await search.fill('quoteTotal');
-  await page.getByRole('complementary').getByRole('button', { name: /quoteTotal/ }).click();
-  await page.getByRole('button', { name: 'Logic', exact: true }).click();
-  await page.locator('.cx-logic').getByText('subtotal <= 0', { exact: false }).waitFor();
-  await page.getByRole('button', { name: 'Requirements & tests', exact: true }).click();
-  await page.locator('summary').getByText('QUOTE-1:AC-001', { exact: true }).click();
-  await page.getByText('test/quote.test.js', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'src/quote.js', exact: true }).click();
-  await page.getByRole('heading', { name: 'Call map', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Requirements & tests', exact: true }).click();
-  await page.getByText('No test runs were retained for this change view.').waitFor();
-  await search.fill('temporaryDiscount');
-  await page.getByRole('complementary').getByRole('button', { name: /temporaryDiscount/ }).click();
-  await page.getByRole('table', { name: 'Source excerpt' }).getByText('return 0.05;', { exact: false }).waitFor();
 
-  await page.getByRole('group', { name: 'Code to explore' }).getByRole('button', { name: 'Repository', exact: true }).click();
-  await page.getByRole('heading', { name: 'Files', exact: true }).waitFor();
-  await page.getByText('Browse folders and files', { exact: true }).click();
-  await page.getByRole('button', { name: 'src · 3 files' }).click();
-  await page.getByRole('navigation', { name: 'Repository path' }).getByText('src', { exact: true }).waitFor();
-  await page.getByText('Browse folders and files', { exact: true }).click();
-  await page.getByRole('button', { name: 'tax.js', exact: true }).click();
-  await page.getByRole('navigation', { name: 'Repository path' }).getByText('tax.js', { exact: true }).waitFor();
-  await page.getByRole('region', { name: 'Selected code' }).getByRole('heading', { name: 'calculateTax' }).waitFor();
-  await page.getByRole('textbox', { name: 'Repository-relative path' }).fill('src/receipt.js');
-  await page.getByRole('button', { name: 'Go', exact: true }).click();
-  await page.getByRole('region', { name: 'Selected code' }).getByRole('heading', { name: 'formatReceipt' }).waitFor();
+  await page.getByRole('tab', { name: 'Explore', exact: true }).click();
+  const inspector = page.getByRole('complementary', { name: 'Inspector' });
+  await inspector.locator('.cx-ins-title').getByText('quoteTotal', { exact: true }).waitFor();
+  await page.getByRole('button', { name: /^Who calls it/ }).click();
+  await inspector.locator('[data-section="callers"]').getByRole('button', { name: /formatReceipt/ }).waitFor();
+  await inspector.locator('[data-section="callees"]').getByRole('button', { name: /calculateTax/ }).waitFor();
+  await page.locator('#cx-edges .edge.inferred').first().waitFor({ state: 'attached' });
+  const world = page.locator('#cx-world');
+  const transform = await world.evaluate(node => node.style.transform);
+  await page.locator('[data-action="zoom-in"]').click();
+  assert.notEqual(await world.evaluate(node => node.style.transform), transform);
+
+  await inspector.getByRole('button', { name: 'Compare diff', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  const diff = dialog.getByRole('list', { name: 'Captured diff' });
+  await diff.getByText(/subtotal <= 0/).waitFor();
+  assert.deepEqual((await diff.locator('li[data-diff="+"]').filter({ hasText: 'subtotal <= 0' }).locator('span').allTextContents()), ['', '5', '+']);
+  assert.deepEqual((await diff.locator('li[data-diff="-"]').filter({ hasText: 'subtotal < 0' }).locator('span').allTextContents()), ['4', '', '-']);
+  await dialog.getByRole('button', { name: 'Close preview' }).click();
+  await inspector.getByRole('button', { name: 'Open source' }).click();
+  await dialog.getByRole('list', { name: 'Source excerpt' }).getByText(/subtotal <= 0/).waitFor();
+  await dialog.getByRole('button', { name: 'Close preview' }).click();
+
+  const inView = await readFile(quote, 'utf8');
+  await writeFile(quote, inView.replace('subtotal <= 0', 'subtotal < 1'));
+  await inspector.getByRole('button', { name: 'Open source' }).click();
+  await dialog.getByRole('alert').getByText(/This file changed or became unavailable/).waitFor();
+  await dialog.getByRole('button', { name: 'Close preview' }).click();
+  await writeFile(quote, inView);
+
+  await page.getByRole('button', { name: 'Steps and decisions', exact: true }).click();
+  await page.locator('#cx-logic .cx-logic-node.decision').getByText(/subtotal <= 0/).waitFor();
+  await page.getByRole('tab', { name: /^My change/ }).click();
+  await page.getByRole('tab', { name: /^Requirements → tests/ }).click();
+  await page.locator('#cx-trace').getByRole('button', { name: /^QUOTE-1:AC-001/ }).waitFor();
+  await page.locator('#cx-trace').getByText('quote.test.js', { exact: true }).waitFor();
+  await page.locator('#cx-trace').getByText('No test run is recorded for this phase generation.').waitFor();
+  await page.getByRole('tab', { name: /^Walk through it/ }).click();
+  await page.locator('#cx-walk').getByText(/^Step 1 of/).waitFor();
+  await page.locator('#cx-walk').getByRole('button', { name: /Next/ }).click();
+  await page.locator('#cx-walk').getByText(/^Step 2 of/).waitFor();
+
+  const search = page.getByRole('searchbox', { name: 'Find a function' });
+  await search.fill('temporaryDiscount');
+  await search.press('Enter');
+  await page.getByRole('tab', { name: 'Explore', exact: true }).click();
+  await inspector.locator('.cx-ins-title').getByText('temporaryDiscount', { exact: true }).waitFor();
+  await inspector.getByRole('button', { name: 'Open source' }).click();
+  await dialog.getByRole('list', { name: 'Source excerpt' }).getByText('return 0.05;').waitFor();
+  await dialog.getByRole('button', { name: 'Close preview' }).click();
+  await search.fill('');
+
+  await page.getByRole('tab', { name: 'Map', exact: true }).click();
+  const repo = page.locator('#cx-repo');
+  await repo.getByRole('button', { name: /^src\// }).click();
+  await repo.getByRole('button', { name: /^src\/tax\.js/ }).waitFor();
+  const pathInput = page.getByRole('searchbox', { name: 'Repository-relative path' });
+  await pathInput.fill('src/tax.js');
+  await pathInput.press('Enter');
+  await repo.getByRole('button', { name: 'function calculateTax', exact: true }).click();
+  await inspector.locator('.cx-ins-title').getByText('calculateTax', { exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Map', exact: true }).click();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Folder the full view maps' }).selectOption('-1');
+  await page.locator('#cx-nodes .cx-row').filter({ hasText: 'formatReceipt' }).waitFor();
+  await page.getByRole('tab', { name: 'What it is about', exact: true }).click();
+  await page.locator('#cx-concepts').getByRole('heading', { name: /How it is organised/ }).waitFor();
+  await page.getByRole('tab', { name: 'The data it holds', exact: true }).click();
+  await page.locator('#cx-entities').getByText('Quote', { exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Explore', exact: true }).click();
+  await page.getByRole('button', { name: 'Data in and out', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Entry point' }).locator('option').filter({ hasText: 'POST /quote' }).waitFor({ state: 'attached' });
+
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth), true);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export JSON' }).click();
+  const report = JSON.parse(await readFile(await (await download).path(), 'utf8'));
+  assert.equal(report.authority, 'none');
+  assert.ok(report.symbols.some(symbol => symbol.name === 'calculateTax'));
+  assert.ok(report.symbols.every(symbol => symbol.name !== 'internalOnly'));
   const stored = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }));
   assert.ok(!JSON.stringify(stored).includes('calculateTax'));
+
+  await page.getByRole('button', { name: 'Ask Copilot', exact: true }).click();
+  const question = page.getByRole('textbox', { name: 'Ask a question' });
+  await question.waitFor();
+  assert.match(await question.inputValue(), /Code Explainer/u);
+  assert.equal(await page.getByRole('log', { name: 'Chat conversation' }).textContent(), '');
   assert.equal(mustGit('status', '--porcelain'), before);
   assert.deepEqual(errors, []);
 });

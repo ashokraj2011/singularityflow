@@ -9,7 +9,8 @@ const $ = selector => document.querySelector(selector);
 const state = {
   session: null, epoch: 0, page: 'home', draft: null, dirty: false, saving: false, creating: false,
   switching: false, uncertain: false, pendingSave: null, pendingCreation: null, pendingFork: null,
-  activities: [], recentSpecs: new Map(), eventSequence: 0, objectUrls: [], focusAsk: false
+  activities: [], recentSpecs: new Map(), eventSequence: 0, objectUrls: [], focusAsk: false,
+  disposeView: null, preparedQuestion: null
 };
 const preferences = {
   get(key, fallback) { try { return JSON.parse(localStorage.getItem(`sflow.view.${key}`)) ?? fallback; } catch { return fallback; } },
@@ -125,7 +126,7 @@ const activityLabels = {
   'spec.source.read': 'Read source', 'spec.source.add': 'Attach source', 'story.list': 'List Stories',
   'workflow.list': 'List Workflows', 'agent.list': 'List Agents', 'skill.list': 'List Skills',
   'instruction.list': 'List Instructions', 'decision.list': 'Read decisions',
-  'code.changes': 'Explain code changes', 'code.repository': 'Explore repository code',
+  'code.changes': 'Explain code changes', 'code.repository': 'Explore repository code', 'code.source': 'Open code excerpt',
   ...Object.fromEntries(runPanels)
 };
 function renderActivity() {
@@ -701,6 +702,8 @@ async function navigate() {
   }
   state.page = page; state.draft = null; state.dirty = false; state.uncertain = false;
   document.body.dataset.page = page;
+  state.disposeView?.();
+  state.disposeView = null;
   state.pendingSave = null; state.pendingFork = null;
   state.objectUrls.forEach(url => URL.revokeObjectURL(url)); state.objectUrls = [];
   const epoch = ++state.epoch;
@@ -724,8 +727,11 @@ async function navigate() {
       const { mountAsk } = await import('./ask.js');
       if (epoch !== state.epoch) return;
       const contextId = state.session.context.id;
+      const preparedQuestion = state.preparedQuestion?.contextId === contextId ? state.preparedQuestion.text : null;
+      state.preparedQuestion = null;
       mountAsk(main, {
         checkout: state.session.context.label,
+        preparedQuestion,
         navigate: go,
         read: async (input, { signal } = {}) => {
           const timeout = ['task-start', 'task-prepare'].includes(input.interaction) ? 305_000 : input.interaction === 'chat' ? 58_000 : 22_000;
@@ -744,7 +750,8 @@ async function navigate() {
       if (epoch !== state.epoch) return;
       const panel = document.createElement('div');
       main.replaceChildren(panel);
-      await mountCodeExplainer(panel, { operation, editor: nativeButton('code', 'Open in VS Code') });
+      state.disposeView = mountCodeExplainer(panel, { operation, navigate: go, editor: nativeButton('code', 'Open in VS Code'),
+        ask: text => { state.preparedQuestion = { contextId: state.session.context.id, text }; go('ask'); } });
     }
     else if (page === 'run') await runAndTest(epoch);
     else if (page === 'decisions') await decisions(epoch);

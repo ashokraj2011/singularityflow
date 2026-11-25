@@ -1,9 +1,16 @@
 # Code Explainer
 
-In the browser workspace, open **Tools → Code Explainer**. Use **Changes** to follow edited
-declarations, their diffs and their Story trace, or **Repository** to explore tracked files by
-folder. The browser analyzes source in the selected local checkout and marks call links inferred
-from source names and imports. Use the VS Code panel for editor language services.
+In the browser workspace, open **Tools → Code Explainer**.
+
+- **Explore** a function, its callers, calls, test references, steps, and data flow.
+- **Map** tracked folders, declarations, concepts, and data types, or view the call graph.
+- **My change** shows edited functions, their captured diffs, requirements and tests, and a
+  walkthrough in reading order.
+
+The browser infers call links from names and imports in the selected checkout. Use **More** for
+call depth, folder scope, re-indexing, Change Explorer, and JSON export. **Open source** checks that
+the file still matches the graph before showing the captured line. **Ask Copilot** prepares an
+editable prompt in browser Chat. Sending it starts the model request.
 
 ## VS Code
 
@@ -186,6 +193,6 @@ language-service requests were answered, empty or failed.
 
 The engine half lives in `apps/vscode/src/views/code-explainer-model.ts` (pure, tested by
 `test/vscode-code-explainer-model.test.mjs`), the lenses in `code-explainer-lenses.ts` (pure, tested
-by `test/vscode-code-explainer-lenses.test.mjs`), the page in `code-explainer-page.ts` (tested by
-`test/vscode-code-explainer-page.test.mjs`) and the host in `code-explainer.ts`. The evidence-centred
+by `test/vscode-code-explainer-lenses.test.mjs`), and the shared view in
+`src/code-intelligence/code-explainer-view.mjs`. The VS Code host is `code-explainer.ts`. The evidence-centred
 view of the same capture is the Change Explorer ([Explain for humans](XPL2-EXPLAIN-FOR-HUMANS.md)).

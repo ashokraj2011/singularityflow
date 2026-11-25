@@ -14,6 +14,15 @@ const randomKey = () => randomBytes(32).toString('base64url');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const equal = (a, b) => typeof a === 'string' && typeof b === 'string'
   && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const explainerAsset = kind => async () => {
+  const { CX_STYLE, CODE_EXPLAINER_RUNTIME, codeExplainerMarkup } = await import('../code-intelligence/code-explainer-view.mjs');
+  if (kind === 'script') return `export default ${CODE_EXPLAINER_RUNTIME};\n`;
+  if (kind === 'style') return CX_STYLE;
+  const { icon } = await import('./public/views.js');
+  const names = { capability: 'checkout', collection: 'stories', impact: 'expand', refresh: 'history',
+    search: 'search', skill: 'skills', visual: 'specs', workflow: 'workflows' };
+  return codeExplainerMarkup(name => icon(names[name]));
+};
 const publicFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/sflow-brand.svg', ['../../../apps/vscode/media/brand.svg', 'image/svg+xml']],
@@ -26,7 +35,11 @@ const publicFiles = new Map([
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
   ['/views.js', ['views.js', 'text/javascript; charset=utf-8']],
   ['/code-explainer.js', ['code-explainer.js', 'text/javascript; charset=utf-8']],
-  ['/code-explainer.css', ['code-explainer.css', 'text/css; charset=utf-8']]
+  ['/code-explainer.css', ['code-explainer.css', 'text/css; charset=utf-8']],
+  ['/code-explainer-view.js', [explainerAsset('script'), 'text/javascript; charset=utf-8']],
+  ['/code-explainer-view.css', [explainerAsset('style'), 'text/css; charset=utf-8']],
+  ['/code-explainer-view.html', [explainerAsset('markup'), 'text/html; charset=utf-8']],
+  ['/code-explainer-model.js', ['../../code-intelligence/generated/code-explainer-model.mjs', 'text/javascript; charset=utf-8']]
 ]);
 const terminal = new Set(['succeeded', 'failed', 'unknown', 'expired']);
 const ASK_SELECTION_MS = 5 * 60_000;
@@ -662,7 +675,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
       }
       const asset = publicFiles.get(route);
       insist(req.method === 'GET' && asset, 'UI_ROUTE_UNSUPPORTED', 'Page not found.', 404);
-      const bytes = await readFile(new URL(`./public/${asset[0]}`, import.meta.url));
+      const bytes = typeof asset[0] === 'function' ? await asset[0]() : await readFile(new URL(`./public/${asset[0]}`, import.meta.url));
       res.writeHead(200, { 'Content-Type': asset[1] }); res.end(bytes);
     } catch (error) {
       if (!res.headersSent) send(res, error.status ?? 500, { error: errorData(error), requestId });

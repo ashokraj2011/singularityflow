@@ -9,10 +9,8 @@
  *
  * Built with createElement and textContent only: source text, names and paths are inert.
  */
-import { escape, icon } from './webview.ts';
-
 export const CX_STYLE = `
-  body:has(#cx-root) { max-width: none; padding: 0; margin: 0; overflow: hidden; }
+  body:has(#cx-root):not(:has(.cx-browser)) { max-width: none; padding: 0; margin: 0; overflow: hidden; }
   body:has(#cx-root) > .page-nav { margin: 0; padding: .35rem 1rem; border-top: 1px solid var(--sf-border-color); }
   #cx-root {
     --cx-changed: var(--sf-accent, #3d8e10); --cx-caller: #4f8fd8; --cx-callee: #a578e0; --cx-test: #d4a72c;
@@ -213,6 +211,7 @@ export const CX_STYLE = `
   .cx-minimap rect.mm-node.changed { fill: var(--cx-changed); } .cx-minimap rect.mm-node.caller { fill: var(--cx-caller); } .cx-minimap rect.mm-node.callee { fill: var(--cx-callee); } .cx-minimap rect.mm-node.test { fill: var(--cx-test); }
   .cx-minimap rect.mm-view { fill: color-mix(in srgb, var(--cx-changed) 10%, transparent); stroke: var(--cx-changed); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
   #cx-view-graph { grid-template-rows: auto auto minmax(0, 1fr); }
+  #cx-canvas { grid-row: 3; }
   .cx-canvas-note { padding: .4rem .8rem; border-bottom: 1px solid var(--cx-line); background: var(--cx-card); color: var(--cx-dim); font-size: 11.5px; cursor: pointer; }
   .cx-note-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
   .cx-canvas-note[aria-expanded="true"] .cx-note-text { display: block; }
@@ -458,9 +457,9 @@ export const CX_STYLE = `
 `;
 
 /** The static shell. Every dynamic part is filled by the script from the posted model. */
-export function codeExplainerBody(token: string): string {
-  return `<style nonce="${escape(token)}">${CX_STYLE}</style>
-  <div id="cx-root" class="cx" data-loading="true">
+export function codeExplainerMarkup(icon, escapedNonce = null) {
+  const style = escapedNonce == null ? '' : `<style nonce="${escapedNonce}">${CX_STYLE}</style>\n  `;
+  return `${style}<div id="cx-root" class="cx" data-loading="true">
     <header class="cx-bar">
       <nav class="cx-modes" role="tablist" aria-label="What to look at">
         <button class="cx-mode" type="button" role="tab" id="cx-mode-explore" data-mode="explore" aria-selected="true" title="The function you are on: what it does, who calls it, what it calls, its tests">Explore</button>
@@ -578,7 +577,7 @@ export function codeExplainerBody(token: string): string {
       <div class="cx-splitter" id="cx-splitter" role="separator" aria-orientation="vertical" aria-label="Resize the inspector" tabindex="0"></div>
       <aside class="cx-inspector" id="cx-inspector" aria-label="Inspector" aria-live="polite"></aside>
     </div>
-    <footer class="cx-status-bar"><span class="cx-status" id="cx-status"></span><span class="cx-badges" id="cx-badges"></span><span class="cx-context" id="cx-context"><span>Reading the code and asking the language services…</span></span></footer>
+    <footer class="cx-status-bar"><span class="cx-status" id="cx-status"></span><span class="cx-badges" id="cx-badges"></span><span class="cx-context" id="cx-context" role="status"><span>Reading code…</span></span></footer>
   </div>`;
 }
 
@@ -586,9 +585,8 @@ export function codeExplainerBody(token: string): string {
  * The page script. A raw string, so regular expressions keep their backslashes; it must never
  * contain a template placeholder or a backtick, and never the closing tag of a script element.
  */
-export const CODE_EXPLAINER_SCRIPT = String.raw`
-(function () {
-  const vscode = window.__sfVscode;
+export const CODE_EXPLAINER_RUNTIME = String.raw`
+(function (vscode = window.__sfVscode) {
   const SVG = 'http://www.w3.org/2000/svg';
   const CARD_W = 300, HEAD_H = 47, ROW_H = 26, MORE_H = 22, FOOT_H = 0, PAD = 9, GAP_X = 120, GAP_Y = 34, READABLE = 0.62;
   const ROLE_ORDER = { changed: 0, focus: 0, repository: 0, caller: 1, test: 2, callee: 3, external: 4, context: 5, other: 6 };
@@ -1062,6 +1060,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
 
   // ---- State -------------------------------------------------------------------------------
   const root = document.getElementById('cx-root');
+  const lifetime = new AbortController();
+  const lifetimeListener = { signal: lifetime.signal };
+  const openSourceLabel = vscode.embedded ? 'Open source' : 'Open in editor';
   const saved = (vscode.getState && vscode.getState()) || {};
   const DEFAULT_FILTERS = { changed: true, focus: true, repository: true, caller: true, callee: true, test: true, external: false, context: true, other: true };
   const view = Object.assign({
@@ -1074,8 +1075,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   // Saved filters predate any role added since; a new role starts at its default instead of hidden.
   view.filters = Object.assign({}, DEFAULT_FILTERS, view.filters || {});
   // First open: the outline and a wide inspector only when the panel has room for them.
-  if (view.outline === null) view.outline = window.innerWidth >= 1280;
-  if (view.inspectorWidth === null) view.inspectorWidth = window.innerWidth >= 1400 ? 380 : 320;
+  const width = vscode.embedded ? root.clientWidth : window.innerWidth;
+  if (view.outline === null) view.outline = width >= 1280;
+  if (view.inspectorWidth === null) view.inspectorWidth = width >= 1400 ? 380 : 320;
   let model = null;
   // Set once a person picks Delta or Full; from then on the page stays where they asked to look.
   let viewChosen = false;
@@ -1222,7 +1224,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (!selected) return keep;
     keep[selected.id] = true;
     const walk = function (id, key, depth) {
-      if (depth > 3) return;
+      if (depth > (vscode.embedded ? model.intelligence.depth : 3)) return;
       (model.byId[id][key] || []).forEach(function (next) { if (!keep[next]) { keep[next] = true; walk(next, key, depth + 1); } });
     };
     walk(selected.id, 'callers', 1);
@@ -1347,7 +1349,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const list = el('ul');
     const add = function (text) { list.appendChild(el('li', '', text)); };
     model.intelligence.languages.forEach(function (entry) {
-      add(entry.language + ': ' + entry.files + ' file' + (entry.files === 1 ? '' : 's') + ', symbols from ' + (entry.symbols === 'language-service' ? 'the language service' : entry.symbols === 'text' ? 'its own text (no language service answered)' : 'nothing (file level only)')
+      add(entry.language + ': ' + entry.files + ' file' + (entry.files === 1 ? '' : 's') + ', symbols from ' + (entry.symbols === 'language-service' ? 'the language service' : entry.symbols === 'text' ? (vscode.embedded ? 'source text' : 'its own text (no language service answered)') : 'nothing (file level only)')
         + ', calls ' + (entry.calls === 'available' ? 'from its call hierarchy' : entry.calls === 'analysis' ? "from Singularity Flow's analysis of the code" : entry.calls));
     });
     add('Call depth ' + model.intelligence.depth + '. Change: ' + (model.change.status === 'available' ? model.change.files + ' files against ' + refWords(model.repository.base) : (model.change.reason || model.change.status)) + '.');
@@ -1381,7 +1383,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (existing) existing.remove();
     const node = el('div', 'cx-notice ' + (tone || ''), text);
     node.setAttribute('role', 'status');
-    $('cx-view-graph').appendChild(node);
+    (vscode.embedded ? root : $('cx-view-graph')).appendChild(node);
     clearTimeout(noticeTimer);
     noticeTimer = setTimeout(function () { node.remove(); notice = null; }, 6000);
   }
@@ -1678,6 +1680,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       const back = !sameCard && to.x < from.x + 30;
       const touches = focusId && (edge.from === focusId || edge.to === focusId);
       const classes = ['edge'];
+      if (vscode.embedded) classes.push('inferred');
       if (back) classes.push('back');
       if (touches) classes.push('active', edge.to === focusId ? 'in' : 'out', 'flow');
       else if (view.selectedEdge === edge.id) classes.push('active', 'flow');
@@ -1687,7 +1690,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       const hit = svg('path', { d: d, class: 'hit' });
       hit.dataset.edge = edge.id;
       const title = svg('title', {});
-      title.textContent = model.byId[edge.from].qualifiedName + ' → ' + model.byId[edge.to].qualifiedName + (edge.sites.length ? ' · ' + edge.sites.length + ' call site' + (edge.sites.length === 1 ? '' : 's') : '');
+      title.textContent = model.byId[edge.from].qualifiedName + ' → ' + model.byId[edge.to].qualifiedName + (edge.sites.length ? ' · ' + edge.sites.length + ' call site' + (edge.sites.length === 1 ? '' : 's') : '') + (vscode.embedded ? ' · inferred from source' : '');
       hit.appendChild(title);
       edgesLayer.appendChild(hit);
       if ((touches || view.selectedEdge === edge.id) && edge.sites.length > 1) {
@@ -1732,7 +1735,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       else if (!model.change.codeFiles && !model.focus) lines.push('This Story has not changed any code yet. Open Map, then Every call, to map every function in the current worktree, or Folders to read the repository by area.');
       else lines.push('Nothing to draw with the current filters.');
     }
-    else if (!model.edges.length && model.intelligence.status !== 'pending') lines.push(anyCalls ? (model.view === 'full' ? 'The language service found no calls between these functions.' : 'No calls connect the changed code to the rest of the workspace at this depth.') : 'No call hierarchy is available for these languages, so the cards show what changed without call edges. Install a language extension that provides “Call Hierarchy” to see callers and callees.');
+    else if (!model.edges.length && model.intelligence.status !== 'pending') lines.push(vscode.embedded
+      ? 'No calls were identified in this view. Map a larger folder or increase call depth to see more.'
+      : anyCalls ? (model.view === 'full' ? 'The language service found no calls between these functions.' : 'No calls connect the changed code to the rest of the workspace at this depth.') : 'No call hierarchy is available for these languages, so the cards show what changed without call edges. Install a language extension that provides “Call Hierarchy” to see callers and callees.');
     if (model.intelligence.truncated.length) lines.push('Bounded: ' + model.intelligence.truncated.join('; ') + '.');
     note.hidden = !lines.length;
     if (note.textContent !== lines.join(' ')) { note.replaceChildren(el('span', 'cx-note-text', lines.join(' '))); note.setAttribute('aria-expanded', 'false'); }
@@ -1917,9 +1922,13 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
 
   function actionsFor(symbol) {
     const actions = el('div', 'cx-ins-actions');
-    if (symbol.line || symbol.kind === 'file' || symbol.kind === 'module-scope') actions.appendChild(button('cx-btn', 'Open in editor', function () { post('cx.open', { symbol: symbol.id }); }));
     const owner = model.moduleById[symbol.moduleId];
-    if (symbol.status !== 'unchanged' && (symbol.units.length || (owner && owner.diffable))) actions.appendChild(button('cx-btn', 'Compare diff', function () { post('cx.diff', { symbol: symbol.id }); }, 'Before and after, exactly as captured'));
+    if (vscode.embedded ? owner?.previewable && symbol.status !== 'removed' : symbol.line || symbol.kind === 'file' || symbol.kind === 'module-scope') {
+      actions.appendChild(button('cx-btn', openSourceLabel, function () { post('cx.open', { symbol: symbol.id }); }));
+    }
+    if (vscode.embedded ? symbol.diff.length : symbol.status !== 'unchanged' && (symbol.units.length || (owner && owner.diffable))) {
+      actions.appendChild(button('cx-btn', 'Compare diff', function () { post('cx.diff', { symbol: symbol.id }); }, vscode.embedded ? 'Open the captured line diff' : 'Before and after, exactly as captured'));
+    }
     if (model.modelEnabled) actions.appendChild(button('cx-btn', '✦ Ask Copilot', function () { post('cx.ask', { symbol: symbol.id }); }, 'Opens chat with a prompt you review before sending'));
     actions.appendChild(button('cx-btn', 'Copy', function () { post('cx.copy', { symbol: symbol.id }); }, 'Copy this explanation'));
     return actions;
@@ -2014,7 +2023,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
         list.appendChild(li);
       });
       tests.appendChild(list);
-    } else tests.appendChild(el('p', 'cx-muted', symbol.testStatus === 'complete' ? 'No test file refers to it.' : 'Not asked for this symbol.'));
+    } else tests.appendChild(el('p', 'cx-muted', vscode.embedded ? 'No test references were identified in these files.' : symbol.testStatus === 'complete' ? 'No test file refers to it.' : 'Not asked for this symbol.'));
     inspector.appendChild(tests);
     renderLessons(model.moduleById[symbol.moduleId]);
   }
@@ -2065,7 +2074,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     module.clauses.forEach(function (clause) { badges.appendChild(chip(clause, 'info')); });
     inspector.appendChild(badges);
     const actions = el('div', 'cx-ins-actions');
-    if (!module.external) actions.appendChild(button('cx-btn', 'Open in editor', function () { post('cx.openModule', { module: module.id }); }));
+    if (!module.external && (!vscode.embedded || module.previewable)) actions.appendChild(button('cx-btn', openSourceLabel, function () { post('cx.openModule', { module: module.id }); }));
     if (module.units.length) actions.appendChild(button('cx-btn', 'Change Explorer', function () { post('cx.changeExplorer', { module: module.id }); }));
     inspector.appendChild(actions);
     const about = box('About this file');
@@ -2075,7 +2084,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       ? 'This file is unchanged. It is on the graph because ' + (module.role === 'caller' || module.role === 'test' ? 'it calls changed code.' : module.role === 'callee' ? 'changed code calls it.' : 'it holds the code you asked about.')
       : 'This change ' + (module.status === 'added' ? 'adds' : module.status === 'deleted' ? 'deletes' : 'edits') + ' this file: +' + module.added + ' −' + module.removed + ' lines across ' + changed.length + ' symbol' + (changed.length === 1 ? '' : 's') + '.'));
     if (module.symbolSource === 'none') prose.appendChild(el('p', '', 'No symbol outline was available' + (module.symbolReason ? ': ' + module.symbolReason : '') + '. Its changes are shown at file level.'));
-    if (module.symbolSource === 'text') prose.appendChild(el('p', '', 'No language service answered for this file, so its outline was read from its own text. It shows which function a changed line is in; callers, callees and test references need a language service.'));
+    if (module.symbolSource === 'text') prose.appendChild(el('p', '', vscode.embedded
+      ? 'The outline and calls come from this checkout’s source text.'
+      : 'No language service answered for this file, so its outline was read from its own text. It shows which function a changed line is in; callers, callees and test references need a language service.'));
     if (module.opaque) prose.appendChild(el('p', '', 'Its content is not represented as text (' + module.opaque.replace(/-/g, ' ') + ').'));
     about.appendChild(prose);
     inspector.appendChild(about);
@@ -2104,9 +2115,11 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       li.appendChild(button('go', 'line ' + line, function () { post('cx.openSite', { edge: edge.id, line: line }); }, 'Open the call'));
       list.appendChild(li);
     });
-    sites.appendChild(edge.sites.length ? list : el('p', 'cx-muted', 'The language service did not report positions.'));
+    sites.appendChild(edge.sites.length ? list : el('p', 'cx-muted', vscode.embedded ? 'No call site was located in this view.' : 'The language service did not report positions.'));
     inspector.appendChild(sites);
-    inspector.appendChild(el('p', 'cx-muted', 'A call edge is what the language service resolved statically. Dynamic dispatch, callbacks and reflection can add calls it cannot see.'));
+    inspector.appendChild(el('p', 'cx-muted', vscode.embedded
+      ? 'The browser infers calls from names and imports. Dynamic dispatch, callbacks, and reflection can add calls outside this view.'
+      : 'A call edge is what the language service resolved statically. Dynamic dispatch, callbacks and reflection can add calls it cannot see.'));
   }
 
   // ---- Trace -------------------------------------------------------------------------------
@@ -2297,7 +2310,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const summary = el('div', 'cx-repo-summary');
     const budget = data.budget;
     const line = function (strong, rest) { const p = el('div'); p.appendChild(el('strong', '', strong)); p.appendChild(document.createTextNode(' ' + rest)); summary.appendChild(p); };
-    if (budget.status === 'over-budget') {
+    if (data.codeMap) {
+      line(budget.files == null ? 'Tracked files' : budget.files + (budget.files === 1 ? ' tracked file' : ' tracked files'), '· ' + data.files.length + ' read for this view.');
+    } else if (budget.status === 'over-budget') {
       line((budget.files == null ? 'More' : budget.files) + ' application files', 'exceed the AST budget of ' + budget.maxFiles + ' files and ' + sizeLabel(budget.maxBytes) + ', so this scope is explained a folder or file at a time. Pick one below; nothing is indexed until you do.');
     } else {
       line(budget.files + ' application file' + (budget.files === 1 ? '' : 's'), sizeLabel(budget.bytes) + ', within the AST budget of ' + budget.maxFiles + ' files and ' + sizeLabel(budget.maxBytes) + '.');
@@ -2382,7 +2397,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       });
       holder.appendChild(section);
     }
-    holder.appendChild(el('p', 'cx-muted', 'A declaration is what the AST index records; a tag is the author\'s declaration. Neither shows behavior or coverage.'));
+    holder.appendChild(el('p', 'cx-muted', data.codeMap ? 'Declarations and tags are read from the captured source.'
+      : 'A declaration is what the AST index records; a tag is the author\'s declaration. Neither shows behavior or coverage.'));
   }
 
   // ---- Walkthrough -------------------------------------------------------------------------
@@ -2895,7 +2911,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     head.appendChild(el('span', 'where', (symbol.file || '') + (symbol.start ? ' · lines ' + symbol.start + '–' + symbol.end : '')));
     head.appendChild(chip(flow.decisions + ' decision' + (flow.decisions === 1 ? '' : 's'), flow.decisions > 10 ? 'warn' : 'dim'));
     if (flow.truncated) head.appendChild(chip('first steps only', 'warn'));
-    head.appendChild(button('cx-btn', 'Open', function () { post('cx.open', { symbol: chosen }); }, 'Open the function in the editor'));
+    head.appendChild(button('cx-btn', 'Open', function () { post('cx.open', { symbol: chosen }); }, openSourceLabel));
     holder.appendChild(head);
     const chart = logicLayout(flow.steps);
     const byId = {};
@@ -3193,7 +3209,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
         title.appendChild(button('cx-ref', to ? to.label : edge.to, function () { pickLens('flow', edge.to); }));
         inspector.appendChild(title);
         const carries = box('It carries', edge.kind === 'call' ? 'parameter ← argument → where the result goes' : '');
-        if (edge.inferred) carries.appendChild(el('p', 'cx-muted', 'Matched by name in the text: the language service did not resolve this call, so it may be a different function with the same name.'));
+        if (edge.inferred) carries.appendChild(el('p', 'cx-muted', vscode.embedded
+          ? 'Inferred from names and imports in the source.'
+          : 'Matched by name in the text: the language service did not resolve this call, so it may be a different function with the same name.'));
         carries.appendChild(edge.label ? el('code', 'cx-carries', edge.label) : el('p', 'cx-muted', 'The text does not say what is passed here.'));
         inspector.appendChild(carries);
         if (edge.line && from && from.symbol) {
@@ -3320,7 +3338,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       view.lens = 'code';
       if (view.tab !== 'trace' && view.tab !== 'walk') view.tab = 'graph';
       if (changed) view.isolate = false;
-      if (model && model.view !== 'delta' && model.change.status === 'available') post('cx.view', { view: 'delta' });
+      if (model && model.view !== 'delta' && (vscode.embedded || model.change.status === 'available')) post('cx.view', { view: 'delta' });
     }
     save();
     setLens(view.lens);
@@ -3401,6 +3419,8 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
   function render(fresh) {
     root.dataset.loading = model ? 'false' : 'true';
     if (!model) return;
+    $('cx-main').classList.toggle('no-outline', !view.outline);
+    root.style.setProperty('--cx-inspector-w', view.inspectorWidth + 'px');
     renderHead();
     renderStatus();
     renderFilters();
@@ -3408,21 +3428,19 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     computeLayout();
     setLens(view.lens);
     renderInspector();
-    $('cx-main').classList.toggle('no-outline', !view.outline);
     root.querySelector('[data-action="outline"]').setAttribute('aria-pressed', String(view.outline));
     root.querySelector('[data-action="isolate"]').setAttribute('aria-pressed', String(view.isolate));
     root.querySelector('[data-action="minimap"]').setAttribute('aria-pressed', String(view.minimap));
     root.querySelector('[data-action="gaps"]').setAttribute('aria-pressed', String(view.gapsOnly));
     $('cx-progress').hidden = !progress;
-    root.style.setProperty('--cx-inspector-w', view.inspectorWidth + 'px');
     paintQuestions();
     paintHistory();
     paintModes();
   }
 
   // ---- Messages from the host --------------------------------------------------------------
-  window.addEventListener('message', function (event) {
-    const message = event.data || {};
+  function receive(value) {
+    const message = value || {};
     if (message.type === 'cx.model') {
       const fresh = !model || message.reset;
       model = index(message.model);
@@ -3438,7 +3456,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       render(fresh);
       // With no change to explain, the repository itself is what there is to read; the full view is its map.
       // Where to start: the function under the cursor in Explore, a change in My change, otherwise the repository's map.
-      if (fresh && !view.mode) setMode(message.focus || model.focus ? 'explore' : model.change.status === 'available' ? 'change' : 'map');
+      if (fresh && !view.mode) setMode(message.focus || (vscode.embedded ? model.requested : model.focus) ? 'explore' : model.change.status === 'available' ? 'change' : 'map');
       else if (fresh && !viewChosen && view.lens === 'code' && model.view !== 'full' && model.change.status === 'empty' && !model.focus && view.tab !== 'repo' && view.mode !== 'explore') setTab('repo');
       else if (view.tab === 'repo' && !repo.explanation && !repo.loading && !repo.error) askRepository(repo.path ? 'refresh' : 'root');
       if (view.mode === 'explore' && view.lens === 'code') ensureSelection();
@@ -3474,7 +3492,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       inspector.appendChild(empty);
       $('cx-progress').hidden = true;
     }
-  });
+  }
+  if (vscode.subscribe) vscode.subscribe(receive);
+  else window.addEventListener('message', function (event) { receive(event.data); }, lifetimeListener);
 
   // ---- Interaction -------------------------------------------------------------------------
   let drag = null;
@@ -3620,7 +3640,11 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const viewButton = event.target.closest('[data-view]');
     const tab = event.target.closest('[data-tab]');
     const lensButton = event.target.closest('[data-lens]');
-    if (lensButton) { setLens(lensButton.dataset.lens); return; }
+    if (lensButton) {
+      if (vscode.embedded && model && model.view !== 'full' && view.mode === 'map') post('cx.view', { view: 'full' });
+      setLens(lensButton.dataset.lens);
+      return;
+    }
     if (tab) {
       // Every call is the whole map: the full view, nothing isolated. The changed code is the change's own view.
       if (model && tab.dataset.whole === 'true') { view.isolate = false; if (model.view !== 'full') { viewChosen = true; post('cx.view', { view: 'full' }); } }
@@ -3688,6 +3712,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     view.query = search.value;
     matchAt = -1;
     save();
+    if (!model) return;
     renderOutline();
     if (view.tab === 'graph') { renderNodes(); renderEdges(); }
   });
@@ -3701,12 +3726,13 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       if (view.lens !== 'code' || view.tab !== 'graph') { view.lens = 'code'; view.tab = 'graph'; setMode('explore'); }
       select(found[matchAt], true);
       event.preventDefault();
-    } else if (event.key === 'Escape') {
+    } else if (event.key === 'Escape' && model) {
       search.value = ''; view.query = ''; save(); renderOutline(); renderNodes(); renderEdges(); canvas.focus();
     }
   });
 
   document.addEventListener('keydown', function (event) {
+    if (vscode.embedded && !root.parentElement?.contains(event.target)) return;
     if (!model) return;
     const typing = event.target.closest && event.target.closest('input, textarea, select');
     if (typing) return;
@@ -3746,7 +3772,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       if (next) select(next, true);
       event.preventDefault();
     }
-  });
+  }, lifetimeListener);
 
   const splitter = $('cx-splitter');
   splitter.addEventListener('pointerdown', function (event) {
@@ -3781,16 +3807,14 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     document.body.style.setProperty('--cx-footer', height + 'px');
     root.style.setProperty('--cx-footer', height + 'px');
   }
-  measureFooter();
-  window.addEventListener('resize', function () { measureFooter(); renderMinimap(); if (view.tab === 'trace') renderTrace(); });
+  if (!vscode.embedded) measureFooter();
+  window.addEventListener('resize', function () { if (!vscode.embedded) measureFooter(); renderMinimap(); if (view.tab === 'trace') renderTrace(); }, lifetimeListener);
   setLens(view.lens);
   paintModes();
   paintHistory();
   vscode.postMessage({ type: 'cx.ready' });
-})();
+  return function () { lifetime.abort(); clearTimeout(noticeTimer); };
+})
 `;
 
-/** The page's title line for the panel tab, kept short so editor tabs stay readable. */
-export function codeExplainerTitle(subject: string | null): string {
-  return subject ? `Explain · ${subject}` : 'Code Explainer';
-}
+export const CODE_EXPLAINER_SCRIPT = `${CODE_EXPLAINER_RUNTIME}();`;

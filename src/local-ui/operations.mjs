@@ -11,6 +11,18 @@ import { cliPath } from './private-state.mjs';
 import { MAX_REPLY, UiError, insist, record, text, identifier } from './contracts.mjs';
 
 export { disposeReadWorkers };
+function codeMapOptions(input) {
+  const depth = input.depth ?? 1;
+  insist([1, 2, 3].includes(depth), 'UI_REQUEST_INVALID', 'Choose a call depth of 1, 2 or 3.');
+  return ['--code-map-format=panel', `--code-map-depth=${depth}`,
+    ...(input.scope == null ? [] : [`--path=${text(input.scope, 'Repository path', 1000)}`])];
+}
+function sourceOptions(input) {
+  const file = text(input.file, 'Source file', 1000);
+  insist(typeof input.sha256 === 'string' && /^sha256:[a-f0-9]{64}$/u.test(input.sha256) &&
+    Number.isSafeInteger(input.line) && input.line > 0, 'UI_REQUEST_INVALID', 'Choose a line from the captured source.');
+  return [`--path=${file}`, `--source-sha256=${input.sha256}`, `--line=${input.line}`];
+}
 const reads = {
   about: () => ['about'],
   'workspace.list': () => ['workspace', 'list'],
@@ -30,9 +42,9 @@ const reads = {
   'agent.list': () => ['agents', 'list'],
   'skill.list': () => ['skill', 'list'],
   'instruction.list': () => ['instruction', 'list'],
-  'code.changes': () => ['explain', 'code', '--code-map=changes'],
-  'code.repository': input => ['explain', 'code', '--code-map=repository',
-    ...(input.scope == null ? [] : [`--path=${text(input.scope, 'Repository path', 1000)}`])],
+  'code.changes': input => ['explain', 'code', '--code-map=changes', ...codeMapOptions(input)],
+  'code.repository': input => ['explain', 'code', '--code-map=repository', ...codeMapOptions(input)],
+  'code.source': input => ['explain', 'code', '--code-map=source', ...sourceOptions(input)],
   'decision.list': input => ['decisions', ...(input.workId ? [identifier(input.workId, 'Story ID')] : [])],
   'app.plan': () => ['app', 'plan'],
   'app.status': () => ['app', 'status'],
@@ -41,7 +53,7 @@ const reads = {
 };
 const fields = {
   'story.read': ['workId'], 'decision.list': ['workId'],
-  'code.repository': ['scope'],
+  'code.changes': ['depth'], 'code.repository': ['scope', 'depth'], 'code.source': ['file', 'sha256', 'line'],
   ...Object.fromEntries(['read', 'show', 'check', 'history', 'sources', 'gaps'].map(name => [`spec.${name}`, ['specId']])),
   'spec.read': ['specId', 'operationId'],
   'spec.create': ['title', 'intent', 'kind'], 'spec.save': ['specId', 'sequence', 'content', 'title', 'kind'],

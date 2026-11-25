@@ -51,6 +51,14 @@ test('packaged CLI opens the independent service with original asset paths and z
   assert.equal(views.status, 200); assert.match(await views.text(), /Workspace overview/u);
   assert.equal(code.status, 200); assert.match(await code.text(), /mountCodeExplainer/u);
   assert.equal(codeStyle.headers.get('content-type'), 'text/css; charset=utf-8');
+  const viewsAssets = await Promise.all([
+    ['/code-explainer-view.html', /id="cx-mode-explore"/u], ['/code-explainer-view.css', /#cx-root/u],
+    ['/code-explainer-view.js', /export default\s*\(function/u], ['/code-explainer-model.js', /export function copilotPrompt/u]
+  ].map(async ([asset, expected]) => {
+    const response = await fetch(`${descriptor.origin}${asset}`);
+    return { status: response.status, body: await response.text(), expected };
+  }));
+  for (const { status, body, expected } of viewsAssets) { assert.equal(status, 200); assert.match(body, expected); }
   assert.equal(ask.status, 200); assert.match(await ask.text(), /mountAsk/u);
   assert.equal(askNavigation.status, 200); assert.match(await askNavigation.text(), /askSuggestions/u);
   assert.equal(askHistory.status, 200); assert.match(await askHistory.text(), /askHistoryDisplay/u);
@@ -87,7 +95,8 @@ test('npm package includes the service, browser and Copilot skill assets', { tim
     'src/ask/shared-contract.mjs', 'src/ask/shared-provider-server.mjs', 'src/ask/shared-conversations.mjs',
     'src/ask/portable-view.mjs', 'src/ask/portable-evidence.mjs', 'src/ask/portable-task.mjs', 'src/ask/private-files.mjs',
     'src/ask/workspace-search.mjs', 'src/ask/chat.mjs', 'src/local-ui/public/ask-results.js',
-    'src/comprehension/code-map.mjs', 'plugin/skills/sflow-ui/SKILL.md']) assert.ok(files.has(file), file);
+    'src/comprehension/code-map.mjs', 'src/comprehension/code-map-panel.mjs', 'src/code-intelligence/code-explainer-view.mjs',
+    'src/code-intelligence/generated/code-explainer-model.mjs', 'plugin/skills/sflow-ui/SKILL.md']) assert.ok(files.has(file), file);
 });
 
 test('foreground JSON readiness is visible before shutdown and the native control closes it cleanly', { timeout: 30_000 }, async t => {

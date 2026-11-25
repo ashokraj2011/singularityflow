@@ -120,13 +120,23 @@ async function runCodeMap(root, options, operation) {
       { code: 'CMP_CODE_MAP_QUERY_INVALID', details: { nextAction: `singularity-flow explain code --code-map=${view}` } }
     );
   }
-  const { loadCodeMap } = await import('./code-map.mjs');
-  const codeMap = await loadCodeMap(root, { view: optionString(options, 'code-map'), scope: optionString(options, 'path') });
+  const { loadCodeExcerpt, loadCodeMap } = await import('./code-map.mjs');
+  const view = optionString(options, 'code-map');
+  const scope = optionString(options, 'path');
+  const depth = Number(optionString(options, 'code-map-depth', '1'));
+  const format = optionString(options, 'code-map-format', 'summary');
+  if (![1, 2, 3].includes(depth) || !['panel', 'summary'].includes(format)) {
+    throw new SingularityFlowError('Choose a Code Explainer view and a call depth of 1, 2 or 3.', { code: 'CMP_CODE_MAP_QUERY_INVALID' });
+  }
+  const codeMap = view === 'source'
+    ? await loadCodeExcerpt(root, { file: scope, sha256: optionString(options, 'source-sha256'), line: Number(optionString(options, 'line')) })
+    : await loadCodeMap(root, { view, scope, panel: format === 'panel', depth });
   return emitCommandResult(commandResult({
     operation,
     subject: { kind: 'repository', id: path.basename(root) },
     outcome: succeeded('comprehension.explanation-reported', {
-      type: 'code map', subject: path.basename(root), status: codeMap.notices.length ? 'partial' : 'available', nodes: codeMap.symbols.length
+      type: 'code map', subject: path.basename(root), status: codeMap.notices?.length ? 'partial' : 'available',
+      nodes: codeMap.model?.symbols.length ?? codeMap.symbols?.length ?? codeMap.lines.length
     }),
     effects: noEffects(),
     restState: 'informational',

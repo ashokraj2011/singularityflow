@@ -224,3 +224,66 @@ test('ITW REQ-008, A11, A17: in one chat the step\'s submission goes on into its
   held.pendingDecision = { key: 'd1', label: 'Pick one', options: [{ id: 'a', label: 'A' }] };
   assert.equal(await carry({ workflow: held }), null, 'a decision first is the person\'s on its card');
 });
+
+test('ITW REQ-008, A11 (owner, 2026-11-26): a change\'s step SFlow approves itself goes on into the next step in the same /sf-task turn', slowLane({ timeout: 600_000 }), async (t) => {
+  const story = await journeyRepository(t);
+  Object.assign(story, { workId: 'TASK-1', item: 'singularity/work-items/TASK-1' });
+  const words = 'make the value module return 2';
+  const plan = JSON.parse(story.cli('work', words, '--kind', 'change', '--json'));
+  assert.deepEqual(plan.steps.map((step) => [step.id, step.approvedBy]),
+    [['intake', 'sflow'], ['implementation-spec', 'person'], ['implementation', 'person'], ['verification', 'sflow']], 'SFlow approves the intake of a change');
+  const walk = await followRoutes(story, { label: 'a change to its intake\'s submission', start: { shell: `singularity-flow work "${words}" --kind change --start` },
+    agent: generatedAgent('TASK-1'), person: generatedPerson(story, 'TASK-1'),
+    done: ({ trail }) => Boolean(trail.at(-1)?.retained), maxSteps: 60 });
+  assert.equal(walk.reached, true, formatTrail(walk.trail));
+  const chat = copilotTurn(story, 'task-change');
+  const seen = records(story, 'task-change');
+  chat.prompt('/sf-task');
+  const working = seen.turn();
+  assert.deepEqual([working.skill, working.typedSkill, seen.mutation().contract.phaseId], ['sf-next', 'sf-task', 'intake']);
+  const planFile = path.join(story.root, story.item, storyRecord(story).phases['implementation-spec'].requiredArtifact.path);
+  assert.ok(denied(chat.tool('edit', { path: planFile })), 'the intake\'s turn writes no plan');
+
+  const submit = 'singularity-flow status TASK-1 --submission-readiness --submit-if-ready --for-agent --json';
+  assert.ok(!denied(chat.tool('bash', { command: submit })), submit);
+  const submitted = story.raw(argvOf(submit));
+  assert.equal(submitted.status, 0, submitted.stderr.slice(-2000));
+  const record = storyRecord(story);
+  assert.deepEqual([record.phases.intake.status, record.phases.intake.approvalDisposition, record.currentPhase],
+    ['approved', 'approved_automatically', 'implementation-spec']);
+  // Its result says to go on when SFlow says so: never "End this turn" on a task's Story.
+  const act = JSON.parse(submitted.stdout).act;
+  assert.equal(act.state, 'next', JSON.stringify(act));
+  assert.match(act.said, /^Submitted, and SFlow approved intake\. When SFlow's note after this command says this \/sf-task turn goes on, do \/sf-task's step 1 again now/u);
+  assert.doesNotMatch(act.said, /End this turn/u);
+  const after = chat.after('bash', { command: submit }, { resultType: 'success', textResultForLlm: submitted.stdout });
+  assert.match(after.additionalContext ?? '', /SFlow: SFlow approved the step, and this \/sf-task turn goes on with TASK-1's next action now/u);
+  assert.match(after.additionalContext ?? '', /SFlow turn boundary \(sf-next\): authoring turn, TASK-1 step implementation-spec generation 0\./u);
+  const carried = seen.turn();
+  assert.deepEqual([carried.skill, carried.typedSkill], ['sf-next', 'sf-task']);
+  assert.notEqual(carried.turnId, working.turnId);
+  const { contract } = seen.mutation();
+  assert.deepEqual([contract.turnMode, contract.phaseId], ['authoring', 'implementation-spec']);
+  assert.ok(!denied(chat.tool('edit', { path: planFile })), 'the plan\'s own document is this turn\'s to write now');
+  assert.ok(denied(chat.tool('bash', { command: 'singularity-flow approve implementation-spec --work-id TASK-1 --yes' })), 'never an approval');
+
+  // The decision on the real Story's record: only SFlow's own approval of the bound step, recorded during this turn.
+  const value = { turnId: working.turnId, sessionId: working.sessionId, originPhase: 'intake',
+    contract: { workId: 'TASK-1', turnMode: 'read', phaseId: 'implementation-spec', repositoryRoot: contract.repositoryRoot } };
+  const decide = (overrides = {}) => taskTurnContinuation({ cwd: story.root }, {
+    turn: overrides.turn ?? working, ran: { value, commands: [parsed(submit)] },
+    resolveRoot: async () => story.root, load: async () => ({ workflow: overrides.workflow ?? record }) });
+  assert.deepEqual(await decide(), { skill: 'sf-next', workId: 'TASK-1', reason: 'completion' });
+  assert.equal(await decide({ turn: { ...working, recordedAt: Date.now() + 60_000 } }), null, 'an approval SFlow recorded before this turn');
+  const byPerson = structuredClone(record);
+  delete byPerson.phases.intake.approvalDisposition;
+  assert.equal(await decide({ workflow: byPerson }), null, 'a person\'s approval is carried on only from their own approval turn');
+  const classic = structuredClone(record);
+  classic.workItem.workType = 'quick-fix';
+  delete classic.resolution.composition;
+  assert.equal(await decide({ workflow: classic }), null, 'a classic Story keeps decision 7: the turn ends');
+  const held = structuredClone(record);
+  held.pendingDecision = { key: 'd1', label: 'Pick one', options: [{ id: 'a', label: 'A' }] };
+  assert.equal(await decide({ workflow: held }), null, 'a decision pending is the person\'s on its card');
+  assert.equal(await decide({ turn: { ...working, typedSkill: undefined } }), null, '/sf-next typed: decision 7 ends its turn');
+});

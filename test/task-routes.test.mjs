@@ -109,6 +109,16 @@ test('a task keeps its chat: no /clear or new chat between its steps, and the ap
   assert.deepEqual([finished.state, finished.do.shell, finished.do.copilot], ['read', 'singularity-flow work status TASK-1', TASK_ROUTE]);
   assert.match(finished.said, /^Submitted, and that completed verification, the task's last step\. Run do\.shell now, in this turn/u);
   assert.equal(last('/sf-nextsteps', 'singularity-flow nextsteps').state, 'end-turn', 'a classic Story\'s last step ends the turn as before');
+  // A task's step SFlow approved itself goes on in the same /sf-task turn (owner, 2026-11-26); a classic Story's ends it (decision 7).
+  const middle = (copilotCommand) => agentAct({ submitIfReady: { submitted: true, result: { status: 'completed', phase: 'intake' },
+    next: nextAfterStep({ continuation: { copilotCommand, nextCommand: 'singularity-flow prepare implementation-spec', nextAction: { reason: 'Write the plan.' } } }, 'Submitted.') } });
+  const goesOn = middle(TASK_ROUTE);
+  assert.deepEqual([goesOn.state, goesOn.do.copilot, goesOn.do.shell], ['next', TASK_ROUTE, 'singularity-flow prepare implementation-spec']);
+  assert.match(goesOn.said, /^Submitted, and SFlow approved intake\. When SFlow's note after this command says this \/sf-task turn goes on, do \/sf-task's step 1 again now; otherwise name do\.copilot, typed in this chat, as the next step\./u);
+  assert.doesNotMatch(goesOn.said, /End this turn|new turn/u);
+  const ends = middle('/sf-phase');
+  assert.equal(ends.state, 'end-turn');
+  assert.match(ends.said, /^Submitted, and that completed intake\. End this turn\./u);
   assert.doesNotMatch(after(TASK_ROUTE), /new chat/u);
   assert.match(after('/sf-approve intake --work-id S-1'), /Say to run it in a new chat: it needs nothing from this one\./u);
 });

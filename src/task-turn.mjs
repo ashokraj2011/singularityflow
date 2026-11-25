@@ -56,6 +56,8 @@ const TYPED = new Set(['sf-task', 'sflow-task']);
 const CARRIED = new Set(['sf-next', 'sf-approve']);
 // A record written a moment before the turn's prompt was kept (clocks of two processes) still belongs to the turn.
 const CLOCK_SLACK_MS = 1000;
+// How SFlow records a step it approved itself: approve twice's automatic approval, or a policy's waiver.
+const AUTOMATIC = new Set(['approved_automatically', 'policy_waived']);
 const since = (at, turn) => Number.isFinite(Date.parse(at)) && Date.parse(at) >= turn.recordedAt - CLOCK_SLACK_MS;
 
 /** What each carried call is: who ran it, and which SFlow command did it, read as the guard reads it. */
@@ -81,7 +83,9 @@ function carryReason(turn) {
  *   then its writing) with nothing typed;
  * - the step's own work /sf-task took (/sf-next's turn) ran `submit` or `status --submit-if-ready`, and the step that turn
  *   was bound to, still the current one, now waits for a person's approval after a submission recorded during this turn:
- *   the turn goes on into that approval's question, as the approval-only turn of that step, whose Yes is the person's;
+ *   the turn goes on into that approval's question, as the approval-only turn of that step, whose Yes is the person's.
+ *   Or SFlow approved that step itself during this turn and the Story moved on: the turn goes on with the next step's
+ *   work or approval question (reason `completion`; owner, 2026-11-26, replacing OSA decision 7 for tasks only);
  * - the approval-only turn `/sf-task` took ran `approve`, and the step that turn was bound to now reads approved, by an
  *   approval recorded during this turn (the person's own Yes, which the guard held that command to): the turn goes on
  *   with the next step's work or the next approval question.
@@ -106,11 +110,16 @@ export async function taskTurnContinuation(payload, { turn, ran, resolveRoot = d
   if (!isTaskStory(workflow) || workflow.status !== 'in_progress' || (reason !== 'start' && workflow.workItem?.id !== workId)) return null;
   const step = reason === 'start' ? null : workflow.phases?.[value.originPhase ?? value.contract.phaseId];
   if (reason === 'start' && !since(workflow.workItem?.createdAt, turn)) return null;
-  if (reason === 'submission' && (step?.status !== 'awaiting_approval' || workflow.currentPhase !== step.id || !since(step.submittedAt, turn))) return null;
+  // A submission waits for a person's approval of that step, or SFlow approved the step itself (owner, 2026-11-26).
+  const waiting = reason === 'submission' && step?.status === 'awaiting_approval' && workflow.currentPhase === step.id && since(step.submittedAt, turn);
+  const completed = reason === 'submission' && step?.status === 'approved' && AUTOMATIC.has(step.approvalDisposition) && workflow.currentPhase !== step.id
+    && [step.approvedAt, step.automaticApproval?.at].some((at) => since(at, turn));
+  if (reason === 'submission' && !waiting && !completed) return null;
   if (reason === 'approval' && (step?.status !== 'approved'
       || !(step.approvals ?? []).some((entry) => entry && !entry.invalidatedAt && since(entry.at, turn)))) return null;
   const { workflowGuide } = await import('./guide.mjs');
   const skill = taskTurnSkillFor(workflow, workflowGuide(workflow));
-  // A submission goes on only into the person's approval of that same step.
-  return CARRIED.has(skill) && (reason !== 'submission' || skill === 'sf-approve') ? { skill, workId: workflow.workItem.id, reason } : null;
+  // A submission that waits goes on only into the person's approval of that same step.
+  if (!CARRIED.has(skill) || (waiting && skill !== 'sf-approve')) return null;
+  return { skill, workId: workflow.workItem.id, reason: completed ? 'completion' : reason };
 }

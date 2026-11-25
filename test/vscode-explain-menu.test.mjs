@@ -55,6 +55,8 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
   assert.deepEqual(navigator.map((entry) => [entry.command, entry.group.split('@')[0]]), [
     // Refresh shows the Story selected in Copilot or a terminal [office, 2026-11-12].
     ['singularityFlow.refresh', 'navigation'],
+    // Start a task: the person's words go to Copilot as /sf-task [ITW, 2026-11-25].
+    ['singularityFlow.startTask', 'navigation'],
     ['singularityFlow.openChangeExplorer', 'navigation'],
     ['singularityFlow.openCodeExplainer', 'navigation'],
     ['singularityFlow.openCodeExplanation', '1_explain'],

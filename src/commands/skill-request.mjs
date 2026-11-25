@@ -80,7 +80,7 @@ export async function validateSkillRequest({ positionals, options }) {
   if (subcommand === 'catalog') return validateSkillCatalogRequest({ positionals, options });
   if (!['inspect', 'approved', 'doctor'].includes(subcommand)) {
     throw new SingularityFlowError(
-      `Unknown skill action '${subcommand ?? 'none'}'. The skill master: 'singularity-flow skill list|show|create|edit|attach|detach|remove'. Every skill here and in trusted marketplaces: 'singularity-flow skill catalog'. Skill packages: 'singularity-flow skill inspect <LOCAL-DIRECTORY> --json', 'singularity-flow skill approved <ID> --json', or 'singularity-flow skill doctor <ID> --story <WORK-ID> --phase <PHASE-ID> --json'.`,
+      `Unknown skill action '${subcommand ?? 'none'}'. The skill master: 'singularity-flow skill list|show|create|edit|attach|detach|remove'. Skill packages: 'singularity-flow skill inspect <LOCAL-DIRECTORY> --json', 'singularity-flow skill approved <ID> --json', or 'singularity-flow skill doctor <ID> --story <WORK-ID> --phase <PHASE-ID> --json'.`,
       { code: 'SKP_ACTION_UNKNOWN' }
     );
   }

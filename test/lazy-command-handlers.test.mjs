@@ -1174,7 +1174,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // command-loaders.mjs, util.mjs) [ITW M1]. No new eager file.
   // 875,984 (+58, 2026-11-25): --new read as a flag (util.mjs) [ITW M2]. No new eager file.
   // 876,614 (+630, 2026-11-25): `work add` and `work skip` registered (command-registry.mjs) [ITW:REQ-009]. No new eager file.
-  assert.ok(root.bytes <= 876_614, `root dispatch loads ${root.bytes} source bytes`);
+  // 876,625 (+11, 2026-11-25): `skill catalog`, every skill here and in trusted marketplaces, a skill read (command-registry.mjs). No new eager file.
+  assert.ok(root.bytes <= 876_625, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

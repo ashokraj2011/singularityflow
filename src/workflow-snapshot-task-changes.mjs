@@ -171,7 +171,7 @@ export async function captureWorkflowTaskChange(internals, root, config, current
 export async function validateAcceptedTaskChangeEvidence({ fail, readCommittedJson }, root, config, workId, {
   workflow, workflowRelative, previousReference, previousCommit, acceptanceCommit, decision, decisionPath, decisionSha256
 }) {
-  const { assertTaskChangeScope, stableTaskStepState, taskChangeSummary, validateTaskChangeDecisionRecord } = await import('./task-change-contracts.mjs');
+  const { addsStep, assertTaskChangeScope, stableTaskStepState, taskChangeSummary, validateTaskChangeDecisionRecord } = await import('./task-change-contracts.mjs');
   validateTaskChangeDecisionRecord(decision);
   const parent = readCommittedJson(root, `${acceptanceCommit}^1`, workflowRelative,
     'Story immediately before its task change').record;
@@ -185,13 +185,14 @@ export async function validateAcceptedTaskChangeEvidence({ fail, readCommittedJs
   const steps = (record) => { try { return normalizeCurrentWorkflow(structuredClone(record)).phases; } catch { return null; } };
   const [parentSteps, changedSteps] = [steps(parent), steps(workflow)];
   if (!parentSteps || !changedSteps) fail('A task change\'s Story records cannot be read.', 'WFA_AMENDMENT_INVALID');
-  const position = decision.position;
+  // A kind change that keeps the steps keeps every step's state too [ITW:REQ-015].
+  const position = addsStep(decision) ? decision.position : workflow.resolution.phases.length;
   const order = workflow.resolution.phases.map((phase) => phase.id);
   if (decision.workId !== workId || parent.currentPhase !== decision.afterPhase || workflow.currentPhase !== parent.currentPhase
       || parent.status !== 'in_progress' || canonicalJson(workflow.phaseOrder) !== canonicalJson(order)
       || canonicalJson(parent.phaseOrder.slice(0, position)) !== canonicalJson(order.slice(0, position))
       || parent.phaseOrder.slice(0, position).some((id) => canonicalJson(stableTaskStepState(parentSteps[id])) !== canonicalJson(stableTaskStepState(changedSteps[id])))
-      || workflow.phases[decision.step.id]?.status !== 'not_started') fail('A task change changed a done or current step, or started the one it added.', 'WFA_AMENDMENT_INVALID');
+      || (addsStep(decision) && workflow.phases[decision.step.id]?.status !== 'not_started')) fail('A task change changed a done or current step, or started the one it added.', 'WFA_AMENDMENT_INVALID');
   const { applicationPathContext, isApplicationChangeEntry } = await import('./application-paths.mjs');
   const { buildRepositoryTreeChangeSet } = await import('./repository-change-set.mjs');
   const changes = buildRepositoryTreeChangeSet(root, { baseTree: `${acceptanceCommit}^1`, targetTree: acceptanceCommit,

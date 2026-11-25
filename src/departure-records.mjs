@@ -366,12 +366,42 @@ export async function recordAppealDepartures(root, config, workflow, packet, { a
   return drafts.length ? commitDepartures(root, config, workflow, drafts, { actor, agent }) : [];
 }
 
-/** Each departure of a step with what its files hold now; `phaseId` null for every step. */
+/**
+ * The files a step's own rows of the approved plan name now (their expected paths and tests) and the supporting files
+ * the plan settled, as candidate-scope.mjs lets the step publish them; an empty set when the Story plans no claims.
+ */
+async function planNamedPaths(root, workflow, phaseId) {
+  if (workflow?.resolution?.plannedClaims?.mode !== 'required') return new Set();
+  const [{ loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles }, { classificationContext }] = await Promise.all([
+    import('./specifications.mjs'), import('./plan-amendments.mjs')]);
+  const records = await loadActiveSpecRecords(path.join(root, workflow.resolution.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow)
+    .catch(() => null);
+  const named = new Set();
+  for (const claim of Object.values(mergePlannedClaimRecords(records?.planned ?? []))) {
+    if ((claim.steps ?? []).length && !claim.steps.includes(phaseId)) continue;
+    for (const file of [...(claim.expectedPaths ?? []), ...(claim.tests ?? [])]) named.add(file);
+  }
+  for (const file of plannedSupportingFiles(records?.planned ?? [], classificationContext(workflow))) named.add(file);
+  return named;
+}
+
+/**
+ * Each departure of a step with what its files hold now; `phaseId` null for every step. A file departure nobody decided
+ * whose files the step's approved plan names now is `planned`, and holds nothing: a later plan took them in, approved by
+ * the plan's own approvers (a fix grown into a change, whose plan is written from its code [ITW:REQ-014]). Accepting it
+ * would amend the plan with what it already says.
+ */
 export async function departureReadings(root, workflow, phaseId = null) {
   const departures = (workflow?.departures ?? []).filter((entry) => !phaseId || entry.phase === phaseId);
   if (!departures.length) return [];
   const hashes = await fileHashes(root, departures.flatMap((entry) => entry.paths ?? []));
-  return departuresWithStatus(workflow, { phaseId, hashes });
+  const readings = departuresWithStatus(workflow, { phaseId, hashes });
+  const candidates = readings.filter((entry) => entry.status === 'open' && ['path', 'supporting'].includes(entry.departure.kind));
+  if (!candidates.length) return readings;
+  const named = new Map();
+  for (const step of new Set(candidates.map((entry) => entry.departure.phase))) named.set(step, await planNamedPaths(root, workflow, step));
+  return readings.map((entry) => candidates.includes(entry) && entry.departure.paths.length
+    && entry.departure.paths.every((file) => named.get(entry.departure.phase).has(file)) ? { ...entry, status: 'planned' } : entry);
 }
 
 /** Who decides a departure: the plan's approvers for files, rows and tests; the earlier step's for its wording or clauses. */

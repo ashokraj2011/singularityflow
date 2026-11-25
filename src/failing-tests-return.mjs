@@ -216,10 +216,85 @@ async function riskEligibleRun(root, phase, failed) {
   return false;
 }
 
+const named = (list, limit = 4) => `${list.slice(0, limit).join(', ')}${list.length > limit ? ` and ${list.length - limit} more` : ''}`;
+
+/**
+ * A refactor's test step after the change [ITW:REQ-015]: each failed test command's latest run against its run on the
+ * Story's base, which the start's `task.before` (`tests base`) kept (verification/base-run.mjs baseCheckFacts). A test
+ * that passed before and fails after is a behaviour change (`changed`); one that failed before too stays a finding
+ * (`before`); a command with no run before the change kept, or one on another Node, cannot be told (`unknown`). Reads only
+ * what is kept; runs nothing. Null when the Story is not a refactor.
+ */
+export async function refactorAfterCheck(root, config, workflow, phase, failed) {
+  if (workflow?.resolution?.composition?.kind !== 'refactor' || !config) return null;
+  const { baseCheckFacts } = await import('./verification/base-run.mjs');
+  const ids = [...new Set(failed.map((check) => check.id))];
+  return afterCheckOf(ids, await baseCheckFacts(root, config, workflow, phase, ids).catch(() => new Map()));
+}
+
+/** The after-check from what the kept base runs say of each failed command (baseCheckFacts' map). Pure. */
+export function afterCheckOf(ids, facts) {
+  const changed = [];
+  const before = [];
+  const unknown = [];
+  for (const id of ids) {
+    const fact = facts.get(id);
+    if (fact?.status !== 'checked' || !['passes-on-base', 'fails-on-base', 'partly-on-base'].includes(fact.verdict)) { unknown.push(id); continue; }
+    const onlyHere = fact.onlyHere ?? [];
+    const alsoOnBase = fact.alsoOnBase ?? [];
+    // A command that failed with no test named fails only with the change when it passed before, and failed before too
+    // when it failed there.
+    if (onlyHere.length || (fact.verdict === 'passes-on-base' && !alsoOnBase.length)) changed.push({ command: id, tests: [...onlyHere] });
+    if (alsoOnBase.length || (fact.verdict === 'fails-on-base' && !onlyHere.length)) before.push({ command: id, tests: [...alsoOnBase] });
+  }
+  return { changed, before, unknown };
+}
+
+/** The checks of an after-check entry as a person reads them: each test by name, or its command when it named none. */
+export const checkNames = (entries) => entries.flatMap((entry) => (entry.tests.length ? entry.tests.map((test) => `'${test}'`) : [`the test command ${entry.command}`]));
+
+/**
+ * Why a refactor's test step stops, and the person's choices [ITW:REQ-015]: a behaviour change is named, and the person
+ * keeps the old behaviour (the code step's next version) or accepts the new one (back to the plan, which is revised: the
+ * task becomes a change, task-amendment.mjs acceptBehaviourAfterReturn); a check that already failed before stays a
+ * finding the refactor does not approve; with no run before the change kept, the checks are run on the base first. Pure.
+ */
+export function refactorHold(workflow, phase, code, check, choices) {
+  if (!check) return null;
+  const back = (to, words) => { const route = returnRoute(workflow, phase, to); return { ...route, command: route.command.replace('<reason>', quoted(words)) }; };
+  const dispute = choices.find((choice) => choice.id === 'dispute');
+  if (check.changed.length) {
+    const changed = checkNames(check.changed);
+    const plan = (workflow.resolution?.composition?.steps ?? []).find((step) => step.intent === 'plan');
+    const keep = { id: 'keep-behaviour', label: `Keep the old behaviour: start another version of ${name(code)}`,
+      ...back(code.id, `Keep the old behaviour: ${named(changed)} passed before the change and fail after it. Restore it in ${name(code)}'s next version.`) };
+    const accept = plan && (phase.approvalPolicy?.rejectTo ?? []).includes(plan.id) ? { id: 'accept-behaviour',
+      label: 'Accept the new behaviour: the task becomes a change, and its plan is revised',
+      ...back(plan.id, `Accept the new behaviour: ${named(changed)} behave differently after the change, as intended. Revise the plan to say what changes; the code and its tests follow it.`) } : null;
+    const held = [keep, ...(accept ? [accept] : []), ...(dispute ? [dispute] : [])];
+    return { reason: 'behaviour-change', changed: check.changed, choices: held,
+      words: `The refactor changed behaviour: ${named(changed)} passed before the change and ${changed.length === 1 ? 'fails' : 'fail'} after it. `
+        + `Keep the old behaviour (${keep.command})${accept ? `, or accept the new one (${accept.command})` : ''}.` };
+  }
+  if (check.unknown.length) {
+    const before = { id: 'run-before', label: 'Run the checks on the base first, to tell what changed',
+      command: `singularity-flow tests base --work-id ${workflow.workItem.id} --phase ${phase.id} --within 600 --json`, skill: null };
+    return { reason: 'no-before', choices: [before, ...choices], words: `No run before the change is kept for ${named(check.unknown)}, so SFlow cannot tell a changed behaviour from an old failure. Run them before the change: ${before.command}` };
+  }
+  if (check.before.length) {
+    return { reason: 'failed-before', before: check.before, choices,
+      words: `${named(checkNames(check.before))} already failed before the change: ${check.before.length === 1 && check.before[0].tests.length <= 1 ? 'a finding' : 'findings'} the refactor does not approve. A person decides them.` };
+  }
+  return null;
+}
+
 /** What failed and the person's filled choices for it, as the submission and the approval give them when SFlow stops. */
-export async function brakeChoices(root, workflow, phase, code, failed) {
+export async function brakeChoices(root, workflow, phase, code, failed, { config = null } = {}) {
   const facts = await failingTestFacts(root, workflow, phase, code, failed);
-  return { facts, choices: heldChoices(workflow, phase, code, facts, { riskEligible: await riskEligibleRun(root, phase, failed) }) };
+  const choices = heldChoices(workflow, phase, code, facts, { riskEligible: await riskEligibleRun(root, phase, failed) });
+  // A refactor's test step compares with its run before the change [ITW:REQ-015]: it stops on what changed.
+  const refactor = refactorHold(workflow, phase, code, await refactorAfterCheck(root, config, workflow, phase, failed), choices);
+  return { facts, choices: refactor?.choices ?? choices, ...(refactor ? { refactor } : {}) };
 }
 
 /**

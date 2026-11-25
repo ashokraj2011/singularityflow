@@ -156,6 +156,16 @@ proposal.
 - "Add a design step" or "skip the plan" re-composes the steps from the current one forward. Done steps stay, and the
   rules still apply.
 - The change is recorded with who asked for it.
+- Built 2026-11-25: a step whose approval the team's rules give a person is a person's when it is added to a started
+  task, whoever adds it (`work add`, or a rule at the code's submission): an `always` rule for the task's kind, or a
+  `paths` rule for the files the task started with or its code changed. Only the added step's approval rises; the change
+  record refuses any other. A plan or requirements step added to a fix leaves the requirement IDs with the intake that
+  wrote them (`clauseKeeps`), beside its own, as a feature's requirements step sits beside its plan; before, adding one
+  was always refused. A Story whose test agreement (`testRecovery`) was confirmed for its steps keeps them: the agreement
+  binds the intake plan confirmed at the start, and a new step would leave it describing other steps. `work add` is
+  refused with the complete command that starts the task again with the step from its own words
+  (`work "<its title>" --kind KIND --add STEP --new --start`), whose start confirms an agreement for the new steps, and
+  names the cancel of the first. Every other refusal that restarts a task names the same command, never a placeholder.
 
 **ITW:REQ-010, skills for each step.**
 - For each composed step, SFlow looks for skills that fit, by:
@@ -206,6 +216,18 @@ rules still applied.
 - When a `fix` turns out to need a public interface or a data change, SFlow says so in one line and re-composes forward
   as a `change`: a plan step is added, and the person approves the plan. Done steps stay. Steps are only added, so this
   needs no extra yes.
+- Built 2026-11-25 (the third bullet): decided at the code's submission, by path only, from the application files the
+  code changed, never a test's own files. A data change is a migration (a `migration`/`migrations` folder or `db/migrate`,
+  the folders the delivery receipt already calls migrations) or a migration tool's schema file (`schema.prisma`,
+  `db/schema.rb`, `db/structure.sql`); a public interface is its contract file (an OpenAPI, Swagger or AsyncAPI document,
+  a `.proto`, a GraphQL schema). An exported signature changed in source is not read: nothing cheap and deterministic
+  knows it. The plan goes where a plan goes, before the code step that waits for its approval, as one `grow` task change
+  (TSC-NNN: from fix, to change, why, and the files); the composition's kind becomes `change`. SFlow then returns the
+  code to the plan itself (its own return, `task-grown`), so the code is never approved before a person approves the
+  plan. The plan is written from the code on the branch; once it is approved SFlow starts the code's next version itself,
+  settled with an undo, and a person approves the code. The team's `always` rules for `change` then apply too. When the
+  plan cannot be added the code stays with its approvers and the line says why; when the return cannot be made the line
+  gives the person's return command.
 
 **ITW:REQ-015, refactoring.**
 - The plan step says what must not change (outputs, public interfaces, errors, formats, side effects and order, as they
@@ -218,6 +240,18 @@ rules still applied.
   - accept the new behaviour: the task becomes a `change`, and its plan is revised.
 - A check that already failed before stays a finding; the refactor does not approve it.
 - What no check covers is named in the last message. A refactor is never reported as safer than what ran.
+- Built 2026-11-25: the "before" is `tests base` on the test step's commands (the start's `task.before`), kept by base
+  commit, command and Node; the test step's own run is the "after". When the test step's tests fail, each failed command
+  is compared with its kept run before the change (`baseCheckFacts`), at the submission and at the approval alike, and
+  SFlow does not return the failure to the code on its own: a test that passed before and fails after is named as a
+  behaviour change, with the person's two filled choices, keep the old behaviour (the test step back to the code step,
+  whose next version SFlow starts) or accept the new one (back to the plan); a test that failed before too is a finding
+  the refactor does not approve, with the test step's usual choices; a command with no run before kept (or one on
+  another Node) cannot be told, and the first choice runs it before the change. The person's return to the plan from
+  that stop is the acceptance: the task becomes a `change` in one revision that keeps every step and its state (a `grow`
+  task change that adds no step, with the checks and the return), SFlow starts the plan's next version, then the code's
+  and the tests', each settled with an undo. Not yet: a journey that walks a refactor through a behaviour change end to
+  end, and the last message's list of what no check covers.
 
 **ITW:REQ-016, documents.**
 - A `docs` task writes its document as its own step's document, kept with the Story on its branch. Git keeps its

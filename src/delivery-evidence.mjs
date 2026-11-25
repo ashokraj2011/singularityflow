@@ -53,6 +53,8 @@ import {
   isGeneratedOutputPath, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 
+import { MIGRATION_PATH } from './application-paths.mjs';
+
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 export { inferRepositoryTestCommands };
 
@@ -421,7 +423,7 @@ export function classifyDeliveryChanges(changeSet, {
     const configuredGenerated = roots.some((root) => pathInside(candidate, root));
     const testOutput = /(?:^|\/)(?:\.sflow\/results|coverage|test-results|surefire-reports)(?:\/|$)/i.test(candidate ?? '');
     const compilerOutput = /(?:^|\/)(?:target|build|dist|out)(?:\/(?:classes|generated|resources))?(?:\/|$)/i.test(candidate ?? '');
-    const migration = /(?:^|\/)(?:migrations?|db\/migrate)(?:\/|$)/i.test(candidate ?? '');
+    const migration = MIGRATION_PATH.test(candidate ?? '');
     const test = isAllowedTestAutomationPath(candidate ?? '');
     const configuration = configurationPathKind(candidate);
     const documentation = isDocumentationPath(candidate);

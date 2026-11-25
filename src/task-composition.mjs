@@ -34,6 +34,10 @@ const KIND_STEPS = Object.freeze({
   review: ['intake', 'design']
 });
 
+/** The artifact kinds of a step that writes requirement IDs (step-intent-settings.mjs kindWhenWritingRequirementIds). */
+export const CLAUSE_KINDS = Object.freeze(['requirements', 'implementation-spec']);
+const CLAUSE_KIND_OF = Object.freeze({ intake: 'requirements', requirements: 'requirements', plan: 'implementation-spec' });
+
 /** Where an added step goes: the order a workflow's steps keep. */
 export const INTENT_ORDER = Object.freeze(['intake', 'requirements', 'design', 'plan', 'code', 'test', 'review']);
 
@@ -152,6 +156,23 @@ export function pathMatches(glob, file) {
   return globPattern(glob.replace(/^\.\//u, '')).test(normalized);
 }
 
+/**
+ * The steps whose approval the team's rules give a person on a task of `kind` [ITW:REQ-004, REQ-005]: every `always`
+ * rule for the kind, and every `paths` rule for the kind whose files the task touched (`touchedPaths`: the files it
+ * started with and those its code changed since). By intent; whether the task has such a step is the caller's question.
+ */
+export function rulePersonApproves(definition, kind, touchedPaths = []) {
+  const rules = taskRules(definition);
+  const applies = (rule) => rule.kinds.includes('all') || rule.kinds.includes(kind);
+  const touched = [...new Set(touchedPaths.map(String))];
+  const given = new Set();
+  for (const rule of rules.always) if (applies(rule)) rule.personApproves.forEach((intent) => given.add(intent));
+  for (const rule of rules.paths) {
+    if (applies(rule) && touched.some((file) => rule.paths.some((glob) => pathMatches(glob, file)))) rule.personApproves.forEach((intent) => given.add(intent));
+  }
+  return [...given].sort();
+}
+
 /** The steps a person may add to a task, or take out of it before it starts, by intent [ITW:REQ-009]. */
 export const ADDABLE = Object.freeze(['requirements', 'design', 'plan', 'review']);
 
@@ -265,6 +286,8 @@ export function composedWorkType(definition, composition) {
       // A step a person approved before the task gained a later step stays theirs, exactly as it was [ITW:REQ-009].
       override.approval = { ...override.approval, automatic: 'off' };
     }
+    // A step that wrote the requirement IDs before a later-added step took that role keeps its kind (clauseKeeps).
+    if ((composition.clauseKeeps ?? []).includes(step.id) && CLAUSE_KIND_OF[step.intent]) override.artifact = { kind: CLAUSE_KIND_OF[step.intent] };
     phaseOverrides[step.id] = override;
   });
   // A plan step that writes its own requirement IDs (the packaged implementation specification does, for the technical
@@ -273,9 +296,21 @@ export function composedWorkType(definition, composition) {
   const planStep = composition.steps.find((step) => step.intent === 'plan');
   const codeStep = composition.steps.find((step) => step.intent === 'code');
   const planWritesIds = planStep && definition.phases?.[planStep.id]?.artifact?.kind === 'implementation-spec';
-  const plannedClaims = requirementsStep && planWritesIds && codeStep ? {
-    plannedClaims: { mode: 'required', clausePhases: [requirementsStep.id, planStep.id], owners: { [codeStep.id]: planStep.id } },
-    because: { plannedClaims: 'The implementation specification adds its own requirement IDs for the technical details, beside the requirements step\'s.' }
+  // A step that wrote the requirement IDs before a step added later took that role keeps writing them beside it
+  // (clauseKeeps, task-amendment.mjs): the step that writes them now is a requirements step, else the plan, as the
+  // workflow rules choose (step-intent-settings.mjs workflowIntentFacts), and it plans the code unless a plan or a design
+  // nearer the code does.
+  const keeps = (composition.clauseKeeps ?? []).filter((id) => ids.includes(id));
+  const scopeStep = requirementsStep ?? planStep ?? null;
+  const before = codeStep ? composition.steps.slice(0, ids.indexOf(codeStep.id)).reverse() : [];
+  const planner = before.find((step) => step.intent === 'plan') ?? before.find((step) => step.intent === 'design') ?? scopeStep;
+  const clausePhases = [...new Set([...(requirementsStep && planWritesIds ? [requirementsStep.id, planStep.id] : []),
+    ...(keeps.length && scopeStep ? [...keeps, scopeStep.id] : [])])].sort((left, right) => ids.indexOf(left) - ids.indexOf(right));
+  const plannedClaims = clausePhases.length && codeStep ? {
+    plannedClaims: { mode: 'required', clausePhases, owners: { [codeStep.id]: requirementsStep && planWritesIds ? planStep.id : planner.id } },
+    because: { plannedClaims: keeps.length && !(requirementsStep && planWritesIds)
+      ? 'The step that wrote the requirement IDs before a later step was added keeps them, beside the requirement IDs of the step that writes them now.'
+      : 'The implementation specification adds its own requirement IDs for the technical details, beside the requirements step\'s.' }
   } : {};
   return {
     ...plannedClaims,

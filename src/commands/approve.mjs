@@ -325,7 +325,13 @@ export async function approveCommand(positionals, options, dependencies = {}) {
     ? (await postPublicationStep('the test step\'s run again', workflow.workItem.id, async () => (await import('../failing-tests-opening.mjs'))
       .rerunTestsAfterFix(root, workflow.workItem.id, { actor: session.actor }))).value : null;
   if (rerun?.line && !quiet) console.log(rerun.line);
-  const settledState = rerun ? (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow : workflow;
+  // A task that grew (a fix whose code needed a plan, a refactor whose new behaviour was accepted) reached a step its return
+  // set back, once the plan was approved: SFlow starts its next version, with an undo (task-amendment.mjs) [ITW:REQ-014, REQ-015].
+  const grownCode = !rerun && result.reached !== false && result.next && (workflow.resolution?.composition?.changes ?? []).some((entry) => entry?.change === 'grow')
+    ? (await postPublicationStep('the code\'s next version after the plan', workflow.workItem.id, async () => (await import('../task-amendment.mjs'))
+      .codeVersionAfterGrownPlan(root, workflow.workItem.id, { actor: session.actor }))).value : null;
+  if (grownCode?.line && !quiet) console.log(grownCode.line);
+  const settledState = rerun || grownCode ? (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow : workflow;
   // The register items this step fixed on the way are fixed, awaiting proof [CQF:REQ-066]; the approval stands whatever the register does.
   const fixedOnTheWay = result.reached !== false && workflow.departures?.some((entry) => entry.phase === result.phase.id && entry.findings?.length)
     ? await (await import('../findings/register/on-the-way.mjs')).recordFindingsAfterApproval(root, config,
@@ -361,6 +367,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
       ...(result.decisions ? { decisions: result.decisions } : {}),
       artifactSetSha256: result.approval.artifactSetSha256,
       ...(rerun ? { testsRerun: rerun } : {}),
+      ...(grownCode ? { grownCode } : {}),
       ...(keptLessons?.lessons.length ? { lessons: keptLessons.lessons } : {}),
       ...(keptLessons?.ruleOffers.length ? { ruleOffers: keptLessons.ruleOffers } : {}),
       ...(lessonsUseLine ? { lessonsUse: { ...lessonsUse, repeats: undefined, line: lessonsUseLine } } : {}),

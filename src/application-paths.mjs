@@ -166,6 +166,12 @@ export function isTestRunnerOutputPath(candidate, options = null) {
   return compared.split('/').slice(0, -1).some((segment) => TEST_RUNNER_OUTPUT_SEGMENTS.includes(segment));
 }
 
+/**
+ * A database migration, by its folder: what the delivery receipt calls a `migration` (delivery-evidence.mjs
+ * classifyDeliveryChanges) and what makes a task's fix a change [ITW:REQ-014] (task-composition.mjs taskGrowth).
+ */
+export const MIGRATION_PATH = /(?:^|\/)(?:migrations?|db\/migrate)(?:\/|$)/iu;
+
 /** Generic generated trees are excluded only when their Git provenance says they are untracked. */
 export function isGeneratedOutputPath(candidate, options = null) {
   const normalized = portableRepositoryPath(candidate);

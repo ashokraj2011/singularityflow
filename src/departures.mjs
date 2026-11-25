@@ -151,6 +151,7 @@ export { departureAcceptance, departureRejection } from './departure-acceptance.
  *   rejected    rejected and not reverted yet
  *   reverted    rejected and every file is back to what it held when the generation began
  *   declined    a rejected row, test, wording or clause: the approved document stays as it was
+ * departure-records.mjs departureReadings adds `planned`: an open file departure whose files the approved plan names now.
  */
 export function departureStatus(workflow, departure, hashes = {}) {
   if ((workflow?.departures ?? []).some((entry) => entry.supersedes === departure.id)) return { status: 'superseded', acceptance: null, rejection: null };

@@ -50,6 +50,19 @@ export function validateSkillMasterRequest({ positionals, options }) {
 }
 
 export { text as skillMasterOptionText };
+
+/** `skill catalog [--marketplace ID] [--json]`: every skill, from the library and each trusted marketplace. */
+export function validateSkillCatalogRequest({ positionals, options }) {
+  const retry = { command: 'singularity-flow skill catalog', label: 'See every skill, from the library and each trusted marketplace.' };
+  const refuse = (message) => { throw new SingularityFlowError(message, { code: 'SKILL_CATALOG_USAGE', details: { nextAction: retry } }); };
+  if (positionals.length !== 2) refuse('skill catalog takes no skill ID. Name one marketplace with --marketplace, or none for all of them.');
+  for (const key of Object.keys(options)) if (!['json', 'marketplace'].includes(key)) refuse(`skill catalog does not take --${key}; it takes --marketplace and --json.`);
+  if (options.json !== undefined && options.json !== true) refuse('--json does not take a value.');
+  if (options.marketplace !== undefined && (typeof options.marketplace !== 'string' || !ID.test(options.marketplace))) {
+    refuse('--marketplace takes the ID of a marketplace this repository trusts, in lower-case kebab-case.');
+  }
+  return 'catalog';
+}
 const INSPECT_OPTIONS = new Set(['json', 'skill-id']);
 const APPROVED_OPTIONS = new Set(['json', 'expected-package-sha256']);
 const DOCTOR_OPTIONS = new Set(['json', 'story', 'phase', 'source']);
@@ -64,9 +77,10 @@ export async function validateSkillRequest({ positionals, options }) {
   if ([...SKILL_MASTER_READS, ...SKILL_MASTER_CHANGES].includes(subcommand)) {
     return validateSkillMasterRequest({ positionals, options });
   }
+  if (subcommand === 'catalog') return validateSkillCatalogRequest({ positionals, options });
   if (!['inspect', 'approved', 'doctor'].includes(subcommand)) {
     throw new SingularityFlowError(
-      `Unknown skill action '${subcommand ?? 'none'}'. The skill master: 'singularity-flow skill list|show|create|edit|attach|detach|remove'. Skill packages: 'singularity-flow skill inspect <LOCAL-DIRECTORY> --json', 'singularity-flow skill approved <ID> --json', or 'singularity-flow skill doctor <ID> --story <WORK-ID> --phase <PHASE-ID> --json'.`,
+      `Unknown skill action '${subcommand ?? 'none'}'. The skill master: 'singularity-flow skill list|show|create|edit|attach|detach|remove'. Every skill here and in trusted marketplaces: 'singularity-flow skill catalog'. Skill packages: 'singularity-flow skill inspect <LOCAL-DIRECTORY> --json', 'singularity-flow skill approved <ID> --json', or 'singularity-flow skill doctor <ID> --story <WORK-ID> --phase <PHASE-ID> --json'.`,
       { code: 'SKP_ACTION_UNKNOWN' }
     );
   }

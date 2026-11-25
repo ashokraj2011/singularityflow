@@ -65,6 +65,7 @@ export { reviewDecisions } from './views/decide-card.ts';
 export { SfGuardPanel, SfGuardSignPanel, SfGuardStandings } from './views/sf-guard.ts';
 export { FindingsPanel, uploadFindings } from './views/findings.ts';
 export { LessonsPanel } from './views/lessons.ts';
+export { AllSkillsPanel } from './views/all-skills.ts';
 export { importSummary as findingsImportSummary } from './views/findings-model.ts';
 export { RunAndTest, runAndTestCommand, editRunConfigurationsCommand } from './views/run-and-test.ts';
 export { TestSummaryPanel } from './views/test-summary.ts';

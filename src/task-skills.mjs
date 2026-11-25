@@ -201,13 +201,15 @@ export async function taskSoftwareKinds(root, touchedPaths = []) {
   return [...new Set((touched.length ? touched : projects).map((project) => project.kind).filter(Boolean))].sort();
 }
 
-const CATALOG_FORMAT = 'sflow-task-marketplace-skills/v1';
+// v2 keeps each skill's description too, for the page of every skill (skill-catalog.mjs); a v1 listing is read again once.
+const CATALOG_FORMAT = 'sflow-task-marketplace-skills/v2';
 
 /**
  * A trusted marketplace's skill packages at the commit the repository trusts. The listing at a pinned commit never
  * changes, so it is kept in the clone's Git folder and read once per commit; reading it again would fetch the same commit.
+ * `skill catalog` (skill-catalog.mjs) reads a marketplace through this same listing.
  */
-async function marketplaceSkills(root, marketplace) {
+export async function trustedMarketplaceSkills(root, marketplace) {
   const { repositoryGitPath } = await import('./git-directory.mjs');
   const key = createHash('sha256').update(`${marketplace.repository}\n${marketplace.commit}`).digest('hex');
   const file = path.join(repositoryGitPath(root, 'singularity-flow', 'task-marketplace-skills'), `${key}.json`);
@@ -218,7 +220,8 @@ async function marketplaceSkills(root, marketplace) {
   const { readMarketplaceRepository } = await import('./marketplace-repository.mjs');
   const listing = await readMarketplaceRepository(marketplace);
   const skills = listing.packages.filter((entry) => entry.kind === 'skill' && ID.test(entry.name)).map((entry) => ({
-    name: entry.name, version: entry.version ?? null, tags: entry.tags ?? [], pdlcTasks: entry.pdlcTasks ?? [], lifecycleState: entry.lifecycleState ?? null }));
+    name: entry.name, version: entry.version ?? null, description: entry.description ?? null, tags: entry.tags ?? [], pdlcTasks: entry.pdlcTasks ?? [],
+    lifecycleState: entry.lifecycleState ?? null }));
   try {
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, `${JSON.stringify({ format: CATALOG_FORMAT, repository: marketplace.repository, commit: marketplace.commit, skills })}\n`);
@@ -250,7 +253,7 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
     if ((bare.length || namedElsewhere) && marketplaces.length) {
       for (const marketplace of marketplaces) {
         try {
-          candidates.push(...(await marketplaceSkills(root, marketplace)).map((entry) => marketplaceSkillCandidate(entry, marketplace.id)));
+          candidates.push(...(await trustedMarketplaceSkills(root, marketplace)).map((entry) => marketplaceSkillCandidate(entry, marketplace.id)));
         } catch (error) {
           notes.push(`Marketplace ${marketplace.id} could not be read, so its skills are not offered: ${String(error?.message ?? error).split('\n')[0]}`);
         }

@@ -4065,6 +4065,7 @@ singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out F
 singularity-flow pr describe [WORK-ID] [--format markdown|json] [--clipboard] [--write] [--yes]
 singularity-flow workflow list|validate|simulate|diff|add|upgrade
 singularity-flow skill inspect <LOCAL-DIRECTORY> [--skill-id ID] [--json]
+singularity-flow skill catalog [--marketplace ID] [--json]
 singularity-flow instruction list|show|create|edit|remove [ID] [--dry-run] [--propose] [--json]
 singularity-flow assign <PHASE> <ASSIGNEE>
 singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS]

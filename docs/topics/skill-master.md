@@ -9,6 +9,7 @@ questions:
   - How do I share one skill between several agents?
   - How do I tell an agent to use a skill in a step?
   - How do I add a skill to a step of a seeded workflow?
+  - How do I see every marketplace skill and compare it with my library?
   - Where are the skills my agents attach kept?
 commands:
   - skill
@@ -16,7 +17,7 @@ related:
   - agents-and-routing
   - importing-assets
   - workflow-authoring
-version: 9
+version: 10
 ---
 The skill master is the repository's collection of named skills. Attach a skill to a **workflow** to apply it only within that workflow, or to an **agent** to apply it wherever that agent is selected. Each attachment can restrict its steps and say when to use it. Both scopes eagerly inject exact instructions by default; explicitly optional procedures can instead use a retained catalog.
 
@@ -135,10 +136,23 @@ Workflow Studio and `sflow skill attach` choose the place for you. An agent this
 
 These skills are not the compiled skill packages under `singularity/skills/` that skill steps bind. Nor are they the Copilot `/sf-` skills that draft a step.
 
+## Every skill, here and in trusted marketplaces
+
+`sflow skill catalog` lists every skill this repository can use on one page: the skill library and each marketplace it trusts (a Git repository read at the commit it trusts, an index read through its index). For each skill it shows:
+
+- **Where it comes from:** the library or a marketplace, its version and its lifecycle mark (approved, proposed, beta …).
+- **What it is for:** the step intents its tasks are, and the `/sf-task` kinds that would pick it on their own for this repository (the library first; a marketplace skill only for a step the library has nothing for).
+- **Who it is for:** the kinds of software and the tags it names.
+- **Whether you have it:** in the library or not, the version imported, and whether its marketplace now has a newer one.
+- **Who uses it:** the agents and workflows it is attached to, and the task Stories in this checkout that chose it.
+
+The summary counts the skills, names skills that look alike (two skills for the same kind of step and software whose names, or names, descriptions and tags, share most of their words; it says which words) and lists the step intents no skill covers for this repository's kinds of software, and those only a marketplace covers. A marketplace that cannot be read is one warning; the others are still listed. `--marketplace <ID>` reads only that one, with the library. Nothing is written but the marketplace listing a task already keeps per commit in the clone's Git folder. In VS Code, **Singularity Flow: All Skills** (or **All skills** in Workflow Studio's Skill master) opens the same page, with filters and a detail view; **Preview** opens the marketplace skill's exact text in Workflow Studio's Library, and **Open in Skill master** shows a library skill.
+
 ## Use it from each surface
 
 - **Shell:**
   - `sflow skill list` and `sflow skill show <ID>` show the skills and the workflows and agents that use each one.
+  - `sflow skill catalog [--marketplace <ID>] [--json]` shows every skill in the library and the trusted marketplaces, with look-alikes and gaps.
   - `sflow skill create <ID> --description "<what and when>" --from <FILE>` and `sflow skill edit <ID>` write and change a skill.
   - `sflow skill attach <ID> --agent <AGENT> [--phases a,b] [--use "<when>"]` and `sflow skill detach <ID> --agent <AGENT>` change who uses it.
   - `sflow skill attach <ID> --workflow <WORKFLOW> [--phases a,b] [--use "<when>"]` and `sflow skill detach <ID> --workflow <WORKFLOW>` change workflow-local use.

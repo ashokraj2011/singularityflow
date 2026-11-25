@@ -958,6 +958,11 @@
         "icon": "$(lightbulb)"
       },
       {
+        "command": "singularityFlow.allSkills",
+        "title": "Singularity Flow: All Skills",
+        "icon": "$(library)"
+      },
+      {
         "command": "singularityFlow.findings",
         "title": "Singularity Flow: Findings",
         "icon": "$(bug)"

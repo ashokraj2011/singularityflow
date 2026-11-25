@@ -2,7 +2,7 @@
 
 **Specification ID:** `ITW-v1.1`
 
-**Status:** M1 built (2026-11-25): kinds, the composer, team rules, the Story's own workflow, `singularity-flow work`. M2 in part (2026-11-25): `/sf-task` with no words takes the turn of what comes next (`src/task-turn.mjs`), VS Code's approval page carries a task's chat on, and "open the pull request" after a finished task. Not yet: quiet progress lines, re-composing the plan, a fix growing into a change, the CLI's last-message summary, "… and open a pull request" in the first words; M3 to M5. Replaces [ITW v1](SPEC-ITW-INTENT-TO-WORK-v1.md). Also takes in the useful parts of
+**Status:** M1 built (2026-11-25): kinds, the composer, team rules, the Story's own workflow, `singularity-flow work`. M2 mostly built (2026-11-25): `/sf-task` takes the turn of what comes next (`src/task-turn.mjs`), words on an open task are its own (`TASK_OPEN_HERE`, `--new`), VS Code's approval page carries a task's chat on, `work status`, "… and open a pull request", `--from` and `--document`; journeys walk a fix and an investigation to their end (test/journey-tasks.test.mjs). Not yet: re-composing the plan mid-task (REQ-009), a fix growing into a change (REQ-014), the refactor's before-and-after run (REQ-015), skills (REQ-010, REQ-011), VS Code's Start a task box, the fuzzer. Replaces [ITW v1](SPEC-ITW-INTENT-TO-WORK-v1.md). Also takes in the useful parts of
 an outside draft, "SPEC-IEX v1.1, Intent to Verified Execution" (2026-11-07); section 5 lists what was left out of it and
 why.
 
@@ -305,8 +305,9 @@ These already hold in SFlow, and `/sf-task` keeps them:
 - **A9:** The Story's snapshot holds the composed steps and the skill texts. A second laptop resumes the same steps.
 - **A10:** A journey test walks `/sf-task` to the checked change on VS Code and the Copilot CLI, then "open the pull
   request" opens it. The Story fuzzer composes tasks of every kind, and the invariant checks hold.
-- **A11:** A fix with no real question takes three person actions: the words, the plan approval (a fix's intake is its
-  plan) and the code approval. Every other kind also asks a person for exactly two approvals.
+- **A11:** A fix takes four person actions: the words, the intake's one question (the intake always asks), the plan
+  approval (a fix's intake is its plan) and the code approval. Every other kind also asks a person for exactly two
+  approvals. Measured by test/journey-tasks.test.mjs (2026-11-25).
 - **A12:** "Fix it" after an investigation starts a fix whose intake is the report. No question is asked twice.
 - **A13:** A refactor that changes the order of two errors stops at its test step and names the change. A refactor with
   every check unchanged ends by listing the checks that ran.

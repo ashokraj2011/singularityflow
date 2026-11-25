@@ -13,6 +13,7 @@
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
 import { approvalRequirementsMet, matchApprovalAuthority } from '../approval-authority.mjs';
 import { subjectKey, validateSubjectKey } from '../subject-ref.mjs';
+import { recordSha256 } from '../records.mjs';
 import { LIFECYCLE_EVENT } from '../vocabularies/catalog.mjs';
 
 /** In render order. A reader scans top-down and should hit their own work first. */
@@ -329,6 +330,7 @@ export async function workRecords(root, {
           workStatus: workflow.state ?? workflow.status ?? workflow.workItem?.status ?? workflow.initiative?.status ?? null,
           recordPath: subject.location?.path ?? null,
           recordCommit: subject.location?.commit ?? null,
+          ...(selection.withDigest ? { recordSha256: recordSha256(workflow) } : {}),
           specification: (workflow.workItem?.source?.specification ?? []).map(entry => ({
             reference: entry.revision, stateCommit: entry.stateCommit, manifestSha256: entry.manifestSha256
           }))

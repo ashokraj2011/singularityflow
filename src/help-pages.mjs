@@ -86,7 +86,11 @@ const PAGES = Object.freeze({
       ['--work-id ID', 'Read the named work in the selected checkout.'],
       ['--open-spec', 'Open the published revision verified by the specification reader.'],
       ['--for-person', 'Use your own terminal or viewer for full specification text or a bounded patch.'],
-      ['--cursor TOKEN', 'Continue a history read with its original dates and revisions.']
+      ['--cursor TOKEN', 'Continue a stateless history read with its original dates and revisions.'],
+      ['--remember', 'Save the answer’s ordered source references and filters privately on this machine.'],
+      ['--resume', 'Reopen and verify the last saved answer in the checkout and audience.'],
+      ['--conversation ID --revision N', 'Use the verified context revision for a follow-up or evidence link.'],
+      ['--explain', 'Organize a saved answer using an optional tool-free Copilot call. Use --for-person.']
     ],
     examples: [
       ['singularity-flow ask "What is blocking me?"', 'Show current work and its recorded blockers.'],

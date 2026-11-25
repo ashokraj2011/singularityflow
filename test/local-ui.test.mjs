@@ -928,6 +928,13 @@ test('Ask SFlow agrees across CLI, browser and Copilot reads and reopens the iss
   await field.press('Enter');
   await page.getByRole('button', { name: 'Open ' + specId + '@1 · Checkout pricing' }).click();
   await page.getByRole('heading', { name: 'Checkout pricing', exact: true, level: 2 }).waitFor();
+  await field.fill('story ASK-ORDER');
+  await field.press('Enter');
+  await page.getByRole('button', { name: 'Open ' + specId + '@1 · Checkout pricing' }).waitFor({ state: 'detached' });
+  const linked = page.waitForResponse(response => new URL(response.url()).pathname === '/api/ask' &&
+    response.request().postDataJSON().query === 'show the specification behind the first result');
+  await page.getByRole('button', { name: 'Open the spec used for this Story' }).click();
+  assert.equal((await (await linked).json()).evidence.revision, original.stateCommit);
   assert.equal(mustGit('status', '--porcelain'), '');
 });
 
@@ -978,4 +985,43 @@ test('Ask SFlow history follows its pinned next page in the browser', { timeout:
   await page.getByRole('heading', { name: 'Revision comparison' }).waitFor();
   await page.getByText('No matching paths · Complete coverage').waitFor();
   assert.equal(mustGit('status', '--porcelain'), '');
+});
+
+test('Ask SFlow resumes private context in a new browser tab and opens the saved evidence', { timeout: 45_000 }, async t => {
+  const { root, directory, env, mustGit, cleanup } = await fixture(t);
+  env.SINGULARITY_FLOW_NO_MODEL = '1';
+  const initial = mustGit('rev-parse', 'HEAD');
+  mustGit('commit', '--allow-empty', '-qm', 'First visible result');
+  const service = await startService({ directory });
+  cleanup(() => service.close());
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ headless: true });
+  cleanup(() => browser.close());
+  async function launchAsk() {
+    const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID(), environment: env });
+    const page = await browser.newPage();
+    await page.goto(launch.url);
+    await page.getByRole('link', { name: 'Ask SFlow', exact: true }).click();
+    return page;
+  }
+  const first = await launchAsk();
+  const field = first.getByRole('searchbox', { name: 'Ask a question' });
+  await field.fill('commits from 2000-01-01 to 2099-12-31 on HEAD');
+  await field.press('Enter');
+  await first.getByText('2 commits · Complete coverage').waitFor();
+  mustGit('commit', '--allow-empty', '-qm', 'Newer than the saved page');
+  await first.close();
+
+  const next = await launchAsk();
+  await next.getByRole('button', { name: 'Resume saved conversation' }).click();
+  await next.getByText('2 commits · Complete coverage').waitFor();
+  assert.equal(await next.getByText('Newer than the saved page').count(), 0);
+  const followUp = next.getByRole('searchbox', { name: 'Ask a question' });
+  await followUp.fill('the second result');
+  await followUp.press('Enter');
+  const evidence = next.getByRole('region', { name: 'Evidence and explanation' });
+  await evidence.getByText(new RegExp(initial)).waitFor();
+  await next.getByRole('button', { name: 'Explain with Copilot' }).click();
+  await evidence.getByRole('heading', { name: 'Explanation from recorded evidence' }).waitFor();
+  await assert.rejects(access(path.join(root, '.git/singularity-flow/model-invocations')));
 });

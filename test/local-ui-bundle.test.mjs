@@ -70,7 +70,8 @@ test('npm package includes the service, browser and Copilot skill assets', { tim
     'src/local-ui/bridge-client.mjs', 'src/local-ui/public/index.html', 'src/local-ui/public/app.js',
     'src/local-ui/public/app.css', 'src/local-ui/public/views.js', 'src/local-ui/public/code-explainer.js',
     'src/local-ui/public/code-explainer.css', 'src/ask/history-display.mjs', 'src/ask/retained-history.mjs',
-    'src/git-access-history.mjs', 'src/comprehension/code-map.mjs', 'plugin/skills/sflow-ui/SKILL.md']) assert.ok(files.has(file), file);
+    'src/git-access-history.mjs', 'src/ask/conversation.mjs', 'src/ask/evidence.mjs', 'src/ask/explanation.mjs',
+    'src/comprehension/code-map.mjs', 'plugin/skills/sflow-ui/SKILL.md']) assert.ok(files.has(file), file);
 });
 
 test('foreground JSON readiness is visible before shutdown and the native control closes it cleanly', { timeout: 30_000 }, async t => {

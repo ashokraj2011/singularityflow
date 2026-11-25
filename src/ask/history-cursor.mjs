@@ -12,7 +12,7 @@ const invalid = () => new SingularityFlowError(
   { code: 'ASK_CONTINUATION_INVALID' }
 );
 
-async function checkoutScope(root, context, audience) {
+export async function checkoutScope(root, context, audience) {
   const actor = context.actor ?? {};
   const directory = await realpath(root);
   const { dev, ino } = await stat(directory);

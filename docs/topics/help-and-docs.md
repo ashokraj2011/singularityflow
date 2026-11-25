@@ -24,7 +24,7 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 10
+version: 11
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -80,6 +80,22 @@ Ask in the same browser workspace, VS Code Navigator, shell, or Copilot tool. Th
 Both dates in a range are inclusive in the selected timezone. UTC is the default. A relative query uses the recorded query time and Monday as the start of the week. Author, integration, PR merge, deployment, and knowledge-time queries need separate evidence.
 
 Use **Next page** to keep the original revisions and dates. In the shell, pass the issued token to `singularity-flow ask --cursor TOKEN`. On the Copilot tool, resolve `ask sflow` with `arguments.query` set to `continue` and the issued token in `arguments.cursor`. Missing records, shallow ancestry, and scan limits report partial or unavailable coverage. An exact zero is shown only when the available provider completed the requested read without gaps.
+
+### Saved conversations and evidence
+
+Ask SFlow in the browser and VS Code can save the displayed order, date filters, and exact source references. Choose **Resume saved conversation** to continue on the same machine in the same checkout. A phrase such as `the second result` selects the second item from the answer you saw. `Show that spec` opens the selected published revision. `Next page` and `also include the previous week` keep the pinned Git revision and timezone.
+
+The local store is private to the user and checkout. A scope supports up to 16 saved conversations. Each expires 30 days after its last update, and expired records are removed when a new conversation is saved. It saves references and filters. Source text, questions, and generated explanations stay out of the conversation record. Use **Forget conversation** to remove its saved context. Source records stay with their owners.
+
+**View evidence** rechecks the selected revision or record digest before opening it. The view identifies the source commit, state snapshot, or document revision. If the source has changed or the library withdrew a revision, Ask reports the evidence as unavailable and withholds its cached display details.
+
+**Explain with Copilot** is an explicit action. It can send up to eight verified facts in one tool-free request and organize them by their evidence links. SFlow supplies the statements and keeps the underlying result unchanged. With models disabled or Copilot unavailable, the explanation uses the verified facts directly.
+
+- Start a private shell conversation with `singularity-flow ask "commits last week in UTC on main" --remember --for-person`.
+- Resume with `singularity-flow ask --resume --for-person`.
+- Use the ID and revision returned by Ask to follow up with `singularity-flow ask "the second result" --conversation=ID --revision=N --for-person`.
+- Add `--explain` in place of the question for an optional Copilot explanation, or use the evidence command returned with a result.
+- In the Copilot gateway, `sessionAction: "query"` starts a saved context. For later actions, pass its `conversationId` and `contextRevision`. To reopen evidence, use `sessionAction: "evidence"`, `query: "evidence"` and the returned link ID as `target`. The gateway provides verified facts without launching a second model.
 
 ## Purpose and prerequisites
 

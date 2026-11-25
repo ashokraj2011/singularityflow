@@ -98,10 +98,15 @@ function safeSegment(value, label) {
   return normalized;
 }
 
+export function ledgerEntryFile(capabilityId, entryHash) {
+  if (!/^[a-f0-9]{64}$/u.test(entryHash ?? '')) throw new SingularityFlowError('A ledger entry file requires an exact hash.');
+  return ['ledger/entries', safeSegment(capabilityId, 'Ledger capability ID'), entryHash + '.json'].join('/');
+}
+
 function entryPath(entry) {
-  const capability = safeSegment(entry.capabilityId, 'Ledger capability ID');
+  const capability = entry.capabilityId;
   const hash = sha256(canonicalJson(entry));
-  return { hash, path: `ledger/entries/${capability}/${hash}.json` };
+  return { hash, path: ledgerEntryFile(capability, hash) };
 }
 
 function eventPath(eventId) {

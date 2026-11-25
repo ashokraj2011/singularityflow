@@ -3,9 +3,9 @@ import { historyFinding } from './history-result.mjs';
 import { askTimeWindow } from './time-window.mjs';
 
 /** The history providers share one read contract and one pinned continuation. */
-export async function readAskHistory({ root, context, audience, intent, cursor }) {
+export async function readAskHistory({ root, context, audience, intent, cursor, replay, capture }) {
   const scope = { root, context, audience };
-  const saved = cursor ? await readHistoryCursor(cursor, scope) : null;
+  const saved = replay ?? (cursor ? await readHistoryCursor(cursor, scope) : null);
   const selection = saved?.intent ?? intent;
   const window = saved?.window ?? (selection.period ? askTimeWindow(selection.period) : null);
   const checkpoint = saved?.next ?? null;
@@ -18,7 +18,8 @@ export async function readAskHistory({ root, context, audience, intent, cursor }
     result = selection.kind === 'commits' ? await committedHistory(root, selection, window, checkpoint, audience)
       : compareRevisions(root, selection, checkpoint, audience);
   }
-  const { next, ...value } = result;
+  const { next, start, ...value } = result;
+  if (start) capture?.({ intent: selection, window, start, next });
   if (next) {
     try {
       value.continuation = {

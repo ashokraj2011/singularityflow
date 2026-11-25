@@ -12,6 +12,12 @@ with the original argument array. Neither site runs Git. Download and installer 
 the existing `runtime/install.mjs` process supervisor; the updater adds no process owner or Git
 transport authority. Only this launcher's exact call-site digest is added to the baseline.
 
+The browser's existing canonical CLI launcher can honor an explicit Explain with Copilot action
+for the active Ask conversation. The server validates the tab, checkout and saved revision.
+The launcher admits the Ask explanation form and preserves the user's no-model setting. All other
+browser commands still force model-free execution. The provider starts through the registered
+model runner. The canonical launcher retains one process site.
+
 Ask SFlow's historical reads share the existing source-inspection launcher. The reviewed call
 adds optional process deadlines and a termination signal for typed reads. Those reads keep
 literal paths, exact revisions and bounded output, with Git transports disabled. The number of

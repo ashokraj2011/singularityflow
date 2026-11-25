@@ -3458,6 +3458,10 @@ const families = [
     id: 'local-work-journal', currentVersion: 1,
     paths: [/^\$local\/work-journal\/settings\.json$/, /^\$local\/work-journal\/events\/.+\.jsonl$/]
   }),
+  family({
+    id: 'ask-conversation', currentVersion: 1,
+    paths: [/^\$local\/ask-conversations\/v1\/[a-f0-9]{64}\/ask-[a-f0-9]{32}\.json$/u]
+  }),
   family({ id: 'workspace-registry', currentVersion: 1, paths: [/^\$local\/workspaces\.json$/] }),
   family({
     id: 'repository-onboarding-cleanup', currentVersion: 1,

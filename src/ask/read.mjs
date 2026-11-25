@@ -22,7 +22,7 @@ function ownerFinding(error) {
   return finding(code, error.message ?? 'The source could not be read.', categories[code]);
 }
 
-function specificationResult(read) {
+export function specificationResult(read) {
   return {
     reference: read.specId + '@' + read.revision,
     title: read.manifest.title,
@@ -33,7 +33,7 @@ function specificationResult(read) {
   };
 }
 
-async function currentWork(root, context, intent) {
+async function currentWork(root, context, intent, withDigest) {
   const [{ workRecords }, { executeGitQuery }, { libraryConfig }] = await Promise.all([
     import('../gateway/work-records.mjs'), import('../git-query.mjs'), import('../spec-library/library.mjs')
   ]);
@@ -47,7 +47,7 @@ async function currentWork(root, context, intent) {
   const records = await workRecords(root, {
     definition, actor: context.actor, includeCompleted: true,
     repositoryId: context.repositoryId,
-    selection: { reference, kind, branchOnly: !selected }
+    selection: { reference, kind, branchOnly: !selected, withDigest }
   });
   if (records.items.length > 1) return { work: null, matches: records.items.slice(0, 3).map(({ id, kind }) => ({ id, kind })), diagnostics: [
     finding('ASK_SCOPE_AMBIGUOUS', 'More than one work record matches. Choose a Story or an Initiative.', 'conflict')
@@ -61,7 +61,8 @@ async function currentWork(root, context, intent) {
 
 function workResult(record) {
   const { id, kind, title, branch, phase, phaseLabel, status, workStatus, generation, blockers, repositoryId, recordPath, recordCommit } = record;
-  return { id, kind, title, branch, phase, phaseLabel, status, workStatus, generation, blockers, repositoryId, recordPath, recordCommit };
+  return { id, kind, title, branch, phase, phaseLabel, status, workStatus, generation, blockers, repositoryId, recordPath, recordCommit,
+    ...(record.recordSha256 ? { recordSha256: record.recordSha256 } : {}) };
 }
 
 async function reviewedHelp(query) {
@@ -72,14 +73,14 @@ async function reviewedHelp(query) {
   }
   return { help: {
     id: resolved.topic.id, title: resolved.topic.title, handle: resolved.handle,
-    citation: resolved.citation, text: resolved.served.text, truncated: resolved.served.truncated
+    citation: resolved.citation, sha256: resolved.topic.sha256, text: resolved.served.text, truncated: resolved.served.truncated
   } };
 }
 
 /** Exact owner reads are the only Ask operations that use a repository. */
-export async function readAsk({ root = null, context = {}, arguments: proposed, audience = 'model' }) {
+export async function readAsk({ root = null, context = {}, arguments: proposed, audience = 'model', captureHistory, historyReplay, internal = false }) {
   const { query, workId, cursor } = validateArguments('ask-query-v1', proposed);
-  const intent = cursor ? { kind: 'continuation' } : askIntent(query, workId);
+  const intent = historyReplay?.intent ?? (cursor ? { kind: 'continuation' } : askIntent(query, workId));
   const effectiveScope = { workspaceId: context.workspace?.id ?? null, repositoryId: context.repositoryId ?? repositoryReference(root) };
   const data = {
     capability: 'ask-r1', answeredBy: 'deterministic', effectiveScope,
@@ -112,12 +113,12 @@ export async function readAsk({ root = null, context = {}, arguments: proposed, 
       data.diagnostics = [finding('ASK_REPOSITORY_REQUIRED', 'Open the checkout whose work or specification you want to read.')];
     } else if (['continuation', 'commits', 'comparison', 'work-history'].includes(intent.kind)) {
       const { readAskHistory } = await import('./history.mjs');
-      Object.assign(data, await readAskHistory({ root, context, audience, intent, cursor }));
+      Object.assign(data, await readAskHistory({ root, context, audience, intent, cursor, replay: historyReplay, capture: captureHistory }));
     } else if (intent.kind === 'spec') {
       const { readPublishedSpecification } = await import('../spec-library/library.mjs');
       data.specifications = [specificationResult(await readPublishedSpecification(root, intent.reference))];
     } else {
-      const { work, matches, diagnostics } = await currentWork(root, { ...context, ...effectiveScope }, intent);
+      const { work, matches, diagnostics } = await currentWork(root, { ...context, ...effectiveScope }, intent, internal);
       data.diagnostics = diagnostics;
       if (matches.length) data.choices = matches;
       if (work) {
@@ -149,7 +150,7 @@ export async function readAsk({ root = null, context = {}, arguments: proposed, 
   data.resultSetId = 'ask-' + hash([
     query, effectiveScope, data.items, data.work, data.specifications, data.help?.handle, data.history, data.comparison
   ]).slice(0, 32);
-  if (audience !== 'person') {
+  if (audience !== 'person' && !internal) {
     const { withholdForModel } = await import('../spec-library/share-check.mjs');
     return withholdForModel(data).value;
   }
@@ -158,7 +159,11 @@ export async function readAsk({ root = null, context = {}, arguments: proposed, 
 
 /** The existing Copilot gateway reads the same data through its closed tool resolver. */
 export async function askGatewayRead(request) {
-  const data = await readAsk({ ...request, audience: 'model' });
+  const args = validateArguments('ask-query-v1', request.arguments);
+  const contextual = args.sessionAction || args.conversationId || args.contextRevision != null || args.target;
+  const data = contextual
+    ? await (await import('./conversation.mjs')).askConversation({ ...request, arguments: args, audience: 'model' })
+    : await readAsk({ ...request, arguments: args, audience: 'model' });
   return sflowResult({
     kind: 'read',
     operation: { id: 'ask.lookup', classification: 'read' },

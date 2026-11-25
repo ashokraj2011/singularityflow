@@ -414,24 +414,43 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         if (route === '/api/ask' && req.method === 'POST') {
           const request = await body(req);
           const interaction = request?.interaction;
-          insist(['activate', 'submit', 'continue'].includes(interaction), 'UI_REQUEST_INVALID', 'Choose an Ask SFlow read.');
-          const input = record(request, ['contextId', 'interaction', interaction === 'submit' ? 'query' : 'selection']);
+          const contextual = ['evidence', 'select', 'explain', 'forget'].includes(interaction);
+          insist(contextual || ['activate', 'submit', 'continue', 'resume'].includes(interaction), 'UI_REQUEST_INVALID', 'Choose an Ask SFlow read.');
+          const contextFields = ['conversationId', 'revision'];
+          const supplied = interaction === 'submit' ? ['query', 'remember', ...contextFields]
+            : contextual ? [...contextFields, ...(['evidence', 'select'].includes(interaction) ? ['target'] : [])]
+              : interaction === 'resume' ? [] : ['selection'];
+          const input = record(request, ['contextId', 'interaction', ...supplied]);
           const context = selected(session, text(input.contextId, 'Context ID', 128));
           insist(context.id === session.contextId, 'UI_ASK_CONTEXT_CHANGED', 'Switch to the original checkout or search here again.', 409);
-          let args;
+          if (contextual || input.conversationId !== undefined || input.revision !== undefined) {
+            const latest = session.askConversation;
+            insist(input.conversationId && latest?.id === input.conversationId && latest?.revision === input.revision && latest?.contextId === context.id,
+              'UI_ASK_CONVERSATION_CHANGED', 'Resume the current Ask conversation from this tab to continue.', 409);
+          }
+          const args = ['ask', '--for-person'];
+          if (input.conversationId) args.push('--conversation=' + input.conversationId, '--revision=' + input.revision);
           if (interaction === 'submit') {
-            args = ['ask', '--question=' + text(input.query, 'Question', 2000), '--for-person'];
+            insist(input.remember === undefined || (input.remember === true && !input.conversationId),
+              'UI_REQUEST_INVALID', 'Choose a new or an existing Ask conversation.');
+            args.push('--question=' + text(input.query, 'Question', 2000));
+            if (input.remember) args.push('--remember');
+          } else if (interaction === 'resume' || interaction === 'explain' || interaction === 'forget') {
+            args.push('--' + interaction);
+          } else if (interaction === 'evidence' || interaction === 'select') {
+            const target = text(input.target, 'Selection', 36);
+            insist(/^(?:ev-[a-f0-9]{24}|choice-[1-3])$/u.test(target), 'UI_REQUEST_INVALID', 'Choose a result or evidence link.');
+            args.push('--' + interaction + '=' + target);
           } else {
             const selection = session.askSelections.get(text(input.selection, 'Selection', 36));
             insist(selection && selection.contextId === context.id && selection.expiresAt > Date.now()
                 && interaction === selection.interaction,
               'UI_ASK_SELECTION_EXPIRED', 'Submit the original question again from this tab.', 409);
             if (interaction === 'continue') {
-              args = ['ask', '--cursor=' + selection.cursor, '--for-person'];
+              args.push('--cursor=' + selection.cursor);
             } else {
               const { reference, stateCommit, manifestSha256 } = selection.specification;
-              args = ['ask', '--question=' + reference, '--open-spec', '--state-commit=' + stateCommit,
-                '--manifest-sha256=' + manifestSha256, '--for-person'];
+              args.push('--question=' + reference, '--open-spec', '--state-commit=' + stateCommit, '--manifest-sha256=' + manifestSha256);
             }
           }
           insist(!draining && running < MAX_RUNNING && !session.askReading, 'UI_ASK_BUSY', 'Wait for the current read or cancel it, then try again.', 429);
@@ -442,11 +461,13 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           res.once('close', abort);
           try {
             const { value } = await runCanonical(context.root, args, {
-              timeoutMs: 20_000, signal: controller.signal, environment: session.environment
+              timeoutMs: 20_000, signal: controller.signal, environment: session.environment, personAskExplanation: interaction === 'explain'
             });
             insist(session.contextId === context.id && contexts.has(context.id),
               'UI_ASK_CONTEXT_CHANGED', 'The checkout changed while reading. Search again in the selected checkout.', 409);
-            for (const specification of value.specifications ?? []) {
+            if (value.conversation) session.askConversation = { id: value.conversation.id, revision: value.conversation.revision, contextId: context.id };
+            if (value.kind === 'forgotten' || value.status === 'conflict') session.askConversation = null;
+            for (const specification of value.conversation ? [] : value.specifications ?? []) {
               const id = randomUUID();
               // The input to activation is opaque. Only an exact revision issued to this tab can open.
               session.askSelections.set(id, { interaction: 'activate', specification: { ...specification }, contextId: context.id, expiresAt: Date.now() + ASK_SELECTION_MS });

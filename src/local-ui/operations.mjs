@@ -100,16 +100,17 @@ function redactedValue(value, redact, depth = 0) {
  * first and every browser value is one `--name=value` word, so no value can end the options (`--`) or
  * name another root. Diagnostics, original errors and progress are redacted before anyone keeps them.
  */
-export async function runCanonical(root, args, { signal, timeoutMs = 300_000, onProgress = () => {}, environment = process.env, machine = false } = {}) {
+export async function runCanonical(root, args, { signal, timeoutMs = 300_000, onProgress = () => {}, environment = process.env, machine = false, personAskExplanation = false } = {}) {
   const started = performance.now();
   const redact = await redactor();
   const argv = [...(machine ? [] : [`--context-root=${root}`]), ...args];
   return new Promise((resolve, reject) => {
     let bytes = 0, stdout = '', stderr = '', deadline = false, tooLarge = false, settled = false;
-    const env = { ...environment, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_NO_MODEL: '1' };
+    const askExplanation = personAskExplanation && args[0] === 'ask' && args.includes('--explain') && args.includes('--for-person');
+    const env = { ...environment, ELECTRON_RUN_AS_NODE: '1', ...(askExplanation ? {} : { SINGULARITY_FLOW_NO_MODEL: '1' }) };
     if (machine) delete env.SINGULARITY_FLOW_SURFACE_CONTEXT;
     else env.SINGULARITY_FLOW_SURFACE_CONTEXT = JSON.stringify({ schemaVersion: 1, repositoryPath: root }); // schema-transient: canonical process selector
-    const child = spawn(process.execPath, [cliPath, ...argv, '--json', '--no-model'], {
+    const child = spawn(process.execPath, [cliPath, ...argv, '--json', ...(askExplanation ? [] : ['--no-model'])], {
       cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
       env
     });

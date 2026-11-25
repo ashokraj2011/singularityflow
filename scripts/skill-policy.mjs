@@ -175,6 +175,7 @@ const KERNEL_MODEL_POLICIES = new Set(['never', 'conditional']);
 // lead authority rather than in whichever checkout happens to be open.
 const EXECUTION_BOUNDARY_KINDS = new Set(['machine', 'repository', 'story', 'organisation']);
 const MODEL_OPERATION_PATTERNS = Object.freeze({
+  'ask.explain': /\bsingularity-flow\s+ask\b[^\n`]*--explain\b/,
   'auto.flight-step': /\bsingularity-flow\s+auto\s+flight-step\b/,
   'auto.plan': /\bsingularity-flow\s+auto\s+plan\b/,
   'auto.repair': /\bsingularity-flow\s+auto\s+repair\b/,

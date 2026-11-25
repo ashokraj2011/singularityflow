@@ -1616,6 +1616,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'agents' && AGENT_READ_SUBCOMMANDS.includes(positionals[1])) {
     return never(`agents.${positionals[1]}`, definition, 'read');
   }
+  if (definition.name === 'ask' && optionBoolean(options, 'explain')) return optional('ask.explain', 'ask', definition);
   const readOnly = readOnlySubcommandOperation(definition, positionals, options);
   if (readOnly) return readOnly;
   if (definition.operation) return definition.operation;
@@ -2174,6 +2175,7 @@ export function operationCatalog() {
     optional('explain.code.narrate', 'explain.code', explainDefinition),
     never('explain.subject', explainDefinition, 'read'),
     optional('explain.subject.narrate', 'explain.subject', explainDefinition),
+    optional('ask.explain', 'ask', commandDefinition('ask')),
     ...COMPREHENSION_SUBCOMMANDS.filter((name) => !['walkthrough', 'backfill'].includes(name))
       .map((name) => never(`comprehension.${name}`, comprehensionDefinition, 'read')),
     never('comprehension.backfill.validate', comprehensionDefinition, 'read'),

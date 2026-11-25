@@ -632,8 +632,10 @@ export async function main(argv) {
   if (argv.includes('confirm') && parseArgs(argv).positionals[0] === 'confirm') argv = (await import('./confirm-entry.mjs')).expandConfirmArgv(argv);
   // Git answers earlier commands in this session already proved; see git-fact-store.mjs.
   installGitFactStore();
-  const uninstall = installFileLeaseSignalHandlers();
   const { positionals, options } = parseArgs(argv);
+  // The optional Ask provider owns cancellation once it starts. There is no lease held while
+  // it runs, so the generic handler must not re-raise the signal before the provider stops.
+  const uninstall = positionals[0] === 'ask' && options.explain === true ? () => {} : installFileLeaseSignalHandlers();
   try {
     const utilityEntry = options['utility-entry'] !== undefined ? { operation: positionals.join(' ') } : null;
     if (utilityEntry) validateUtilityEntry(positionals, options);

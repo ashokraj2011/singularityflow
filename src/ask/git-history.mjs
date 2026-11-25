@@ -27,7 +27,8 @@ export async function committedHistory(root, intent, window, cursor, audience = 
       ...coverage('commits', (cursor?.retrieved ?? 0) + rows.length, diagnostics, next, available),
       inspected: offset + inspected, limit: GIT_SCAN_LIMIT
     },
-    diagnostics, next
+    diagnostics, next,
+    start: revision ? { revision, offset, shallow: cursor ? cursor.shallow : shallow, retrieved: cursor?.retrieved ?? 0 } : null
   });
   if (!revision) {
     diagnostics.push(historyFinding('ASK_GIT_REVISION_UNAVAILABLE', 'The selected Git revision could not be resolved locally. Choose a branch, tag or commit held in this checkout.'));
@@ -76,7 +77,8 @@ export function compareRevisions(root, intent, cursor, audience) {
     rows: [], paths: 'unavailable', renames: 'unavailable', lineCounts: 'unavailable'
   };
   const answer = (next = null, available = true) => ({
-    comparison, coverage: coverage('paths', offset + comparison.rows.length, diagnostics, next, available), diagnostics, next
+    comparison, coverage: coverage('paths', offset + comparison.rows.length, diagnostics, next, available), diagnostics, next,
+    start: left && right ? { left, right, offset, ...(cursor?.view ? { view: cursor.view } : {}) } : null
   });
   if (!left || !right) {
     diagnostics.push(historyFinding('ASK_COMPARISON_ENDPOINT_UNAVAILABLE', 'Resolve both endpoints to locally available branches, tags or commits.'));

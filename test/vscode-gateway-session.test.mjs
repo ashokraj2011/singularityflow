@@ -149,7 +149,7 @@ test('the bundled editor gateway loads Ask SFlow from the staged engine on deman
   assert.equal(answer.operation.id, 'ask.lookup');
   assert.equal(answer.data.help.id, 'artifacts-and-generation');
   const map = JSON.parse(await readFile(path.join(isolatedBundle, 'gateway-runtime.cjs.map'), 'utf8'));
-  const deferred = ['/src/ask/read.mjs', '/src/ask/history.mjs', '/src/git-access-history.mjs'];
+  const deferred = ['/src/ask/read.mjs', '/src/ask/history.mjs', '/src/ask/conversation.mjs', '/src/ask/explanation.mjs', '/src/git-access-history.mjs'];
   assert.ok(map.sources.every(source => deferred.every(module => !source.endsWith(module))));
 });
 

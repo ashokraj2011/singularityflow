@@ -1668,6 +1668,7 @@ test('Ask SFlow shows and pages through pinned Git history from the VS Code Navi
   if (!requireBundle(t)) return;
   const root = await demoRepository();
   t.after(() => rm(path.dirname(root), { recursive: true, force: true }));
+  let requestResume = false;
   const query = 'commits from 2000-01-01 to 2099-12-31 on HEAD';
   for (let index = 0; index < 21; index++) run('git', ['commit', '--allow-empty', '-qm', 'Editor history ' + index], { cwd: root });
   const pinned = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
@@ -1683,7 +1684,7 @@ test('Ask SFlow shows and pages through pinned Git history from the VS Code Navi
       onDidAccept(callback) { accept = callback; return { dispose }; },
       onDidHide(callback) { hidden = callback; return { dispose }; },
       show() {
-        this.value = query;
+        this.value = requestResume ? '' : query;
         changed();
         this.selectedItems = this.items.slice(0, 1);
         accept();
@@ -1704,6 +1705,20 @@ test('Ask SFlow shows and pages through pinned Git history from the VS Code Navi
   assert.ok(pages[1].some(item => item.label === 'Git commits by committer date' && item.detail.includes(pinned)));
   assert.ok(pages[1].some(item => item.label === 'Editor history 0'));
   assert.ok(pages[1].every(item => item.label !== 'Later than the editor selection'));
+  requestResume = true;
+  let resumed, selectedEvidence;
+  api.window.showInputBox = async () => 'the first result';
+  api.window.showQuickPick = async items => {
+    if (resumed) { selectedEvidence = items; return undefined; }
+    resumed = items;
+    return items.find(item => item.action === 'follow-up');
+  };
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.ok(resumed?.some(item => item.label === 'Git commits by committer date' && item.detail.includes(pinned)));
+  assert.ok(resumed?.some(item => item.label === 'Editor history 0'));
+  assert.ok(resumed?.some(item => item.action === 'evidence'));
+  assert.ok(resumed?.every(item => item.label !== 'Later than the editor selection'));
+  assert.ok(selectedEvidence?.some(item => item.label === 'Editor history 0' && item.detail.startsWith('commit')));
 });
 
 test('@sflow and Help Center share model-free cited resolution and only prefill actions', async (t) => {

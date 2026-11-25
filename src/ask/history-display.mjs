@@ -25,9 +25,11 @@ export function askHistoryDisplay({ history, comparison, coverage }) {
     if (window) summary.push(mode === 'as-of' ? ['Through', window.endDate, 'in', window.timeZone].join(' ')
       : [window.startDate, 'to', window.endDate, 'in', window.timeZone].join(' '));
     const rows = history.rows.map(row => basis === 'committed' ? {
+      evidenceId: row.evidenceId,
       label: row.subject || row.commit.slice(0, 12),
       detail: row.committedAt + ' · ' + row.commit
     } : {
+      evidenceId: row.evidenceId,
       label: [row.id, row.title && row.title !== row.id ? row.title : null].filter(Boolean).join(' · '),
       detail: [row.kind, row.status?.replaceAll('_', ' '), row.phase, row.event, row.completedAt ?? row.eventAt,
         row.activityCount ? String(row.activityCount) + ' events' : null, row.commit].filter(Boolean).join(' · ')
@@ -38,6 +40,7 @@ export function askHistoryDisplay({ history, comparison, coverage }) {
     for (const end of [comparison.left, comparison.right]) summary.push(end.reference + ' · ' + (end.revision ?? 'Unavailable'));
     if (comparison.path) summary.push('Path · ' + comparison.path);
     const rows = comparison.rows.map(row => ({
+      evidenceId: row.evidenceId,
       label: row.oldPath ? row.oldPath + ' → ' + row.path : row.path,
       detail: [
         { A: 'Added', D: 'Deleted', M: 'Modified', R: 'Renamed', T: 'Type changed' }[row.status] ?? row.status,

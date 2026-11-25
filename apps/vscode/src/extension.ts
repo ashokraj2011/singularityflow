@@ -1438,7 +1438,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const client = new SingularityFlowClient({
           location: resolveCli({ extensionPath: context.extensionPath }),
           repository: root ?? process.cwd(),
-          surfaceBinding: Boolean(root)
+          surfaceBinding: Boolean(root),
+          environment: () => ({
+            ...process.env,
+            ...(vscode.workspace.getConfiguration('singularityFlow').get<'auto' | 'disabled'>('modelMode', 'auto') === 'disabled'
+              ? { SINGULARITY_FLOW_NO_MODEL: '1' } : {})
+          })
         });
         return client.run(args, AbortSignal.timeout(20_000));
       });

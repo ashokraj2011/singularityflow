@@ -1,6 +1,8 @@
 import YAML from 'yaml';
 import { withoutGitProcessOverrides } from '../git-enterprise-environment.mjs';
 import { normalizeLedgerConfig } from '../ledger-config.mjs';
+import { canonicalJson, ledgerEntryFile, ledgerPayloadDigest, sha256 } from '../ledger.mjs';
+import { readRecord } from '../schema-migrations.mjs';
 import { ledgerPage } from '../ledger-pages.mjs';
 import { localConfigurationAtRef, parseSubjectStateRecord, safeRefRoot } from '../repository-subject-index.mjs';
 import { sourceFileAt } from '../source-inspection.mjs';
@@ -33,16 +35,19 @@ function workEvent(entry, kind) {
   if (!ID.test(id ?? '') || !OID.test(commit ?? '') || !eventAt) return null;
   const branch = text(entry.subject.branch);
   const summary = kind === 'story' ? storySummaryFromSubject(entry, id, branch, commit) : null;
+  let entryPath = null;
+  try { entryPath = ledgerEntryFile(entry.capabilityId, entry.hash); } catch { /* Legacy events may have no typed locator. */ }
   return {
     id, kind, branch, commit, title: summary?.title?.slice(0, 240) ?? text(entry.subject.title),
     status: summary?.status ?? null, phase: summary?.phase ?? null, event: entry.eventType,
     eventAt, recordedAt: iso(entry.transport?.recordedAt), eventId: text(entry.eventId), entryHash: entry.hash,
+    entryPath,
     noncanonical: kind === 'story' && Boolean(entry.subject.canonicalBranch && entry.subject.canonicalBranch !== branch)
   };
 }
 
 /** Read just one owner record at a retained publication commit, even if its branch is gone. */
-function retainedSubjectAtCommit(root, { kind, id, commit, env }) {
+export function retainedSubjectAtCommit(root, { kind, id, commit, env = retainedEnvironment() }) {
   if (!['story', 'initiative'].includes(kind) || !ID.test(id) || !OID.test(commit)) {
     return { status: 'unavailable', reason: 'The retained work identity or commit is invalid.' };
   }
@@ -66,10 +71,14 @@ function retainedSubjectAtCommit(root, { kind, id, commit, env }) {
   }
 }
 
+function retainedEnvironment() {
+  return { ...withoutGitProcessOverrides(process.env), GIT_ALLOW_PROTOCOL: '', GIT_OPTIONAL_LOCKS: '0' };
+}
+
 function workStateReader(root, addGap) {
   const checked = new Map();
   const until = performance.now() + 7_000;
-  const env = { ...withoutGitProcessOverrides(process.env), GIT_ALLOW_PROTOCOL: '', GIT_OPTIONAL_LOCKS: '0' };
+  const env = retainedEnvironment();
   return event => {
     if (event.status || event.noncanonical) return event;
     const key = [event.kind, event.id, event.commit].join(':');
@@ -184,7 +193,8 @@ export async function retainedHistory(root, intent, window, cursor, audience) {
       basis: 'retained-lifecycle-event-time', observation: 'local-snapshot', window, rows
     },
     coverage: coverage(unit, retrieved + rows.length, diagnostics, next, available),
-    diagnostics, next
+    diagnostics, next,
+    start: snapshot ? { ...cursor, snapshot, namespace } : null
   });
   if (!config.enabled) {
     addGap('ASK_WORK_HISTORY_DISABLED', 'The repository has no enabled Story and Initiative ledger to answer this history query.');
@@ -241,4 +251,22 @@ export async function retainedHistory(root, intent, window, cursor, audience) {
   }
   return answer(selected, next, (!page.damaged || retrieved > 0 || page.entries.length > 0) &&
     (intent.mode !== 'as-of' || rows.length > 0));
+}
+
+/** Verify a previously issued event locator directly in the exact retained state tree. */
+export async function retainedEventAtSnapshot(root, ref) {
+  const config = normalizeLedgerConfig(await definitionLedgerConfig(root));
+  if (!config.enabled || ref.namespace !== config.remote + '/' + config.branch || !OID.test(ref.snapshot) ||
+      !/^[a-f0-9]{64}$/u.test(ref.entryHash) || !/^ledger\/entries\/[a-z0-9._-]+\/[a-f0-9]{64}\.json$/u.test(ref.path)) return null;
+  const observed = sourceFileAt(root, ref.snapshot, ref.path, {
+    env: retainedEnvironment(), offline: true, maxBytes: 1024 * 1024
+  });
+  if (observed.status !== 'present') return null;
+  const { record } = readRecord('ledger-entry', observed.value);
+  if (sha256(canonicalJson(record)) !== ref.entryHash ||
+      (record.payloadDigest !== undefined && ledgerPayloadDigest(record) !== record.payloadDigest) ||
+      ledgerEntryFile(record.capabilityId, ref.entryHash) !== ref.path || workKind(record) !== ref.workKind ||
+      record.subject?.workId !== ref.workId || record.transport?.publishedCommit !== ref.commit) return null;
+  const event = workEvent({ ...record, hash: ref.entryHash }, ref.workKind);
+  return event ? publicEvent(event) : null;
 }

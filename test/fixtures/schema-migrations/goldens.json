@@ -519,6 +519,22 @@
   "repair-event": [{ "schemaVersion": 1 }],
   "repair-attempt": [{ "schemaVersion": 1 }],
   "local-work-journal": [{ "schemaVersion": 1 }],
+  "ask-conversation": [{
+    "schemaVersion": 1,
+    "id": "ask-11111111111111111111111111111111",
+    "scope": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "revision": 2,
+    "updatedAt": 1793817600000,
+    "result": {
+      "id": "ask-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "refs": [{ "id": "ev-cccccccccccccccccccccccc", "ref": { "kind": "commit", "commit": "dddddddddddddddddddddddddddddddddddddddd" } }],
+      "history": null,
+      "pending": null
+    },
+    "selected": { "id": "ev-cccccccccccccccccccccccc", "ref": { "kind": "commit", "commit": "dddddddddddddddddddddddddddddddddddddddd" } },
+    "reads": 2,
+    "explanationUsed": false
+  }],
   "workspace-registry": [{ "schemaVersion": 1 }],
   "repository-onboarding-cleanup": [{ "schemaVersion": 1 }],
   "repository-catalog-cursor": [{ "schemaVersion": 1 }],

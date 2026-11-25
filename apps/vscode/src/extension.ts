@@ -153,7 +153,7 @@ import {
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
 import { formatCommandRouteLines } from '../../../src/model-free-commands.mjs';
-import { isTaskStory } from '../../../src/safe-command-guidance.mjs';
+import { isTaskStory, TASK_ROUTE } from '../../../src/safe-command-guidance.mjs';
 import { vscodeVersionLimits, vscodeVersionWarning } from '../../../src/vscode-host-version.mjs';
 import { createTerminalIn } from './terminal-start.ts';
 import { idleMinutesSetting, noteLaptopActivity, watchLaptopActivity } from './laptop-activity.ts';
@@ -6879,9 +6879,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (journey.nextAction?.execution === 'decide') return chooseStoryDecision(journey.id, null);
       if (journey.nextAction?.execution === 'decide-list') return void vscode.commands.executeCommand('singularityFlow.decisions', { workId: journey.id });
       if (journey.nextAction?.execution === 'prefill') {
+        // A task's Story goes on with /sf-task in the same chat, which takes the step's turn [ITW:REQ-008] (journey-model.ts).
         return vscode.commands.executeCommand('singularityFlow.prefillStoryPhaseGeneration', {
           kind: 'action', id: 'story:journey:generate', label: journey.nextAction.label ?? 'Generate phase',
-          prefill: journey.nextAction.skill
+          prefill: journey.nextAction.copilotCommand === TASK_ROUTE ? TASK_ROUTE : journey.nextAction.skill
         });
       }
       if (journey.nextAction?.execution === 'run') {

@@ -12,6 +12,7 @@
  * - a command's result never names the command that just ran as its "Now".
  */
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { approvalAgentResult } from '../src/approval-agent-result.mjs';
@@ -19,12 +20,14 @@ import { contextBoundaryPresentation, pendingContextBoundary } from '../src/cont
 import { workflowGuide } from '../src/guide.mjs';
 import { attachContinuation } from '../src/narration/continuation.mjs';
 import { validateCommandResult } from '../src/narration/command-result.mjs';
-import { nextStepsSnapshot } from '../src/nextsteps.mjs';
+import { nextStepsSnapshot, nextStepsText } from '../src/nextsteps.mjs';
 import { phaseContinuation } from '../src/phase-continuation.mjs';
 import { safeCommandGuidance, TASK_ROUTE } from '../src/safe-command-guidance.mjs';
 import { sourceReviewContinuation } from '../src/source-review-continuation.mjs';
 import { stepChatCommand } from '../src/step-decision.mjs';
 import { journeyRepository, startStory, storyRecord } from './helpers/route-follower.mjs';
+
+const { buildJourney } = await import('../apps/vscode/src/views/journey-model.ts');
 
 const ONE_COMMAND = /^(?:\/sf-[a-z0-9]+(?:-[a-z0-9]+)*(?: [^\s,][^,]*)?|\/clear|\/compact)$/u;
 const CHAT_RESET = /^\/(?:clear|compact)$/u;
@@ -118,6 +121,25 @@ for (const kind of ['task', 'classic']) {
     assert.deepEqual(approved.next.flatMap((action, index) => personRouteProblems(action, `approval next[${index}]`)), []);
     assert.ok(approved.next.every((action) => words(action.command) !== `approve ${first}`));
     if (approved.contextBoundary) assert.deepEqual(personRouteProblems(approved.contextBoundary.commandGuidance, 'approval boundary'), []);
+    // The guided router line names /sf-task on a task's Story too; a classic Story keeps /sf-next.
+    assert.match(nextStepsText(nextStepsSnapshot({ workflow: writing })), kind === 'task'
+      ? /Guided router:\n- Copilot: \/sf-task\n- Shell: singularity-flow next\n/u : /Guided router:\n- Copilot: \/sf-next\n- Shell: singularity-flow next\n/u);
+    // VS Code's Journey: its route list and its Generate button name /sf-task for every turn /sf-task takes, with the step's
+    // own Shell route and skill; a classic Story keeps the step's own skill.
+    for (const [name, readiness, generation] of [
+      ['generate', { classification: 'generation-required', reasonCode: 'PHASE_GENERATION_REQUIRED', nextSkill: '/sf-phase', nextCommand: `singularity-flow prepare ${first}` }, 0],
+      ['submit', { lifecycleReady: true, publicationRecorded: true, publishedGeneration: 1, currentGeneration: 1, classification: 'ready-to-attempt',
+        reasonCode: 'SUBMISSION_READY', nextSkill: '/sf-submit', nextCommand: `singularity-flow submit ${first} --work-id ${record.workItem.id}` }, 1]
+    ]) {
+      const workflow = structuredClone(writing);
+      workflow.phases[first].generation = generation;
+      const next = buildJourney({ included: ['repository', 'lifecycle'], workflow,
+        submissionReadiness: { draftExists: false, draftModified: false, publicationRecorded: false, currentGeneration: 0, publishedGeneration: null, phaseId: first, ...readiness } }).nextAction;
+      assert.equal(next?.command, readiness.nextCommand, `${kind} journey ${name}`);
+      assert.equal(next.skill, readiness.nextSkill, 'the turn it needs stays its own');
+      assert.equal(next.copilotCommand, kind === 'task' ? TASK_ROUTE : safeCommandGuidance({ command: readiness.nextCommand, skill: readiness.nextSkill }).copilotCommand, `${kind} journey ${name}`);
+      assert.deepEqual(personRouteProblems(next, `${kind} journey ${name}`), []);
+    }
     // A closed task's one next action is its last message; a classic Story keeps its own routes.
     const done = nextStepsSnapshot({ workflow: closed }).actions.find((action) => action.timing === 'now');
     if (kind === 'task') {
@@ -141,4 +163,9 @@ test('the check itself refuses each mismatch the live run showed', () => {
     ['review: Copilot "/sf-submit" and Shell "singularity-flow decisions TASK-1" are not the same thing']);
   assert.deepEqual(personRouteProblems({ copilotCommand: TASK_ROUTE, command: 'singularity-flow approve intake --work-id TASK-1 --fetch', skill: '/sf-approve' }, 'task'), []);
   assert.deepEqual(personRouteProblems({ copilotCommand: '/clear', command: null }, 'reset'), []);
+});
+
+test('the Journey\'s Generate button fills the route its list names: /sf-task on a task\'s Story, the step\'s skill otherwise', async () => {
+  const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+  assert.match(extension, /id: 'story:journey:generate'[^]{0,200}prefill: journey\.nextAction\.copilotCommand === TASK_ROUTE \? TASK_ROUTE : journey\.nextAction\.skill/u);
 });

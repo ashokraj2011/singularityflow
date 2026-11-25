@@ -163,10 +163,13 @@ export function nextAfterStep(review, done) {
   const continuation = review?.continuation ?? null;
   const action = continuation?.nextAction ?? null;
   const route = continuation?.copilotCommand ?? '';
-  const chat = TASK_CHAT_ROUTE.test(route) ? ' Say the person types /sf-task in this chat to carry the task on.'
+  const task = TASK_CHAT_ROUTE.test(route);
+  const chat = task ? ' Say the person types /sf-task in this chat to carry the task on.'
     : FRESH_CHAT_ROUTE.test(route) ? ' Say to run it in a new chat: it needs nothing from this one.' : '';
+  // A task's /sf-task turn goes on after a submission that waits for the person's approval (task-turn.mjs) [ITW:REQ-008].
+  const goesOn = task ? ' When SFlow\'s note after this command says this /sf-task turn goes on, do /sf-task\'s step 1 again now. Otherwise' : '';
   return {
-    instruction: `${done} End the reply with this next action: its reason, then its Copilot, Shell and VS Code (model-free) routes in that order, saying "not available for this action" for a missing one.${chat} Fields after this one describe the check before the step ran.`,
+    instruction: `${done}${goesOn} ${task ? 'end' : 'End'} the reply with this next action: its reason, then its Copilot, Shell and VS Code (model-free) routes in that order, saying "not available for this action" for a missing one.${chat} Fields after this one describe the check before the step ran.`,
     ...(continuation?.contextBoundary ? { contextBoundary: continuation.contextBoundary } : {}),
     reason: action?.reason ?? null,
     commandGuidance: action ? { copilotCommand: continuation.copilotCommand ?? null,

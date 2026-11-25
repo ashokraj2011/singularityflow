@@ -24,6 +24,12 @@ import {
   phaseSubmissionPresentation, stepActionHoldLabel, storyArtifactPublicationLabel
 } from './submission-presentation.ts';
 import { routedCommandGuidance } from '../copilot-command.ts';
+import { withTaskRoute } from '../../../../src/safe-command-guidance.mjs';
+
+/** A Story's next action as the Journey shows it: on a task's Story, /sf-task for the turns it takes. */
+function storyNextAction<T extends { skill: string; copilotCommand: string }>(workflow: StoryWorkflow, action: T | null): T | null {
+  return action ? withTaskRoute(workflow, action) : null;
+}
 
 export interface JourneyApproval {
   actor: string;
@@ -306,7 +312,9 @@ function storyJourneyOf(
     blockers: [],
     // No phase gate runs for this view, so the absence of blockers says nothing about readiness.
     gateEvaluated: false,
-    nextAction: pending && decisionRoutes
+    // A task's Story is carried on by /sf-task in the same chat [ITW:REQ-008]: the route list and the Generate button name
+    // it for every turn /sf-task takes (withTaskRoute); its Shell route and skill stay the step's own. A classic Story's stay.
+    nextAction: storyNextAction(workflow, pending && decisionRoutes
       ? {
           command: decisionRoutes.command,
           executable: decisionRoutes.executable,
@@ -388,7 +396,7 @@ function storyJourneyOf(
               label: `Go on with ${currentStage?.label ?? 'the current phase'}`,
               execution: 'prefill', skill: actionRoutes.skill
             }
-        : null,
+        : null),
     decision: pending,
     decisionAhead,
     pending: pendingListOf(snapshot),

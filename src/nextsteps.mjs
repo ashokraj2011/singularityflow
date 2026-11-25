@@ -6,7 +6,7 @@ import { phasePublicationCommandForMode } from './sequence.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
-import { commandRouteLines, safeCommandGuidance, taskDoneRoute, withTaskRoutes } from './safe-command-guidance.mjs';
+import { commandRouteLines, isTaskStory, safeCommandGuidance, TASK_ROUTE, taskDoneRoute, withTaskRoutes } from './safe-command-guidance.mjs';
 import { generationSkillForPhase, applicationReviewOffer, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommandForProducer
@@ -538,6 +538,8 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     branch: workflow.workItem.branch,
     workId: workflow.workItem.id,
     workType: workflow.workItem.workType,
+    // Its guided router is /sf-task too [ITW:REQ-008].
+    ...(isTaskStory(workflow) ? { task: true } : {}),
     currentPhase: workflow.currentPhase,
     modelMode: modelMode.enabled ? 'auto' : 'disabled',
     recovery: recovery?.requiresRecovery ? recovery : null,
@@ -564,7 +566,8 @@ export function nextStepsText(snapshot) {
     snapshot.done ? CLOSED_STORY : null,
     snapshot.branch ? `Branch: ${snapshot.branch}` : null,
     snapshot.currentPhase ? `Current phase: ${snapshot.currentPhase}` : null,
-    ...(snapshot.workId ? ['Guided router:', ...commandRouteLines(safeCommandGuidance('singularity-flow next'))] : []),
+    ...(snapshot.workId ? ['Guided router:', ...commandRouteLines(safeCommandGuidance(snapshot.task ? { command: 'singularity-flow next', copilotCommand: TASK_ROUTE }
+      : 'singularity-flow next'))] : []),
     ...(snapshot.pending?.open ? [`Open on the decision list: ${snapshot.pending.open} — first: ${snapshot.pending.next.title} (${snapshot.pending.command})`] : []),
     ''
   ].filter((line) => line !== null);

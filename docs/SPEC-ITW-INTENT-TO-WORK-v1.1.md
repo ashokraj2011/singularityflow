@@ -151,6 +151,20 @@ proposal.
   - An answer or approval given in the chat continues in the same turn.
   - An approval given on the VS Code approval page or Decide card sends the continue line into the chat itself.
 - No step needs a typed step ID, hash or "resume". `/sf-task` with no words is only for coming back later.
+- Built 2026-11-26: the `/sf-task` turn that ran `work … --start` goes on into the new Story's first step (the intake's
+  question, then its writing) with nothing typed; the step's own work goes on, once its submission waits for a person's
+  approval, into that approval's question, as the approval-only turn of that step; and the approval-only turn goes on,
+  after the person's own Yes in the chat is recorded, with the next step's work or the next approval question. The
+  after-tool hook records the same turn again as that next action's, as if `/sf-task` were typed, once the Story shows
+  what the call did: a task's Story created in this checkout during the turn, the step the turn was bound to submitted
+  during it and waiting for a person, or that step approved by an approval recorded during it (`src/task-turn.mjs`
+  taskTurnContinuation, `copilot-repository-boundary.mjs` carryTaskTurn). Nothing is written or approved under the next
+  action's rules before that, the host's word that a command succeeded counts for nothing, and the new turn's answers
+  start afresh, so no answer given before decides the approval and the Yes approves nothing more. A decision or a return
+  is still the person's on its card. When the task's last step completes, what the task did (`work status`) is said in
+  the same turn. A classic Story, and a turn typed as `/sf-approve` or `/sf-next`, end as before; so does a step SFlow
+  approves itself before the last (decision 7), which a change or a feature has. VS Code's Journey (its route list and
+  Generate button) and nextsteps' guided router name `/sf-task` on a task's Story.
 
 **ITW:REQ-009, changing the plan.**
 - "Add a design step" or "skip the plan" re-composes the steps from the current one forward. Done steps stay, and the
@@ -366,7 +380,11 @@ These already hold in SFlow, and `/sf-task` keeps them:
   request" opens it. The Story fuzzer composes tasks of every kind, and the invariant checks hold.
 - **A11:** A fix takes four person actions: the words, the intake's one question (the intake always asks), the plan
   approval (a fix's intake is its plan) and the code approval. Every other kind also asks a person for exactly two
-  approvals. Measured by test/journey-tasks.test.mjs (2026-11-25).
+  approvals. Measured by test/journey-tasks.test.mjs (2026-11-25). Built 2026-11-26: those four are all a person does on
+  a fix, in one chat with nothing else typed: the start goes on into the intake, each submission into its approval
+  question, each Yes into the next step, and the last step's completion into what the task did
+  (test/task-turn-carry.test.mjs, through the real hooks). The route follower still types `/sf-task` between turns, so
+  the journeys' counts are unchanged.
 - **A12:** "Fix it" after an investigation starts a fix whose intake is the report. No question is asked twice.
 - **A13:** A refactor that changes the order of two errors stops at its test step and names the change. A refactor with
   every check unchanged ends by listing the checks that ran.
@@ -378,7 +396,9 @@ These already hold in SFlow, and `/sf-task` keeps them:
   - an edit to the spec while the task runs does not change it;
   - the next stop says a newer version exists.
 - **A17:** On the VS Code approval page, Yes continues the chat with nothing typed. In the Copilot CLI, a yes in the
-  chat continues in the same turn.
+  chat continues in the same turn. (Built 2026-11-26: the submission's turn asks the approval in the chat, and once it is
+  recorded the `/sf-task` turn is bound to the next step's work or approval question; the approval's result no longer
+  says "End this turn" on a task's Story; test/task-turn-carry.test.mjs.)
 - **A18:** A task with five automatic approvals and twelve passing checks shows one line per finished step and nothing
   else.
 - **A19:** An unrelated second request in the same chat starts a new task. The first task's approvals are not reused.

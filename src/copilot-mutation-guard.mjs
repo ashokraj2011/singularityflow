@@ -540,6 +540,20 @@ export async function turnReturnedPaths(payload) {
     .filter(entry => typeof entry === 'string' && path.isAbsolute(entry));
 }
 
+/**
+ * This session's mutation record and the SFlow commands a finished tool call ran, one verified argv each, read as this
+ * turn's guard reads them (a `cd <checkout> &&` prefix only for its own checkout). For the after-tool hook, where a
+ * `/sf-task` turn carries its task on (task-turn.mjs taskTurnContinuation). Files only; null without a record.
+ */
+export async function turnRanCommands(payload) {
+  const file = recordFile(payload ?? {});
+  const value = file ? await boundedRecord(file).catch(() => null) : null;
+  if (!value) return null;
+  const commands = calls(payload).filter(call => TERMINALS.has(call.name)).map(call => verifiedShellForm(call, value))
+    .filter(Boolean).map(safe => parseCli(safe.argv));
+  return { value, commands };
+}
+
 /** One reader classification for permission interception and native failure handling. */
 export function nativeFileReadCalls(payload) {
   return calls(payload).filter(call => FILE_READS.has(call.name)).map(call => ({ ...call, paths: targets(call.args) }));

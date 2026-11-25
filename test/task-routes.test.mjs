@@ -88,14 +88,27 @@ test('a task keeps its chat: no /clear or new chat between its steps, and the ap
   assert.deepEqual([handoff.mode, handoff.commands], ['keep', [TASK_ROUTE]]);
   const approved = (contextBoundary) => agentAct(approvalAgentResult({ operation: { id: 'approve' }, subject: { kind: 'story', id: 'TASK-1' },
     outcome: { status: 'succeeded' }, effects: {}, data: { contextBoundary } }));
-  const said = approved(handoff).said;
-  assert.match(said, /Name the next step for the person: \/sf-task \(implementation\), typed in this chat\. Offer no other route\./u);
-  assert.doesNotMatch(said, /\/clear|new chat/u);
+  const act = approved(handoff);
+  const said = act.said;
+  // In the chat a /sf-task turn goes on with it once SFlow binds the turn there (task-turn-carry.test.mjs) [A17]; never "End this turn".
+  assert.match(said, /^Approved; implementation is next\. When SFlow's note after this command says this \/sf-task turn goes on, do \/sf-task's step 1 again now; otherwise name \/sf-task, typed in this chat, as the next step\./u);
+  assert.deepEqual([act.state, act.do.copilot], ['next', TASK_ROUTE]);
+  assert.doesNotMatch(said, /\/clear|new chat|End this turn/u);
   assert.match(approved(contextBoundaryHandoff(pinned, 'intake', { nextPhase: 'implementation', nextSkill: '/sf-code' })).said,
     /the one next step is \/clear, then \/sf-code \(implementation\)/u, 'a classic Story keeps its pinned reset');
   // After a step's submission: /sf-task in this chat, never "a new chat"; a classic approval keeps its fresh-chat advice.
   const after = (copilotCommand) => nextAfterStep({ continuation: { copilotCommand, nextCommand: APPROVE, nextAction: { reason: 'Approve it.' } } }, 'Submitted.').instruction;
   assert.match(after(TASK_ROUTE), /Say the person types \/sf-task in this chat to carry the task on\./u);
+  // In a /sf-task turn the submission goes on into the approval question once SFlow says so (task-turn-carry.test.mjs).
+  assert.match(after(TASK_ROUTE), /^Submitted\. When SFlow's note after this command says this \/sf-task turn goes on, do \/sf-task's step 1 again now\. Otherwise end the reply/u);
+  assert.match(after('/sf-approve intake --work-id S-1'), /^Submitted\. End the reply with this next action/u);
+  // The task's last step completed: what the task did is said in this same turn, never "End this turn".
+  const last = (copilotCommand, nextCommand) => agentAct({ submitIfReady: { submitted: true, result: { status: 'completed', phase: 'verification' },
+    next: nextAfterStep({ continuation: { copilotCommand, nextCommand, nextAction: { reason: 'See what the task did.' } } }, 'Submitted.') } });
+  const finished = last(TASK_ROUTE, 'singularity-flow work status TASK-1');
+  assert.deepEqual([finished.state, finished.do.shell, finished.do.copilot], ['read', 'singularity-flow work status TASK-1', TASK_ROUTE]);
+  assert.match(finished.said, /^Submitted, and that completed verification, the task's last step\. Run do\.shell now, in this turn/u);
+  assert.equal(last('/sf-nextsteps', 'singularity-flow nextsteps').state, 'end-turn', 'a classic Story\'s last step ends the turn as before');
   assert.doesNotMatch(after(TASK_ROUTE), /new chat/u);
   assert.match(after('/sf-approve intake --work-id S-1'), /Say to run it in a new chat: it needs nothing from this one\./u);
 });

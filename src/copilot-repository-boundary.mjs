@@ -5,7 +5,8 @@ import { lstat, mkdir, readFile, rename, rm, stat as fileStat, unlink, writeFile
 import os from 'node:os';
 import path from 'node:path';
 import { codePageSafeJson } from './code-page-safe-json.mjs';
-import { copilotModeFile, copilotTurnDirectory, hookCliLine, mentionsHookCli, readCopilotMode, TURN_WINDOW_MS, turnWindowStart, withTurnRenewal } from './copilot-mode.mjs';
+import { copilotModeFile, copilotTurnDirectory, hookCliLine, mentionsHookCli, readCopilotMode, readTurnRenewal, TURN_WINDOW_MS, turnRenewalFile, turnWindowStart,
+  withTurnRenewal } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { nearestNames, platformPathWithin, sentenceList } from './util.mjs';
@@ -340,6 +341,15 @@ async function notePlainChatPrompt(payload, { skill, paused, now }) {
   } catch { return null; }
 }
 
+/** A session's turn record, written aside and renamed into place: a reader sees the old record or the new one whole. */
+async function writeTurnRecord(file, record) {
+  const temporary = path.join(path.dirname(file), `.${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
+    await rename(temporary, file);
+  } finally { await removeRecord(temporary); }
+}
+
 async function recordTurn(payload, { now = Date.now(), captureMutation = null, reviewerSubagent = false }) {
   await removeRecord(path.join(path.dirname(copilotModeFile()), 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER))
     .catch(() => {});
@@ -404,11 +414,7 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null, r
     ...(confirm?.code ? { confirmCode: confirm.code } : {}),
     ...(sourceReviewCompletionRequested(payload.prompt) ? { reviewCompletionRequested: true } : {}),
     ...(workflowTaskCompletionRequested(payload.prompt) ? { taskCompletionRequested: true } : {}) };
-  const temporary = path.join(directory, `.${randomUUID()}.tmp`);
-  try {
-    await writeFile(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
-    await rename(temporary, file);
-  } finally { await removeRecord(temporary); }
+  await writeTurnRecord(file, record);
   // What a person typed after a step's writer (/sf-code, /sf-phase or a configured author), redacted [SCS:REQ-040]: handed to the Story's own
   // local record once the turn's Story is known, never kept in this turn record. The turns are the alias table's.
   const typed = ASKED_FOR_SKILLS.includes(skill)
@@ -510,7 +516,44 @@ export async function repositoryPostToolGuard(payload = {}) {
   try { answer = await (await import('./copilot-mutation-guard.mjs')).mutationPostToolGuard(payload); }
   catch { const refusal = boundaryGuardUnavailable(); answer = { ...refusal, continue: false, additionalContext: refusal.permissionDecisionReason }; }
   answer = withReviewerFallback(answer, launched);
+  answer = await carryTaskTurn(payload, answer);
   return unread ? unread.withUnreadResult(answer, unread.context) : answer;
+}
+
+const TASK_SKILLS = new Set(['sf-task', 'sflow-task']);
+
+/**
+ * A `/sf-task` turn carries its task on with nothing typed [ITW:REQ-008, A11, A17]: after a start it ran, into the new
+ * Story's first step; after a step's submission, into the person's approval of it; and after the person's Yes it
+ * recorded, into the next step's work or approval question. Which, and whether, the Story decides (task-turn.mjs
+ * taskTurnContinuation). The session's turn is then recorded again as that next action's, exactly as the prompt hook
+ * records `/sf-task` typed on a bound Story, and its contract is captured: the guard binds every later call of this turn
+ * to that Story, step and generation, under that skill's rules. The window stays where the person's prompt or last answer
+ * put it, and a new turn ID starts its answers afresh, so no answer given before decides anything after. No other call changes a turn's mode mid-turn. One string test for any other call; a failure keeps the turn.
+ */
+async function carryTaskTurn(payload, answer) {
+  if (answer?.continue === false) return answer;
+  const text = JSON.stringify(payload.toolCalls ?? payload.toolArgs ?? payload.tool_input ?? '');
+  if (!/(?:singularity-flow|sflow)\b/u.test(text) || !/\b(?:work|approve|submit)\b/u.test(text)) return answer;
+  try {
+    const turn = await currentTurn(payload);
+    if (!turn || !TASK_SKILLS.has(turn.typedSkill ?? turn.skill)) return answer;
+    const guard = await import('./copilot-mutation-guard.mjs');
+    const next = await (await import('./task-turn.mjs')).taskTurnContinuation(payload, { turn, ran: await guard.turnRanCommands(payload) });
+    if (!next) return answer;
+    const file = recordPath(payload);
+    const noted = await readTurnRenewal(turnRenewalFile(file));
+    const renewedAt = noted?.turnId === turn.turnId && noted.sessionId === turn.sessionId && Number.isFinite(noted.renewedAt)
+      && noted.renewedAt <= Date.now() ? noted.renewedAt : turn.recordedAt;
+    const record = { schemaVersion: currentSchemaVersion(FAMILY), sessionId: turn.sessionId, skill: next.skill, turnId: randomUUID(),
+      typedSkill: turn.typedSkill ?? turn.skill, recordedAt: Math.max(turn.recordedAt, renewedAt), modeChangedAt: turn.modeChangedAt };
+    await writeTurnRecord(file, record);
+    const captured = await guard.captureMutationTurn(payload, record);
+    const said = { start: `SFlow: ${next.workId} started, and this /sf-task turn goes on with it now, under the turn rules below: do /sf-task's step 1 in this turn.`,
+      submission: `SFlow: the step is submitted and waits for the person's approval, and this /sf-task turn goes on with it now, under the turn rules below: do /sf-task's step 1 again in this turn (its question is theirs to answer).`,
+      approval: `SFlow: the approval is recorded, and this /sf-task turn goes on with ${next.workId}'s next action now, under the turn rules below: do /sf-task's step 1 again in this turn.` }[next.reason];
+    return { ...answer, additionalContext: [answer?.additionalContext, said, captured?.additionalContext].filter(Boolean).join(' ') };
+  } catch { return answer; }
 }
 
 /**

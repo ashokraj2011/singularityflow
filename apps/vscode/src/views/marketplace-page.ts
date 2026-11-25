@@ -13,7 +13,7 @@ import { escape } from './webview.ts';
 
 export type MarketplaceStatus = 'installed' | 'update-available' | 'not-installed' | 'local-only' | 'not-approved-yet';
 export type MarketplaceKind = 'skill' | 'agent' | 'workflow' | 'template' | 'mcp-server' | 'generated' | 'marketplace';
-export type MarketplaceAct = 'install' | 'update' | 'remove' | 'open' | 'approve';
+export type MarketplaceAct = 'install' | 'update' | 'remove' | 'open' | 'approve' | 'trust';
 export interface MarketplaceAction { command: string; label: string }
 export interface MarketplaceInstall { as: string; id: string | null; agent: string | null; label: string | null; importKey: string | null; archived: boolean }
 export interface MarketplaceItem {
@@ -21,14 +21,19 @@ export interface MarketplaceItem {
   marketplace: string | null; marketplaceLabel: string | null; marketplaceKind: string | null; version: string | null; installedVersion: string | null;
   lifecycle: string | null; readiness: string | null; tags: string[]; softwareKinds: string[];
   status: MarketplaceStatus; statusWords: string; update: { kind: string; from: string | null; to: string | null; newer: boolean; words: string } | null;
+  /** What changed in a Git repository marketplace's newest commit, once the person checked for newer versions. */
+  newer: { version: string | null; gone: boolean; words: string } | null;
   installedAs: MarketplaceInstall | null; fromAgent: { marketplace: string; agent: string } | null; conflict: { replaces: boolean; words: string } | null;
-  importable: boolean; actions: Partial<Record<'preview' | 'install' | 'update' | 'remove' | 'open' | 'approve', MarketplaceAction>>;
+  importable: boolean; actions: Partial<Record<'preview' | 'install' | 'update' | 'remove' | 'open' | 'approve' | 'trust', MarketplaceAction>>;
 }
-export interface MarketplaceSource { id: string; kind: string; label: string; approved: boolean; read: boolean; items: number; warning?: string; notApproved?: string }
+export interface MarketplaceSource { id: string; kind: string; label: string; approved: boolean; read: boolean; items: number; warning?: string; notApproved?: string;
+  newest?: { checked: boolean; newer: boolean; words: string } }
 export interface MarketplaceCatalog {
   sources: MarketplaceSource[];
   items: MarketplaceItem[];
-  summary: { items: number; byKind: Record<string, number>; byStatus: Record<string, number>; updates: number };
+  summary: { items: number; byKind: Record<string, number>; byStatus: Record<string, number>; updates: number; newer: number };
+  /** Whether this answer read the Git repository marketplaces' newest commits (`--newest`). */
+  newestChecked: boolean;
   warnings: string[];
 }
 
@@ -41,7 +46,7 @@ const STATUSES: MarketplaceStatus[] = ['update-available', 'installed', 'not-ins
 export const STATUS_WORDS: Record<MarketplaceStatus, string> = { installed: 'Installed', 'update-available': 'Update available', 'not-installed': 'Not installed',
   'local-only': 'Only here', 'not-approved-yet': 'Not approved yet' };
 const KINDS: MarketplaceKind[] = ['skill', 'agent', 'workflow', 'template', 'mcp-server', 'generated', 'marketplace'];
-const ACTIONS = ['preview', 'install', 'update', 'remove', 'open', 'approve'] as const;
+const ACTIONS = ['preview', 'install', 'update', 'remove', 'open', 'approve', 'trust'] as const;
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item) => typeof item === 'string').map(String) : []);
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
@@ -58,13 +63,16 @@ export function marketplaceCatalogFrom(value: unknown): MarketplaceCatalog | nul
   return {
     sources: records(data.sources).map((source) => ({ id: text(source.id), kind: text(source.kind), label: text(source.label) || text(source.id),
       approved: source.approved !== false, read: source.read === true, items: Number(source.items) || 0,
-      ...(typeof source.warning === 'string' ? { warning: source.warning } : {}), ...(typeof source.notApproved === 'string' ? { notApproved: source.notApproved } : {}) })),
+      ...(typeof source.warning === 'string' ? { warning: source.warning } : {}), ...(typeof source.notApproved === 'string' ? { notApproved: source.notApproved } : {}),
+      ...(source.newest && typeof record(source.newest).words === 'string' ? { newest: { checked: record(source.newest).checked === true,
+        newer: record(source.newest).newer === true, words: text(record(source.newest).words) } } : {}) })),
     items: records(data.items).filter((item) => typeof item.key === 'string' && typeof item.id === 'string' && KINDS.includes(item.kind as MarketplaceKind)
       && STATUSES.includes(item.status as MarketplaceStatus)).map((item) => {
       const update = record(item.update);
       const installed = record(item.installedAs);
       const fromAgent = record(item.fromAgent);
       const conflict = record(item.conflict);
+      const newer = record(item.newer);
       const actions = record(item.actions);
       return {
         key: text(item.key), kind: item.kind as MarketplaceKind, id: text(item.id), name: text(item.name) || text(item.id), description: text(item.description),
@@ -73,6 +81,7 @@ export function marketplaceCatalogFrom(value: unknown): MarketplaceCatalog | nul
         lifecycle: textOrNull(item.lifecycle), readiness: textOrNull(item.readiness), tags: strings(item.tags), softwareKinds: strings(item.softwareKinds),
         status: item.status as MarketplaceStatus, statusWords: text(item.statusWords),
         update: item.update ? { kind: text(update.kind), from: textOrNull(update.from), to: textOrNull(update.to), newer: update.newer === true, words: text(update.words) } : null,
+        newer: typeof newer.words === 'string' && newer.words ? { version: textOrNull(newer.version), gone: newer.gone === true, words: newer.words } : null,
         installedAs: item.installedAs ? { as: text(installed.as), id: textOrNull(installed.id), agent: textOrNull(installed.agent), label: textOrNull(installed.label),
           importKey: textOrNull(installed.importKey), archived: installed.archived === true } : null,
         fromAgent: typeof fromAgent.marketplace === 'string' && typeof fromAgent.agent === 'string' ? { marketplace: fromAgent.marketplace, agent: fromAgent.agent } : null,
@@ -82,7 +91,9 @@ export function marketplaceCatalogFrom(value: unknown): MarketplaceCatalog | nul
           .map((name) => [name, { command: text(record(actions[name]).command), label: text(record(actions[name]).label) }]))
       };
     }),
-    summary: { items: Number(summary.items) || 0, byKind: counts(summary.byKind), byStatus: counts(summary.byStatus), updates: Number(summary.updates) || 0 },
+    summary: { items: Number(summary.items) || 0, byKind: counts(summary.byKind), byStatus: counts(summary.byStatus), updates: Number(summary.updates) || 0,
+      newer: Number(summary.newer) || 0 },
+    newestChecked: record(data.filters).newest === true,
     warnings: strings(data.warnings)
   };
 }
@@ -100,6 +111,14 @@ export function studioTargetFor(act: MarketplaceAct, item: MarketplaceItem): Stu
   const reference = item.marketplace ? `market:${item.marketplace}/${item.id}` : null;
   if (act === 'approve') {
     return item.status === 'not-approved-yet' && item.actions.approve ? { studio: { view: 'changes' }, notice: `Workflow Studio's Changes shows the change that trusts ${item.name}.` } : null;
+  }
+  // Newer in a Git repository marketplace's newest commit: Studio's Read its newest commit queues trusting it, reviewed;
+  // once that is approved, the item shows its Update here.
+  if (act === 'trust') {
+    if (!item.newer || item.newer.gone || !item.actions.trust || !item.marketplace || item.marketplaceKind !== 'repository') return null;
+    const market = item.marketplaceLabel ?? item.marketplace;
+    return { studio: { view: 'library', marketplaceRead: item.marketplace },
+      notice: `Workflow Studio reads ${market}'s newest commit and adds trusting it to your changes. Publish it; once approved, Update shows here.` };
   }
   if (act === 'install') {
     // An MCP server is added for the agents that may use its tools: Studio's preview shows them and asks which.
@@ -161,7 +180,7 @@ export function studioTargetFor(act: MarketplaceAct, item: MarketplaceItem): Stu
 
 const BUTTONS: readonly { act: MarketplaceAct; words: string; primary: boolean }[] = [
   { act: 'install', words: 'Install…', primary: true }, { act: 'update', words: 'Update…', primary: true },
-  { act: 'open', words: 'Open', primary: false }, { act: 'remove', words: 'Remove…', primary: false }];
+  { act: 'trust', words: 'Get newer…', primary: false }, { act: 'open', words: 'Open', primary: false }, { act: 'remove', words: 'Remove…', primary: false }];
 
 function buttonsHtml(item: MarketplaceItem): string {
   return BUTTONS.filter((button) => studioTargetFor(button.act, item)).map((button) => `<button type="button" ${button.primary ? '' : 'class="secondary" '}data-act="${button.act}" data-key="${escape(item.key)}"
@@ -191,7 +210,7 @@ function rowHtml(item: MarketplaceItem, index: number): string {
   <td>${escape(versionWords(item))}</td>
   <td>${escape(item.lifecycle ?? '')}</td>
   <td><span class="mkt-badge mkt-${escape(item.status)}">${escape(STATUS_WORDS[item.status])}</span>${item.status === 'installed' && !item.statusWords.includes('could not be read') ? ''
-    : `<div class="mkt-words">${escape(item.statusWords)}</div>`}</td>
+    : `<div class="mkt-words">${escape(item.statusWords)}</div>`}${item.newer ? `<div class="mkt-words mkt-newer">${escape(item.newer.words)}</div>` : ''}</td>
   <td class="mkt-actions">${buttonsHtml(item)}</td>
 </tr>`;
 }
@@ -205,8 +224,10 @@ function summaryHtml(catalog: MarketplaceCatalog): string {
   const tiles = STATUSES.filter((status) => status !== 'not-approved-yet').map((status) => `<div class="mkt-tile mkt-tile-${status}"><strong>${
     escape(String(catalog.summary.byStatus[status] ?? 0))}</strong><span>${escape(STATUS_WORDS[status])}</span></div>`).join('');
   const sources = catalog.sources.filter((source) => source.approved).map((source) => `<li>${escape(source.label)}: ${source.read
-    ? escape(plural(source.items, 'item')) : '<span class="mkt-warn">not read</span>'}${source.notApproved ? ` <span class="mkt-dim">${escape(source.notApproved)}</span>` : ''}</li>`).join('');
-  return `<section class="mkt-summary" aria-label="Summary"><div class="mkt-tiles">${tiles}</div>
+    ? escape(plural(source.items, 'item')) : '<span class="mkt-warn">not read</span>'}${source.notApproved ? ` <span class="mkt-dim">${escape(source.notApproved)}</span>` : ''}${
+    source.newest ? ` <span class="${source.newest.newer ? 'mkt-newer' : 'mkt-dim'}">${escape(source.newest.words)}</span>` : ''}</li>`).join('');
+  const newer = catalog.newestChecked && catalog.summary.newer ? `<div class="mkt-tile mkt-tile-newer"><strong>${escape(String(catalog.summary.newer))}</strong><span>Newer in a newest commit</span></div>` : '';
+  return `<section class="mkt-summary" aria-label="Summary"><div class="mkt-tiles">${tiles}${newer}</div>
   <p class="mkt-dim">This is what Stories use now: an install, update or removal shows here once its change is approved.</p>${sources
     ? `<ul class="mkt-sources" aria-label="Trusted marketplaces">${sources}</ul>` : '<p class="mkt-dim">This repository trusts no marketplace yet. Trust one in Workflow Studio\'s Library.</p>'}</section>`;
 }
@@ -220,10 +241,14 @@ function pendingHtml(catalog: MarketplaceCatalog): string {
 }
 
 export function marketplacePageHtml({ catalog, busy, error, notice }: { catalog: MarketplaceCatalog | null; busy: boolean; error: string | null; notice: string | null }): string {
+  // Reading a Git repository marketplace's newest commit is a network read: only when the person asks, never on open.
+  const repositories = (catalog?.sources ?? []).some((source) => source.approved && source.read && source.kind === 'repository');
   const header = `<header class="mkt-bar"><h1>Marketplace</h1>
     <span class="mkt-lede">Skills, agents and workflows from the marketplaces this repository trusts, and what is installed here.</span>
     <button type="button" class="secondary" data-all-skills>All skills</button>
     <button type="button" class="secondary" data-studio>Workflow Studio</button>
+    ${repositories ? `<button type="button" class="secondary" data-newest ${busy ? 'disabled' : ''} title="Reads each Git repository marketplace's newest commit and says what is newer there">${
+    catalog?.newestChecked ? 'Check again for newer versions' : 'Check for newer versions'}</button>` : ''}
     <button type="button" data-refresh ${busy ? 'disabled' : ''}>${busy ? 'Reading…' : 'Refresh'}</button></header>`;
   const messages = `${notice ? `<p class="mkt-notice" role="status">${escape(notice)}</p>` : ''}${error ? `<p class="mkt-error" role="alert">${escape(error)}</p>` : ''}${(catalog?.warnings ?? [])
     .map((warning) => `<p class="mkt-notice mkt-warn">${escape(warning)}</p>`).join('')}`;
@@ -300,6 +325,8 @@ export const MARKETPLACE_STYLE = `
 .mkt-not-installed { color: var(--vscode-descriptionForeground); }
 .mkt-local-only { color: var(--vscode-textLink-foreground, var(--vscode-foreground)); }
 .mkt-not-approved-yet { color: var(--vscode-editorWarning-foreground, var(--vscode-foreground)); }
+.mkt-newer { color: var(--vscode-textLink-foreground, var(--vscode-foreground)); }
+.mkt-tile-newer { border-color: var(--vscode-textLink-foreground, var(--vscode-panel-border)); }
 .mkt-actions { white-space: nowrap; }
 .mkt-actions button { margin: 0 4px 4px 0; }
 `;
@@ -381,11 +408,12 @@ export const MARKETPLACE_SCRIPT = String.raw`
     if (next) { event.preventDefault(); choose(next, true); }
   });
   document.addEventListener('click', function (event) {
-    var target = event.target.closest('[role="tab"],[data-act],[data-refresh],[data-all-skills],[data-studio],[data-clear]');
+    var target = event.target.closest('[role="tab"],[data-act],[data-refresh],[data-newest],[data-all-skills],[data-studio],[data-clear]');
     if (!target || target.disabled) return;
     if (target.getAttribute('role') === 'tab') choose(target, false);
     else if (target.dataset.act) api.postMessage({ type: 'marketplace.' + target.dataset.act, key: target.dataset.key });
     else if (target.hasAttribute('data-refresh')) api.postMessage({ type: 'marketplace.refresh' });
+    else if (target.hasAttribute('data-newest')) api.postMessage({ type: 'marketplace.newest' });
     else if (target.hasAttribute('data-all-skills')) api.postMessage({ type: 'marketplace.allSkills' });
     else if (target.hasAttribute('data-studio')) api.postMessage({ type: 'marketplace.studio' });
     else if (target.hasAttribute('data-clear')) { state.filters = {}; FILTERS.forEach(function (name) { var input = control(name); if (input) input.value = ''; }); apply(); }

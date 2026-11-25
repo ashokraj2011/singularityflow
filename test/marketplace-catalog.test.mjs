@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import YAML from 'yaml';
 
-import { analyzeMarketplaceCatalog, CATALOG_STATUSES, indexItems, marketplaceCatalogLines, repositoryItems } from '../src/marketplace-catalog.mjs';
+import { analyzeMarketplaceCatalog, CATALOG_STATUSES, indexItems, marketplaceCatalogLines, newerInNewest, repositoryItems } from '../src/marketplace-catalog.mjs';
 import { journeyRepository } from './helpers/route-follower.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -227,6 +227,61 @@ test('kind, marketplace and words narrow the page; the terminal shows the previe
   assert.doesNotMatch(lines.join('\n'), /[0-9a-f]{40}/u, 'no commit and no hash in a terminal');
 });
 
+test('--newest: each item says what is newer in its marketplace\'s newest commit, with the reviewed change that trusts that commit', () => {
+  const input = sample();
+  const acme = input.marketplaces[0];
+  Object.assign(acme, { repository: 'https://git.example.com/acme/sdlc-marketplace.git', ref: 'main' });
+  const skills = [
+    { name: 'requirements-writer', version: '1.3.0', description: 'Numbered requirements.', tags: ['requirements', 'ga'], pdlcTasks: ['requirements-analysis'], lifecycleState: 'approved', sha256: '7'.repeat(64) },
+    { name: 'web-e2e-test-generation', version: '1.0.0', description: 'Playwright tests.', tags: ['web'], pdlcTasks: ['e2e-testing'], lifecycleState: 'approved', sha256: '2'.repeat(64) },
+    { name: 'web-xray-creation', version: '1.0.0', description: 'Xray cases.', tags: ['web'], pdlcTasks: [], lifecycleState: 'proposed', sha256: 'c'.repeat(64) },
+    { name: 'android-checks', version: '0.1.0', description: 'New here.', tags: [], pdlcTasks: [], lifecycleState: 'proposed', sha256: 'f'.repeat(64) }];
+  acme.newest = { items: repositoryItems({ skills, agents: [
+    { name: 'qa-agent', version: '1.2.0', description: 'QA.', tags: ['web'], lifecycleState: 'approved', skills: ['web-xray-creation'], text: 'agent text, clearer', manifestSha256: '6'.repeat(64) },
+    { name: 'product-agent', version: '1.0.0', description: 'Product.', tags: [], lifecycleState: 'deprecated', skills: [], text: 'product text', manifestSha256: 'd'.repeat(64) }] }) };
+  const catalog = JSON.parse(JSON.stringify(analyzeMarketplaceCatalog({ ...input, newest: true })));
+  const byKey = new Map(catalog.items.map((item) => [item.key, item]));
+  const trust = 'singularity-flow marketplace add acme --repo "https://git.example.com/acme/sdlc-marketplace.git" --ref main --propose';
+  // A newer version: said, with the change that trusts that commit; the status stays what the trusted commit says.
+  const requirements = byKey.get('market:acme/skill/requirements-writer');
+  assert.deepEqual([requirements.status, requirements.newer], ['update-available', { version: '1.3.0', gone: false, words: 'Newer version 1.3.0 in the marketplace\'s newest commit.' }]);
+  assert.equal(requirements.actions.trust.command, trust);
+  // Unchanged there: nothing said, no trust action.
+  assert.equal(byKey.get('market:acme/skill/web-e2e-test-generation').newer, undefined);
+  assert.equal(byKey.get('market:acme/skill/web-e2e-test-generation').actions.trust, undefined);
+  // An agent: what it uses that changed, and its workflow here says the same.
+  const qa = byKey.get('market:acme/agent/qa-agent');
+  assert.equal(qa.newer.words, 'Newer version 1.2.0 in the marketplace\'s newest commit: agent.md changed.');
+  assert.deepEqual([byKey.get('here:workflow:qa-flow').newer, byKey.get('here:workflow:qa-flow').actions.trust.command], [qa.newer, trust]);
+  // Gone at the newest commit: said, and nothing to trust for it.
+  assert.deepEqual([byKey.get('market:acme/skill/house-style').newer.gone, byKey.get('market:acme/skill/house-style').actions.trust], [true, undefined]);
+  // The marketplace: what its newest commit changes, and the one command that trusts it.
+  const source = catalog.sources.find((entry) => entry.id === 'acme');
+  assert.deepEqual([source.newest.checked, source.newest.newer, source.newest.changed, source.newest.added], [true, true, 2, ['android-checks']]);
+  assert.equal(source.newest.words, 'Its newest commit is newer than the one trusted here: 2 items changed, new there: android-checks and 1 item no longer there.');
+  assert.equal(source.newest.action.command, trust);
+  assert.deepEqual([catalog.summary.newer, catalog.filters.newest], [3, true]);
+  assert.equal(catalog.sources.find((entry) => entry.id === 'shared').newest, undefined, 'an index is always read at its newest');
+  assert.doesNotMatch(JSON.stringify(catalog), COMMIT);
+  assertWholeCommands(catalog);
+  // The same commit: nothing newer. Unreadable: a warning with no commit, and the page still lists the trusted items.
+  acme.newest = { same: true };
+  const same = analyzeMarketplaceCatalog({ ...input, newest: true });
+  assert.deepEqual([same.sources.find((entry) => entry.id === 'acme').newest.words, same.summary.newer], ['Its newest commit is the one trusted here.', 0]);
+  acme.newest = { error: 'The newest commit of marketplace Acme (acme) could not be read, so whether it has newer versions is not known: Git said: offline.' };
+  const offline = analyzeMarketplaceCatalog({ ...input, newest: true });
+  assert.ok(offline.warnings.includes(acme.newest.error));
+  assert.equal(offline.items.find((item) => item.key === 'market:acme/skill/requirements-writer').status, 'update-available');
+  // The terminal: each newer item, the marketplace's line with its trust command; without --newest, how to ask.
+  const lines = marketplaceCatalogLines(catalog);
+  assert.ok(lines.some((line) => line.trim() === 'Newer: Newer version 1.3.0 in the marketplace\'s newest commit.'));
+  assert.ok(lines.includes(`Marketplace Acme: ${source.newest.words} Trust it, then update: ${trust}`));
+  assert.ok(marketplaceCatalogLines(analyzeMarketplaceCatalog(sample())).includes(
+    'Newer commits than the ones trusted are not read here; to see what changed there: singularity-flow marketplace catalog --newest'));
+  assert.equal(newerInNewest({ kind: 'skill', version: '2.0.0', sha256: 'a'.repeat(64) }, { kind: 'skill', version: '1.9.0', sha256: 'b'.repeat(64) }).words,
+    'Version 1.9.0 in the marketplace\'s newest commit.', 'an older version there is not called newer');
+});
+
 // ------------------------------------------------------------------------------------------------ read, as Stories do
 
 /** The fixture marketplace as a Git repository of its own. */
@@ -354,6 +409,29 @@ test('marketplace catalog reads what the approved configuration trusts once per 
   await writeFile(xray, `${await readFile(xray, 'utf8')}\nAlways name the browser and its version in each test case.\n`);
   acme.git('commit', '-qam', 'Requirements and web Xray: clearer');
   const moved = acme.git('rev-parse', 'HEAD');
+  // Before the trust moves, only --newest reads that commit: what is newer there, and the reviewed change that trusts it.
+  const plain = JSON.parse(story.cli('marketplace', 'catalog', '--json'));
+  assert.deepEqual([plain.items.filter((item) => item.newer).length, plain.sources.find((source) => source.id === 'acme').newest], [0, undefined]);
+  const checked = JSON.parse(story.cli('marketplace', 'catalog', '--newest', '--json'));
+  const newer = new Map(checked.items.filter((item) => item.newer).map((item) => [item.key, item.newer.words]));
+  assert.deepEqual(Object.fromEntries(newer), {
+    'market:acme/skill/requirements-writer': 'A changed text in the marketplace\'s newest commit.',
+    'market:acme/skill/web-xray-creation': 'A changed text in the marketplace\'s newest commit.',
+    'market:acme/agent/product-agent': 'Skill requirements-writer changed in the marketplace\'s newest commit.',
+    'market:acme/agent/qa-test-automation-agent': 'Skill web-xray-creation changed in the marketplace\'s newest commit.',
+    'here:workflow:chore': 'Skill web-xray-creation changed in the marketplace\'s newest commit.' });
+  const trustCommand = `singularity-flow marketplace add acme --repo ${JSON.stringify(acme.repository)} --propose`;
+  assert.equal(checked.items.find((item) => item.key === 'market:acme/skill/requirements-writer').actions.trust.command, trustCommand);
+  assert.deepEqual(checked.sources.find((source) => source.id === 'acme').newest, { checked: true, newer: true, changed: 4, added: [],
+    words: 'Its newest commit is newer than the one trusted here: 4 items changed.',
+    action: { command: trustCommand, label: 'Propose trusting its newest commit; then update its items here.' } });
+  assert.doesNotMatch(JSON.stringify(checked), COMMIT, 'no commit ID reaches the page, the newest one included');
+  const checkedText = story.cli('marketplace', 'catalog', '--newest');
+  assert.match(checkedText, /^ {6}Newer: A changed text in the marketplace's newest commit\.$/mu);
+  assert.ok(checkedText.includes(`Trust it, then update: ${trustCommand}`));
+  assert.doesNotMatch(checkedText, /[0-9a-f]{40}/u);
+  const flagged = story.raw(['marketplace', 'catalog', '--newest=yes', '--json']);
+  assert.notEqual(flagged.status, 0);
   const trusted = YAML.parse(await story.read('singularity/workflow.yml'));
   trusted.marketplaces.acme.commit = moved;
   await story.write('singularity/workflow.yml', YAML.stringify(trusted));
@@ -369,7 +447,7 @@ test('marketplace catalog reads what the approved configuration trusts once per 
   assert.equal(agent.actions.update.command, 'singularity-flow workflow from-agent acme/qa-test-automation-agent --update --propose');
   assert.equal(after.get('here:workflow:chore').status, 'update-available');
   assert.equal(after.has('marketplace:pending'), false);
-  // One read per commit: the agents and skills of each trusted commit are kept in the clone's Git folder.
+  // One read per commit: the agents and skills of each commit read (the newest one read by --newest is the one now trusted).
   const kept = path.join(story.root, '.git', 'singularity-flow', 'task-marketplace-agents');
   const files = await readdir(kept);
   assert.equal(files.length, 2);

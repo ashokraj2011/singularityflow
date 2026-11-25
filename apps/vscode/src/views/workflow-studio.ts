@@ -178,14 +178,15 @@ const STUDIO_AGENT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /**
  * What All skills and the Marketplace open Studio at: the Library's import preview of one marketplace skill, into the
  * skill master (an update when the library has it), or of an index marketplace's agent, template or MCP server; the
- * Library's entries of one trusted marketplace (Browse, where a generated source is set up); the Skill master searched
+ * Library's entries of one trusted marketplace (Browse, where a generated source is set up), or its Read its newest
+ * commit (to trust a newer commit, reviewed); the Skill master searched
  * for one skill, or asking to delete it; a marketplace agent's conversion review (to make its workflow, or its update);
  * the Library's Remove of one import; or a workflow's Archive or Restore. Each is Studio's own route, checked here; the
  * change is published from Studio as a reviewed proposal.
  */
 export type StudioSkillFocus = { preview: { reference?: unknown; replace?: unknown; as?: unknown } } | { skill: string; remove?: boolean }
   | { agentWorkflow: { target?: unknown; update?: unknown } } | { removeImport: unknown } | { retire: { action?: unknown; selector?: unknown } }
-  | { browse: unknown };
+  | { browse: unknown } | { marketplaceRead: unknown };
 const MARKET_SKILL_REFERENCE = /^market:[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*(?:@[0-9A-Za-z][0-9A-Za-z.+-]{0,63})?$/;
 /** An import's key, as `imports` lists it: kind, then the agent's and the item's IDs. */
 const IMPORT_KEY = /^(?:skill|library-skill|template|agent|mcp-server|generated):[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)?$/;
@@ -204,6 +205,10 @@ function skillFocus(raw: unknown): Record<string, unknown> | null {
   if ('agentWorkflow' in requested) {
     const flow = record(requested.agentWorkflow);
     return typeof flow.target === 'string' && MARKETPLACE_AGENT.test(flow.target) ? { view: 'library', agentWorkflow: { target: flow.target, update: flow.update === true } } : null;
+  }
+  if ('marketplaceRead' in requested) {
+    return typeof requested.marketplaceRead === 'string' && requested.marketplaceRead.length <= 64 && STUDIO_AGENT_ID.test(requested.marketplaceRead)
+      ? { view: 'library', marketplaceRead: requested.marketplaceRead } : null;
   }
   if ('browse' in requested) {
     return typeof requested.browse === 'string' && requested.browse.length <= 64 && STUDIO_AGENT_ID.test(requested.browse) ? { view: 'library', browse: requested.browse } : null;

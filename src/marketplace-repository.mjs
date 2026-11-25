@@ -130,24 +130,37 @@ function documentOf(kind, folder, files) {
  * `documents` names the packages whose agent.md or SKILL.md text is returned (`text`), or is a function of the
  * packages that returns those names; the others carry only the document's path.
  */
+function unreachableMarketplace(marketplace, reason, details = {}) {
+  const label = marketplace.id ? `Marketplace '${marketplace.id}'` : 'The marketplace';
+  const where = marketplace.commit ? `at commit ${marketplace.commit.slice(0, 12)}` : marketplace.ref ? `at ${marketplace.ref}` : 'at its default branch';
+  return fail(`${label} (${marketplace.repository}) cannot be read ${where}: ${reason} Check that this computer can reach it with Git (as a git clone of it would), then run the same command again.`,
+    'MARKETPLACE_REPOSITORY_UNREACHABLE', { repository: marketplace.repository, ref: marketplace.ref ?? null, commit: marketplace.commit ?? null, ...details });
+}
+
+/**
+ * The commit a repository marketplace's `ref` (else its default branch) is at now: one ls-remote, nothing fetched. What
+ * reading it with no commit reads (`marketplace add --repo`, `imports check`'s newest commit), and what `marketplace
+ * catalog --newest` compares with the commit the repository trusts.
+ */
+export async function newestMarketplaceCommit(marketplace) {
+  const label = marketplace.id ? `Marketplace '${marketplace.id}'` : 'The marketplace';
+  const resolved = await remoteRefCommit(marketplace.repository, marketplace.ref ?? null);
+  const stderr = String(resolved.result?.stderr ?? '').trim().split(/\r?\n/u).slice(-1)[0]?.slice(0, 200);
+  if (resolved.ambiguous) {
+    throw fail(`${label}: '${marketplace.ref}' is both a branch and a tag there, at different commits. Use --ref with a name only one of them has.`,
+      'MARKETPLACE_REPOSITORY_REF_AMBIGUOUS', { repository: marketplace.repository, ref: marketplace.ref });
+  }
+  if (!resolved.commit) {
+    throw unreachableMarketplace({ ...marketplace, commit: null }, resolved.result?.status === 0
+      ? `it has no ${marketplace.ref ? `branch or tag '${marketplace.ref}'` : 'default branch'}.` : `Git said: ${stderr || 'nothing'}.`, { stage: 'resolve' });
+  }
+  return resolved.commit;
+}
+
 export async function readMarketplaceRepository(marketplace, { documents = [] } = {}) {
   const label = marketplace.id ? `Marketplace '${marketplace.id}'` : 'The marketplace';
-  const unreachable = (reason, details = {}) => {
-    const where = marketplace.commit ? `at commit ${marketplace.commit.slice(0, 12)}` : marketplace.ref ? `at ${marketplace.ref}` : 'at its default branch';
-    return fail(`${label} (${marketplace.repository}) cannot be read ${where}: ${reason} Check that this computer can reach it with Git (as a git clone of it would), then run the same command again.`,
-      'MARKETPLACE_REPOSITORY_UNREACHABLE', { repository: marketplace.repository, ref: marketplace.ref ?? null, commit: marketplace.commit ?? null, ...details });
-  };
-  let pinned = marketplace.commit ?? null;
-  if (!pinned) {
-    const resolved = await remoteRefCommit(marketplace.repository, marketplace.ref ?? null);
-    const stderr = String(resolved.result?.stderr ?? '').trim().split(/\r?\n/u).slice(-1)[0]?.slice(0, 200);
-    if (resolved.ambiguous) {
-      throw fail(`${label}: '${marketplace.ref}' is both a branch and a tag there, at different commits. Use --ref with a name only one of them has.`,
-        'MARKETPLACE_REPOSITORY_REF_AMBIGUOUS', { repository: marketplace.repository, ref: marketplace.ref });
-    }
-    if (!resolved.commit) throw unreachable(resolved.result?.status === 0 ? `it has no ${marketplace.ref ? `branch or tag '${marketplace.ref}'` : 'default branch'}.` : `Git said: ${stderr || 'nothing'}.`, { stage: 'resolve' });
-    pinned = resolved.commit;
-  }
+  const unreachable = (reason, details = {}) => unreachableMarketplace(marketplace, reason, details);
+  const pinned = marketplace.commit ?? await newestMarketplaceCommit(marketplace);
   let snapshot;
   try {
     snapshot = await withIsolatedGitObjectRepository({ remote: marketplace.repository, expectedCommit: pinned, executables: true, maximumBytes: LIMITS.repositoryBytes }, (root) => {

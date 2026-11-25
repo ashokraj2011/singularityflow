@@ -7570,6 +7570,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         // Marketplace: an agent's conversion review, to make its workflow or to review its update.
         state.view = 'library'; state.returnTo = null;
         previewAgentWorkflow(message.agentWorkflow.target, message.agentWorkflow.target.split('/')[1], {}, message.agentWorkflow.update === true);
+      } else if (message.view === 'library' && typeof message.marketplaceRead === 'string') {
+        // Marketplace: Get newer… is the Library's Read its newest commit, which queues trusting that commit.
+        var reading = (state.model.marketplaces || []).find(function (entry) { return entry.id === message.marketplaceRead && entry.repository; });
+        state.view = 'library'; state.returnTo = null; render();
+        if (reading) readRepositoryMarketplace({ id: reading.id, label: reading.label, repository: reading.repository, ref: reading.ref || '' });
+        else setStatus('This repository no longer trusts marketplace ' + message.marketplaceRead + ' as a Git repository.');
       } else if (message.view === 'library' && typeof message.browse === 'string') {
         // Marketplace: a trusted marketplace's entries, as its Browse lists them (a generated source is set up there).
         var browsing = library(); var browsed = (state.model.marketplaces || []).find(function (entry) { return entry.id === message.browse; });

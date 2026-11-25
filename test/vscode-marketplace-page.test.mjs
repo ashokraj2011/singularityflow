@@ -19,10 +19,16 @@ import { analyzeMarketplaceCatalog, indexItems, repositoryItems } from '../src/m
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(ROOT, relative), 'utf8');
 
-function engineAnswer({ templates = true } = {}) {
+function engineAnswer({ templates = true, newest = false } = {}) {
   return JSON.parse(JSON.stringify(analyzeMarketplaceCatalog({
+    newest,
     marketplaces: [
-      { id: 'acme', label: 'Acme', kind: 'repository', commit: 'e'.repeat(40), warning: null, items: repositoryItems({
+      { id: 'acme', label: 'Acme', kind: 'repository', commit: 'e'.repeat(40), repository: 'https://git.example.com/acme.git', ref: null, warning: null,
+        ...(newest ? { newest: { items: repositoryItems({ skills: [
+          { name: 'requirements-writer', version: '1.2.0', tags: ['ga'], lifecycleState: 'approved', sha256: '1'.repeat(64) },
+          { name: 'web-e2e-test-generation', version: '1.1.0', tags: ['web'], lifecycleState: 'approved', sha256: 'c'.repeat(64) },
+          { name: 'web-xray-creation', version: '1.0.0', tags: ['web'], lifecycleState: 'proposed', sha256: '3'.repeat(64) }], agents: [] }) } } : {}),
+        items: repositoryItems({
         skills: [
           { name: 'requirements-writer', version: '1.2.0', description: 'Numbered requirements <script>alert(1)</script>.', tags: ['ga'], lifecycleState: 'approved', sha256: '1'.repeat(64) },
           { name: 'web-e2e-test-generation', version: '1.0.0', description: 'Playwright tests for web pages.', tags: ['web'], lifecycleState: 'approved', sha256: '2'.repeat(64) },
@@ -103,6 +109,14 @@ test('each status has its buttons, and each button is one of Workflow Studio\'s 
   assert.deepEqual(routes('market:shared/generated/lint-source'), { install: { view: 'library', browse: 'shared' } });
   assert.match(studioTargetFor('install', item('market:shared/generated/lint-source')).notice, /choose Set up on Lint report, then publish\.$/u);
   assert.deepEqual(routes('marketplace:pending'), { approve: { view: 'changes' } });
+  // Checked for newer versions: an item newer in its marketplace's newest commit is offered Studio's Read its newest commit.
+  const checked = marketplaceCatalogFrom(engineAnswer({ newest: true }));
+  const newer = checked.items.find((entry) => entry.key === 'market:acme/skill/web-e2e-test-generation');
+  assert.deepEqual([newer.status, newer.newer], ['installed', { version: '1.1.0', gone: false, words: 'Newer version 1.1.0 in the marketplace\'s newest commit.' }]);
+  assert.deepEqual(studioTargetFor('trust', newer).studio, { view: 'library', marketplaceRead: 'acme' });
+  assert.match(studioTargetFor('trust', newer).notice, /^Workflow Studio reads Acme's newest commit and adds trusting it to your changes\./u);
+  assert.equal(studioTargetFor('trust', checked.items.find((entry) => entry.key === 'market:acme/agent/qa-agent')), null, 'gone there: nothing to trust for it');
+  assert.equal(studioTargetFor('trust', item('market:acme/skill/web-e2e-test-generation')), null, 'not checked: no button');
   assert.match(studioTargetFor('install', item('market:acme/agent/product-agent')).notice, /^Workflow Studio shows the workflow product-agent becomes\./u);
 });
 
@@ -155,6 +169,19 @@ test('the page shows tabs, filters and one row per item with its status, and no 
   const empty = marketplacePageHtml({ catalog: marketplaceCatalogFrom({ resultType: 'marketplace-catalog', items: [], sources: [] }), busy: false, error: null, notice: null });
   assert.match(empty, /This repository trusts no marketplace yet/u);
   assert.match(empty, /No workflow here was made from a marketplace agent yet/u);
+  // Newer versions are read only when the person asks: the button, then each newer item with its words and Get newer….
+  assert.match(html, /data-newest\s+title="Reads each Git repository marketplace's newest commit and says what is newer there">Check for newer versions<\/button>/u);
+  assert.doesNotMatch(html, /mkt-newer"|Get newer/u);
+  const checkedHtml = marketplacePageHtml({ catalog: marketplaceCatalogFrom(engineAnswer({ newest: true })), busy: false, error: null, notice: null });
+  assert.match(checkedHtml, />Check again for newer versions<\/button>/u);
+  const checkedRow = checkedHtml.match(/<tr class="mkt-row" data-key="market:acme\/skill\/web-e2e-test-generation"[\s\S]*?<\/tr>/u)[0];
+  assert.match(checkedRow, /<div class="mkt-words mkt-newer">Newer version 1\.1\.0 in the marketplace&#39;s newest commit\.<\/div>/u);
+  assert.deepEqual([...checkedRow.matchAll(/data-act="([a-z]+)"/gu)].map((match) => match[1]), ['trust', 'open', 'remove']);
+  assert.match(checkedHtml, /<span>Newer in a newest commit<\/span>/u);
+  assert.match(checkedHtml, /Acme: 6 items <span class="mkt-newer">Its newest commit is newer than the one trusted here: 1 item changed and 3 items no longer there\.<\/span>/u);
+  assert.doesNotMatch(checkedHtml, /\b[0-9a-f]{40}\b|[0-9a-f]{64}/u, 'no commit and no hash, the newest one included');
+  assert.doesNotMatch(marketplacePageHtml({ catalog: marketplaceCatalogFrom({ resultType: 'marketplace-catalog', items: [], sources: [{ id: 'shared', kind: 'index', approved: true, read: true }] }),
+    busy: false, error: null, notice: null }), /data-newest/u, 'an index is always read at its newest: no button');
 });
 
 test('the page script filters as a person asks, without a document, and is a raw string', () => {
@@ -180,10 +207,13 @@ test('the page script filters as a person asks, without a document, and is a raw
 test('the host takes a row\'s key, never a reference or a command, and opens Workflow Studio\'s own routes', () => {
   const host = source('apps/vscode/src/views/marketplace.ts');
   assert.match(host, /registerMessageRouter\('singularityFlow\.marketplace', \{/u);
-  for (const type of ['marketplace.refresh', 'marketplace.install', 'marketplace.update', 'marketplace.remove', 'marketplace.open', 'marketplace.approve',
-    'marketplace.allSkills', 'marketplace.studio']) assert.ok(host.includes(`'${type}'`), type);
+  for (const type of ['marketplace.refresh', 'marketplace.newest', 'marketplace.install', 'marketplace.update', 'marketplace.trust', 'marketplace.remove', 'marketplace.open',
+    'marketplace.approve', 'marketplace.allSkills', 'marketplace.studio']) assert.ok(host.includes(`'${type}'`), type);
   assert.doesNotMatch(host, /stringField\(message, '(?:reference|command|path|url|target)'\)/u);
-  assert.match(host, /this\.client\.run\(\['marketplace', 'catalog', '--json'\]\)/u);
+  assert.match(host, /this\.client\.run\(\['marketplace', 'catalog', \.\.\.\(this\.newest \? \['--newest'\] : \[\]\), '--json'\]\)/u);
+  // A newest commit is read only once the person asks, and opening the page again starts without it.
+  assert.match(host, /'marketplace\.newest': \(\) => \{ this\.newest = true; return this\.load\(\); \}/u);
+  assert.match(host, /existing\.newest = false;\s*void existing\.load\(\);/u);
   assert.match(host, /const target = item \? studioTargetFor\(act, item\) : null;/u);
   assert.match(host, /executeCommand\('singularityFlow\.openWorkflowStudio', target\.studio\)/u);
   // Coming back to the page after a button reads it again.
@@ -194,6 +224,7 @@ test('the host takes a row\'s key, never a reference or a command, and opens Wor
   assert.match(studio, /MARKETPLACE_AGENT\.test\(flow\.target\)/u);
   assert.match(studio, /IMPORT_KEY\.test\(requested\.removeImport\)/u);
   assert.match(studio, /STUDIO_AGENT_ID\.test\(requested\.browse\) \? \{ view: 'library', browse: requested\.browse \}/u);
+  assert.match(studio, /STUDIO_AGENT_ID\.test\(requested\.marketplaceRead\)\s*\? \{ view: 'library', marketplaceRead: requested\.marketplaceRead \}/u);
   assert.match(studio, /preview\.as === 'mcp-server' \? \{ as: preview\.as \}/u);
   assert.match(studio, /WORKFLOW_SELECTOR\.test\(retire\.selector\)/u);
   assert.match(studio, /'studio\.marketplace': \(\) => vscode\.commands\.executeCommand\('singularityFlow\.marketplace'\)/u);
@@ -205,6 +236,7 @@ test('the host takes a row\'s key, never a reference or a command, and opens Wor
   assert.match(studioPage, /previewImport\(message\.preview\.reference, message\.preview\.as, null\);/u);
   assert.match(studioPage, /message\.preview\.as === 'mcp-server'\)\) \{/u);
   assert.match(studioPage, /post\(\{ type: 'studio\.marketplaceBrowse', id: browsed\.id \}\);/u);
+  assert.match(studioPage, /if \(reading\) readRepositoryMarketplace\(\{ id: reading\.id, label: reading\.label, repository: reading\.repository, ref: reading\.ref \|\| '' \}\);/u);
   assert.equal((studioPage.match(/button\('Marketplace', function \(\) \{ post\(\{ type: 'studio\.marketplace' \}\); \}/gu) ?? []).length, 2, 'in the Library and the Skill master');
   // All skills links to it, and it to All skills: both pages stay.
   assert.match(source('apps/vscode/src/views/all-skills.ts'), /'allSkills\.marketplace': \(\) => vscode\.commands\.executeCommand\('singularityFlow\.marketplace'\)/u);

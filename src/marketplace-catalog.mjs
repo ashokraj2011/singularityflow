@@ -12,8 +12,10 @@
  * - Installed is the same text as the marketplace has at the commit it is trusted at: a skill, agent or template by the
  *   SHA-256 its import recorded against the marketplace's own; a workflow made from an agent by the pieces its import
  *   recorded (agent.md, its apm.yml and each skill it uses, agent-workflow-provenance.mjs). Anything else is an update,
- *   and the item says which: a newer version, or a changed text. A commit newer than the trusted one is what `imports
- *   check` and Workflow Studio's Read its newest commit find: moving the trust is a reviewed change of its own.
+ *   and the item says which: a newer version, or a changed text. A commit newer than the trusted one is read only when a
+ *   person asks (`--newest`, the page's Check for newer versions), through the newest-commit reader `imports check` uses:
+ *   each item newer there says so, with the reviewed change that trusts that commit (Workflow Studio's Read its newest
+ *   commit), after which its update is an ordinary one.
  * - Every action is a whole command through the import's own review: a preview, then a proposal (`import add …
  *   --propose`, `workflow from-agent … --propose`, `skill remove … --propose`, `workflow archive … --propose`, `imports
  *   remove … --propose`). The install and update commands name the SHA-256 of the exact text they add, as `imports check`
@@ -134,12 +136,35 @@ function textUpdate(installedVersion, version, label) {
 }
 
 function row({ key, kind, id, name = id, description = '', source, marketplace = null, labels, marketplaceKind = null, version = null, installedVersion = null,
-  facts = null, tags = [], status, statusWords, update = null, installedAs = null, fromAgent = null, conflict = null, importable = true, actions = {} }) {
+  facts = null, tags = [], status, statusWords, update = null, newer = null, installedAs = null, fromAgent = null, conflict = null, importable = true, actions = {} }) {
   return {
     key, kind, id, name, description, source, marketplace, marketplaceLabel: marketplace ? labels.get(marketplace) ?? marketplace : null, marketplaceKind,
     version, installedVersion, lifecycle: facts?.state ?? null, readiness: facts?.lifecycle ?? null, tags: displayTags(tags), softwareKinds: [...(facts?.kinds ?? [])],
-    status, statusWords, update, installedAs, fromAgent, conflict, importable, actions
+    status, statusWords, update, ...(newer ? { newer } : {}), installedAs, fromAgent, conflict, importable, actions
   };
+}
+
+/**
+ * Trusting a Git repository marketplace's newest commit: `marketplace add --repo` reads it at its ref now and proposes the
+ * pin, reviewed like any configuration change (Workflow Studio's Read its newest commit queues the same change).
+ */
+export function trustNewestCommand(market) {
+  return `singularity-flow marketplace add ${market.id} --repo ${JSON.stringify(market.repository)}${market.ref ? ` --ref ${market.ref}` : ''} --propose`;
+}
+
+/**
+ * What changed for one item in a marketplace's newest commit, against the commit trusted here, or null when nothing
+ * did: a skill by its SKILL.md's SHA-256, an agent by the pieces a workflow made from it records. In words, with no commit.
+ */
+export function newerInNewest(entry, now) {
+  const where = "the marketplace's newest commit";
+  if (!now) return { version: null, gone: true, words: `${capitalized(where)} no longer has it; the commit trusted here still does.` };
+  const difference = entry.kind === 'agent' && entry.pieces && now.pieces ? piecesDifferences(entry.pieces, now.pieces) : null;
+  if (difference ? difference.unchanged : (now.sha256 ?? null) === (entry.sha256 ?? null) && (now.version ?? null) === (entry.version ?? null)) return null;
+  const version = now.version && now.version !== entry.version ? now.version : null;
+  const what = difference ? differencesWords(difference) : null;
+  const named = version ? `${compareVersions(version, entry.version ?? '0') > 0 ? 'Newer version' : 'Version'} ${version} in ${where}` : null;
+  return { version, gone: false, words: named ? `${named}${what ? `: ${what}` : ''}.` : `${what ? capitalized(what) : 'A changed text'} in ${where}.` };
 }
 
 /** Where an install here came from, for a row only here. */
@@ -161,10 +186,13 @@ function cameFromWords(record, { trusted, listed, labels }) {
  * repositoryItems or indexItems, `library` the skill library's skills, `imports` the import record's entries,
  * `workflows` each workflow ID here with `{ label, archived }`, `steps` each step ID here with `{ label, agent }` (the
  * agent that drafts it, which fetches a generated source for it), `unapproved` what the working copy trusts that is
- * not approved (task-skills.mjs unapprovedMarketplaces). `only`, `kind` and `search` narrow the rows.
+ * not approved (task-skills.mjs unapprovedMarketplaces). `only`, `kind` and `search` narrow the rows. A Git repository
+ * marketplace read at its newest commit too (`newest`) carries `newest`: `{ items }` there (repositoryItems), `{ same:
+ * true }` when that is the commit trusted, or `{ error }` in words; each of its items then says what changed there
+ * (`newer`), with the reviewed change that trusts that commit (`actions.trust`).
  */
 export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imports = {}, workflows = {}, steps = {}, unapproved = [], warnings = [],
-  only = null, kind = null, search = null } = {}) {
+  only = null, kind = null, search = null, newest = false } = {}) {
   const markets = [...marketplaces].sort((left, right) => byText(left.id, right.id));
   const labels = new Map([...unapproved.map((entry) => [entry.id, entry.label ?? entry.id]), ...markets.map((market) => [market.id, market.label ?? market.id])]);
   const trusted = new Set(markets.map((market) => market.id));
@@ -177,6 +205,15 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
   const represented = new Set();
   const rows = [];
   const agentRows = new Map();
+  // A Git repository marketplace read at its newest commit too (--newest): its items there, by kind and name.
+  const newestOf = new Map(markets.filter((market) => Array.isArray(market.newest?.items))
+    .map((market) => [market.id, new Map(market.newest.items.map((entry) => [`${entry.kind}:${entry.name}`, entry]))]));
+  const newerOf = (market, entry, actions) => {
+    if (!newestOf.has(market.id)) return null;
+    const newer = newerInNewest(entry, newestOf.get(market.id).get(`${entry.kind}:${entry.name}`) ?? null);
+    if (newer && !newer.gone) actions.trust = action(trustNewestCommand(market), 'Propose trusting its newest commit; then update it here.');
+    return newer;
+  };
 
   const skillRow = (market, entry) => {
     const facts = marketplaceSkillCandidate(entry, market.id);
@@ -216,9 +253,10 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
           'Propose adding it to the skill library, reviewed like any change.');
       }
     }
+    const newer = newerOf(market, entry, actions);
     return row({ key: `market:${market.id}/skill/${entry.name}`, kind: 'skill', id: entry.name, name: entry.label, description: entry.description, source: 'marketplace',
       marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version, installedVersion: install?.source?.version ?? null, facts, tags: entry.tags,
-      status, statusWords, update, installedAs, conflict, importable: Boolean(entry.sha256), actions });
+      status, statusWords, update, newer, installedAs, conflict, importable: Boolean(entry.sha256), actions });
   };
 
   /** A Git repository marketplace's agent: installed as the workflow made from it. */
@@ -259,9 +297,10 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       actions.preview = action(`singularity-flow workflow from-agent ${target} --review`, 'See the workflow it becomes, stage by stage.');
       actions.install = action(`singularity-flow workflow from-agent ${target} --propose`, 'Propose its workflow, through its conversion review.');
     }
+    const newer = newerOf(market, entry, actions);
     const made = row({ key: `market:${market.id}/agent/${entry.name}`, kind: 'agent', id: entry.name, name: entry.label, description: entry.description, source: 'marketplace',
       marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version, installedVersion: record?.source?.version ?? null, facts, tags: entry.tags,
-      status, statusWords, update, installedAs, importable: true, actions });
+      status, statusWords, update, newer, installedAs, importable: true, actions });
     if (record) agentRows.set(record.key, made);
     return made;
   };
@@ -382,9 +421,9 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
     represented.add(record.key);
     if (agent) {
       rows.push(row({ ...base, description: agent.description, version: agent.version, facts: { state: agent.lifecycle, lifecycle: agent.readiness, kinds: agent.softwareKinds },
-        tags: agent.tags, status: agent.status, update: agent.update,
+        tags: agent.tags, status: agent.status, update: agent.update, newer: agent.newer ?? null,
         statusWords: agent.status === 'installed' ? `Made from agent ${record.source.agent}, the same as in marketplace ${agent.marketplaceLabel}.` : agent.statusWords,
-        actions: Object.fromEntries(Object.entries(agent.actions).filter(([name_]) => ['preview', 'update', 'remove'].includes(name_))) }));
+        actions: Object.fromEntries(Object.entries(agent.actions).filter(([name_]) => ['preview', 'update', 'remove', 'trust'].includes(name_))) }));
       continue;
     }
     const remove = { remove: action(`singularity-flow workflow archive ${record.workflow} --propose`, 'Propose archiving the workflow; running Stories keep it.') };
@@ -445,11 +484,28 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
     .sort((left, right) => KIND_ORDER.indexOf(left.kind) - KIND_ORDER.indexOf(right.kind) || byText(left.id, right.id) || byText(left.marketplace ?? '', right.marketplace ?? '')
       || byText(left.key, right.key));
   const pending = new Map(unapproved.map((entry) => [entry.id, entry]));
+  /** What a marketplace's newest commit has against the commit trusted here, when it was read (--newest). */
+  const newestSummary = (market) => {
+    if (!market.newest || market.warning) return {};
+    if (market.newest.error) return { newest: { checked: false, newer: false, words: market.newest.error } };
+    if (market.newest.same) return { newest: { checked: true, newer: false, changed: 0, added: [], words: 'Its newest commit is the one trusted here.' } };
+    const trustedNames = new Set((market.items ?? []).map((entry) => `${entry.kind}:${entry.name}`));
+    const added = market.newest.items.filter((entry) => !trustedNames.has(`${entry.kind}:${entry.name}`)).map((entry) => entry.name).sort(byText);
+    const changed = rows.filter((item) => item.source === 'marketplace' && item.marketplace === market.id && item.newer && !item.newer.gone).length;
+    const gone = rows.filter((item) => item.source === 'marketplace' && item.marketplace === market.id && item.newer?.gone).length;
+    const newer = changed + added.length > 0;
+    const parts = [changed ? `${changed} ${changed === 1 ? 'item changed' : 'items changed'}` : null, added.length ? `new there: ${listWords(added)}` : null,
+      gone ? `${gone} ${gone === 1 ? 'item' : 'items'} no longer there` : null].filter(Boolean);
+    return { newest: { checked: true, newer, changed, added, words: parts.length ? `Its newest commit is newer than the one trusted here: ${listWords(parts)}.`
+      : 'Its newest commit is newer than the one trusted here, and changes none of its items.',
+    ...(newer ? { action: action(trustNewestCommand(market), 'Propose trusting its newest commit; then update its items here.') } : {}) } };
+  };
   const sources = [
     ...markets.filter((market) => !market.skipped && (only == null || market.id === only)).map((market) => ({
       id: market.id, kind: market.kind, label: market.label ?? market.id, approved: true, read: !market.warning,
       items: rows.filter((item) => item.source === 'marketplace' && item.marketplace === market.id).length,
       ...(market.warning ? { warning: market.warning } : {}),
+      ...newestSummary(market),
       ...(pending.has(market.id) ? { notApproved: pending.get(market.id).words } : {}) })),
     ...unapproved.filter((entry) => entry.change === 'added' && (only == null || entry.id === only)).map((entry) => ({
       id: entry.id, kind: entry.kind, label: entry.label ?? entry.id, approved: false, read: false, items: 0, notApproved: entry.words }))
@@ -461,16 +517,18 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
   };
   return {
     schemaVersion: 1, resultType: MARKETPLACE_CATALOG_RESULT,
-    filters: { marketplace: only, kind, search: search ?? null },
+    filters: { marketplace: only, kind, search: search ?? null, newest: newest === true },
     sources,
     items: shown,
     summary: {
       items: shown.length,
       byKind: Object.fromEntries(KIND_ORDER.map((name) => [name, shown.filter((item) => item.kind === name).length])),
       byStatus: Object.fromEntries(CATALOG_STATUSES.map((name) => [name, count((item) => item.status)[name] ?? 0])),
-      updates: shown.filter((item) => item.status === 'update-available').length
+      updates: shown.filter((item) => item.status === 'update-available').length,
+      newer: shown.filter((item) => item.newer && !item.newer.gone).length
     },
-    warnings: [...warnings, ...sources.filter((source) => source.warning).map((source) => source.warning)]
+    warnings: [...warnings, ...sources.filter((source) => source.warning).map((source) => source.warning),
+      ...sources.filter((source) => source.newest && !source.newest.checked).map((source) => source.newest.words)]
   };
 }
 
@@ -485,21 +543,31 @@ function unreadableWords(marketplace, error) {
   return `Marketplace ${name} could not be read, so its items are not listed: ${firstLine(error).replace(/\b(?:at )?(?:commit )?[0-9a-f]{12,64}\b/gu, 'at the commit it is trusted at')}`;
 }
 
+/** A newest commit that could not be read, in words, with no commit ID. */
+function newestUnreadableWords(marketplace, error) {
+  const name = marketplace.label && marketplace.label !== marketplace.id ? `${marketplace.label} (${marketplace.id})` : marketplace.id;
+  return `The newest commit of marketplace ${name} could not be read, so whether it has newer versions is not known: ${firstLine(error)
+    .replace(/\b(?:at )?(?:commit )?[0-9a-f]{12,64}\b/gu, 'at its newest commit')}`;
+}
+
 /**
  * Read the page from the approved configuration: what Stories use [owner, 2026-11-25]. `marketplace` reads only that
- * one (with what is installed from it), `kind` and `search` narrow the rows; `fetchImpl` reads an index.
+ * one (with what is installed from it), `kind` and `search` narrow the rows; `fetchImpl` reads an index. `newest` also
+ * reads each Git repository marketplace's newest commit, a network read a person asks for (`--newest`, the page's Check
+ * for newer versions): one ls-remote (marketplace-repository.mjs newestMarketplaceCommit, what `imports check` reads),
+ * and that commit's listing, kept once per commit like the trusted one's.
  */
-export async function readMarketplaceCatalog(root, { marketplace: only = null, kind = null, search = null, fetchImpl = globalThis.fetch } = {}) {
+export async function readMarketplaceCatalog(root, { marketplace: only = null, kind = null, search = null, newest = false, fetchImpl = globalThis.fetch } = {}) {
   const [{ withApprovedConfigurationRead }, { withoutConfigurationReadScope }, { configuredMarketplaces }] = await Promise.all([
     import('./approved-configuration-reader.mjs'), import('./configuration-read-scope.mjs'), import('./marketplace.mjs')]);
   // This checkout's own workflow.yml, read before the approved one is in scope, to name what is not approved yet.
   const working = await withoutConfigurationReadScope(() => configuredMarketplaces(root)).catch(() => null);
   return withApprovedConfigurationRead(root, (authority) => readApprovedCatalog(root, {
-    only, kind, search, fetchImpl, working: authority && authority.kind !== 'working-tree' ? working : null
+    only, kind, search, newest, fetchImpl, working: authority && authority.kind !== 'working-tree' ? working : null
   }), { preferAuthority: true });
 }
 
-async function readApprovedCatalog(root, { only, kind, search, fetchImpl, working }) {
+async function readApprovedCatalog(root, { only, kind, search, newest, fetchImpl, working }) {
   const [{ configurationReadRoot }, { loadDefinition }, { loadSkillLibrary }, { loadImportsLedger }, { readWorkflowArchive, workflowArchived },
     { trustedMarketplaceAgents }, { fetchMarketplaceIndex }] = await Promise.all([
     import('./configuration-read-scope.mjs'), import('./config.mjs'), import('./skill-library.mjs'), import('./imports-ledger.mjs'),
@@ -529,19 +597,32 @@ async function readApprovedCatalog(root, { only, kind, search, fetchImpl, workin
   const marketplaces = [];
   for (const marketplace of trusted) {
     const kind_ = marketplace.repository ? 'repository' : 'index';
-    const base = { id: marketplace.id, label: marketplace.label ?? marketplace.id, kind: kind_, commit: marketplace.commit ?? null };
+    const base = { id: marketplace.id, label: marketplace.label ?? marketplace.id, kind: kind_, commit: marketplace.commit ?? null,
+      ...(marketplace.repository ? { repository: marketplace.repository, ref: marketplace.ref ?? null } : {}) };
     // One marketplace named: the others are not read, and the rows of what came from them are not shown.
     if (only != null && marketplace.id !== only) { marketplaces.push({ ...base, items: [], warning: null, skipped: true }); continue; }
+    let read;
     try {
       const items = marketplace.repository ? repositoryItems(await trustedMarketplaceAgents(root, marketplace))
         : indexItems(await fetchMarketplaceIndex(marketplace, { fetchImpl }));
-      marketplaces.push({ ...base, items, warning: null });
+      read = { ...base, items, warning: null };
     } catch (error) {
       marketplaces.push({ ...base, items: [], warning: unreadableWords(marketplace, error) });
+      continue;
     }
+    if (newest && marketplace.repository) {
+      try {
+        const { newestMarketplaceCommit } = await import('./marketplace-repository.mjs');
+        const commit = await newestMarketplaceCommit(marketplace);
+        read.newest = commit === marketplace.commit ? { same: true } : { items: repositoryItems(await trustedMarketplaceAgents(root, { ...marketplace, commit })) };
+      } catch (error) {
+        read.newest = { error: newestUnreadableWords(marketplace, error) };
+      }
+    }
+    marketplaces.push(read);
   }
   return analyzeMarketplaceCatalog({ marketplaces, library: [...library.skills.values()], imports: ledger.imports ?? {}, workflows, steps, unapproved, warnings,
-    only, kind, search });
+    only, kind, search, newest });
 }
 
 // ---------------------------------------------------------------------------------------------- a terminal
@@ -569,6 +650,7 @@ export function marketplaceCatalogLines(catalog) {
       const where = item.marketplace ? `${item.marketplaceLabel ?? item.marketplace}${item.source === 'here' ? ' (here)' : ''}` : 'this repository';
       lines.push(`  ${item.id.padEnd(30)} ${where.padEnd(16)} ${(item.version ?? '').padEnd(12)} ${STATUS_WORDS[item.status]}`);
       if (item.status !== 'installed' || item.update) lines.push(`      ${item.statusWords}`);
+      if (item.newer) lines.push(`      Newer: ${item.newer.words}`);
       // A generated source has no text to preview: its next step is the reviewed proposal that adds it.
       const next = item.status === 'update-available' ? item.actions.preview ?? null : item.status === 'not-installed' ? item.actions.preview ?? item.actions.install ?? null
         : item.status === 'not-approved-yet' ? item.actions.approve : null;
@@ -576,6 +658,12 @@ export function marketplaceCatalogLines(catalog) {
     }
   }
   for (const source of catalog.sources.filter((item) => item.notApproved && item.approved)) lines.push(`Note: marketplace ${source.id}: ${source.notApproved}`);
+  for (const source of catalog.sources.filter((item) => item.newest?.checked)) {
+    lines.push(`Marketplace ${source.label}: ${source.newest.words}${source.newest.action ? ` Trust it, then update: ${source.newest.action.command}` : ''}`);
+  }
+  if (!catalog.filters?.newest && catalog.sources.some((source) => source.kind === 'repository' && source.read)) {
+    lines.push('Newer commits than the ones trusted are not read here; to see what changed there: singularity-flow marketplace catalog --newest');
+  }
   for (const warning of catalog.warnings) lines.push(`Note: ${warning}`);
   if (summary.items) lines.push('Each item\'s install, update and remove commands are in --json, under actions; each goes through review.');
   return lines;

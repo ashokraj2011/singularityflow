@@ -3,7 +3,9 @@
  * reads; this view shows its answer, and each button opens Workflow Studio's own route for that row (studioTargetFor):
  * the import preview, an agent's conversion review, Studio's Delete or Remove, or a workflow's Archive or Restore. The
  * change itself is published from Studio as a reviewed proposal; nothing here writes configuration. A page message names
- * a row by its key, found here in the engine's own answer. Coming back to the page after a button reads it again.
+ * a row by its key, found here in the engine's own answer. Coming back to the page after a button reads it again. Check
+ * for newer versions reads the Git repository marketplaces' newest commits too (`--newest`); Get newer… opens Studio's
+ * Read its newest commit for that marketplace, which queues trusting that commit.
  */
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
@@ -23,6 +25,11 @@ export class MarketplacePanel implements vscode.Disposable {
   private notice: string | null = null;
   /** A button sent the person to Workflow Studio: the page is read again when they come back to it. */
   private stale = false;
+  /**
+   * The person asked to check for newer versions: this panel's reads also read each Git repository marketplace's newest
+   * commit (`--newest`), a network read, until the page is opened again. Opening it never does.
+   */
+  private newest = false;
   private disposed = false;
 
   private constructor(private readonly panel: vscode.WebviewPanel, private readonly client: SingularityFlowClient) {
@@ -42,6 +49,7 @@ export class MarketplacePanel implements vscode.Disposable {
     const existing = MarketplacePanel.current;
     if (existing && existing.client === client) {
       existing.panel.reveal(vscode.ViewColumn.Active);
+      existing.newest = false;
       void existing.load();
       return existing;
     }
@@ -55,6 +63,8 @@ export class MarketplacePanel implements vscode.Disposable {
 
   private router = registerMessageRouter('singularityFlow.marketplace', {
     'marketplace.refresh': () => this.load(),
+    'marketplace.newest': () => { this.newest = true; return this.load(); },
+    'marketplace.trust': (message) => this.act('trust', stringField(message, 'key')),
     'marketplace.install': (message) => this.act('install', stringField(message, 'key')),
     'marketplace.update': (message) => this.act('update', stringField(message, 'key')),
     'marketplace.remove': (message) => this.act('remove', stringField(message, 'key')),
@@ -68,7 +78,7 @@ export class MarketplacePanel implements vscode.Disposable {
     if (this.busy) return;
     this.busy = true; this.render();
     try {
-      const catalog = marketplaceCatalogFrom(await this.client.run(['marketplace', 'catalog', '--json']));
+      const catalog = marketplaceCatalogFrom(await this.client.run(['marketplace', 'catalog', ...(this.newest ? ['--newest'] : []), '--json']));
       if (!catalog) throw new Error("The marketplace items could not be read from the engine's answer.");
       this.catalog = catalog;
       this.error = null;

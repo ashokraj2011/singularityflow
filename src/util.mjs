@@ -233,8 +233,8 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   // Presentation flags introduced with the narration and output work. They are parsed here before
   // any command reads them, so they must be declared here too.
   'verbose', 'show-artifact', 'brief', 'table', 'commentary',
-  // Imports.
-  'without-defaults', 'launch', 'allow-not-ready',
+  // Imports; marketplace catalog --newest reads each Git repository marketplace's newest commit.
+  'without-defaults', 'launch', 'allow-not-ready', 'newest',
   // Run and test: app start --debug, tests summary --latest. Environment files: env files add|remove --personal, create --from-template, root|link --clear.
   'debug', 'latest', 'personal', 'from-template', 'clear',
   // doctor --repair-hooks [PCR:REQ-030].

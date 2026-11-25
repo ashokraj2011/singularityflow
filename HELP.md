@@ -4104,7 +4104,7 @@ singularity-flow imports [list]
 singularity-flow imports check
 singularity-flow imports remove <IMPORT> [--dry-run] [--propose]
 singularity-flow marketplace [list]
-singularity-flow marketplace catalog [--kind skill|agent|workflow|template|mcp-server|generated] [--marketplace ID] [--search TEXT] [--json]
+singularity-flow marketplace catalog [--kind skill|agent|workflow|template|mcp-server|generated] [--marketplace ID] [--search TEXT] [--newest] [--json]
 singularity-flow marketplace browse <ID> [--kind KIND] [--search TEXT]
 singularity-flow marketplace add <ID> --index URL [--label TEXT] [--allowed-origin URL]... [--dry-run] [--propose]
 singularity-flow marketplace remove <ID> [--dry-run] [--propose]

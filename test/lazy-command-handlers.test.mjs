@@ -1003,6 +1003,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // its capture, replay and review check load only for a task change. No new eager file.
     // 9,877,758 (measured for submit.mjs, +816, 2026-11-25): a task's code that touches a team's path rule adds the rule's
     // steps after its submission, said in one line (submit.mjs, submit-if-ready.mjs) [ITW:REQ-014]. No new eager file.
+    // 9,874,991 (measured for submit.mjs, +2,503, 2026-11-25): a task's chosen skills frozen into its Story's snapshot with
+    // the exact text its plan read (workflow-snapshots.mjs), and a loaded definition's marketplaces validated again unchanged
+    // (marketplace.mjs) [ITW:REQ-010]; the chooser loads only for a task. No new eager file.
     assert.ok(closure.bytes <= 9_877_758, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
@@ -1558,6 +1561,8 @@ test('the common session projection does not import attach, state stores or publ
   // No new eager file.
   // 4,347,584 (+3,669, 2026-11-25): a task's added step read in the accepted snapshot chain (workflow-snapshots.mjs,
   // schema-migrations.mjs) and `work add` registered [ITW:REQ-009]; the rest loads only for a task change. No new eager file.
+  // 4,346,418 (+2,503, 2026-11-25): a task's skills frozen into its snapshot (workflow-snapshots.mjs) and marketplaces
+  // validated again unchanged (marketplace.mjs) [ITW:REQ-010]. No new eager file.
   assert.ok(current.bytes <= 4_347_584, `session current loads ${current.bytes} source bytes`);
 });
 

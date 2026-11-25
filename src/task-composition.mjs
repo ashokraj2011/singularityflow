@@ -346,11 +346,16 @@ function approvedWord(kind, step, composition) {
 }
 
 /**
- * The one plan line a person reads [ITW:REQ-012]: the steps after the intake, then what the person approves.
- * `approvals` maps a step to 'person' where a person approves it.
+ * The one plan line a person reads [ITW:REQ-012]: the steps after the intake, each with the skills it uses or offers
+ * [ITW:REQ-010], then what the person approves. `approvals` maps a step to 'person' where a person approves it;
+ * `skills` maps a step to its skills and `skillWords` says them (task-skills.mjs planSkillWords).
  */
-export function planLine(composition, { approvals = {}, pullRequest = false } = {}) {
-  const words = composition.steps.map((step) => planWord(composition.kind, step)).filter(Boolean);
+export function planLine(composition, { approvals = {}, pullRequest = false, skills = {}, skillWords = null } = {}) {
+  const words = composition.steps.map((step) => {
+    const said = skillWords && skills[step.id]?.length ? skillWords(skills[step.id]) : '';
+    const word = planWord(composition.kind, step) ?? (said ? step.intent : null);
+    return word ? `${word}${said}` : null;
+  }).filter(Boolean);
   if (composition.kind === 'investigate') words.push('report');
   if (composition.kind === 'review') words.push('findings');
   if (pullRequest) words.push('pull request');

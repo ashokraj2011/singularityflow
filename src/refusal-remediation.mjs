@@ -3031,6 +3031,20 @@ export function refusalDetails(details) {
   if (details.dependencySetup?.words) projected.dependencySetup = compact({ words: text(details.dependencySetup.words), directory: text(details.dependencySetup.directory),
     nextAction: details.dependencySetup.nextAction ? compact({ label: text(details.dependencySetup.nextAction.label), command: text(details.dependencySetup.nextAction.command),
       workingDirectory: text(details.dependencySetup.nextAction.workingDirectory) }) : null });
+  // A task's refusals [ITW]: the kinds a task can be, the plan, and each skill it offers with the question its person
+  // answers and the option each answer adds to the start (task-skills.mjs, TASK_SKILL_YES_NEEDED).
+  const kinds = list(details.kinds, lowerKebab).slice(0, 12);
+  if (kinds.length) projected.kinds = kinds;
+  const offers = list(details.offers, (entry) => (entry && typeof entry === 'object' && lowerKebab(entry.id) ? compact({
+    id: lowerKebab(entry.id), steps: list(entry.steps, lowerKebab), marketplace: lowerKebab(entry.marketplace), new: entry.new === true ? true : null,
+    state: text(entry.state), ask: text(entry.ask), why: text(entry.why),
+    show: typeof entry.show === 'string' ? safeCommandGuidance({ command: entry.show })?.command ?? null : null,
+    yes: /^--use-skill [a-z0-9-]+$/u.test(entry.yes ?? '') ? entry.yes : null, no: /^--without-skill [a-z0-9-]+$/u.test(entry.no ?? '') ? entry.no : null
+  }) : null)).slice(0, 10);
+  if (offers.length) projected.offers = offers;
+  const start = typeof details.start === 'string' ? safeCommandGuidance({ command: details.start }) : null;
+  if (start?.command) projected.start = start.command;
+  if (text(details.plan)) projected.plan = text(details.plan);
   if (details.publicationPreflight?.scope === 'transport-only') projected.publicationPreflight = {
     scope: 'transport-only', localHooks: 'not-run', remoteStoryBranch: 'not-updated',
     applicationFiles: 'not-modified-by-probe', index: 'not-modified-by-probe',

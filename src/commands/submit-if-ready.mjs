@@ -67,6 +67,8 @@ export function submittedResult(value) {
     status: messageId === 'submit.completed' ? 'completed' : messageId === 'submit.returned' ? 'returned' : messageId === 'submit.noop' ? 'already-submitted' : 'submitted',
     committed: typeof data.commit === 'string',
     pushedTo: data.pushedTo ?? null,
+    // A task's code touched a team's path rule: the steps it added, one line each [ITW:REQ-014].
+    ...(data.taskSteps?.lines?.length ? { taskSteps: data.taskSteps.lines } : {}),
     // Its tests failed and SFlow stopped at the review brake (D1): why, and the person's filled choices at its approval.
     ...(data.automaticReturn && data.automaticReturn.returned === false ? { held: data.automaticReturn.held?.words ?? null,
       choices: (data.automaticReturn.choices ?? []).map(({ label, command, skill }) => ({ label, command, skill })) } : {})

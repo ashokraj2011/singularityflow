@@ -43,10 +43,11 @@ const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.
 
 /** The change entry the composition gains: who asked, or the team's rule and its reason. */
 function validChange(change, step) {
-  const keys = ['change', 'intent', 'at', 'by', ...(change && Object.hasOwn(change, 'rule') ? ['rule', 'because'] : [])];
+  const keys = ['change', 'intent', 'at', 'by', ...(change && Object.hasOwn(change, 'rule') ? ['rule', 'because', 'paths'] : [])];
   return exactKeys(change, keys) && change.change === 'add' && change.intent === step?.intent
     && !Number.isNaN(Date.parse(change.at)) && isString(change.by, 512)
-    && (!Object.hasOwn(change, 'rule') || (isString(change.rule, 128) && isString(change.because, 2000)));
+    && (!Object.hasOwn(change, 'rule') || (/^paths\[[0-9]{1,3}\]$/u.test(change.rule) && isString(change.because, 2000)
+      && Array.isArray(change.paths) && change.paths.length >= 1 && change.paths.length <= 256 && change.paths.every((file) => isString(file, 4096))));
 }
 
 /** The decision record's closed shape; its binding to a revision is checked by the snapshot chain. */
@@ -137,8 +138,7 @@ function assertCompositionScope(before, after, decision) {
     const priorRules = before.rules ?? [];
     if (!same((after.rules ?? []).slice(0, priorRules.length), priorRules)
         || (after.rules ?? []).slice(priorRules.length).some((entry) => entry.rule !== rule.rule)) fail('A rule\'s task change applied another rule.');
-    const priorPaths = before.touchedPaths ?? [];
-    if (!priorPaths.every((file) => (after.touchedPaths ?? []).includes(file))) fail('A rule\'s task change dropped a touched file.');
+    if (!same(before.touchedPaths, after.touchedPaths)) fail('A rule\'s task change changed the files the task started with.');
   } else {
     for (const key of ['added', 'rules', 'touchedPaths']) if (!same(before[key], after[key])) fail(`A person's task change changed the task's ${key}.`);
   }

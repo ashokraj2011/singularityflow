@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 8
+version: 9
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -83,6 +83,11 @@ started yet. Done steps and the current one stay exactly as they are; the steps 
 recorded with who asked, as a new version of the task's workflow, and needs no approval of its own, since it only adds
 work. A step whose place has passed is refused with the reason ("The code is already being written; a plan step goes
 before it."), and so is taking a step out after the start.
+
+**A fix that grows.** A `paths` rule also applies to what the code step actually changed: when the code is submitted and
+its files match a rule, the rule's steps are added the same way, after the step being worked on, recorded as the rule's
+with its `because`, and the submission says so in one line ("Added a review step after the tests: Changes to sign-in are
+reviewed."). A rule's step whose place has passed, such as a plan once the code is written, is named and not added.
 
 ## State and safety
 

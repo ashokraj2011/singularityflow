@@ -135,22 +135,24 @@ async function taskStepChange(root, definition, workflow, { intent, rule = null,
     throw refused(`This repository's workflow has no ${noun} step to add. Add a step whose intent is ${intent} in Workflow Studio.`, statusAction(id), { add: intent });
   }
   const step = { id: stepId, intent, label: composer.taskStepLabel(kind, intent) };
-  const change = { change: 'add', intent, at, by, ...(rule ? { rule: rule.rule, because: rule.because } : {}) };
+  const files = [...new Set(touchedPaths.map(String))].sort();
+  const change = { change: 'add', intent, at, by, ...(rule ? { rule: rule.rule, because: rule.because, paths: files } : {}) };
   const nextComposition = { ...structuredClone(composition), steps: contracts.stepsWithInsertion(composition.steps, step, position),
     changes: [...(composition.changes ?? []), change] };
   if (rule) {
     nextComposition.added = [...(composition.added ?? []), { intent, rule: rule.rule, because: rule.because }];
     if (!(composition.rules ?? []).some((entry) => entry.rule === rule.rule)) nextComposition.rules = [...(composition.rules ?? []), { rule: rule.rule, because: rule.because }];
-    const files = [...new Set([...(composition.touchedPaths ?? []), ...touchedPaths.map(String)])].sort();
-    if (files.length) nextComposition.touchedPaths = files;
   } else {
     // The team's rules apply last [ITW:REQ-004]: composed again with every step a person asked for and this one, they
-    // give exactly these steps; an approval a rule gives a person on this kind of step comes with it.
+    // give exactly these steps (with those a rule added for the code's files since); an approval a rule gives a person on
+    // this kind of step comes with it.
     const asked = (composition.changes ?? []).filter((entry) => entry.change === 'add' && !entry.rule).map((entry) => entry.intent);
+    const ruled = new Set((composition.changes ?? []).filter((entry) => entry.change === 'add' && entry.rule).map((entry) => entry.intent));
     const recomposed = composer.composeTask(definition, { kind, touchedPaths: composition.touchedPaths ?? [], add: [...asked, intent],
       skip: (composition.changes ?? []).filter((entry) => entry.change === 'skip').map((entry) => entry.intent) });
     const raised = recomposed.personApproves.filter((entry) => !(composition.personApproves ?? []).includes(entry));
-    if (!same(recomposed.steps.map((entry) => entry.id), nextComposition.steps.map((entry) => entry.id)) || raised.some((entry) => entry !== intent)) {
+    if (!same(recomposed.steps.map((entry) => entry.id), nextComposition.steps.filter((entry) => !ruled.has(entry.intent)).map((entry) => entry.id))
+        || raised.some((entry) => entry !== intent)) {
       throw refused(`The team's task rules on this branch changed since ${id} started, so the step cannot be added to the same steps. Start a new task for it.`,
         { command: `singularity-flow work "<what you want done>" --kind ${kind} --add ${intent} --new --start`, label: 'Start a new task with the step.' }, { add: intent });
     }
@@ -305,7 +307,7 @@ async function changeWords(change, workflow) {
   const steps = change.composition.steps;
   const kind = change.composition.kind;
   const neighbour = steps[change.position + 1] ? `before the ${stepNoun(kind, steps[change.position + 1].intent)}` : `after the ${stepNoun(kind, steps[change.position - 1].intent)}`;
-  const why = change.decision.change.rule ? ` (${change.decision.change.because})` : '';
+  const why = change.decision.change.rule ? `: ${change.decision.change.because.replace(/[.\s]+$/u, '')}` : '';
   return {
     plan: planLine(change.composition, { approvals, pullRequest: change.composition.pullRequest === true }),
     words: `Added a ${change.noun} step ${neighbour}${why}.`,
@@ -388,4 +390,51 @@ export async function addTaskStep(root, config, workflow, { intent, definition, 
       next: { command: `singularity-flow nextsteps ${id}`, label: `Carry ${id} on: ${said.current} is still the step being worked on.` }
     };
   } finally { PROSPECTIVE.delete(workflow); }
+}
+
+/**
+ * A fix that grows [ITW:REQ-014]: when a task's code step is submitted and the files it changed touch a team's
+ * `tasks.paths` rule, that rule's steps are added the same way a person adds one, after the step being worked on, recorded
+ * as the rule's with its `because`. A step whose place has passed (a plan once the code is written) is not added, and the
+ * line says so; nothing is ever taken out. Returns the lines to say, or null when no rule applies.
+ */
+export async function addRuleStepsAfterCode(root, workId, phaseId) {
+  const [{ loadAcceptedStoryExecution }, composer, { loadConfig }, { applicationPathContext, isApplicationChangeEntry }, path, { readFile }] = await Promise.all([
+    import('./accepted-story-execution.mjs'), import('./task-composition.mjs'), import('./state-stores.mjs'), import('./application-paths.mjs'),
+    import('node:path'), import('node:fs/promises')]);
+  const loaded = await loadAcceptedStoryExecution(root, workId);
+  const composition = composer.storyComposition(loaded.workflow);
+  const step = composition?.steps?.find((entry) => entry.id === phaseId);
+  const changeSetPath = loaded.workflow.phases?.[phaseId]?.deliveryEvidence?.changeSetPath;
+  if (!composition || composition.uses || step?.intent !== 'code' || !changeSetPath) return null;
+  const definition = await loadConfig(root);
+  const rules = composer.taskRules(definition).paths;
+  if (!rules.length) return null;
+  const changeSet = JSON.parse(await readFile(path.join(root, changeSetPath), 'utf8'));
+  const context = applicationPathContext(loaded.config, loaded.workflow);
+  const files = [...new Set((changeSet.entries ?? []).filter((entry) => isApplicationChangeEntry(entry, context))
+    .flatMap((entry) => [entry.newPath, entry.oldPath]).filter(Boolean).map(String))].sort();
+  const lines = [];
+  const added = [];
+  for (const [index, rule] of rules.entries()) {
+    if (!(rule.kinds.includes('all') || rule.kinds.includes(composition.kind))) continue;
+    const matched = files.filter((file) => rule.paths.some((glob) => composer.pathMatches(glob, file)));
+    if (!matched.length) continue;
+    const because = rule.because.replace(/[.\s]+$/u, '');
+    for (const intent of rule.steps) {
+      const current = await loadAcceptedStoryExecution(root, workId);
+      if ((current.workflow.resolution?.composition?.steps ?? []).some((entry) => entry.intent === intent)) continue;
+      if (!composer.ADDABLE.includes(intent)) continue;
+      try {
+        const result = await addTaskStep(root, current.config ?? current.definition, current.workflow,
+          { intent, definition, rule: { rule: `paths[${index}]`, because: rule.because }, touchedPaths: matched });
+        lines.push(result.words);
+        added.push({ id: result.added.id, intent, rule: `paths[${index}]`, because: rule.because, files: matched, changeId: result.changeId });
+      } catch (error) {
+        if (error?.code !== 'TASK_CHANGE_REFUSED') throw error;
+        lines.push(`The team's rule (${because}) asks for a ${STEP_WORDS[intent] ?? intent} step, which was not added: ${error.message}`);
+      }
+    }
+  }
+  return lines.length ? { lines, added } : null;
 }

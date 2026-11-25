@@ -229,6 +229,17 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     if (!automaticReturn?.data) automaticReturn = null;
   }
   const returned = automaticReturn?.returned === true;
+  // A task's code that touched a team's path rule gains that rule's steps now, after the code step [ITW:REQ-014].
+  let taskRuleSteps = null;
+  if (!returned && workflow.resolution?.composition && phase.deliveryEvidence?.changeSetPath) {
+    const submittedId = phase.id;
+    taskRuleSteps = (await postPublicationStep('the steps the team\'s rules add for the files the code changed', workflow.workItem.id,
+      async () => (await import('../task-amendment.mjs')).addRuleStepsAfterCode(root, workflow.workItem.id, submittedId))).value;
+    if (taskRuleSteps?.added.length) {
+      workflow = (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow;
+      phase = workflow.phases[submittedId];
+    }
+  }
   // Approve twice (owner, 2026-11-19): a step SFlow approves when it is ready is approved now, in its own commit, when its
   // reviewer said ready, its checks passed and nothing is open for it; otherwise its people approve it and are told why.
   let automaticApproval = null;
@@ -279,7 +290,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     }
     if (automaticApproval?.applies && !automaticApproval.approved) console.log((await import('../automatic-approval.mjs')).needsPersonWords(phase, automaticApproval));
     // The return, or at the brake why SFlow did not make it and the person's filled choices; the test step's run again.
-    for (const line of [...(automaticReturn?.lines ?? []), ...(rerun?.line ? [rerun.line] : [])]) console.log(line);
+    for (const line of [...(automaticReturn?.lines ?? []), ...(rerun?.line ? [rerun.line] : []), ...(taskRuleSteps?.lines ?? [])]) console.log(line);
     for (const repair of registrationRepairs) {
       console.log(`Repaired stale artifact registration for ${repair.path} and continued; authored content still matches generation ${repair.generation}.`);
     }
@@ -330,6 +341,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       pushedTo,
       ...(automaticReturn ? { automaticReturn: automaticReturn.data } : {}),
       ...(rerun ? { testsRerun: rerun } : {}),
+      ...(taskRuleSteps ? { taskSteps: taskRuleSteps } : {}),
       ...(automaticApproval?.applies ? { automaticApproval: { approved: automaticApproval.approved === true, checked: automaticApproval.checked ?? [],
         open: automaticApproval.open ?? [], ...(automaticApproval.approved ? { commit: automaticApproval.publication?.sha ?? null } : {}) } } : {}),
       ...(fixedOnTheWay?.moved.length ? { fixedOnTheWay: fixedOnTheWay.moved } : {}),

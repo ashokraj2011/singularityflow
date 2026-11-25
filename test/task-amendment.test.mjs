@@ -167,3 +167,38 @@ test('journey ITW REQ-009: a review added while the code waits for its approval 
   assert.equal(walked.reached, true, formatTrail(walked.trail));
   assert.deepEqual(walked.findings, [], JSON.stringify(walked.findings));
 });
+
+test('journey ITW REQ-014: a fix whose code touches a team path rule gains the rule\'s review step, recorded as the rule\'s', slowLane({ timeout: 1_800_000 }), async (t) => {
+  const because = 'Changes to the value module get a conformance review.';
+  const story = await journeyRepository(t, { configure: (configuration) => {
+    configuration.tasks = { paths: [{ paths: ['src/**'], steps: ['review'], because }] };
+  } });
+  Object.assign(story, { workId: 'TASK-1', item: ITEM });
+  // The words name no file, so the plan has no review yet.
+  const plan = json(story.cli('work', 'fix the value module so it returns 2', '--json'));
+  assert.deepEqual(plan.steps.map((step) => step.id), ['intake', 'implementation', 'verification']);
+  const routes = { agent: generatedAgent('TASK-1'), person: generatedPerson(story, 'TASK-1') };
+  const coded = await followRoutes(story, { label: 'task fix whose code grows it', ...routes, maxSteps: 120,
+    start: { shell: 'singularity-flow work "fix the value module so it returns 2" --kind fix --start' },
+    done: ({ record }) => record?.phases?.implementation?.status === 'awaiting_approval' });
+  t.diagnostic(formatTrail(coded.trail));
+  assert.equal(coded.reached, true, formatTrail(coded.trail));
+  const record = storyRecord(story);
+  assert.deepEqual(record.phaseOrder, ['intake', 'implementation', 'verification', 'conformance'], 'the rule added its review after the tests');
+  const change = record.resolution.composition.changes.at(-1);
+  assert.equal(change.rule, 'paths[0]');
+  assert.equal(change.because, because);
+  assert.ok(change.paths.includes('src/value.mjs'), JSON.stringify(change));
+  assert.deepEqual(record.resolution.composition.added.at(-1), { intent: 'review', rule: 'paths[0]', because });
+  assert.deepEqual(record.resolution.composition.touchedPaths ?? [], [], 'the files the task started with stay as they were');
+  assert.equal(record.taskChanges.length, 1);
+  assert.equal(record.workflowSnapshot.revision, 2);
+  // The submission says so in one line.
+  assert.match(JSON.stringify(coded.last ?? {}), /Added a review step after the tests: Changes to the value module get a conformance review\./u,
+    JSON.stringify(coded.last ?? {}).slice(0, 2000));
+  // The code is written now: a plan's place has passed.
+  const late = refusal(story, ['work', 'add', 'plan']);
+  assert.equal(late.code, 'TASK_CHANGE_REFUSED', late.text);
+  assert.match(late.text, /The code is already written; a plan step goes before it\./u);
+  json(story.cli('status', '--json'));
+});

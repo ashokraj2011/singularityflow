@@ -1001,7 +1001,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,876,942 (measured for submit.mjs, +4,454, 2026-11-25): a started task gains a step [ITW:REQ-009]: its snapshot dialect
     // read in the accepted chain (workflow-snapshots.mjs), its check beside the test-command one, `work add` registered;
     // its capture, replay and review check load only for a task change. No new eager file.
-    assert.ok(closure.bytes <= 9_876_942, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,877,758 (measured for submit.mjs, +816, 2026-11-25): a task's code that touches a team's path rule adds the rule's
+    // steps after its submission, said in one line (submit.mjs, submit-if-ready.mjs) [ITW:REQ-014]. No new eager file.
+    assert.ok(closure.bytes <= 9_877_758, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

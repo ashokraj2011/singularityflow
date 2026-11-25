@@ -178,6 +178,11 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
     if (!ADDABLE.includes(intent)) throw taskRefusal('TASK_CHANGE_REFUSED', `A task can gain a ${ADDABLE.join(', ')} step, not '${intent}'.`,
       { command: 'singularity-flow work "<what you want done>" --add design', label: 'Add one of the steps a task can gain.' }, { add: intent });
     if ((intent === 'review') && !intents.includes('code')) continue;
+    // A plan step plans a code step; added to a task with none, it would follow the report and take its approval.
+    if (intent === 'plan' && !intents.includes('code')) {
+      throw taskRefusal('TASK_CHANGE_REFUSED', `A plan step plans code, and a ${kind} task changes none.`,
+        { command: `singularity-flow work "<what you want done>" --kind ${kind}`, label: 'Keep the task\'s own steps.' }, { add: intent });
+    }
     if (!intents.includes(intent)) { intents.push(intent); changes.push({ change: 'add', intent }); }
   }
   const wantedOut = new Set(skip);
@@ -201,8 +206,8 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
         throw taskRefusal('TASK_CHANGE_REFUSED', `The ${intent} step stays: ${rule.because}`,
           { command: `singularity-flow work "<what you want done>" --kind ${kind}`, label: 'Keep the step the team\'s rule adds.' }, { skip: intent, rule: name });
       }
-      // Only a code task gets a test or review step from a rule: a step that reads code needs code to read.
-      if ((intent === 'test' || intent === 'review') && !intents.includes('code')) continue;
+      // Only a code task gets a plan, test or review step from a rule: those steps plan or read code.
+      if ((intent === 'plan' || intent === 'test' || intent === 'review') && !intents.includes('code')) continue;
       if (!intents.includes(intent)) { intents.push(intent); added.push({ intent, rule: name, because: rule.because }); }
     }
     for (const intent of rule.personApproves) personApproves.add(intent);
@@ -259,7 +264,18 @@ export function composedWorkType(definition, composition) {
     }
     phaseOverrides[step.id] = override;
   });
+  // A plan step that writes its own requirement IDs (the packaged implementation specification does, for the technical
+  // details) keeps doing so beside a requirements step, as the packaged feature workflow says.
+  const requirementsStep = composition.steps.find((step) => step.intent === 'requirements');
+  const planStep = composition.steps.find((step) => step.intent === 'plan');
+  const codeStep = composition.steps.find((step) => step.intent === 'code');
+  const planWritesIds = planStep && definition.phases?.[planStep.id]?.artifact?.kind === 'implementation-spec';
+  const plannedClaims = requirementsStep && planWritesIds && codeStep ? {
+    plannedClaims: { mode: 'required', clausePhases: [requirementsStep.id, planStep.id], owners: { [codeStep.id]: planStep.id } },
+    because: { plannedClaims: 'The implementation specification adds its own requirement IDs for the technical details, beside the requirements step\'s.' }
+  } : {};
   return {
+    ...plannedClaims,
     label: `${KIND_WORDS[composition.kind]} (task)`,
     description: `Composed by /sf-task from the kind ${composition.kind}: ${composition.steps.map((step) => step.label).join(' → ')}.`,
     phases: ids,

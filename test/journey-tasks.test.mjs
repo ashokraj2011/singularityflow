@@ -56,11 +56,7 @@ for (const [kind, words, steps] of [
   ['change', 'make the value module return 2', ['intake', 'implementation-spec', 'implementation', 'verification']],
   ['feature', 'add a second value to the value module', ['intake', 'requirements', 'implementation-spec', 'implementation', 'verification']]
 ]) {
-  // The scripted author writes a step from its intent's own template; the packaged implementation-spec template a feature's
-  // plan step keeps asks for more than it writes, so the feature walk stops at a correction a real agent makes. The same
-  // steps run in the packaged feature workflow.
-  const known = kind === 'feature' ? { todo: 'the scripted author cannot write the packaged implementation-spec template' } : {};
-  test(`journey ITW: a ${kind} task goes from its words to a closed Story by its routes, with two approvals by a person`, { ...slowLane({ timeout: 2_400_000 }), ...known }, async (t) => {
+  test(`journey ITW: a ${kind} task goes from its words to a closed Story by its routes, with two approvals by a person`, slowLane({ timeout: 2_400_000 }), async (t) => {
     const { story, walk } = await walkTask(t, words, kind);
     assert.equal(walk.reached, true, formatTrail(walk.trail));
     assert.deepEqual(walk.findings, [], JSON.stringify(walk.findings));

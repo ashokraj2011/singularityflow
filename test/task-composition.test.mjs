@@ -108,8 +108,13 @@ test('ITW REQ-009: before a task starts, a person may add a step or take one out
     [{ kind: 'fix', skip: ['test'] }, /Every code change gets a test step/u],
     [{ kind: 'fix', skip: ['intake'] }, /Every task starts with its intake/u],
     [{ kind: 'investigate', skip: ['design'] }, /report is its design step/u],
-    [{ kind: 'fix', add: ['deploy'] }, /not 'deploy'/u]
+    [{ kind: 'fix', add: ['deploy'] }, /not 'deploy'/u],
+    // Found by the task fuzzer: a plan after a review's findings took their approval.
+    [{ kind: 'review', add: ['plan'] }, /A plan step plans code, and a review task changes none/u]
   ]) assert.throws(() => composeTask(base(), options), (error) => error.code === 'TASK_CHANGE_REFUSED' && words.test(error.message), JSON.stringify(options));
+  // Found by the task fuzzer: a rule's plan step is not given to a task with no code.
+  const planned = Object.assign(base(), { tasks: { always: [{ steps: ['plan'], because: 'Plans first.' }] } });
+  assert.deepEqual(composeTask(planned, { kind: 'docs' }).steps.map((step) => step.intent), ['intake', 'design']);
   // "Skip the review" on a task a rule gives one is refused with the rule's words [A4].
   const ruled = Object.assign(base(), { tasks: { always: [{ kinds: ['feature'], steps: ['review'], because: 'Every feature gets a conformance review.' }] } });
   assert.throws(() => composeTask(ruled, { kind: 'feature', skip: ['review'] }),

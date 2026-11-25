@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import YAML from 'yaml';
 
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { ALIKE, alikeness, analyzeSkillCatalog, skillCatalogLines, skillWords } from '../src/skill-catalog.mjs';
 import { journeyRepository } from './helpers/route-follower.mjs';
 
@@ -185,7 +186,7 @@ test('skill catalog reads the library and every trusted marketplace once per com
       'singularity/skill-library/requirements-writer/SKILL.md': skillText('requirements-writer', 'Turn a feature brief into numbered requirements.', ['task:requirements-analysis']),
       'singularity/imports.lock.yml': YAML.stringify({ version: 1, imports: { 'library-skill:requirements-writer': { kind: 'library-skill', target: { id: 'requirements-writer' },
         source: { kind: 'marketplace-skill', marketplace: 'acme', repository: acme.repository, entry: 'requirements-writer', version: '0.9.0', tasks: ['requirements-analysis'], tags: ['requirements'], lifecycleState: 'approved' } } } }),
-      'singularity/work-items/TASK-7/workflow.json': JSON.stringify({ workItem: { id: 'TASK-7', workType: 'task-fix' },
+      'singularity/work-items/TASK-7/workflow.json': JSON.stringify({ schemaVersion: currentSchemaVersion('story-workflow'), workItem: { id: 'TASK-7', workType: 'task-fix' },
         resolution: { composition: { kind: 'fix', workType: 'task-fix', steps: [{ id: 'implementation', intent: 'code', label: 'Code' }], skills: [{ id: 'web-smoke-checks', steps: ['implementation'], sha256: 'd'.repeat(64) }] } } })
     },
     configure: (configuration) => {

@@ -300,10 +300,11 @@ async function taskStories(root, definition) {
   let names;
   try { names = (await readdir(directory, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort(byText).slice(0, STORY_LIMIT); }
   catch { return []; }
+  const { readRecord } = await import('./schema-migrations.mjs');
   const stories = [];
   for (const name of names) {
     let workflow;
-    try { workflow = JSON.parse(await readFile(path.join(directory, name, 'workflow.json'), 'utf8')); } catch { continue; }
+    try { workflow = readRecord('story-workflow', await readFile(path.join(directory, name, 'workflow.json'))).record; } catch { continue; }
     const composition = storyComposition(workflow);
     if (!composition || !Array.isArray(composition.skills) || !composition.skills.length) continue;
     stories.push({ workId: String(workflow.workItem?.id ?? name), kind: composition.kind,

@@ -16,6 +16,7 @@ const preferences = {
   get(key, fallback) { try { return JSON.parse(localStorage.getItem(`sflow.view.${key}`)) ?? fallback; } catch { return fallback; } },
   set(key, value) { try { localStorage.setItem(`sflow.view.${key}`, JSON.stringify(value)); } catch { /* View preferences are optional. */ } }
 };
+let storyRefresh;
 
 function setCollapsed(collapsed) {
   document.body.classList.toggle('collapsed', collapsed);
@@ -66,9 +67,35 @@ $('#create-cancel').onclick = () => $('#create-dialog').close();
 $('#context-cancel').onclick = () => $('#context-dialog').close();
 $('#context-stories').onclick = () => $('#context-dialog').close();
 
-function updateCheckout(context) {
-  $('#context-name').textContent = context.label;
+function updateCheckout(context, followsActiveStory) {
+  $('#context-name').textContent = context.engine && !context.story ? 'No Story selected' : context.label;
   $('#context-switch').title = context.root;
+  $('#context-switch').setAttribute('aria-description', followsActiveStory ? 'Following the active Story' : 'Using the checkout selected in this tab');
+}
+
+function useContext(value) {
+  const { context, capabilities, followsActiveStory, activeStoryIssue } = value;
+  Object.assign(state.session, { context, capabilities, followsActiveStory, activeStoryIssue });
+  updateCheckout(context, followsActiveStory);
+}
+
+async function refreshStoryContext() {
+  const session = state.session;
+  if (!session?.followsActiveStory || state.switching) return false;
+  storyRefresh ??= api('/api/session?follow=1').then(value => {
+    if (state.session !== session || !session.followsActiveStory || state.switching) return false;
+    const changed = value.context.id !== session.context.id || value.activeStoryIssue !== session.activeStoryIssue;
+    if (changed) { useContext(value); renderActivity(); }
+    return changed;
+  }).finally(() => { storyRefresh = null; });
+  return storyRefresh;
+}
+
+async function followCodeView() {
+  if (!state.session?.followsActiveStory || state.page !== 'code' || document.hidden) return;
+  try {
+    if (await refreshStoryContext() && state.page === 'code' && location.hash === '#code') await navigate();
+  } catch { /* The connection status is handled by the workspace heartbeat. */ }
 }
 
 async function switchCheckout(input, button) {
@@ -85,12 +112,10 @@ async function switchCheckout(input, button) {
     state.pendingSave = null;
     state.pendingFork = null;
     state.uncertain = false;
-    state.session.context = result.context;
-    state.session.capabilities = result.capabilities;
-    updateCheckout(result.context);
+    useContext(result);
     renderActivity();
     state.switching = false;
-    if (location.hash === '#home') await navigate(); else go('home');
+    if (state.page === 'code' || location.hash === '#home') await navigate(); else go('home');
   } catch (error) {
     if ($('#context-dialog').open) $('#context-error').textContent = error.message;
     else banner(error.message);
@@ -106,6 +131,9 @@ $('#context-switch').onclick = async () => {
   try {
     const result = await api('/api/contexts');
     $('#context-error').textContent = '';
+    const follow = $('#context-follow');
+    follow.textContent = result.followsActiveStory ? 'Refresh active Story' : 'Follow active Story';
+    follow.onclick = () => switchCheckout({ followActiveStory: true }, follow);
     $('#context-choices').innerHTML = result.contexts.map(context => {
       const current = context.id === result.currentId;
       return `<button class="context-choice" data-known-context="${escape(context.id)}" ${current ? 'disabled' : ''}>
@@ -166,8 +194,7 @@ async function api(route, { method = 'GET', data, content, timeout = 15_000, sig
   return result;
 }
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function operation(name, input = {}, { invocationId = crypto.randomUUID() } = {}) {
-  const contextId = state.session.context.id;
+async function operation(name, input = {}, { invocationId = crypto.randomUUID(), contextId = state.session.context.id } = {}) {
   let receipt;
   try {
     const content = name === 'spec.source.add' ? input.file : ['spec.save', 'spec.fork'].includes(name) ? new Blob([input.content]) : undefined;
@@ -671,9 +698,17 @@ async function runAndTest(epoch) {
 }
 async function decisions(epoch) {
   const actions = nativeButton('decisions', 'Review in VS Code');
-  const { value } = await operation('decision.list');
+  const { story } = state.session.context;
+  let result;
+  try { result = await operation('decision.list'); }
+  catch (error) {
+    if (error.code !== 'DECISIONS_PHASE_UNKNOWN' || !story) throw error;
+    if (epoch === state.epoch) $('#main').innerHTML = heading('Decisions', '', actions)
+      + empty('No active phase', 'This Story has no active phase to review.', `<a class="button" href="#stories/${encodeURIComponent(story.workId)}">Open Stories</a>`, 'decisions');
+    return;
+  }
   if (epoch !== state.epoch) return;
-  $('#main').innerHTML = heading('Decisions', 'See what needs attention in this Story.', actions) + decisionView(value);
+  $('#main').innerHTML = heading('Decisions', 'See what needs attention in this Story.', actions) + decisionView(result.value);
 }
 async function about(epoch) {
   const { value } = await operation('about');
@@ -727,17 +762,26 @@ async function navigate() {
   // Focus the destination so keyboard and screen reader users start at the new view.
   main.focus({ preventScroll: true });
   try {
+    if (['home', 'ask', 'code'].includes(page)) {
+      await refreshStoryContext();
+      if (epoch !== state.epoch) return;
+    }
     if (page === 'home') overview();
     else if (page === 'ask') {
       const { mountAsk } = await import('./ask.js');
       if (epoch !== state.epoch) return;
-      const contextId = state.session.context.id;
+      const { context, activeStoryIssue } = state.session;
+      const contextId = context.id;
       const preparedQuestion = state.preparedQuestion?.contextId === contextId ? state.preparedQuestion.text : null;
       state.preparedQuestion = null;
       mountAsk(main, {
-        checkout: state.session.context.label,
+        context, issue: activeStoryIssue,
         preparedQuestion,
         navigate: go,
+        readStory: async name => {
+          const { value } = await operation(name, {}, { contextId });
+          return epoch === state.epoch && contextId === state.session?.context.id ? value : null;
+        },
         read: async (input, { signal } = {}) => {
           const timeout = ['task-start', 'task-prepare'].includes(input.interaction) ? 305_000 : input.interaction === 'chat' ? 58_000 : 22_000;
           const value = await api('/api/ask', { method: 'POST', data: { ...input, contextId }, timeout, signal });
@@ -751,12 +795,20 @@ async function navigate() {
     else if (page === 'stories') await stories(epoch, decodeURIComponent(parts[1] ?? ''));
     else if (Object.hasOwn(catalogs, page)) await catalog(page, epoch, decodeURIComponent(parts[1] ?? ''));
     else if (page === 'code') {
+      const { context, activeStoryIssue } = state.session;
+      if (activeStoryIssue || context.engine && !context.story) {
+        main.innerHTML = heading('Code Explainer') + empty('Open a Story to see its code',
+          activeStoryIssue ?? 'Choose a Story from the workspace. Code Explainer will use its application checkout.',
+          '<a class="button" href="#stories">Browse Stories</a>', 'stories');
+        return;
+      }
       const { mountCodeExplainer } = await import('./code-explainer.js');
       if (epoch !== state.epoch) return;
       const panel = document.createElement('div');
       main.replaceChildren(panel);
-      state.disposeView = mountCodeExplainer(panel, { operation, navigate: go, editor: nativeButton('code', 'Open in VS Code'),
-        ask: text => { state.preparedQuestion = { contextId: state.session.context.id, text }; go('ask'); } });
+      state.disposeView = mountCodeExplainer(panel, { context, navigate: go, editor: nativeButton('code', 'Open in VS Code'),
+        operation: (name, input) => operation(name, input, { contextId: context.id }),
+        ask: text => { state.preparedQuestion = { contextId: context.id, text }; go('ask'); } });
     }
     else if (page === 'run') await runAndTest(epoch);
     else if (page === 'decisions') await decisions(epoch);
@@ -798,6 +850,8 @@ $('#create-form').onsubmit = async event => {
   finally { state.creating = false; button.disabled = false; button.textContent = state.pendingCreation ? 'Check previous creation' : 'Create specification'; }
 };
 window.addEventListener('hashchange', () => { void navigate(); });
+window.addEventListener('focus', () => { void followCodeView(); });
+document.addEventListener('visibilitychange', () => { void followCodeView(); });
 window.addEventListener('beforeunload', event => { if (state.dirty || state.saving || state.pendingCreation) { event.preventDefault(); event.returnValue = ''; } });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
@@ -832,7 +886,7 @@ async function boot() {
       const tabId = sessionStorage.getItem('sflow.tab');
       state.session = { ...await api('/api/session'), tabId };
     }
-    updateCheckout(state.session.context);
+    updateCheckout(state.session.context, state.session.followsActiveStory);
     $('#context-switch').disabled = $('#quick-ask').disabled = false;
     setConnected('connected', 'Connected locally');
     try {
@@ -840,6 +894,7 @@ async function boot() {
       existing.requests.forEach(activity);
     } catch { /* An unavailable activity list must not block the workspace. */ }
     await navigate();
+    setInterval(() => { void followCodeView(); }, 2000);
     setInterval(async () => {
       if (document.hidden || !state.session) return;
       // Polling is not activity for the service's idle stop, unless this tab holds writing not yet saved.

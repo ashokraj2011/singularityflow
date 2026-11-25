@@ -921,6 +921,8 @@ test('browser Stories bind code, decisions, questions and test evidence to the r
   assert.notEqual(checkoutPath, await realpath(root));
   await writeFile(path.join(checkoutPath, 'invoice.js'), 'export function invoiceTotal(value) { return Math.round(value); }\n');
   await writeFile(path.join(apiCheckout, 'payments.js'), 'export function reconcileInvoice(value) { return Math.abs(value); }\n');
+  git(apiCheckout, 'add', 'payments.js');
+  git(apiCheckout, 'commit', '-qm', 'Implement invoice reconciliation in the API');
   const storyBefore = git(checkoutPath, 'status', '--porcelain');
   const refBefore = git(checkoutPath, 'rev-parse', 'HEAD');
 
@@ -954,8 +956,22 @@ test('browser Stories bind code, decisions, questions and test evidence to the r
   await field.fill('current story');
   await field.press('Enter');
   await page.getByRole('heading', { name: title, exact: true }).waitFor();
+  const questions = page.getByRole('group', { name: 'Questions about this Story' });
+  const answer = page.getByRole('region', { name: 'Answer', exact: true });
+  await questions.getByRole('button', { name: 'Code changes' }).click();
+  await answer.getByRole('heading', { name: 'Code changes' }).waitFor();
+  await answer.getByText('1 changed file in app.', { exact: true }).waitFor();
+  await field.fill('What needs a decision?');
+  await field.press('Enter');
+  await answer.getByRole('link', { name: 'Open Decisions' }).waitFor();
+  await questions.getByRole('button', { name: 'Test evidence' }).click();
+  await answer.getByText(`No retained test run for ${id} in this phase.`).waitFor();
+  assert.equal(await answer.getByRole('link', { name: 'Open Run & Test' }).count(), 1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 390);
+  await page.setViewportSize({ width: 1440, height: 960 });
   await nav.getByRole('link', { name: 'Decisions' }).click();
-  await page.getByText(new RegExp('^' + id + ' ·')).waitFor();
+  await page.locator('.decision-summary').getByText(new RegExp('^' + id + ' ·')).waitFor();
   await nav.getByRole('link', { name: 'Run & Test' }).click();
   await page.getByText(`No retained test run for ${id} in this phase.`).waitFor();
   const summary = responses.find(item => item.operation === 'tests.summary')?.result?.value;
@@ -970,9 +986,10 @@ test('browser Stories bind code, decisions, questions and test evidence to the r
   assert.equal(await page.locator('#context-switch').getAttribute('title'), apiCheckout);
   await nav.getByRole('link', { name: 'Code Explainer' }).click();
   await page.locator('#cx-nodes .cx-row').filter({ hasText: 'reconcileInvoice' }).waitFor();
+  await page.getByText(`Story ${id} · api · ${branch}`, { exact: true }).waitFor();
   assert.equal(await page.locator('#cx-nodes .cx-row').filter({ hasText: 'invoiceTotal' }).count(), 0);
   await nav.getByRole('link', { name: 'Decisions' }).click();
-  await page.getByText(new RegExp('^' + id + ' ·')).waitFor();
+  await page.locator('.decision-summary').getByText(new RegExp('^' + id + ' ·')).waitFor();
   await nav.getByRole('link', { name: 'Run & Test' }).click();
   await page.getByText(`No retained test run for ${id} in this phase.`).waitFor();
 
@@ -987,6 +1004,102 @@ test('browser Stories bind code, decisions, questions and test evidence to the r
   assert.equal(await page.locator('#context-switch').getAttribute('title'), await realpath(root));
   assert.equal(git(checkoutPath, 'branch', '--show-current'), 'other-invoice');
   git(checkoutPath, 'switch', '-q', branch);
+});
+
+test('Code Explainer follows the active Story from an engine clone and updates an open tab', { timeout: 60_000 }, async t => {
+  const { root, base, directory, env, mustGit, cleanup } = await fixture(t, { checkout: 'workspace/repos/app' });
+  const workspace = path.join(base, 'workspace');
+  const engine = path.join(base, 'engine');
+  const remote = path.join(base, 'app.git');
+  const git = (checkout, ...args) => mustGit('-C', checkout, ...args);
+  const [{ chromium }, { rememberWorkspace, readWorkspace }, { recordStoryCheckout, storyIndexFile },
+    { activateWorkspaceContext, activateWorkspaceStoryContext }] = await Promise.all([
+    import('playwright-core'), import('../src/workspace.mjs'), import('../src/story-index.mjs'), import('../src/workspace-context.mjs')
+  ]);
+  await mkdir(path.join(engine, 'bin'), { recursive: true });
+  git(engine, 'init', '-q', '-b', 'main');
+  await writeFile(path.join(engine, 'package.json'), '{"name":"singularity-flow"}\n');
+  await writeFile(path.join(engine, 'bin', 'singularity-flow.mjs'), 'export function engineOnly() { return 1; }\n');
+  git(engine, 'add', '.'); git(engine, 'commit', '-qm', 'Engine fixture');
+  await writeFile(path.join(engine, 'bin', 'singularity-flow.mjs'), 'export function engineOnly() { return 2; }\n');
+  mustGit('init', '--bare', '-q', '-b', 'main', remote);
+  mustGit('remote', 'add', 'origin', remote);
+  await writeFile(path.join(root, 'totals.js'), 'export function total(value) { return value; }\n');
+  mustGit('add', '.'); mustGit('commit', '-qm', 'Application baseline');
+  const baseCommit = mustGit('rev-parse', 'HEAD');
+  await writeFile(path.join(workspace, 'workspace.json'), JSON.stringify({
+    version: 1, id: 'example-app', name: 'Application', anchor: { provider: 'workspace', key: 'example-app' },
+    leadRepository: 'app', repositories: { app: { url: remote, path: 'repos/app', defaultBranch: 'main' } }
+  }));
+  const registry = env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, selection = env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  await rememberWorkspace(registry, await readWorkspace(workspace));
+  const active = await activateWorkspaceContext(registry, selection, workspace, { repositoryId: 'app' });
+  assert.equal(active.storyId, null);
+  async function makeStory(id, branch, name) {
+    const checkout = path.join(workspace, branch);
+    mustGit('worktree', 'add', '-qb', branch, checkout, baseCommit);
+    await writeFile(path.join(checkout, 'totals.js'), `export function ${name}(value) { return value + 10; }\n`);
+    git(checkout, 'add', 'totals.js'); git(checkout, 'commit', '-qm', 'Implement the Story');
+    const implementation = git(checkout, 'rev-parse', 'HEAD');
+    const storyFolder = path.join(checkout, 'singularity', 'work-items', id);
+    await mkdir(storyFolder, { recursive: true });
+    await writeFile(path.join(storyFolder, 'workflow.json'), JSON.stringify({
+      schemaVersion: 1, status: 'in_progress', workItem: { id, title: name, branch, baseCommit },
+      currentPhase: 'verification', phaseOrder: ['verification'],
+      phases: { verification: { id: 'verification', status: 'in_progress', generation: 1,
+        generationIntent: { baseline: { commit: implementation } }, artifacts: [] } }
+    }));
+    git(checkout, 'add', '.'); git(checkout, 'commit', '-qm', 'Start verification');
+    const recorded = await recordStoryCheckout(checkout, { env });
+    assert.equal(recorded.recorded, true, JSON.stringify(recorded));
+    return { id, branch, name, checkout: await realpath(checkout) };
+  }
+  const first = await makeStory('INV-1', 'explain-first', 'firstStoryTotal');
+  const second = await makeStory('INV-2', 'explain-next', 'secondStoryTotal');
+  const attach = story => activateWorkspaceStoryContext(selection, registry, story.checkout, { storyId: story.id });
+  const browser = await chromium.launch({ headless: true }); cleanup(() => browser.close());
+  const service = await startService({ directory }); cleanup(() => service.close());
+  const open = () => control(service.descriptor, 'bootstrap', { root: path.join(engine, 'bin'), clientId: randomUUID(), environment: env });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  page.setDefaultTimeout(12_000);
+  await page.goto((await open()).url);
+  await page.getByRole('link', { name: 'Code Explainer', exact: true }).click();
+  await page.getByRole('heading', { name: 'Open a Story to see its code' }).waitFor();
+  const rows = page.locator('#cx-nodes .cx-row');
+  assert.equal(await rows.filter({ hasText: 'engineOnly' }).count(), 0);
+
+  await attach(first);
+  await rows.filter({ hasText: first.name }).waitFor();
+  assert.equal(await page.locator('#context-switch').getAttribute('title'), first.checkout);
+  const reopened = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await reopened.goto((await open()).url);
+  await reopened.getByRole('heading', { name: 'Selected Story' }).waitFor();
+  assert.equal(await reopened.locator('#context-switch').getAttribute('title'), first.checkout);
+  await reopened.close();
+
+  // A Story from an older install can still be selected before its index is rebuilt.
+  const indexPath = storyIndexFile(env);
+  const index = JSON.parse(await readFile(indexPath, 'utf8'));
+  index.entries = index.entries.filter(entry => entry.workId !== second.id);
+  await writeFile(indexPath, JSON.stringify(index));
+  await attach(second);
+  await rows.filter({ hasText: second.name }).waitFor();
+  assert.equal(await rows.filter({ hasText: first.name }).count(), 0);
+  await page.getByText(`Story ${second.id} · app · ${second.branch}`, { exact: true }).waitFor();
+
+  await page.locator('#context-switch').click();
+  await page.getByRole('button', { name: new RegExp('^' + first.id) }).click();
+  await rows.filter({ hasText: first.name }).waitFor();
+  assert.equal(await page.locator('#context-switch').getAttribute('aria-description'), 'Using the checkout selected in this tab');
+  await page.locator('#context-switch').click();
+  await page.getByRole('button', { name: 'Follow active Story', exact: true }).click();
+  await rows.filter({ hasText: second.name }).waitFor();
+
+  git(second.checkout, 'switch', '-qc', 'different-branch');
+  await page.getByText(/checkout for the active Story INV-2 is unavailable/u).waitFor();
+  assert.equal(await rows.filter({ hasText: second.name }).count(), 0);
+  assert.equal(await rows.filter({ hasText: 'engineOnly' }).count(), 0);
+  assert.equal(new URL(page.url()).hash, '#code');
 });
 
 test('an agent turn only reads the service status: ui open, serve and stop with --for-agent are refused with the person\'s route', async () => {
@@ -1309,7 +1422,7 @@ test('browser search finds workspace records and pinned files, and Copilot chat 
   await results.getByRole('button', { name: 'Harbor invoice reconciliation' }).waitFor();
   await results.getByText(/Keep the receipt for each invoice/).waitFor();
 
-  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Ask Copilot', exact: true }).click();
   const question = page.getByRole('textbox', { name: 'Ask a question' });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Explain a concept' }).click();
@@ -1327,7 +1440,7 @@ test('browser search finds workspace records and pinned files, and Copilot chat 
   await chat.getByText('This follows the earlier question about tidal power.').waitFor();
   await page.getByRole('link', { name: 'Overview', exact: true }).click();
   await page.getByRole('button', { name: 'Search or ask SFlow' }).click();
-  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Ask Copilot', exact: true }).click();
   await chat.getByText('This follows the earlier question about tidal power.').waitFor();
   await page.getByRole('checkbox', { name: 'Use workspace context' }).check();
   await question.fill('Tell me about Harbor invoice ' + secret);

@@ -483,20 +483,34 @@ async function storySummary(root, options, { localRunId = null } = {}) {
     import('../accepted-story-execution.mjs'), import('../verification/attempts.mjs'), import('../story-paths.mjs'),
     import('../test-summary.mjs'), import('../environment-declaration.mjs')]);
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
-  const phaseId = optionString(options, 'phase', null) ?? workflow.currentPhase;
+  const itemRelative = workDirRelative(config, workflow.workItem.id);
+  const wanted = localRunId ?? (typeof options.run === 'string' ? options.run : null);
+  let phaseId = optionString(options, 'phase', null) ?? workflow.currentPhase;
+  let consumedAttempts = null;
+  if (!phaseId) {
+    // Finished Stories have no current step. Find the phase of the requested or latest
+    // recorded run before opening any raw reports. Explicit phase reads still stay in that step.
+    const phases = workflow.phaseOrder.filter(id => workflow.phases?.[id]);
+    const candidates = await Promise.all(phases.map(async id => ({
+      id, attempts: await stepAttempts(root, itemRelative, workflow.workItem.id, id)
+    })));
+    const recent = candidates.filter(candidate => candidate.attempts.length)
+      .sort((a, b) => attemptRecordedAt(b.attempts.at(-1)).localeCompare(attemptRecordedAt(a.attempts.at(-1))));
+    const found = (wanted ? recent.find(({ attempts }) => selectStoryRun(attempts, {}, { wanted }).group) : recent[0]) ?? recent[0];
+    phaseId = found?.id ?? phases.at(-1);
+    consumedAttempts = found?.attempts ?? [];
+  }
   if (!workflow.phases?.[phaseId]) {
     fail(`Story ${workflow.workItem.id} has no step '${phaseId}'.`, 'TESTS_PHASE_UNKNOWN', { available: Object.keys(workflow.phases ?? {}), ...unknownStepDetails(workflow, phaseId) });
   }
   const declaration = await loadEnvironmentDeclaration(root, { optional: true }).catch(() => null);
-  const itemRelative = workDirRelative(config, workflow.workItem.id);
   // The runs that stood from an earlier step are read beside the step's own, labelled as reused below [CQF:REQ-015].
   const phase = workflow.phases[phaseId];
   const standing = [...(phase.checks ?? []), ...(phase.stepTestRuns?.preflightAttempts ?? []), ...(phase.stepTestRuns?.testExecutions ?? [])]
     .map((entry) => entry.reusedFrom).filter(Boolean);
-  const own = await stepAttempts(root, itemRelative, workflow.workItem.id, phaseId);
+  const own = consumedAttempts ?? await stepAttempts(root, itemRelative, workflow.workItem.id, phaseId);
   const reused = (await Promise.all([...new Set(standing.map((source) => source.phase).filter((id) => id && id !== phaseId))]
     .map((id) => stepAttempts(root, itemRelative, workflow.workItem.id, id)))).flat().filter((attempt) => standing.some((source) => source.attemptId === attempt.attemptId));
-  const wanted = localRunId ?? (typeof options.run === 'string' ? options.run : null);
   const { groups, group, bound, newer } = selectStoryRun([...own, ...reused], workflow.phases[phaseId], { wanted, latest: optionBoolean(options, 'latest') });
   if (wanted && !group) fail(`No run ${wanted} is recorded for ${workflow.workItem.id} step ${phaseId}.`, 'TESTS_RUN_NOT_FOUND');
   const scope = { kind: 'story', capability: workflow.resolution?.capability?.id ?? null, workId: workflow.workItem.id, phase: phaseId };

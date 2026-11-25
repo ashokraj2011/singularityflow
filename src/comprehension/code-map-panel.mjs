@@ -113,7 +113,7 @@ function repositoryView(inventory, browser, scope, files, symbols) {
   };
 }
 
-export function buildCodeMapPanel(input, { scope, view, depth, areas, notices, inventory, browser, workId }) {
+export function buildCodeMapPanel(input, { scope, view, depth, areas, notices, inventory, browser }) {
   const delta = view === 'changes';
   const id = randomUUID();
   const initial = buildCodeExplainerModel(input, id);
@@ -125,7 +125,6 @@ export function buildCodeMapPanel(input, { scope, view, depth, areas, notices, i
   const model = buildCodeExplainerModel({
     ...input, ...relations, view: delta ? 'delta' : 'full', depth, modelEnabled: true,
     areas: areaOptions, scope: scope ? 0 : null,
-    ...(workId ? { story: { workId, currentPhase: input.change.view?.snapshot?.phase ?? null, phaseOrder: [], phases: {} } } : {}),
     notes: ['Calls and test references are inferred from source in this checkout.']
   }, id);
   boundModel(model, lenses, notices);

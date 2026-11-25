@@ -47,7 +47,8 @@ export async function resolveComprehensionBaseline(root, {
   base: explicit = null,
   workId: requestedWorkId = null,
   phase: requestedPhase = null,
-  subjectIndex = null
+  subjectIndex = null,
+  preferStoryBase = false
 } = {}) {
   if (explicit && !requestedWorkId && !requestedPhase) {
     return { base: explicit, source: 'explicit', workId: null, phase: null };
@@ -67,6 +68,10 @@ export async function resolveComprehensionBaseline(root, {
         workId: selected.state.workItem.id,
         phase: selectedBaseline.phase
       };
+    }
+    const storyBase = selected.state.workItem.baseCommit;
+    if (preferStoryBase && storyBase) {
+      return { base: storyBase, source: 'story-base', workId: selected.state.workItem.id, phase: selectedBaseline.phase };
     }
     if (selectedBaseline.base) {
       return { ...selectedBaseline, workId: selected.state.workItem.id };

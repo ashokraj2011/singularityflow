@@ -1,12 +1,20 @@
 import { askHistoryDisplay } from './ask-history-display.js';
 import { askSuggestions } from './ask-navigation.js';
 import { escape, icon, markdown, words } from './views.js';
-import { chatLogView, searchFileView, searchResultsView } from './ask-results.js';
+import { chatLogView, searchFileView, searchResultsView, storyAnswerView } from './ask-results.js';
 
 const routes = new Set(['home', 'specs', 'stories', 'workflows', 'agents', 'skills', 'instructions', 'code', 'run', 'decisions', 'about']);
 const chip = (text, key, value) => `<button type="button" class="button" data-${key}="${escape(value)}">${escape(text)}</button>`;
 
 const evidenceChip = id => id ? chip('View evidence', 'evidence', id) : '';
+
+const storyQuestions = [
+  { icon: 'stories', label: 'Story status', query: 'Where does this Story stand?', rule: /^(?:where does (?:this|my) story stand|what phase is (?:this|the current) story in|story status)$/iu, lookup: 'current story' },
+  { icon: 'decisions', label: 'Pending decisions', query: 'What needs a decision?', rule: /^(?:what needs (?:a decision|approval)|what decisions (?:are pending|do i need to make)|pending decisions|what needs my approval)$/iu, result: 'decisions', operation: 'decision.list' },
+  { icon: 'run', label: 'Test evidence', query: 'What tests ran?', rule: /^(?:what tests (?:ran|passed|failed)|did (?:the )?tests pass|(?:show )?(?:test results|test evidence))$/iu, result: 'tests', operation: 'tests.summary' },
+  { icon: 'code', label: 'Code changes', query: 'What changed?', rule: /^(?:what changed(?: in (?:this|the current) story)?|(?:show )?(?:my |the )?code changes)$/iu, result: 'changes', operation: 'code.changes' },
+  { icon: 'specs', label: 'Attached specification', query: 'Which spec is attached?', rule: /^(?:which spec(?:ification)? is attached(?: to this story)?|what spec(?:ification)? is this story using|attached specification)$/iu, lookup: 'spec used for this story' }
+];
 
 function taskForm(evidence, supporting) {
   return `<details class="ask-task"><summary>Prepare a task from this evidence</summary>
@@ -111,46 +119,59 @@ function answerView(value) {
   ${value.status === 'empty' && !value.coverage && !diagnostics.length ? '<p class="muted">Enter a screen name, a work question, or a specification ID.</p>' : ''}`;
 }
 
-export function mountAsk(root, { checkout, navigate, read, preparedQuestion = null }) {
+export function mountAsk(root, { context, issue, navigate, read, readStory, preparedQuestion = null }) {
+  const story = issue ? null : context.story;
+  const checkout = issue || context.engine && !story ? null : context.label;
+  const questions = story ? storyQuestions.filter(question => story.role !== 'secondary' || question.operation) : [];
+  const storyLabel = story?.title && story.title !== story.workId ? story.title : null;
+  const scope = story ? [story.workId, story.repositoryId].filter(Boolean).join(' · ') : checkout ?? 'No Story selected';
   root.innerHTML = `<div class="ask-page" data-mode="search">
     <header class="ask-hero">
+      <h1>Ask SFlow</h1>
+      <p id="ask-scope-description">${story ? 'Ask about this Story or search for specs, files, and workflow tools.' : checkout
+        ? 'Find a Story, specification, file, or SFlow help topic.' : 'Search SFlow Help or open a Story to ask about your work.'}</p>
+    </header>
+    <div class="ask-context">
+      <span class="tile-icon">${icon(story ? 'stories' : 'checkout')}</span>
+      <div><strong>${escape(storyLabel ?? scope)}</strong>${storyLabel ? `<small>${escape(scope)}</small>` : ''}
+        ${issue ? `<small>${escape(issue)}</small>` : ''}
+      </div>
+      ${checkout ? '<button class="quiet" type="button" data-action="choose-checkout">Change checkout</button>'
+        : `<a class="text-link" href="#stories">Browse Stories ${icon('right')}</a>`}
+    </div>
+    <section id="ask-chat" aria-label="Chat conversation" role="log" hidden></section>
+    <section class="ask-search card">
       <div class="segmented ask-modes" role="group" aria-label="Search or chat">
         <button type="button" data-ask-mode="search" aria-pressed="true">${icon('search')} Search</button>
-        <button type="button" data-ask-mode="chat" aria-pressed="false">${icon('chat')} Chat</button>
+        <button type="button" data-ask-mode="chat" aria-pressed="false">${icon('chat')} Ask Copilot</button>
       </div>
-      <h1 id="ask-title">What are you looking for?</h1>
-      <p id="ask-scope-description">Search your workspace and SFlow Help.</p>
-    </header>
-    <section id="ask-chat" aria-label="Chat conversation" role="log" hidden></section>
-    <section class="ask-search">
       <form id="ask-form">
         <label for="ask-question" class="sr-only">Ask a question</label>
         <div class="ask-input-row"><span id="ask-input-icon">${icon('search')}</span><input id="ask-question" type="search" maxlength="2000" autocomplete="off"
-          placeholder="Search a Story, specification, or file…" aria-controls="ask-suggestions">
+          placeholder="${story ? 'Ask about this Story or search your workspace…' : checkout ? 'Search by name, ID, or file path…' : 'Search SFlow Help…'}" aria-controls="ask-suggestions">
           <textarea id="ask-chat-question" aria-label="Ask a question" placeholder="Ask Copilot anything…" maxlength="2000" rows="2" hidden></textarea>
           <button id="ask-submit" type="submit" class="primary">Search ${icon('right')}</button></div>
         <ul id="ask-suggestions" aria-label="Suggested destinations" hidden></ul>
         <div id="ask-search-options" class="ask-options">
-          ${checkout ? `<span class="ask-scope">${icon('checkout')} <span>${escape(checkout)}</span></span>
-            <label><input id="ask-portable" type="checkbox"> Save across devices</label>` : ''}
+          ${checkout ? '<label><input id="ask-portable" type="checkbox"> Save search conversation across devices</label>' : ''}
         </div>
         <div id="ask-chat-options" class="ask-options" hidden>
-          <label><input id="ask-workspace" type="checkbox"> Use workspace context</label>
+          <label${checkout ? '' : ' hidden'}><input id="ask-workspace" type="checkbox"> Use workspace context</label>
           <button type="button" class="quiet" data-chat-action="reset">${icon('add')} New chat</button>
           <button type="button" class="quiet" id="ask-cancel" hidden>Cancel reply</button>
         </div>
       </form>
-      <div class="ask-starters" id="ask-search-starters" role="group" aria-label="Suggested searches">
-        <button type="button" data-query="current story">${icon('stories')} Current Story</button>
-        <button type="button" data-query="commits last week">${icon('history')} Recent commits</button>
-        <button type="button" data-query="story-lifecycle">${icon('about')} Publishing help</button>
-      </div>
-      <div class="ask-starters" id="ask-chat-starters" role="group" aria-label="Suggested prompts" hidden>
-        <button type="button" data-prompt="Explain ">${icon('specs')} Explain a concept</button>
-        <button type="button" data-prompt="Help me compare ">${icon('workflows')} Compare options</button>
-        <button type="button" data-prompt="Help me plan ">${icon('check')} Plan an approach</button>
-      </div>
     </section>
+    <div class="ask-starters" id="ask-search-starters" role="group" aria-label="${story ? 'Questions about this Story' : 'Suggested searches'}">
+      ${questions.length ? questions.map(item => `<button type="button" data-query="${escape(item.query)}">${icon(item.icon)} ${item.label}</button>`).join('')
+        : `${checkout ? `<button type="button" data-query="commits last week">${icon('history')} Recent commits</button>` : ''}
+          <button type="button" data-query="story-lifecycle">${icon('about')} Publishing help</button>`}
+    </div>
+    <div class="ask-starters" id="ask-chat-starters" role="group" aria-label="Suggested prompts" hidden>
+      ${story ? `<button type="button" data-prompt="Summarize the current Story and tell me what needs attention." data-use-context>${icon('stories')} Discuss this Story</button>` : ''}
+      <button type="button" data-prompt="Explain ">${icon('specs')} Explain a concept</button>
+      <button type="button" data-prompt="Help me plan ">${icon('check')} Plan an approach</button>
+    </div>
     <div id="ask-conversation" class="ask-actions" aria-label="Conversation"></div>
     <div id="ask-status" role="status" class="muted"></div>
     <section id="ask-answer" aria-label="Answer"></section>
@@ -202,7 +223,7 @@ export function mountAsk(root, { checkout, navigate, read, preparedQuestion = nu
     }
     actions.innerHTML = items.join('');
   }
-  const scope = () => conversation ? { conversationId: conversation.id, revision: conversation.revision } : {};
+  const conversationScope = () => conversation ? { conversationId: conversation.id, revision: conversation.revision } : {};
 
   function updateSubmit() {
     send.disabled = pending || !field.value.trim();
@@ -228,8 +249,7 @@ export function mountAsk(root, { checkout, navigate, read, preparedQuestion = nu
     field = chatting ? chatField : searchField;
     field.value = question ?? (drafts[mode] || previousText);
     $('#ask-input-icon').innerHTML = icon(chatting ? 'chat' : 'search');
-    $('#ask-title').textContent = chatting ? 'How can I help?' : 'What are you looking for?';
-    $('#ask-scope-description').hidden = searchStarters.hidden = chatting;
+    searchStarters.hidden = chatting;
     send.innerHTML = (chatting ? 'Send ' : 'Search ') + icon('right');
     $('#ask-search-options').hidden = actions.hidden = answer.hidden = taskPanel.hidden = chatting;
     $('#ask-chat-options').hidden = chatLog.hidden = chatStarters.hidden = !chatting;
@@ -252,6 +272,19 @@ export function mountAsk(root, { checkout, navigate, read, preparedQuestion = nu
     status.textContent = ({ 'task-start': 'Starting the task…', 'task-prepare': 'Checking the task plan…',
       chat: 'Copilot is replying…', 'chat-history': '', 'chat-reset': '' })[input.interaction] ?? 'Reading…';
     try {
+      if (input.storyQuestion) {
+        const result = await readStory(input.storyQuestion.operation).catch(error => {
+          if (input.storyQuestion.result !== 'decisions' || error.code !== 'DECISIONS_PHASE_UNKNOWN') throw error;
+          return { noCurrentPhase: true };
+        });
+        if (!result || !answer.isConnected) return;
+        answer.innerHTML = storyAnswerView(input.storyQuestion.result, result, story);
+        detail.replaceChildren(); taskPanel.replaceChildren();
+        searchResult = null; conversation = null; conflict = null; activeTask = null; supporting = [];
+        sessionActions();
+        status.textContent = 'Answer ready.';
+        return;
+      }
       const result = await read(input, { signal: controller?.signal });
       if (!result || !answer.isConnected) return;
       if (result.kind === 'chat-history' || result.kind === 'chat') {
@@ -322,9 +355,11 @@ export function mountAsk(root, { checkout, navigate, read, preparedQuestion = nu
     if (!value) return;
     field.value = value;
     suggestions.hidden = true;
-    if (mode === 'chat') { void show({ interaction: 'chat', query: value, workspace: workspace.checked }); return; }
-    void show({ interaction: 'submit', query: value, workspaceSearch: true,
-      ...(conversation ? scope() : checkout ? { remember: true, ...(portable.checked ? { portable: true } : {}) } : {}) });
+    if (mode === 'chat') { void show({ interaction: 'chat', query: value, workspace: Boolean(checkout && workspace.checked) }); return; }
+    const question = questions.find(item => item.rule.test(value.replace(/[?.!]+$/u, '')));
+    if (question?.operation) { void show({ storyQuestion: question }); return; }
+    void show({ interaction: 'submit', query: question?.lookup ?? value, ...(checkout ? { workspaceSearch: true } : {}),
+      ...(conversation ? conversationScope() : checkout ? { remember: true, ...(portable.checked ? { portable: true } : {}) } : {}) });
   }
 
   function interact(event) {
@@ -340,6 +375,7 @@ export function mountAsk(root, { checkout, navigate, read, preparedQuestion = nu
     }
     if (chatAction === 'reset') { void show({ interaction: 'chat-reset' }); return; }
     if (prompt) {
+      if (action.hasAttribute('data-use-context')) workspace.checked = true;
       field.value = prompt;
       field.focus();
       field.setSelectionRange(prompt.length, prompt.length);
@@ -377,12 +413,12 @@ export function mountAsk(root, { checkout, navigate, read, preparedQuestion = nu
     }
     if (conversationAction && conversation) {
       if (conversationAction !== 'forget' || globalThis.confirm('Forget this private Ask conversation?')) {
-        void show({ interaction: conversationAction, ...scope() });
+        void show({ interaction: conversationAction, ...conversationScope() });
       }
       return;
     }
     if ((evidence || choice) && conversation) {
-      void show({ interaction: evidence ? 'evidence' : 'select', target: evidence ?? choice, ...scope() });
+      void show({ interaction: evidence ? 'evidence' : 'select', target: evidence ?? choice, ...conversationScope() });
       return;
     }
     if (query) {
@@ -413,7 +449,7 @@ export function mountAsk(root, { checkout, navigate, read, preparedQuestion = nu
     if (pending || !conversation) return;
     const form = new FormData(event.target);
     const clauses = String(form.get('clauses') ?? '').split(/[\s,]+/u).filter(Boolean);
-    void show({ interaction: 'task-prepare', ...scope(), target: event.target.dataset.target,
+    void show({ interaction: 'task-prepare', ...conversationScope(), target: event.target.dataset.target,
       words: form.get('words'), kind: form.get('kind'), clauses, evidence: form.getAll('evidence') });
   });
   taskPanel.addEventListener('click', interact);

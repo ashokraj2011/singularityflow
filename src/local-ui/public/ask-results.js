@@ -1,4 +1,4 @@
-import { escape, icon, markdown, words } from './views.js';
+import { dataOf, escape, icon, markdown, testSummary, words } from './views.js';
 
 const types = {
   story: ['Stories', 'Story', 'stories'], initiative: ['Initiatives', 'Initiative', 'stories'],
@@ -69,4 +69,38 @@ export function searchFileView(file) {
     <h2>${escape(file.path)}</h2><p class="muted">Commit <code>${escape(file.revision.slice(0, 12))}</code>
       ${file.truncated ? ' · Preview' : ''}</p>
     <pre class="section-output"><code>${escape(file.text)}</code></pre></article>`;
+}
+
+export function storyAnswerView(question, raw, story) {
+  const value = dataOf(raw);
+  let body, route, label, phase;
+  if (question === 'decisions' && value?.noCurrentPhase) {
+    body = '<p>This Story has no active phase to review.</p>';
+    route = 'stories/' + encodeURIComponent(story.workId); label = 'Open Stories';
+  } else if (question === 'decisions' && value?.workId === story.workId && Array.isArray(value.items)) {
+    const items = value.items.slice(0, 5);
+    body = `<p>${escape(value.plain?.headline ?? (items.length ? 'Decisions are waiting.' : 'No decisions are waiting.'))}</p>
+      ${items.length ? `<ul class="ask-story-items">${items.map(item => `<li>${escape(item.plain?.question ?? item.title ?? 'Decision')}</li>`).join('')}</ul>` : ''}
+      ${items.length < value.items.length ? `<p class="muted">${value.items.length - items.length} more in Decisions.</p>` : ''}`;
+    phase = value.phaseLabel ?? value.phase;
+    route = 'decisions'; label = 'Open Decisions';
+  } else if (question === 'tests' && value?.scope?.workId === story.workId) {
+    body = testSummary(value);
+    phase = value.scope.phase;
+    route = 'run'; label = 'Open Run & Test';
+  } else if (question === 'changes' && value?.codeMap?.model?.story?.workId === story.workId) {
+    const { change } = value.codeMap.model;
+    body = change.status === 'available'
+      ? `<p>${change.files} changed ${change.files === 1 ? 'file' : 'files'} in ${escape(story.repositoryId ?? 'this repository')}.</p>
+        <div class="test-counts" aria-label="Changed lines"><span><strong>+${change.added}</strong> added</span><span><strong>−${change.removed}</strong> removed</span></div>`
+      : `<p>${escape(change.reason ?? 'No application code changes were found for this Story.')}</p>`;
+    if (value.codeMap.notices?.length) body += `<p class="muted">${escape(value.codeMap.notices[0])}</p>`;
+    route = 'code'; label = 'Open Code Explainer';
+  } else {
+    throw new Error('SFlow returned no matching result for this Story. Check the selected checkout and try again.');
+  }
+  const title = { decisions: 'Pending decisions', tests: 'Test evidence', changes: 'Code changes' }[question];
+  return `<section class="card ask-answer ask-story-answer"><h2>${title}</h2>
+    <p class="ask-result-type">${escape([story.workId, phase && words(phase)].filter(Boolean).join(' · '))}</p>
+    ${body}<a class="text-link" href="#${route}">${label} ${icon('right')}</a></section>`;
 }

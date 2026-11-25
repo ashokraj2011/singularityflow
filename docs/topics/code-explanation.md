@@ -26,7 +26,7 @@ related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 16
+version: 17
 ---
 ## Purpose and prerequisites
 
@@ -44,10 +44,11 @@ says how many were left out, and the JSON reports them under `scope`.
 
 ## Use it from each surface
 
-- **Browser:** open **Code Explainer** in the workspace sidebar. **Explore** a function's calls,
-  steps, and data flow, **Map** repository folders and declarations, or use **My change** to see
-  edited code, requirement and test links, and the walkthrough. Browser call links come from
-  static source analysis. **Ask Copilot** drafts a question for you to review in Chat.
+- **Browser:** open **Code Explainer** in the workspace sidebar. The heading identifies the Story,
+  repository, and branch in view. **Explore** a function's calls, steps, and data flow or **Map**
+  repository folders and declarations. **My change** compares the checkout with the Story's recorded
+  base for that repository, so committed edits remain visible in later phases. Browser call links come
+  from static source analysis. **Ask Copilot** drafts a question for you to review in Chat.
 - **Shell:** `singularity-flow explain code --json`, optionally with one exact `--hunk`, `--symbol`,
   `--clause`, or `--since` selector. `singularity-flow explain code --repository [--path DIR] --json`
   explains what the repository, or one folder or file of it, holds.

@@ -243,8 +243,18 @@ export async function loadCodeMap(root, { view, scope = null, panel = false, dep
     });
   }
   const activeBranch = currentBranch(root);
+  const { verifiedStoryCheckoutAt } = await import('../story-index.mjs');
+  const checkout = await verifiedStoryCheckoutAt(root);
+  const entry = checkout?.entry;
+  const recorded = checkout?.story;
+  const secondary = entry?.role === 'secondary';
+  const base = secondary ? recorded?.repositoryBases?.find(item => item.repositoryId === entry.repository.id)?.baseCommit : null;
+  // A secondary repository's Story record lives in another checkout. Compare against this
+  // repository's own recorded base, while keeping all code and source reads in this worktree.
+  const changeScope = secondary ? { base: base ?? 'HEAD' }
+    : entry || activeBranch ? { workId: entry?.workId, preferStoryBase: true } : { base: 'HEAD' };
   const slice = view === 'changes'
-    ? await (await import('./ide-slice.mjs')).loadComprehensionIdeSlice(root, activeBranch ? {} : { base: 'HEAD' })
+    ? await (await import('./ide-slice.mjs')).loadComprehensionIdeSlice(root, changeScope)
     : null;
   const affected = new Map((slice?.manifest.regions ?? [])
     .map(region => [changePath(region.location), region])
@@ -287,6 +297,7 @@ export async function loadCodeMap(root, { view, scope = null, panel = false, dep
     : (!slice || changed.length) ? candidates.slice(0, MAX_FILES) : [];
   const source = await readSources(root, selected, affected);
   const notices = [];
+  if (slice && secondary && !base) notices.push('This Story has no recorded base for this repository. Showing changes since the checked-out commit.');
   if (inventory?.complete === false) notices.push('The tracked-file list is too large. Open a folder by path to see its code.');
   if (candidates.length > selected.length) {
     notices.push(slice
@@ -299,9 +310,12 @@ export async function loadCodeMap(root, { view, scope = null, panel = false, dep
   if (changed.length && slice?.diff.trackedRegions && slice.diff.fileProjectionStatus !== 'available') {
     notices.push('Changed-line previews are unavailable for this capture.');
   }
+  const workId = entry?.workId ?? slice?.context.workId ?? null;
+  const phase = entry?.phase ?? slice?.context.phase ?? null;
   const input = {
-    repository: { name: path.basename(root), branch: activeBranch, head: slice?.headCommit ?? null },
-    story: null,
+    repository: { name: entry?.repository.id ?? path.basename(root), branch: activeBranch, head: slice?.headCommit ?? null },
+    story: workId ? { workId, title: entry?.title ?? null, currentPhase: phase, phaseOrder: [],
+      phases: phase ? { [phase]: { status: entry?.phaseStatus ?? null } } : {} } : null,
     change: {
       view: changeView,
       patch: slice?.diff.patch ?? null,
@@ -314,13 +328,13 @@ export async function loadCodeMap(root, { view, scope = null, panel = false, dep
   };
   if (panel) {
     const { buildCodeMapPanel } = await import('./code-map-panel.mjs');
-    return buildCodeMapPanel(input, { scope, view, depth, areas, notices, inventory, browser, workId: slice?.context.workId ?? null });
+    return buildCodeMapPanel(input, { scope, view, depth, areas, notices, inventory, browser });
   }
   const result = project(input);
   if (result.outlineLimited) notices.push(`Showing up to ${CX_LIMITS.symbols} declarations. Open a smaller folder or file for more detail.`);
   if (result.traceLimited) notices.push(`The trace shows up to ${MAX_TRACE_ROWS} entries each for requirements, tests and runs.`);
   return {
-    view, scope, workId: slice?.context.workId ?? null, branch: activeBranch,
+    view, scope, workId, branch: activeBranch,
     changedFiles: changed.length, sourceFiles: source.files.length, notices,
     entries: browser?.entries.map(({ path, kind, files }) => ({ path, kind, files })) ?? [],
     ...result

@@ -103,7 +103,7 @@ make the date range part of the file name                → the same document, 
 | feature | intake → requirements → plan → code → test |
 | refactor | intake → plan (what must not change) → code → test (the same checks, before and after) |
 | tests | intake → code (the tests) → test |
-| docs | intake → document |
+| docs | intake → design (writes the document, kept with the Story on its branch; a later task starts from it with `--from`) |
 | investigate | intake → design (investigate) → report |
 | review | intake → report (findings on the named change) |
 
@@ -220,7 +220,9 @@ rules still applied.
 - What no check covers is named in the last message. A refactor is never reported as safer than what ran.
 
 **ITW:REQ-016, documents.**
-- A `docs` task writes its document in the repository, on the Story's branch. Git keeps its versions.
+- A `docs` task writes its document as its own step's document, kept with the Story on its branch. Git keeps its
+  versions. (Built 2026-11-25: a code step with no code or tests left no evidence for the intake's criteria, so the
+  task's end was refused; a change to a file such as README is a `fix` or `chore`.)
 - While the task is open, "change section 2" or "add the timeout case" revises the same document in the same task.
 - A task that names a document (a path, or "the spec we wrote") uses the document's exact version when the task starts.
   The Story records that commit and path.

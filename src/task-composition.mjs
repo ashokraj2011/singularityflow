@@ -27,7 +27,9 @@ const KIND_STEPS = Object.freeze({
   feature: ['intake', 'requirements', 'plan', 'code', 'test'],
   refactor: ['intake', 'plan', 'code', 'test'],
   tests: ['intake', 'code', 'test'],
-  docs: ['intake', 'code'],
+  // A document task writes its document as its step's own document, kept with the Story and read by a later task (--from):
+  // a code step with no code or tests could leave no evidence for what the intake asks.
+  docs: ['intake', 'design'],
   investigate: ['intake', 'design'],
   review: ['intake', 'design']
 });
@@ -51,9 +53,9 @@ function stepLabel(kind, intent) {
   if (intent === 'intake') return 'Intake';
   if (intent === 'requirements') return 'Requirements';
   if (intent === 'plan') return kind === 'refactor' ? 'Plan: what must not change' : 'Plan';
-  if (intent === 'code') return kind === 'docs' ? 'Write the document' : kind === 'tests' ? 'Write the tests' : 'Code';
+  if (intent === 'code') return kind === 'tests' ? 'Write the tests' : 'Code';
   if (intent === 'test') return 'Tests';
-  if (intent === 'design') return kind === 'review' ? 'Review' : kind === 'investigate' ? 'Investigate' : 'Design';
+  if (intent === 'design') return kind === 'review' ? 'Review' : kind === 'investigate' ? 'Investigate' : kind === 'docs' ? 'Write the document' : 'Design';
   if (intent === 'review') return 'Conformance review';
   return intent;
 }
@@ -184,7 +186,7 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
     const kept = intent === 'intake' ? 'Every task starts with its intake.'
       : intent === 'code' && intents.includes('code') ? `A ${kind} task is its change; a task with no change is an investigate task.`
         : intent === 'test' && intents.includes('code') ? 'Every code change gets a test step.'
-          : intent === 'design' && ['investigate', 'review'].includes(kind) ? `A ${kind} task's report is its design step.` : null;
+          : intent === 'design' && ['investigate', 'review', 'docs'].includes(kind) ? `A ${kind} task's ${kind === 'docs' ? 'document' : 'report'} is its design step.` : null;
     if (kept) throw taskRefusal('TASK_CHANGE_REFUSED', `The ${intent} step stays: ${kept}`,
       { command: `singularity-flow work "<what you want done>" --kind ${kind}`, label: 'Keep the step.' }, { skip: intent });
     intents.splice(intents.indexOf(intent), 1);
@@ -250,12 +252,6 @@ export function composedWorkType(definition, composition) {
     // A step reads every earlier step it can use; the steps named in its own definition may not be in this task.
     if (index > 0) override.inputs = earlier;
     if (Array.isArray(base.inputs) && index === 0) override.inputs = [];
-    if (step.intent === 'code' && composition.kind === 'docs') {
-      // A document task changes documentation only, so its writing step runs without the code-delivery checks, as a
-      // chore that changes configuration only does.
-      override.generation = { task: 'analyze' };
-      override.because = { 'generation.task': 'A document task writes documentation only, so it runs without the code-delivery checks.' };
-    }
     if (composition.personApproves.includes(step.intent)) {
       override.approval = { ...override.approval, automatic: 'off' };
       const rule = composition.rules.find((entry) => entry.because) ?? { because: 'The team\'s task rules give this step to a person.' };
@@ -263,19 +259,11 @@ export function composedWorkType(definition, composition) {
     }
     phaseOverrides[step.id] = override;
   });
-  // A document task has no test step: the person who approves the document checks it, which the Story records.
-  const codeStep = composition.steps.find((step) => step.intent === 'code');
-  const omits = composition.kind === 'docs' && codeStep && !ids.some((id) => definition.phases?.[id]?.intent === 'test') ? [{
-    responsibility: 'verify',
-    reason: 'A document task changes documentation only; the person who approves the document is its check.',
-    authority: definition.phases?.[codeStep.id]?.approval?.authorities?.[0] ?? Object.keys(definition.approvalAuthorities ?? {})[0]
-  }] : [];
   return {
     label: `${KIND_WORDS[composition.kind]} (task)`,
     description: `Composed by /sf-task from the kind ${composition.kind}: ${composition.steps.map((step) => step.label).join(' → ')}.`,
     phases: ids,
-    phaseOverrides,
-    ...(omits.length ? { omits } : {})
+    phaseOverrides
   };
 }
 
@@ -322,8 +310,8 @@ export function definitionForStory(definition, workflow) {
 
 /** What a step is called in the plan line. */
 function planWord(kind, step) {
-  if (step.intent === 'design') return kind === 'investigate' ? 'investigate' : kind === 'review' ? 'review' : 'design';
-  if (step.intent === 'code') return kind === 'docs' ? 'write the document' : kind === 'tests' ? 'write the tests' : 'code';
+  if (step.intent === 'design') return kind === 'investigate' ? 'investigate' : kind === 'review' ? 'review' : kind === 'docs' ? 'write the document' : 'design';
+  if (step.intent === 'code') return kind === 'tests' ? 'write the tests' : 'code';
   return PLAN_WORDS[step.intent] ?? null;
 }
 
@@ -331,8 +319,8 @@ function planWord(kind, step) {
 function approvedWord(kind, step, composition) {
   if (step.intent === 'intake') return composition.steps.some((other) => other.intent === 'plan' || other.intent === 'requirements')
     ? 'the intake' : composition.steps.some((other) => other.intent === 'code') ? 'the plan in the intake' : 'the intake';
-  if (step.intent === 'code') return kind === 'docs' ? 'the document' : kind === 'tests' ? 'the tests' : 'the code';
-  if (step.intent === 'design') return kind === 'investigate' ? 'the report' : kind === 'review' ? 'the findings' : 'the design';
+  if (step.intent === 'code') return kind === 'tests' ? 'the tests' : 'the code';
+  if (step.intent === 'design') return kind === 'investigate' ? 'the report' : kind === 'review' ? 'the findings' : kind === 'docs' ? 'the document' : 'the design';
   if (step.intent === 'plan') return 'the plan';
   if (step.intent === 'test') return 'the test results';
   return `the ${step.intent}`;
@@ -359,7 +347,7 @@ export function kindFromWords(words) {
     ['investigate', /\b(why|investigate|investigation|find out|root cause|diagnose)\b/u],
     ['review', /\b(review|audit)\b/u],
     ['refactor', /\b(refactor|restructure|clean ?up|tidy|simplify)\b/u],
-    ['docs', /\b(docs?|document|documentation|readme|spec|specification|write up)\b/u],
+    ['docs', /\b(docs?|document|documentation|spec|specification|write up)\b/u],
     ['tests', /\b(tests?|test coverage|unit tests?)\b/u],
     ['fix', /\b(fix|bug|broken|crash|error|fails?|failing|wrong)\b/u],
     ['feature', /\b(add|new|feature|support|build|implement|create)\b/u],

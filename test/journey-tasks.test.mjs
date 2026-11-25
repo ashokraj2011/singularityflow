@@ -50,3 +50,22 @@ test('journey ITW: an investigation ends with its report approved by a person an
   assert.equal(record.phases.design.approvedBy ? 'person' : 'sflow', 'person', 'a person approves the report');
   assert.equal(story.git('diff', '--name-only', 'main', 'TASK-1', '--', 'src', 'test'), '', 'no code changed');
 });
+
+for (const [kind, words, steps] of [
+  ['docs', 'write a short note about the value module', ['intake', 'design']],
+  ['change', 'make the value module return 2', ['intake', 'implementation-spec', 'implementation', 'verification']],
+  ['feature', 'add a second value to the value module', ['intake', 'requirements', 'implementation-spec', 'implementation', 'verification']]
+]) {
+  // The scripted author writes a step from its intent's own template; the packaged implementation-spec template a feature's
+  // plan step keeps asks for more than it writes, so the feature walk stops at a correction a real agent makes. The same
+  // steps run in the packaged feature workflow.
+  const known = kind === 'feature' ? { todo: 'the scripted author cannot write the packaged implementation-spec template' } : {};
+  test(`journey ITW: a ${kind} task goes from its words to a closed Story by its routes, with two approvals by a person`, { ...slowLane({ timeout: 2_400_000 }), ...known }, async (t) => {
+    const { story, walk } = await walkTask(t, words, kind);
+    assert.equal(walk.reached, true, formatTrail(walk.trail));
+    assert.deepEqual(walk.findings, [], JSON.stringify(walk.findings));
+    const record = storyRecord(story);
+    assert.deepEqual(record.phaseOrder, steps);
+    assert.equal(record.phaseOrder.filter((id) => record.phases[id].approvedBy).length, 2, JSON.stringify(record.phaseOrder.map((id) => [id, record.phases[id].approvedBy ?? record.phases[id].approvalDisposition])));
+  });
+}

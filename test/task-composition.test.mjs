@@ -30,7 +30,7 @@ test('ITW REQ-003: every kind composes the same steps every time, and each start
     change: ['intake', 'implementation-spec', 'implementation', 'verification'],
     feature: ['intake', 'requirements', 'implementation-spec', 'implementation', 'verification'],
     refactor: ['intake', 'implementation-spec', 'implementation', 'verification'],
-    tests: ['intake', 'implementation', 'verification'], docs: ['intake', 'implementation'],
+    tests: ['intake', 'implementation', 'verification'], docs: ['intake', 'design'],
     investigate: ['intake', 'design'], review: ['intake', 'design']
   };
   assert.deepEqual(Object.keys(expected).sort(), [...TASK_KINDS].sort());
@@ -47,7 +47,7 @@ test('ITW REQ-003: every kind composes the same steps every time, and each start
   assert.equal((await taskPlan(base(), { kind: 'investigate' })).plan, 'Plan: investigate → report. You approve the intake and the report. Say "add a design step" to change it.');
   assert.deepEqual((await taskPlan(base(), { kind: 'refactor' })).steps.map((step) => step.label), ['Intake', 'Plan: what must not change', 'Code', 'Tests']);
   // An investigation and a review change no code: their steps are document steps.
-  for (const kind of ['investigate', 'review']) {
+  for (const kind of ['investigate', 'review', 'docs']) {
     const definition = validateDefinition(structuredClone(taskDefinition(base(), composeTask(base(), { kind }))));
     for (const phase of resolveWorkType(definition, `task-${kind}`).phases) assert.equal(phase.writeScope ?? 'artifact-only', 'artifact-only', `${kind} ${phase.id}`);
   }

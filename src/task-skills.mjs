@@ -339,9 +339,11 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
     const namedElsewhere = use.some((id) => !candidates.some((entry) => entry.id === id));
     if ((bare.length || namedElsewhere) && marketplaces.length) {
       const approved = await approvedMarketplaces(root).catch(() => null);
-      for (const marketplace of marketplaces) {
-        if (approved && !(approved[marketplace.id] && sameMarketplaceTrust(approved[marketplace.id], marketplace))) {
-          notes.push(`Marketplace ${marketplace.id} is trusted only in your working copy of workflow.yml, and that is not approved yet, so its skills are not offered.`);
+      for (const named of marketplaces) {
+        // Read as the approved configuration trusts it (its commit or index), which is what an import of it reads.
+        const marketplace = approved ? approved[named.id] ?? null : named;
+        if (!marketplace) {
+          notes.push(`Marketplace ${named.id} is trusted only in your working copy of workflow.yml, and that is not approved yet, so its skills are not offered.`);
           continue;
         }
         try {

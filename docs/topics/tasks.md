@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 13
+version: 14
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -58,7 +58,7 @@ tasks:
   ```
 
   `intent:<step>` names a step directly (`intent:test`). A skill tagged `beta` or `proposed` (or `lifecycle:proposed`) needs your yes.
-- **Then the marketplaces the repository trusts**, for a step the library has nothing for. A Git repository marketplace is read at the commit `marketplaces:` in `singularity/workflow.yml` pins. An HTTPS index marketplace is read through its index; an entry's `phases` name the steps it is for. Its skill list is kept in the clone's Git folder for an hour, so showing a plan does not fetch the index each time (`sflow skill catalog` reads it fresh). A marketplace the repository does not trust is never read, nor one only your working copy of `workflow.yml` trusts while an approved configuration says otherwise: the plan notes it instead. A skill offered from one is new here: the plan line says "code (with web-e2e-test-generation from acme, new here: add it?) → tests". Your yes reads its exact text (`sflow import preview "market:acme/web-e2e-test-generation" --as skill`) and adds it to the library like any import, with what its marketplace says about it (its tasks, tags and lifecycle). The next task finds it there and asks nothing.
+- **Then the marketplaces the repository trusts**, for a step the library has nothing for. A Git repository marketplace is read at the commit `marketplaces:` in `singularity/workflow.yml` pins. An HTTPS index marketplace is read through its index; an entry's `phases` name the steps it is for. Its skill list is kept in the clone's Git folder for an hour, so showing a plan does not fetch the index each time (`sflow skill catalog` reads it fresh). A marketplace the repository does not trust is never read. Where an approved configuration is known, a marketplace is read as it trusts it, and one only your working copy of `workflow.yml` trusts is not read: the plan notes it instead. A skill offered from one is new here: the plan line says "code (with web-e2e-test-generation from acme, new here: add it?) → tests". Your yes reads its exact text (`sflow import preview "market:acme/web-e2e-test-generation" --as skill`) and adds it to the library like any import, with what its marketplace says about it (its tasks, tags and lifecycle). The next task finds it there and asks nothing.
 
 A task with a skill that needs your yes does not start until you answer: `--use-skill <ID>` is yes, `--without-skill <ID>` is no. The Story keeps the exact text of each skill it uses with its steps, so a later change to the library, or a second laptop, uses the same text.
 

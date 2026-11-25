@@ -1037,9 +1037,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // remoteValidator, marketplace.mjs), --newest and --discard-edits read as flags (util.mjs), `skill restore` registered
     // and routed (command-registry.mjs, command-skills.mjs), and start's skill check names restore for a packaged skill
     // that does not parse, with the packaged-or-edited test it asks first on (skill-library-problems.mjs). No new eager file.
-    // 9,897,949 (measured on itw-all2 with itw-market2 and itw-turn, 2026-11-26): the two branches' rises together (restore and
+    // 9,898,216 (measured for submit.mjs on itw-all2 with itw-market2 and itw-turn, 2026-11-26): the two branches' rises together (restore and
     // marketplace routes; a task's turn carried on in chat). No new eager file.
-    assert.ok(closure.bytes <= 9_897_949, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_898_216, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

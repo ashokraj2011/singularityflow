@@ -32,6 +32,8 @@ function wordsOf(positionals) {
   return words;
 }
 
+const SKILL_NAME_ONLY = /^\/?(?:sf|sflow)-[a-z][a-z-]*$/u;
+
 function quoted(words) {
   return `"${words.replace(/(["\\$`])/gu, '\\$1')}"`;
 }
@@ -311,8 +313,21 @@ export async function workCommand(positionals = [], options = {}) {
     return taskStatus(root, id, { remote: definition.git?.remote ?? 'origin' });
   }
   const words = wordsOf(positionals);
-  const kind = kindOf(words, options);
   const root = await taskRepositoryRoot();
+  // A skill's name alone ("/sf-task" typed with nothing after it) says what to run, not what to do: it never names a
+  // task. With a task open on this checkout it means "carry that one on" (a chat its hooks did not bind, 2026-11-25).
+  if (SKILL_NAME_ONLY.test(words)) {
+    const open = openStoryHere(root);
+    throw new SingularityFlowError(open
+      ? `${open} is open on this checkout; "${words}" carries it on and starts nothing new.`
+      : 'Say what the task is, in your own words: a skill\'s name alone is not a task.', {
+      code: open ? 'TASK_OPEN_HERE' : 'TASK_WORDS_MISSING',
+      details: open
+        ? { openTask: open, nextAction: { command: `singularity-flow work status ${open}`, label: `Carry ${open} on.` } }
+        : { nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Say what you want done, in your own words.' } }
+    });
+  }
+  const kind = kindOf(words, options);
   if (!existsSync(path.join(root, WORKFLOW_PATH))) {
     throw new SingularityFlowError('This repository does not use SFlow yet, so a task has no steps to use. Set it up first.', {
       code: 'TASK_REPOSITORY_NOT_SET_UP',

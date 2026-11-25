@@ -180,7 +180,14 @@ test('ITW REQ-001, REQ-007: work shows the plan and writes nothing; --start star
   const held = story.raw(['work', 'investigate why the value is 1', '--start', '--json']);
   assert.notEqual(held.status, 0);
   assert.match(`${held.stdout}${held.stderr}`, /TASK_OPEN_HERE/u);
+  // A skill's name typed alone is never a task's words: here it carries TASK-1 on, and elsewhere it asks for the words.
+  const named = story.raw(['work', '/sf-task', '--kind', 'chore', '--start', '--json']);
+  assert.notEqual(named.status, 0);
+  assert.match(`${named.stdout}${named.stderr}`, /TASK_OPEN_HERE[^]*work status TASK-1/u);
   story.git('checkout', '-q', 'main');
+  const bare = story.raw(['work', '/sf-task', '--kind', 'chore', '--start', '--json']);
+  assert.notEqual(bare.status, 0);
+  assert.match(`${bare.stdout}${bare.stderr}`, /TASK_WORDS_MISSING/u);
   const second = JSON.parse(story.cli('work', 'investigate why the value is 1', '--start', '--json'));
   assert.equal((second.data ?? second).id, 'TASK-2');
   // "fix it" after the investigation starts from its report, carried as the intake.

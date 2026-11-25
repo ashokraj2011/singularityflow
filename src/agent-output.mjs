@@ -317,6 +317,13 @@ const repairFacts = (result) => [
 ];
 
 export function agentAct(result) {
+  if (result?.resultType === 'sflow-ask') {
+    const read = ['work', 'specifications', 'help', 'items', 'diagnostics', 'choices', 'candidates']
+      .filter(field => result[field] && (!Array.isArray(result[field]) || result[field].length));
+    if (result.artifact) read.push('artifact.reference', 'artifact.content');
+    return { state: 'read', do: null, read,
+      said: result.diagnostics?.[0]?.message ?? 'Ask SFlow returned a read-only answer.' };
+  }
   if (result?.resultType === 'sflow-application-review') return withRoute({
     state: result.status === 'opened' ? 'await-human' : 'next', do: null,
     said: result.message ?? result.instruction ?? 'Application review is ready. The person inspects and confirms in its local surface; no acceptance was inferred.'

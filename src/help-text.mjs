@@ -47,6 +47,9 @@ Usage:
   singularity-flow --warm-runtime
     Prepare optional Node bytecode caches for this installed build; no repository commands or models.
   singularity-flow help [TOPIC|COMMAND] [--json]
+  singularity-flow ask [QUESTION] [--work-id ID] [--json]
+  singularity-flow ask --suggest [TEXT] [--json]
+  singularity-flow ask SPEC-ID@N --open-spec [--for-person]
   sflow specify [WORK-ID] [--json]
   sflow plan [WORK-ID] [--json]
   sflow implement [WORK-ID] [--json]

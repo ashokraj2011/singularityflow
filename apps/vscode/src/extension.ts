@@ -1431,6 +1431,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.manageFavorites', () => sidebar.manageFavorites()
   ));
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.askSFlow', async () => {
+    try {
+      const { openAskSFlow } = helpRuntime();
+      await openAskSFlow(activeRepositoryContext, (root, args) => {
+        const client = new SingularityFlowClient({
+          location: resolveCli({ extensionPath: context.extensionPath }),
+          repository: root ?? process.cwd(),
+          surfaceBinding: Boolean(root)
+        });
+        return client.run(args, AbortSignal.timeout(20_000));
+      });
+    } catch (error) {
+      showRefusal(error, { headline: 'Could not complete the Ask SFlow read' });
+    }
+  }));
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openHelp', async (node?: TreeNode) => {
     try {
       const location = resolveCli({ extensionPath: context.extensionPath });

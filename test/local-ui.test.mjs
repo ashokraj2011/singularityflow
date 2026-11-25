@@ -806,3 +806,127 @@ test('an agent turn only reads the service status: ui open, serve and stop with 
   await run(['ui', 'status', '--for-agent'], { positionals: ['ui', 'status'], options: { 'for-agent': true } })
     .then(() => {}, (error) => assert.notEqual(error.code, 'UI_FOREGROUND_NATIVE_ONLY'));
 });
+
+test('Ask SFlow agrees across CLI, browser and Copilot reads and reopens the issued revision', { timeout: 60_000 }, async t => {
+  const { root, directory, env, mustGit, cleanup } = await fixture(t);
+  const { revisionFiles } = await import('../src/spec-library/library.mjs');
+  const { revisionDirectory } = await import('../src/spec-library/ids.mjs');
+  const { createHash } = await import('node:crypto');
+  const { createHostGateway, boundedToolAnswer } = await import('../src/gateway/host.mjs');
+  const { gatewayPlanners } = await import('../src/gateway/planners/index.mjs');
+  const specId = 'SPEC-ASK-FIXTURE';
+  const secret = inventedValue('gh', 'p_', 'R7sV'.repeat(10));
+  const firstBody = ['# Checkout pricing', '', 'api_key = "' + secret + '"', ''].join('\n');
+  const originalBranch = mustGit('branch', '--show-current');
+  const now = '2026-01-10T12:00:00.000Z';
+  const hash = value => 'sha256:' + createHash('sha256').update(value).digest('hex');
+  const newRevision = async (revision, title, body, parent = null) => {
+    const built = revisionFiles({
+      specId, revision, parent, reviewState: 'reviewed', operationId: 'test-ask-revision-' + revision,
+      actor: { name: 'Example Reviewer', email: 'reviewer@example.test' }, recordedAt: now,
+      head: { sequence: revision, snapshotSha256: hash(body), draft: { title, kind: 'business', spec: body, gaps: [], research: [] } },
+      report: { counts: { d: 0, a: 0, h: 0 }, blocking: [] }
+    });
+    const target = path.join(root, revisionDirectory(specId, revision));
+    await mkdir(target, { recursive: true });
+    for (const [name, bytes] of Object.entries(built.files)) await writeFile(path.join(target, name), bytes);
+    mustGit('add', '-A'); mustGit('commit', '-qm', 'Fixture specification revision ' + revision);
+    return { revision, stateCommit: mustGit('rev-parse', 'HEAD'), manifestSha256: hash(built.files['manifest.json']) };
+  };
+  mustGit('switch', '-qc', 'state');
+  const original = await newRevision(1, 'Checkout pricing', firstBody);
+  mustGit('switch', '-qc', 'ask-order', originalBranch);
+  const stateDir = path.join(root, 'singularity/work-items/ASK-ORDER');
+  await mkdir(stateDir, { recursive: true });
+  await writeFile(path.join(stateDir, 'workflow.json'), JSON.stringify({
+    schemaVersion: 1, state: 'in-progress',
+    workItem: { id: 'ASK-ORDER', branch: 'ask-order', title: 'Order discount',
+      source: { specification: [{ ...original, revision: specId + '@1' }] } },
+    phaseOrder: ['implementation'], currentPhase: 'implementation',
+    phases: { implementation: { id: 'implementation', status: 'in-progress', generation: 0,
+      requiredArtifact: { path: 'implementation-summary.md' }, artifacts: [] } }
+  }));
+  mustGit('add', '-A'); mustGit('commit', '-qm', 'Fixture Story');
+  const stateFile = path.join(stateDir, 'workflow.json');
+  const workBefore = await readFile(stateFile, 'utf8');
+  const refsBefore = mustGit('show-ref');
+  const checkoutBefore = mustGit('rev-parse', 'HEAD');
+  const cli = (...args) => {
+    const child = spawnSync(process.execPath, [cliPath, 'ask', ...args, '--json', '--no-model'], { cwd: root, env, encoding: 'utf8' });
+    assert.equal(child.status, 0, child.stderr || child.stdout);
+    return JSON.parse(child.stdout);
+  };
+
+  const service = await startService({ directory }); cleanup(() => service.close());
+  const first = await connect(service, root);
+  const otherTab = await connect(service, root, { clientId: first.clientId, cookie: first.cookie });
+  const ask = (tab, input) => tab.api('/api/ask', { contextId: tab.session.context.id, ...input });
+  const query = 'spec used for this Story';
+  const native = cli(query, '--for-person');
+  assert.equal(native.work.id, 'ASK-ORDER', JSON.stringify(native));
+  assert.deepEqual(native.work.blockers, ['required-artifact-missing']);
+  assert.equal(native.specifications[0].reference, specId + '@1');
+  const submitted = await ask(first, { interaction: 'submit', query });
+  assert.equal(submitted.status, 200, JSON.stringify(submitted.value));
+  assert.deepEqual(submitted.value.work, native.work);
+  const [selection] = submitted.value.specifications;
+  const { selection: opaque, ...binding } = selection;
+  assert.deepEqual(binding, native.specifications[0]);
+  assert.equal(submitted.value.resultSetId, native.resultSetId);
+  assert.equal((await ask(otherTab, { interaction: 'activate', selection: opaque })).status, 409);
+  assert.equal((await ask(first, { interaction: 'activate', selection: opaque, reference: specId + '@2' })).status, 400);
+  assert.equal((await ask(first, { interaction: 'submit', query, operation: 'work.start' })).status, 400);
+
+  const host = createHostGateway({ root, hostSessionId: 'ask-fixture', planners: gatewayPlanners() });
+  const resolved = await host.kernel.resolve({ utterance: 'ask sflow', arguments: { query } });
+  const read = await host.kernel.read({ resolutionId: resolved.next[0]?.handle });
+  assert.equal(read.operation.id, 'ask.lookup', JSON.stringify(read));
+  assert.equal(JSON.stringify(read).includes(secret), false);
+  assert.deepEqual(read.data.work, native.work);
+  assert.deepEqual(read.data.specifications, native.specifications);
+  const onWire = boundedToolAnswer('sflow_read', read);
+  assert.equal(JSON.stringify(onWire).includes(secret), false);
+  assert.equal(argvAllowed([cliPath, 'ask', specId + '@1', '--open-spec', '--for-person'], 'read-only-review', {}), false);
+
+  assert.equal(await readFile(stateFile, 'utf8'), workBefore);
+  assert.equal(mustGit('show-ref'), refsBefore);
+  assert.equal(mustGit('rev-parse', 'HEAD'), checkoutBefore);
+  assert.equal(mustGit('status', '--porcelain'), '');
+  const modelArtifact = cli(specId + '@1', '--open-spec');
+  assert.equal(modelArtifact.artifact.content.includes(secret), false);
+  assert.equal(cli(specId + '@1', '--open-spec', '--for-person').artifact.content, firstBody);
+
+  mustGit('switch', '-q', 'state');
+  await newRevision(2, 'Newer checkout pricing', '# Revised terms\n', original);
+  mustGit('switch', '-q', 'ask-order');
+  const opened = await ask(first, { interaction: 'activate', selection: opaque });
+  assert.equal(opened.status, 200, JSON.stringify(opened.value));
+  assert.equal(opened.value.artifact.content, firstBody);
+  assert.equal(opened.value.artifact.reference, specId + '@1');
+  assert.equal(cli(specId).specifications[0].reference, specId + '@2');
+  assert.equal(cli(query).specifications[0].reference, specId + '@1');
+
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ headless: true }); cleanup(() => browser.close());
+  const launch = await control(service.descriptor, 'bootstrap', { root, clientId: randomUUID() });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  const loads = [];
+  page.on('request', request => {
+    if (['/api/ask', '/api/operations'].includes(new URL(request.url()).pathname)) loads.push(request.url());
+  });
+  await page.goto(launch.url);
+  await page.getByRole('link', { name: 'Ask SFlow', exact: true }).click();
+  const field = page.getByRole('searchbox', { name: 'Ask a question' });
+  await field.fill('specifcation');
+  await page.getByRole('list', { name: 'Suggested destinations' }).getByRole('button', { name: /Spec Studio/ }).waitFor();
+  assert.deepEqual(loads, []);
+  await field.fill('How do I publish?');
+  await field.press('Enter');
+  await page.getByRole('heading', { name: 'Artifacts, templates, and publication' }).waitFor();
+  assert.equal(loads.length, 1);
+  await field.fill(query);
+  await field.press('Enter');
+  await page.getByRole('button', { name: 'Open ' + specId + '@1 · Checkout pricing' }).click();
+  await page.getByRole('heading', { name: 'Checkout pricing', exact: true, level: 2 }).waitFor();
+  assert.equal(mustGit('status', '--porcelain'), '');
+});

@@ -101,6 +101,7 @@ Every public operation is classified before its implementation module is importe
 | approvals | read | never | — | — |
 | approve | mutation | never | — | — |
 | artifact | mutation | never | — | — |
+| ask | read | never | — | — |
 | assign | mutation | never | — | — |
 | authority | mutation | never | — | — |
 | authority-store.export | mutation | never | — | — |

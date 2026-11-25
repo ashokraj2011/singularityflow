@@ -79,6 +79,21 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  ask: {
+    summary: 'Find a screen, inspect current work and blockers, or open a published specification.',
+    options: [
+      ['--suggest', 'Find matching menu entries using local metadata.'],
+      ['--work-id ID', 'Read the named work in the selected checkout.'],
+      ['--open-spec', 'Open the published revision verified by the specification reader.'],
+      ['--for-person', 'Use your own terminal or viewer to read the exact specification bytes.']
+    ],
+    examples: [
+      ['singularity-flow ask "What is blocking me?"', 'Show current work and its recorded blockers.'],
+      ['singularity-flow ask "spec used for this Story"', 'Inspect the published revision pinned to the current Story.'],
+      ['singularity-flow ask SPEC-CHK-004@3 --open-spec --for-person', 'Read the exact revision.']
+    ],
+    seeAlso: ['help', 'home', 'spec']
+  },
   appeal: {
     summary: 'Resolve phase blockers and review exact extra-work scope without waiving tests or approving the phase.',
     description: ['preflight is read-only and names repair/human/configuration/external owners.',

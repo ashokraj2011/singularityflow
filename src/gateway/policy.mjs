@@ -81,6 +81,7 @@ export const DEFAULT_GATEWAY_POLICY = Object.freeze({
     'watch.list': 'none',
     'review.packet': 'none',
     'help.explain': 'none',
+    'ask.lookup': 'none',
 
     'impact.quick.assisted': 'host-confirm',
     'impact.what-if.assisted': 'host-confirm',

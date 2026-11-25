@@ -19,7 +19,7 @@ import {
 } from '../spec-library/draft-model.mjs';
 import { crashPoint, discardDraft, listDrafts, newOperationId, readDraft, requireOperationId, saveDraft } from '../spec-library/draft-store.mjs';
 import { generatedSpecId, parseSpecReference, requireSpecId } from '../spec-library/ids.mjs';
-import { libraryView, publishRevision, readManifest, REVIEW_STATES, resolveRevision } from '../spec-library/library.mjs';
+import { libraryConfig, libraryView, publishRevision, readManifest, REVIEW_STATES, resolveRevision } from '../spec-library/library.mjs';
 import {
   acceptProposals, assistedReport, draftAssisted, rejectProposals, settleFindings, stageProposals, stagedProposals, validateProposals
 } from '../spec-library/proposals.mjs';
@@ -63,13 +63,6 @@ async function screenAction(options) {
 function actor(root) {
   const found = identity(root, { offline: true });
   return { name: found.name ?? null, email: found.email ?? null };
-}
-
-async function libraryConfig(root) {
-  const { existsSync } = await import('node:fs');
-  if (!existsSync(path.join(root, 'singularity', 'workflow.yml'))) return {};
-  const { loadConfig } = await import('../state-stores.mjs');
-  return loadConfig(root);
 }
 
 /** Where this specification's proposal file goes: on this computer, outside every checkout, like an application draft. */

@@ -1405,7 +1405,7 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   assert.match(navigation.webview.html, /<span>Singularity Flow<\/span>/);
   const primary = navigation.webview.html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)?.[1] ?? '';
   assert.deepEqual([...primary.matchAll(/data-action="([^"]+)"/g)].map(match => match[1]),
-      ['my-work', 'work-start', 'stories', 'reviews', 'workspace-manage', 'configuration-center']);
+      ['ask-sflow', 'my-work', 'work-start', 'stories', 'reviews', 'workspace-manage', 'configuration-center']);
   assert.match(navigation.webview.html, /data-state-key="pinned-shortcuts"/);
   assert.match(navigation.webview.html, /data-action="setup-wizard"/);
   assert.doesNotMatch(navigation.webview.html, /sf-help|help-popover|title=|mouseover|last-opened/);
@@ -1621,6 +1621,47 @@ test('Help is available without a workspace and opens the canonical offline manu
   assert.match(panel.webview.html, /Story intake/);
   assert.match(panel.webview.html, /CLI command reference/);
   assert.match(panel.webview.html, /\/sf-story-start/);
+});
+
+test('Ask SFlow opens from Navigator and uses offline suggestions and reviewed help', async t => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  await loadExtension(api).activate(context());
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  assert.match(navigation.webview.html, /data-action="ask-sflow"/u);
+  let query = 'specifcation';
+  let destination = 'specs';
+  let sawLocalSuggestion = false;
+  api.window.createQuickPick = () => {
+    let changed, accept, hidden;
+    const dispose = () => {};
+    const picker = {
+      value: '', items: [], activeItems: [], selectedItems: [], dispose,
+      onDidChangeValue(callback) { changed = callback; return { dispose }; },
+      onDidAccept(callback) { accept = callback; return { dispose }; },
+      onDidHide(callback) { hidden = callback; return { dispose }; },
+      show() {
+        picker.value = query;
+        changed();
+        const item = destination ? picker.items.find(value => value.destination === destination) : picker.items[0];
+        sawLocalSuggestion = item?.label === 'Spec Studio';
+        picker.selectedItems = item ? [item] : [];
+        accept();
+      },
+      hide() { hidden(); }
+    };
+    return picker;
+  };
+  registered.commands.set('singularityFlow.openSpecStudio', async () => {});
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.equal(sawLocalSuggestion, true);
+  assert.ok(registered.executedCommands.some(entry => entry.id === 'singularityFlow.openSpecStudio'));
+  query = 'How do I publish?'; destination = null;
+  let results;
+  api.window.showQuickPick = async (items) => { results = items; return undefined; };
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.ok(results?.some(item => item.label === 'Artifacts, templates, and publication'), JSON.stringify(registered.infos));
 });
 
 test('@sflow and Help Center share model-free cited resolution and only prefill actions', async (t) => {

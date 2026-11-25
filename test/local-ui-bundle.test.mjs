@@ -33,14 +33,16 @@ test('packaged CLI opens the independent service with original asset paths and z
   const directory = serviceDirectory(env); descriptor = await readPrivate(path.join(directory, 'instance.json'));
   assert.equal(launched.instance, descriptor.instance);
   assert.equal((await control(descriptor, 'status')).build.engineRoot, root.slice(0, -1), 'source paths are anchored to the selected package');
-  const [index, script, views, code, codeStyle] = await Promise.all(
-    ['/', '/app.js', '/views.js', '/code-explainer.js', '/code-explainer.css'].map(asset => fetch(`${descriptor.origin}${asset}`))
+  const [index, script, views, code, codeStyle, ask, askNavigation] = await Promise.all(
+    ['/', '/app.js', '/views.js', '/code-explainer.js', '/code-explainer.css', '/ask.js', '/ask-navigation.js'].map(asset => fetch(`${descriptor.origin}${asset}`))
   );
   assert.equal(index.status, 200); assert.match(await index.text(), /SFlow Workspace/u);
   assert.equal(script.status, 200); assert.match(await script.text(), /Spec Studio/u);
   assert.equal(views.status, 200); assert.match(await views.text(), /Workspace overview/u);
   assert.equal(code.status, 200); assert.match(await code.text(), /mountCodeExplainer/u);
   assert.equal(codeStyle.headers.get('content-type'), 'text/css; charset=utf-8');
+  assert.equal(ask.status, 200); assert.match(await ask.text(), /mountAsk/u);
+  assert.equal(askNavigation.status, 200); assert.match(await askNavigation.text(), /askSuggestions/u);
   const health = [];
   for (let i = 0; i < 5; i++) {
     const at = performance.now(); assert.equal((await fetch(`${descriptor.origin}/health`)).status, 200); health.push(performance.now() - at);

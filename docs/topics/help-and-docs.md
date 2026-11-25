@@ -20,10 +20,11 @@ commands:
   - about
   - help
   - explain
+  - ask
 related:
   - getting-started
   - nextsteps
-version: 8
+version: 9
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -52,6 +53,15 @@ available VS Code itself answers **Language model unavailable** and `@sflow` nev
 chat model is registered, SFlow panels mark each **VS Code (model-free)** route as unavailable,
 drop **Copy @sflow**, and Help Center says so. Use Help Center for the same reviewed answers, or
 the Shell route for the action.
+
+## Ask SFlow
+
+Open **Ask SFlow** in the browser workspace or VS Code Navigator. Type to find a screen, or submit a question about the current checkout. Ask SFlow can show recorded blockers and resolve the exact published specification used by the current Story. Type-ahead uses local menu metadata.
+
+- List local matches with `singularity-flow ask --suggest "spec studio"`.
+- Inspect recorded blockers with `singularity-flow ask "What is blocking me?"`.
+- Resolve a Story’s recorded spec revision with `singularity-flow ask "spec used for this Story"`.
+- In the existing Copilot tool session, use `sflow_resolve` with utterance `ask sflow` and the question in `arguments.query`, then pass the returned read handle to `sflow_read`.
 
 ## Purpose and prerequisites
 

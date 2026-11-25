@@ -9,7 +9,7 @@
  * validates whatever comes back, so a planner cannot widen the contract by returning something
  * result-shaped.
  */
-import { helpExplain } from './help-explain.mjs';
+import { askReadPlanner, helpExplain } from './help-explain.mjs';
 import { autoFlightRead } from './auto-flight.mjs';
 import {
   astContextPlanner, astEvidenceReplayPlanner, astHierarchyPlanner, astModulePlanner,
@@ -70,6 +70,7 @@ export function gatewayPlanners(overrides = {}) {
     'auto-flight-read': autoFlightRead,
     compare: lazy(compare, 'comparePlanner'),
     'help-explain': helpExplain,
+    'ask-read': askReadPlanner,
     'developer-next': developerNext,
     'context-brief': contextBrief,
     'goal-inspect': governedGoalInspectPlanner,

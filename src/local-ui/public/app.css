@@ -623,3 +623,16 @@ dialog textarea { resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; }
 }
+
+.ask-search { max-width: 48rem; }
+.ask-input-row { display: flex; align-items: center; gap: .625rem; margin-top: .375rem; }
+.ask-input-row input { flex: 1; min-width: 0; }
+.ask-scope { margin: .625rem 0 0; }
+#ask-suggestions { list-style: none; display: grid; padding: 0; gap: .25rem; margin: .875rem 0 0; }
+#ask-suggestions[hidden] { display: none; }
+#ask-suggestions button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .625rem .75rem; text-align: left; }
+#ask-suggestions small { display: block; font-weight: normal; margin-top: .15rem; color: var(--muted); }
+#ask-status { margin-top: .875rem; }
+.ask-answer { margin-top: .875rem; max-width: 57rem; overflow-wrap: anywhere; }
+.ask-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.ask-actions button { white-space: normal; text-align: left; }

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROTOCOL, MAX_BODY, MAX_CONTENT, MAX_NATIVE_BODY, MAX_REPLY, MAX_PENDING, MAX_RUNNING, TICKET_MS, SESSION_MS, UiError, insist, record, text, identifier, idleMinutes, nativeEnvironment, environmentScope, errorData } from './contracts.mjs';
 import { buildIdentity, privateDirectory, readPrivate, writePrivate, removeOwnDescriptor, serviceDirectory } from './private-state.mjs';
-import { operationShape, executeOperation, disposeReadWorkers } from './operations.mjs';
+import { operationShape, executeOperation, disposeReadWorkers, runCanonical } from './operations.mjs';
 import { leaseOwnerAssessment, leaseOwnerIdentity } from '../lease-liveness.mjs';
 import { nativeEqual, requestProof, responseProof, openInput } from './native-auth.mjs';
 
@@ -17,12 +17,15 @@ const equal = (a, b) => typeof a === 'string' && typeof b === 'string'
 const publicFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/ask-navigation.js', ['../../ask/navigation.mjs', 'text/javascript; charset=utf-8']],
+  ['/ask.js', ['ask.js', 'text/javascript; charset=utf-8']],
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
   ['/views.js', ['views.js', 'text/javascript; charset=utf-8']],
   ['/code-explainer.js', ['code-explainer.js', 'text/javascript; charset=utf-8']],
   ['/code-explainer.css', ['code-explainer.css', 'text/css; charset=utf-8']]
 ]);
 const terminal = new Set(['succeeded', 'failed', 'unknown', 'expired']);
+const ASK_SELECTION_MS = 5 * 60_000;
 const RETENTION_MS = 7 * 24 * 60 * 60_000;
 const MAX_RECORDS = 8192;
 const MAX_RECORD_BYTES = MAX_REPLY * 2 + 64 * 1024;
@@ -378,7 +381,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         const browser = digest(token), tabId = randomUUID(); browsers.set(browser, Date.now());
         const session = { clientId: grant.clientId, csrf: randomKey(), contexts: new Set([grant.context.id]), contextId: grant.context.id,
           environment: grant.environment, environmentHash: grant.environmentHash,
-          browser, expiresAt: Date.now() + SESSION_MS, sequence: 0, events: [], choices: new Map() };
+          browser, expiresAt: Date.now() + SESSION_MS, sequence: 0, events: [], choices: new Map(), askSelections: new Map() };
         sessions.set(tabId, session);
         res.setHeader('Set-Cookie', `${cookieName}=${token}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=43200`);
         touch(); return send(res, 200, { tabId, csrf: session.csrf, context: grant.context, build: identity, capabilities: capabilitiesFor(session) });
@@ -407,6 +410,56 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         }
         if (route === '/api/session' && req.method === 'GET') return send(res, 200, { csrf: session.csrf, context: selected(session, session.contextId), build: identity,
           capabilities: capabilitiesFor(session) });
+        if (route === '/api/ask' && req.method === 'POST') {
+          const request = await body(req);
+          const opening = request?.interaction === 'activate';
+          const input = record(request, opening ? ['contextId', 'interaction', 'selection'] : ['contextId', 'interaction', 'query']);
+          insist(opening || input.interaction === 'submit', 'UI_REQUEST_INVALID', 'Choose an Ask SFlow read.');
+          const context = selected(session, text(input.contextId, 'Context ID', 128));
+          insist(context.id === session.contextId, 'UI_ASK_CONTEXT_CHANGED', 'Switch to the original checkout or search here again.', 409);
+          let args;
+          if (opening) {
+            const selection = session.askSelections.get(text(input.selection, 'Selection', 36));
+            insist(selection && selection.contextId === context.id && selection.expiresAt > Date.now(),
+              'UI_ASK_SELECTION_EXPIRED', 'Search for this specification again from this tab.', 409);
+            const { reference, stateCommit, manifestSha256 } = selection.specification;
+            args = ['ask', `--question=${reference}`, '--open-spec', `--state-commit=${stateCommit}`, `--manifest-sha256=${manifestSha256}`, '--for-person'];
+          } else {
+            args = ['ask', `--question=${text(input.query, 'Question', 2000)}`, '--for-person'];
+          }
+          insist(!draining && running < MAX_RUNNING && !session.askReading, 'UI_ASK_BUSY', 'Wait for the current read or cancel it, then try again.', 429);
+          const controller = new AbortController();
+          const abort = () => controller.abort();
+          session.askReading = true;
+          running += 1;
+          res.once('close', abort);
+          try {
+            const { value } = await runCanonical(context.root, args, {
+              timeoutMs: 20_000, signal: controller.signal, environment: session.environment
+            });
+            insist(session.contextId === context.id && contexts.has(context.id),
+              'UI_ASK_CONTEXT_CHANGED', 'The checkout changed while reading. Search again in the selected checkout.', 409);
+            for (const specification of value.specifications ?? []) {
+              const id = randomUUID();
+              // The input to activation is opaque. Only an exact revision issued to this tab can open.
+              session.askSelections.set(id, { specification: { ...specification }, contextId: context.id, expiresAt: Date.now() + ASK_SELECTION_MS });
+              specification.selection = id;
+            }
+            while (session.askSelections.size > 32) session.askSelections.delete(session.askSelections.keys().next().value);
+            return send(res, 200, value);
+          } catch (error) {
+            if (error?.code === 'UI_OPERATION_TIMEOUT') {
+              throw new UiError('UI_ASK_TIMEOUT', 'Ask SFlow could not finish the read in 20 seconds. Submit the question again to retry.', error.details, 504);
+            }
+            throw error;
+          } finally {
+            res.off('close', abort);
+            session.askReading = false;
+            running -= 1;
+            pump();
+            if (draining) void finishShutdown();
+          }
+        }
         if (route === '/api/handoffs' && req.method === 'POST') {
           const input = record(await body(req), ['contextId', 'type', 'specId', 'menu']);
           const context = selected(session, text(input.contextId, 'Context ID', 128)), bridge = bridgeFor(session);

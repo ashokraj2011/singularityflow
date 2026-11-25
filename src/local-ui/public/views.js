@@ -15,6 +15,7 @@ const icons = {
   code: '<path d="m8 6-6 6 6 6m8-12 6 6-6 6m-2-15-4 18"/>',
   run: '<circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/>',
   decisions: '<path d="m12 2 8 3.5v6c0 5-3.2 8.5-8 10.5-4.8-2-8-5.5-8-10.5v-6zM8.5 12l2.2 2.2 4.8-5"/>',
+  ask: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
   about: '<circle cx="12" cy="12" r="9"/><path d="M12 10v7M12 7h.01"/>',
   checkout: '<path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -37,7 +38,7 @@ export function icon(name) {
 }
 
 const groups = [
-  ['Workspace', [['home', 'Overview'], ['specs', 'Spec Studio'], ['stories', 'Stories']]],
+  ['Workspace', [['home', 'Overview'], ['ask', 'Ask SFlow'], ['specs', 'Spec Studio'], ['stories', 'Stories']]],
   ['Toolkit', [['workflows', 'Workflows'], ['agents', 'Agents'], ['skills', 'Skills'], ['instructions', 'Instructions']]],
   ['Tools', [['code', 'Code Explainer'], ['decisions', 'Decisions'], ['run', 'Run & Test']]]
 ];

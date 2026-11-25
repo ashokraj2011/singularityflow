@@ -170,7 +170,7 @@ declare module '*/gateway/planners/ast-intelligence.mjs' {
 }
 declare module '*/gateway/planners/developer-next.mjs' { export const developerNext: unknown; export const workProgress: unknown; export const workNextSteps: unknown; }
 declare module '*/gateway/planners/context-brief.mjs' { export const contextBrief: unknown; }
-declare module '*/gateway/planners/help-explain.mjs' { export const helpExplain: unknown; }
+declare module '*/gateway/planners/help-explain.mjs' { export const helpExplain: unknown; export const askReadPlanner: unknown; }
 declare module '*/gateway/planners/governed-goal.mjs' {
   export const governedGoalImpactPlanner: unknown;
   export const governedGoalInspectPlanner: unknown;

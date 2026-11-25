@@ -708,6 +708,19 @@ async function navigate() {
   main.focus({ preventScroll: true });
   try {
     if (page === 'home') overview();
+    else if (page === 'ask') {
+      const { mountAsk } = await import('./ask.js');
+      if (epoch !== state.epoch) return;
+      const contextId = state.session.context.id;
+      mountAsk(main, {
+        checkout: state.session.context.label,
+        navigate: go,
+        read: async (input) => {
+          const value = await api('/api/ask', { method: 'POST', data: { ...input, contextId }, timeout: 22_000 });
+          return epoch === state.epoch && contextId === state.session?.context.id ? value : null;
+        }
+      });
+    }
     else if (page === 'specs') await library(epoch);
     else if (page === 'spec') await specification(decodeURIComponent(parts[1] ?? ''), parts[2] === 'published', epoch);
     else if (page === 'stories') await stories(epoch);

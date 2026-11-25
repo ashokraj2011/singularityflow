@@ -14,13 +14,15 @@
  * when the branch could not be read.
  */
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 
 import { committedFileBytes, committedTreePaths, refCommit } from '../git.mjs';
 import { normalizeLedgerConfig } from '../ledger-config.mjs';
 import { canonicalJson } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { LIBRARY_ROOT, REVISION_FILES, revisionDirectory } from './ids.mjs';
+import { LIBRARY_ROOT, REVISION_FILES, parseSpecReference, requireSpecId, revisionDirectory } from './ids.mjs';
 
 export const MANIFEST_FAMILY = 'spec-manifest';
 export const GAP_LEDGER_FAMILY = 'spec-gap-ledger';
@@ -45,7 +47,7 @@ function unavailable(ledger, detail, result = null) {
  * Pin the library: refresh the configured state branch from its remote (or read the local branch when
  * the repository has no such remote) and list every revision at that one commit.
  */
-export async function libraryView(root, config, { env = process.env, refresh = true } = {}) {
+export async function libraryView(root, config, { env = process.env, refresh = true, specId = null } = {}) {
   const ledger = normalizeLedgerConfig(config?.ledger ?? {});
   let ref = `refs/heads/${ledger.branch}`;
   const [{ configuredRemoteIdentity, frozenRemoteTransport }, { runRemoteGitAsync }] = await Promise.all([
@@ -70,7 +72,8 @@ export async function libraryView(root, config, { env = process.env, refresh = t
   const commit = refCommit(root, ref, { env });
   if (!commit) return { ledger, ref, commit: null, status: identity.configured && !refresh ? 'not-fetched' : 'absent', specs: new Map() };
   const specs = new Map();
-  for (const file of committedTreePaths(root, commit, [LIBRARY_ROOT], { env })) {
+  const directory = specId === null ? LIBRARY_ROOT : LIBRARY_ROOT + '/' + requireSpecId(specId);
+  for (const file of committedTreePaths(root, commit, [directory], { env })) {
     const match = REVISION_PATH.exec(file);
     if (!match) continue;
     if (!specs.has(match[1])) specs.set(match[1], []);
@@ -152,6 +155,37 @@ export function resolveRevision(root, view, specId, revision = null, { anyState 
   }
   fail(`${specId} has no reviewed revision yet; its revisions are drafts (${revisions.map((entry) => `@${entry}`).join(', ')}).`, 'SPEC_LIBRARY_NOT_REVIEWED',
     { specId, nextAction: `singularity-flow spec author show ${specId}@${revisions.at(-1)}` });
+}
+
+/** Configuration used by the published specification library, including before repository setup. */
+export async function libraryConfig(root) {
+  if (!existsSync(path.join(root, 'singularity', 'workflow.yml'))) return {};
+  return (await import('../state-stores.mjs')).loadConfig(root);
+}
+
+/** Read the selected revision, or re-open a recorded pin without moving the state ref. */
+export async function readPublishedSpecification(root, reference, { pin = null, refresh = false } = {}) {
+  const { specId, revision } = parseSpecReference(reference);
+  const env = { ...process.env, GIT_NO_LAZY_FETCH: '1' };
+  if (pin) {
+    if (!revision || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(pin.stateCommit)
+        || !/^sha256:[0-9a-f]{64}$/u.test(pin.manifestSha256)) {
+      fail('This specification link has an invalid revision binding.', 'SPEC_REFERENCE_INVALID', { specId, revision });
+    }
+    const commit = refCommit(root, pin.stateCommit, { env });
+    if (!commit || commit !== pin.stateCommit) {
+      fail('The recorded specification snapshot is unavailable in this checkout.', 'SPEC_LIBRARY_SNAPSHOT_UNAVAILABLE',
+        { specId, revision, commit: pin.stateCommit });
+    }
+    const view = { commit, status: 'available', specs: new Map([[specId, [revision]]]) };
+    const selected = resolveRevision(root, view, specId, revision, { env });
+    if (selected.manifestSha256 !== pin.manifestSha256) throw invalid(specId, revision, 'its manifest differs from the recorded binding');
+    return selected;
+  }
+  const config = await libraryConfig(root);
+  const view = await libraryView(root, config, { env, refresh, specId });
+  if (view.status === 'not-fetched') throw unavailable(view.ledger, 'the state branch has not been fetched in this checkout');
+  return resolveRevision(root, view, specId, revision, { env });
 }
 
 /** The exact files of the next revision, built from a draft head and its check report. */

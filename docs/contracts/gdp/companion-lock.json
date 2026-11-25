@@ -4,9 +4,9 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "07ddb6dc0dd11b424b9f641989235de8405a8a68",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-21-STEP-INTENTS.md",
-    "companionIds": ["workflow-configuration"]
+    "reviewedAtCommit": "f6d78043a214c52ec5b665c88874180fe9b65014",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-25-TASK-CHANGES.md",
+    "companionIds": ["migration-registry"]
   },
   "companions": [
     {
@@ -92,7 +92,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:c2c081ba362f87fd981c7e99b381347963e896ee9a337d0eefe46b97335bec11"
+      "sha256": "sha256:219ed2a1510129cf99582fdef16886766b9ad947b00e58720a77d7ba11865631"
     },
     {
       "id": "smart-initialization-v1",

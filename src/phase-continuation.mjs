@@ -1,10 +1,11 @@
 import { pendingBoundary, workflowNextSteps } from './nextsteps.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
-import { commandRouteLines, safeCommandGuidance, withTaskRoutes } from './safe-command-guidance.mjs';
+import { commandRouteLines, safeCommandGuidance, taskDoneRoute, withTaskRoutes } from './safe-command-guidance.mjs';
 
 /** Presentation of post-state only: this neither executes a next action nor grants authority. */
 export function phaseContinuation(workflow, { reviewedPhaseId = null, primary = null, snapshot = null, ...options } = {}) {
-  const historical = reviewedPhaseId && reviewedPhaseId !== workflow.currentPhase;
+  // A closed task's step is read for its last message (work status, ITW:REQ-018), never sent to inspect the lifecycle.
+  const historical = reviewedPhaseId && reviewedPhaseId !== workflow.currentPhase && !taskDoneRoute(workflow);
   // A task's Story names /sf-task for each turn it takes, in the same chat [ITW:REQ-008]: the primary action too.
   const actions = withTaskRoutes(workflow, historical ? [copilotAction({
     timing: 'now', skill: '/sf-nextsteps',

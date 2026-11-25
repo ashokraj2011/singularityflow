@@ -23,7 +23,8 @@ import { workDir, workDirRelative } from '../story-paths.mjs';
 import { commitAndPublish, createWorkflow, loadConfig, validateId } from '../state-stores.mjs';
 import { generationSkillForPhase } from '../code-delivery-policy.mjs';
 import { directCopilotSkill } from '../copilot-guidance.mjs';
-import { renderChangeDirectoryCommand } from '../safe-command-guidance.mjs';
+import { renderChangeDirectoryCommand, TASK_ROUTE, withTaskRoute } from '../safe-command-guidance.mjs';
+import { nextActionLabel, workflowNextSteps } from '../nextsteps.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { getIssue } from '../jira.mjs';
 import { runDraftTransaction } from '../draft-unit-of-work.mjs';
@@ -432,6 +433,19 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     // release is then a no-op. Earlier refusals restore the exact receipt for a corrected retry.
     await intakeAdmission?.release();
   }
+}
+
+/**
+ * A started task's next action: /sf-task beside its first step's own command, which does the same thing [ITW:REQ-008]. A
+ * person read /sf-task beside `work status`, which only reads; that read is offered, so named, only when nothing is planned.
+ */
+function taskStartAction(workflow) {
+  let first = null;
+  try { first = workflowNextSteps(workflow).find((entry) => entry?.timing === 'now' && entry.copilotCommand === TASK_ROUTE && entry.command) ?? null; }
+  catch { first = null; }
+  return first ? withTaskRoute(workflow, plannedNarrationAction({ id: 'start.task', label: `Carry the task on: ${nextActionLabel(first, workflow)}`,
+    command: first.command }, first.skill))
+    : plannedNarrationAction({ id: 'start.task', label: 'See where the task is', command: `singularity-flow work status ${workflow.workItem.id}` }, TASK_ROUTE);
 }
 
 export async function startCommand(positionals, options) {
@@ -2162,11 +2176,7 @@ async function startCommandAtRoot(positionals, options) {
     },
     next: [
       // A task carries on with /sf-task, which takes the turn of whatever comes next [ITW:REQ-008].
-      taskComposition ? plannedNarrationAction({
-        id: 'start.task',
-        label: 'Carry the task on',
-        command: `singularity-flow work status ${workflow.workItem.id}`
-      }, '/sf-task') : plannedNarrationAction({
+      taskComposition ? taskStartAction(workflow) : plannedNarrationAction({
         id: 'start.prepare',
         label: `Materialise the ${workflow.currentPhase} artifact so it can be filled in`,
         command: `singularity-flow prepare ${workflow.currentPhase}`

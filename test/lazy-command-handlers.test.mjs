@@ -1020,7 +1020,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // actions (guide.mjs, nextsteps.mjs, narration/continuation.mjs, phase-continuation.mjs, step-decision.mjs), and a
     // task's chat kept between its steps (context-policy.mjs, state.mjs, approval-agent-result.mjs, agent-output.mjs,
     // cli-steps.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_891_741, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,895,047 (measured for submit.mjs, +3,306, 2026-11-25 on itw-route): a person-facing route is one real command that
+    // does what its Copilot route does (owner, 2026-11-25): a closed task's last message as its next action, a started
+    // task's /sf-task beside its first step's command (start.mjs), a later step's Shell route as a person runs it
+    // (action-command-map.mjs personCommand), the context boundary's one route its reset, and the approval receipt's command
+    // marked as a private run (choices.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_895_047, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1590,7 +1595,9 @@ test('the common session projection does not import attach, state stores or publ
   // (application-paths.mjs MIGRATION_PATH) [ITW:REQ-014]. No new eager file.
   // 4,357,681 (+4,294, 2026-11-25 on itw-route): /sf-task as a task Story's route and its reviewed check
   // (safe-command-guidance.mjs) and a task's chat kept between its steps (context-policy.mjs) [ITW:REQ-008]. No new eager file.
-  assert.ok(current.bytes <= 4_357_681, `session current loads ${current.bytes} source bytes`);
+  // 4,359,058 (+1,377, 2026-11-25 on itw-route): a closed task's last message as its next action and the context boundary's
+  // one route its reset (safe-command-guidance.mjs, context-policy.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_359_058, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

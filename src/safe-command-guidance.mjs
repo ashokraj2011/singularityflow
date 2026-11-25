@@ -290,6 +290,17 @@ export function withTaskRoute(workflow, action) {
 export const withTaskRoutes = (workflow, actions) => (Array.isArray(actions) && isTaskStory(workflow)
   ? actions.map((action) => withTaskRoute(workflow, action)) : actions);
 
+/**
+ * A closed task's one next action: its last message, `work status` [ITW:REQ-018], which /sf-task says when the Story has no
+ * step left; null for any other Story, which keeps its own routes.
+ */
+export function taskDoneRoute(workflow) {
+  const id = workflow?.workItem?.id;
+  if (workflow?.status !== 'closed' || !isTaskStory(workflow) || typeof id !== 'string') return null;
+  const guidance = safeCommandGuidance({ command: `singularity-flow work status ${id}`, copilotCommand: TASK_ROUTE });
+  return guidance ? { ...guidance, label: 'See what the task did', reason: `${id} is done: say what it did, what the person approved and each step's document.` } : null;
+}
+
 // Receipt capabilities belong in private execution, never in reusable command guidance.
 // This is syntax validation only: the CLI still authenticates the exact receipt, packet,
 // phase, identity, expiry and one-time consumption before recording a decision.

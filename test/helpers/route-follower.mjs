@@ -449,7 +449,8 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       : await takeRoute({ story, route, entries, phases: phases(), currentPhase: current(), agent, person, entry, turn, last, before, guard });
     turn = taken.turn ?? turn;
     last = taken.result ?? last;
-    entry.turn = turn;
+    // A route the person types as /sf-task is that turn, whatever work command its steps run in it [ITW:REQ-008].
+    entry.turn = route.typed ?? turn;
     // A kept result older than the walk's last state change is an earlier run's, never this call's: that is the finding,
     // whatever the replayed result then led to.
     const kept = taken.result?.keptResult;
@@ -477,7 +478,7 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       const work = [...entries.values()].find((known) => known.oneWorkCommand && known.entry === task.stepWork)?.skill ?? null;
       const resolved = work ? { ...taken.next, copilot: work, source: `${taken.next.source ?? 'route'} (${task.skill}: the step's own work)` } : null;
       if (resolved) taken.next = entries.get(turn)?.oneWorkCommand && taken.next.turn !== 'new-turn' ? { ...resolved, inTurn: Boolean(resolved.shell) }
-        : guard.skill === task.skill && taken.next.turn !== 'new-turn' ? { ...resolved, inTurn: false, within: task.skill }
+        : turn === task.skill && guard.skill === task.skill && taken.next.turn !== 'new-turn' ? { ...resolved, inTurn: false, within: task.skill }
           : { ...resolved, inTurn: false, typed: task.skill };
     }
     // D1: in a turn of the work command, a route naming its other name is this turn's own work, run here by its command;

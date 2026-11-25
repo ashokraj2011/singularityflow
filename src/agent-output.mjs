@@ -711,7 +711,7 @@ export function agentAct(result) {
       ...(result.continuation.presentation ? { show: result.continuation.presentation } : {}),
       said: oneLine(`The review is ready (${result.status}). The turn that wrote this version and started its reviewer submits it now: run do.shell once; `
         + 'never a separate submit turn, never an approval. If it submits nothing because it names decisionInputs, those values are the person\'s: end the turn on its /sf-submit route, never ask them here. '
-        + 'A review turn of its own ends its reply with act.show exactly as given.', 700) },
+        + 'A review turn of its own ends its reply with act.show exactly as given. do.shell is this turn\'s own command, never shown to the person: act.show is their route.', 800) },
     { command: inTurn.command, skill: inTurn.skill, reason: inTurn.reason });
   }
   // A retained review, as its submission or its status returns it: what comes after retention, from its own

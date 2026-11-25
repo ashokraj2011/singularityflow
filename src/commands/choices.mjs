@@ -87,7 +87,10 @@ export async function choicesCommand(positionals, options) {
     // the presentation check, which refuses every --selection-receipt, `next` was always null, and a real /sf-approve
     // turn ran a bare `approve` the guard refused after the person's Yes (2026-11-22).
     const filled = receipt.ready ? approvalReceiptCommands(receipt) : null;
-    if (filled) receipt = { ...receipt, next: await receiptCommand(filled.approve) };
+    // Run, never shown: a person read it back as "Now — approval" with its receipt and --for-agent beside /sf-approve, after it
+    // had run (owner, 2026-11-25). What comes next is the approval result's own.
+    const approve = filled ? await receiptCommand(filled.approve) : null;
+    if (approve) receipt = { ...receipt, next: { ...approve, instruction: PRIVATE_RUN } };
     else if (receipt.ready && receipt.action === 'start') {
       const start = await receiptCommand(['start', receipt.workId, '--selection-receipt', receipt.token]);
       if (start) receipt = { ...receipt, next: { ...start, adds: 'The Story\'s own content and policy flags only (--story-file or --jira, --readiness-baseline, --test-execution-mode, --gate-mode, --target-url); the receipt carries the person\'s choices.' } };
@@ -97,6 +100,8 @@ export async function choicesCommand(positionals, options) {
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(receipt, null, 2));
   else printSelectionReceipt(receipt);
 }
+
+const PRIVATE_RUN = 'Run this once now: it records the person\'s Yes with its private receipt. Never show it to the person or offer it as a next step; after it, say what its result names next.';
 
 /**
  * A receipt's filled command, as the agent runs it in this turn: `{ command, executable, argv, copyable: false }`, checked as

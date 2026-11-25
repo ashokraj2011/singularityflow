@@ -83,13 +83,20 @@ export function contextBoundaryHandoff(policy, phaseId, {
   };
 }
 
+/** The chat reset a boundary asks for (`/clear` or `/compact`), never the step's own command after it. */
+const chatReset = (handoff) => (handoff?.commands ?? []).filter((command) => command === '/clear' || command === '/compact');
+
 export function formatContextBoundaryHandoff(handoff) {
   if (!handoff) return [];
   const lines = [`Context boundary: ${handoff.mode}. ${handoff.reason}`];
-  if (handoff.commands.length) {
-    lines.push('Next Copilot actions:');
-    handoff.commands.forEach(command => lines.push(...formatCommandRouteLines({ copilotCommand: command }), ''));
+  // The reset is a chat operation with no Shell route; the step's own command is its action's, with all of its routes.
+  const reset = chatReset(handoff);
+  const after = (handoff.commands ?? []).filter((command) => !reset.includes(command));
+  if (reset.length) {
+    lines.push('Before the next action, in Copilot:');
+    reset.forEach(command => lines.push(...formatCommandRouteLines({ copilotCommand: command }), ''));
   }
+  if (after.length) lines.push(`Then ${after.join(', then ')} in that chat: the next action's own command.`, '');
   return lines;
 }
 
@@ -100,7 +107,8 @@ export function contextBoundaryPresentation(handoff) {
     instruction: handoff.instruction ?? (handoff.complete
       ? `The Story is closed. End this approval turn; ${handoff.commands.join(', then ')} is a chat cleanup action, not another phase.`
       : `End this approval turn. Run ${handoff.commands.join(', then ')} before next-phase authoring.`),
-    commandGuidance: { copilotCommand: handoff.commands.join(', then '), command: null,
+    // One real command: the reset (a person read "Copilot: /clear, then /sf-code" beside "Shell: not available").
+    commandGuidance: { copilotCommand: chatReset(handoff).join(' ') || null, command: null,
       modelFreeCommand: null, copyable: false,
       shellReason: 'Conversation reset is a Copilot chat operation, not a Shell or Story mutation.' } };
 }

@@ -229,7 +229,7 @@
   ],
   "sflow-nextsteps": [
     "If unsupported, stop with the compatibility error, never retry blindly.",
-    "If this chat already worked on an earlier phase, show its ordered `commandGuidance.copilotCommand` (`/clear`, then `/sf-phase`, or `/compact`, then `/sf-code`) and stop;"
+    "If this chat already worked on an earlier phase, show its ordered `commands` (`/clear`, then `/sf-phase`, or `/compact`, then `/sf-code`) and stop;"
   ],
   "sflow-outcome": [
     "Only when the person picks one: run the selected returned app start/stop or tests route."

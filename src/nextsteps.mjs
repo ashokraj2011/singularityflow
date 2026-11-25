@@ -1,12 +1,12 @@
 import { isConvergencePhase } from './phase-roles.mjs';
 import { workflowGuide } from './guide.mjs';
-import { approveRoute, authorCommand, authorRoute, codePublicationRoute, handoffSubmitRoute, showCommand, storyNextCommand } from './action-command-map.mjs';
+import { approveRoute, authorCommand, authorRoute, codePublicationRoute, handoffSubmitRoute, personCommand, showCommand, storyNextCommand } from './action-command-map.mjs';
 import { stepBeingWritten } from './phase-generation-need.mjs';
 import { phasePublicationCommandForMode } from './sequence.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
-import { commandRouteLines, safeCommandGuidance, withTaskRoutes } from './safe-command-guidance.mjs';
+import { commandRouteLines, safeCommandGuidance, taskDoneRoute, withTaskRoutes } from './safe-command-guidance.mjs';
 import { generationSkillForPhase, applicationReviewOffer, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommandForProducer
@@ -23,12 +23,14 @@ import { sheetRoute } from './step-sheet-route.mjs';
 import { submissionEndsStory } from './step-actions.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
+  // A step after this one is a person's to read, never an agent's to run now: its Shell route is the command a person runs,
+  // never an agent's own form (owner, 2026-11-25). What an agent runs now is its own (act.do).
   const candidate = copilotAction({
-    timing, skill, command, reason, modelPolicy: 'never', availability: 'available', ...metadata
+    timing, skill, command: ['now', 'blocked'].includes(timing) ? command : personCommand(command), reason, modelPolicy: 'never', availability: 'available', ...metadata
   });
   // The planner's skill is kept when the pair is safe to show; otherwise the command's own route,
   // as plannedAction does for results. A mismatched skill must not hide a safe Shell command.
-  const guidance = safeCommandGuidance(candidate) ?? safeCommandGuidance({ command });
+  const guidance = safeCommandGuidance(candidate) ?? safeCommandGuidance({ command: candidate.command });
   return guidance ? Object.freeze({ ...candidate, ...guidance }) : candidate;
 }
 
@@ -255,8 +257,11 @@ function visualCoverageActions(hold, timing) {
  */
 export function workflowNextSteps(workflow, options = {}) {
   const seen = new Set();
-  // A task's Story names /sf-task for each turn it takes, in the same chat [ITW:REQ-008]; each step keeps its skill.
-  return withTaskRoutes(workflow, plannedNextSteps(workflow, options).filter((step) => {
+  // A task's Story names /sf-task for each turn it takes, in the same chat [ITW:REQ-008]; each step keeps its skill. A
+  // closed task's next is its last message (work status, REQ-018); what it still offers (its pull request) stays optional.
+  const done = taskDoneRoute(workflow);
+  return withTaskRoutes(workflow, [...(done ? [Object.freeze({ timing: 'now', modelPolicy: 'never', availability: 'available', ...done })] : []),
+    ...plannedNextSteps(workflow, options)].filter((step) => {
     const key = `${step.command ?? ''}\u0000${step.reason ?? ''}`;
     return seen.has(key) ? false : Boolean(seen.add(key));
   }));
@@ -398,7 +403,7 @@ function plannedNextSteps(workflow, {
   const code = needsGeneration && !modelMode.enabled && modelFreeProducer === 'deterministic' && phaseRequiresCodeDelivery(phase)
     ? codePublicationRoute(workflow, phase) : null;
   if (code) actions.push(action('then', code.skill, code.command, `Once its code and tests are written with ${code.skill}, check and publish the ${phase.label}; its tests run first.`,
-    { operationId: 'phase', modelPolicy: 'never', route: 'code-publication', label: `Check and publish the code for ${phase.label}` }));
+    { operationId: 'phase', modelPolicy: 'never', route: 'code-publication', label: `Check the code for ${phase.label}, then publish it` }));
   else if (needsGeneration && !modelMode.enabled) {
     // The draft `prepare` writes is published in place, the route prepublish offers when it is
     // ready, the footers repeat and refusals name (phasePublicationCommandForMode). A file written

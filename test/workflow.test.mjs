@@ -654,7 +654,8 @@ test('next executes one valid lifecycle action at a time', async () => {
   assert.match(approved.stdout, /Context boundary: new/);
   // Each next Copilot action is its own three-route block (8f25dc4b): first /clear, then the next step's own command, the
   // one VS Code's chat prefill puts in (owner, 2026-11-17).
-  assert.match(approved.stdout, /Next Copilot actions:\n- Copilot: \/clear\n[\s\S]*?\n- Copilot: \/sf-phase\n/);
+  // The reset is its own route; the step's command is named after it, never as a route with no Shell (owner, 2026-11-25).
+  assert.match(approved.stdout, /Before the next action, in Copilot:\n- Copilot: \/clear\n[\s\S]*?\nThen \/sf-phase in that chat: the next action's own command\./);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
   assert.deepEqual(workflow.resolution.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });

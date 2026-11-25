@@ -62,7 +62,8 @@ for (const [stepId, kind, command] of [['testing', 'a document step', '/sf-phase
     const { handoff, receipt } = approvalReceipt(workflow, previous);
     assert.deepEqual(handoff.commands, ['/clear', prefill.command]);
     assert.deepEqual(receipt.contextBoundary.commands, ['/clear', prefill.command]);
-    assert.equal(receipt.contextBoundary.commandGuidance.copilotCommand, `/clear, then ${prefill.command}`);
+    // Its one route is the reset itself: "/clear, then /sf-code" is no command (owner, 2026-11-25).
+    assert.equal(receipt.contextBoundary.commandGuidance.copilotCommand, '/clear');
     assert.match(receipt.instruction, new RegExp(`Run /clear, then ${prefill.command} before next-phase authoring`, 'u'));
     const act = agentAct({ ...receipt, resultType: 'sflow-approval-agent-result', outcome: { status: 'succeeded' }, turnBoundary: 'end' });
     assert.match(act.said, new RegExp(`the one next step is /clear, then ${prefill.command} \\(${stepId}\\)`, 'u'));
@@ -72,7 +73,8 @@ for (const [stepId, kind, command] of [['testing', 'a document step', '/sf-phase
     assert.equal(receipt.contextBoundary.commandGuidance.modelFreeCommand, null);
     assert.doesNotMatch(JSON.stringify(receipt), new RegExp(`prepare ${stepId}|phase begin ${stepId}`, 'u'));
     // The person's terminal output names the same command, each in its own route block.
-    assert.match(formatContextBoundaryHandoff(handoff).join('\n'), new RegExp(`- Copilot: /clear\\n[\\s\\S]*?\\n- Copilot: ${prefill.command}\\n`, 'u'));
+    assert.match(formatContextBoundaryHandoff(handoff).join('\n'), new RegExp(`- Copilot: /clear\\n[\\s\\S]*?\\nThen ${prefill.command} in that chat: `, 'u'));
+    assert.doesNotMatch(formatContextBoundaryHandoff(handoff).join('\n'), new RegExp(`- Copilot: ${prefill.command}\\n`, 'u'), 'never a route with no Shell');
   });
 }
 

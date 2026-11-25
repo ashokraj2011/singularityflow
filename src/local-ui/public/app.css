@@ -644,3 +644,10 @@ dialog textarea { resize: vertical; }
 
 #ask-conversation { margin: .75rem 0 0; }
 .ask-history-rows button { margin-top: .375rem; }
+.ask-task { margin-top: 1rem; }
+#ask-task-form { display: grid; gap: .5rem; margin-top: .75rem; }
+#ask-task-form :is(textarea, select, input[type="text"]) {
+  width: 100%; padding: .5rem .625rem; border: 1px solid var(--line); border-radius: .375rem; color: inherit; background: transparent;
+}
+#ask-task-form fieldset { display: grid; gap: .375rem; border: 1px solid var(--line); }
+#ask-task-form button { justify-self: start; }

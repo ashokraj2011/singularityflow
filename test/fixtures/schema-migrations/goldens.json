@@ -519,6 +519,17 @@
   "repair-event": [{ "schemaVersion": 1 }],
   "repair-attempt": [{ "schemaVersion": 1 }],
   "local-work-journal": [{ "schemaVersion": 1 }],
+  "itw-task-admission": [{
+    "schemaVersion": 1,
+    "id": "itw-11111111111111111111111111111111",
+    "actor": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "scope": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "requestSha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "request": { "effect": "work.start" },
+    "status": "pending",
+    "workId": "TASK-1",
+    "outcome": null
+  }],
   "ask-conversation": [{
     "schemaVersion": 1,
     "id": "ask-11111111111111111111111111111111",

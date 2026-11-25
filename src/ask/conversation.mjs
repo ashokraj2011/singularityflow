@@ -26,7 +26,8 @@ function meta(record) {
     id: record.id, revision: record.revision, resultSetId: record.result.id, selectedId: record.selected?.id ?? null,
     private: true, portability: 'local', hasMore: Boolean(record.result.history?.next),
     canExplain: record.result.refs.length > 0 && !record.explanationUsed && record.reads < MAX_READS,
-    reads: { used: record.reads, limit: MAX_READS }
+    reads: { used: record.reads, limit: MAX_READS },
+    ...(record.taskAdmissionId ? { taskAdmissionId: record.taskAdmissionId } : {})
   };
 }
 
@@ -188,6 +189,15 @@ export async function askConversation({ root, context = {}, audience = 'model', 
     const { action, id, query, workId } = followUp(record, request);
     if (action === 'resume') {
       const restored = await restore(scope, record);
+      if (audience === 'person' && record.taskAdmissionId) {
+        const { inspectTaskAdmission } = await import('../task-admission.mjs');
+        try {
+          const task = await inspectTaskAdmission(root, record.taskAdmissionId);
+          restored.task = { id: task.id, status: task.status, workId: task.workId };
+        } catch (error) {
+          restored.diagnostics.push(diagnostic(error.code ?? 'TASK_ADMISSION_UNAVAILABLE', 'The saved task handoff could not be inspected.'));
+        }
+      }
       await store.read(record.id, record.revision);
       return finish(present(restored, record));
     }

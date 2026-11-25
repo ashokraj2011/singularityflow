@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 6
+version: 7
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -77,6 +77,12 @@ investigation starts a fix from its report (`--from TASK-2`), and a task about a
 (`--document docs/specs/export.md`). "… and open a pull request" in the first words ends the plan with one. Before a task starts, "add a design step" or "skip the plan"
 (`--add design`, `--skip plan`) changes its steps; a team rule's step, the intake and a code task's tests stay. A started
 task keeps its steps.
+
+## Tasks from Ask SFlow evidence
+
+An Ask SFlow task handoff carries the selected reviewed specification revision, its state commit and content and manifest SHA-256 digests, the selected clauses, and supporting evidence references. ITW checks those sources again before creating the Story. A newer revision can be published while the handoff still uses the selected one. A missing or changed selection needs a new plan.
+
+`singularity-flow work handoff ITW-ID --for-person` inspects the original receipt. Add `--start` to accept the prepared plan or retry a retained reservation. ITW keeps one Work ID for that handoff, checks for the matching committed Story when the outcome is uncertain, and reports when recovery needs inspection. The handoff receipts are private to the Git clone and identity. `work status TASK-ID` shows the accepted Story and its ordinary approval steps.
 
 ## State and safety
 

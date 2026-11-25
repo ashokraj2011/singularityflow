@@ -538,7 +538,8 @@ const PAGES = Object.freeze({
       ['singularity-flow work "fix the login timeout on slow networks"', 'Show the plan a fix gets.'],
       ['singularity-flow work "fix the login timeout on slow networks" --start', 'Start it as a Story.'],
       ['singularity-flow work "why do cancelled orders still send emails?" --kind investigate', 'An investigation: a report, no code change.'],
-      ['singularity-flow work status', 'Where the task on this checkout stands: each step and who approved it.']
+      ['singularity-flow work status', 'Where the task on this checkout stands: each step and who approved it.'],
+      ['singularity-flow work handoff ITW-ID --for-person', 'Check a task prepared from saved Ask SFlow evidence. Use --start to start or retry that exact handoff.']
     ],
     seeAlso: ['start', 'workflow', 'lessons']
   },

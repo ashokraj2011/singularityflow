@@ -3242,6 +3242,7 @@ const families = [
     paths: [/^\$git\/publication-journal\/[^/]+\.json$/]
   }),
   family({ id: 'story-start-journal', currentVersion: 1, paths: [/^\$git\/story-start\/[^/]+\.json$/] }),
+  family({ id: 'itw-task-admission', currentVersion: 1, paths: [/^\$git\/task-admissions\/itw-[a-f0-9]{32}\.json$/u] }),
   // Machine-local and short-lived: a sealed record of what a passing Story readiness preview saw,
   // presented back by Story start so it can verify instead of rediscover. It authorizes nothing.
   family({

@@ -1445,10 +1445,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               ? { SINGULARITY_FLOW_NO_MODEL: '1' } : {})
           })
         });
-        return client.run(args, AbortSignal.timeout(20_000));
+        const taskWrite = args[1] === 'handoff' && args.some(arg => arg === '--start' || arg.startsWith('--request='));
+        const timeout = taskWrite ? 305_000 : 20_000;
+        return client.run(args, AbortSignal.timeout(timeout));
       });
     } catch (error) {
-      showRefusal(error, { headline: 'Could not complete the Ask SFlow read' });
+      showRefusal(error, { headline: 'Could not complete the Ask SFlow action' });
     }
   }));
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openHelp', async (node?: TreeNode) => {

@@ -414,10 +414,14 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         if (route === '/api/ask' && req.method === 'POST') {
           const request = await body(req);
           const interaction = request?.interaction;
-          const contextual = ['evidence', 'select', 'explain', 'forget'].includes(interaction);
-          insist(contextual || ['activate', 'submit', 'continue', 'resume'].includes(interaction), 'UI_REQUEST_INVALID', 'Choose an Ask SFlow read.');
+          const prepareTask = interaction === 'task-prepare';
+          const startTask = interaction === 'task-start';
+          const task = prepareTask || startTask || interaction === 'task-status';
+          const contextual = prepareTask || ['evidence', 'select', 'explain', 'forget'].includes(interaction);
+          insist(contextual || task || ['activate', 'submit', 'continue', 'resume'].includes(interaction), 'UI_REQUEST_INVALID', 'Choose an Ask SFlow action.');
           const contextFields = ['conversationId', 'revision'];
-          const supplied = interaction === 'submit' ? ['query', 'remember', ...contextFields]
+          const supplied = prepareTask ? [...contextFields, 'target', 'words', 'kind', 'clauses', 'evidence']
+            : task ? ['admissionId'] : interaction === 'submit' ? ['query', 'remember', ...contextFields]
             : contextual ? [...contextFields, ...(['evidence', 'select'].includes(interaction) ? ['target'] : [])]
               : interaction === 'resume' ? [] : ['selection'];
           const input = record(request, ['contextId', 'interaction', ...supplied]);
@@ -428,9 +432,24 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             insist(input.conversationId && latest?.id === input.conversationId && latest?.revision === input.revision && latest?.contextId === context.id,
               'UI_ASK_CONVERSATION_CHANGED', 'Resume the current Ask conversation from this tab to continue.', 409);
           }
-          const args = ['ask', '--for-person'];
+          const args = task ? ['work', 'handoff', '--for-person'] : ['ask', '--for-person'];
           if (input.conversationId) args.push('--conversation=' + input.conversationId, '--revision=' + input.revision);
-          if (interaction === 'submit') {
+          if (prepareTask) {
+            const ids = (value, limit, label) => {
+              insist(Array.isArray(value) && value.length <= limit, 'UI_REQUEST_INVALID', `Choose up to ${limit} ${label}.`);
+              return value.map(id => text(id, label, 160));
+            };
+            args.push('--request=' + text(input.words, 'Task', 2000), '--kind=' + text(input.kind, 'Task kind', 24),
+              '--target=' + text(input.target, 'Selected evidence', 36),
+              ...ids(input.clauses ?? [], 32, 'clauses').map(id => '--clause=' + id),
+              ...ids(input.evidence ?? [], 7, 'evidence links').map(id => '--supporting-evidence=' + id));
+          } else if (task) {
+            const id = text(input.admissionId, 'Task handoff', 36);
+            insist(session.askTask?.id === id && session.askTask.contextId === context.id,
+              'UI_ASK_TASK_CHANGED', 'Resume the saved Ask conversation in this tab to open its task handoff.', 409);
+            args.push(id);
+            if (startTask) args.push('--start');
+          } else if (interaction === 'submit') {
             insist(input.remember === undefined || (input.remember === true && !input.conversationId),
               'UI_REQUEST_INVALID', 'Choose a new or an existing Ask conversation.');
             args.push('--question=' + text(input.query, 'Question', 2000));
@@ -458,15 +477,19 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           const abort = () => controller.abort();
           session.askReading = true;
           running += 1;
-          res.once('close', abort);
+          if (!startTask) res.once('close', abort);
           try {
             const { value } = await runCanonical(context.root, args, {
-              timeoutMs: 20_000, signal: controller.signal, environment: session.environment, personAskExplanation: interaction === 'explain'
+              timeoutMs: startTask || prepareTask ? 300_000 : 20_000,
+              signal: controller.signal, environment: session.environment, personAskExplanation: interaction === 'explain'
             });
             insist(session.contextId === context.id && contexts.has(context.id),
               'UI_ASK_CONTEXT_CHANGED', 'The checkout changed while reading. Search again in the selected checkout.', 409);
             if (value.conversation) session.askConversation = { id: value.conversation.id, revision: value.conversation.revision, contextId: context.id };
             if (value.kind === 'forgotten' || value.status === 'conflict') session.askConversation = null;
+            const handoffId = value.resultType === 'sflow-task-handoff' ? value.id : value.conversation?.taskAdmissionId;
+            if (value.conversation || handoffId) session.askTask = handoffId ? { id: handoffId, contextId: context.id } : null;
+            if (value.kind === 'forgotten') session.askTask = null;
             for (const specification of value.conversation ? [] : value.specifications ?? []) {
               const id = randomUUID();
               // The input to activation is opaque. Only an exact revision issued to this tab can open.
@@ -482,7 +505,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             while (session.askSelections.size > 32) session.askSelections.delete(session.askSelections.keys().next().value);
             return send(res, 200, value);
           } catch (error) {
-            if (error?.code === 'UI_OPERATION_TIMEOUT') {
+            if (!task && error?.code === 'UI_OPERATION_TIMEOUT') {
               throw new UiError('UI_ASK_TIMEOUT', 'Ask SFlow could not finish the read in 20 seconds. Submit the question again to retry.', error.details, 504);
             }
             throw error;

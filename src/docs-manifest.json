@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "628cbab7991832758d848bea700fdda7b814536c",
+  "sourceCommit": "c04e88956a09e5e333d63fa5743bc0b94cff057e",
   "topicCount": 95,
-  "contentSha256": "11f1739089085b553c4f3b81f2364b02ea1981398c9c88db9c7db0c087cdef4c",
+  "contentSha256": "84dbaebad0169db385890846349284b30abd0cf9f8c15ca1765fe086c238807d",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -312,8 +312,8 @@
     {
       "id": "help-and-docs",
       "title": "Getting help",
-      "version": 11,
-      "sha256": "8391a2c1c770bb69b2f9d385e25a6f4224519312709044d3b0b6211278fa0604",
+      "version": 12,
+      "sha256": "18c8665e4acda77c2c53221e402f9b515da97faf6d6e5cde207eb25edf6fc804",
       "routingSha256": "04185743a3f29ebcea471ec4c6a7ff6b1191b8dfea8c12f8173850ba45b4b20b",
       "file": "help-and-docs.md"
     },
@@ -664,8 +664,8 @@
     {
       "id": "tasks",
       "title": "Tasks: say what you want done",
-      "version": 6,
-      "sha256": "1a0f35e4522df547217a3e57cf85cc950306edba7e8e0e3f412f1c664eeb659b",
+      "version": 7,
+      "sha256": "e501465d9d872415aa300a0d31751610716ce9a83a9657ccb3148ff300c3c27a",
       "routingSha256": "1a1fcc7163ff59b9ed320743d473a84207b520bae38e1e42f2bb43617d1f4786",
       "file": "tasks.md"
     },

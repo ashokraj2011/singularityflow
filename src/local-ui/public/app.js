@@ -716,7 +716,8 @@ async function navigate() {
         checkout: state.session.context.label,
         navigate: go,
         read: async (input) => {
-          const value = await api('/api/ask', { method: 'POST', data: { ...input, contextId }, timeout: 22_000 });
+          const timeout = ['task-start', 'task-prepare'].includes(input.interaction) ? 305_000 : 22_000;
+          const value = await api('/api/ask', { method: 'POST', data: { ...input, contextId }, timeout });
           return epoch === state.epoch && contextId === state.session?.context.id ? value : null;
         }
       });

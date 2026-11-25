@@ -33,7 +33,7 @@ interface Specification {
 }
 interface Answer {
   schemaVersion: number;
-  resultType: string;
+  resultType: 'sflow-ask';
   work?: { id: string; title: string; kind: string; phaseLabel: string | null; status: string | null;
     workStatus: string | null; blockers: string[]; evidenceId?: string };
   help?: { id: string; title: string; citation: string; evidenceId?: string };
@@ -44,12 +44,25 @@ interface Answer {
   specifications?: Specification[];
   artifact?: Specification & { content: string };
   continuation?: { cursor: string; behavior: string };
-  conversation?: { id: string; revision: number; hasMore: boolean; canExplain: boolean };
-  evidence?: { title: string; revision: string; locator: string; details?: Record<string, unknown>;
+  conversation?: { id: string; revision: number; hasMore: boolean; canExplain: boolean; taskAdmissionId?: string };
+  evidence?: { id: string; title: string; revision: string; locator: string; details?: Record<string, unknown>;
     specification?: Specification; content?: string };
   explanation?: { status: string; statements: Array<{ text: string; evidenceId: string }> };
   status?: string;
   kind?: string;
+}
+interface TaskHandoff {
+  schemaVersion: number;
+  resultType: 'sflow-task-handoff';
+  id: string;
+  message: string;
+  intent: string;
+  plan: string;
+  specification?: { reference: string; clauseIds: string[] };
+  evidence: Array<{ id: string; ref: { kind: string; commit?: string; reference?: string; workId?: string; path?: string; topic?: string } }>;
+  diagnostic?: { message: string };
+  conversation?: { id: string; revision: number };
+  actions: Array<{ id: string; label: string; command: string }>;
 }
 interface Scope { root: string; workspaceId: string | null; repositoryId: string | null }
 interface Pick extends vscode.QuickPickItem {
@@ -59,10 +72,11 @@ interface Pick extends vscode.QuickPickItem {
   specification?: Specification;
   cursor?: string;
   patch?: string;
-  action?: 'resume' | 'explain' | 'forget' | 'evidence' | 'select' | 'follow-up';
+  action?: 'resume' | 'explain' | 'forget' | 'evidence' | 'select' | 'follow-up' | 'task-prepare' | 'task-inspect' | 'task-start';
   target?: string;
+  taskSpec?: boolean;
 }
-type Run = (root: string | null, args: string[]) => Promise<Answer>;
+type Run = (root: string | null, args: string[]) => Promise<Answer | TaskHandoff>;
 
 export function askLookupArguments(query: string): string[] {
   return ['ask', '--question=' + query, '--no-model', '--for-person', '--json'];
@@ -108,6 +122,9 @@ function choices(value: Answer): Pick[] {
   for (const specification of value.specifications ?? []) {
     items.push({ label: specification.reference + ' · ' + specification.title, description: specification.reviewState, ...(specification.evidenceId
       ? { action: 'evidence', target: specification.evidenceId } : { specification }) });
+    if (specification.evidenceId && specification.reviewState === 'reviewed') items.push({
+      label: 'Prepare a task from ' + specification.reference, action: 'task-prepare', target: specification.evidenceId, taskSpec: true
+    });
   }
   if (value.help) items.push({ label: value.help.title, detail: value.help.citation,
     ...(value.help.evidenceId ? { action: 'evidence', target: value.help.evidenceId } : { topic: value.help.id }) });
@@ -133,6 +150,9 @@ function choices(value: Answer): Pick[] {
     for (const [field, detail] of Object.entries(value.evidence.details ?? {})) {
       if (detail != null) items.push({ label: field, detail: String(detail) });
     }
+    if (!value.evidence.specification || value.evidence.specification.reviewState === 'reviewed') items.push({
+      label: 'Prepare a task from this evidence', action: 'task-prepare', target: value.evidence.id, taskSpec: Boolean(value.evidence.specification)
+    });
   }
   if (value.explanation) {
     items.push({ label: value.explanation.status === 'copilot-assisted' ? 'Copilot-organized explanation' : 'Explanation from recorded evidence' });
@@ -140,11 +160,49 @@ function choices(value: Answer): Pick[] {
   }
   if (value.conversation?.hasMore) items.push({ label: 'Next page', query: 'next page' });
   if (value.conversation?.canExplain) items.push({ label: 'Explain with Copilot', action: 'explain' });
+  if (value.conversation?.taskAdmissionId) items.push({ label: 'Open task handoff', action: 'task-inspect', target: value.conversation.taskAdmissionId });
   if (value.conversation) items.push({ label: 'Ask a follow-up', action: 'follow-up' },
     { label: 'Forget saved conversation', action: 'forget' });
   if (value.status === 'conflict') items.push({ label: 'Resume saved conversation', action: 'resume' });
   for (const finding of value.diagnostics ?? []) items.push({ label: finding.message, description: finding.code });
   return items;
+}
+
+function handoffChoices(value: TaskHandoff): Pick[] {
+  const items: Pick[] = [{ label: value.message, detail: value.intent }, { label: value.plan }];
+  if (value.specification) items.push({ label: value.specification.reference, description: value.specification.clauseIds.join(', ') });
+  for (const { ref } of value.evidence) items.push({ label: 'Evidence · ' + (ref.reference ?? ref.workId ?? ref.path ?? ref.commit ?? ref.topic ?? ref.kind) });
+  if (value.diagnostic) items.push({ label: value.diagnostic.message });
+  for (const action of value.actions) {
+    items.push(action.id === 'start' || action.id === 'inspect'
+      ? { label: action.label, action: action.id === 'start' ? 'task-start' : 'task-inspect', target: value.id }
+      : { label: action.label, detail: action.command });
+  }
+  return items;
+}
+
+type EvidenceChoice = vscode.QuickPickItem & { id: string };
+function evidenceChoices(value: Answer): EvidenceChoice[] {
+  const visible = [value.work, ...(value.specifications ?? []), value.help, ...(askHistoryDisplay(value)?.rows ?? [])];
+  return visible.flatMap(item => item?.evidenceId
+    ? [{ id: item.evidenceId, label: 'title' in item ? item.title : item.label }] : []);
+}
+
+async function prepareTaskInputs(pick: Pick, sources: EvidenceChoice[]): Promise<string[] | null> {
+  const words = await vscode.window.showInputBox({ title: 'What should the task do?',
+    validateInput: text => text.length > 2000 ? 'Keep the task under 2,000 characters.' : undefined });
+  if (!words?.trim()) return null;
+  const kinds = ['change', 'fix', 'feature', 'investigate', 'review', 'docs', 'tests', 'refactor', 'chore'];
+  const kind = await vscode.window.showQuickPick(kinds, { placeHolder: 'Choose a task type' });
+  if (!kind || !kinds.includes(kind)) return null;
+  const clauses = pick.taskSpec ? await vscode.window.showInputBox({ title: 'Clause IDs (optional)',
+    placeHolder: 'Leave empty for the whole revision, or enter REQ-001, AC-001' }) : '';
+  if (clauses === undefined) return null;
+  const alternatives = sources.filter(entry => entry.id !== pick.target);
+  const support = alternatives.length ? await vscode.window.showQuickPick(alternatives, { canPickMany: true, placeHolder: 'Choose supporting evidence (optional)' }) : [];
+  if (!support) return null;
+  return ['--request=' + words.trim(), '--kind=' + kind, '--target=' + pick.target,
+    ...clauses.split(/[\s,]+/u).filter(Boolean).map(id => '--clause=' + id), ...support.map(item => '--supporting-evidence=' + item.id)];
 }
 
 function showArtifact(artifact: { reference: string; title: string; reviewState: string; content: string }): void {
@@ -169,6 +227,7 @@ export async function openAskSFlow(active: () => Scope | null, readAnswer: Run):
   let picked = await initialChoice(Boolean(root));
   if (!picked) return;
   let conversation: Answer['conversation'];
+  let sources: EvidenceChoice[] = [];
   const ensureScope = () => {
     if (scopeKey(active()) !== scopeKey(selectedScope)) throw new Error('The active checkout changed. Open Ask SFlow to search there.');
   };
@@ -188,7 +247,7 @@ export async function openAskSFlow(active: () => Scope | null, readAnswer: Run):
       const result = await readAnswer(root, [...askLookupArguments(reference), '--open-spec',
         '--state-commit=' + stateCommit, '--manifest-sha256=' + manifestSha256]);
       ensureScope();
-      if (!result.artifact) throw new Error('The specification reader did not return the selected revision.');
+      if (result.resultType !== 'sflow-ask' || !result.artifact) throw new Error('The specification reader did not return the selected revision.');
       showArtifact(result.artifact);
       return;
     }
@@ -214,7 +273,16 @@ export async function openAskSFlow(active: () => Scope | null, readAnswer: Run):
     }
     const bindings = conversation ? ['--conversation=' + conversation.id, '--revision=' + conversation.revision] : [];
     let args: string[];
-    if (picked.action) {
+    if (picked.action === 'task-prepare') {
+      if (!conversation || !picked.target) return;
+      const inputs = await prepareTaskInputs(picked, sources);
+      ensureScope();
+      if (!inputs) return;
+      args = ['work', 'handoff', '--for-person', '--no-model', '--json', ...bindings, ...inputs];
+    } else if (picked.action === 'task-inspect' || picked.action === 'task-start') {
+      if (!picked.target) return;
+      args = ['work', 'handoff', picked.target, '--for-person', '--no-model', '--json', ...(picked.action === 'task-start' ? ['--start'] : [])];
+    } else if (picked.action) {
       if (picked.action === 'forget' && await vscode.window.showWarningMessage('Forget this private Ask conversation?', { modal: true }, 'Forget') !== 'Forget') return;
       args = ['ask', '--for-person', '--json', ...(picked.action === 'explain' ? [] : ['--no-model']),
         '--' + picked.action + (picked.target ? '=' + picked.target : ''), ...(picked.action === 'resume' ? [] : bindings)];
@@ -222,17 +290,23 @@ export async function openAskSFlow(active: () => Scope | null, readAnswer: Run):
     else args = [...askLookupArguments(query), ...(conversation ? bindings : root ? ['--remember'] : [])];
     const result = await readAnswer(root, args);
     ensureScope();
+    if (result.resultType === 'sflow-task-handoff') {
+      if (result.schemaVersion !== 1) throw new Error('The selected SFlow CLI needs an update to show this handoff.');
+      if (result.conversation && conversation) conversation = { ...conversation, ...result.conversation, taskAdmissionId: result.id };
+      picked = await vscode.window.showQuickPick(handoffChoices(result), { title: 'Ask SFlow · Task handoff' }) ?? null;
+      continue;
+    }
     if (result.resultType !== 'sflow-ask' || result.schemaVersion !== 1) throw new Error('The selected SFlow CLI needs an update to use Ask SFlow.');
     if (result.kind === 'forgotten') {
       await vscode.window.showInformationMessage('Saved Ask conversation removed.');
       return;
     }
     if (result.conversation) conversation = result.conversation;
+    if (!result.evidence && !result.explanation) sources = evidenceChoices(result);
     if (result.evidence?.content != null) {
       const evidence = result.evidence;
       showArtifact({ reference: evidence.locator, title: evidence.title,
         reviewState: evidence.specification?.reviewState ?? evidence.revision, content: result.evidence.content });
-      return;
     }
     const results = choices(result);
     if (!results.length) {

@@ -104,6 +104,7 @@ export function excludesActiveWorkspaceRouting(
   command, subcommand = null, options = {}, action = null
 ) {
   return ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)
+    || (command === 'work' && subcommand === 'handoff')
     // Local skill inspection reads an explicit directory and remains repository-independent.
     // Approved inspection selects the current repository or active workspace's authority.
     || (command === 'skill' && subcommand === 'inspect')
@@ -642,6 +643,8 @@ export async function main(argv) {
     // Every command accepts --for-agent. The compact entries read it (and check a pause) themselves;
     // for the others it shapes the output only, and a paused SFlow answers before any Git or lookup.
     const agentFlag = options['for-agent'] !== undefined;
+    const taskHandoff = positionals[0] === 'work' && positionals[1] === 'handoff';
+    if (taskHandoff && agentFlag) throw new SingularityFlowError('Use the task handoff in your own Ask SFlow view or terminal.', { code: 'TASK_HANDOFF_PERSON_REQUIRED' });
     // `ui serve` prints its own JSON readiness and keeps running; the --for-agent refusal is the ui command's (local-ui/cli.mjs).
     const foregroundUi = positionals[0] === 'ui' && positionals[1] === 'serve';
     const ownsFlag = interpretsForAgent(positionals);
@@ -652,7 +655,7 @@ export async function main(argv) {
     const commandArgv = utilityEntry ? withoutUtilityEntry(argv) : argv;
     // A foreground server emits its readiness record before waiting for shutdown. Buffering this
     // one long-lived command until return would hide that record for the lifetime of the server.
-    const directAskPerson = positionals[0] === 'ask' && options['for-person'] === true && !agentFlag;
+    const directAskPerson = (positionals[0] === 'ask' || taskHandoff) && options['for-person'] === true && !agentFlag;
     const invoke = () => withCliJsonOutput(optionBoolean(options, 'json') && !foregroundUi,
       () => runMain(agentFlag && !ownsFlag ? withoutAgentFlag(commandArgv) : commandArgv, utilityEntry, contextRequest.root),
       { forAgent: !directAskPerson && agentViewRequested(options), kind: positionals[0], utilityEntry, argv: commandArgv });

@@ -777,6 +777,7 @@ function hostOnlyCommand(positionals) {
 export function argvAllowed(argv, mode, value) {
   const { positionals, options } = parseCli(argv);
   if (hostOnlyCommand(positionals)) return false;
+  if (positionals[0] === 'work' && positionals[1] === 'handoff') return false;
   // A specification's secret-shaped values are withheld from a model; asking for them is the person's own page, in no turn.
   if (options['for-person'] !== undefined &&
       (positionals[0] === 'ask' || positionals[0] === 'spec' && positionals[1] === 'author')) return false;

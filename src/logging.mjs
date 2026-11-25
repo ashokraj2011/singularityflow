@@ -350,6 +350,7 @@ export function redactCommandArgv(argv) {
   // Global flags may precede the command and malformed invocations still reach the activity log.
   // Over-redact if these two route words are present rather than relying on positional parsing.
   const revisionAttachment = source.includes('revision') && source.includes('attachments');
+  const taskHandoff = source.includes('work') && source.includes('handoff');
   const projected = [];
   const pending = [];
   const receiptIndex = positionalReceiptIndex(source);
@@ -367,6 +368,8 @@ export function redactCommandArgv(argv) {
   let secretIntervened = false;
   for (const [index, raw] of source.entries()) {
     const arg = String(raw);
+    if (taskHandoff && String(source[index - 1]) === '--request') { projected.push(REDACTED); continue; }
+    if (taskHandoff && arg.startsWith('--request=')) { projected.push('--request=' + REDACTED); continue; }
     if (String(source[index - 1] ?? '').toLowerCase() === '--document') {
       projected.push('[redacted-path]');
       continue;

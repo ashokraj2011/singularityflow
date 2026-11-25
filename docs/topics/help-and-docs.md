@@ -24,7 +24,7 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 11
+version: 12
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -96,6 +96,14 @@ The local store is private to the user and checkout. A scope supports up to 16 s
 - Use the ID and revision returned by Ask to follow up with `singularity-flow ask "the second result" --conversation=ID --revision=N --for-person`.
 - Add `--explain` in place of the question for an optional Copilot explanation, or use the evidence command returned with a result.
 - In the Copilot gateway, `sessionAction: "query"` starts a saved context. For later actions, pass its `conversationId` and `contextRevision`. To reopen evidence, use `sessionAction: "evidence"`, `query: "evidence"` and the returned link ID as `target`. The gateway provides verified facts without launching a second model.
+
+### Start a task from evidence
+
+Open an evidence link in the browser or VS Code and choose **Prepare a task from this evidence**. Describe the work, choose a task type, and select any supporting evidence. For a reviewed specification, leave clause IDs empty to use the whole revision or name the clauses the task should deliver. Review the normal task plan and choose **Start this task**.
+
+In the shell, use `singularity-flow work handoff --conversation=ID --revision=N --request="Implement retry handling" --kind=change --for-person`. This uses the selected evidence in the saved conversation. `--target=EVIDENCE-ID` selects a particular link. Repeat `--clause=REQ-001` or `--supporting-evidence=EVIDENCE-ID` to narrow the clauses or add supporting evidence. The plan returns a handoff ID and its exact start command.
+
+If the response is lost, choose **Resume saved conversation** and **Open task handoff**, or run `singularity-flow work handoff ITW-ID --for-person`. The handoff can recover the existing Story even after another Ask question changes the conversation. Use the original handoff ID for retries.
 
 ## Purpose and prerequisites
 

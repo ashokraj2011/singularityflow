@@ -7,14 +7,48 @@ const chip = (text, key, value) => `<button type="button" class="button" data-${
 
 const evidenceChip = id => id ? chip('View evidence', 'evidence', id) : '';
 
-function evidenceView(evidence) {
+function taskForm(evidence, supporting) {
+  return `<details class="ask-task"><summary>Prepare a task from this evidence</summary>
+    <form id="ask-task-form" data-target="${escape(evidence.id)}">
+      <label for="ask-task-words">What should the task do?</label><textarea id="ask-task-words" name="words" rows="3" maxlength="2000" required></textarea>
+      <label for="ask-task-kind">Task type</label><select id="ask-task-kind" name="kind">
+        <option value="change">Change</option><option value="fix">Fix</option><option value="feature">Feature</option>
+        <option value="investigate">Investigation</option><option value="review">Review</option><option value="docs">Documentation</option>
+        <option value="tests">Tests</option><option value="refactor">Refactor</option><option value="chore">Chore</option></select>
+      ${evidence.specification ? '<label for="ask-task-clauses">Clause IDs (optional)</label><input id="ask-task-clauses" name="clauses" type="text" placeholder="REQ-001, AC-001" maxlength="2000">' : ''}
+      ${supporting.length ? `<fieldset><legend>Supporting evidence</legend>${supporting.map(({ id, label }) =>
+        `<label><input type="checkbox" name="evidence" value="${escape(id)}"> ${escape(label)}</label>`).join('')}</fieldset>` : ''}
+      <button type="submit" class="primary">Review task plan</button>
+    </form></details>`;
+}
+
+function taskView(value) {
+  const buttons = value.actions.filter(action => ['inspect', 'start'].includes(action.id));
+  const routes = value.actions.filter(action => !buttons.includes(action));
+  return `<section class="card ask-answer"><h2>${value.workId ? 'Task ' + escape(value.workId) : 'Task plan'}</h2>
+    <p>${escape(value.message)}</p><p>${escape(value.intent)}</p><p class="muted">${escape(value.plan)}</p>
+    ${value.specification ? `<p><strong>${escape(value.specification.reference)}</strong> · ${escape(value.specification.clauseIds.join(', ') || 'Whole revision')}</p>` : ''}
+    <details><summary>${value.evidence.length} evidence ${value.evidence.length === 1 ? 'link' : 'links'}</summary><ul>
+      ${value.evidence.map(({ ref }) => `<li>${escape(ref.reference ?? ref.workId ?? ref.path ?? ref.commit ?? ref.topic ?? ref.kind)}</li>`).join('')}</ul></details>
+    ${value.diagnostic ? `<p role="status">${escape(value.diagnostic.message)}</p>` : ''}
+    <div class="ask-actions">${buttons.map(action => chip(action.label, 'task-action', action.id)).join('')}</div>
+    ${routes.map(action => `<p>${escape(action.label)} <code>${escape(action.command)}</code></p>`).join('')}</section>`;
+}
+
+function evidenceView(evidence, supporting, canPrepare) {
   const fields = Object.entries(evidence.details ?? {}).filter(([, value]) => value != null);
   return `<article class="card ask-answer">
     <h2>${escape(evidence.title)}</h2>
     <p class="muted">${[evidence.locator, evidence.revision].filter(Boolean).map(escape).join(' · ')}</p>
     ${fields.length ? `<dl>${fields.map(([key, value]) => `<dt>${escape(words(key))}</dt><dd>${escape(value)}</dd>`).join('')}</dl>` : ''}
     ${evidence.content ? `<div class="draft-preview">${markdown(evidence.content)}</div>` : ''}
+    ${canPrepare && (!evidence.specification || evidence.specification.reviewState === 'reviewed') ? taskForm(evidence, supporting) : ''}
   </article>`;
+}
+
+function evidenceOptions(answer) {
+  return [answer.work, ...(answer.specifications ?? []), answer.help, ...(askHistoryDisplay(answer)?.rows ?? [])]
+    .filter(item => item?.evidenceId).map(item => ({ id: item.evidenceId, label: item.title ?? item.label ?? item.reference }));
 }
 
 function explanationView(data) {
@@ -81,15 +115,19 @@ export function mountAsk(root, { checkout, navigate, read }) {
   <div id="ask-conversation" class="ask-actions" aria-label="Conversation"></div>
   <div id="ask-status" role="status" class="muted"></div>
   <section id="ask-answer" aria-label="Answer"></section>
-  <section id="ask-evidence" aria-label="Evidence and explanation"></section>`;
+  <section id="ask-evidence" aria-label="Evidence and explanation"></section>
+  <section id="ask-task" aria-label="Task handoff"></section>`;
   const field = root.querySelector('#ask-question');
   const suggestions = root.querySelector('#ask-suggestions');
   const answer = root.querySelector('#ask-answer');
   const detail = root.querySelector('#ask-evidence');
+  const taskPanel = root.querySelector('#ask-task');
   const actions = root.querySelector('#ask-conversation');
   const status = root.querySelector('#ask-status');
   let pending = false;
   let conversation = null;
+  let activeTask = null;
+  let supporting = [];
 
   function sessionActions() {
     if (!checkout) return;
@@ -97,6 +135,7 @@ export function mountAsk(root, { checkout, navigate, read }) {
     if (conversation) {
       items.unshift(chip('New conversation', 'conversation-action', 'new'));
       if (conversation.canExplain) items.push(chip('Explain with Copilot', 'conversation-action', 'explain'));
+      if (conversation.taskAdmissionId) items.push(chip('Open task handoff', 'task-action', 'inspect'));
       items.push(chip('Forget conversation', 'conversation-action', 'forget'));
     }
     actions.innerHTML = items.join('');
@@ -113,19 +152,34 @@ export function mountAsk(root, { checkout, navigate, read }) {
   async function show(input) {
     if (pending) return;
     pending = true;
-    status.textContent = 'Reading…';
+    status.textContent = ({ 'task-start': 'Starting the task…', 'task-prepare': 'Checking the task plan…' })[input.interaction] ?? 'Reading…';
     try {
       const result = await read(input);
       if (!result || !answer.isConnected) return;
+      if (result.resultType === 'sflow-task-handoff') {
+        activeTask = result.id;
+        conversation = { ...conversation, ...result.conversation, taskAdmissionId: activeTask };
+        sessionActions();
+        taskPanel.innerHTML = taskView(result);
+        taskPanel.scrollIntoView({ block: 'nearest' });
+        status.textContent = result.message;
+        return;
+      }
       if (result.conversation) conversation = result.conversation;
       if (result.kind === 'forgotten' || result.status === 'conflict') conversation = null;
       sessionActions();
       if (result.evidence || result.explanation) {
-        detail.innerHTML = result.evidence ? evidenceView(result.evidence) : explanationView(result.explanation);
+        detail.innerHTML = result.evidence ? evidenceView(result.evidence, supporting.filter(item => item.id !== result.evidence.id), Boolean(conversation))
+          : explanationView(result.explanation);
         detail.querySelector('h2')?.scrollIntoView({ block: 'nearest' });
       } else {
         detail.innerHTML = '';
+        supporting = evidenceOptions(result);
         answer.innerHTML = result.kind === 'forgotten' ? '' : answerView(result);
+        if (!conversation || activeTask !== conversation.taskAdmissionId) {
+          taskPanel.innerHTML = '';
+          activeTask = null;
+        }
       }
       status.textContent = result.kind === 'forgotten' ? 'Saved conversation removed.'
         : result.kind === 'artifact' ? 'Specification opened.' : 'Answer ready.';
@@ -147,11 +201,18 @@ export function mountAsk(root, { checkout, navigate, read }) {
   function interact(event) {
     const action = event.target.closest('button');
     if (!action) return;
-    const { query, route, selection, continue: continuation, evidence, choice, conversationAction } = action.dataset;
+    const { query, route, selection, continue: continuation, evidence, choice, conversationAction, taskAction } = action.dataset;
     if (pending) return;
+    if (taskAction && conversation?.taskAdmissionId) {
+      void show({ interaction: taskAction === 'start' ? 'task-start' : 'task-status', admissionId: conversation.taskAdmissionId });
+      return;
+    }
     if (conversationAction === 'new') {
       conversation = null;
       answer.innerHTML = detail.innerHTML = status.textContent = '';
+      taskPanel.innerHTML = '';
+      activeTask = null;
+      supporting = [];
       field.value = '';
       sessionActions();
       draw();
@@ -180,6 +241,16 @@ export function mountAsk(root, { checkout, navigate, read }) {
   suggestions.addEventListener('click', interact);
   answer.addEventListener('click', interact);
   detail.addEventListener('click', interact);
+  detail.addEventListener('submit', event => {
+    if (event.target.id !== 'ask-task-form') return;
+    event.preventDefault();
+    if (pending || !conversation) return;
+    const form = new FormData(event.target);
+    const clauses = String(form.get('clauses') ?? '').split(/[\s,]+/u).filter(Boolean);
+    void show({ interaction: 'task-prepare', ...scope(), target: event.target.dataset.target,
+      words: form.get('words'), kind: form.get('kind'), clauses, evidence: form.getAll('evidence') });
+  });
+  taskPanel.addEventListener('click', interact);
   actions.addEventListener('click', interact);
   sessionActions();
   field.addEventListener('keydown', event => {

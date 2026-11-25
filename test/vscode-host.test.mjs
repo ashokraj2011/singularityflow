@@ -1719,6 +1719,30 @@ test('Ask SFlow shows and pages through pinned Git history from the VS Code Navi
   assert.ok(resumed?.some(item => item.action === 'evidence'));
   assert.ok(resumed?.every(item => item.label !== 'Later than the editor selection'));
   assert.ok(selectedEvidence?.some(item => item.label === 'Editor history 0' && item.detail.startsWith('commit')));
+
+  const evidenceRevision = selectedEvidence.find(item => item.label === 'Editor history 0').detail.split(' · ')[1];
+  let handoff;
+  api.window.showInputBox = async ({ title }) => title === 'Ask a follow-up' ? 'the first result' : 'investigate the saved commit';
+  api.window.showQuickPick = async (items, options) => {
+    if (options?.canPickMany) return [];
+    if (items.includes('investigate')) return 'investigate';
+    if (items.some(item => item.action === 'task-prepare')) return items.find(item => item.action === 'task-prepare');
+    if (items.some(item => item.action === 'task-start')) { handoff = items; return undefined; }
+    return items.find(item => item.action === 'follow-up');
+  };
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.ok(handoff?.some(item => item.label === 'Evidence · ' + evidenceRevision), JSON.stringify(registered.infos));
+  assert.ok(handoff.some(item => item.label === 'Start this task'));
+  assert.equal(run('git', ['branch', '--list', 'TASK-*'], { cwd: root }).stdout.trim(), '');
+  let restoredHandoff;
+  api.window.showQuickPick = async items => {
+    const open = items.find(item => item.label === 'Open task handoff');
+    if (open) return open;
+    restoredHandoff = items;
+    return undefined;
+  };
+  await registered.commands.get('singularityFlow.askSFlow')();
+  assert.ok(restoredHandoff?.some(item => item.label === 'Evidence · ' + evidenceRevision));
 });
 
 test('@sflow and Help Center share model-free cited resolution and only prefill actions', async (t) => {

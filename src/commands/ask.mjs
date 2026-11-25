@@ -140,6 +140,10 @@ function renderText(data, audience) {
       if (item.selection) lines.push('Choose ' + (item.kind ? item.kind + ' ' : '') + item.id + ' · ' + route + ' --select=' + item.selection);
     }
     if (hasMore) lines.push('Next page · ' + route + ' "next page"');
+    if (data.conversation.taskAdmissionId) {
+      lines.push((data.task?.workId ? 'Task ' + data.task.workId : 'Saved task handoff') + ' · singularity-flow work handoff ' +
+        data.conversation.taskAdmissionId + ' --for-person');
+    }
   }
   for (const diagnostic of data.diagnostics ?? []) lines.push(diagnostic.message);
   return lines.filter(Boolean).join('\n') || ASK_HINT + '.';

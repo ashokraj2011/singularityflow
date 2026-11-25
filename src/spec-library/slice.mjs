@@ -18,7 +18,7 @@ import { extractClauses } from '../specifications.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { foldGaps, originCoverage } from './draft-model.mjs';
 import { parseSpecReference } from './ids.mjs';
-import { libraryView, resolveRevision } from './library.mjs';
+import { libraryView, readPublishedSpecification, resolveRevision } from './library.mjs';
 
 /** The whole `specification` field of one Story source, as JSON. A description may be 128 KiB. */
 export const MAXIMUM_SLICE_BYTES = 64 * 1024;
@@ -148,13 +148,30 @@ function countedRevision(root, view, request, presence, route, { env }) {
  * Resolve every `--spec` value against one pinned read of the library. Only a reviewed revision can be
  * attached; without `@N`, the highest reviewed one.
  */
-export async function resolveSlices(root, config, values, { dependencyReason = null, env = process.env } = {}) {
+export async function resolveSlices(root, config, values, { dependencyReason = null, env = process.env, taskPin = null } = {}) {
   const requests = parseSliceRequests(values);
   if (!requests.length) return [];
   if (dependencyReason !== null && !String(dependencyReason).trim()) {
     fail('--allow-partial-dependency needs the reason: --reason TEXT.', 'SPEC_SLICE_REQUEST_INVALID', { nextAction: 'singularity-flow spec author list' });
   }
   const view = await libraryView(root, config, { env });
+  let exact = null;
+  if (taskPin) {
+    const request = requests[0];
+    if (requests.length !== 1 || `${request.specId}@${request.revision}` !== taskPin.reference ||
+        taskPin.library.branch !== view.ledger.branch || taskPin.library.remote !== view.ledger.remote) {
+      fail('The selected specification library or revision changed. Reopen the evidence in Ask SFlow.', 'TASK_SPEC_PIN_STALE');
+    }
+    const current = resolveRevision(root, view, request.specId, request.revision, { env });
+    if (current.manifestSha256 !== taskPin.manifestSha256 || current.manifest.files['spec.md'] !== taskPin.contentSha256) {
+      fail('The specification no longer matches the selected manifest and content. Reopen the evidence in Ask SFlow.', 'TASK_SPEC_PIN_STALE');
+    }
+    exact = current.commit === taskPin.stateCommit ? current
+      : await readPublishedSpecification(root, taskPin.reference, { pin: taskPin });
+    if (exact.manifest.files['spec.md'] !== taskPin.contentSha256) {
+      fail('The original snapshot does not contain the selected specification content.', 'TASK_SPEC_PIN_STALE');
+    }
+  }
   // SF Guard (SPEC-PSS-v1 §10.9): a revision recorded while SF Guard was on counts only with its seal.
   const { libraryPresence, revisionRoute } = await import('./presence.mjs');
   const presence = await libraryPresence(root, { env });
@@ -214,10 +231,12 @@ export async function resolveSlices(root, config, values, { dependencyReason = n
     });
   };
   const slices = requests.map(request => {
-    const revision = read(request);
+    const counted = read(request);
+    const revision = exact ?? counted;
     const slice = buildSlice(revision, request, { dependencyReason: dependencyReason === null ? null : String(dependencyReason).trim() });
     const origins = inherited(revision, slice.clauses.map(sliceClauseId));
-    return { ...slice, ...(origins.length ? { inheritedSpecifications: origins } : {}) };
+    return { ...slice, ...(taskPin ? { revisionKind: taskPin.revisionKind, contentSha256: taskPin.contentSha256 } : {}),
+      ...(origins.length ? { inheritedSpecifications: origins } : {}) };
   });
   assertSliceSize(slices);
   return slices;

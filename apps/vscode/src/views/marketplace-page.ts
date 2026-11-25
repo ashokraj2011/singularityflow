@@ -269,7 +269,7 @@ export const MARKETPLACE_STYLE = `
 .mkt-tabs [role="tab"] { background: none; color: var(--vscode-foreground); border: 0; border-bottom: 2px solid transparent; padding: 6px 12px; cursor: pointer; font: inherit; }
 .mkt-tabs [role="tab"][aria-selected="true"] { border-bottom-color: var(--vscode-focusBorder); font-weight: 600; }
 .mkt-tabs [role="tab"]:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
-.mkt-count { color: var(--vscode-descriptionForeground); }
+.mkt-count { color: var(--vscode-descriptionForeground); margin-left: 6px; }
 .mkt-filters { display: flex; gap: 8px 12px; flex-wrap: wrap; align-items: flex-end; margin: 10px 0 8px; }
 .mkt-filter { display: flex; flex-direction: column; gap: 2px; font-size: .85em; }
 .mkt-search { flex: 1 1 200px; }

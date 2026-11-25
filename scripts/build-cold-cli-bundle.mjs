@@ -119,7 +119,9 @@ const FAMILIES = Object.freeze([
     // the walk statically imports the step decision and route simulation, and claimed there it took 1.4 MB from
     // hook-context and publication; the rest would grow the catalogs chunk every hook-context read imports.
     'commands/work.mjs', 'task-walk.mjs', 'workflow-walk/quick.mjs', 'task-composition.mjs', 'task-skills.mjs', 'imports-ledger.mjs',
-    'marketplace-repository.mjs']],
+    'marketplace-repository.mjs',
+    // A marketplace agent offered as the task's plan [ITW:REQ-011], read with the skill chooser.
+    'task-agents.mjs']],
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs',
     // `skill catalog`, VS Code's All skills page: a broad read over the library, the trusted marketplaces and the task
     // chooser (intake, which this slot already imports). Unclaimed, each read loaded compatibility and models.

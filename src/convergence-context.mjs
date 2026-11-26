@@ -20,6 +20,7 @@ import {
   applicationChangeSetProjection, applicationPathContext, assertWorkReconciliationIntegrity
 } from './work-intervals.mjs';
 import { posix, run, secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function sameDigest(left, right) {
   return String(left ?? '').replace(/^sha256:/, '') === String(right ?? '').replace(/^sha256:/, '');
@@ -206,9 +207,7 @@ export async function currentConvergenceContext(root, config, workflow, { codeAw
       + 'Inspect the current recovery plan for the missing retained reconciliation; never resubmit an approved earlier phase or recreate the Story.'
     , { details: { nextAction: { executable: 'singularity-flow', argv: ['recover', workflow.workItem.id, '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   }
-  const itemDirectory = path.join(
-    root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id
-  );
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   const itemRelative = posix(path.relative(root, itemDirectory));
   const expectedReconciliationPath = posix(path.join(
     itemRelative, 'context', 'work-intervals', 'reconciliations',

@@ -1,5 +1,6 @@
 import { nextPhaseGeneration, groundingRecordRelative, clarificationRecordRelative } from './phase-generation.mjs';
 import { CLARIFICATION_RESPONSE_FORMAT, pinnedClarificationPolicy } from './phase-staging-paths.mjs';
+import { storyLocation } from './story-paths.mjs';
 export { clarificationRecordRelative };
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
@@ -336,7 +337,7 @@ export function clarificationStatusLines(result, phase, generation) {
 
 /** The specification slices (SPEC-ID@N) pinned in the Story's source. */
 async function pinnedSpecificationSlices(root, definition, workflow) {
-  const source = await readJson(path.join(root, definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'source.json')).catch(() => null);
+  const source = await readJson(storyLocation(root, definition, workflow.workItem.id).file('source.json')).catch(() => null);
   return Array.isArray(source?.specification) ? source.specification.map((slice) => slice?.revision).filter(Boolean) : [];
 }
 
@@ -406,10 +407,7 @@ async function inspectClarificationRecord(root, definition, workflow, phase, {
   if (!groundingInfo.exists || groundingInfo.sha256 !== record.groundingRecordSha256) stale.push(`clarification record is stale because the grounding record changed: ${relative}`);
   const currentGrounding = groundingRecord ?? (groundingInfo.exists ? await readJson(path.join(root, expectedGroundingPath)).catch(() => null) : null);
   if (!currentGrounding || currentGrounding.renderedSha256 !== record.promptSha256) stale.push(`clarification record is stale because the composed prompt changed: ${relative}`);
-  const expectedPromptPath = posix(path.join(
-    definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context',
-    'prompts', `${phase.id}-gen${generation}.md`
-  ));
+  const expectedPromptPath = storyLocation(null, definition, workflow.workItem.id).record('context', 'prompts', `${phase.id}-gen${generation}.md`);
   if (record.promptPath !== expectedPromptPath) problems.push(`clarification prompt snapshot path differs: ${relative}`);
   // A record may name an arbitrary path. Never open it merely to diagnose a bad binding.
   const promptInfo = record.promptPath === expectedPromptPath

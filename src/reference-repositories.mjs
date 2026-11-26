@@ -23,6 +23,7 @@ import {
 } from './util.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
 import { hasPrefetchedReference, prefetchedReferenceSource } from './reference-prefetch.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const REFERENCE_REPOSITORY_FAMILY = 'story-reference-repository-set';
 export const REFERENCE_REPOSITORY_LOCAL_ROOT = '.singularity-flow/reference-repositories';
@@ -510,9 +511,7 @@ export async function materializeReferenceRepositoriesFromBranches(root, request
 }
 
 export function referenceRepositoryManifestRelative(config, workId) {
-  return posix(path.join(
-    config.workItemRoot ?? 'singularity/work-items', workId, 'context/reference-repositories.json'
-  ));
+  return storyLocation(null, config, workId).record('context/reference-repositories.json');
 }
 
 export async function writeReferenceRepositoryManifest(root, config, workId, references) {

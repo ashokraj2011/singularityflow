@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { incrementCommandCounter, measurePerformance } from './dx-timing-context.mjs';
 import { lstat, readFile as rawReadFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { workDir } from './story-paths.mjs';
 import { SingularityFlowError, exists, posix, snapshot } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
@@ -12,6 +11,7 @@ import { exactFileAtObject, head, withEnvironmentFilesRegistry } from './git.mjs
 import { SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_SOURCE_EXTENSIONS, documentMimeType as mimeTypeForName, effectiveDocumentMimeType, extractSourceText, hasTextExtractor } from './source-text.mjs';
 import { isLocalDocument, localDocumentAvailability, readLocalDocument } from './document-storage.mjs';
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from './environment-declaration.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const DOCUMENT_MANIFEST_SCHEMA_VERSION = currentSchemaVersion('document-manifest');
 const readFile = (...args) => measurePerformance('file', 'file.read-document', () => rawReadFile(...args));
@@ -19,7 +19,7 @@ const readFile = (...args) => measurePerformance('file', 'file.read-document', (
 // One list for prompts and source review, so a format shown to a phase as text can also be cited.
 export const TEXT_EXTENSIONS = TEXT_SOURCE_EXTENSIONS;
 
-export function manifestPath(root, config, workflow) { return path.join(workDir(root, config, workflow.workItem.id), 'documents.json'); }
+export function manifestPath(root, config, workflow) { return storyLocation(root, config, workflow.workItem.id).file('documents.json'); }
 
 export function mimeType(file) { return mimeTypeForName(file); }
 
@@ -128,7 +128,7 @@ export async function governedDocumentPath(root, config, workflow, record) {
     && workflow.phases?.[record.phase]?.artifacts?.some((entry) =>
       entry.path === record.path && entry.sha256 === record.sha256 && entry.size === record.size);
   const itemRoot = repositoryArtifact ? path.resolve(root)
-    : path.resolve(workDir(root, config, workflow.workItem.id));
+    : path.resolve(storyLocation(root, config, workflow.workItem.id).directory);
   const absolute = path.resolve(root, record.path);
   const relative = path.relative(itemRoot, absolute);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -152,7 +152,7 @@ export async function governedDocumentPath(root, config, workflow, record) {
 }
 
 export async function systemDocument(root, config, workflow, id, label, relative) {
-  const absolute = path.join(workDir(root, config, workflow.workItem.id), relative); if (!(await exists(absolute))) return null;
+  const absolute = storyLocation(root, config, workflow.workItem.id).file(relative); if (!(await exists(absolute))) return null;
   const info = await snapshot(absolute); return { id, type: 'system', label, kind: 'workflow', path: posix(path.relative(root, absolute)), mimeType: mimeType(relative), size: info.size, sha256: info.sha256, phase: null };
 }
 
@@ -171,7 +171,7 @@ export async function documentCatalog(root, config, workflow, { includeDetached 
       : record);
   }
   // Pinned specification originals remain in their local source store, offered through this same pipeline.
-  const sourceText = await readFile(path.join(workDir(root, config, workflow.workItem.id), 'source.json'), 'utf8').catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
+  const sourceText = await readFile(storyLocation(root, config, workflow.workItem.id).file('source.json'), 'utf8').catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
   const slices = sourceText ? JSON.parse(sourceText).specification : null;
   for (const record of pinnedSourceRecords(slices ?? [])) records.push({ ...record, availability: await localDocumentAvailability(root, workflow.workItem.id, record) });
   for (const packageRecord of manifest.packages ?? []) {
@@ -187,7 +187,7 @@ export async function documentCatalog(root, config, workflow, { includeDetached 
   for (const phaseId of workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})) {
     const phase = workflow.phases[phaseId];
     if (!phase?.requiredArtifact?.path) continue;
-    const absolute = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path);
+    const absolute = storyLocation(root, config, workflow.workItem.id).file(phase.requiredArtifact.path);
     if (!(await exists(absolute))) continue; const info = await snapshot(absolute);
     records.push({ id: `PHASE-${phaseId.toUpperCase()}`, type: 'artifact', label: phase.label, kind: phase.requiredArtifact.kind, path: posix(path.relative(root, absolute)), mimeType: mimeType(absolute), size: info.size, sha256: info.sha256, phase: phaseId, status: phase.status, generation: phase.generation });
     let extraIndex = 0;

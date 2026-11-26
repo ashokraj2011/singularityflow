@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { readRecord } from './schema-migrations.mjs';
 import { run, secureRepositoryPath } from './util.mjs';
+import { storiesRoot } from './story-paths.mjs';
 
 function values(plan, kinds) {
   return new Set((plan?.findings ?? []).filter((finding) => kinds.includes(finding.kind)).map((finding) => finding.subject));
@@ -22,7 +23,7 @@ async function jsonAt(root, relative, family = null) {
 }
 
 export async function findHistoricalAnalogues(root, definition, { workId = null, flightPlan = null, limit = 20 } = {}) {
-  const workRoot = definition.workItemRoot ?? 'singularity/work-items';
+  const workRoot = storiesRoot(definition);
   const tracked = run('git', ['ls-files', '-z', '--', `${workRoot}/*/workflow.json`], { cwd: root }).stdout
     .split('\0').filter(Boolean).sort();
   const wanted = {

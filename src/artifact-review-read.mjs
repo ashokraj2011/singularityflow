@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
 export const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\r?\n[\s\S]*?\r?\n-->\s*/;
@@ -106,7 +107,7 @@ export function authoredArtifactFingerprint(text) {
 }
 
 export function requiredArtifactRepoPath(config, workflow, phase) {
-  return `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/${phase.requiredArtifact.path}`;
+  return storyLocation(null, config, workflow.workItem.id).record(`${phase.requiredArtifact.path}`);
 }
 
 export function unsafeReviewArtifact(label, relative, reason, cause = null) {
@@ -266,11 +267,7 @@ export async function phaseAuthoredReviewArtifacts(root, config, workflow, phase
   // Draft-progress hints need only the primary. Publication/review keep the complete default;
   // this selection never claims that supporting documents are valid or ready for publication.
   if (set && !primaryOnly) {
-    const phaseArtifactRoot = path.posix.join(
-      config.workItemRoot ?? 'singularity/work-items',
-      workflow.workItem.id,
-      memberRoot(phase)
-    );
+    const phaseArtifactRoot = storyLocation(null, config, workflow.workItem.id).record(memberRoot(phase));
     for (const member of set.members) {
       if (member.authority !== 'governed') continue;
       const relative = path.posix.join(phaseArtifactRoot, member.path);

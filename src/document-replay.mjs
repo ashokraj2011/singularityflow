@@ -28,14 +28,14 @@ import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { clearPendingPublication, readPendingPublication } from './publication-pending.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { loadStoryAggregate } from './story-aggregate-read.mjs';
-import { workDir, workDirRelative } from './story-paths.mjs';
 import { commitAndPublish } from './state-stores.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const MAXIMUM_DOCUMENT_BYTES = 256 * 1024 * 1024;
 
 function catalogAt(root, config, workId, commit) {
-  const relative = `${workDirRelative(config, workId)}/documents.json`;
+  const relative = storyLocation(null, config, workId).record(`documents.json`);
   const bytes = exactFileAtObject(root, commit, relative, { maximumBytes: 64 * 1024 * 1024 });
   if (!bytes) return { documents: [], packages: [] };
   const record = readRecord('document-manifest', bytes).record;
@@ -71,7 +71,7 @@ function inputNames(input) {
 export async function planDocumentReplay(root, config, workflow) {
   const workId = workflow.workItem.id;
   const pending = await readPendingPublication(root, {
-    kind: 'story', id: workId, legacyPath: path.join(workDir(root, config, workId), 'publication-pending.json')
+    kind: 'story', id: workId, legacyPath: storyLocation(root, config, workId).file('publication-pending.json')
   });
   const refuse = (reason, extra = {}) => ({ replayable: false, reason, pending, ...extra });
   if (!pending) return refuse('no-pending-publication');
@@ -199,7 +199,7 @@ export async function replayPendingDocumentUpload(root, config, workflow, { dryR
     const options = await materializeInputs(root, workId, plan.commit, plan.inputs, directory);
     moveCheckedOutBranch(root, plan.remoteTip);
     await clearPendingPublication(root, {
-      kind: 'story', id: workId, legacyPath: path.join(workDir(root, config, workId), 'publication-pending.json')
+      kind: 'story', id: workId, legacyPath: storyLocation(root, config, workId).file('publication-pending.json')
     });
     try {
       const published = await loadStoryAggregate(root, config, workId);

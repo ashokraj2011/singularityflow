@@ -8,17 +8,14 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeJson
 } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function policy(workflow) {
   return workflow.resolution?.designSources ?? null;
 }
 
 function itemRoot(root, workflow, itemDirectory) {
-  return itemDirectory ?? path.join(
-    root,
-    workflow.resolution?.workItemRoot ?? 'singularity/work-items',
-    workflow.workItem.id
-  );
+  return itemDirectory ?? storyLocation(root, workflow, workflow.workItem.id).directory;
 }
 
 export function approvedDesignSourceBinding(workflow) {

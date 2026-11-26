@@ -15,9 +15,9 @@ import {
   normalizeSpecPolicy, plannedImplementationPaths, plannedSupportingFiles, plannedProductSourcePaths
 } from './specifications.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
-import { workDir } from './story-paths.mjs';
 import { issueNamesClause, OPEN_UPSTREAM_ISSUE_STATUSES, settledUpstreamClauses, upstreamIssueStates } from './upstream-routes.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /**
  * The open upstream issues that name a clause still without delivery, and whether they name all of
@@ -152,7 +152,7 @@ export async function assertStrictCandidateSpecificationCoverage(root, config, w
   if (!enforcement || workflow.resolution?.plannedClaims?.mode !== 'required') return null;
   const codePhases = workflow.phaseOrder.filter((id) => phaseRequiresCodeDelivery(workflow.phases[id]));
   const final = codePhases.at(-1) === phase.id;
-  const records = await loadBoundActiveSpecRecords(root, workDir(root, config, workflow.workItem.id), workflow, policy,
+  const records = await loadBoundActiveSpecRecords(root, storyLocation(root, config, workflow.workItem.id).directory, workflow, policy,
     { requireCommitted: false, throughPhase: final ? null : phase.id, excludeObservedPhase: phase.id });
   const owner = workflow.resolution.plannedClaims.owners[phase.id];
   const planned = mergePlannedClaimRecords(records.planned.filter((record) => record.phase === owner));
@@ -230,7 +230,7 @@ export async function inspectUnclaimedChangedPaths(root, config, workflow, phase
     }
     // Only the planned maps matter here; the open generation's own records are not committed yet.
     const records = await loadBoundActiveSpecRecords(
-      root, workDir(root, config, workflow.workItem.id), workflow, policy, { requireCommitted: false, plannedOnly: true }
+      root, storyLocation(root, config, workflow.workItem.id).directory, workflow, policy, { requireCommitted: false, plannedOnly: true }
     );
     const planned = mergePlannedClaimRecords(records.planned ?? []);
     const accounted = new Set([

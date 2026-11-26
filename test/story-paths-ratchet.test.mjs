@@ -44,7 +44,7 @@ const ALLOWED = [
 // Ceilings: lowered by each batch of M1, never raised. At M1's end W, R, P, I, B, X and H are 0; L keeps only help
 // text and comments; E stays for M6.
 const CEILINGS = {
-  W: 50, R: 20, P: 4, I: 42, B: 7, X: 95, H: 8, L: 33, S: 7, F: 45, E: 34
+  W: 34, R: 15, P: 4, I: 33, B: 7, X: 95, H: 8, L: 30, S: 7, F: 45, E: 34
 };
 
 async function* sourceFiles(directory) {

@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { workDir, workDirRelative } from './story-paths.mjs';
 import { assertNoPendingPublication, saveStoryDraft } from './state-stores.mjs';
 import { loadSession } from './session.mjs';
 import { SingularityFlowError, exists, nowIso, posix, run, snapshot, writeJson, writeText } from './util.mjs';
@@ -19,6 +18,7 @@ import { isLocalDocument, localDocumentOwner, readLocalDocument, resolveDocument
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from './environment-declaration.mjs';
 import { credentialUrlParameter, loadManifest, documentCatalog, manifestPath, evidenceIsActive, mimeType, governedDocumentPath, environmentLocalRefusal, safeName, viewDocument, documentPolicy } from './documents-read.mjs';
 export { documentCatalog, evidenceIsActive, governedDocumentPath, viewDocument } from './documents-read.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const STORY_DOCUMENT_RESOURCE_LIMITS = Object.freeze({
   maxFiles: 5000,
@@ -127,7 +127,7 @@ export function validateDocumentUrl(value) {
  * fail verification. A nested .gitattributes keeps the rule with the Story it protects.
  */
 async function ensureInputsStoredExactly(root, config, workflow) {
-  const file = path.join(workDir(root, config, workflow.workItem.id), 'inputs', '.gitattributes');
+  const file = storyLocation(root, config, workflow.workItem.id).file('inputs', '.gitattributes');
   if (await exists(file)) return;
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, '# Supporting documents are stored byte for byte; their SHA-256 is recorded at upload.\n* -text\n', { flag: 'wx' }).catch((error) => {
@@ -321,7 +321,7 @@ function publishedGeneration(phase) {
  */
 async function findDocumentConsumers(root, config, workflow, targets) {
   const ids = new Set(targets.map((record) => record.id));
-  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   const uses = [];
   const files = [];
   for (const phaseId of workflow.phaseOrder ?? []) {
@@ -470,7 +470,7 @@ export async function detachDocuments(root, config, workflow, {
       Object.assign(packageRecord, { status: 'detached', detachedAt: timestamp, detachDecisionSha256: decisionSha256 });
     }
   }
-  const decisionFile = path.join(workDir(root, config, workflow.workItem.id), 'evidence', 'detachments', `${decisionSha256}.json`);
+  const decisionFile = storyLocation(root, config, workflow.workItem.id).file('evidence', 'detachments', `${decisionSha256}.json`);
   await writeJson(decisionFile, decisionBase);
   manifest.updatedAt = timestamp;
   await writeJson(manifestPath(root, config, workflow), manifest);
@@ -501,8 +501,7 @@ export async function detachDocuments(root, config, workflow, {
 export async function pendingPromptRelative(root, config, workflow) {
   const currentPhase = workflow.phases?.[workflow.currentPhase];
   if (!currentPhase) return null;
-  const file = path.join(workDir(root, config, workflow.workItem.id), 'context',
-    `${workflow.currentPhase}-gen${nextPhaseGeneration(currentPhase)}.json`);
+  const file = storyLocation(root, config, workflow.workItem.id).file('context', `${workflow.currentPhase}-gen${nextPhaseGeneration(currentPhase)}.json`);
   return await exists(file) ? posix(path.relative(root, file)) : null;
 }
 
@@ -575,7 +574,7 @@ export async function scopeDocuments(root, config, workflow, {
   decisionBase.sha256 = decisionSha256;
   const ids = targets.map((record) => record.id).join(', ');
   for (const record of targets) Object.assign(record, { phases: [...next], scopeDecisionSha256: decisionSha256 });
-  const decisionFile = path.join(workDir(root, config, workflow.workItem.id), 'evidence', 'document-scope', `${decisionSha256}.json`);
+  const decisionFile = storyLocation(root, config, workflow.workItem.id).file('evidence', 'document-scope', `${decisionSha256}.json`);
   await writeJson(decisionFile, decisionBase);
   manifest.updatedAt = timestamp;
   await writeJson(manifestPath(root, config, workflow), manifest);
@@ -616,7 +615,7 @@ export async function storeDocumentInGit(root, config, workflow, { documentId } 
   (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret({ source: filename }, { bytes }, {
     storage: 'git', refused: `'${record.id}' stays on this laptop`, alternative: 'Save it as text or a Word document to share it.'
   });
-  const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', record.id, filename);
+  const relative = storyLocation(null, config, workflow.workItem.id).record('inputs', record.id, filename);
   await ensureInputsStoredExactly(root, config, workflow);
   const destination = path.join(root, relative);
   await mkdir(path.dirname(destination), { recursive: true });
@@ -676,7 +675,7 @@ async function writePackageIndexes(root, config, workflow, manifest, packageReco
     const group = hashes.get(record.sha256) ?? []; group.push(record.id); hashes.set(record.sha256, group);
   }
   const duplicates = [...hashes.entries()].filter(([, ids]) => ids.length > 1).map(([sha256, ids]) => ({ sha256, documents: ids }));
-  const documentPackageDirectory = path.join(workDir(root, config, workflow.workItem.id), 'inputs', 'packages', packageRecord.id);
+  const documentPackageDirectory = storyLocation(root, config, workflow.workItem.id).file('inputs', 'packages', packageRecord.id);
   const packageRelative = posix(path.relative(root, documentPackageDirectory)); await mkdir(documentPackageDirectory, { recursive: true });
   const audit = { schemaVersion: currentSchemaVersion('document-package-manifest'), id: packageRecord.id, name: packageRecord.name, importedAt: packageRecord.importedAt, fileCount: records.length, totalBytes, extensions, emptyFiles: records.filter((item) => item.size === 0).map((item) => item.id), duplicates, files: records.map(({ id, label, sourceRelativePath, path: filePath, mimeType: type, size, sha256 }) => ({ id, label, sourceRelativePath, path: filePath, mimeType: type, size, sha256 })) };
   await writeJson(path.join(documentPackageDirectory, 'manifest.json'), audit);
@@ -756,9 +755,7 @@ async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, 
     filename,
     // Use a stable placeholder for the generated document ID. Glob matching is path-based and the
     // ID cannot change whether the preserved filename is an environment-local path.
-    path.posix.join(
-      workDirRelative(config, workflow.workItem.id), 'inputs', 'DOCUMENT', preservedPath
-    ),
+    storyLocation(null, config, workflow.workItem.id).record('inputs', 'DOCUMENT', preservedPath),
     ...additionalCandidates.map((candidate) => candidate == null ? null : posix(String(candidate)))
   ].filter(Boolean))];
   for (const candidate of candidates) {
@@ -905,9 +902,7 @@ export async function addDocuments(root, config, workflow, {
     const preservedPath = sourceRelativePath
       ? path.posix.join(packageName, ...sourceRelativePath.split('/').map(safeName))
       : filename;
-    const relative = path.posix.join(
-      workDirRelative(config, workflow.workItem.id), 'inputs', id, preservedPath
-    );
+    const relative = storyLocation(null, config, workflow.workItem.id).record('inputs', id, preservedPath);
     assertDocumentPathTrackable(root, relative);
     const captured = capturedBySource.get(path.resolve(source));
     if (!captured) throw new SingularityFlowError(
@@ -1119,7 +1114,7 @@ export async function fetchRemoteDocument(root, config, workflow, {
       size: fetchedBytes.length, sha256: fetchedSha256, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent, remote
     };
   } else {
-    const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', id, filename);
+    const relative = storyLocation(null, config, workflow.workItem.id).record('inputs', id, filename);
     const destination = path.join(root, relative);
     await ensureInputsStoredExactly(root, config, workflow);
     await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, fetchedBytes);

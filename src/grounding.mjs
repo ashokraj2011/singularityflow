@@ -12,6 +12,7 @@ import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { loadEnvironmentDeclaration, matchEnvironmentLocalPath } from './environment-declaration.mjs';
 import { agentsRootOf } from './configuration-assets.mjs';
+import { storiesRoot } from './story-paths.mjs';
 
 // Open file descriptors while hashing a tree. Enough to keep the disk busy, few enough not to
 // exhaust the descriptor table on a large repository.
@@ -47,7 +48,7 @@ function excludedSourcePath(file, definition = {}) {
   const roots = [
     GOVERNANCE_ROOT,
     definition.worldModel?.outputDir ?? definition.outputDir ?? 'singularity/world-model',
-    definition.workItemRoot ?? 'singularity/work-items',
+    storiesRoot(definition),
     definition.initiativeRoot ?? 'singularity/initiatives',
     definition.templatesRoot ?? 'singularity/templates',
     agentsRootOf(definition)

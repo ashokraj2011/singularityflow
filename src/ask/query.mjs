@@ -32,3 +32,20 @@ export function askIntent(query, workId = null) {
 export function askNeedsRepository(intent) {
   return ['work', 'story-spec', 'spec', 'work-history', 'commits', 'comparison'].includes(intent.kind);
 }
+
+const ordinal = value => /^\d+$/u.test(value) ? Number(value) : ['first', 'second', 'third', 'fourth', 'fifth'].indexOf(value) + 1;
+
+export function askSavedReference(query) {
+  const text = query.toLowerCase().trim().replace(/[?.!]+$/u, '');
+  const position = /^(?:show |open )?(?:the )?(first|second|third|fourth|fifth|\d+)(?: result)?$/u.exec(text);
+  if (position) return { action: 'position', index: ordinal(position[1]) - 1 };
+  const related = /^(?:open|show) (?:the )?spec(?:ification)? (?:behind|for) (?:the )?(this work|that result|(?:first|second|third|fourth|fifth|\d+) (?:result|change))$/u.exec(text);
+  if (related) return { action: 'linked-spec', index: ordinal(related[1].split(' ')[0]) - 1 };
+  if (/^(?:open |show )?(?:that|the|this) (?:spec|specification)$/u.test(text)) return { action: 'selected-spec' };
+  if (/^(?:show )?(?:those changes|these results|the same results)$/u.test(text)) return { action: 'resume' };
+  if (/^(?:next page|more results)$/u.test(text)) return { action: 'next' };
+  if (/^(?:also include|include) (?:the )?previous week$/u.test(text)) return { action: 'previous-week' };
+  if (/^(?:what is )?(?:its|that work's) (?:status now|current status)$/u.test(text)) return { action: 'work-status' };
+  if (/^(?:use|open|show) (?:the )?(?:newest|latest) (?:published )?(?:spec|specification|revision)$/u.test(text)) return { action: 'latest-spec' };
+  return null;
+}

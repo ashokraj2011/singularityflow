@@ -198,6 +198,7 @@ export async function storyInCheckout(checkout, { facts = null, workId = null, w
   const { state, relative } = found;
   return {
     workId: state.workItem.id,
+    repositoryBases: state.workItem.repositoryBases ?? [],
     createdAt: state.workItem.createdAt ?? null, createdBy: storyCreatorName(state.workItem.createdBy),
     title: typeof state.workItem.title === 'string' ? state.workItem.title.slice(0, 200) : null,
     branch: git.branch,
@@ -307,7 +308,7 @@ export async function verifyStoryEntry(entry) {
       ? `${entry.lifecycle.checkoutPath} no longer holds ${entry.workId} delivering in ${entry.repository.id ?? 'this repository'} on ${entry.branch}`
       : `the checkout no longer holds ${entry.workId}` };
     const key = currentRepositoryKey(entry);
-    return { status: 'valid', entry: { ...entry, checkoutPath: facts.checkoutPath, title: story.title ?? entry.title ?? null,
+    return { status: 'valid', story, entry: { ...entry, checkoutPath: facts.checkoutPath, title: story.title ?? entry.title ?? null,
       ...(key === entry.repository.key ? {} : { repository: { ...entry.repository, key } }),
       createdAt: story.createdAt ?? null, createdBy: storyCreatorName(story.createdBy),
       workflowPath: story.workflowPath, phase: story.phase, phaseStatus: story.phaseStatus, storyStatus: story.storyStatus,
@@ -603,12 +604,27 @@ export const isLifecycle = (entry) => entry.role !== 'secondary';
 
 /** The verified entry for one checkout, of either role, or null when the index has none. */
 export async function indexedCheckoutAt(checkout, { env = process.env } = {}) {
+  return (await verifiedStoryCheckoutAt(checkout, { env }))?.entry ?? null;
+}
+
+/** The exact local checkout and the live Story facts used to verify it. */
+export async function verifiedStoryCheckoutAt(checkout, { env = process.env, workId = null } = {}) {
   const at = await canonical(checkout);
-  for (const entry of (await readStoryIndex({ env })).entries.filter((item) => samePlatformPath(item.checkoutPath, at))) {
+  for (const entry of (await readStoryIndex({ env })).entries.filter((item) =>
+    samePlatformPath(item.checkoutPath, at) && (!workId || item.workId === workId))) {
     const result = await verifyStoryEntry(entry);
-    if (result.status === 'valid') return result.entry;
+    if (result.status === 'valid') return result;
   }
-  return null;
+  // Older attached Stories might not be indexed yet. A saved exact checkout can be verified
+  // without rebuilding the index, fetching or making a new workspace selection.
+  if (!workId) return null;
+  const member = await checkoutMembership(at, { env });
+  if (!member) return null;
+  const story = await storyInCheckout(at, { facts: member.facts, workId });
+  if (!story) return null;
+  return verifyStoryEntry({ ...story, checkoutPath: member.facts.checkoutPath, commonDir: member.facts.commonDir,
+    workspace: member.workspace, repository: { id: member.repositoryId, key: member.repositoryKey } })
+    .then(result => result.status === 'valid' ? result : null);
 }
 
 /** The workspace and repository a checkout belongs to, or null outside every registered workspace. */

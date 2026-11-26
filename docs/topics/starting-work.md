@@ -6,6 +6,10 @@ aliases:
   - intake
   - jira-intake
   - story-file
+questions:
+  - How do I start a new Story?
+  - How do I start new work?
+  - How do I create a Story in SFlow?
 commands:
   - start
   - story
@@ -14,8 +18,18 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 38
+version: 39
 ---
+## Start a Story
+
+- In the Singularity Flow sidebar in VS Code, choose **Start new work**. Describe the request or select a Jira issue.
+- Choose the workflow and base branch for each repository. Review the intake and select **Start Story**.
+- To reuse a closed Story, go to **Stories** in VS Code and choose **Clone Story**. Give the copy a new name and Work ID.
+
+In Copilot, use `/sf-start`. From the terminal, run `singularity-flow start --help` to see the Story intake options.
+
+## Intake routes
+
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
 **A base per repository.** When a capability's repositories use different branch names, for example `main` in one and `develop` in another, no branch is published by every one of them. Choose a base for each: `--from-branch main --from-branch payments-web=develop` keeps `main` everywhere except `payments-web`, and with no shared branch every repository is named, `--from-branch payments-api=main --from-branch payments-web=develop`. A repository without a `<repository>=<branch>` takes the shared branch, else its own default. The whole selection is checked before any repository is touched, and the refusal names every repository and what it publishes. `sflow workspace branches --json` lists each repository's own branches, and an interactive `sflow start` asks for each. In VS Code, Start Work opens **a base per repository** on its own when no branch is shared, each preselected to its default, and offers **Choose a base per repository** otherwise; a repository set differently is marked as an override, and the review before Start lists every repository's base. The Story record keeps each repository's branch, exact commit and where the branch came from (`requested`, `override` or `default`; a Story started before that field has none). For a Story with more than one repository, `sflow status` lists them under `Bases:`, marking an override, `sflow status --json` carries the record as `workItem.repositoryBases`, and the evidence receipt shows them as an observation, so a receipt's core hash stays the same when it replays.

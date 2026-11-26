@@ -193,7 +193,7 @@ test('R4 browser starts the reviewed task and reopens its receipt from a fresh t
     return page;
   }
   const page = await openAsk();
-  const question = page.getByRole('searchbox', { name: 'Ask a question' });
+  const question = page.getByRole('textbox', { name: 'Ask a question' });
   await question.fill(SPEC);
   await question.press('Enter');
   await page.getByRole('button', { name: 'Open ' + SPEC + '@1 · Task fixture revision 1' }).click();
@@ -211,6 +211,7 @@ test('R4 browser starts the reviewed task and reopens its receipt from a fresh t
   await page.close();
 
   const next = await openAsk();
+  await next.getByText('Saved searches', { exact: true }).click();
   await next.getByRole('button', { name: 'Resume saved conversation' }).click();
   await next.getByRole('button', { name: 'Open task handoff' }).click();
   await next.getByRole('region', { name: 'Task handoff' }).getByText('Task TASK-1 is recorded.', { exact: true }).waitFor();

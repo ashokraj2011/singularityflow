@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "42731f7ca65fb075f52480f82c63e8fd1dc8ff0f",
+  "sourceCommit": "116f989cd817ffc0f2e65db7b1a45552453a5e33",
   "topicCount": 95,
-  "contentSha256": "f2cb94bba1b6377b4bea2e46b8130ba6876e009c750bc2f83735b410e21e18dd",
+  "contentSha256": "c92f4670406323d8064fd657b36c291e2587cb75d8f522739ab0154808c3e65d",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -96,8 +96,8 @@
     {
       "id": "browser-workspace",
       "title": "Open the local SFlow browser workspace",
-      "version": 3,
-      "sha256": "0e0c1050872acd8080dbe20754cc060422d7eb67e67a41d9c498ccbc2e74621e",
+      "version": 5,
+      "sha256": "7ee8c06ec399f7f8a4c284b08efac00213cce02fdddd8781c282538307141eaa",
       "routingSha256": "c404995713f61fe745855cadec6de921aaa9f34edb890c114efb0c26189883d1",
       "file": "browser-workspace.md"
     },
@@ -128,8 +128,8 @@
     {
       "id": "code-explanation",
       "title": "Explain current code changes",
-      "version": 16,
-      "sha256": "dce26364ff3e2251a4e21cbf7aa1c789b779435fe43071dc5f4aa7a897732c40",
+      "version": 17,
+      "sha256": "7ca17d9962f3067dd5ce8e8ff5784597cbe0fba36d52cb507830d16223dff85e",
       "routingSha256": "9967fb75a5348d3aec41f35d5ed2eb0856eb1f0f3e0098a79f75c9ddc1436b4e",
       "file": "code-explanation.md"
     },
@@ -312,8 +312,8 @@
     {
       "id": "help-and-docs",
       "title": "Getting help",
-      "version": 15,
-      "sha256": "9a36870282c13e551a961e14bebba812373e8034040f6e462c0cb1f09f08d3d6",
+      "version": 17,
+      "sha256": "d3a470bcb2cd91cab7c1c6761c1b63199d277b2684fa9ac13de21ddce306e15c",
       "routingSha256": "04185743a3f29ebcea471ec4c6a7ff6b1191b8dfea8c12f8173850ba45b4b20b",
       "file": "help-and-docs.md"
     },
@@ -560,8 +560,8 @@
     {
       "id": "run-and-test",
       "title": "Run the application and its tests from a capability",
-      "version": 13,
-      "sha256": "452e785fdf8aebd5c64909f9d8c747eb2b07379091d18128d79dd97689e7beb7",
+      "version": 14,
+      "sha256": "a7a29692c9b7f8a3af2f2f424b8846c9fd84ba8bd512ec860fb0ed83251f4ca8",
       "routingSha256": "be1e49b28a51b83f11b412f03a2964a94b7ed465e089f3f19143492ac1b3fb43",
       "file": "run-and-test.md"
     },
@@ -640,9 +640,9 @@
     {
       "id": "starting-work",
       "title": "Starting work",
-      "version": 38,
-      "sha256": "d2aefed7e81bdb4f6cff50467a69818e8ff7795b895793a31cff7a65b72a8f2e",
-      "routingSha256": "5693a64459940975a49c2840529f78c8668f80c781e37f8b1b33e46042b54d08",
+      "version": 39,
+      "sha256": "df6d56823303e840269756bd24b2efcaa517b6363940842c107d7d5de08d14a0",
+      "routingSha256": "54da7f8876d801c6cda9bcdf0296e3c23f6bbe4918b08a3a28c8942c06f08ee8",
       "file": "starting-work.md"
     },
     {

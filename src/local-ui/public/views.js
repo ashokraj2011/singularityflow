@@ -113,38 +113,39 @@ function quickLink(href, name, title, description, color = '') {
 
 export function overviewView(context, recent) {
   const { story } = context;
-  return heading('Workspace overview', 'Specifications, Stories and checks for your selected checkout.')
-    + `<section class="hero" aria-labelledby="workspace-hero">
-      <div class="hero-copy">
-        <h2 id="workspace-hero">Start with an idea</h2>
-        <p>Draft a business need or technical solution. Add sources and check the draft as you go.</p>
-        <div class="actions">${newButton()}<a class="text-link" href="#specs">Browse Spec Studio ${icon('right')}</a></div>
+  const inactive = context.engine && !story;
+  const location = [story?.workId, story?.repositoryId, story?.workspaceName].filter(Boolean).join(' · ');
+  return heading('Workspace overview')
+    + `<section class="home-focus" aria-labelledby="home-context-title">
+      ${tile(story ? 'stories' : 'checkout', 'mint')}
+      <div class="home-focus-body">
+        <h2 id="home-context-title">${story ? 'Selected Story' : inactive ? 'No Story selected' : 'Selected checkout'}</h2>
+        ${inactive ? '<p>Open a Story to see its code, decisions, and test evidence.</p>' : `<h3>${escape(story?.title ?? context.label)}</h3>
+          ${location ? `<p>${escape(location)}</p>` : ''}
+          <details><summary>Checkout path</summary><span class="checkout-path">${escape(context.root)}</span></details>`}
+        ${story?.role === 'secondary' ? `<p>For questions about the Story, <a href="#stories/${encodeURIComponent(story.workId)}">open its primary checkout</a>.</p>` : ''}
       </div>
-      <div class="hero-art" aria-hidden="true">
-        <div class="hero-sheet back"><span></span><span></span><span></span><span></span></div>
-        <div class="hero-sheet front"><span></span><span></span><span></span><span></span></div>
-        <div class="hero-node one"></div><div class="hero-node two"></div>
+      <div class="actions home-focus-actions">
+        <a class="button primary" href="${inactive ? '#stories' : '#ask'}">${icon(inactive ? 'stories' : 'ask')} ${inactive ? 'Browse Stories' : story ? 'Ask about this Story' : 'Ask about this checkout'}</a>
+        <button data-action="choose-checkout">Switch checkout ${icon('down')}</button>
       </div>
     </section>
     <div class="home-grid">
       <section class="card home-panel">
         <h2>Quick access</h2>
         <div class="quick-list">
-          ${quickLink('#stories', 'stories', 'Browse Stories', 'Find work by title, creator or repository.', 'blue')}
-          ${quickLink('#code', 'code', 'Explore code', 'Follow calls, changes and their Story requirements.', 'blue')}
-          ${quickLink('#decisions', 'decisions', 'Review decisions', 'See what needs a decision in this checkout.', 'gold')}
-          ${quickLink('#run', 'run', 'Run & Test', 'See application plans and the latest test results.', 'mint')}
+          ${quickLink('#stories', 'stories', 'Stories', 'Find an existing Story or open its checkout.', 'mint')}
+          ${quickLink('#code', 'code', 'Code Explainer', 'See changed code, calls, and linked requirements.', 'mint')}
+          ${quickLink('#decisions', 'decisions', 'Decisions', 'See what needs a decision in this checkout.', 'mint')}
+          ${quickLink('#run', 'run', 'Run & Test', 'See application plans and retained test results.', 'mint')}
         </div>
       </section>
       <section class="card home-panel">
-        <h2>${story ? 'Selected Story' : 'Selected checkout'}</h2>
-        <div class="checkout-info">${tile('checkout', 'mint')}<div><h3>${escape(story?.title ?? context.label)}</h3>
-          ${story ? `<p class="muted">${escape([story.workId, story.repositoryId, story.workspaceName].filter(Boolean).join(' · '))}</p>` : ''}
-          <span class="checkout-path">${escape(context.root)}</span></div></div>
-        <button data-action="choose-checkout">Switch checkout ${icon('down')}</button>
-        ${story?.role === 'secondary' ? `<p class="feature-note">For questions about the Story, <a class="text-link" href="#stories/${encodeURIComponent(story.workId)}">find its primary checkout</a>.</p>` : ''}
+        <h2>Spec Studio</h2>
+        <p class="muted">Write a business or technical specification and attach supporting sources.</p>
+        <div class="actions home-spec-actions">${newButton()}<a class="text-link" href="#specs">Browse specifications ${icon('right')}</a></div>
         ${recent ? `<div class="home-recent">${quickLink(specHref(recent.specId, recent.published), 'history', 'Continue in Spec Studio', recent.title ?? recent.specId)}</div>`
-          : '<p class="feature-note">Switching checkout changes this tab.</p>'}
+          : ''}
       </section>
     </div>`;
 }
@@ -199,7 +200,7 @@ function plannedEntry(entry) {
     ${location ? `<small>${escape(location)}</small>` : ''}${argvDisplay(entry.argv)}</div>`;
 }
 
-function testSummary(value) {
+export function testSummary(value) {
   if (!value.run) return value.scope?.kind === 'story'
     ? `<p>No retained test run for ${escape(value.scope.workId)} in this phase.</p>`
     : '<p>No retained test run has been reported for this checkout.</p>';

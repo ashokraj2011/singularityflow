@@ -9,6 +9,9 @@ import { buildIdentity, privateDirectory, readPrivate, writePrivate, removeOwnDe
 import { operationShape, executeOperation, disposeReadWorkers, runCanonical } from './operations.mjs';
 import { leaseOwnerAssessment, leaseOwnerIdentity } from '../lease-liveness.mjs';
 import { nativeEqual, requestProof, responseProof, openInput } from './native-auth.mjs';
+import { activeStorySelection, isEngineCheckout, launcherCheckout, matchesActiveStory } from './story-context.mjs';
+import { CHAT_PAIRS } from '../ask/chat.mjs';
+import { asksForStorySummary, readStorySources, relatedStoryTopics, searchTurn, storyForQuestion, storyQuestion } from './ask-story.mjs';
 
 const randomKey = () => randomBytes(32).toString('base64url');
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -30,6 +33,8 @@ const publicFiles = new Map([
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/ask-navigation.js', ['../../ask/navigation.mjs', 'text/javascript; charset=utf-8']],
   ['/ask-history-display.js', ['../../ask/history-display.mjs', 'text/javascript; charset=utf-8']],
+  ['/ask-query.js', ['../../ask/query.mjs', 'text/javascript; charset=utf-8']],
+  ['/history-intent.mjs', ['../../ask/history-intent.mjs', 'text/javascript; charset=utf-8']],
   ['/ask.js', ['ask.js', 'text/javascript; charset=utf-8']],
   ['/ask-results.js', ['ask-results.js', 'text/javascript; charset=utf-8']],
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
@@ -42,8 +47,9 @@ const publicFiles = new Map([
   ['/code-explainer-model.js', ['../../code-intelligence/generated/code-explainer-model.mjs', 'text/javascript; charset=utf-8']]
 ]);
 const terminal = new Set(['succeeded', 'failed', 'unknown', 'expired']);
+const codeOperations = new Set(['code.changes', 'code.repository', 'code.source']);
 const ASK_SELECTION_MS = 5 * 60_000;
-const ASK_CHAT_TURNS = 4;
+const ASK_THREAD_TURNS = 8;
 const RETENTION_MS = 7 * 24 * 60 * 60_000;
 const MAX_RECORDS = 8192;
 const MAX_RECORD_BYTES = MAX_REPLY * 2 + 64 * 1024;
@@ -235,8 +241,10 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         job.receipt.state = 'running'; job.receipt.startedAt = new Date().toISOString();
         try {
           await persist(job.receipt);
+          if (codeOperations.has(job.operation)) await checkCodeContext(job.session, job.context);
           const story = job.machine ? null : await verifyStory(job.context);
           const result = await execute({ ...job, story, directory, onProgress: progress => event(job.session, 'progress', { invocationId: job.receipt.invocationId, ...progress }) });
+          if (codeOperations.has(job.operation)) await checkCodeContext(job.session, job.context);
           if (job.operation === 'story.list') {
             job.session.choices.clear();
             result.choices = (result.value?.stories ?? []).filter(story => story.availability === 'ready').map(story => {
@@ -275,10 +283,12 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
       });
     }
   }
-  async function contextFor(root) {
-    const resolved = await realpath(text(root, 'Checkout', 8192));
+  async function contextFor(root, { launch = false } = {}) {
+    let resolved = await realpath(text(root, 'Checkout', 8192));
     insist((await stat(resolved)).isDirectory(), 'UI_CONTEXT_UNAVAILABLE', 'The selected checkout is not a directory.');
-    return { id: randomUUID(), key: digest(resolved), root: resolved, label: path.basename(resolved) };
+    if (launch) resolved = await launcherCheckout(resolved);
+    const engine = launch && await isEngineCheckout(resolved, identity.engineRoot);
+    return { id: randomUUID(), key: digest(resolved), root: resolved, label: path.basename(resolved), ...(engine ? { engine: true } : {}) };
   }
   const sameStory = (entry, row) => entry?.workId === row.workId && entry.branch === row.branch
     && entry.checkoutPath === row.checkoutPath && (entry.repository.id ?? null) === (row.repository.id ?? null)
@@ -300,7 +310,67 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
     storyBindings.set(context, entry);
     context.label = entry.workId;
     context.story = { workId: entry.workId, title: entry.title, repositoryId: entry.repository.id,
-      workspaceName: entry.workspace.name, role: entry.role ?? 'story' };
+      workspaceName: entry.workspace.name, role: entry.role ?? 'story', branch: entry.branch };
+  }
+  async function contextForStory(session, entry) {
+    let context = [...session.contexts].map(id => contexts.get(id)).find(candidate => {
+      const known = storyBindings.get(candidate);
+      return sameStory(known, entry) && known.commonDir === entry.commonDir;
+    });
+    if (!context) {
+      context = await contextFor(entry.checkoutPath);
+      if (context.root !== entry.checkoutPath) throw storyChanged();
+      if (session.contexts.size >= 32) {
+        const oldest = [...session.contexts].find(id => id !== session.launcherId && id !== session.contextId);
+        session.contexts.delete(oldest); contexts.delete(oldest);
+      }
+      contexts.set(context.id, context); session.contexts.add(context.id);
+    }
+    bindStory(context, entry);
+    return context;
+  }
+  function contextView(session) {
+    return { context: selected(session, session.contextId), capabilities: capabilitiesFor(session),
+      followsActiveStory: session.followsActiveStory,
+      ...(session.activeStoryIssue ? { activeStoryIssue: session.activeStoryIssue } : {}) };
+  }
+  async function syncActiveStory(session) {
+    if (!session.followsActiveStory) return;
+    if (session.activeStoryRead) return session.activeStoryRead;
+    session.activeStoryRead = (async () => {
+      let selection, context, issue;
+      try {
+        selection = await activeStorySelection(session.environment);
+        if (selection) {
+          if (!selection.stale && selection.checkoutPath) {
+            const previous = selected(session, session.contextId);
+            const binding = storyBindings.get(previous);
+            const { checkoutGitFacts, verifiedStoryCheckoutAt } = await import('../story-index.mjs');
+            if (matchesActiveStory(binding, selection)) {
+              const facts = await checkoutGitFacts(binding.checkoutPath);
+              if (facts?.commonDir === binding.commonDir && (facts.branch === binding.branch || facts.branch === null)) context = previous;
+            }
+            const entry = !context ? (await verifiedStoryCheckoutAt(selection.checkoutPath, {
+              env: session.environment, workId: selection.workId
+            }))?.entry : null;
+            if (matchesActiveStory(entry, selection)) context = await contextForStory(session, entry);
+          }
+          if (!context) issue = `The checkout for the active Story ${selection.workId} is unavailable. Reopen it in SFlow, then return to the browser workspace.`;
+        }
+      } catch {
+        issue = 'The active Story selection could not be read. Reopen it in SFlow.';
+      }
+      if (!session.followsActiveStory) return;
+      session.activeStoryIssue = issue ?? null;
+      session.contextId = context?.id ?? session.launcherId;
+    })().finally(() => { session.activeStoryRead = null; });
+    return session.activeStoryRead;
+  }
+  async function checkCodeContext(session, context) {
+    await syncActiveStory(session);
+    insist(session.contextId === context.id, 'UI_CODE_CONTEXT_CHANGED', 'The selected checkout changed. Open Code Explainer in the current Story.', 409);
+    insist(!session.activeStoryIssue, 'UI_ACTIVE_STORY_UNAVAILABLE', session.activeStoryIssue, 409);
+    insist(!context.engine || context.story, 'UI_CODE_STORY_REQUIRED', 'Open a Story to see its application code.', 409);
   }
   function browserCookie(req) {
     return String(req.headers.cookie ?? '').split(';').map(part => part.trim()).find(part => part.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
@@ -362,7 +432,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           const environment = nativeEnvironment(input.environment), environmentHash = digest(environmentScope(environment));
           insist(!previous?.environmentHash || previous.environmentHash === environmentHash, 'UI_CLIENT_SCOPE_CHANGED',
             'The native environment changed. Open a new browser client and inspect the original canonical draft/history using your current credentials; the old write will not be repeated.', 409);
-          const context = await contextFor(previous?.root ?? input.root);
+          const context = await contextFor(previous?.root ?? input.root, { launch: !previous });
           const { indexedCheckoutAt } = await import('../story-index.mjs');
           const story = await indexedCheckoutAt(context.root, { env: environment }).catch(() => null);
           if (story) bindStory(context, story);
@@ -375,7 +445,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             launcher = path.join(directory, `launch-${randomBytes(16).toString('hex')}.html`);
             await writeFile(launcher, launcherPage(link), { flag: 'wx', mode: 0o600 });
           }
-          tickets.set(digest(ticket), { context, environment, environmentHash, clientId, launcher, expiresAt: Date.now() + TICKET_MS });
+          tickets.set(digest(ticket), { context, environment, environmentHash, clientId, launcher, resume: Boolean(previous), expiresAt: Date.now() + TICKET_MS });
           return send(res, 200, { url: link, instance, build: identity, clientId, ...(launcher ? { launcher } : {}) });
         }
         if (route === '/control/bridge/register') {
@@ -425,16 +495,19 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
         if (!token || !browsers.has(digest(token))) token = randomKey();
         const browser = digest(token), tabId = randomUUID(); browsers.set(browser, Date.now());
         const session = { clientId: grant.clientId, csrf: randomKey(), contexts: new Set([grant.context.id]), contextId: grant.context.id,
+          launcherId: grant.context.id, followsActiveStory: !grant.resume, activeStoryRead: null, activeStoryIssue: null,
           environment: grant.environment, environmentHash: grant.environmentHash,
           browser, expiresAt: Date.now() + SESSION_MS, sequence: 0, events: [], choices: new Map(), askSelections: new Map() };
         sessions.set(tabId, session);
+        await syncActiveStory(session);
         res.setHeader('Set-Cookie', `${cookieName}=${token}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=43200`);
-        touch(); return send(res, 200, { tabId, csrf: session.csrf, context: grant.context, build: identity, capabilities: capabilitiesFor(session) });
+        touch(); return send(res, 200, { tabId, csrf: session.csrf, build: identity, ...contextView(session) });
       }
       if (route.startsWith('/api/')) {
         // A visible tab's status poll is not work: an open tab alone never keeps the service from its idle stop.
         // A tab holding unsaved writing says so (`working=1`), and that person is still working.
-        const poll = route === '/api/events' && req.method === 'GET' && url.searchParams.get('working') !== '1';
+        const poll = req.method === 'GET' && (route === '/api/events' && url.searchParams.get('working') !== '1'
+          || route === '/api/session' && url.searchParams.get('follow') === '1');
         const session = sessionFor(req, { activity: !poll });
         if (route.startsWith('/api/content/') && req.method === 'GET') {
           const resource = resources.get(route.slice('/api/content/'.length));
@@ -453,8 +526,10 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           for (const id of session.contexts) contexts.delete(id);
           return send(res, 200, { status: 'disconnected', operations: 'preserved' });
         }
-        if (route === '/api/session' && req.method === 'GET') return send(res, 200, { csrf: session.csrf, context: selected(session, session.contextId), build: identity,
-          capabilities: capabilitiesFor(session) });
+        if (route === '/api/session' && req.method === 'GET') {
+          await syncActiveStory(session);
+          return send(res, 200, { csrf: session.csrf, build: identity, ...contextView(session) });
+        }
         if (route === '/api/ask' && req.method === 'POST') {
           const request = await body(req);
           const interaction = request?.interaction;
@@ -472,15 +547,21 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             : contextual ? [...contextFields, ...(['evidence', 'select'].includes(interaction) ? ['target'] : [])]
               : interaction === 'resume' ? ['portable', 'conversationId'] : ['selection'];
           const input = record(request, ['contextId', 'interaction', ...supplied]);
+          await syncActiveStory(session);
           const context = selected(session, text(input.contextId, 'Context ID', 128));
-          insist(context.id === session.contextId, 'UI_ASK_CONTEXT_CHANGED', 'Switch to the original checkout or search here again.', 409);
+          insist(context.id === session.contextId, 'UI_ASK_CONTEXT_CHANGED', 'The selected checkout changed. Review the Story before sending again.', 409);
+          if (context.engine && !context.story) insist(!input.workspaceSearch && !(chat && input.workspace),
+            'UI_ASK_STORY_REQUIRED', 'Open an application checkout to include workspace sources.', 409);
           const turns = session.askChat?.contextId === context.id ? session.askChat.turns : [];
           if (chatControl) {
             if (interaction === 'chat-reset') {
               insist(!session.askReading, 'UI_ASK_BUSY', 'Wait for the current reply before starting a new chat.', 429);
               session.askChat = null;
+              session.askConversation = null;
+              session.askTask = null;
+              for (const [id, selection] of session.askSelections) if (selection.contextId === context.id) session.askSelections.delete(id);
             }
-            return send(res, 200, { kind: 'chat-history', turns: interaction === 'chat-reset' ? [] : turns });
+            return send(res, 200, { kind: 'chat-history', turns: interaction === 'chat-reset' ? [] : turns.map(({ modelSummary, ...turn }) => turn) });
           }
           if (interaction === 'resume' && input.conversationId !== undefined) {
             insist(typeof input.conversationId === 'string' && /^askp?-[a-f0-9]{32}$/u.test(input.conversationId),
@@ -491,7 +572,9 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
               'UI_ASK_CONVERSATION_CHANGED', 'Resume the current Ask conversation from this tab to continue.', 409);
           }
           const args = task ? ['work', 'handoff', '--for-person'] : ['ask', '--for-person'];
-          let stdin = null;
+          let root = context.root;
+          let question, topic;
+          const previous = turns.at(-1);
           if (input.conversationId) args.push('--conversation=' + input.conversationId);
           if (input.revision !== undefined) args.push('--revision=' + input.revision);
           if (input.portable !== undefined) {
@@ -500,10 +583,10 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             args.push('--portable');
           }
           if (chat) {
-            const question = text(input.query, 'Question', 2000).trim();
+            question = text(input.query, 'Question', 2000).trim();
             insist(question && typeof input.workspace === 'boolean', 'UI_REQUEST_INVALID', 'Enter a question and choose whether to include workspace context.');
+            topic = storyQuestion(question, previous);
             args.splice(1, 0, 'chat', '--query-stdin');
-            stdin = JSON.stringify({ question, workspace: input.workspace, previous: turns.map(({ question, answer }) => ({ question, answer })) });
           } else if (prepareTask) {
             const ids = (value, limit, label) => {
               insist(Array.isArray(value) && value.length <= limit, 'UI_REQUEST_INVALID', `Choose up to ${limit} ${label}.`);
@@ -546,6 +629,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
               args.push('--ref=' + selection.revision, '--path=' + selection.file);
             } else {
               const { reference, stateCommit, manifestSha256 } = selection.specification;
+              root = selection.root ?? root;
               args.push('--question=' + reference, '--open-spec', '--state-commit=' + stateCommit, '--manifest-sha256=' + manifestSha256);
             }
           }
@@ -556,13 +640,63 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           running += 1;
           if (!startTask) res.once('close', abort);
           try {
-            await verifyStory(context);
-            const { value } = await runCanonical(context.root, args, {
-              timeoutMs: startTask || prepareTask ? 300_000 : chat ? 55_000 : 20_000,
-              signal: controller.signal, environment: session.environment, personAskModel: interaction === 'explain' || chat, stdin
-            });
+            const story = await verifyStory(context);
+            const evidenceStory = chat ? storyForQuestion(story, question, previous) : null;
+            const evidenceRoot = evidenceStory?.lifecycle?.checkoutPath ?? context.root;
+            const localSummary = evidenceStory && !input.workspace && asksForStorySummary(question);
+            let records = [];
+            let value = chat && !topic && !localSummary
+              ? await (await import('./ask-help.mjs')).readAskHelp(question, evidenceStory) : null;
+            if (!value && (topic || localSummary || chat && input.workspace && evidenceStory)) {
+              if (!evidenceStory) {
+                const subject = previous?.subject ?? null;
+                value = { kind: 'chat', status: 'resolved', question, answeredBy: 'sflow', topic, subject, sources: [],
+                  answer: subject ? `Open the checkout for Story ${subject} to read its recorded evidence.`
+                    : 'Open a Story from Stories to read its recorded evidence.' };
+              } else {
+                const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(topic ? 19_000 : 8_000)]);
+                const read = operation => executeOperation({ operation, input: {}, root: context.root, story: evidenceStory,
+                  signal, environment: session.environment }).then(result => result.value);
+                const specifications = workId => runCanonical(evidenceRoot, ['ask', '--for-person', '--question=spec used for story ' + workId], {
+                  signal, environment: session.environment, timeoutMs: 18_000
+                }).then(result => result.value);
+                const load = name => readStorySources(evidenceStory, name, { read, specifications });
+                if (topic) {
+                  try { records = await load(topic); }
+                  catch (error) {
+                    if (signal.aborted && !controller.signal.aborted) throw new UiError('UI_ASK_TIMEOUT',
+                      'SFlow did not finish reading the Story evidence. Your question is still in the composer.', error.details, 504);
+                    throw error;
+                  }
+                  value = { kind: 'chat', status: 'resolved', question, answer: records[0].snippet, sources: records,
+                    answeredBy: 'sflow', topic, subject: evidenceStory.workId };
+                } else {
+                  const names = localSummary ? ['status', 'decisions', 'tests'] : ['status', ...relatedStoryTopics(question, previous)];
+                  const reads = await Promise.allSettled(names.map(load));
+                  records = reads.flatMap(result => result.status === 'fulfilled' ? result.value : []).slice(0, 6);
+                  if (localSummary) {
+                    const summary = records.map(record => record.snippet);
+                    if (reads.some(result => result.status === 'rejected')) {
+                      summary.push('Some Story evidence could not be read. Open Decisions or Run & Test from the sidebar to inspect it.');
+                    }
+                    value = { kind: 'chat', status: 'resolved', question, answeredBy: 'sflow', subject: evidenceStory.workId,
+                      sources: records, answer: summary.join('\n\n') };
+                  }
+                }
+              }
+            }
+            if (!value) {
+              const history = chat ? turns.filter(turn => input.workspace || !turn.scoped).slice(-CHAT_PAIRS) : [];
+              const stdin = chat ? JSON.stringify({ question, workspace: input.workspace, records,
+                previous: history.map(turn => ({ question: turn.question, answer: turn.modelSummary ?? turn.answer })) }) : null;
+              ({ value } = await runCanonical(root, args, {
+                timeoutMs: startTask || prepareTask ? 300_000 : chat ? 46_000 : 20_000,
+                signal: controller.signal, environment: session.environment, personAskModel: interaction === 'explain' || chat, stdin
+              }));
+            }
+            if (chat || interaction === 'submit') await syncActiveStory(session);
             insist(session.contextId === context.id && contexts.has(context.id),
-              'UI_ASK_CONTEXT_CHANGED', 'The checkout changed while reading. Search again in the selected checkout.', 409);
+              'UI_ASK_CONTEXT_CHANGED', 'The checkout changed while reading. Review the Story before sending again.', 409);
             if (value.conversation) session.askConversation = { id: value.conversation.id, revision: value.conversation.revision, contextId: context.id };
             const ended = ['workspace-search', 'forgotten'].includes(value.kind) || value.kind === 'conversation' && !value.conversation;
             if (ended) session.askConversation = null;
@@ -579,6 +713,8 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
               const id = randomUUID();
               const bound = { contextId: context.id, expiresAt: Date.now() + ASK_SELECTION_MS };
               if (result.type === 'spec' && result.reference) {
+                if (records.some(source => source.type === 'spec' && source.reference === result.reference && source.stateCommit === result.stateCommit &&
+                    source.manifestSha256 === result.manifestSha256)) bound.root = evidenceRoot;
                 session.askSelections.set(id, { ...bound, interaction: 'activate', specification: { ...result } });
                 result.selection = id;
               } else if (result.type === 'file') {
@@ -586,9 +722,16 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
                 result.selection = id;
               }
             }
-            if (chat && value.kind === 'chat' && value.status === 'resolved') {
-              session.askChat = { contextId: context.id, turns: [...turns, { question: value.question, answer: value.answer,
-                sources: value.sources }].slice(-ASK_CHAT_TURNS) };
+            const turn = chat && value.status === 'resolved' ? { question: value.question, answer: value.answer,
+              sources: value.sources, answeredBy: value.answeredBy ?? 'copilot', topic: value.topic,
+              subject: value.subject ?? (input.workspace ? evidenceStory?.workId ?? previous?.subject : null),
+              scoped: Boolean(value.answeredBy || input.workspace) }
+              : interaction === 'submit' ? searchTurn(input.query, value) : null;
+            if (turn) {
+              turn.id = randomUUID();
+              session.askChat = { contextId: context.id, turns: [...turns, turn].slice(-ASK_THREAD_TURNS) };
+              const { modelSummary, ...visible } = turn;
+              value.turn = visible;
             }
             if (value.continuation?.cursor) {
               const id = randomUUID();
@@ -600,7 +743,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             return send(res, 200, value);
           } catch (error) {
             if (!task && error?.code === 'UI_OPERATION_TIMEOUT') {
-              throw new UiError('UI_ASK_TIMEOUT', chat ? 'Copilot did not finish this reply. Your question is still in the composer.'
+              throw new UiError('UI_ASK_TIMEOUT', chat && !topic ? 'Copilot did not finish this reply. Your question is still in the composer.'
                 : 'Ask SFlow could not finish the read in 20 seconds. Submit the question again to retry.', error.details, 504);
             }
             throw error;
@@ -637,40 +780,37 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
           insist(handoff && handoff.clientId === session.clientId && session.contexts.has(handoff.contextId), 'UI_REQUEST_NOT_FOUND', 'This handoff does not belong to this tab.', 404);
           return send(res, 200, { id: handoff.id, state: handoff.state, message: handoff.message ?? null, modelExecution: 'not-observed' });
         }
-        if (route === '/api/contexts' && req.method === 'GET') return send(res, 200, { contexts: [...session.contexts].map(id => selected(session, id)), currentId: session.contextId });
+        if (route === '/api/contexts' && req.method === 'GET') return send(res, 200, {
+          contexts: [...session.contexts].map(id => selected(session, id)), currentId: session.contextId,
+          followsActiveStory: session.followsActiveStory
+        });
         if (route === '/api/contexts' && req.method === 'POST') {
-          const input = record(await body(req), ['choiceId', 'contextId']);
-          insist(Boolean(input.choiceId) !== Boolean(input.contextId), 'UI_REQUEST_INVALID', 'Select one issued context or Story choice.');
+          const input = record(await body(req), ['choiceId', 'contextId', 'followActiveStory']);
+          insist((input.followActiveStory === undefined || input.followActiveStory === true)
+            && [input.choiceId, input.contextId, input.followActiveStory].filter(Boolean).length === 1,
+          'UI_REQUEST_INVALID', 'Choose the active Story or one issued checkout.');
+          if (input.followActiveStory) {
+            session.followsActiveStory = true;
+            await syncActiveStory(session);
+            return send(res, 200, contextView(session));
+          }
+          let context;
           if (input.contextId) {
-            const context = selected(session, text(input.contextId, 'Context ID', 128));
+            context = selected(session, text(input.contextId, 'Context ID', 128));
             await verifyStory(context);
             insist(await realpath(context.root) === context.root, 'UI_CONTEXT_MOVED', 'This checkout moved. Reopen it through the native client.', 409);
-            session.contextId = context.id;
-            return send(res, 200, { context, capabilities: capabilitiesFor(session) });
+          } else {
+            const choice = session.choices.get(text(input.choiceId, 'Context choice', 128));
+            insist(choice, 'UI_CONTEXT_DENIED', 'Refresh Stories and select a currently available checkout.', 403);
+            const { indexedCheckoutAt } = await import('../story-index.mjs');
+            const entry = await indexedCheckoutAt(choice.checkoutPath, { env: session.environment });
+            if (!sameStory(entry, choice)) throw storyChanged();
+            context = await contextForStory(session, entry);
           }
-          const choice = session.choices.get(text(input.choiceId, 'Context choice', 128));
-          insist(choice, 'UI_CONTEXT_DENIED', 'Refresh Stories and select a currently available checkout.', 403);
-          const { indexedCheckoutAt } = await import('../story-index.mjs');
-          const entry = await indexedCheckoutAt(choice.checkoutPath, { env: session.environment });
-          if (!sameStory(entry, choice)) throw storyChanged();
-          let context = [...session.contexts].map(id => contexts.get(id)).find(candidate => {
-            const known = storyBindings.get(candidate);
-            return sameStory(known, entry) && known.commonDir === entry.commonDir;
-          });
-          if (context) {
-            bindStory(context, entry);
-            session.contextId = context.id;
-            return send(res, 200, { context, capabilities: capabilitiesFor(session) });
-          }
-          context = await contextFor(entry.checkoutPath);
-          if (context.root !== entry.checkoutPath) throw storyChanged();
-          bindStory(context, entry);
-          if (session.contexts.size >= 32) {
-            const oldest = session.contexts.values().next().value;
-            session.contexts.delete(oldest); contexts.delete(oldest);
-          }
-          contexts.set(context.id, context); session.contexts.add(context.id); session.contextId = context.id;
-          return send(res, 200, { context, capabilities: capabilitiesFor(session) });
+          session.followsActiveStory = false;
+          session.activeStoryIssue = null;
+          session.contextId = context.id;
+          return send(res, 200, contextView(session));
         }
         if (route === '/api/events' && req.method === 'GET') {
           const after = Number(url.searchParams.get('after') ?? 0);

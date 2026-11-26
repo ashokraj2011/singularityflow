@@ -33,9 +33,9 @@ test('packaged CLI opens the independent service with original asset paths and z
   const directory = serviceDirectory(env); descriptor = await readPrivate(path.join(directory, 'instance.json'));
   assert.equal(launched.instance, descriptor.instance);
   assert.equal((await control(descriptor, 'status')).build.engineRoot, root.slice(0, -1), 'source paths are anchored to the selected package');
-  const [index, script, views, code, codeStyle, ask, askNavigation, askHistory, askResults, brand, favicon] = await Promise.all(
+  const [index, script, views, code, codeStyle, ask, askNavigation, askHistory, askResults, askQuery, askIntent, brand, favicon] = await Promise.all(
     ['/', '/app.js', '/views.js', '/code-explainer.js', '/code-explainer.css', '/ask.js', '/ask-navigation.js', '/ask-history-display.js', '/ask-results.js',
-      '/sflow-brand.svg', '/favicon.svg'].map(asset => fetch(`${descriptor.origin}${asset}`))
+      '/ask-query.js', '/history-intent.mjs', '/sflow-brand.svg', '/favicon.svg'].map(asset => fetch(`${descriptor.origin}${asset}`))
   );
   assert.equal(index.status, 200);
   const markup = await index.text();
@@ -63,6 +63,8 @@ test('packaged CLI opens the independent service with original asset paths and z
   assert.equal(askNavigation.status, 200); assert.match(await askNavigation.text(), /askSuggestions/u);
   assert.equal(askHistory.status, 200); assert.match(await askHistory.text(), /askHistoryDisplay/u);
   assert.equal(askResults.status, 200); assert.match(await askResults.text(), /searchResultsView/u);
+  assert.equal(askQuery.status, 200); assert.match(await askQuery.text(), /askSavedReference/u);
+  assert.equal(askIntent.status, 200); assert.match(await askIntent.text(), /askHistoryIntent/u);
   const health = [];
   for (let i = 0; i < 5; i++) {
     const at = performance.now(); assert.equal((await fetch(`${descriptor.origin}/health`)).status, 200); health.push(performance.now() - at);
@@ -95,6 +97,7 @@ test('npm package includes the service, browser and Copilot skill assets', { tim
     'src/ask/shared-contract.mjs', 'src/ask/shared-provider-server.mjs', 'src/ask/shared-conversations.mjs',
     'src/ask/portable-view.mjs', 'src/ask/portable-evidence.mjs', 'src/ask/portable-task.mjs', 'src/ask/private-files.mjs',
     'src/ask/workspace-search.mjs', 'src/ask/chat.mjs', 'src/local-ui/public/ask-results.js',
+    'src/local-ui/ask-story.mjs', 'src/local-ui/ask-help.mjs', 'src/ask/query.mjs', 'src/ask/history-intent.mjs',
     'src/comprehension/code-map.mjs', 'src/comprehension/code-map-panel.mjs', 'src/code-intelligence/code-explainer-view.mjs',
     'src/code-intelligence/generated/code-explainer-model.mjs', 'plugin/skills/sflow-ui/SKILL.md']) assert.ok(files.has(file), file);
 });

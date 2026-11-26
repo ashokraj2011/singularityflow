@@ -34,7 +34,7 @@ function diffRows(symbol) {
 }
 
 /** Connect the shared view to the selected browser checkout. Only the view's issued IDs are used. */
-export function mountCodeExplainer(root, { operation, editor, ask, navigate }) {
+export function mountCodeExplainer(root, { context, operation, editor, ask, navigate }) {
   const lifetime = new AbortController();
   const { signal } = lifetime;
   const $ = selector => root.querySelector(selector);
@@ -45,7 +45,10 @@ export function mountCodeExplainer(root, { operation, editor, ask, navigate }) {
   let presentation;
   const active = () => !signal.aborted && root.isConnected;
   root.className = 'cx-browser';
-  root.innerHTML = heading('Code Explainer', '', editor)
+  const scopeLabel = context.story
+    ? [`Story ${context.story.workId}`, context.story.repositoryId, context.story.branch].filter(Boolean).join(' · ')
+    : `Repository ${context.label}`;
+  root.innerHTML = heading('Code Explainer', scopeLabel, editor)
     + `<div class="cx-browser-error" role="status" hidden><p></p><button type="button" data-cx-retry>${icon('history')} Retry</button></div>
       <div data-cx-mount></div>
       <dialog class="cx-source-dialog" aria-labelledby="cx-preview-title">

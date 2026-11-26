@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { conversationStore } from './conversation-store.mjs';
 import { linkedSpecifications, readEvidence, referencesFor } from './evidence.mjs';
-import { askIntent } from './query.mjs';
+import { askIntent, askSavedReference } from './query.mjs';
 import { readAsk } from './read.mjs';
 import { askTimeWindow } from './time-window.mjs';
 import { withholdForModel } from '../spec-library/share-check.mjs';
@@ -11,7 +11,6 @@ const MAX_READS = 24;
 const saveError = (code, message) => new SingularityFlowError(message, { code });
 const invalid = message => saveError('ASK_CONVERSATION_REQUEST_INVALID', message);
 const lost = () => saveError('ASK_SELECTION_UNAVAILABLE', 'Choose an item from the saved answer or ask a new question.');
-const ordinal = value => /^\d+$/u.test(value) ? Number(value) : ['first', 'second', 'third', 'fourth', 'fifth'].indexOf(value) + 1;
 
 // Only typed filters, immutable references, positions and counters reach the store.
 function retainedResult(value, history, queryKind) {
@@ -134,34 +133,31 @@ function followUp(record, request) {
     const id = record.shared && target?.startsWith('ev-') ? record.shared.fromHandle(target) : target;
     return { action: request.sessionAction, id };
   }
-  const text = request.query.toLowerCase().trim().replace(/[?.!]+$/u, '');
-  const pos = /^(?:show |open )?(?:the )?(first|second|third|fourth|fifth|\d+)(?: result)?$/u.exec(text);
-  if (pos) return { action: 'select', id: record.result.pending?.choices[ordinal(pos[1]) - 1]?.key ?? record.result.refs[ordinal(pos[1]) - 1]?.id };
-  const related = /^(?:open|show) (?:the )?spec(?:ification)? (?:behind|for) (?:the )?(this work|that result|(?:first|second|third|fourth|fifth|\d+) (?:result|change))$/u.exec(text);
-  if (related) {
-    const position = ordinal(related[1].split(' ')[0]);
-    return { action: 'linked-spec', id: position ? record.result.refs[position - 1]?.id : record.selected?.id };
+  const match = askSavedReference(request.query);
+  if (!match) return { action: 'query', query: request.query, workId: request.workId };
+  if (match.action === 'position') {
+    return { action: 'select', id: record.result.pending?.choices[match.index]?.key ?? record.result.refs[match.index]?.id };
   }
-  if (/^(?:open |show )?(?:that|the|this) (?:spec|specification)$/u.test(text)) {
+  if (match.action === 'linked-spec') {
+    return { action: match.action, id: match.index >= 0 ? record.result.refs[match.index]?.id : record.selected?.id };
+  }
+  if (match.action === 'selected-spec') {
     const specs = record.result.refs.filter(item => item.ref.kind === 'spec');
     return { action: 'select', id: record.selected?.ref.kind === 'spec' ? record.selected.id : specs.length === 1 ? specs[0].id : null };
   }
-  if (/^(?:show )?(?:those changes|these results|the same results)$/u.test(text)) return { action: 'resume' };
-  if (/^(?:next page|more results)$/u.test(text)) return { action: 'next' };
-  if (/^(?:also include|include) (?:the )?previous week$/u.test(text)) return { action: 'previous-week' };
-  if (/^(?:what is )?(?:its|that work's) (?:status now|current status)$/u.test(text)) {
+  if (match.action === 'work-status') {
     const ref = record.selected?.ref;
     if (ref?.kind === 'work' || ref?.kind === 'event') {
       return { action: 'query', query: ref.workKind + ' ' + ref.workId, verify: record.selected };
     }
     throw lost();
   }
-  if (/^(?:use|open|show) (?:the )?(?:newest|latest) (?:published )?(?:spec|specification|revision)$/u.test(text)) {
+  if (match.action === 'latest-spec') {
     const ref = record.selected?.ref;
     if (ref?.kind === 'spec') return { action: 'query', query: ref.reference.split('@')[0], verify: record.selected };
     throw lost();
   }
-  return { action: 'query', query: request.query, workId: request.workId };
+  return { action: match.action };
 }
 
 function earlierWeek(history) {

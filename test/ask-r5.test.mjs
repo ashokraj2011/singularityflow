@@ -290,16 +290,18 @@ test('R5 browser opts in and presents unavailable local evidence in order on the
     return page;
   }
   const origin = await open(repo.root, repo.env);
+  await origin.getByText('Saved searches', { exact: true }).click();
   const save = origin.getByRole('checkbox', { name: 'Save across devices' });
   assert.equal(await save.isChecked(), false);
   await save.check();
-  const query = origin.getByRole('searchbox', { name: 'Ask a question' });
+  const query = origin.getByRole('textbox', { name: 'Ask a question' });
   await query.fill('spec used for story ' + STORY);
   await query.press('Enter');
   await origin.getByText('UNPUBLISHED_BROWSER_TITLE', { exact: false }).first().waitFor();
   await origin.close();
 
   const receiver = await open(rootB, envB);
+  await receiver.getByText('Saved searches', { exact: true }).click();
   await receiver.getByRole('button', { name: 'Resume across devices' }).click();
   const ordered = receiver.locator('.ask-history-rows > li');
   await ordered.first().waitFor();

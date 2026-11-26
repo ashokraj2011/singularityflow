@@ -24,12 +24,12 @@ import { explainXpl2Subject } from './xpl2/subjects.mjs';
  * promote an unreviewed cause, disposition, test result, or structural fact into authority.
  */
 async function loadComprehensionIdeSliceOnce(root, {
-  base = null, workId = null, phase = null, includeExplanationInputs = false, retainExplanationSnapshot = false
+  base = null, workId = null, phase = null, preferStoryBase = false, includeExplanationInputs = false, retainExplanationSnapshot = false
 } = {}) {
   const subjectIndex = await buildRepositorySubjectIndex(root);
   const context = {
     ...await resolveComprehensionBaseline(root, {
-      subjectIndex, base, workId, phase
+      subjectIndex, base, workId, phase, preferStoryBase
     }), repository: root
   };
   const observationSubject = {

@@ -221,7 +221,7 @@ function topicQuestionScore(topic, queryTokens) {
  * Exact authored questions win. Otherwise a topic needs at least one strong metadata token and a
  * clear lead over the runner-up. Ties are surfaced as ambiguity; unrelated prose remains a miss.
  */
-function resolveQuestion(topics, query) {
+function resolveQuestion(topics, query, requireFullQuestionMatch) {
   const normalized = normalizeQuestion(query);
   const authored = topics.filter((topic) => topic.questions
     .some((question) => normalizeQuestion(question) === normalized));
@@ -233,7 +233,7 @@ function resolveQuestion(topics, query) {
   const queryTokens = meaningfulTokens(query);
   if (!queryTokens.length) return null;
   const ranked = topics.map((topic) => topicQuestionScore(topic, queryTokens))
-    .filter((entry) => entry.score >= 5)
+    .filter((entry) => entry.score >= 5 && (!requireFullQuestionMatch || entry.matched.length === queryTokens.length))
     .sort((left, right) => right.score - left.score || right.matched.length - left.matched.length
       || left.topic.id.localeCompare(right.topic.id));
   if (!ranked.length) return null;
@@ -253,7 +253,7 @@ function resolveQuestion(topics, query) {
  * here than anywhere else in the product: the whole value of the layer is that the reader can trust
  * the bytes came from the topic they asked for.
  */
-export function resolveTopic(topics, query) {
+export function resolveTopic(topics, query, { requireFullQuestionMatch = false } = {}) {
   const needle = normalizeQuestion(query).replace(/ /g, '-');
   if (!needle) return { status: 'not-found', query: '', candidates: [] };
 
@@ -267,7 +267,7 @@ export function resolveTopic(topics, query) {
   if (prefixed.length === 1) return { status: 'resolved', topic: prefixed[0], how: 'prefix' };
   if (prefixed.length > 1) return { status: 'ambiguous', query: needle, candidates: prefixed.map((topic) => topic.id) };
 
-  const question = resolveQuestion(topics, query);
+  const question = resolveQuestion(topics, query, requireFullQuestionMatch);
   if (question) return question;
 
   return { status: 'not-found', query: needle, candidates: nearestTopicIds(topics, needle) };

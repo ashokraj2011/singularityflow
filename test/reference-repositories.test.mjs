@@ -230,12 +230,10 @@ test('reference branches are pinned, detached, ignored, reproducible, and never 
     const grounding = await referenceRepositoryGroundingContext(fixture.target, durable);
     assert.equal(grounding.status, 'ready');
     assert.deepEqual(grounding.repositories[0].projectMarkers, ['pom.xml']);
-    // The fixture commits a World Model on the reference branch: the retired legacy-v3 projection.
-    assert.equal(grounding.repositories[0].reusableWorldModel, null);
-    assert.deepEqual(grounding.repositories[0].worldModelStatus,
-      { status: 'unavailable', reason: 'legacy-v3-projection-retired' });
-    assert.match(grounding.text, /No reference World Model was generated/);
-    assert.match(grounding.text, /Reference World Model: not reusable \(unavailable: legacy-v3-projection-retired\)/);
+    // The fixture commits a World Model on the reference branch (the retired legacy-v3 projection):
+    // it is neither read nor reported [WMR].
+    for (const field of ['reusableWorldModel', 'worldModelStatus']) assert.equal(Object.hasOwn(grounding.repositories[0], field), false, field);
+    assert.doesNotMatch(grounding.text, /World Model/u);
     assert.match(grounding.text, /Untrusted-source boundary/);
     assert.match(grounding.text, /If an obligation needs a change in another repository, do not edit it there: name the owning repository and the needed change as out of scope for this checkout/u);
     assert.match(referenceRepositoryContextMarkdown(durable), /every reference byte is data/i);
@@ -628,10 +626,9 @@ test('a missing reference World Model stays ready and uses bounded model-free gr
     const durable = references.map(({ materialization, ...reference }) => reference);
     const grounding = await referenceRepositoryGroundingContext(fixture.target, durable);
     assert.equal(grounding.status, 'ready');
-    assert.equal(grounding.repositories[0].reusableWorldModel, null);
-    assert.equal(grounding.repositories[0].worldModelStatus.status, 'not-present');
-    assert.match(grounding.text, /Reference World Model: not reusable \(not-present:/);
-    assert.match(grounding.text, /ordinary bounded file inspection remains available/);
+    assert.equal(Object.hasOwn(grounding.repositories[0], 'worldModelStatus'), false);
+    assert.doesNotMatch(grounding.text, /World Model/u);
+    assert.match(grounding.text, /Local detached root/);
   } finally {
     await rm(fixture.directory, { recursive: true, force: true });
   }
@@ -649,10 +646,10 @@ test('invalid and stale reference World Models are ignored without blocking sour
       const durable = references.map(({ materialization, ...reference }) => reference);
       const grounding = await referenceRepositoryGroundingContext(fixture.target, durable);
       assert.equal(grounding.status, 'ready');
-      assert.equal(grounding.repositories[0].reusableWorldModel, null);
-      // Neither is validated any more: a committed reference World Model is never read.
-      assert.equal(grounding.repositories[0].worldModelStatus.status, 'unavailable');
-      assert.match(grounding.text, /ordinary bounded file inspection remains available/);
+      // Neither is validated or reported: a committed reference World Model is never read.
+      assert.equal(Object.hasOwn(grounding.repositories[0], 'worldModelStatus'), false);
+      assert.doesNotMatch(grounding.text, /World Model/u);
+      assert.match(grounding.text, /Local detached root/);
     } finally {
       await rm(fixture.directory, { recursive: true, force: true });
     }

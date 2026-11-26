@@ -546,7 +546,7 @@ async function storyReferenceRepositoryStatus(root, definition, workflow) {
   try {
     const references = await storyReferenceRepositories(root, definition, workflow);
     if (!references.length) return null;
-    return await referenceRepositoryGroundingContext(root, references, { inspectWorldModels: false });
+    return await referenceRepositoryGroundingContext(root, references, { inspectTreeSafety: false });
   } catch (error) {
     return {
       status: 'blocked', repositories: [],

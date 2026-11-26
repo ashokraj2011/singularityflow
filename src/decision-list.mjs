@@ -38,6 +38,7 @@ import { SingularityFlowError } from './util.mjs';
 import { advisedItem, reopenWords } from './decision-advice.mjs';
 import { findingOverrideCommand, returnRoute, reviewDisputeCommand } from './action-command-map.mjs';
 import { disputedFindingWords } from './review-dispute-words.mjs';
+import { behaviourCommands, testEditWords } from './refactor-behaviour.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
 export const DECISION_LIST_REVISION = 'decision-list-v1';
@@ -47,7 +48,7 @@ const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
 // A draft writes no record, so it goes first: a later record that fails leaves only a file a person may delete.
-export const EFFECT_ORDER = Object.freeze(['settled-undo', 'intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'asked-for-note', 'review-dispute', 'finding-override', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
+export const EFFECT_ORDER = Object.freeze(['settled-undo', 'intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'asked-for-note', 'review-dispute', 'finding-override', 'refactor-behaviour', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
 const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure', 'intent-amendment-decision', 'intent-amendment-refresh']);
 /**
@@ -110,6 +111,8 @@ function effectGroups(workflow, effect) {
   if (effect.kind === 'review-dispute') return issueGroups(workflow, effect.phase);
   // So is overriding its check's finding (`decision override-finding`).
   if (effect.kind === 'finding-override') return issueGroups(workflow, effect.phase);
+  // Keeping or accepting a refactor's behaviour is its code step's approvers' word, as a return of it would be.
+  if (effect.kind === 'refactor-behaviour') return issueGroups(workflow, effect.phase);
   // Drafting an amendment decides nothing, and its own command checks no group; the scope approvers decide the amendment.
   // Anyone working on the Story acknowledges an approved one [owner, 2026-11-13, D2].
   // So does undoing what was settled for a person: it only hands the question back [owner, 2026-11-13].
@@ -650,6 +653,32 @@ function testNarrowingItem(workflow, context, entry) {
     })],
     details: { phase: entry.phase, commandId: entry.commandId, attemptId: entry.attemptId ?? null, reasons: entry.reasons,
       commands: [`singularity-flow decision test-narrowing ${workflow.workItem.id} --phase ${entry.phase} --command ${entry.commandId} --reason "<why the narrowed run is enough for this step>"`] }
+  };
+}
+
+/**
+ * A refactor's behaviour change while its code is written (refactor-behaviour.mjs) [ITW:REQ-015]: a test that passed before
+ * the change fails in a run of this version, or the version changes what an existing test expects. The code step's
+ * publication waits for the person: keep the old behaviour (the code step restores it, SFlow putting back what any changed
+ * test expected) or accept the new one (the code goes back to the plan and the task becomes a change). SFlow recommends keeping it,
+ * as a refactor promises (decision-advice.mjs). The person's own step: on the card, or `work behaviour` in their terminal.
+ */
+function behaviourItem(workflow, context, facts) {
+  const name = stepName(workflow, facts.phase);
+  const { keep, accept } = behaviourCommands(workflow.workItem.id);
+  const said = [...(facts.failing.length ? [`${listWords(facts.failing)} passed before the change and ${facts.failing.length === 1 ? 'fails' : 'fail'} now`] : []),
+    ...(facts.tests.length ? [`the code changes ${listWords(facts.tests.map(testEditWords))}`] : [])];
+  const effect = (choice) => [{ kind: 'refactor-behaviour', phase: facts.phase, generation: facts.generation, choice }];
+  return {
+    kind: 'refactor-behaviour', title: `The refactor changes behaviour in ${name} version ${facts.generation}`,
+    why: `${said.join('; ').replace(/^./u, (first) => first.toUpperCase())}. A refactor keeps what passed before; only a person changes that.`,
+    options: [
+      { ...option(workflow, context, { id: 'keep-behaviour', label: 'Keep the old behaviour', recommended: true, effects: effect('keep'), needs: { reason: textNeed('', OPTIONAL_REASON) },
+        words: `${name} goes on and restores it${facts.tests.length ? '; SFlow puts back what the changed tests expected' : ''}.` }), terminal: keep },
+      { ...option(workflow, context, { id: 'accept-behaviour', label: 'Accept the new behaviour', effects: effect('accept'), needs: { reason: textNeed('', OPTIONAL_REASON) },
+        words: `The task becomes a change: ${name} goes back to the plan, which SFlow starts again to say what changes; the code waits for it.` }), terminal: accept }],
+    details: { phase: facts.phase, generation: facts.generation, checks: facts.undecided, failing: facts.failing, tests: facts.tests.map((entry) => entry.path),
+      commands: [keep, accept] }
   };
 }
 
@@ -1994,7 +2023,8 @@ export const PENDING_CONCEPTS = Object.freeze({
   // Convergence items too: the Adjudicate page shows only these, for one release [SCS:REQ-030, REQ-033].
   // And what the person typed that a code step has not accounted for yet [SCS:REQ-042].
   // And the next generation a published step needs, once asked only in chat [owner, 2026-11-13].
-  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover'] }),
+  // And a refactor's behaviour change while its code is written [ITW:REQ-015].
+  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover', 'refactor-behaviour'] }),
   'routing-decision': Object.freeze({ kinds: ['routing-decision'] }),
   'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation'] }),
   'intent-amendments': Object.freeze({ kinds: ['intent-amendment'] }),
@@ -2026,7 +2056,7 @@ export function holdItemKind(hold) {
 }
 
 // The kinds whose items are decided on this list itself; the digest binds their words and options.
-const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item']);
+const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item', 'refactor-behaviour']);
 
 /** Kinds that wait for the step's approval, never for its submission. */
 export const LATER_KINDS = Object.freeze(['owed-decision', 'departure', 'asked-for']);
@@ -2034,7 +2064,7 @@ export const LATER_KINDS = Object.freeze(['owed-decision', 'departure', 'asked-f
 /** Every item kind this list builds. */
 export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'revalidation', 'appeal',
   'conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'owed-decision',
-  'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover', 'approval-hold', 'transport-intent', 'approval']);
+  'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover', 'refactor-behaviour', 'approval-hold', 'transport-intent', 'approval']);
 
 /**
  * The command that records choices. Only choices a /sf-decide turn records after the person's yes carry
@@ -2260,6 +2290,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk)),
     ...(facts.testNarrowings ?? []).map((entry) => testNarrowingItem(workflow, context, entry)),
     ...(facts.testCommands ?? []).map((request) => testCommandItem(workflow, context, request)),
+    ...(facts.behaviourChange?.undecided?.length ? [behaviourItem(workflow, context, facts.behaviourChange)] : []),
     ...(facts.evidence ?? []).map((entry) => evidenceItem(workflow, context, entry)),
     ...(pending.owed ?? []).filter(entry => entry.kind !== 'witness' || !(facts.evidence ?? []).some(row =>
       row.criterion === entry.clauseId && row.witnesses.some(witness => witness.slot === entry.slot)))
@@ -2643,6 +2674,9 @@ export function effectWords(workflow, effect, values = {}) {
   if (effect.kind === 'settled-undo') return `undo ${effect.settled}, so it is a question for a person again (undo of a settled decision)`;
   if (effect.kind === 'review-dispute') return `dispute the reviewer's finding ${effect.finding} on ${stepName(workflow, effect.phase)} version ${effect.generation} with your reason; it no longer blocks the step (review dispute)`;
   if (effect.kind === 'finding-override') return `override the check's finding ${effect.finding} on ${stepName(workflow, effect.phase)} version ${effect.generation} with your reason (finding override)`;
+  if (effect.kind === 'refactor-behaviour') return effect.choice === 'keep'
+    ? `keep the old behaviour: ${stepName(workflow, effect.phase)} version ${effect.generation} restores it (refactor behaviour)`
+    : `accept the new behaviour: ${stepName(workflow, effect.phase)} goes back to the plan and the task becomes a change (refactor behaviour)`;
   if (effect.kind === 'intent-amendment-draft') {
     return `draft ${stepName(workflow, effect.phase)}'s scope with a slot for ${listWords((effect.clauses ?? []).map((clause) => clauseName(workflow, clause)))}`
       + `${effect.path ? ` at ${effect.path}` : ''}; nothing is recorded or decided (intent-amendment draft)`;

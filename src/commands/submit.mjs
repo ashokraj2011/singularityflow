@@ -7,6 +7,7 @@ import { currentPhase } from '../phase-generation.mjs';
 import { prefetchStoryPublicationObservation, storyPublicationPending, assertNoPendingPublication, commitAndPublish, actorKey, submitConfirmedConvergencePhase, submitPhase, workflowPublicationBranch } from '../state-stores.mjs';
 import { parseDecisionAssignments, decisionFedBy, normalizeDecisionInputValues, recordedDecisionValues, decisionInputsHint } from '../workflow-decisions.mjs';
 import { isConvergencePhase } from '../phase-roles.mjs';
+import { clarifiedValueQuestions } from '../phase-roles.mjs';
 import { assertConvergencePublicationReady } from '../convergence-context.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { commandResult, noop, noEffects, succeeded, effects } from '../narration/command-result.mjs';
@@ -56,6 +57,10 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     if (!fedDecision && Object.keys(decisionValues).length) {
       throw new SingularityFlowError(`Phase '${initialPhase.id}' feeds no decision that records values; submit it without --decision.`,
         { code: 'DECISION_INPUT_UNKNOWN' });
+    }
+    // A value the step's own clarification asked is the person's answer there (a marketplace agent's hard gate) [ITW:REQ-011].
+    if (fedDecision && !recordedDecisionValues(initialPhase, fedDecision) && clarifiedValueQuestions(workflow, initialPhase.id).size) {
+      Object.assign(decisionValues, await (await import('../story-value-answers.mjs')).clarifiedDecisionValues(root, config, workflow, initialPhase, fedDecision, decisionValues));
     }
     if (fedDecision && Object.keys(decisionValues).length) normalizeDecisionInputValues(fedDecision, decisionValues);
     else if (fedDecision && !recordedDecisionValues(initialPhase, fedDecision)) {

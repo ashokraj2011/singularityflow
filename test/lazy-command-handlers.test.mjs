@@ -1044,7 +1044,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // `work behaviour` is a person's own step and a registered mutation (person-step-catalog.mjs, command-registry.mjs)
     // [ITW:REQ-015]; the check, the choice and the last message's checks load only for a task. No new eager file.
     // 9,899,677 (measured for submit.mjs on itw-all2 with itw-walks merged, 2026-11-26): the rises above together. No new eager file.
-    assert.ok(closure.bytes <= 9_899_677, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,904,350 (measured for submit.mjs, +4,673 over 9,899,677 at c3b777ab1, 2026-11-26 on itw-walks; start.mjs 9,903,490,
+    // +3,881): the Story value a step's clarification asks in a marketplace agent's words, read where a submission's values
+    // are (phase-roles.mjs, workflow-decisions.mjs, and for submit submission-readiness.mjs and its own read), and `work
+    // behaviour` as a person's step the decisions card records (model-free-commands.mjs, person-step-catalog.mjs)
+    // [ITW:REQ-011, REQ-015]; the card's item, the edited-test check and the plan label load only for a task. No new eager file.
+    assert.ok(closure.bytes <= 9_904_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1635,7 +1640,10 @@ test('the common session projection does not import attach, state stores or publ
   // hour asks whether it changed (remote-fetch.mjs, marketplace.mjs), the new flags (util.mjs) and `skill restore` and
   // /sf-marketplace in the tables the guard reads (command-registry.mjs, command-skills.mjs). No new eager file.
   // 4,361,681 (measured on itw-all2 with itw-walks merged, 2026-11-26): the rises above together. No new eager file.
-  assert.ok(current.bytes <= 4_361_681, `session current loads ${current.bytes} source bytes`);
+  // 4,365,562 (+3,881 over 4,361,681 at c3b777ab1, measured 2026-11-26 on itw-walks): the Story value a step's
+  // clarification asks (phase-roles.mjs, workflow-decisions.mjs) and `work behaviour` as a step the decisions card records
+  // (model-free-commands.mjs, person-step-catalog.mjs) [ITW:REQ-011, REQ-015]. No new eager file.
+  assert.ok(current.bytes <= 4_365_562, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

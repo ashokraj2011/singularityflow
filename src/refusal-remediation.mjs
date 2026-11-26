@@ -2719,6 +2719,8 @@ export function refusalDetails(details) {
   const choices = list(details.choices, (entry) => (typeof entry?.command === 'string' && safeCommandGuidance({ command: entry.command })
     ? compact({ id: lowerKebab(entry.id), label: text(entry.label), command: safeCommandGuidance({ command: entry.command }).command, skill: text(entry.skill) }) : null)).slice(0, 5);
   if (choices.length) projected.choices = choices;
+  // The question those choices answer, in the words the person is asked it (a Story value: story-value-answers.mjs).
+  if (choices.length && text(details.question)) projected.question = text(details.question).slice(0, 300);
   // A step the Story does not have: what was typed, the steps it has and the ones this command takes.
   const unknownStep = details.unknownStep;
   if (unknownStep && typeof unknownStep === 'object' && text(unknownStep.requested)) {

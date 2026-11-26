@@ -99,6 +99,8 @@ function question(workflow, item) {
       return `Accept that ${details.commandId} can't run here, until a date?`;
     case 'test-narrowing':
       return `Accept the narrowed run of ${details.commandId}?`;
+    case 'refactor-behaviour':
+      return `Keep the old behaviour that ${step} changed?`;
     case 'test-command':
       return /^Stop running/u.test(title) ? `${title}?` : /^Re-pin/u.test(title) ? `Use the changed ${details.command?.id ?? 'test'} command for ${step}?`
         : `Run ${details.command?.id ?? 'this command'} as ${step}'s tests for this Story?`;
@@ -155,6 +157,9 @@ function why(workflow, item) {
   switch (item.kind) {
     case 'node-pin':
       return details.cause ? `${capital(bare(details.cause))}.` : plainSentence(item.why);
+    case 'refactor-behaviour':
+      return (details.failing ?? []).length ? `${capital(bare(listWords(details.failing)))} passed before the change and ${details.failing.length === 1 ? 'fails' : 'fail'} now.`
+        : `The code changes what ${listWords(details.tests ?? [])} ${(details.tests ?? []).length === 1 ? 'expects' : 'expect'}.`;
     case 'owed-decision':
       if (details.scopeItem) return 'Every statement in the scope needs a clause or a reason before the Story can end.';
       if (details.responsibility) return details.declaredReason ? `The workflow leaves it out: ${bare(plainSentence(details.declaredReason, { words: 20 }))}.`

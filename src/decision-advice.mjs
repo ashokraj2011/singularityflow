@@ -87,6 +87,9 @@ export function optionDoes(workflow, item, entry) {
       return `Accepted ${until(entry)}: the tests still run at every publication and submission, and this run stays failed, never a pass.`;
     case 'test-narrowing':
       return `The narrowed run counts for ${stepName(workflow, effect.phase)}; a run narrowed further, or under a changed pin, is refused again.`;
+    case 'refactor-behaviour':
+      return effect.choice === 'keep' ? `${stepName(workflow, effect.phase)} goes on and restores the old behaviour; what a changed test expected is put back.`
+        : `The task becomes a change: ${stepName(workflow, effect.phase)} goes back to the plan, which says what changes; the code waits as it is.`;
     case 'test-command':
       return `${item.details?.command?.id ?? 'This command'} becomes ${stepName(workflow, effect.phase)}'s tests for this Story; they run at every publication and submission and must pass.`;
     case 'visual-profile':
@@ -250,6 +253,9 @@ export function itemRecommendation(workflow, item) {
     }
     case 'test-narrowing':
       return first(`remove the narrowing and run ${details.commandId ?? 'the tests'} again. Accept it only if the narrowed run covers everything this step changed.`);
+    case 'refactor-behaviour':
+      // A refactor promises that what passed before still passes [ITW:REQ-015]: keeping it is what the task said.
+      return rec(item, 'keep-behaviour', 'A refactor keeps behaviour; accept the new one only if this change is meant to make it.');
     case 'test-command': {
       if (options.some((entry) => entry.id === 'return-step-first')) return rec(item, 'return-step-first', 'Accepting it while the step awaits approval would make that review stale.');
       if (details.repin?.dropped) return lean(`accept it only if the tests it drops no longer apply (${firstSentence(details.repin.dropped).replace(/\.$/u, '')}).`);

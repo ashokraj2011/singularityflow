@@ -111,7 +111,8 @@ test('every person\'s own step the Decide card records has the card as its Copil
     'test-narrowing': 'singularity-flow decision test-narrowing PAY-1 --phase build --reason "Decided by the approver."',
     'test-run-risk': 'singularity-flow decision test-risk PAY-1 --phase build --cause "No browser here." --expires 2099-01-01 --reason "Decided by the approver."',
     'evidence-reuse': 'singularity-flow decision evidence-reuse PAY-1 --phase build --from-attempt TA-001 --reason "Decided by the approver."',
-    'visual-profile': 'singularity-flow decision visual-profile PAY-1 --phase build --profile tablet --not-applicable --reason "Decided by the approver."'
+    'visual-profile': 'singularity-flow decision visual-profile PAY-1 --phase build --profile tablet --not-applicable --reason "Decided by the approver."',
+    'refactor-behaviour': 'singularity-flow work behaviour keep --work-id PAY-1'
   };
   const recorded = PERSON_STEPS.filter((row) => String(row.guard).startsWith('own:') && [row.effect ?? []].flat().some((effect) => EFFECT_ORDER.includes(effect)));
   assert.deepEqual(recorded.map((row) => row.id).sort(), Object.keys(FORMS).sort(), 'a card-recorded own step needs its form here');

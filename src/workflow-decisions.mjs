@@ -20,6 +20,7 @@ import { isConvergencePhase } from './phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson } from './records.mjs';
+import { clarifiedValueQuestions } from './phase-roles.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
 
@@ -867,10 +868,15 @@ export function storyDecisionView(workflow) {
   };
 }
 
-/** The submit arguments a phase needs for the decision after it, with a placeholder per value. */
+/**
+ * The submit arguments a phase needs for the decision after it, with a placeholder per value. A value its own
+ * clarification asks (a marketplace agent's hard gate, phase-roles.mjs storyValueTopic) is none: the submission reads the person's
+ * answer there, so no route carries it to fill in [ITW:REQ-011].
+ */
 export function decisionSubmitArguments(workflow, phaseId) {
   const decision = decisionFedBy(workflow, phaseId);
-  return decision ? decision.inputs.map((input) => ` --decision ${input.name}=<${input.name}>`).join('') : '';
+  const asked = decision ? clarifiedValueQuestions(workflow, phaseId) : new Map();
+  return decision ? decision.inputs.filter((input) => !asked.has(input.name)).map((input) => ` --decision ${input.name}=<${input.name}>`).join('') : '';
 }
 
 /**

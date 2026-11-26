@@ -131,9 +131,10 @@ export async function storyNextOf(root, workId, packet, { opening = null } = {})
 /** The planner's "now" action as the list's next step: its plain label and routes; null for none, or for the list itself. */
 export async function storyNextFrom(now, workflow = null) {
   if (!now) return null;
-  const [{ nextActionLabel }, { safeCommandGuidance }] = await Promise.all([import('../nextsteps.mjs'), import('../safe-command-guidance.mjs')]);
+  const [{ nextActionLabel }, { safeCommandGuidance, withTaskRoute }] = await Promise.all([import('../nextsteps.mjs'), import('../safe-command-guidance.mjs')]);
   const guidance = safeCommandGuidance(now);
-  const copilotCommand = guidance?.copilotCommand ?? now.copilotCommand ?? null;
+  // On a task's Story the step's next action is /sf-task's, which carries it on, as every planner names it [ITW:REQ-008].
+  const copilotCommand = (workflow && guidance ? withTaskRoute(workflow, guidance)?.copilotCommand : null) ?? guidance?.copilotCommand ?? now.copilotCommand ?? null;
   if (!guidance?.command && !copilotCommand) return null;
   // The list itself is no next step from the list.
   if (/^\/sf-decide\b/u.test(copilotCommand ?? '') || /^singularity-flow decisions\b/u.test(guidance?.command ?? '')) return null;
@@ -689,6 +690,17 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     const { commitFindingOverride } = await import('../finding-override-commit.mjs');
     return commitFindingOverride(root, config, workflow, { phaseId: effect.phase, key: effect.finding, reason: step.values.reason }, { actor, agent });
   }
+  if (effect.kind === 'refactor-behaviour') {
+    // Keep or accept a refactor's behaviour: the same function as `work behaviour`, for the version the list showed [ITW:REQ-015].
+    const { decideBehaviour } = await import('../refactor-behaviour-decide.mjs');
+    const decided = await decideBehaviour(root, effect.choice, { workId: workflow.workItem.id, generation: effect.generation, reason: step.values.reason || null });
+    // It records through its own reads of the Story: what the list reads next is the Story as it records it.
+    const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
+    const fresh = (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow;
+    for (const key of Object.keys(workflow)) delete workflow[key];
+    Object.assign(workflow, fresh);
+    return { id: decided.decision ?? decided.changeId ?? null, choice: decided.choice, words: decided.words };
+  }
   if (effect.kind === 'asked-for-note') {
     // "That was not a request": the person's words kept as a note, so nothing waits for them [owner, 2026-11-18].
     const { accountAsNote } = await import('../asked-for-records.mjs');
@@ -784,6 +796,7 @@ function recordId(kind, record) {
   if (kind === 'asked-for-note') return `${record?.id}: instruction ${record?.instruction} kept as a note`;
   if (kind === 'review-dispute') return `the reviewer's finding ${record?.finding} disputed`;
   if (kind === 'finding-override') return `the check's finding ${record?.finding} overridden`;
+  if (kind === 'refactor-behaviour') return record?.choice === 'keep' ? 'the old behaviour kept' : 'the new behaviour accepted';
   if (kind === 'amendment-revalidation') return `${record?.phase} ${record?.outcome} after ${record?.amendment}${record?.link ? ` (${record.link})` : ''}`;
   if (kind === 'upstream-issue-decision') return `${record?.issue} ${record?.outcome}`;
   if (kind === 'scope-disposition') return `${record?.item} ${record?.disposition}`;
@@ -1077,7 +1090,7 @@ async function record(root, options, workId, io) {
     // One entry per decision, in its own words: a record's ID says neither how many were made nor what they were.
     const draftedItems = new Set([...drafted, ...unchanged].map((entry) => entry.item));
     // What an intent amendment's decision did, beside what was chosen: a partial approval waits for the rest.
-    const said = new Map(outcome.recorded.filter((entry) => /^(?:intent-amendment-(?:decision|refresh|acknowledge)|settled-undo|review-dispute|finding-override)$/u.test(entry.kind) && entry.record?.words)
+    const said = new Map(outcome.recorded.filter((entry) => /^(?:intent-amendment-(?:decision|refresh|acknowledge)|settled-undo|review-dispute|finding-override|refactor-behaviour)$/u.test(entry.kind) && entry.record?.words)
       .map((entry) => [entry.item, entry.record.words]));
     const decided = plan.steps.filter((step) => !draftedItems.has(step.item))
       .map((step) => ({ item: step.item, words: `${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}${said.has(step.item) ? `. ${said.get(step.item)}` : ''}` }));
@@ -1094,7 +1107,11 @@ async function record(root, options, workId, io) {
       if (summaryUpdate) console.log(summaryUpdate.words);
     }
     // With nothing left on the list, the Story's own next step: never an answer with nothing to do (owner, 2026-11-10).
-    const next = after?.storyNext ? [{ id: 'story-next', label: after.storyNext.title, command: after.storyNext.command, skill: after.storyNext.copilotCommand ?? null, rank: 'NOW', kind: 'workflow' }]
+    // Its skill is the one its command names: on a task's Story its Copilot route is then /sf-task, which carries the step on,
+    // as every planner names it [ITW:REQ-008].
+    const nextSkill = after?.storyNext?.command ? (await import('../safe-command-guidance.mjs')).safeCommandGuidance({ command: after.storyNext.command })?.skill ?? null : null;
+    const next = after?.storyNext ? [{ id: 'story-next', label: after.storyNext.title, command: after.storyNext.command,
+      skill: nextSkill ?? after.storyNext.copilotCommand ?? null, rank: 'NOW', kind: 'workflow' }]
       // What is left is answered on the Decide card: never /sf-decide from a /sf-decide turn [owner, 2026-11-18].
       : after?.items.length ? [{ id: 'decide-card', label: `${after.headline} ${decideCardNext(workflow.workItem.id).title}.`,
         command: decideCardNext(workflow.workItem.id).command, skill: null, rank: 'NOW', kind: 'workflow' }]
@@ -1105,7 +1122,7 @@ async function record(root, options, workId, io) {
       outcome: succeeded('decisions.record.succeeded', { count: String(plan.steps.length - drafted.length - unchanged.length), records: String(recorded.length),
         refused: String(plan.refused.length), ...(drafted.length ? { drafted: String(drafted.length) } : {}) }),
       effects: effects({ stateChanged: recorded.length > 0, filesChanged: true, publicationCreated: recorded.length > 0 }),
-      next: next.map((entry) => action(entry)),
+      next: (await import('../safe-command-guidance.mjs')).withTaskRoutes(workflow, next.map((entry) => action(entry))),
       data: { recorded, decided, ...(drafted.length ? { drafted } : {}), ...(unchanged.length ? { unchanged } : {}), ...(summaryUpdate ? { summaryUpdate, agentInstruction: summaryUpdate.words } : {}), refused: plan.refused,
         remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null, packetSha256: after?.packetSha256 ?? null,
         ...(after?.storyNext ? { storyNext: after.storyNext } : {}) }

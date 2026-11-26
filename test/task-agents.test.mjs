@@ -272,3 +272,26 @@ test('ITW REQ-011, A7: with no trusted marketplace nothing is read and nothing i
   assert.equal(named.code, 'TASK_AGENT_UNKNOWN');
   assert.equal(named.details.nextAction, 'singularity-flow marketplace list');
 });
+
+test('ITW REQ-011: an agent\'s hard gate is asked once, in its own words and choices, and the submission reads the answer', async () => {
+  const { answeredChoice, clarifiedValueQuestions, storyValueOfTopic, storyValueTopic } = await import('../src/phase-roles.mjs');
+  const { decisionSubmitArguments } = await import('../src/workflow-decisions.mjs');
+  const asked = { question: 'Which channel is this test automation for?', choices: ['web', 'android'], name: 'channel' };
+  const topic = storyValueTopic(asked);
+  assert.equal(topic, 'Which channel is this test automation for? Choose one: web, android (recorded as channel).');
+  assert.deepEqual(storyValueOfTopic(topic), asked);
+  assert.equal(storyValueOfTopic('Prioritize the checkout page.'), null);
+  assert.equal(answeredChoice(asked, [{ question: 'Which channel is this test automation for? (web / android)', answer: 'Web, please.' }]), 'web');
+  assert.equal(answeredChoice(asked, [{ question: 'Which channel is this test automation for?', answer: 'web and android' }]), null, 'both named: asked again');
+  assert.equal(answeredChoice(asked, [{ question: 'Anything else?', answer: 'web' }]), null, 'an answer to another question');
+  // The route to submit the step carries no `<channel>`: the value is the step's clarification's, read at its submission.
+  const workflow = { workItem: { id: 'TASK-1' }, phases: { intake: { id: 'intake' } }, phaseOrder: ['intake', 'cases'],
+    resolution: { phases: [{ id: 'intake', clarification: { mode: 'required', topics: [topic] } }, { id: 'cases' }],
+      decisions: [{ id: 'channel', after: 'intake', kind: 'branch', mode: 'auto', label: asked.question,
+        inputs: [{ name: 'channel', label: asked.question, values: ['web', 'android'] }], routes: [{ id: 'web', when: { channel: 'web' }, to: 'next' }, { id: 'android', to: 'next' }] }] } };
+  assert.deepEqual([...clarifiedValueQuestions(workflow, 'intake').keys()], ['channel']);
+  assert.equal(decisionSubmitArguments(workflow, 'intake'), '');
+  const unasked = structuredClone(workflow);
+  unasked.resolution.phases[0].clarification.topics = ['Anything left open?'];
+  assert.equal(decisionSubmitArguments(unasked, 'intake'), ' --decision channel=<channel>', 'a value no clarification asks keeps its place to fill in');
+});

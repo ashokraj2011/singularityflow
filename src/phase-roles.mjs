@@ -287,3 +287,52 @@ export const pinnedIntentProfile = (resolution) => (resolution?.phases ?? []).fi
  * resolves as it started, without its steps' intents, after its repository's workflow.yml moved to version 4.
  */
 export const storyIntentProfile = (resolution) => pinnedIntentProfile(resolution) ?? false;
+
+// ------------------------------------------------------------------------------------ a Story value a step asks
+
+/*
+ * A Story value asked in its step's clarification [ITW:REQ-011, workflow from-agent]: a marketplace agent's hard gate
+ * ("Which channel is this test automation for? 1. web 2. android", recorded as `channel`) becomes a question of the
+ * first step's clarification, in the agent's own words with its choices, and the branch decision after that step reads
+ * the person's answer. The topic's one form is written and read here, so the person is asked once, in the clarification,
+ * and the step's submission records what they chose (story-value-answers.mjs); a route never carries a `<channel>` to
+ * fill in. Here, beside what else a step's structure says, so every reader of a step's decision inputs has it at no cost.
+ */
+
+const TOPIC = /^(?<question>.+?\?) Choose one: (?<choices>.+?) \(recorded as (?<name>[a-z][A-Za-z0-9-]*)\)\.$/u;
+
+/** A question as its clarification topic: its words, then its choices and the name its answer is recorded as. */
+export function storyValueTopic({ question, choices = [], name = null }) {
+  return choices.length
+    ? `${String(question).replace(/\?*$/u, '?')} Choose one: ${choices.join(', ')}${name ? ` (recorded as ${name})` : ''}.`
+    : String(question);
+}
+
+/** The question a topic asks for a Story value, `{ question, choices, name }`, or null for any other topic. */
+export function storyValueOfTopic(topic) {
+  const found = TOPIC.exec(String(topic ?? '').trim());
+  return found ? { question: found.groups.question, choices: found.groups.choices.split(', ').map((choice) => choice.trim()).filter(Boolean),
+    name: found.groups.name } : null;
+}
+
+/** The Story values a step's clarification asks, from its pinned topics, by the name each answer is recorded as. */
+export function clarifiedValueQuestions(workflow, phaseId) {
+  const pinned = (workflow?.resolution?.phases ?? []).find((entry) => entry?.id === phaseId)?.clarification
+    ?? workflow?.phases?.[phaseId]?.clarification ?? null;
+  return new Map((pinned?.topics ?? []).map(storyValueOfTopic).filter(Boolean).map((asked) => [asked.name, asked]));
+}
+
+/**
+ * The choice a person's clarification answer names for a Story value, or null: an answer to that question (its words, or
+ * its topic) that names exactly one of its choices, as a whole word, case aside.
+ */
+export function answeredChoice(asked, responses = []) {
+  const words = (text) => String(text ?? '').toLowerCase();
+  const about = (response) => words(response?.question).includes(words(asked.question)) || words(response?.question).includes(`recorded as ${asked.name}`);
+  for (const response of responses.filter(about)) {
+    const said = words(response.answer);
+    const named = asked.choices.filter((choice) => new RegExp(`(?:^|[^a-z0-9])${choice.toLowerCase().replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}(?:$|[^a-z0-9])`, 'u').test(said));
+    if (named.length === 1) return named[0];
+  }
+  return null;
+}

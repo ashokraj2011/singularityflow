@@ -288,7 +288,8 @@ function withRoute(act, action) {
   // person's own yes to its question (ceremony-decisions, 2026-11-19), so a route to one is still the person's, on the card.
   const bound = !own && /^\s*(?:singularity-flow|sflow)\s+(?:decisions\s+undo|story\s+intent-amendment\s+acknowledge)\s/u.test(route.shell ?? '');
   // An intent amendment's decision or acknowledgement is the person's on the decisions card, which /sf-decide opens [owner, 2026-11-13].
-  const work = own?.startsWith('intent-amendment-') || bound ? /\s--work-id\s+([A-Za-z0-9][A-Za-z0-9._-]*)/u.exec(route.shell)?.[1]
+  // So is keeping or accepting what a refactor changed, which the card lists with SFlow's recommendation [ITW:REQ-015].
+  const work = own?.startsWith('intent-amendment-') || own === 'refactor-behaviour' || bound ? /\s--work-id\s+([A-Za-z0-9][A-Za-z0-9._-]*)/u.exec(route.shell)?.[1]
     ?? /\sdecisions\s+undo\s+([A-Za-z0-9][A-Za-z0-9._-]*)/u.exec(route.shell)?.[1] ?? '' : null;
   if (work !== null) return { ...act, state: 'confirm-in-terminal', do: { ...route, copilot: `/sf-decide ${work}`.trim() },
     said: oneLine(`${act.said ? `${act.said} ` : ''}This is the person's own step, on the decisions card: give them do.copilot, or do.shell for their own terminal; never run it.`) };
@@ -490,6 +491,13 @@ export function agentAct(result) {
     read: ['remediationPlan.steps'],
     said: oneLine(`No Node installed here can run these tests. ${install.command ? 'Show the person do.shell for their own terminal, exactly as given; never run it here.'
       : `Ask the person to install Node ${install.version} from https://nodejs.org.`} Once they say it is installed, run the run-tests-again step of remediationPlan once; until then change nothing and run nothing else.`) };
+  // A refusal that asks the person a question, each choice a complete command (a Story value its step did not record,
+  // story-value-answers.mjs): theirs to answer with the host's question tool; only their choice is run [ITW:REQ-011].
+  const asked = result.error?.details?.question && Array.isArray(result.error.details.choices) && result.error.details.choices.length > 1
+    ? result.error.details : null;
+  if (asked) return { state: 'ask-person', do: null, ask: { question: asked.question,
+    choices: asked.choices.map((choice) => ({ id: choice.id, label: choice.label, shell: choice.command })) },
+  said: oneLine(`${asked.question} Ask the person with the host's question tool, its choices as given; run only the command of the one they choose.`) };
   if (result.error && result.remediationPlan) {
     const plan = result.remediationPlan;
     if (!plan.escalation && plan.repairContinuation?.kind === 'test-command-definition'

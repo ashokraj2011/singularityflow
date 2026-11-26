@@ -1,6 +1,8 @@
 /**
  * `singularity-flow work "<words>" [--kind KIND] [--start] [--work-id ID] [--path FILE ...] [--use-agent MARKETPLACE/AGENT] [--use-workflow ID] [--json]` [ITW:REQ-001–007, 011, 020];
- * `singularity-flow work add <STEP> [--work-id ID] [--json]` [ITW:REQ-009].
+ * `singularity-flow work add <STEP> [--work-id ID] [--json]` [ITW:REQ-009];
+ * `singularity-flow work "<words>" --plan-only [--json]`, the likely plan, and `singularity-flow work list [--offline] [--json]`,
+ * this person's tasks in flight and done this week [FPL:REQ-004, REQ-005, REQ-007].
  *
  * Shows the plan a task's words get, composed from its kind (src/task-composition.mjs), and writes nothing. With
  * `--start` it starts the Story: its ID is a Jira key the words or `--work-id` name, else the next free `<prefix>-<n>`
@@ -17,8 +19,11 @@ import path from 'node:path';
 import { assertWorkTypeStartable, resolveWorkType, validateDefinition, WORKFLOW_PATH } from '../config.mjs';
 import { loadConfig } from '../state-stores.mjs';
 import { branch, commitOfRef, committedFileText, localBranches, remoteBranches, remoteDefaultBranchName } from '../git.mjs';
+import { typedChangedPaths, typedMergeBase } from '../git-access.mjs';
+import { storyCreatorName } from '../story-presentation.mjs';
 import { repoRoot } from '../git-execution.mjs';
 import { agentWords, composeTask, kindFromWords, planLine, TASK_KINDS, taskDefinition, taskRules } from '../task-composition.mjs';
+import { addableSteps, nowAndNext, planChips, planNote, rulesApplied, standsWords, storyEvents, storySteps } from '../work-rows.mjs';
 import { walkTaskWorkType } from '../task-walk.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 import { storiesDirectory, storiesRoot, storyLocation } from '../story-paths.mjs';
@@ -177,13 +182,23 @@ export const taskPlanForWords = (definition, words, options) => taskPlan(definit
   ...options, pullRequest: ASKS_FOR_PULL_REQUEST.test(words)
 });
 
-/** A Story's record as its own branch holds it (this checkout's copy when it is on that branch). */
-function storyRecordOf(root, id, remote = 'origin') {
+/** The branch a Story's record says it is on. */
+const recordBranch = (workflow) => workflow?.lineage?.canonicalBranch ?? workflow?.workItem?.branch ?? workflow?.workItem?.id ?? null;
+
+/**
+ * A Story's record as its own branch holds it (this checkout's copy when it is on that branch). A Story whose branch is
+ * not named after its ID (a classic Story) is found on this checkout by the branch its record names, else where the Story
+ * list's state index points: from this clone when its objects are here, else read from its remote as Needs you reads it
+ * (`away`: nothing of it is checked out or kept) [FPL:REQ-006].
+ */
+async function storyRecordOf(root, id, remote = 'origin', { definition = null } = {}) {
+  const current = branchName(root);
   for (const folder of WORK_ITEMS) {
     const file = storyLocation(root, { workItemRoot: folder }, id).workflowFile;
-    if (existsSync(file) && branchName(root) === id) {
-      try { return { workflow: JSON.parse(readFileSync(file, 'utf8')), folder, ref: null }; } catch { return null; }
-    }
+    if (!existsSync(file)) continue;
+    let workflow = null;
+    try { workflow = JSON.parse(readFileSync(file, 'utf8')); } catch { continue; }
+    if (current === id || (current && workflow?.workItem?.id === id && recordBranch(workflow) === current)) return { workflow, folder, ref: null };
   }
   for (const ref of [id, `${remote}/${id}`]) {
     if (!commitOfRef(root, ref)) continue;
@@ -192,7 +207,21 @@ function storyRecordOf(root, id, remote = 'origin') {
       if (text) { try { return { workflow: JSON.parse(text), folder, ref }; } catch { return null; } }
     }
   }
-  return null;
+  if (!definition?.ledger) return null;
+  try {
+    const { ledgerStoryPointers } = await import('../ledger.mjs');
+    const pointer = (await ledgerStoryPointers(root, definition.ledger, { offline: true })).items.find((item) => item.id === id);
+    if (!pointer?.commitOid) return null;
+    const relative = storyLocation(null, definition, id).object('workflow.json').path;
+    const text = commitOfRef(root, pointer.commitOid) ? committedFileText(root, pointer.commitOid, relative) : null;
+    if (text) return { workflow: JSON.parse(text), folder: path.posix.dirname(path.posix.dirname(relative)), ref: pointer.commitOid };
+    // Not on this computer: read where the Story list points, as Needs you and session candidates read it; nothing is
+    // checked out. Its files are not here, so its changed files are not either.
+    const { discoverRemoteStoryCandidates } = await import('../session-story-discovery.mjs');
+    const roster = await discoverRemoteStoryCandidates(root, definition, { fetch: true, includeState: true, skip: (entry) => entry.id !== id });
+    const found = (roster.items ?? []).find((item) => item.id === id && item.state);
+    return found ? { workflow: found.state, folder: path.posix.dirname(path.posix.dirname(found.path ?? relative)), ref: found.commitOid, away: true } : null;
+  } catch { return null; }
 }
 
 function branchName(root) { try { return branch(root); } catch { return null; } }
@@ -207,8 +236,8 @@ function storyFileText(root, record, id, relative) {
 }
 
 /** The report an investigation or review left (its last step's document), for a task that starts from it [ITW:REQ-013]. */
-function reportOf(root, id, remote) {
-  const record = storyRecordOf(root, id, remote);
+async function reportOf(root, id, remote) {
+  const record = await storyRecordOf(root, id, remote);
   if (!record) {
     throw new SingularityFlowError(`There is no task ${id} here to start from.`, {
       code: 'TASK_FROM_UNKNOWN', details: { nextAction: { command: 'singularity-flow work status', label: 'See the task open on this checkout.' } } });
@@ -229,20 +258,14 @@ function reportOf(root, id, remote) {
  * `checksOf` (task-checks.mjs) adds the checks that ran and, for a refactor, what its plan says must not change that no
  * check covered [ITW:REQ-015, A13]. Reads only.
  */
-export function taskStatus(root, id, { remote = 'origin', checksOf = null } = {}) {
-  const record = storyRecordOf(root, id, remote);
+export async function taskStatus(root, id, { remote = 'origin', checksOf = null, definition = null, now = new Date() } = {}) {
+  const record = await storyRecordOf(root, id, remote, { definition });
   if (!record) {
     throw new SingularityFlowError(`There is no task ${id} here.`, {
       code: 'TASK_UNKNOWN', details: { nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Start a task.' } } });
   }
   const { workflow } = record;
-  const steps = (workflow.phaseOrder ?? []).map((stepId) => {
-    const phase = workflow.phases?.[stepId] ?? {};
-    const approvedBy = phase.status !== 'approved' ? null
-      : phase.approvalDisposition === 'approved_automatically' ? 'sflow' : phase.approvedBy ? 'person' : 'none-needed';
-    return { id: stepId, label: phase.label ?? stepId, status: phase.status ?? 'not_started', approvedBy,
-      document: phase.requiredArtifact?.path ? `${record.folder}/${id}/${phase.requiredArtifact.path}` : null };
-  });
+  const steps = storySteps(workflow, record.folder, id);
   const composition = workflow.resolution?.composition ?? null;
   const done = steps.length > 0 && steps.every((step) => step.status === 'approved' || step.status === 'skipped');
   // What its checks ran and, for a refactor, what its plan says must not change that none covered [ITW:REQ-015, A13, A20].
@@ -261,8 +284,34 @@ export function taskStatus(root, id, { remote = 'origin', checksOf = null } = {}
     ...(checks ? { checks } : {}),
     words: done
       ? `${id} is done: ${steps.map((step) => step.label).join(', ')}, on branch ${workflow.workItem?.branch ?? id}.${checks ? checksOf.checksWords(checks) : ''}`
-      : `${id} is at ${steps.find((step) => step.status !== 'approved' && step.status !== 'skipped')?.label ?? 'its next step'}.`
+      : standsWords(id, steps, false),
+    // The task page [FPL:REQ-006]: who started it and when, the plan as chips, where its steps came from, what happened,
+    // now and next, the rules that applied, the steps `work add` can give it and the files it changed against its base.
+    task: Boolean(composition), startedAt: workflow.workItem?.createdAt ?? null, startedBy: storyCreatorName(workflow.workItem?.createdBy),
+    chips: planChips(workflow, steps), planNote: planNote(workflow), events: storyEvents(workflow, { now }), ...nowAndNext(steps),
+    rulesApplied: rulesApplied(workflow), addable: addableSteps(workflow), changed: changedFiles(root, record, workflow, remote)
   };
+}
+
+/**
+ * The files a Story changed against its base, with lines added and removed [FPL:REQ-006]: its branch against where it left
+ * the base, and on its own checkout the work not yet committed too. Its own records are its documents, listed apart.
+ */
+function changedFiles(root, record, workflow, remote) {
+  const base = workflow.workItem?.baseBranch ?? null;
+  if (!base || record.away) return null;
+  try {
+    const baseRef = [`${remote}/${base}`, base].find((ref) => commitOfRef(root, ref));
+    const head = record.ref ?? 'HEAD';
+    if (!baseRef || !commitOfRef(root, head)) return null;
+    const from = typedMergeBase(root, baseRef, head);
+    if (!from) return null;
+    const own = `${record.folder}/`;
+    const found = typedChangedPaths(root, from, record.ref, { max: 500 });
+    const files = found.entries.filter((entry) => !entry.path.startsWith(own)).slice(0, 200)
+      .map((entry) => ({ path: entry.path, added: entry.added, removed: entry.removed, ...(entry.binary ? { binary: true } : {}) }));
+    return { base, files, total: found.entries.filter((entry) => !entry.path.startsWith(own)).length + (found.truncated ? found.total - found.entries.length : 0) };
+  } catch { return null; }
 }
 
 /** The command that starts this task with the options the person gave, and `extra` after them. */
@@ -342,17 +391,50 @@ async function behaviourCommand(positionals, options) {
   return (await import('../refactor-behaviour-decide.mjs')).decideBehaviour(root, positionals[2], { workId: id });
 }
 
+/**
+ * `work "<words>" --plan-only` [FPL:REQ-004]: the likely plan for the Work box, composed from the kind the words name
+ * (`kindFromWords`) and the team's rules, with no skill or agent chooser and no network. When SFlow cannot tell the kind,
+ * or the repository has no SFlow yet, there is no plan (`plan: null`) and nothing is refused: the box shows no line.
+ */
+async function likelyPlan(positionals, options) {
+  const words = positionals.slice(1).join(' ').trim();
+  const none = (why) => ({ schemaVersion: 1, resultType: 'sflow-task-likely-plan', words, kind: null, plan: null, why });
+  if (!words || SKILL_NAME_ONLY.test(words)) return none('Say what you want done.');
+  const named = optionString(options, 'kind');
+  const kind = named && TASK_KINDS.includes(named) ? named : kindFromWords(words);
+  if (!kind) return none('SFlow cannot tell the kind of task from these words; the chat names it.');
+  let root = null;
+  try { root = await taskRepositoryRoot(); } catch { return none('Open the repository, or select its workspace, to see a plan.'); }
+  if (!existsSync(path.join(root, WORKFLOW_PATH))) return none('This repository does not use SFlow yet.');
+  try {
+    const definition = await loadConfig(root);
+    const pullRequest = ASKS_FOR_PULL_REQUEST.test(words);
+    const composition = { ...composeTask(definition, { kind, touchedPaths: optionStrings(options, 'path') }), ...(pullRequest ? { pullRequest: true } : {}) };
+    const overlaid = validateDefinition(structuredClone(taskDefinition(definition, composition)));
+    const resolved = assertWorkTypeStartable(resolveWorkType(overlaid, composition.workType));
+    const approvals = Object.fromEntries(resolved.phases.map((phase) => [phase.id, approvalOf(phase)]));
+    return { schemaVersion: 1, resultType: 'sflow-task-likely-plan', words, kind, plan: planLine(composition, { approvals, pullRequest }),
+      steps: composition.steps.map((step) => ({ id: step.id, intent: step.intent, label: step.label, approvedBy: approvals[step.id] })) };
+  } catch (error) {
+    return none(error?.message ?? 'SFlow could not compose a plan here.');
+  }
+}
+
 export async function workCommand(positionals = [], options = {}) {
   if (positionals[1] === 'handoff') return (await import('../task-handoff.mjs')).workHandoff(positionals, options);
   if (positionals[1] === 'add' || positionals[1] === 'skip') return changeTask(positionals, options);
   if (positionals[1] === 'behaviour') return behaviourCommand(positionals, options);
+  if (positionals[1] === 'list' && positionals.length === 2) {
+    return (await import('../work-list.mjs')).workList({ offline: optionBoolean(options, 'offline') });
+  }
   if (positionals[1] === 'status') {
     const root = await taskRepositoryRoot();
     const definition = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : {};
     const id = positionals[2] ?? openStoryHere(root) ?? branchName(root);
     // Its checks are read only for a task that is done, from their own module (task-checks.mjs).
-    return taskStatus(root, id, { remote: definition.git?.remote ?? 'origin', checksOf: await import('../task-checks.mjs') });
+    return taskStatus(root, id, { remote: definition.git?.remote ?? 'origin', checksOf: await import('../task-checks.mjs'), definition });
   }
+  if (optionBoolean(options, 'plan-only')) return likelyPlan(positionals, options);
   const words = wordsOf(positionals);
   const root = await taskRepositoryRoot();
   // A skill's name alone ("/sf-task" typed with nothing after it) says what to run, not what to do: it never names a
@@ -468,7 +550,7 @@ export async function workCommand(positionals = [], options = {}) {
   const remote = definition.git?.remote ?? 'origin';
   const base = optionString(options, 'base') ?? remoteDefaultBranchName(root, definition, remote) ?? 'main';
   const from = optionString(options, 'from');
-  const report = from ? reportOf(root, from, remote) : null;
+  const report = from ? await reportOf(root, from, remote) : null;
   const documents = optionStrings(options, 'document').map((file) => path.resolve(process.cwd(), file));
   if (!optionBoolean(options, 'json')) console.log(preview.plan);
   return launchTask(id, { words, preview, base, documents, json: optionBoolean(options, 'json'),
@@ -543,6 +625,16 @@ export async function run(_argv, { positionals = ['work'], options = {} } = {}) 
       if (result.planFrom) console.log(`Its steps are from ${result.planFrom}.`);
       for (const step of result.steps) console.log(`  ${step.label}: ${step.status.replace(/_/gu, ' ')}${step.approvedBy === 'person' ? ', approved by a person' : step.approvedBy === 'sflow' ? ', approved by SFlow' : ''}`);
     }
+    return result;
+  }
+  if (result?.resultType === 'sflow-work-list') {
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else process.stdout.write((await import('../work-list.mjs')).workListText(result));
+    return result;
+  }
+  if (result?.resultType === 'sflow-task-likely-plan') {
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else console.log(result.plan ? `Likely plan: ${result.plan}` : result.why);
     return result;
   }
   if (result?.resultType === 'sflow-task-plan') {

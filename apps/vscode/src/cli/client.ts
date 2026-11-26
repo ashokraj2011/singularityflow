@@ -371,7 +371,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'upkeep' | '
     return ['status', 'next', 'journey'].includes(action) ? 'read' : 'mutation';
   }
   if (args[0] === 'knowledge') return ['list', 'show'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
-  if (args[0] === 'work') return args.includes('--start') ? 'mutation' : 'read';
+  // A task's plan, its likely plan, `work list` and `work status` read; a start and a step added or taken out write.
+  if (args[0] === 'work') return args.includes('--start') || ['add', 'skip', 'behaviour'].includes(args[1] ?? '') ? 'mutation' : 'read';
   if (args[0] === 'lessons') return ['drop', 'keep', 'edit', 'rule'].includes(args[1] ?? 'list') ? 'mutation' : 'read';
   // The skill master's reads, every skill's catalog and the skill package reads; a change previews with --dry-run.
   if (args[0] === 'skill') return ['list', 'show', 'catalog', 'inspect', 'approved', 'doctor'].includes(args[1] ?? '') || enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';

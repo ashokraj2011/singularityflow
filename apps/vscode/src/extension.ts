@@ -9007,8 +9007,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.startWork': startWork,
     // Start a task [ITW:REQ-001]: the person's words go to Copilot as /sf-task, which composes the steps and starts the Story.
-    'singularityFlow.startTask': async () => {
-      const words = await vscode.window.showInputBox({ title: 'Start a task', ignoreFocusOut: true,
+    // The Work box passes its words [FPL:REQ-004]; from the palette they are asked for.
+    'singularityFlow.startTask': async (given?: unknown) => {
+      const words = typeof given === 'string' && given.trim() ? given : await vscode.window.showInputBox({ title: 'Start a task', ignoreFocusOut: true,
         prompt: 'Say what you want done. SFlow picks the steps from the kind of task.', placeHolder: 'fix the login timeout on slow networks' });
       if (!words?.trim()) return;
       chatPrefill.noteRequestSent();
@@ -10214,9 +10215,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const orphaned = REPOSITORY_COMMANDS.filter((id) => !handlers.has(id));
   if (orphaned.length) output.appendLine(`Commands with no handler: ${orphaned.join(', ')}`);
 
-  // The four places [FPL:REQ-001]: in M1 Needs you and Advanced, behind `singularityFlow.navigation.layout` until M5 makes
-  // `places` the default. Loaded lazily; with the setting off nothing of it loads. Each card choice runs today's path with a
-  // client bound to its item's repository and Story (views/needs-you.ts).
+  // The four places [FPL:REQ-001]: Work (M2), Needs you and Advanced, behind `singularityFlow.navigation.layout` until M5
+  // makes `places` the default. Loaded lazily; with the setting off nothing of it loads. Each card choice and each task-page
+  // button runs today's path with a client bound to its Story's checkout or repository (views/needs-you.ts, views/work.ts).
   let needsYouPlace: import('./views/needs-you.ts').NeedsYouPlace | null = null;
   const syncPlaces = (): void => {
     const on = vscode.workspace.getConfiguration('singularityFlow').get<string>('navigation.layout') === 'places';
@@ -10232,10 +10233,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         waitUntilIdle: () => backgroundWork.waitUntilIdle({}),
         showRefusal: (error, headline) => showRefusal(error, { headline })
       }, () => sidebar.placesChanged());
+      // Work [FPL:REQ-004 to REQ-007]: Start is today's startTask with the box's words; its rows read the live Needs-you list.
+      const work = new (lazyPanels().WorkPlace)({
+        client, bind: (where) => client.forkForRepository(where),
+        startTask: async (words) => { await vscode.commands.executeCommand('singularityFlow.startTask', words); },
+        command: async (id) => { await vscode.commands.executeCommand(id); },
+        sendChat: sendTaskRoute,
+        refresh: refreshAfterKnownMutation,
+        openCard: (key) => { place.receive({ action: 'open', key }); },
+        waiting: () => place.readItems(),
+        showRefusal: (error, headline) => showRefusal(error, { headline })
+      }, () => sidebar.placesChanged());
+      place.setWork(work);
       needsYouPlace = place;
-      needsYouAfterChange = () => { void place.read({}); };
+      needsYouAfterChange = () => { void place.read({}); void work.read({}); };
       sidebar.setPlaces(place);
       place.start();
+      work.start();
     } else if (!on && needsYouPlace) {
       needsYouPlace.dispose();
       needsYouPlace = null;

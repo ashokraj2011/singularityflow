@@ -15,7 +15,9 @@ export interface SidebarPlaces {
   body(): { body: string; style: string; script: string } | null;
   advancedHeader(): { html: string; style: string; script: string };
   badge(): { value: number; tooltip: string } | undefined;
-  receive(message: { action?: unknown; tab?: unknown; key?: unknown }): boolean;
+  receive(message: { action?: unknown; tab?: unknown; key?: unknown } & Record<string, unknown>): boolean;
+  /** How a place updates a line of the page without repainting it (Work's likely plan while the person types). */
+  attach?(post: (message: unknown) => void): void;
 }
 
 interface TreeSource {
@@ -315,6 +317,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   /** The four places on, or null for today's Navigator alone [FPL:REQ-001]; `placesChanged` repaints them. */
   setPlaces(places: SidebarPlaces | null): void {
     this.places = places;
+    places?.attach?.((message) => { void this.view?.webview.postMessage(message); });
     this.placesChanged();
   }
 
@@ -370,7 +373,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       return;
     }
     if (value.type === 'places') {
-      this.places?.receive(value as { action?: unknown; tab?: unknown; key?: unknown });
+      this.places?.receive(value as { action?: unknown; tab?: unknown; key?: unknown } & Record<string, unknown>);
       return;
     }
     if (value.type === 'navigation-ready') {

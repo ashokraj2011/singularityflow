@@ -2,9 +2,9 @@
  * The Needs-you place [FPL:REQ-008 to REQ-018, REQ-037]: the sidebar's tab and its one card page, built from the engine's
  * `needs-you --json` and `needs-you show <KEY> --json`. Pure: no VS Code API, so the host tests read every string.
  *
- * The sidebar's four places are one webview with tabs (§9 probe 2 confirms one view against four). In M1 the tab strip
- * holds Needs you and Advanced (today's Navigator, unchanged); Work, Rules and Library join it in M2 to M4. The places are
- * off until M5 switches `singularityFlow.navigation.layout`.
+ * The sidebar's four places are one webview with tabs (§9 probe 2 confirms one view against four). The tab strip holds
+ * Work (M2, views/work-page.ts), Needs you and Advanced (today's Navigator, unchanged); Rules and Library join it in M3 and
+ * M4. The places are off until M5 switches `singularityFlow.navigation.layout`.
  */
 import { escape } from './webview.ts';
 import { CALM_PALETTE_STYLE } from './theme.ts';
@@ -137,14 +137,15 @@ export function needsYouBadge(list: NeedsYouList | null): { value: number; toolt
   return { value: list.counts.badge, tooltip: list.counts.badgeTooltip };
 }
 
-export type PlaceTab = 'needs-you' | 'advanced';
+export type PlaceTab = 'work' | 'needs-you' | 'advanced';
+export const PLACE_TABS: readonly PlaceTab[] = Object.freeze(['work', 'needs-you', 'advanced']);
 
 /** The places' tab strip: an ARIA tablist, arrow keys move, Home and End jump [FPL:REQ-037]. */
 export function placesTabsHtml(active: PlaceTab, list: NeedsYouList | null): string {
   const badge = list?.counts.badge ?? 0;
   const tab = (id: PlaceTab, label: string, extra = '') => `<button type="button" role="tab" id="place-tab-${id}" class="place-tab"
     aria-selected="${active === id}" aria-controls="place-panel" tabindex="${active === id ? '0' : '-1'}" data-tab="${id}">${escape(label)}${extra}</button>`;
-  return `<div class="places-tabs" role="tablist" aria-label="SFlow places">${tab('needs-you', 'Needs you',
+  return `<div class="places-tabs" role="tablist" aria-label="SFlow places">${tab('work', 'Work')}${tab('needs-you', 'Needs you',
     badge ? ` <span class="place-count" aria-label="Needs you: ${badge} waiting">(${badge})</span>` : '')}${tab('advanced', 'Advanced')}</div>`;
 }
 
@@ -235,6 +236,11 @@ document.addEventListener('click', (event) => {
 /** The places' sidebar body for the Needs-you tab. */
 export function needsYouPlaceBody(list: NeedsYouList | null, options: { reading?: boolean; error?: string | null; all?: boolean } = {}): string {
   return `${placesTabsHtml('needs-you', list)}<div id="place-panel" role="tabpanel" aria-labelledby="place-tab-needs-you">${needsYouListHtml(list, options)}</div>`;
+}
+
+/** Another place's panel (Work) under the tab strip, as its tab's panel. */
+export function placePanelBody(tab: PlaceTab, list: NeedsYouList | null, panel: string): string {
+  return `${placesTabsHtml(tab, list)}<div id="place-panel" role="tabpanel" aria-labelledby="place-tab-${tab}">${panel}</div>`;
 }
 
 /** The row above today's Navigator under Advanced, back to the places [FPL:REQ-032]. */

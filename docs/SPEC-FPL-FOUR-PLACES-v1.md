@@ -2,7 +2,13 @@
 
 **Specification ID:** `FPL-v1`
 
-**Status:** Proposed, not built. This is the build specification for roadmap Bet 2. It is measured on `main@5ac41f37e`.
+**Status:** M1 and M2 built (2026-11-26); M3 to M6 not built. This is the build specification for roadmap Bet 2. It is
+measured on `main@5ac41f37e`.
+- **M1** (`main@cbeb9978d`): `needs-you`, `needs-you show`, `/sf-inbox` on them, card approvals, and the Needs-you tab.
+- **M2** (branch `fpl-m2`, from `main@2809f6edc`): `work "<words>" --plan-only`, `work list [--offline]`, the task page's
+  facts in `work status`, `/sf-task` with no words listing the tasks in flight, and the Work tab with its box, In
+  progress, Done this week and the one task page. Work is the first tab and the sidebar opens on it.
+- The places stay behind `singularityFlow.navigation.layout` (default `classic`) until M5.
 
 **Owner, 2026-11-26:**
 - The four places become SFlow's default sidebar in VS Code:
@@ -699,7 +705,7 @@ repository's VS Code checks are.
 | Milestone | Scope | Size |
 |---|---|---|
 | M1 | Probes (§9). The Needs-you read: `needs-you`, `needs-you show`, what is kept and its freshness, Initiative approvals moved into the engine. The approval page and Decide card bound to an item's repository and Story. The Needs-you tab, its card page and the badge. `/sf-inbox` on the new read, in Copilot CLI and IntelliJ (REQ-008 to 018, the Needs-you part of 038, 039, A1 to A7, A24) | about 2 weeks |
-| M2 | Work: the box with its likely plan (`--plan-only`), `work list`, In progress, the task page, done this week, `/sf-task` with no words listing tasks in flight (REQ-004 to 007, the Work part of 038, A8 to A10) | about 1 week |
+| M2 | Work: the box with its likely plan (`--plan-only`), `work list`, In progress, the task page, done this week, `/sf-task` with no words listing tasks in flight (REQ-004 to 007, the Work part of 038, A8 to A10). Built 2026-11-26 on `fpl-m2` | about 1 week |
 | M3 | Rules: `rules`, `rules preview`, the `tasks.*` Studio operations, `taskRules` in check, save and approval, rule IDs, the Rules tab and page, the topic's corrected example (REQ-019 to 026, A11 to A15) | about 1 week |
 | M4 | Library: the Marketplace page as the Library, used-by counts, waiting for review, daily updates, the feedback column, the Library tab (REQ-027 to 031, A16 to A18) | 3 to 4 days |
 | M5 | Advanced and the switch: the four places as the default, Advanced as today's Navigator, the layout setting, title actions, `places-map.ts` and its test, walkthrough and help topics (REQ-001 to 003, 032 to 035, A19 to A21) | about 3 days |

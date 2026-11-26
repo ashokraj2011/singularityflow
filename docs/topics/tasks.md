@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 22
+version: 23
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -27,6 +27,10 @@ Say what you want done and SFlow does the rest of the setting up: `/sf-task fix 
 Each step is one of the repository's own steps for that purpose, so it keeps its agent, its template and its settings. A person approves two things: the plan (for a fix, the intake is its plan) and what the task delivers (the code, the document, or the report). SFlow approves the other steps when they are clean.
 
 **The plan first.** `sflow work "<words>"` shows the plan and writes nothing; `--kind` names the kind when the words alone do not. `--start` starts the Story: its ID is a Jira key the words or `--work-id` name, otherwise the next free `TASK-<n>`; its base is the default branch; its intake is your words. The composed workflow is recorded with the Story, so every later command and a second laptop see the same steps. It is never written to `singularity/workflow.yml`.
+
+**What is in flight.** `sflow work list` lists your tasks and Stories in flight across the workspace's repositories: the ones you started, and the ones checked out on this computer. Each shows its steps (done, now, waits for you, to do, or added) and one line on what it waits for: "Waiting for you: Approve Plan?" when it is in your Needs you, else who it waits for or the step it is at. The ones done this week say where they ended: checked on its branch, pull request open, or report ready. `--offline` shows what was kept from the last read and fetches nothing. `/sf-task` typed with no words, when no task is open in that chat, lists them first.
+
+`sflow work "<words>" --plan-only` is the likely plan VS Code's Work box shows as you type: the kind your words name and the team's rules, with no skill or agent offered and nothing read from a marketplace. When the words do not say the kind, there is no likely plan. The plan the chat says when the task starts is the plan.
 
 **The team's rules.** `tasks:` in `singularity/workflow.yml` adds steps or a person's approval, and never removes one:
 

@@ -2,8 +2,9 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { SingularityFlowError } from './util.mjs';
+import { DEFAULT_WORK_ITEM_ROOT, storyLocation } from './story-paths.mjs';
 
-export const DEFAULT_WORK_ITEM_ROOT = 'singularity/work-items';
+export { DEFAULT_WORK_ITEM_ROOT };
 
 /** Normalize the configured durable Story root before it is used in a Git object expression. */
 export function normalizeWorkItemRoot(value = DEFAULT_WORK_ITEM_ROOT) {
@@ -28,5 +29,5 @@ export function workItemWorkflowRelative(workId, workItemRoot = DEFAULT_WORK_ITE
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)) {
     throw new SingularityFlowError(`'${id}' is not a safe Work ID.`);
   }
-  return path.posix.join(normalizeWorkItemRoot(workItemRoot), id, 'workflow.json');
+  return storyLocation(null, { workItemRoot: normalizeWorkItemRoot(workItemRoot) }, id).record('workflow.json');
 }

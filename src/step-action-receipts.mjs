@@ -25,13 +25,14 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { readDeliveredStepActions, readStepActionDelivery } from './step-action-delivery.mjs';
 import { stepActionDeliveryKey, storyRequiresStepActions } from './step-actions.mjs';
 import { SingularityFlowError, writeAtomicExclusive } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const STEP_ACTION_RECEIPT_FAMILY = 'step-action-receipt';
 const RECEIPT_FILE = /^(sad_[0-9a-f]{40})\.json$/;
 
 /** The Story's receipt directory, relative to the repository. */
 export function stepActionReceiptDirectory(config, workId) {
-  return path.posix.join(config.workItemRoot ?? 'singularity/work-items', workId, 'evidence', 'step-actions');
+  return storyLocation(null, config, workId).record('evidence', 'step-actions');
 }
 
 /** The receipt a delivered outbox record becomes. Pure: the same record always gives the same receipt. */

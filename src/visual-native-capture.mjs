@@ -20,6 +20,7 @@ import { readPngHeader } from './png-rgba8.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeAtomic, writeJson } from './util.mjs';
 import { NATIVE_CAPTURE_DIRECTORY, NATIVE_CAPTURE_FORMAT, NATIVE_CAPTURE_SOURCES, nativeCaptureScale, nativeCaptureScaleRange, profilePixelSize } from './visual-coverage.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const MAX_RECORDS = 5000;
@@ -82,7 +83,7 @@ export async function recordNativeVisualCapture(root, workflow, {
       code: 'VISUAL_CAPTURE_DIMENSIONS_MISMATCH', details: { phase: phaseId, profileId: profile.id, expected, actual }
     });
   }
-  const itemRoot = itemDirectory ?? path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const itemRoot = itemDirectory ?? storyLocation(root, workflow, workflow.workItem.id).directory;
   const recordsDirectory = path.join(itemRoot, NATIVE_CAPTURE_DIRECTORY, 'records');
   const id = `vnc-${randomUUID()}`;
   return withSubjectLock(root, { kind: 'story', id: workflow.workItem.id }, async () => {

@@ -14,7 +14,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase } from './document-identity.mjs';
 import { isLocalDocument, readLocalDocument } from './document-storage.mjs';
 import { authoredArtifactText, inspectManagedArtifactMetadata } from './artifact-review-read.mjs';
-import { clarificationRecordRelative } from './story-paths.mjs';
+import { clarificationRecordRelative } from './phase-generation.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
@@ -30,6 +30,7 @@ import { committedSourceReviewFile, prefetchSourceReviewFiles, sharedSourceRevie
   sharedSourceReviewProvenance, sourceReviewProvenanceObjects, withSourceReviewSnapshot } from './source-review-snapshot.mjs';
 import { authorCommand } from './action-command-map.mjs';
 import { DISPUTE_PREFIX } from './review-dispute-words.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const REVIEW_AGENT = 'sflow-source-reviewer';
 const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
@@ -44,7 +45,7 @@ function actorIdentity(actor) { return {
   name: actor?.name ?? null, email: actor?.email ?? null,
   login: actor?.login ?? actor?.githubLogin ?? null
 }; }
-function itemRelative(config, workId) { return posix(path.join(config.workItemRoot ?? 'singularity/work-items', workId)); }
+function itemRelative(config, workId) { return storyLocation(null, config, workId).prefix; }
 
 /** A step the Story lacks, or one its review does not cover: with its steps and the Story's next action. */
 export function sourceReviewStepRefusal(workflow, phaseId) {

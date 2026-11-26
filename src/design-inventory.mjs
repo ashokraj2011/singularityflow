@@ -3,9 +3,10 @@ import path from 'node:path';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function itemRoot(root, workflow, itemDirectory) {
-  return itemDirectory ?? path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  return itemDirectory ?? storyLocation(root, workflow, workflow.workItem.id).directory;
 }
 
 function addCount(target, key, amount = 1) { if (key) target[key] = (target[key] ?? 0) + amount; }

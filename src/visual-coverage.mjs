@@ -7,6 +7,7 @@ import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { decodePngRgba8, readPngHeader } from './png-rgba8.mjs';
 import { secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /**
  * Where `visual record` keeps a screenshot taken on a simulator, emulator or device, apart from the
@@ -20,7 +21,7 @@ function policy(workflow) {
 }
 
 function itemRoot(root, workflow, itemDirectory) {
-  return itemDirectory ?? path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  return itemDirectory ?? storyLocation(root, workflow, workflow.workItem.id).directory;
 }
 
 function expectedGeneration(phase) {

@@ -5,9 +5,10 @@ import { decodePngRgba8, encodePngRgba8 } from './png-rgba8.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeAtomic, writeJson } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function itemRoot(root, workflow, itemDirectory) {
-  return itemDirectory ?? path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  return itemDirectory ?? storyLocation(root, workflow, workflow.workItem.id).directory;
 }
 
 const DOCUMENT_ID = /^DOC-\d+$/u;

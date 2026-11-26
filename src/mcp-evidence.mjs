@@ -11,6 +11,7 @@ import {
   writeAtomic, writeJson
 } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const MCP_EVIDENCE_SCHEMA_VERSION = currentSchemaVersion('mcp-evidence');
 
@@ -217,7 +218,7 @@ async function writeMcpEvidence(root, workflow, {
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) throw new SingularityFlowError(`Visual artifact ${label} is invalid.`, { code: 'MCP_EVIDENCE_INVALID' });
     }
   }
-  const itemRoot = itemDirectory ?? path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const itemRoot = itemDirectory ?? storyLocation(root, workflow, workflow.workItem.id).directory;
   const recordsDirectory = path.join(itemRoot, 'context', 'mcp', 'records');
   const id = `mcp-${randomUUID()}`;
   return withSubjectLock(root, { kind: 'story', id: workflow.workItem.id }, async () => {
@@ -349,9 +350,7 @@ export async function recordObservedMcpBrowserCapture(root, workflow, {
     });
   }
 
-  const itemRoot = itemDirectory ?? path.join(
-    root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id
-  );
+  const itemRoot = itemDirectory ?? storyLocation(root, workflow, workflow.workItem.id).directory;
   const recordsDirectory = path.join(itemRoot, 'context', 'mcp', 'records');
   const captureId = `capture-${randomUUID()}`;
   const outputRelative = posix(path.join('context', 'mcp', 'outputs', captureId, 'browser-snapshot.json'));
@@ -443,7 +442,7 @@ async function candidateRecordFiles(directory) {
 export async function verifyMcpEvidence(root, workflow, { itemDirectory = null } = {}) {
   const errors = [], warnings = [], passes = [], records = [];
   const storedVersions = new WeakMap();
-  const itemRoot = itemDirectory ?? path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const itemRoot = itemDirectory ?? storyLocation(root, workflow, workflow.workItem.id).directory;
   const directory = path.join(itemRoot, 'context', 'mcp');
   for (const absolute of await candidateRecordFiles(directory)) {
     let record, storedVersion;

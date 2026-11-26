@@ -18,6 +18,7 @@ import YAML from 'yaml';
 import { committedFilesAtRevisions, defaultBranchName, exactFileAtObject, isAncestor, recentFirstParentSubjects, refCommit } from './git.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { exists, SingularityFlowError } from './util.mjs';
+import { storiesRoot, storyLocation } from './story-paths.mjs';
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 /** Singularity Flow commit subjects begin `[<Work ID>][<step>]`. */
@@ -31,7 +32,7 @@ const WORKFLOW_BYTES = 8 * 1024 * 1024;
 const MAXIMUM_LABELLED_BRANCHES = 64;
 
 function workItemRootOf(config) {
-  return String(config?.workItemRoot ?? 'singularity/work-items').replace(/\/+$/u, '') || 'singularity/work-items';
+  return String(storiesRoot(config)).replace(/\/+$/u, '') || storiesRoot();
 }
 
 /** The Story IDs worth reading for a base branch, most likely first. */
@@ -97,7 +98,7 @@ export function detectBaseStory(root, config, { baseBranch, baseCommit, workId =
     const workItemRoot = workItemRootOf(config);
     const subjects = recentFirstParentSubjects(root, baseCommit, { limit: SUBJECTS_READ });
     for (const id of baseStoryCandidates(baseBranch, subjects, { exclude: workId })) {
-      const bytes = exactFileAtObject(root, baseCommit, `${workItemRoot}/${id}/workflow.json`, { maximumBytes: WORKFLOW_BYTES });
+      const bytes = exactFileAtObject(root, baseCommit, storyLocation(null, { workItemRoot }, id).object('workflow.json').path, { maximumBytes: WORKFLOW_BYTES });
       const parent = bytes ? parsedWorkflow(bytes) : null;
       if (parent?.workItem?.id === id && storyClaimsBranch(parent, baseBranch)) {
         return baseStoryRecord(parent, { branch: baseBranch, commit: baseCommit });
@@ -119,7 +120,7 @@ export function storyBranchLabels(root, config, branches, { remote = 'origin' } 
     const workItemRoot = workItemRootOf(config);
     const candidates = [...new Set(branches)].filter((branch) => SAFE_ID.test(branch ?? '')).slice(0, MAXIMUM_LABELLED_BRANCHES);
     const files = committedFilesAtRevisions(root, candidates.map((branch) => ({
-      key: branch, ref: `refs/remotes/${remote}/${branch}`, path: `${workItemRoot}/${branch}/workflow.json`
+      key: branch, ref: `refs/remotes/${remote}/${branch}`, path: storyLocation(null, { workItemRoot }, branch).object('workflow.json').path
     })), { maximumObjectBytes: WORKFLOW_BYTES });
     const labels = {};
     for (const [branch, bytes] of files) {

@@ -4,7 +4,7 @@
 
 **Baseline:** `5ac41f37e` (2026-11-26).
 
-**Status:** Planned, not started.
+**Status:** In progress on `ssb-m1` (from `480c2f936`). What changed from this plan while building is in §9.
 
 **Size:** 6 days. The spec's first estimate was 4 days. It counted only the `workDir(` and `workDirRelative(` calls.
 
@@ -339,6 +339,28 @@ did not change.
 - **The GDP lock:** B10 changes a lock companion, so it needs a lock review document. A bare hash refresh is not enough.
 - **Work landing on `main` meanwhile** adds new spellings. The ratchet fails them at the next rebase. Each batch is
   rebased before its gate.
+
+## 9. Changes while building
+
+Found while building M1, on `480c2f936`. Each batch's commit adds its own.
+
+- **B0, the resolver.** As §3, with these differences:
+  - `storyRecordOf(path, ...sources)` gives `{ id, inside }` for a record path, so a classifier gets the ID-free remainder
+    in one call; `storyIdOfRecord` and `isStoryRecordPath` use it.
+  - `CONFIGURATION_SOURCE_RELATIVE` names the story-branch pin, `singularity/configuration-source.json`.
+  - `storyLocation(..., { pathModule })` takes `path.win32` in tests, for the Windows flavour of §7.
+  - `inside(prefix)` is `''`, and `owns(p)` is true only strictly below the prefix: the sites that test
+    `startsWith(`${prefix}/`)` keep their answers.
+  - A source is a workflow when it has `workItem` or `resolution`; a definition has neither (its schema).
+- **C is not counted.** `clarificationRecordRelative` moved beside `groundingRecordRelative` and goes through the resolver,
+  as its twin does. So its six calls are calls of a resolver-backed helper, not joins, and the ratchet has no C.
+- **The ratchet counts member calls** (`paths.workDirRelative(`, `dependencies.workDir(`), which §2's counts left out.
+- **Counts moved on.** `main` gained 17 commits after `5ac41f37e`. The ratchet's first ceilings are measured on
+  `480c2f936` after B0 and B1: W 177, R 137, P 7, I 141, B 9, X 97, H 28, L 36, S 9, F 45, E 34. Its B pattern counts
+  joins only (`path.join(... .workItemRoot` and `${... .workItemRoot`), so it finds 9, not 16.
+- **Budgets.** The resolver adds about 8.5 KB of source to every closure that has it. B0 and B1 raise the eager budgets in
+  `test/lazy-command-handlers.test.mjs` (submit.mjs 9,915,050; session current 4,376,031) and the VS Code
+  `gateway-runtime.cjs` limit (7,896,000), each with its measurement. No module was added to any closure.
 
 ## Appendix: every file, by module group
 

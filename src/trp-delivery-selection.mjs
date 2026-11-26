@@ -20,6 +20,7 @@ import { processResultSucceeded } from './process-result.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { readTrpCaseInventory } from './test-recovery-adapters.mjs';
 import { countedRecords } from './presence/counted.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const covers = (root, file) => root === '.' || file === root || file.startsWith(`${root}/`);
@@ -46,7 +47,7 @@ export function trpSelectionPublicPreview(preview) {
   return result;
 }
 function relativeWorkDirectory(config, workflow) {
-  return normalizeTestSelectionPath(path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id));
+  return normalizeTestSelectionPath(storyLocation(null, config, workflow.workItem.id).prefix);
 }
 async function contentBinding(root, relative) {
   const safe = await secureRepositoryPath(root, normalizeTestSelectionPath(relative), { label: 'TRP selection input', type: 'file' });

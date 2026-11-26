@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { amongOwners, codeOwnersOf, codeownersPatternRegExp, parseCodeowners } from '../src/codeowners.mjs';
-import { dayWords, guardWords, isLifecycleWord, itemLifecycle, LIFECYCLE_STATES, lifecycleFindings, lifecycleInstallable, lifecycleMoveAllowed,
+import { dayWords, guardWords, indexMetadata, isLifecycleWord, itemLifecycle, LIFECYCLE_STATES, lifecycleFindings, lifecycleInstallable, lifecycleMoveAllowed,
   lifecycleReadiness, lifecycleStateOf, lifecycleSummary, lifecycleWords, parseLifecycleRecord } from '../src/marketplace-lifecycle.mjs';
 import { parseOwnerBlock, resolveOwner } from '../src/marketplace-owner.mjs';
 import { packageMetadata, parseMarketplaceChannels, parseMarketplaceManifest, parsePackageManifest, trustChannel } from '../src/marketplace-repository.mjs';
@@ -268,12 +268,17 @@ test('the seeded bad item: a jump, a mismatch, an unguarded record, an owner COD
 test('an index may say who owns an entry, its lifecycle and its channels; never guarded, never followed elsewhere [OMK:REQ-005]', () => {
   const marketplace = { id: 'shared', index: 'https://skills.example.org/stable.json', allowedOrigins: ['https://cdn.example.org'] };
   const entry = { id: 'security-review', kind: 'skill', version: '2.1.0', url: 'https://skills.example.org/security-review.md', sha256: 'a'.repeat(64) };
-  const index = parseMarketplaceIndex(Buffer.from(JSON.stringify({ format: 'sflow-marketplace@1', name: 'Shared', publisher: 'Acme AppSec', channel: 'stable',
+  const document = (body) => Buffer.from(JSON.stringify(body));
+  const stated = { format: 'sflow-marketplace@1', name: 'Shared', publisher: 'Acme AppSec', channel: 'stable',
     channels: { stable: { index: 'https://skills.example.org/stable.json', after: 'beta' }, beta: { index: 'https://elsewhere.example.net/beta.json' }, nightly: { index: 'https://skills.example.org/n.json' } },
     entries: [
       { ...entry, owner: { team: 'appsec', name: 'AppSec', issues: 'https://git.example.com/acme/skills/issues', feedbackLabels: ['sflow-feedback'] },
         lifecycle: { state: 'ga', history: [{ from: 'approved', to: 'ga', at: '2026-11-01', approvedBy: ['@acme/appsec'], change: 'https://git.example.com/acme/skills/pull/9' }] } },
-      { ...entry, id: 'plain-skill' }] })), marketplace);
+      { ...entry, id: 'plain-skill' }] };
+  // Read through the reader fetchMarketplaceIndex loads; without it (an eager caller) nothing new is read.
+  const index = parseMarketplaceIndex(document(stated), marketplace, { metadata: indexMetadata });
+  const bare = parseMarketplaceIndex(document(stated), marketplace);
+  assert.deepEqual([bare.channel, bare.channels, bare.entries[0].owner, bare.entries[0].lifecycle], [null, {}, undefined, undefined]);
   assert.equal(index.channel, 'stable');
   assert.deepEqual(index.channels, { stable: { index: 'https://skills.example.org/stable.json', after: null } }, 'beta at an origin the trust does not allow is never read');
   assert.equal(index.problems.length, 2);
@@ -287,7 +292,7 @@ test('an index may say who owns an entry, its lifecycle and its channels; never 
   assert.deepEqual([item.owner.name, item.lifecycleRecord.state], ['AppSec', 'ga']);
   assert.equal(marketplaceSkillCandidate({ name: owned.id, tags: [], lifecycleRecord: owned.lifecycle }, 'shared').lifecycle, 'ready');
   // An index with none of the fields: nothing new on its entries [REQ-006].
-  const older = parseMarketplaceIndex(Buffer.from(JSON.stringify({ format: 'sflow-marketplace@1', entries: [entry] })), marketplace);
+  const older = parseMarketplaceIndex(document({ format: 'sflow-marketplace@1', entries: [entry] }), marketplace, { metadata: indexMetadata });
   assert.deepEqual([older.channel, older.channels, older.entries[0].owner, older.entries[0].lifecycle], [null, {}, undefined, undefined]);
 });
 

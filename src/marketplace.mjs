@@ -11,8 +11,6 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
-import { itemLifecycle, lifecycleFindings, parseLifecycleRecord } from './marketplace-lifecycle.mjs';
-import { ownerSummary, parseOwnerBlock, resolveOwner } from './marketplace-owner.mjs';
 import { decodeUtf8, fetchRemoteBytes, validatePublicHttpsUrl } from './remote-fetch.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -145,46 +143,12 @@ export function compareVersions(left, right) {
   return 0;
 }
 
-/** The channels an index may name, in v1 [OMK:REQ-005]. */
-const INDEX_CHANNELS = Object.freeze(['stable', 'beta']);
-
-/**
- * An index's `channel` and `channels` [OMK:REQ-005]: which channel it is, and where its others are, each only at an origin
- * the trust already allows (SFlow never follows a channel elsewhere). Read only to be shown; a wrong one is left out.
- */
-function indexChannels(index, allowed) {
-  const channel = INDEX_CHANNELS.includes(index.channel) ? index.channel : null;
-  const channels = {};
-  const problems = [];
-  const listed = index.channels && typeof index.channels === 'object' && !Array.isArray(index.channels) ? index.channels : {};
-  for (const [name, entry] of Object.entries(listed)) {
-    if (!INDEX_CHANNELS.includes(name)) { problems.push(`The index names a channel '${String(name).slice(0, 40)}'; SFlow knows only stable and beta, so it is left out.`); continue; }
-    let url = null;
-    try { url = validatePublicHttpsUrl(String(entry?.index ?? ''), `Channel ${name} index`); } catch { url = null; }
-    if (!url) { problems.push(`The index's channel ${name} has no https index address, so it is left out.`); continue; }
-    if (!allowed.has(origin(url))) { problems.push(`The index's channel ${name} is at ${origin(url)}, which this repository's trust does not allow, so SFlow never reads it.`); continue; }
-    channels[name] = { index: url, after: INDEX_CHANNELS.includes(entry?.after) && entry.after !== name ? entry.after : null };
-  }
-  // An order only among the channels SFlow may read.
-  for (const entry of Object.values(channels)) if (entry.after && !channels[entry.after]) entry.after = null;
-  return { channel, channels, problems };
-}
-
-/** An index entry's owner and lifecycle, as the index states them [OMK:REQ-005]: never guarded, and never a refusal. */
-function indexEntryMetadata(raw, id, publisher) {
-  const block = parseOwnerBlock(raw.owner ?? null, { name: id, camel: true });
-  const owner = resolveOwner({ own: block.owner, marketplaceOwner: publisher ? { name: publisher } : null });
-  const parsed = parseLifecycleRecord(raw.lifecycle ?? null, { camel: true });
-  const lifecycle = parsed ? itemLifecycle({ index: parsed, owner }) : null;
-  const findings = [...block.findings, ...lifecycleFindings({ name: id, parsed, lifecycle })];
-  return { owner: owner ? { ...ownerSummary(owner), feedbackLabels: [...owner.feedbackLabels] } : null, lifecycle, findings };
-}
-
 /**
  * Parse and check a marketplace index against the marketplace's configured trust. Entries whose
- * files would come from an origin the repository did not allow are refused, not filtered.
+ * files would come from an origin the repository did not allow are refused, not filtered. `metadata`
+ * reads its channels and owners (marketplace-lifecycle.mjs indexMetadata) [OMK:REQ-005].
  */
-export function parseMarketplaceIndex(bytes, marketplace) {
+export function parseMarketplaceIndex(bytes, marketplace, { metadata = null } = {}) {
   let index;
   try { index = JSON.parse(decodeUtf8(bytes, `Marketplace '${marketplace.id}' index`)); }
   catch (error) { throw fail(`Marketplace '${marketplace.id}' index is not valid JSON: ${error.message}`); }
@@ -193,6 +157,7 @@ export function parseMarketplaceIndex(bytes, marketplace) {
   }
   if (index.entries.length > MAX_ENTRIES) throw fail(`Marketplace '${marketplace.id}' lists more than ${MAX_ENTRIES} entries.`);
   const allowed = new Set([origin(marketplace.index), ...marketplace.allowedOrigins]);
+  const stated = metadata ? metadata(index, { allowed, origin, validateUrl: validatePublicHttpsUrl }) : null;
   const seen = new Set();
   const entries = [];
   const ignored = [];
@@ -212,11 +177,7 @@ export function parseMarketplaceIndex(bytes, marketplace) {
       tags: Array.isArray(raw.tags) ? raw.tags.map((tag) => String(tag)).filter((tag) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(tag)).slice(0, 12) : [],
       phases: Array.isArray(raw.phases) ? raw.phases.map(String).filter((phase) => ID.test(phase)).slice(0, 32) : []
     };
-    // OMK §4.4: who owns it and its lifecycle, when the index says; an older build ignores both.
-    const metadata = indexEntryMetadata(raw, raw.id, typeof index.publisher === 'string' ? index.publisher.replace(/\s+/g, ' ').trim().slice(0, 120) || null : null);
-    if (metadata.owner) entry.owner = metadata.owner;
-    if (metadata.lifecycle) entry.lifecycle = metadata.lifecycle;
-    if (metadata.findings.length) entry.findings = metadata.findings;
+    if (stated) Object.assign(entry, stated.entry(raw));
     if (raw.kind === 'generated') {
       entry.urlTemplate = validatePublicHttpsUrl(String(raw.urlTemplate ?? ''), `${label} urlTemplate`, { dynamic: true, allowedTokens: GENERATED_TOKENS });
       if (!allowed.has(origin(entry.urlTemplate))) throw fail(`${label} fetches from ${origin(entry.urlTemplate)}, which marketplace '${marketplace.id}' is not allowed to use.`, 'MARKETPLACE_ORIGIN_REFUSED');
@@ -236,14 +197,13 @@ export function parseMarketplaceIndex(bytes, marketplace) {
     }
     entries.push(Object.freeze(entry));
   });
-  const channels = indexChannels(index, allowed);
   return Object.freeze({
     format: MARKETPLACE_INDEX_FORMAT,
     name: text(index.name, `Marketplace '${marketplace.id}' name`, 120) ?? marketplace.label,
     publisher: text(index.publisher, `Marketplace '${marketplace.id}' publisher`, 120),
     entries: Object.freeze(entries),
     ignored: Object.freeze(ignored),
-    channel: channels.channel, channels: channels.channels, ...(channels.problems.length ? { problems: channels.problems } : {})
+    channel: stated?.channel ?? null, channels: stated?.channels ?? {}, ...(stated?.problems.length ? { problems: stated.problems } : {})
   });
 }
 
@@ -264,7 +224,8 @@ export async function fetchMarketplaceIndex(marketplace, { fetchImpl = globalThi
   });
   const validators = { ...(fetched.etag ? { etag: fetched.etag } : {}), ...(fetched.lastModified ? { lastModified: fetched.lastModified } : {}) };
   if (fetched.notModified) return { notModified: true, resolvedIndex: fetched.resolvedUrl, ...validators };
-  return { ...parseMarketplaceIndex(fetched.bytes, marketplace), indexSha256: fetched.sha256, resolvedIndex: fetched.resolvedUrl, ...validators };
+  const { indexMetadata } = await import('./marketplace-lifecycle.mjs');
+  return { ...parseMarketplaceIndex(fetched.bytes, marketplace, { metadata: indexMetadata }), indexSha256: fetched.sha256, resolvedIndex: fetched.resolvedUrl, ...validators };
 }
 
 /** The entry an import names: an exact version, or the newest version of that ID. */
@@ -283,6 +244,6 @@ export function marketplaceEntriesView(index, { kind = null, search = null } = {
   const query = String(search ?? '').trim().toLowerCase();
   return index.entries
     .filter((entry) => !kind || entry.kind === kind)
-    .filter((entry) => !query || [entry.id, entry.label, entry.description ?? '', entry.owner?.name ?? '', ...entry.tags].some((value) => value.toLowerCase().includes(query)))
+    .filter((entry) => !query || [entry.id, entry.label, entry.description ?? '', ...entry.tags].some((value) => value.toLowerCase().includes(query)))
     .map((entry) => ({ ...entry, importable: MARKETPLACE_IMPORT_KINDS.includes(entry.kind) }));
 }

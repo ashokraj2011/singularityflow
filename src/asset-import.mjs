@@ -27,7 +27,6 @@ import {
 import {
   configuredMarketplaces, fetchMarketplaceIndex, requireMarketplace, selectMarketplaceEntry
 } from './marketplace.mjs';
-import { lifecycleStateOf } from './marketplace-lifecycle.mjs';
 import { parseMcpServerDescriptor } from './mcp-descriptor.mjs';
 import { LIBRARY_SKILL_TABLE } from './skill-library.mjs';
 import { fetchMcpContent, parseMcpReference } from './mcp-import.mjs';
@@ -136,7 +135,7 @@ async function repositoryMarketplaceSkill(marketplace, reference) {
     throw fail(`${reference.entry} in marketplace '${marketplace.id}' has no readable SKILL.md in ${entry.source}.`, 'IMPORT_CONTENT_EMPTY',
       { nextAction: { command: `singularity-flow marketplace browse ${marketplace.id} --kind skill`, label: `See the skills marketplace ${marketplace.id} lists.` } });
   }
-  refuseRetired(marketplace, reference.entry, entry.lifecycleRecord?.state ?? entry.lifecycleState);
+  await refuseRetired(marketplace, reference.entry, entry.lifecycleRecord?.state ?? entry.lifecycleState);
   return {
     bytes: Buffer.from(entry.text, 'utf8'),
     entry: { id: entry.name, kind: 'skill', version: entry.version ?? null, label: entry.name, description: entry.description ?? null, phases: entry.pdlcPhases ?? [] },
@@ -152,8 +151,8 @@ async function repositoryMarketplaceSkill(marketplace, reference) {
 const ownerField = (owner) => (owner?.team || owner?.name ? { owner: { team: owner.team ?? null, name: owner.name ?? null } } : {});
 
 /** A retired item is no longer supported, so it is not installed [OMK §5.1]; the catalog says what is there instead. */
-function refuseRetired(marketplace, name, state) {
-  if (lifecycleStateOf(state) !== 'retired') return;
+async function refuseRetired(marketplace, name, state) {
+  if (!state || (await import('./marketplace-lifecycle.mjs')).lifecycleStateOf(state) !== 'retired') return;
   throw fail(`${name} is retired in marketplace '${marketplace.id}': it is no longer supported, so it is not installed.`, 'MARKETPLACE_ITEM_RETIRED',
     { nextAction: { command: `singularity-flow marketplace catalog --marketplace ${marketplace.id}`, label: `See what marketplace ${marketplace.id} offers now.` } });
 }
@@ -171,7 +170,7 @@ async function fetchReference(root, reference, { fetchImpl = globalThis.fetch, m
     if (!entry.url) {
       throw fail(`Marketplace entry '${entry.id}' is a ${entry.kind} source, not content; add it with --as ${entry.kind}.`, 'IMPORT_KIND_INVALID');
     }
-    refuseRetired(marketplace, entry.id, entry.lifecycle?.state ?? null);
+    await refuseRetired(marketplace, entry.id, entry.lifecycle?.state ?? null);
     const fetched = await fetchRemoteBytes(entry.url, {
       maxBytes: entry.bytes ? Math.min(entry.bytes, HARD_REMOTE_MAX_BYTES) : maxBytes, fetchImpl, label: 'Marketplace content'
     });

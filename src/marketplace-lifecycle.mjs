@@ -18,8 +18,10 @@
  * together and never refuses an item for it; each problem is a marketplace-owned finding (MCR's shape).
  *
  * task-skills.mjs, task-agents.mjs, marketplace-catalog.mjs, skill-catalog.mjs, conversion-review.mjs and
- * agent-workflow.mjs all read this module. Pure.
+ * agent-workflow.mjs all read this module. It also reads what an index states of its channels and its entries' owners
+ * and lifecycles (indexMetadata), loaded only when an index is fetched. Pure.
  */
+import { ownerSummary, parseOwnerBlock, resolveOwner } from './marketplace-owner.mjs';
 
 export const LIFECYCLE_STATES = Object.freeze(['proposed', 'early', 'approved', 'ga', 'deprecated', 'retired']);
 export const LIFECYCLE_RECORD_FILE = 'lifecycle.yml';
@@ -285,4 +287,41 @@ export function lifecycleSummary(lifecycle, { recorded = false } = {}) {
   if (!lifecycle) return null;
   const { history: _history, ...shown } = lifecycle;
   return { ...shown, notGuarded: unguardedApproval(lifecycle), ...(recorded ? { recorded: true, words: `${lifecycle.words} (as recorded when it was imported)` } : {}) };
+}
+
+// ---------------------------------------------------------------------------------------------- what an index states
+
+const INDEX_CHANNELS = Object.freeze(['stable', 'beta']);
+
+/**
+ * What an index states beyond its entries' files [OMK:REQ-005]: which channel it is and where its others are, each only
+ * at an origin the trust already allows (SFlow never follows a channel elsewhere), and, for each entry, its owner and
+ * lifecycle as the index states them, never guarded. Nothing here refuses: a wrong value is left out, with a problem or
+ * a marketplace-owned finding. `allowed` is the trust's origins; `origin` and `validateUrl` are marketplace.mjs's own.
+ */
+export function indexMetadata(index, { allowed, origin, validateUrl }) {
+  const channels = {};
+  const problems = [];
+  const listed = index.channels && typeof index.channels === 'object' && !Array.isArray(index.channels) ? index.channels : {};
+  for (const [name, entry] of Object.entries(listed)) {
+    if (!INDEX_CHANNELS.includes(name)) { problems.push(`The index names a channel '${String(name).slice(0, 40)}'; SFlow knows only stable and beta, so it is left out.`); continue; }
+    let url = null;
+    try { url = validateUrl(String(entry?.index ?? ''), `Channel ${name} index`); } catch { url = null; }
+    if (!url) { problems.push(`The index's channel ${name} has no https index address, so it is left out.`); continue; }
+    if (!allowed.has(origin(url))) { problems.push(`The index's channel ${name} is at ${origin(url)}, which this repository's trust does not allow, so SFlow never reads it.`); continue; }
+    channels[name] = { index: url, after: INDEX_CHANNELS.includes(entry?.after) && entry.after !== name ? entry.after : null };
+  }
+  // An order only among the channels SFlow may read.
+  for (const entry of Object.values(channels)) if (entry.after && !channels[entry.after]) entry.after = null;
+  const publisher = text(index.publisher, 120);
+  const entry = (raw) => {
+    const block = parseOwnerBlock(raw.owner ?? null, { name: raw.id, camel: true });
+    const owner = resolveOwner({ own: block.owner, marketplaceOwner: publisher ? { name: publisher } : null });
+    const parsed = parseLifecycleRecord(raw.lifecycle ?? null, { camel: true });
+    const lifecycle = parsed ? itemLifecycle({ index: parsed, owner }) : null;
+    const findings = [...block.findings, ...lifecycleFindings({ name: raw.id, parsed, lifecycle })];
+    return { ...(owner ? { owner: { ...ownerSummary(owner), feedbackLabels: [...owner.feedbackLabels] } } : {}), ...(lifecycle ? { lifecycle } : {}),
+      ...(findings.length ? { findings } : {}) };
+  };
+  return { channel: INDEX_CHANNELS.includes(index.channel) ? index.channel : null, channels, problems, entry };
 }

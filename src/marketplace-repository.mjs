@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import YAML from 'yaml';
 import { CODEOWNERS_LIMITS, CODEOWNERS_PATHS, codeOwnersOf, parseCodeowners } from './codeowners.mjs';
-import { exactCommitDay, exactFileAtObject, exactTreePathsAtObject, remoteRefCommit, withIsolatedGitObjectRepository } from './git.mjs';
+import { commitShape, exactFileAtObject, exactTreePathsAtObject, remoteRefCommit, withIsolatedGitObjectRepository } from './git.mjs';
 import { itemLifecycle, LIFECYCLE_LIMITS, LIFECYCLE_RECORD_FILE, lifecycleFindings, parseLifecycleRecord } from './marketplace-lifecycle.mjs';
 import { ownerSummary, parseOwnerBlock, resolveOwner } from './marketplace-owner.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -267,7 +267,8 @@ export async function readMarketplaceRepository(marketplace, { documents = [] } 
           : parseCodeowners(ownersText, { path: ownersFile });
         problems.push(...codeowners.problems);
       }
-      const commitDate = exactCommitDay(root, commit);
+      // The commit's own day, in its committer's time zone: no lifecycle entry is dated after it [OMK:REQ-003].
+      const commitDate = /^\d{4}-\d{2}-\d{2}/u.exec(commitShape(root, commit)?.committedAt ?? '')?.[0] ?? null;
       const marketplaceOwner = { name: manifest.owner, email: manifest.ownerEmail };
       const packages = [];
       for (const listed of manifest.packages.filter((entry) => entry.source)) {

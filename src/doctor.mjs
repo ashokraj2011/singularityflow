@@ -25,6 +25,7 @@ import { operationContext } from './operation-context.mjs';
 import { repositoryPerformanceSnapshot } from './performance-doctor.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { removedSettings } from './removed-features.mjs';
+import { newStoryLayout } from './work-item-location.mjs';
 import { schemaCensus, schemaCensusText } from './schema-census.mjs';
 import { resolveModelProvider } from './model-runner.mjs';
 import { probeModelPromptTransport } from './model-provider-capability.mjs';
@@ -314,6 +315,10 @@ export async function doctorSnapshot(root, {
     if (removed.length) checks.push(check('removed-settings', 'warn',
       `${removed.length} setting(s) of removed features are ignored: ${removed.slice(0, 12).join(', ')}${removed.length > 12 ? ', …' : ''}.`,
       `Remove them from ${WORKFLOW_PATH}, or from the agent files named; nothing reads them.`));
+    // A setting that is read but not acted on yet: named once, so nobody waits for it [SSB M2]. M5's build fence ends this.
+    if (newStoryLayout(definition).held) checks.push(check('inactive-settings', 'warn',
+      'story.storage: state-ref is set but not active yet; new Stories use today\'s layout.',
+      'Nothing to do: Stories keep working as today, and a later SFlow turns it on.'));
   } catch (error) {
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
     if (performance) performanceReport = await appendPerformanceCheck(checks, root);

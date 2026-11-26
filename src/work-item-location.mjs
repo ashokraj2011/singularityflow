@@ -24,6 +24,19 @@ export function normalizeStoryPolicy(value) {
   return { storage };
 }
 
+/**
+ * The layout a NEW Story starts with [SSB:REQ-010]. `state-ref` is not finished (SSB M3 to M5), so until M5's build fence
+ * it is held back: a Story whose configuration asks for it starts on today's layout, records that for life, and says so
+ * in one line. Only SFlow's own tests and builders turn the preview on; nothing tells a person to.
+ */
+export const STORY_STATE_REF_PREVIEW = 'SINGULARITY_FLOW_STORY_STATE_REF_PREVIEW';
+export const STORY_STATE_REF_HELD = 'Story records on their own Git ref are not finished yet; this Story keeps them on its branch as today.';
+export function newStoryLayout(definition, env = process.env) {
+  if (definition?.story?.storage !== 'state-ref') return { layout: 'story-branch', held: false };
+  return env?.[STORY_STATE_REF_PREVIEW] === '1' ? { layout: 'state-ref', held: false }
+    : { layout: 'story-branch', held: true, notice: STORY_STATE_REF_HELD };
+}
+
 /** Normalize the configured durable Story root before it is used in a Git object expression. */
 export function normalizeWorkItemRoot(value = DEFAULT_WORK_ITEM_ROOT) {
   const candidate = String(value ?? DEFAULT_WORK_ITEM_ROOT).trim().replaceAll('\\', '/');

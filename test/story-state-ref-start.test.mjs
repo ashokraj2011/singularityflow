@@ -1,6 +1,8 @@
 // SSB M2 [SSB:REQ-002, 003, 006, 010]: with `story.storage: state-ref`, a new Story's records are created at its start
 // on refs/singularity/state/<ID> and checked out at .sflow-state/; the Story branch gets none of them. Without the
-// setting, Story start is today's, byte for byte (test/story-start.test.mjs runs unchanged).
+// setting, Story start is today's, byte for byte (test/story-start.test.mjs runs unchanged). Until the layout is
+// finished it is held back: only the preview switch these tests set turns it on; without it the Story starts on today's
+// layout and says so in one line.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -14,6 +16,19 @@ import { manualStorySource, startStory } from '../src/story-start.mjs';
 import { loadWorkflow } from '../src/story-workflow-read.mjs';
 import { forgetStoryLayouts, storyLocation } from '../src/story-paths.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
+import { STORY_STATE_REF_HELD, STORY_STATE_REF_PREVIEW } from '../src/work-item-location.mjs';
+
+/** The preview switch, on or off for this test only. */
+function preview(t, on = true) {
+  const was = process.env[STORY_STATE_REF_PREVIEW];
+  if (on) process.env[STORY_STATE_REF_PREVIEW] = '1';
+  else delete process.env[STORY_STATE_REF_PREVIEW];
+  t.after(() => { if (was === undefined) delete process.env[STORY_STATE_REF_PREVIEW]; else process.env[STORY_STATE_REF_PREVIEW] = was; });
+}
+const cli = (root, ...args) => run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), ...args], root);
+// doctor reports its checks whatever its exit status says about others.
+const doctor = (root, ...args) => spawnSync(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'doctor', ...args], {
+  cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'State Ref Tester' } }).stdout;
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
@@ -48,7 +63,8 @@ async function repository(t, { storage = 'state-ref', publish = 'off', configura
 
 test.afterEach(() => forgetStoryLayouts());
 
-test('story.storage: state-ref creates the Story\'s state ref and checkout at its start; the branch carries no record', async (t) => {
+test('with the preview on, story.storage: state-ref creates the Story\'s state ref and checkout at its start; the branch carries no record', async (t) => {
+  preview(t);
   const root = await repository(t);
   const base = run('git', ['rev-parse', 'HEAD'], root);
   const started = await startStory(root, { id: 'SSB-1', workType: 'feature', baseBranch: 'main',
@@ -97,6 +113,7 @@ test('without the setting a new Story starts on today\'s layout: records on the 
 });
 
 test('a refused state-ref Story start leaves no state ref, no checkout and no Story branch behind', async (t) => {
+  preview(t);
   const root = await repository(t);
   await assert.rejects(startStory(root, { id: 'SSB-3', workType: 'feature', baseBranch: 'main',
     source: manualStorySource('SSB-3', { title: 'Refused after its records were written' }),
@@ -115,6 +132,7 @@ test('a refused state-ref Story start leaves no state ref, no checkout and no St
 });
 
 test('with approved configuration on sflow/config, the pinned copy is a record too: it lives in the state checkout', async (t) => {
+  preview(t);
   const root = await repository(t, { configurationAuthority: true });
   const started = await startStory(root, { id: 'SSB-4', workType: 'feature', baseBranch: 'main',
     source: manualStorySource('SSB-4', { title: 'Pinned configuration off the code branch' }) });
@@ -131,6 +149,7 @@ test('with approved configuration on sflow/config, the pinned copy is a record t
 });
 
 test('a second laptop resumes a state-ref Story with --fetch: its records come with their own refspec [REQ-007]', async (t) => {
+  preview(t);
   const root = await repository(t);
   const started = await startStory(root, { id: 'SSB-5', workType: 'feature', baseBranch: 'main',
     source: manualStorySource('SSB-5', { title: 'Opened on a second laptop' }) });
@@ -152,6 +171,7 @@ test('a second laptop resumes a state-ref Story with --fetch: its records come w
 });
 
 test('a deleted state checkout is made again from the ref at the next command [REQ-006]', async (t) => {
+  preview(t);
   const root = await repository(t);
   const started = await startStory(root, { id: 'SSB-6', workType: 'feature', baseBranch: 'main',
     source: manualStorySource('SSB-6', { title: 'Rebuilt at the next command' }) });
@@ -166,6 +186,56 @@ test('a deleted state checkout is made again from the ref at the next command [R
   await writeFile(path.join(root, '.sflow-state/STATUS.md'), 'edited by hand\n');
   run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'status', '--json'], root);
   assert.equal(await readFile(path.join(root, '.sflow-state/STATUS.md'), 'utf8'), 'edited by hand\n');
+});
+
+test('held back without the preview: a state-ref configuration starts a Story on today\'s layout, says so once, and records it', async (t) => {
+  preview(t, false);
+  const root = await repository(t);
+  const started = await startStory(root, { id: 'SSB-8', workType: 'feature', baseBranch: 'main',
+    source: manualStorySource('SSB-8', { title: 'Held back' }) });
+  assert.deepEqual(started.storage, { layout: 'story-branch', requested: 'state-ref', notice: STORY_STATE_REF_HELD });
+  assert.equal(started.readiness.warnings.filter((warning) => warning.message === STORY_STATE_REF_HELD).length, 1);
+  assert.equal(existsSync(path.join(root, 'singularity/work-items/SSB-8/workflow.json')), true);
+  assert.equal(existsSync(path.join(root, '.sflow-state')), false);
+  assert.equal(spawnSync('git', ['rev-parse', '--verify', '--quiet', 'refs/singularity/state/SSB-8'], { cwd: root }).status, 1);
+  assert.doesNotMatch(await readFile(path.join(root, '.git/info/exclude'), 'utf8'), /sflow-state/u);
+  // The layout is recorded for life: turning the preview on later does not move this Story.
+  const recorded = JSON.parse(await readFile(path.join(root, 'singularity/work-items/SSB-8/workflow.json'), 'utf8'));
+  assert.deepEqual(recorded.resolution.story, { storage: 'story-branch' });
+  process.env[STORY_STATE_REF_PREVIEW] = '1';
+  forgetStoryLayouts();
+  assert.equal(storyLocation(root, [recorded, await loadDefinition(root)], 'SSB-8').layout, 'story-branch');
+  delete process.env[STORY_STATE_REF_PREVIEW];
+  // doctor names the held setting once, with nothing to type.
+  const report = JSON.parse(doctor(root, '--json'));
+  const checks = report.checks ?? report.data?.checks ?? [];
+  const notes = checks.filter((check) => check.id === 'inactive-settings');
+  assert.equal(notes.length, 1, JSON.stringify(report).slice(0, 400));
+  assert.equal(notes[0].message, "story.storage: state-ref is set but not active yet; new Stories use today's layout.");
+});
+
+test('the command-line start takes the same gate: held back says the line; the preview keeps the records on the state ref', async (t) => {
+  preview(t, false);
+  const held = await repository(t);
+  const plain = JSON.parse(cli(held, 'start', 'SSB-9', '--from-branch', 'main', '--work-type', 'feature', '--title', 'Held on the command line', '--json'));
+  const data = plain.data ?? plain;
+  assert.deepEqual(data.storage, { layout: 'story-branch', requested: 'state-ref', notice: STORY_STATE_REF_HELD });
+  assert.ok(data.readiness.warnings.some((warning) => warning.message === STORY_STATE_REF_HELD));
+  assert.equal(existsSync(path.join(held, 'singularity/work-items/SSB-9/workflow.json')), true);
+  assert.equal(existsSync(path.join(held, '.sflow-state')), false);
+  const text = doctor(held);
+  assert.equal(text.split('\n').filter((line) => line.includes('story.storage: state-ref is set but not active yet')).length, 1);
+  preview(t, true);
+  const root = await repository(t);
+  const base = run('git', ['rev-parse', 'HEAD'], root);
+  const started = JSON.parse(cli(root, 'start', 'SSB-10', '--from-branch', 'main', '--work-type', 'feature', '--title', 'On the state ref', '--json'));
+  const storage = (started.data ?? started).storage;
+  assert.equal(storage.layout, 'state-ref');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root), base);
+  assert.equal(run('git', ['status', '--porcelain', '--untracked-files=all'], root), '');
+  assert.equal(run('git', ['rev-parse', 'refs/singularity/state/SSB-10'], root), storage.commit);
+  assert.ok(run('git', ['ls-tree', '-r', '--name-only', 'refs/singularity/state/SSB-10'], root).split('\n').includes('workflow.json'));
+  assert.doesNotMatch(doctor(root), /not active yet/u);
 });
 
 test('the setting is checked: an unknown layout or key is refused when the configuration loads', async (t) => {

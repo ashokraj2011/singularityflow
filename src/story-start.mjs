@@ -64,6 +64,7 @@ import { resolveEffectiveCapabilityPolicy } from './capabilities.mjs';
 import { fosStoryConfigurationAuthority } from './onboard.mjs';
 import { collectRepositoryReadinessEvidence } from './repository-readiness-evidence.mjs';
 import { STATE_CHECKOUT, storyLocation } from './story-paths.mjs';
+import { newStoryLayout } from './work-item-location.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -708,7 +709,8 @@ export async function startStory(root, {
     // A new Story under `story.storage: state-ref` keeps SFlow's records on its own state ref, checked out at
     // .sflow-state/ [SSB:REQ-002, 003, 006]. The exclude line, the ref and the checkout come first, so every record
     // below lands there and the Story branch gets none of them. The approved configuration chooses; never the checkout.
-    if (initialDefinition.story?.storage === 'state-ref') {
+    // Until the layout is finished it is held back to today's (newStoryLayout), and the start result says so.
+    if (newStoryLayout(initialDefinition).layout === 'state-ref') {
       stateOpened = await (await import('./story-state-ref.mjs')).openStoryState(root, id, { definition: initialDefinition });
       await updateStoryStartJournal(root, id, startJournal.transactionId, {
         stage: 'state-opened', stateRef: { ref: stateOpened.ref, commit: stateOpened.commit }
@@ -923,6 +925,9 @@ export async function startStory(root, {
     );
   }
   const documents = initialDocuments;
+  // A configuration that asks for state-ref while it is held back: one plain line, beside the readiness advisories.
+  const held = newStoryLayout(initialDefinition);
+  if (held.held) startReadiness = { ...startReadiness, warnings: [...(startReadiness?.warnings ?? []), { id: 'story-storage-held', message: held.notice }] };
   // FOS:CON-004: Story start ends when governed Story state is durable. AST remains optional and
   // available immediately afterward, but start never launches scans or background workers. The
   // injected launcher argument is retained temporarily for source compatibility and deliberately
@@ -953,7 +958,8 @@ export async function startStory(root, {
       commit: publication.sha
     },
     // The state ref holds the Story's records; it is published with the Story branch from SSB M3 [REQ-005].
-    ...(stateOpened ? { storage: { layout: 'state-ref', ref: stateOpened.ref, commit: publication.sha, checkout: stateOpened.checkout, published: false } } : {}),
+    ...(stateOpened ? { storage: { layout: 'state-ref', ref: stateOpened.ref, commit: publication.sha, checkout: stateOpened.checkout, published: false } }
+      : held.held ? { storage: { layout: 'story-branch', requested: 'state-ref', notice: held.notice } } : {}),
     measurement: workflow.measurement?.plan ? {
       status: workflow.measurement.status,
       studyId: workflow.measurement.plan.studyId,

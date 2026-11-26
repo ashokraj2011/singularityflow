@@ -61,7 +61,8 @@ import { publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecove
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { userDefinedAgentWorkType } from '../user-defined-agent-identity.mjs';
-import { storyLocation } from '../story-paths.mjs';
+import { STATE_CHECKOUT, storyLocation } from '../story-paths.mjs';
+import { newStoryLayout } from '../work-item-location.mjs';
 
 export async function run(argv, { positionals, options }) {
   if (Object.hasOwn(options, 'prepare-only') || Object.hasOwn(options, 'discard-prepared')) {
@@ -1792,6 +1793,16 @@ async function startCommandAtRoot(positionals, options) {
   await updateStoryStartJournal(root, id, startJournal.transactionId, {
     stage: 'root-checked-out', createdBranch, checkoutMode: checkoutResult
   });
+  // A new Story under `story.storage: state-ref` keeps SFlow's records on its own state ref [SSB:REQ-002, 006]: the
+  // exclude line, the ref and .sflow-state/ come before any record. Held back to today's layout until it is finished.
+  const storyStorage = newStoryLayout(approvedConfigurationSnapshot?.definition ?? config);
+  let stateOpened = null;
+  if ((createdBranch || configurationHandoff) && storyStorage.layout === 'state-ref') {
+    stateOpened = await (await import('../story-state-ref.mjs')).openStoryState(root, id, { definition: approvedConfigurationSnapshot?.definition ?? config });
+    await updateStoryStartJournal(root, id, startJournal.transactionId, {
+      stage: 'state-opened', stateRef: { ref: stateOpened.ref, commit: stateOpened.commit }
+    });
+  }
 
   /**
    * The siblings follow the same base.
@@ -1847,8 +1858,10 @@ async function startCommandAtRoot(positionals, options) {
     ? await (await import('./start-configuration.mjs')).loadMaterializedConfigurationDefinition(root, approvedConfigurationSnapshot)
     : await loadConfig(root)));
   validateId(config, id);
+  // The pin, checked where it was materialized, is the state-ref Story's record: it moves into its state [REQ-003].
+  if (stateOpened && configurationSnapshot) configurationSnapshot = await (await import('../story-state-ref.mjs')).moveConfigurationIntoState(root, id, configurationSnapshot);
   await updateStoryStartJournal(root, id, startJournal.transactionId, {
-    stage: 'configuration-ready', workItemRelative: storyLocation(null, config, id).prefix
+    stage: 'configuration-ready', workItemRelative: storyLocation(null, config, id).branchPrefix
   });
   if (receiptToken && !receipt) {
     throw new SingularityFlowError('A start selection receipt requires an initialized workflow definition before checkout.');
@@ -1924,7 +1937,7 @@ async function startCommandAtRoot(positionals, options) {
   try {
     await measureCommandSpan('start.publication', () => withLedgerRemoteView(publicationStateViews, () => runDraftTransaction(root, {
       subject: { kind: 'story', id, branch: canonicalBranch },
-      allowedPaths: [storyLocation(null, config, id).prefix],
+      allowedPaths: [storyLocation(null, config, id).branchPrefix ?? STATE_CHECKOUT],
       operation: 'story-start',
       write: async (creationPreimage) => {
         const create = () => createWorkflow(root, config, {
@@ -2073,6 +2086,8 @@ async function startCommandAtRoot(positionals, options) {
   // Each code step's extra tests, the ones the steps after it chose, named before any code [PHR:REQ-007], item 8.
   const laterTests = (await import('../later-step-tests.mjs')).laterStepTestNotes(workflow);
   if (laterTests.length) startReadiness = { ...startReadiness, warnings: [...(startReadiness.warnings ?? []), ...laterTests] };
+  // A configuration that asks for state-ref while it is held back: one plain line with the advisories [SSB M2].
+  if (storyStorage.held) startReadiness = { ...startReadiness, warnings: [...(startReadiness.warnings ?? []), { id: 'story-storage-held', message: storyStorage.notice }] };
   const startResult = commandResult({
     operation: { id: 'start', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -2133,6 +2148,10 @@ async function startCommandAtRoot(positionals, options) {
         pushed: publication.pushed === true,
         commit: publication.sha
       },
+      // Where the Story keeps SFlow's records, when its configuration named a layout [SSB M2]. The state ref is
+      // published with the branch from SSB M3.
+      ...(stateOpened ? { storage: { layout: 'state-ref', ref: stateOpened.ref, commit: publication.sha, checkout: stateOpened.checkout, published: false } }
+        : storyStorage.held ? { storage: { layout: 'story-branch', requested: 'state-ref', notice: storyStorage.notice } } : {}),
       returnLocator: {
         path: returnLocator.path,
         integritySha256: returnLocator.locator.integritySha256,

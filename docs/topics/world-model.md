@@ -11,18 +11,21 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 43
+version: 44
 ---
 ## Purpose and prerequisites
 
-The World Model is the **Repository brief** that every phase prompt gets: a few cited bullets about
-the code the Story touches, read from the committed source with no build and no model call. It
-covers the rules that apply (with their messages and HTTP statuses), contracts, flows, what the
-Story's change touches, and the risky places. Each bullet ends with its source as a file and line
-(a line that cites nothing is left out); what could not be determined is one closing "Not known"
-line that names only what this phase's sections lack.
+The World Model is the **Repository brief** that a design, plan or code step's prompt gets: a few
+cited bullets about the code the Story touches, read from the committed source with no build and no
+model call. It covers the rules that apply (with their messages and HTTP statuses), contracts,
+flows, what the Story's change touches, and the risky places. Each bullet ends with its source as a
+file and line (a line that cites nothing is left out); what could not be determined is one closing
+"Not known" line that names only what this phase's sections lack.
 
-Phase prompts get it in a repository, where it is on by default; `wm knowledge` also reads a
+Design, plan, implementation-spec, reproduction and code steps get it by default. Intake and
+requirements steps (no code is known to change yet) and verification, conformance and release steps
+get none, and the prompt receipt says why (`BRIEF_NOT_FOR_THIS_STEP`). While a language's calls are
+only matched by name, the brief names no callers, chains or test reach. `wm knowledge` also reads a
 plain Git repository. No build, model or network access is required.
 
 ## What a phase receives
@@ -85,9 +88,10 @@ singularity-flow wm rules confirm RULE-ID                # a person confirms wha
 ## Turn it off
 
 - `worldModel.knowledge.prompt: off` leaves the brief out of every phase prompt (default `slice`).
+  It may also name steps: `{ intake: slice, design: off }` gives intake a brief and takes design's.
 - `worldModel.knowledge.maxBytes` (2048 to 32768) replaces the per-phase budgets for every phase.
-- A work type's `intelligence.worldModel: off` leaves the brief out for that work type; `inherit`
-  (the default) and `required` keep it.
+- A work type's `intelligence.worldModel: off` leaves the brief out for that work type; `on` (or
+  `required`) gives it to every step; `inherit` (the default) keeps the steps above.
 
 ## Source scope
 

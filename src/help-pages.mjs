@@ -2305,12 +2305,13 @@ const PAGES = Object.freeze({
     seeAlso: ['submit', 'epic', 'stack']
   },
   wm: {
-    summary: 'See the Repository brief each phase gets, read repository knowledge, and compose phase prompts.',
+    summary: 'See the Repository brief a step gets, read repository knowledge, and compose phase prompts.',
     description: [
-      'The World Model is the Repository brief every phase prompt gets, read from the source with no',
-      'build and no model: the rules that apply, contracts, flows, what the Story change touches and',
-      'the risky places. It is guidance and never blocks. `wm brief` shows what a phase receives;',
-      '`wm knowledge` reads what the code does (rules, journeys, tests) for the whole repository.',
+      'The World Model is the Repository brief a design, plan or code step\'s prompt gets, read from the',
+      'source with no build and no model: the rules that apply, contracts, flows, what the Story change',
+      'touches and the risky places. Intake, verification and release steps get none unless a work type',
+      'says `intelligence.worldModel: on`. It is guidance and never blocks. `wm brief` shows what a step',
+      'receives; `wm knowledge` reads what the code does (rules, journeys, tests) for the whole repository.',
       '',
       'A work type leaves the brief out with `intelligence.worldModel: off`, and',
       '`worldModel.knowledge.prompt: off` leaves it out everywhere. `worldModel.sourceRoots` and',

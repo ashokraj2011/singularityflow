@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "53e996c0034fff2c76fb3d800a7ec875abacd736",
+  "sourceCommit": "082cc1ed2e52075c25a9c05ff60b152b4797a99e",
   "topicCount": 96,
-  "contentSha256": "a265f3d49d7636f4a36176f89c04bb4951c6bda44c0f0cd3115c461a6e44fcb4",
+  "contentSha256": "5af1c6587fb7f5984c62da7232f285c6192632cf89da3178562c2ae1adec89dc",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -768,8 +768,8 @@
     {
       "id": "world-model",
       "title": "World Model and the Repository brief",
-      "version": 43,
-      "sha256": "f9036b141d3902fc9b884ca015719a495b099cfeec2d26b9d62a38e93867dcdc",
+      "version": 44,
+      "sha256": "4103b4fc99a337051fd51db912e18f2bac86be5a66de3402c01251726100cc90",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

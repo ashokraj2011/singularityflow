@@ -275,7 +275,7 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     workId: optional('identifier'),
     flightPlanId: optional('identifier'),
     expandHandle: optional('context-handle'),
-    slice: optional('enum', { values: ['brief', 'impact', 'world-model', 'ast', 'evidence', 'history', 'observation'] }),
+    slice: optional('enum', { values: ['brief', 'impact', 'ast', 'evidence', 'history', 'observation'] }),
     maxOutputBytes: optional('integer', { min: 4096, max: 128 * 1024 })
   }),
   schema('work-start-intake-v1', {

@@ -465,10 +465,19 @@ export function keepsStateRefStories(root) {
  * on any other branch reads its own configuration, as today. It never refuses unless `required`: a command that needs
  * the records says so itself.
  */
-export async function adoptStateCheckout(root, { required = false } = {}) {
+export async function adoptStateCheckout(root, { required = false, id: known = null } = {}) {
   if (!required && !keepsStateRefStories(root)) return null;
   const current = git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
-  const id = current.status === 0 ? String(current.stdout).trim() : '';
+  const branchName = current.status === 0 ? String(current.stdout).trim() : '';
+  // The Story is named by its Work ID; a branch named by a pattern is matched through the state checkout's workflow.
+  let id = known ?? branchName;
+  if (!known && branchName) {
+    try {
+      const recorded = JSON.parse(readFileSync(path.join(stateCheckoutPath(root), 'workflow.json'), 'utf8'));
+      const names = [recorded?.workItem?.branch, recorded?.lineage?.canonicalBranch];
+      if (recorded?.workItem?.id && names.includes(branchName)) id = recorded.workItem.id;
+    } catch { /* no state checkout, or not readable: the branch's own name */ }
+  }
   const branches = { ledger: { pinTransport: 'branches' } };
   const definition = id && refTip(root, storyStateRef(id)) ? null : id && refTip(root, storyStateRef(id, branches)) ? branches : undefined;
   if (definition === undefined) return null;

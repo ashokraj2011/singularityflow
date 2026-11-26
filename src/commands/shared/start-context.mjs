@@ -152,7 +152,7 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
     base: initialConfig.defaultBaseBranch, fetch: false, fetched: refreshed, existingOnly: true, remote
   });
   // The state checkout follows the Story branch: made, repaired or moved to the state ref [SSB:REQ-006].
-  if (stateStory) await (await import('../../story-state-ref.mjs')).adoptStateCheckout(executionRoot, { required: true });
+  if (stateStory) await (await import('../../story-state-ref.mjs')).adoptStateCheckout(executionRoot, { required: true, id: resolved.workId });
   const accepted = await loadAcceptedStoryExecution(executionRoot, resolved.workId);
   const config = accepted.definition;
   const workflow = accepted.workflow;

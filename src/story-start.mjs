@@ -792,7 +792,7 @@ export async function startStory(root, {
       // checkout [SSB:REQ-007]. Asked only when the branch holds no Story, so today's layout pays nothing.
       const stateRef = await import('./story-state-ref.mjs');
       const state = await stateRef.resumeStoryState(root, id, { remote, fetch: remoteExisted }).catch(() => null);
-      if (state) await stateRef.adoptStateCheckout(root, { required: true });
+      if (state) await stateRef.adoptStateCheckout(root, { required: true, id });
       if (state) resumedDefinition = await loadDefinition(root);
       try { if (state) resumedWorkflow = await loadWorkflow(root, resumedDefinition, id); } catch { /* refused below */ }
       if (!resumedWorkflow) throw new SingularityFlowError(

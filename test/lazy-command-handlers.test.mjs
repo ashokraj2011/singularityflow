@@ -1105,7 +1105,7 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // intelligence.worldModel may be `on` (config.mjs, intelligence-policy.mjs) [WMR:REQ-011]. No new eager file.
     // 9,920,718 (measured for submit.mjs on main 4c8b464a6 with wmr-m1m2 merged, 2026-11-26; start.mjs 9,919,970): the
     // +1,091 above on top of wm-clean. No new eager file.
-    // 9,927,970 (measured for start.mjs, +12,362 over 9,915,608 at 2809f6edc, 2026-11-26 on ssb-m2; submit.mjs 9,926,552,
+    // 9,927,991 (measured for start.mjs, +12,383 over 9,915,608 at 2809f6edc, 2026-11-26 on ssb-m2; submit.mjs 9,926,552,
     // +10,196): a Story under story.storage: state-ref keeps its records on its state ref [SSB M2]: the resolver's
     // layout memory, records root and refusing prefix (story-paths.mjs), the pinned-copy read root
     // (configuration-read-scope.mjs), the setting (work-item-location.mjs, config.mjs), the state checkout found by the
@@ -1113,7 +1113,7 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // start-path records through the records root (workflow-snapshots.mjs, state.mjs, work-intervals.mjs,
     // story-policy-anchor.mjs, story-state-write.mjs), resume's state fetch (start-context.mjs) and start recovery
     // (story-start-journal.mjs). The state ref's own module loads lazily. No new eager file.
-    assert.ok(closure.bytes <= 9_927_970, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_927_991, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

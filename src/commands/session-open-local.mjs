@@ -35,8 +35,8 @@ async function synchronizeLocalStory(checkout, workId) {
     // A Story kept on its state ref brings its records along, into a tracking ref of their own [SSB:REQ-007].
     if (existsSync(path.join(checkout, STATE_CHECKOUT))) {
       const stateRef = await import('../story-state-ref.mjs');
-      await stateRef.resumeStoryState(checkout, storyBranch, { remote, fetch: true });
-      await stateRef.adoptStateCheckout(checkout);
+      await stateRef.resumeStoryState(checkout, workId, { remote, fetch: true });
+      await stateRef.adoptStateCheckout(checkout, { id: workId });
     }
   } catch (error) {
     return { status: 'unavailable', remote, code: error.code ?? null,

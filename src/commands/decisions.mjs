@@ -820,7 +820,7 @@ function changedList(packet, confirm, phaseId) {
  * The step's next version a preview proposed on this clone, on the Story as it is, waiting for the person's yes: what the
  * decisions card asks [D3, OSA:REQ-030, Stage 4]. Null when there is none, the kernel no longer asks it, or a yes is given.
  */
-async function versionOpeningOf(root, workflow) {
+export async function versionOpeningOf(root, workflow) {
   const phase = workflow.phases?.[workflow.currentPhase];
   if (!phase || workflow.status !== 'in_progress') return null;
   // An approved amendment is acknowledged first: its item asks, and the version question comes on the next read (owner, 2026-11-17).

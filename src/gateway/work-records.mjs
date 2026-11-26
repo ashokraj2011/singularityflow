@@ -162,7 +162,8 @@ function actorMatches(actor, candidate) {
     .some((value) => values.includes(String(value).toLowerCase()));
 }
 
-function mayDecideApproval(workflow, phase, actor, submitted, fallbackAuthorities = null) {
+/** Also Needs you's check [FPL:REQ-008]. */
+export function mayDecideApproval(workflow, phase, actor, submitted, fallbackAuthorities = null) {
   const policy = phase?.approvalPolicy ?? {};
   let match;
   try {

@@ -1060,7 +1060,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (person-step-catalog.mjs) [ITW:REQ-015]. No new eager file.
     // 9,906,063 (+216, measured 2026-11-26 on itw-all2 merged with main 867d6da4a): main's Ask SFlow Story conversation and
     // local help commits, small edits across modules the closure already held. No new eager file.
-    assert.ok(closure.bytes <= 9_906_063, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,906,176 (measured for submit.mjs, +113 over 9,906,063 at 480c2f936, 2026-11-26 on fpl-m1; start.mjs 9,905,586, +383):
+    // `needs-you` registered as a read with /sf-inbox as its skill (command-registry.mjs, command-skills.mjs), and Story
+    // discovery skips a Story Needs you keeps (session-story-discovery.mjs) [FPL:REQ-017]. No new eager file.
+    assert.ok(closure.bytes <= 9_906_176, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1244,7 +1247,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 879,170 (measured, +28, 2026-11-26 on itw-walks): `work behaviour` registered as a mutation (command-registry.mjs)
   // [ITW:REQ-015]. No new eager file.
   // 879,384 (measured on itw-all2 with itw-walks merged, 2026-11-26): `work behaviour` and the marketplace's new options registered. No new eager file.
-  assert.ok(root.bytes <= 879_384, `root dispatch loads ${root.bytes} source bytes`);
+  // 879,481 (+97, measured 2026-11-26 on fpl-m1): `needs-you` registered as a read and left out of active-workspace
+  // routing, as `inbox` is (command-registry.mjs, cli-entry.mjs) [FPL:REQ-010]. No new eager file.
+  assert.ok(root.bytes <= 879_481, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1661,7 +1666,9 @@ test('the common session projection does not import attach, state stores or publ
   // family SF Guard signs and counts (person-step-catalog.mjs) [ITW:REQ-015]. No new eager file.
   // 4,367,275 (+216, measured 2026-11-26 on itw-all2 merged with main 867d6da4a): main's Ask SFlow Story conversation and
   // local help commits, small edits across modules it already loaded. No new eager file.
-  assert.ok(current.bytes <= 4_367_275, `session current loads ${current.bytes} source bytes`);
+  // 4,367,388 (+113, measured 2026-11-26 on fpl-m1): `needs-you` registered with /sf-inbox as its skill (command-registry.mjs,
+  // command-skills.mjs) [FPL:REQ-038]. No new eager file.
+  assert.ok(current.bytes <= 4_367_388, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

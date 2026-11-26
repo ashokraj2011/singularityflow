@@ -612,6 +612,7 @@ Every public operation is classified before its implementation module is importe
 | meta-tool.propose | mutation | never | — | — |
 | meta-tool.revoke | mutation | never | — | — |
 | meta-tool.rollback | mutation | never | — | — |
+| needs-you | read | never | — | — |
 | next.model-free | mutation | never | — | — |
 | next.orchestrate | mutation | optional | next.model-free | copilot-cli |
 | nextsteps | read | never | — | — |

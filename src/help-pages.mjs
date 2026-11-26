@@ -2186,6 +2186,33 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['fix', 'fault', 'status', 'review']
   },
+  'needs-you': {
+    summary: 'Everything waiting on you across the active workspace\'s repositories, oldest first.',
+    description: [
+      'Reads every repository of the active workspace (one not cloned yet is read from its remote URL) and lists',
+      'what waits on you: step approvals, workflow decisions, decisions on Stories checked out here, a step\'s next',
+      'version, a task\'s intake answers, configuration changes you may approve and Initiative approvals.',
+      'Each repository is judged with the identity SFlow records with there; an item SFlow cannot tell is yours is',
+      'shown and labelled. Holds work comes first, then Reviews, then Later.',
+      '',
+      'It changes nothing. What it read is kept, so a Story that did not change is not read again; --offline shows',
+      'what was kept and fetches nothing. A repository that cannot be read keeps its last items with one line.',
+      '`show <KEY>` prints one item\'s card: what it is about, what SFlow checked, its recommendation, and the',
+      'command for each choice, which runs today\'s path for its kind.'
+    ],
+    options: [
+      ['--offline', 'Show what was kept from the last read; start no Git fetch.'],
+      ['--refresh', 'Read every Story again, not only those that changed.'],
+      ['--all', 'List every item; the terminal shows the first 50 otherwise.'],
+      ['--json', 'Emit sflow-needs-you (or sflow-needs-you-card for show), the read VS Code and /sf-inbox use.']
+    ],
+    examples: [
+      ['singularity-flow needs-you', 'See what waits on you in every repository of the workspace.'],
+      ['singularity-flow needs-you --offline --json', 'Paint from the last read without fetching.'],
+      ['singularity-flow needs-you show shop-web:TASK-12:approve:plan:1', 'Open one item\'s card.']
+    ],
+    seeAlso: ['inbox', 'approve', 'decisions', 'workspace']
+  },
   approvals: {
     summary: 'Show the Story approval chain with every phase document and human decision.',
     description: [

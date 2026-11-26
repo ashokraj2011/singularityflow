@@ -431,6 +431,15 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
       });
     }
   } else {
+    // A state-ref Story's start is complete once its state ref holds the Story's workflow [SSB M2].
+    if (record.stateRef) {
+      const { stateStartCompleted } = await import('./story-state-ref.mjs');
+      const commit = stateStartCompleted(root, record.stateRef);
+      if (commit) {
+        await clearStoryStartJournal(root, id, record.transactionId);
+        return { status: 'completed', preserved: true, commit };
+      }
+    }
     const completion = await completedWorkflowAtTarget(root, record, publication);
     if (completion.completed) {
       await clearStoryStartJournal(root, id, record.transactionId);
@@ -475,6 +484,16 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
     );
   }
 
+  // A state-ref Story that never finished starting: its state checkout and ref go, as its branch does below.
+  if (record.stateRef) {
+    const { discardUnstartedStoryState } = await import('./story-state-ref.mjs');
+    const failure = discardUnstartedStoryState(root, record.stateRef);
+    if (failure) {
+      await updateStoryStartJournal(root, id, record.transactionId, { stage: 'recovery-diverged', recoveryErrors: [failure] });
+      throw new SingularityFlowError(`Story '${id}' start recovery stopped safely: ${failure}. The journal was retained.`,
+        { code: 'STORY_START_RECOVERY_DIVERGED', details: { failures: [failure] } });
+    }
+  }
   // Configuration materialization only happens after the root is on the Story branch. If a prior
   // recovery already returned to the original branch, replaying these bytes there would corrupt a
   // stable checkout.

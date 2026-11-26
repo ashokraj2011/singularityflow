@@ -8,7 +8,7 @@ import { SingularityFlowError, exists, readJson } from './util.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { scopedRead } from './read-scope.mjs';
 import { sourceFileAt } from './source-inspection.mjs';
-import { storiesRoot } from './story-paths.mjs';
+import { STATE_CHECKOUT, rememberStoryLayout, storiesRoot } from './story-paths.mjs';
 
 function unique(values) {
   return [...new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean))];
@@ -176,6 +176,28 @@ async function scanDirectory(index, root, base, suffix, parser, family) {
 }
 
 /**
+ * A state-ref Story's records, in the checkout's state checkout [SSB:REQ-006, M2]. Its folder name is fixed, so no
+ * definition is needed to find it; finding it remembers the Story's layout for this process.
+ */
+async function scanStateCheckout(index, root) {
+  const relative = `${STATE_CHECKOUT}/workflow.json`;
+  const absolute = path.join(root, STATE_CHECKOUT, 'workflow.json');
+  if (!(await exists(absolute))) return;
+  try {
+    const record = readRecord('story-workflow', await readJson(absolute)).record;
+    const id = String(record?.workItem?.id ?? '').trim();
+    const candidate = storyEntry(record, {
+      source: 'state-checkout', path: relative, directory: id, branch: null, ref: null, commit: null
+    });
+    if (!candidate) return;
+    rememberStoryLayout(root, candidate.id, 'state-ref');
+    index.add(candidate);
+  } catch (error) {
+    index.unreadable.push(stateDiagnostic({ path: relative, reason: error.message }));
+  }
+}
+
+/**
  * Every Story and Initiative in the working tree. Inside a read scope the scan is done once: a full
  * snapshot asked for it from several slices, each reading and parsing every workflow.json again.
  */
@@ -185,6 +207,7 @@ export async function buildRepositorySubjectIndex(root, { definition = {}, portf
   return scopedRead(`subjectIndex:${path.resolve(root)}\0${workRoot}\0${initiativeRoot}`, async () => {
     const index = new RepositorySubjectIndex();
     await scanDirectory(index, root, path.join(root, workRoot), 'workflow.json', storyEntry, 'story-workflow');
+    await scanStateCheckout(index, root);
     await scanDirectory(index, root, path.join(root, initiativeRoot), 'state.json', initiativeEntry, 'initiative-state');
     return index;
   });

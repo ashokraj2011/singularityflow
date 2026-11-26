@@ -62,6 +62,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   fault = null
 } = {}) {
   validateId(config, workflow?.workItem?.id);
+  // A state-ref Story's records are committed on its state ref, never on its branch [SSB:REQ-002, 006; M2]. Its
+  // publication (one atomic push with the branch, the ledger and the pin) is M3: until then the state commit is local.
+  const stateRef = storyLocation(root, [workflow, config], workflow.workItem.id).layout === 'state-ref';
   if (revisionPublication !== null && (typeof revisionPublication !== 'object'
       || Array.isArray(revisionPublication))) {
     throw new SingularityFlowError('REV publication selection must be an internal exact binding.', {
@@ -157,7 +160,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     ? 'explicit'
     : 'implicit-local-parent';
   let governedPublicationAuthority = publicationAuthority;
-  if (publicationMode !== 'off' && expectedRemoteSha === undefined) {
+  if (publicationMode !== 'off' && expectedRemoteSha === undefined && !stateRef) {
     governedPublicationAuthority ??= configuredRemoteAuthority(
       root, config.git?.remote ?? 'origin'
     );
@@ -217,13 +220,13 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   // post-approval metadata (so the next command reported "Artifact changed after registration" and
   // blamed the operator) and a complete approved decision on disk for an approval that was undone —
   // which the next successful governed commit would then sweep into signed, pushed, attested history.
-  const workDirectory = storyLocation(null, config, workflow.workItem.id).prefix;
+  const workDirectory = storyLocation(null, [workflow, config], workflow.workItem.id).branchPrefix;
   const lessonPaths = event?.type === 'phase-approved' ? ['singularity/knowledge/records'] : [];
   // Narrow evidence/appeal transactions must not sweep an unfinished phase draft into a commit.
   // The subject state and status projection remain mandatory owned paths; callers cannot use this
   // internal option to commit application code or another Story's files.
   if (exactWorkItemPaths !== null && (!Array.isArray(exactWorkItemPaths)
-      || exactWorkItemPaths.some(file => typeof file !== 'string' || !file.startsWith(`${workDirectory}/`)
+      || exactWorkItemPaths.some(file => typeof file !== 'string' || (!stateRef && !file.startsWith(`${workDirectory}/`))
         || file.split('/').some(segment => !segment || segment === '.' || segment === '..')
         || /[\\\x00-\x1f]/u.test(file)))) {
     throw new SingularityFlowError('Exact Story publication paths must stay inside this work item.', { code: 'STORY_PUBLICATION_SCOPE_INVALID' });
@@ -255,7 +258,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       return revisionSelection;
     }
   };
-  const result = await lifecycleAuthority(root).publish({
+  const authority = stateRef
+    ? (await import('./story-state-ref.mjs')).storyStateAuthority(root, workflow.workItem.id, { definition: config })
+    : lifecycleAuthority(root);
+  const result = await authority.publish({
     subject: envelope.subject,
     expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
     // An approved step's lessons are committed with its approval [LRN:REQ-005].
@@ -459,7 +465,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     pendingRecord: () => pendingMetadata,
     retainPendingOnSuccess: Boolean(publicationTail),
     revisionAttestation,
-    ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: storyLocation(null, config, workflow.workItem.id).prefix },
+    ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: storyLocation(null, [workflow, config], workflow.workItem.id).branchPrefix },
     afterOwnedWrites,
     validateProspectiveTree: async ({ event: finalizedEvent, prospectiveTree }) => {
       await validateDocumentPublicationTree(root, config, workflow, finalizedEvent, { prospectiveTree });
@@ -470,7 +476,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     transactionId,
     fault
   });
-  if (workflow[Symbol.for('singularity-flow.state-revision')]) {
+  // The revision binds the code checkout's HEAD; a state commit leaves the Story branch where it was.
+  if (workflow[Symbol.for('singularity-flow.state-revision')] && !stateRef) {
     workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;
   }
   globalThis[Symbol.for('singularity-flow.story-committed')] = true;

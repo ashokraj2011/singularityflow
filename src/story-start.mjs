@@ -63,7 +63,7 @@ import { validateConfigurationSnapshotCapabilities } from './capability-context.
 import { resolveEffectiveCapabilityPolicy } from './capabilities.mjs';
 import { fosStoryConfigurationAuthority } from './onboard.mjs';
 import { collectRepositoryReadinessEvidence } from './repository-readiness-evidence.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { STATE_CHECKOUT, storyLocation } from './story-paths.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -366,6 +366,8 @@ export async function startStory(root, {
   let capabilityTailStaged = false;
   let documentCapture = null;
   let checkoutMode;
+  // SSB M2: the new Story's state ref and checkout, when `story.storage: state-ref` chose them.
+  let stateOpened = null;
   try {
   if (existed) {
     checkoutMode = await checkout(root, id, {
@@ -703,6 +705,15 @@ export async function startStory(root, {
       surface: 'programmatic'
     });
     assertStoryStartReady(startReadiness);
+    // A new Story under `story.storage: state-ref` keeps SFlow's records on its own state ref, checked out at
+    // .sflow-state/ [SSB:REQ-002, 003, 006]. The exclude line, the ref and the checkout come first, so every record
+    // below lands there and the Story branch gets none of them. The approved configuration chooses; never the checkout.
+    if (initialDefinition.story?.storage === 'state-ref') {
+      stateOpened = await (await import('./story-state-ref.mjs')).openStoryState(root, id, { definition: initialDefinition });
+      await updateStoryStartJournal(root, id, startJournal.transactionId, {
+        stage: 'state-opened', stateRef: { ref: stateOpened.ref, commit: stateOpened.commit }
+      });
+    }
     if (configurationAuthority) {
       const configurationRestorePoint = await captureConfigurationState(root);
       await updateStoryStartJournal(root, id, startJournal.transactionId, {
@@ -717,6 +728,10 @@ export async function startStory(root, {
         workTypes: [workType],
         agents: [agent].filter(Boolean)
       });
+      // The pinned copy is the Story's record too: it moves into the state checkout, at its usual paths [REQ-003].
+      if (stateOpened && configurationSnapshot) {
+        configurationSnapshot = await (await import('./story-state-ref.mjs')).moveConfigurationIntoState(root, id, configurationSnapshot);
+      }
     }
   }
 
@@ -754,7 +769,7 @@ export async function startStory(root, {
     assertStoryStartReady(startReadiness);
   }
   if (startJournal) await updateStoryStartJournal(root, id, startJournal.transactionId, {
-    stage: 'configuration-ready', workItemRelative: storyLocation(null, definition, id).prefix
+    stage: 'configuration-ready', workItemRelative: storyLocation(null, definition, id).branchPrefix
   });
   const targetOrigin = storyStartTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, resolved.phases,
     { required: !existed, workType });
@@ -799,7 +814,8 @@ export async function startStory(root, {
   let returnLocator;
   await runDraftTransaction(root, {
     subject: { kind: 'story', id, branch: id },
-    allowedPaths: [storyLocation(null, definition, id).prefix],
+    // A state-ref Story writes its records in its state checkout only.
+    allowedPaths: [storyLocation(null, definition, id).branchPrefix ?? STATE_CHECKOUT],
     operation: 'story-start',
     write: async (creationPreimage) => {
       workflow = await createWorkflow(root, definition, {
@@ -928,6 +944,8 @@ export async function startStory(root, {
       pushed: publication.pushed === true,
       commit: publication.sha
     },
+    // The state ref holds the Story's records; it is published with the Story branch from SSB M3 [REQ-005].
+    ...(stateOpened ? { storage: { layout: 'state-ref', ref: stateOpened.ref, commit: publication.sha, checkout: stateOpened.checkout, published: false } } : {}),
     measurement: workflow.measurement?.plan ? {
       status: workflow.measurement.status,
       studyId: workflow.measurement.plan.studyId,

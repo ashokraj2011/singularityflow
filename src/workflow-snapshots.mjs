@@ -34,7 +34,7 @@ import {
   SingularityFlowError, gitHeadIsUnborn, gitOutsideRepository, posix, readJson, run, secureRepositoryPath,
   writeBytes, writeJson
 } from './util.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { STATE_CHECKOUT, storyLocation } from './story-paths.mjs';
 
 const SNAPSHOT_FAMILY = 'workflow-snapshot';
 const SNAPSHOT_REFERENCE_FAMILY = 'workflow-snapshot-reference';
@@ -127,8 +127,21 @@ function digestHex(value, label) {
 }
 
 function storyRelative(config, workId, child = '') {
-  const root = storyLocation(null, config, workId).prefix;
+  const location = storyLocation(null, config, workId);
+  // A state-ref Story's records are named inside its state [SSB:REQ-009]: `child`, or '.' for the whole store.
+  if (!location.branch) return child ? location.record(child) : '.';
+  const root = location.prefix;
   return child ? `${root}/${child}` : root;
+}
+
+/**
+ * Where `storyRelative` paths are files, and where Git reads their history: the checkout, or a state-ref Story's state
+ * checkout, whose HEAD is the state ref [SSB M2]. Today's layout: `root` itself.
+ */
+function recordsRoot(root, config, workId) {
+  // Already the state checkout: a caller that converted its root passes it on unchanged.
+  if (path.basename(String(root)) === STATE_CHECKOUT) return root;
+  return storyLocation(root, config, workId).recordsRoot;
 }
 
 function clonePolicy(resolution) {
@@ -180,7 +193,8 @@ async function stableFile(file, label) {
   return { bytes, sha256: sha256(bytes), size: bytes.byteLength };
 }
 
-async function installBlob(root, config, workId, captured) {
+async function installBlob(checkoutRoot, config, workId, captured) {
+  const root = recordsRoot(checkoutRoot, config, workId);
   const attributesRelative = storyRelative(
     config, workId, 'config/wfa/blobs/.gitattributes'
   );
@@ -371,7 +385,7 @@ async function captureWorkflowLibrarySkills(root, config, workflow) {
 async function captureReferencedInstructions(root, config, workId, assets) {
   const required = new Set(); const bytes = new Map(); const capturedAssets = []; let placed = false; let inline = false;
   for (const asset of assets.filter(instructionOwner)) {
-    const source = await stableFile(path.join(root, asset.blob.path), 'Retained skill instructions');
+    const source = await stableFile(path.join(recordsRoot(root, config, workId), asset.blob.path), 'Retained skill instructions');
     if (qualified(source.sha256) !== asset.blob.sha256) fail('Retained skill changed during instruction capture.', 'WFA_SOURCE_STALE');
     bytes.set(asset.logicalId, source.bytes);
     const skill = parseLibrarySkill(source.bytes.toString('utf8'), { id: asset.source.skillId ?? asset.source.dependencyId });
@@ -788,7 +802,7 @@ function verifyPublishedTestCommandBinding(root, config, workflow, decision, atC
   const oldPublication = original.phases?.[phase.id]?.generationPublications?.find(entry => entry.generation === phase.generation);
   if (!oldPublication || canonicalJson(oldPublication) !== canonicalJson(publication)) fail('Published command amendment changed its immutable historical publication.', 'WFA_AMENDMENT_INVALID');
   const publicationPath = publication.record.path;
-  if (!publicationPath.startsWith(`${storyRelative(config, workflow.workItem.id)}/context/generation-publications/`)) fail('Historical publication belongs to another Story.', 'WFA_PATH_REFUSED');
+  if (!publicationPath.startsWith(`${storyRelative(config, workflow.workItem.id, 'context/generation-publications')}/`)) fail('Historical publication belongs to another Story.', 'WFA_PATH_REFUSED');
   const originalBytes = readCommittedJson(root, publicationCommit, publicationPath, 'Original generation publication record').bytes;
   const retainedBytes = readCommittedJson(root, atCommit, publicationPath, 'Retained generation publication record').bytes;
   const currentBytes = readCommittedJson(root, 'HEAD', publicationPath, 'Current retained generation publication record').bytes;
@@ -1278,7 +1292,7 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
     selectedSkills.length ? 'wfa.snapshot.v2' : 'wfa.snapshot.v1', manifestCore(manifest)
   );
   const manifestPath = storyRelative(config, workId, 'config/wfa/snapshots/000001/manifest.json');
-  const target = await secureRepositoryPath(root, manifestPath, { label: 'Workflow snapshot manifest' });
+  const target = await secureRepositoryPath(recordsRoot(root, [workflow, config], workId), manifestPath, { label: 'Workflow snapshot manifest' });
   if (target.exists) fail('Workflow snapshot revision 1 already exists.', 'WFA_REVISION_CONFLICT');
   await mkdir(path.dirname(target.absolute), { recursive: true });
   await writeJson(target.absolute, manifest);
@@ -1523,7 +1537,7 @@ export async function captureWorkflowTestCommandAmendment(root, config, currentW
   try { review = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(reviewSaved.bytes)); }
   catch { fail('Test-command human review is not valid JSON.', 'WFA_AMENDMENT_INVALID'); }
   validateTestCommandReview(review, decision, currentWorkflow);
-  if (!await verifyTestCommandReviewOrigin(root, path.join(root, storyRelative(config, workId)), review)) fail('Test-command amendment requires a live same-host human review origin; re-review on this host.', 'TCA_AUTHORITY_ORIGIN_UNAVAILABLE');
+  if (!await verifyTestCommandReviewOrigin(root, path.join(recordsRoot(root, config, workId), storyRelative(config, workId)), review)) fail('Test-command amendment requires a live same-host human review origin; re-review on this host.', 'TCA_AUTHORITY_ORIGIN_UNAVAILABLE');
   const manifestPath = storyRelative(config, workId, `config/wfa/snapshots/${String(revision).padStart(6, '0')}/manifest.json`);
   const target = await secureRepositoryPath(root, manifestPath, { label: 'New test-command snapshot manifest' });
   if (target.exists) fail(`Workflow snapshot revision ${revision} already exists.`, 'WFA_REVISION_CONFLICT');
@@ -1655,7 +1669,7 @@ export function hasRetainedWorkflowSnapshotDraft(root, config, workflow) {
   const retained = workflow && RETAINED_CREATION_DRAFTS.get(workflow);
   if (!retained || canonicalJson(retained) !== canonicalJson(workflow.workflowSnapshot)) return false;
   const workflowRelative = storyRelative(config, workflow.workItem.id, 'workflow.json');
-  const accepted = storyHistoryCommits(root, [
+  const accepted = storyHistoryCommits(recordsRoot(root, [workflow, config], workflow.workItem.id), [
     '--format=%H', '--diff-filter=A', '--max-count=1', '--', workflowRelative
   ], `Story '${workflow.workItem.id}' creation record`);
   return !accepted.length;
@@ -1667,7 +1681,7 @@ async function readRetainedDraftSkillPackages(root, config, workflow) {
     fail('Unaccepted skill Story has no prior retained package closure.',
       'WFA_DEPENDENCY_UNAVAILABLE');
   }
-  const safe = await secureRepositoryPath(root, reference.manifestPath, {
+  const safe = await secureRepositoryPath(recordsRoot(root, [workflow, config], workflow.workItem.id), reference.manifestPath, {
     label: 'Unaccepted skill snapshot manifest', mustExist: true, type: 'file'
   });
   const raw = await readJson(safe.absolute);
@@ -1729,7 +1743,7 @@ export async function finalizeDraftWorkflowSnapshot(root, config, workflow) {
     ? await readRetainedDraftSkillPackages(root, config, workflow)
     : null;
   const relative = storyRelative(config, workflow.workItem.id, 'config/wfa');
-  const target = await secureRepositoryPath(root, relative, {
+  const target = await secureRepositoryPath(recordsRoot(root, [workflow, config], workflow.workItem.id), relative, {
     label: 'Unaccepted workflow snapshot draft'
   });
   if (target.exists && !target.entry.isDirectory()) {
@@ -1974,7 +1988,8 @@ function gitTreeEntries(root, commit, paths, label, {
   return new Map([...entries].map(([relative, entry]) => [relative, blobs.get(entry.oid)]));
 }
 
-function initialSnapshotAuthority(root, config, workId) {
+function initialSnapshotAuthority(checkoutRoot, config, workId) {
+  const root = recordsRoot(checkoutRoot, config, workId);
   const workflowRelative = storyRelative(config, workId, 'workflow.json');
   const repository = run('git', ['rev-parse', '--git-dir'], {
     cwd: root, allowFailure: true
@@ -2098,8 +2113,9 @@ function rejectionBindingVersion(binding) {
 }
 
 /** Share rejection proofs only through the existing routine-verification boundary. */
-export async function verifyStoryRejectionAudit(root, config, workflow) {
+export async function verifyStoryRejectionAudit(checkoutRoot, config, workflow) {
   if (!amendmentSummaries(workflow).length && !(workflow.resolution?.phases ?? []).some(phase => phase.kind === 'skill')) return;
+  const root = recordsRoot(checkoutRoot, [workflow, config], workflow.workItem.id);
   const { cachedRepositoryCheck } = await import('./repository-check-cache.mjs');
   await cachedRepositoryCheck(root, { kind: 'story-rejection-audit', identity: { workflow, workItemRoot: config.workItemRoot },
     files: [path.join(root, storyRelative(config, workflow.workItem.id, 'workflow.json'))]
@@ -2455,7 +2471,7 @@ async function validateAcceptedTestCommandEvidence(root, config, workId, {
   const draftBytes = gitTreeEntries(root, acceptanceCommit, [draftPath], 'Test-command reviewed draft',
     { maximumBytes: MAXIMUM_BUNDLE_BYTES, maximumObjectBytes: MAXIMUM_BUNDLE_BYTES }).get(draftPath);
   const intentPath = phase.generationIntent?.path;
-  if (!intentPath || !intentPath.startsWith(`${storyRelative(config, workId)}/`)) fail('Test-command review lost its original authoring receipt.', 'WFA_AMENDMENT_INVALID');
+  if (!intentPath || !(storyRelative(config, workId) === '.' || intentPath.startsWith(`${storyRelative(config, workId)}/`))) fail('Test-command review lost its original authoring receipt.', 'WFA_AMENDMENT_INVALID');
   const originalIntent = parent.phases[decision.phaseId].generationIntent
     ? readCommittedJson(root, `${acceptanceCommit}^1`, intentPath, 'Original test-command authoring intent') : null;
   const retainedIntent = readCommittedJson(root, acceptanceCommit, intentPath, 'Retained test-command authoring intent');
@@ -2512,7 +2528,7 @@ async function validateAcceptedTestCommandEvidence(root, config, workId, {
   const matches = (workflow.testCommandAmendments ?? []).filter((entry) => entry.id === decision.id);
   if (matches.length !== 1 || canonicalJson(matches[0]) !== canonicalJson(expectedSummary)
       || (parent.testCommandAmendments ?? []).some((entry) => entry.id === decision.id)) fail('Test-command acceptance does not retain its exact append-only review summary.', 'WFA_AMENDMENT_INVALID');
-  const originPresent = await verifyTestCommandReviewOrigin(root, path.join(root, storyRelative(config, workId)), review.record);
+  const originPresent = await verifyTestCommandReviewOrigin(root, path.join(recordsRoot(root, config, workId), storyRelative(config, workId)), review.record);
   if (!originPresent && !originInspection) fail('Test-command review has no same-host live presentation origin; explicit re-review is required.', 'TCA_AUTHORITY_ORIGIN_UNAVAILABLE');
   if (originInspection) originInspection.push({ path: expectedReviewPath, sha256: decision.review.sha256,
     review: structuredClone(review.record), originPresent,
@@ -2730,7 +2746,7 @@ async function verifyBlob(root, config, workId, blob, label, { acceptedBytes = n
     }
     return { bytes: Buffer.from(bytes), sha256: digest, size: bytes.byteLength };
   }
-  const safe = await secureRepositoryPath(root, blob.path, {
+  const safe = await secureRepositoryPath(recordsRoot(root, config, workId), blob.path, {
     label: `${label} blob`, type: 'file'
   });
   if (!safe.exists) fail(`${label} has no retained blob bytes.`, 'WFA_DEPENDENCY_UNAVAILABLE');
@@ -3027,7 +3043,7 @@ export async function verifyWorkflowSnapshot(root, config, workflow, options = {
     const { cachedRepositoryCheck } = await import('./repository-check-cache.mjs');
     const result = await cachedRepositoryCheck(root, { kind: 'accepted-workflow',
       identity: { workflow, workItemRoot: config.workItemRoot },
-      files: [path.join(root, storyRelative(config, workflow.workItem.id, 'workflow.json')),
+      files: [path.join(recordsRoot(root, [workflow, config], workflow.workItem.id), storyRelative(config, workflow.workItem.id, 'workflow.json')),
         path.join(root, 'singularity/workflow.yml'),
         path.join(configurationReadRoot(root), 'singularity/workflow.yml')]
     }, () => verifyWorkflowSnapshotUncached(root, config, workflow, { ...options, retainBytes: true }));
@@ -3038,7 +3054,9 @@ export async function verifyWorkflowSnapshot(root, config, workflow, options = {
   return verifyWorkflowSnapshotUncached(root, config, workflow, options);
 }
 
-async function verifyWorkflowSnapshotUncached(root, config, workflow, options = {}) {
+async function verifyWorkflowSnapshotUncached(checkoutRoot, config, workflow, options = {}) {
+  // Every read below is of the Story's records: in its state checkout for a state-ref Story [SSB M2].
+  const root = recordsRoot(checkoutRoot, [workflow, config], workflow.workItem.id);
   return withWorkflowProvenance(root, config, workflow, () => verifyWorkflowSnapshotCore(root, config, workflow, options));
 }
 
@@ -3129,7 +3147,7 @@ async function verifyWorkflowSnapshotCore(root, config, workflow, options = {}) 
       || !/^sha256:[a-f0-9]{64}$/.test(reference.genesisSnapshotHash ?? '')) {
     fail('Story workflow snapshot reference is malformed.');
   }
-  const expectedPrefix = `${storyRelative(config, workflow.workItem.id)}/config/wfa/snapshots/`;
+  const expectedPrefix = `${storyRelative(config, workflow.workItem.id, 'config/wfa/snapshots')}/`;
   if (!String(reference.manifestPath ?? '').startsWith(expectedPrefix)) {
     fail('Story workflow snapshot manifest is outside the configured Story root.', 'WFA_PATH_REFUSED');
   }

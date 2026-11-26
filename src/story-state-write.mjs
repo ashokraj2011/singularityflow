@@ -4,6 +4,7 @@ import { SingularityFlowError, ensureSecureRepositoryDirectory, stateFingerprint
 import { assertStoryNotArchived } from "./governance-archive.mjs";
 import { markerSummary } from "./specification-gate.mjs";
 import { default as path } from "node:path";
+import { existsSync } from "node:fs";
 import { validateId } from "./work-id.mjs";
 export { validateId };
 import { workDir, workDirRelative, workflowPath } from "./story-paths.mjs";
@@ -86,12 +87,16 @@ export function storyStatusMarkdown(workflow) {
 export async function saveWorkflow(root, config, workflow) {
   validateId(config, workflow?.workItem?.id);
   assertStoryNotArchived(root, workflow);
-  await ensureSecureRepositoryDirectory(
-    root,
-    storyLocation(null, config, workflow.workItem.id).prefix,
-    { label: `Story '${workflow.workItem.id}' state directory` }
-  );
-  const file = storyLocation(root, config, workflow.workItem.id).workflowFile;
+  const location = storyLocation(root, [workflow, config], workflow.workItem.id);
+  // A state-ref Story's folder is its state checkout, a worktree SFlow made: never a folder made here [SSB:REQ-006].
+  if (location.branch) {
+    await ensureSecureRepositoryDirectory(root, location.prefix, { label: `Story '${workflow.workItem.id}' state directory` });
+  } else if (!existsSync(path.join(location.directory, '.git'))) {
+    throw new SingularityFlowError(`Story '${workflow.workItem.id}' keeps its records in ${path.basename(location.directory)}/, which is not here. Nothing was written.`, {
+      code: 'STORY_STATE_REF_MISSING', details: { nextAction: { executable: 'singularity-flow', argv: ['resume', workflow.workItem.id, '--fetch'], label: 'Fetch the Story and its records' } }
+    });
+  }
+  const file = location.workflowFile;
   // SF Guard M3: on a Story it requires, the person records this command added are signed (the card,
   // then one touch) before anything is written; a refusal writes nothing.
   if (workflow.resolution?.presence) await (await import('./presence/person-steps.mjs')).signNewPersonRecords(root, workflow, file);

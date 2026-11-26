@@ -298,6 +298,8 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
       status: conflicts.length ? 'conflict' : documented ? 'agreed' : 'enforced-only',
       // A rule file is data: whether a test exercises it is not known from the file.
       documented, enforced: true, tested: item.statement?.source === 'rule-file' ? null : tests.length > 0, origin: item.statement?.source === 'rule-file' ? 'rule-file' : 'code',
+      // A test that names the function, not one that reaches it through calls: what stays when calls are matched by name [WMR:REQ-014].
+      testNamed: (item.relations ?? []).some((relation) => relation.type === 'tested-by'),
       conflict: conflicts.length ? conflictText(conflicts[0].disagreement) : null,
       parts: { condition: item.statement?.when ?? [], outcome: item.statement?.then ?? null, message: anchors.message, status: anchors.status, bound: anchors.bound },
       sources: {
@@ -383,7 +385,8 @@ export function ruleQuestions(records, { limit = 4 } = {}) {
     if (record.status === 'conflict') questions.push({ text: `Docs and code disagree on ${subject(record)}: ${record.conflict}. Which is right?`, source, record: record.id });
     else if (record.declaredOnly) questions.push({ text: `${record.parts.type}.${record.parts.field} is declared ${constraintText(record.parts.constraints)}, but no endpoint validates ${record.parts.type}. Should it be validated (@Valid)?`, source, record: record.id });
     else if (record.status === 'documented-only' && record.parts.bound) questions.push({ text: `The docs say ${subject(record)}, but no code enforcing it was found. Is it still required?`, source, record: record.id });
-    else if (record.status === 'enforced-only' && !record.tested && record.parts.outcome?.kind === 'refuses') questions.push({ text: `The code refuses ${subject(record)}, but the docs do not state it and no test reaches it. Is it still required?`, source, record: record.id });
+    // Only when no test is known to reach it: a reach not known (calls matched by name) is no premise [WMR:REQ-015].
+    else if (record.status === 'enforced-only' && record.tested === false && record.parts.outcome?.kind === 'refuses') questions.push({ text: `The code refuses ${subject(record)}, but the docs do not state it and no test reaches it. Is it still required?`, source, record: record.id });
   }
   return questions;
 }

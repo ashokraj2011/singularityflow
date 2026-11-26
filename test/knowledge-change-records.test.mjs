@@ -156,16 +156,24 @@ test('the phase brief reads the Story\'s change and plan; wm knowledge show chan
   const repository = await ordersWithHistory(t);
   const base = git(repository, 'rev-parse', 'HEAD');
   await changeCancel(repository);
+  // Calls read as a warmed semantic pack resolves them: callers, flows and test reach are stated [WMR:REQ-014].
   const brief = await repositoryBriefPrompt(repository, {
     definition: {}, phase: 'implementation', changedPaths: [SERVICE], plannedPaths: [ORDER],
-    workflow: { workItem: { title: 'Cancel message wording', baseCommit: base } }
+    workflow: { workItem: { title: 'Cancel message wording', baseCommit: base } }, trustCalls: () => true
   });
   assert.match(brief.text, /## What a change touches\n- OrderService\.cancel \(changed\): called by OrderController\.cancel; on POST \/orders\/\{id\}\/cancel; 1 rule; no test reaches it \(OrderService\.java:41\)\n- src\/main\/java\/com\/acme\/orders\/model\/Order\.java \(planned\): declares Order/u);
   // Both are changed; the Story's words rank the function first.
   assert.match(brief.text, /## Risks\n- \(changed by this Story\) OrderService\.cancel: reached by 1 entry point, no test reaches it \(OrderService\.java:41\)\n- \(changed by this Story\) src\/main\/java\/com\/acme\/orders\/service\/OrderService\.java: changed 5 times in 12 months, 2 fix commits; mostly changed by one person\n/u);
   assert.ok(Buffer.byteLength(brief.text) <= brief.budget, 'the brief keeps to the phase budget');
-  const design = await repositoryBriefPrompt(repository, { definition: {}, phase: 'design', workflow: { workItem: { title: 'Cancel message wording' } } });
+  const design = await repositoryBriefPrompt(repository, { definition: {}, phase: 'design', workflow: { workItem: { title: 'Cancel message wording' } }, trustCalls: () => true });
   assert.match(design.text, /## Flows\n- POST \/orders\/\{id\}\/cancel → OrderController\.cancel → OrderService\.cancel/u);
+  // Matched by name, the change is still read, with what is not a guess: its rules, its contract, its importers.
+  const byName = await repositoryBriefPrompt(repository, {
+    definition: {}, phase: 'implementation', changedPaths: [SERVICE], plannedPaths: [ORDER],
+    workflow: { workItem: { title: 'Cancel message wording', baseCommit: base } }
+  });
+  assert.match(byName.text, /## What a change touches\n- OrderService\.cancel \(changed\): 1 rule \(OrderService\.java:41\)\n- src\/main\/java\/com\/acme\/orders\/model\/Order\.java \(planned\): declares Order/u);
+  assert.doesNotMatch(byName.text, /called by|reached by|no test reaches|## Flows/u);
 
   const previous = process.cwd();
   const change = await quiet(() => knowledgeCommand(repository, ['show', 'change'], { json: true }));

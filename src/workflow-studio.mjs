@@ -57,7 +57,7 @@ import {
 import { AUTHORING_SKILL_ID, authoringSkillCatalog, authoringSkillEntry } from './authoring-skills.mjs';
 import { configurationReadRoot, withoutConfigurationReadScope } from './configuration-read-scope.mjs';
 import { knowledgePromptPolicy } from './knowledge/render.mjs';
-import { briefProfileView, phaseBriefProfile, phaseBriefRules } from './knowledge/phase-brief.mjs';
+import { briefLeftOutByDefault, briefProfileView, phaseBriefProfile, phaseBriefRules } from './knowledge/phase-brief.mjs';
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { WORKFLOW_ARCHIVE_PATH, parseWorkflowArchive, workflowArchived } from './workflow-archive.mjs';
 import { STEP_INTENT_CHOICES, STEP_OUTPUTS, newStepContract, newStepTemplate, stepIntentChoice } from './step-outputs.mjs';
@@ -143,11 +143,19 @@ function briefBudget(definition) {
   return Number.isInteger(definition?.worldModel?.knowledge?.maxBytes) ? knowledgePromptPolicy(definition).maxBytes : null;
 }
 
-/** The Repository brief a step gets, read by the engine's own rule from what it declares [WMR:REQ-026]. */
-function stepBrief(definition, phase = {}) {
+/**
+ * The Repository brief a step gets, read by the engine's own rule from what it declares [WMR:REQ-026]: its reader,
+ * budget and sections, or none in a step it is left out of by default (REQ-011) unless the work type turns it on
+ * everywhere or `worldModel.knowledge.prompt` names the step.
+ */
+function stepBrief(definition, phase = {}, workType = null) {
   const kind = phase.requiredArtifact?.kind ?? phase.artifact?.kind ?? null;
   const task = phase.generationPolicy?.task ?? phase.generation?.task ?? null;
-  return briefProfileView(phaseBriefProfile(phase.id, { maxBytes: briefBudget(definition), kind, task }));
+  const intent = definition?.phases?.[phase.id]?.intent ?? phase.intent ?? null;
+  const profile = phaseBriefProfile(phase.id, { maxBytes: briefBudget(definition), kind, task, intent });
+  const named = knowledgePromptPolicy(definition).steps[phase.id] ?? null;
+  const included = named ? named !== 'off' : ['on', 'required'].includes(workType?.intelligence?.worldModel) || !briefLeftOutByDefault(profile);
+  return briefProfileView(profile, { included });
 }
 
 /** The skills a step may choose to draft it, with each skill's own one-line description. */
@@ -598,7 +606,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           template: typeof type.templateOverrides?.[phase.id] === 'string' ? type.templateOverrides[phase.id] : null,
           views: [...(phase.worldModel?.views ?? [])], clarification: phase.clarification?.mode ?? 'off',
           // The Repository brief this step gets: its reader, budget and sections, as a Story would compose it [WMR:REQ-026].
-          brief: stepBrief(definition ?? raw, phase),
+          brief: stepBrief(definition ?? raw, phase, type),
           overridden: Boolean(type.phaseOverrides?.[phase.id]),
           definesClauses: definesClauses(phase),
           authoringSkill: route.authoringSkill,
@@ -735,7 +743,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       retiredViews: [],
       // The brief each step gets is the engine's own profile (phaseBriefProfile) [WMR:REQ-026]: `maxBytes` is null unless
       // the repository sets one for every step, and the rules let the page profile a step it has not saved yet.
-      knowledge: { prompt: knowledgePromptPolicy(definition ?? current).prompt, maxBytes: briefBudget(definition ?? current), rules: phaseBriefRules() },
+      knowledge: { prompt: knowledgePromptPolicy(definition ?? current).prompt, steps: knowledgePromptPolicy(definition ?? current).steps,
+        maxBytes: briefBudget(definition ?? current), rules: phaseBriefRules() },
       tools: [...new Set([...Object.keys(TOOL_LABELS), ...discovered.flatMap((agent) => agent.tools ?? [])])]
         .map((id) => ({ id, label: TOOL_LABELS[id] ?? id })),
       roles: agentRolePresets(definition ?? current),

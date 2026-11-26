@@ -255,8 +255,28 @@ command says so and changes nothing; `--dry-run` prints the exact prompt.
 
 ## In phase prompts
 
-`wm compose` gives every phase one **Repository brief**: a few cited bullets about the code the
-Story touches, built without a model. It is the phase's only World Model context.
+`wm compose` gives a phase one **Repository brief**: a few cited bullets about the code the
+Story touches, built without a model. It is the phase's only World Model context, and it is guidance:
+a missing or failed brief is a warning, never a refusal.
+
+- **Where it goes (WMR:REQ-011):** design, plan, implementation-spec, reproduction and code steps. It
+  is left out of intake and requirements (no code is known to change yet) and of verification,
+  conformance and release, and the prompt receipt says so (`groundingAvailability.reasonCode:
+  BRIEF_NOT_FOR_THIS_STEP`). A work type brings it back to every step with `intelligence.worldModel:
+  on`; `worldModel.knowledge.prompt` may name steps (`{ intake: slice, design: off }`).
+- **The reader (WMR:REQ-012):** a step's output kind, then a code task, then its intent, then its
+  name. A `/sf-task` review task's design step gets the reviewer's brief (rules, risks, what a change
+  touches, contracts); an investigation's the developer's; a document task's the product owner's.
+- **The plan's files (WMR:REQ-007, 008, 009):** the planned claims' paths and every path in an
+  approved plan's file table (`| Surface | Change | Serves |`) are listed in "What a change touches",
+  a new one as "(new, planned)". In a repository too large to read whole they choose the areas
+  built, inside the Story's own pinned source scope.
+- **Claims (WMR:REQ-014, 015):** while a language's calls are matched by name, the brief states no
+  caller, chain, entry-point reach or test reach, and asks no question resting on one; the closing
+  "Not known" line says so once. A rule's "tested" from a test that names it stays. Resolved calls (a
+  warmed semantic pack) bring the claims back.
+- **Reuse (WMR:REQ-013):** a step's next version reuses its brief while the Story's base, changed
+  files, plan and words are the same; the receipt records `reused`.
 
 - **Inputs:** this knowledge, README and docs statements, and accepted plain-language explanations.
 - **Ranking:** items matching the Story's title, description, acceptance criteria and changed files
@@ -266,7 +286,7 @@ Story touches, built without a model. It is the phase's only World Model context
 - **Format:** short sections with plain bullets, each ending with its source as `(File.java:42)`,
   `(README.md › Heading)` or, for the repository's counts, `(commit 0123456789ab)`; a line that
   cites nothing is left out. What could not be determined is one closing "Not known" line naming only
-  what this phase's sections lack (an intake brief is not told calls were matched by name). No JSON,
+  what this phase's sections lack. No JSON,
   hashes or fact IDs reach the prompt; the prompt receipt's `repositoryBrief` records the IDs of the
   records included, the renderer and profile, and whether a model phrased them.
 - **Budget:** the whole brief fits the phase's budget; what did not fit is counted on a pointer
@@ -275,8 +295,9 @@ Story touches, built without a model. It is the phase's only World Model context
 | Phase | Budget | Sections, in order |
 |---|---|---|
 | intake, requirements, specification | 2 KB | what exists, rules that apply, questions for the product owner, contracts |
-| design, planning, architecture | 3 KB | contracts, flows, rules, risks, what exists |
-| implementation spec, fix design, component mapping | 4 KB | what a change touches, rules, contracts, flows, risks |
+| design, architecture | 3 KB | contracts, flows, rules, risks, what exists |
+| a review task's design step | 3 KB | rules, risks, what a change touches, contracts |
+| implementation spec, a plan step (intent `plan`), fix design, component mapping | 4 KB | what a change touches, rules, contracts, flows, risks |
 | reproduction, fix spec | 3 KB | rules, what a change touches, risks, contracts |
 | implementation and others | 3 KB | what a change touches, rules, contracts, risks |
 | verification, testing | 3 KB | rules, risks, flows, what a change touches |

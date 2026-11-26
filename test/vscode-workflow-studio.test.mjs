@@ -2081,7 +2081,8 @@ test('a step\'s World Model is the Repository brief: the reader it is written fo
   const all = (node) => [node, ...(node.children ?? []).flatMap(all)];
   const state = page.state();
   assert.equal(page.newStepWorldModelHint('architect', 'Security review'), 'World Model: the step gets the Repository brief for the developer reader.');
-  assert.equal(page.newStepWorldModelHint('product-owner', 'Requirements check'), 'World Model: the step gets the Repository brief for the product reader.');
+  // A requirements step reads little code: its brief is left out by default [WMR:REQ-011].
+  assert.equal(page.newStepWorldModelHint('product-owner', 'Requirements check'), 'World Model: a step like this reads little code, so it gets no Repository brief by default.');
   const id = page.createStep('repo-feature', 'Security review', 'document', 'architect', 'intake');
   assert.deepEqual(state.draft.phases[id].views, [], 'a new step starts with no views');
 
@@ -2101,16 +2102,26 @@ test('a step\'s World Model is the Repository brief: the reader it is written fo
     assert.equal(page.knowledgeReader(phase), phaseBriefProfile(phase).reader, `the page and the engine agree on ${phase}`);
   }
   // A12 [WMR:REQ-026]: a code step named implement-story is the developer's, 3 KB, not the product owner's 8 KB slice.
-  const coded = page.createStep('repo-feature', 'Implement story', 'code', 'developer', 'intake');
-  const codedShown = text(page.worldModelSection('repo-feature', coded, state.draft.phases[coded]));
+  const created = page.createStep('repo-feature', 'Implement story', 'code', 'developer', 'intake');
+  const codedShown = text(page.worldModelSection('repo-feature', created, state.draft.phases[created]));
   assert.match(codedShown, /for the developer reader, up to 3 KB/u);
-  assert.deepEqual(page.briefProfileOf('implement-story', null, 'code'), (({ id, reader, budget }) => ({ profile: id, reader, budget, sections: page.briefProfileOf('implement-story', null, 'code').sections }))(phaseBriefProfile('implement-story', { task: 'code' })));
+  const coded = page.briefProfileOf('implement-story', null, 'code');
+  const engine = phaseBriefProfile('implement-story', { task: 'code' });
+  assert.deepEqual([coded.profile, coded.reader, coded.budget, coded.included], [engine.id, engine.reader, engine.budget, true]);
   // Every step the model lists carries the engine's own profile for it.
   for (const workflow of model.workflows) {
     for (const step of workflow.steps) assert.ok(['product', 'architect', 'developer', 'tester'].includes(step.brief?.reader) && step.brief.budget >= 2048, `${workflow.id}/${step.id}`);
   }
   const implementation = model.workflows.flatMap((workflow) => workflow.steps).find((step) => step.id === 'implementation');
-  assert.deepEqual([implementation.brief.reader, implementation.brief.budget], ['developer', 3072]);
+  assert.deepEqual([implementation.brief.reader, implementation.brief.budget, implementation.brief.included], ['developer', 3072, true]);
+  // "No brief here (REQ-011)": intake and verification steps say so, open or closed [WMR:REQ-011, REQ-026].
+  const intake = model.workflows.flatMap((workflow) => workflow.steps).find((step) => step.id === 'intake');
+  assert.deepEqual([intake.brief.included, intake.brief.reasonCode], [false, 'BRIEF_NOT_FOR_THIS_STEP']);
+  const intakeWorkflow = model.workflows.find((workflow) => workflow.steps.some((step) => step.id === 'intake'));
+  const intakeShown = text(page.worldModelSection(intakeWorkflow.id, 'intake', state.draft.phases.intake));
+  assert.match(intakeShown, /no brief here/u);
+  assert.match(text(page.worldModelSection(intakeWorkflow.id, 'intake', state.draft.phases.intake, true)), /No brief here: this step reads little code/u);
+  assert.equal(page.briefProfileOf('verification', 'test-evidence', null, 'test', intakeWorkflow.id).included, false);
 });
 
 test('a seeded workflow opens on a read-only canvas: its structure without editing tools, and each step\'s details', async () => {
@@ -2142,7 +2153,10 @@ test('a seeded workflow opens on a read-only canvas: its structure without editi
   const shown = text(details);
   for (const label of ['Produces', 'Drafted by', 'Drafted with', 'Reads', 'Sign-off', 'Then', 'Clarifying questions', 'World Model']) assert.match(shown, new RegExp(label, 'u'));
   assert.match(shown, /The Story itself/u, 'the first step reads the Story');
-  assert.match(shown, /The Repository brief .* is added to this step's prompt/u);
+  // A first step is an intake: the brief is left out of it by default, and the panel says so [WMR:REQ-011].
+  assert.match(shown, /The Repository brief .* is added to this step's prompt|No brief here: this step reads little code/u);
+  const coding = seeded.phases.find((id) => model.workflows.find((workflow) => workflow.id === seeded.id).steps.find((step) => step.id === id)?.brief?.included);
+  if (coding) assert.match(text(page.renderReadOnlyStep(seeded.id, coding)), /The Repository brief .* is added to this step's prompt/u);
   // The checks each step runs when it is submitted: a code step the tests its change touches,
   // verification the repository's own tests (repositoryTests: run).
   const tested = model.workflows.find((workflow) => ['implementation', 'verification'].every((id) => workflow.phases.includes(id)));

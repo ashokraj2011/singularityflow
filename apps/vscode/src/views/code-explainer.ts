@@ -827,7 +827,10 @@ export class CodeExplainerPanel {
     if (lacking.size) {
       this.progress('Reading calls from the code…');
       try {
-        const reply = await this.client.run<unknown>(['wm', 'knowledge', 'calls', '--json']);
+        // The area of the files that got no call hierarchy, never the whole repository: one that large is refused
+        // (KNOWLEDGE_SCOPE_TOO_LARGE) and its calls never came back [WMR:REQ-010].
+        const area = sharedFolder([...lacking]);
+        const reply = await this.client.run<unknown>(['wm', 'knowledge', 'calls', ...(area ? ['--area', area] : []), '--json']);
         const data = (reply && typeof reply === 'object' && 'data' in reply ? (reply as { data: unknown }).data : reply) as { edges?: CxAnalysisCall[]; counts?: { resolved?: number; byName?: number } } | null;
         const found = analysisCalls(data?.edges ?? [], files.values(), (file) => lacking.has(file));
         if (current() && found.length) {
@@ -1042,4 +1045,15 @@ export class CodeExplainerPanel {
     for (const disposable of this.subscriptions.splice(0)) disposable.dispose();
     if (CodeExplainerPanel.current === this) CodeExplainerPanel.current = null;
   }
+}
+
+/** The deepest folder every file is in ('' when they share none): the area `wm knowledge calls --area` builds [WMR:REQ-010]. */
+function sharedFolder(files: string[]): string {
+  const folders = files.map((file) => file.split('/').slice(0, -1));
+  const shared: string[] = [];
+  for (let index = 0; folders.length && index < folders[0].length; index += 1) {
+    if (folders.some((parts) => parts[index] !== folders[0][index])) break;
+    shared.push(folders[0][index]);
+  }
+  return shared.join('/');
 }

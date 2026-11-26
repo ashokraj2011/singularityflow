@@ -38,7 +38,8 @@ function ownershipText(statement) {
   return statement.changes >= 3 && statement.topAuthorShare >= 0.75 ? 'mostly changed by one person' : null;
 }
 
-export function buildRiskRecords(knowledge, { focus = null, changedPaths = [], changedSymbols = null } = {}) {
+/** `trust(file)`: whether its calls are resolved; while only matched by name, no reach, callers or test reach is stated [WMR:REQ-014]. */
+export function buildRiskRecords(knowledge, { focus = null, changedPaths = [], changedSymbols = null, trust = () => true } = {}) {
   const items = knowledge?.items ?? [];
   const changedFiles = new Set(changedPaths);
   // 2: the change falls in it; 1: it is in a changed file. Without changed lines, a changed file's functions count as changed.
@@ -76,13 +77,14 @@ export function buildRiskRecords(knowledge, { focus = null, changedPaths = [], c
   const mostComplex = Math.max(0, ...risks.map((item) => item.statement?.complexity ?? 0));
   for (const item of risks) {
     const statement = item.statement ?? {};
-    const reached = reach(item.subject?.symbol);
+    const resolved = trust(item.subject?.path);
+    const reached = resolved ? reach(item.subject?.symbol) : 0;
     const reasons = [
       statement.complexity >= 10 ? (statement.complexity === mostComplex && risks.length > 1 ? `the most complex function (complexity ${statement.complexity})` : `complexity ${statement.complexity}`) : null,
       reached ? (entryCount > 1 && reached >= entryCount ? 'reached by every endpoint' : `reached by ${plural(reached, 'entry point')}`) : null,
-      statement.callers >= 2 ? `called from ${statement.callers} places` : null,
+      resolved && statement.callers >= 2 ? `called from ${statement.callers} places` : null,
       statement.rules >= 3 ? plural(statement.rules, 'rule') : null,
-      statement.tested === false && statement.rules >= 1 ? 'no test reaches it' : null,
+      resolved && statement.tested === false && statement.rules >= 1 ? 'no test reaches it' : null,
       ...(filesWithRecords.has(item.subject?.path) ? [] : historyReasons(statement))
     ].filter(Boolean);
     if (!reasons.length) continue;
@@ -106,7 +108,7 @@ export function buildRiskRecords(knowledge, { focus = null, changedPaths = [], c
     });
   }
   const named = new Set(records.map((record) => record.parts.symbol).filter(Boolean));
-  for (const item of items.filter((entry) => entry.kind === 'untested-rule' && !named.has(entry.subject?.symbol))) {
+  for (const item of items.filter((entry) => entry.kind === 'untested-rule' && !named.has(entry.subject?.symbol) && trust(entry.subject?.path))) {
     records.push({
       id: recordId(item.id), kind: 'risk', scope: 'function',
       text: `${item.subject?.symbol}: ${plural(item.statement?.rules ?? 0, 'rule')}, no test reaches it`,

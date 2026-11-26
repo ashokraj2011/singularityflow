@@ -1091,7 +1091,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the three branches' rises together. No new eager file.
     // 9,918,831 (+734, measured for submit.mjs 2026-11-26 on wmr-m1m2; start.mjs 9,918,083): `wm knowledge slice` is refused by name as retired, pointing to `wm brief --phase` (removed-features.mjs,
     // command-registry.mjs) [WMR:REQ-027]. No new eager file.
-    assert.ok(closure.bytes <= 9_918_831, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,919,188 (+357, measured for submit.mjs 2026-11-26 on wmr-m1m2 over d8c802e71; start.mjs 9,918,440): worldModel.knowledge.prompt may name steps, and a work type's
+    // intelligence.worldModel may be `on` (config.mjs, intelligence-policy.mjs) [WMR:REQ-011]. No new eager file.
+    assert.ok(closure.bytes <= 9_919_188, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1725,7 +1727,9 @@ test('the common session projection does not import attach, state stores or publ
   // No new eager file.
   // 4,377,025 (+734, measured 2026-11-26 on wmr-m1m2): `wm knowledge slice` is refused by name as retired, pointing to `wm brief --phase` (removed-features.mjs,
   // command-registry.mjs) [WMR:REQ-027]. No new eager file.
-  assert.ok(current.bytes <= 4_377_025, `session current loads ${current.bytes} source bytes`);
+  // 4,377,382 (+357, measured 2026-11-26 on wmr-m1m2 over d8c802e71): worldModel.knowledge.prompt may name steps, and a work type's
+  // intelligence.worldModel may be `on` (config.mjs, intelligence-policy.mjs) [WMR:REQ-011]. No new eager file.
+  assert.ok(current.bytes <= 4_377_382, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

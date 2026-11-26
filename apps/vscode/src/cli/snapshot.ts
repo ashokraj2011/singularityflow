@@ -1124,7 +1124,7 @@ export interface RepositorySnapshot {
       sourceRoots?: string[];
       sharedRoots?: string[];
       excludedRoots?: string[];
-      knowledge?: { prompt?: 'slice' | 'off'; maxBytes?: number };
+      knowledge?: { prompt?: 'slice' | 'off' | Record<string, 'slice' | 'off'>; maxBytes?: number };
       [key: string]: unknown;
     };
     /** Whether workflow progress is recorded on an orphan branch, and which one. */

@@ -353,10 +353,15 @@ test('rules are shown with their docs, code and tests, and the phase brief carri
   const json = JSON.parse(await quiet(() => knowledgeCommand(repository, ['show', 'rules'], { json: true })));
   assert.deepEqual([...new Set(json.records.map((record) => record.status))].sort(), ['agreed', 'conflict', 'enforced-only']);
   const { repositoryKnowledgePrompt } = await import('../src/knowledge/prompt.mjs');
-  const brief = await repositoryKnowledgePrompt(repository, { definition: {}, phase: 'intake', workflow: { workItem: { title: 'Allow cancelling paid orders' } } });
+  // With calls resolved (as a warmed semantic pack gives them), a rule says no test reaches it and asks about it.
+  const brief = await repositoryKnowledgePrompt(repository, { definition: {}, phase: 'intake', workflow: { workItem: { title: 'Allow cancelling paid orders' } }, trustCalls: () => true });
   assert.match(brief.text, /## Rules that apply\n- OrderService\.cancel: .+ Not documented, enforced, no test reaches it\./u, 'the Story\'s rule first, with its status');
   assert.match(brief.text, /## Questions for the product owner\n- /u);
   assert.match(brief.text, /Docs and code disagree on|The code refuses "Only placed orders can be cancelled"/u);
+  // Matched by name, neither the reach nor a question resting on it is said [WMR:REQ-014, REQ-015].
+  const byName = await repositoryKnowledgePrompt(repository, { definition: {}, phase: 'intake', workflow: { workItem: { title: 'Allow cancelling paid orders' } } });
+  assert.match(byName.text, /## Rules that apply\n- OrderService\.cancel: .+ Not documented, enforced\. \(/u);
+  assert.doesNotMatch(byName.text, /no test reaches it/u);
 });
 
 test('wm knowledge calls lists each call with where both ends are defined, for editors with no call hierarchy', async (t) => {

@@ -16,8 +16,9 @@ export const PHASE_BRIEF_RENDERER = Object.freeze({ id: 'repository-brief', vers
 
 /**
  * Per-phase reader, budget and section order. A step is profiled by what it declares first (its
- * output kind, then a code task), then by its ID (first match wins), then by its other declared task
- * (TASK_PROFILES). The budgets are defaults: `worldModel.knowledge.maxBytes` replaces them for every phase.
+ * output kind, then a code task, then its intent), then by its ID (first match wins), then by its other declared task
+ * (TASK_PROFILES). The budgets are defaults: `worldModel.knowledge.maxBytes` replaces them for every phase. The
+ * reviewer's profile has no name pattern: only a review task's step is given it [WMR:REQ-012].
  */
 export const PHASE_BRIEF_PROFILES = Object.freeze([
   Object.freeze({ id: 'reproduction', reader: 'developer', pattern: '(reproduc|fix-spec)', budget: 3072, order: Object.freeze(['rules', 'impact', 'risks', 'contracts']) }),
@@ -27,6 +28,7 @@ export const PHASE_BRIEF_PROFILES = Object.freeze([
   Object.freeze({ id: 'verification', reader: 'tester', pattern: '(test|verif|qa|accept)', budget: 3072, order: Object.freeze(['rules', 'risks', 'flows', 'impact']) }),
   Object.freeze({ id: 'intake', reader: 'product', pattern: '(intake|requirement|specif|discover|product|business|story)', budget: 2048, order: Object.freeze(['overview', 'rules', 'questions', 'contracts']) }),
   Object.freeze({ id: 'design', reader: 'architect', pattern: '(design|architect|plan)', budget: 3072, order: Object.freeze(['contracts', 'flows', 'rules', 'risks', 'overview']) }),
+  Object.freeze({ id: 'review', reader: 'reviewer', pattern: null, budget: 3072, order: Object.freeze(['rules', 'risks', 'impact', 'contracts']) }),
   Object.freeze({ id: 'implementation', reader: 'developer', pattern: '.*', budget: 3072, order: Object.freeze(['impact', 'rules', 'contracts', 'risks']) })
 ]);
 
@@ -60,16 +62,50 @@ const KIND_PROFILES = Object.freeze({
   'conformance-report': 'conformance', 'publication-review': 'release'
 });
 
-export function phaseBriefProfile(phase, { maxBytes = null, task = null, kind = null } = {}) {
+/**
+ * A step's pinned intent is a declared signal, read after the output kind and a code task and before the name
+ * [WMR:REQ-012], so a marketplace agent's own step IDs are profiled by what they are for, not the catch-all.
+ */
+const INTENT_PROFILES = Object.freeze({
+  intake: 'intake', requirements: 'intake', design: 'design', plan: 'implementation-spec', code: 'implementation',
+  test: 'verification', review: 'conformance', release: 'release', report: 'release'
+});
+
+/**
+ * A `/sf-task`'s design step does that kind's work [WMR:REQ-012]: a review task reviews (the reviewer), an
+ * investigation reads code (the developer) and a document task writes for people (the product owner). It stays a
+ * design step: where the brief goes is decided by what the step is, not by its reader (REQ-011).
+ */
+const TASK_DESIGN_PROFILES = Object.freeze({ review: 'review', investigate: 'implementation', docs: 'intake' });
+
+/**
+ * The steps the brief is left out of by default [WMR:REQ-011]: intake and requirements (no code is known to change
+ * yet), and verification, conformance and release (they barely read code). A team brings it back per work type with
+ * `intelligence.worldModel: on` and per step with `worldModel.knowledge.prompt` (prompt.mjs phaseBriefPlacement).
+ */
+export const BRIEF_LEFT_OUT_ROLES = Object.freeze(['intake', 'verification', 'conformance', 'release']);
+
+const profileById = (id) => PHASE_BRIEF_PROFILES.find((entry) => entry.id === id) ?? null;
+
+/**
+ * The step's profile, with `role`: the profile its own declarations and name give it, before a task's design step
+ * takes its kind's reader. `role` says where the brief goes; the profile says who it is written for.
+ */
+export function phaseBriefProfile(phase, { maxBytes = null, task = null, kind = null, intent = null, taskKind = null } = {}) {
   const id = String(phase ?? '').toLowerCase();
-  const declaredId = Object.hasOwn(KIND_PROFILES, kind ?? '') ? KIND_PROFILES[kind] : task === 'code' ? 'implementation' : null;
-  const declared = PHASE_BRIEF_PROFILES.find((entry) => entry.id === declaredId) ?? null;
-  const named = PHASE_BRIEF_PROFILES.find((entry) => new RegExp(entry.pattern, 'u').test(id));
+  const kindId = Object.hasOwn(KIND_PROFILES, kind ?? '') ? KIND_PROFILES[kind] : task === 'code' ? 'implementation' : null;
+  const declared = profileById(kindId ?? (Object.hasOwn(INTENT_PROFILES, intent ?? '') ? INTENT_PROFILES[intent] : null));
+  const named = PHASE_BRIEF_PROFILES.find((entry) => entry.pattern && new RegExp(entry.pattern, 'u').test(id));
   let profile = declared && (named.pattern === '.*' || named.reader !== declared.reader) ? declared : named;
-  if (profile.pattern === '.*' && !declared && Object.hasOwn(TASK_PROFILES, task ?? '')) {
-    profile = PHASE_BRIEF_PROFILES.find((entry) => entry.id === TASK_PROFILES[task]);
-  }
-  return { ...profile, budget: Number.isInteger(maxBytes) ? maxBytes : profile.budget };
+  if (profile.pattern === '.*' && !declared && Object.hasOwn(TASK_PROFILES, task ?? '')) profile = profileById(TASK_PROFILES[task]);
+  const role = profile.id;
+  if (intent === 'design' && Object.hasOwn(TASK_DESIGN_PROFILES, taskKind ?? '')) profile = profileById(TASK_DESIGN_PROFILES[taskKind]);
+  return { ...profile, role, budget: Number.isInteger(maxBytes) ? maxBytes : profile.budget };
+}
+
+/** Whether a profiled step is one the brief is left out of unless a team turns it back on [WMR:REQ-011]. */
+export function briefLeftOutByDefault(profile) {
+  return BRIEF_LEFT_OUT_ROLES.includes(profile?.role ?? profile?.id);
 }
 
 /** The sections a profile's brief has, in its order: questions are the product owner's alone. */
@@ -81,15 +117,17 @@ function profileSections(profile) {
  * What a step's brief is, for a person deciding about the step (Workflow Studio) [WMR:REQ-026]: the reader, the budget
  * and the sections `phaseBriefProfile` gives it, never a name-only guess or the old 8 KB default.
  */
-export function briefProfileView(profile) {
-  return { profile: profile.id, reader: profile.reader, budget: profile.budget, sections: profileSections(profile).map((id) => SECTION_TITLES[id]) };
+export function briefProfileView(profile, { included = true } = {}) {
+  return { profile: profile.id, reader: profile.reader, budget: profile.budget, sections: profileSections(profile).map((id) => SECTION_TITLES[id]),
+    included, ...(included ? {} : { reasonCode: 'BRIEF_NOT_FOR_THIS_STEP' }) };
 }
 
 /** The rules `phaseBriefProfile` applies, as data: Studio profiles a step it has not saved yet the same way. */
 export function phaseBriefRules() {
   return {
     profiles: PHASE_BRIEF_PROFILES.map((entry) => ({ id: entry.id, reader: entry.reader, pattern: entry.pattern, budget: entry.budget, order: [...entry.order] })),
-    kinds: { ...KIND_PROFILES }, tasks: { ...TASK_PROFILES }, sectionTitles: { ...SECTION_TITLES }
+    kinds: { ...KIND_PROFILES }, tasks: { ...TASK_PROFILES }, intents: { ...INTENT_PROFILES }, taskDesign: { ...TASK_DESIGN_PROFILES },
+    leftOut: [...BRIEF_LEFT_OUT_ROLES], sectionTitles: { ...SECTION_TITLES }
   };
 }
 
@@ -129,7 +167,8 @@ function clip(text) {
  */
 const NOT_KNOWN_SECTIONS = Object.freeze([
   [/README or docs/u, ['overview', 'rules', 'questions']],
-  [/calls are matched by name/u, ['flows', 'impact']],
+  // Said in every brief when claims built on those calls were left out (its longer form) [WMR:REQ-014].
+  [/calls are matched by name \(no semantic pack is warmed\)$/u, ['flows', 'impact']],
   [/change history/u, ['risks', 'impact']],
   [/runtime or incident/u, ['risks']]
 ]);

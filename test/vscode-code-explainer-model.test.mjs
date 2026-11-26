@@ -570,4 +570,7 @@ test('the host names calls the compiler resolved by their counts, not by a statu
   const host = await readFile(new URL('../apps/vscode/src/views/code-explainer.ts', import.meta.url), 'utf8');
   assert.match(host, /data\?\.counts\?\.resolved \? \(data\.counts\.byName \? 'resolved by the compiler where it could, matched by name elsewhere' : 'resolved by the compiler'\) : 'matched by name'/u);
   assert.doesNotMatch(host, /resolution === 'complete'/u, 'a warmed pack reports "resolved", never "complete"');
+  // The fallback names the area of the files that got no call hierarchy, so a large repository is not refused [WMR:REQ-010].
+  assert.match(host, /const area = sharedFolder\(\[\.\.\.lacking\]\);\s+const reply = await this\.client\.run<unknown>\(\['wm', 'knowledge', 'calls', \.\.\.\(area \? \['--area', area\] : \[\]\), '--json'\]\)/u);
+  assert.doesNotMatch(host, /\['wm', 'knowledge', 'calls', '--json'\]/u, 'never the whole repository');
 });

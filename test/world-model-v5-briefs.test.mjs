@@ -6,6 +6,10 @@
  *
  * The goldens are the fixed wording, byte for byte. After an intended change to the brief, rewrite
  * them with SINGULARITY_FLOW_WRITE_GOLDEN_BRIEFS=1 and review the diff.
+ *
+ * Two goldens per phase [WMR:REQ-014]: `<name>.<phase>.md` is the brief with calls resolved (a warmed semantic pack),
+ * unchanged since it was first written; `<name>.<phase>.by-name.md` is the brief a repository gets while its calls are
+ * matched by name, which states no reach, callers or test reach.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -55,16 +59,23 @@ for (const file of specs) {
     const polishFile = path.join(briefs, `${spec.name}.polish.json`);
     const polishAnswer = existsSync(polishFile) ? JSON.parse(await readFile(polishFile, 'utf8')) : null;
     const result = await measureRepository(repository, spec, { polishAnswer });
+    const resolved = await measureRepository(repository, spec, { polishAnswer, calls: 'resolved' });
     results.push(result);
     for (const phase of spec.golden) {
-      const golden = path.join(briefs, `${spec.name}.${phase}.md`);
-      if (write) await writeFile(golden, `${result.briefs[phase].text}\n`);
-      assert.equal(`${result.briefs[phase].text}\n`, await readFile(golden, 'utf8'), `${spec.name} ${phase} brief changed`);
+      for (const [measured, suffix] of [[resolved, ''], [result, '.by-name']]) {
+        const golden = path.join(briefs, `${spec.name}.${phase}${suffix}.md`);
+        if (write) await writeFile(golden, `${measured.briefs[phase].text}\n`);
+        assert.equal(`${measured.briefs[phase].text}\n`, await readFile(golden, 'utf8'), `${spec.name} ${phase}${suffix} brief changed`);
+      }
+      assert.doesNotMatch(result.briefs[phase].text, /called from|called by|reached by|no test reaches|tested by|tested through/u,
+        `${spec.name} ${phase}: no claim built on calls matched by name [WMR:REQ-014]`);
     }
-    for (const [phase, brief] of Object.entries(result.briefs)) {
-      assert.ok(brief.bytes <= Math.min(brief.budget, QUALITY_BAR.maximumBytes), `${spec.name} ${phase}: ${brief.bytes} bytes`);
-      assert.equal(brief.cited, brief.statements, `${spec.name} ${phase}: uncited ${brief.uncited.join(' | ')}`);
-      assert.ok(brief.notKnownLines <= QUALITY_BAR.notKnownLines, `${spec.name} ${phase}`);
+    for (const measured of [result, resolved]) {
+      for (const [phase, brief] of Object.entries(measured.briefs)) {
+        assert.ok(brief.bytes <= Math.min(brief.budget, QUALITY_BAR.maximumBytes), `${spec.name} ${phase}: ${brief.bytes} bytes`);
+        assert.equal(brief.cited, brief.statements, `${spec.name} ${phase}: uncited ${brief.uncited.join(' | ')}`);
+        assert.ok(brief.notKnownLines <= QUALITY_BAR.notKnownLines, `${spec.name} ${phase}`);
+      }
     }
     if (result.linking.links) assert.ok(result.linking.precision >= QUALITY_BAR.linkPrecision, `${spec.name} links: ${result.linking.wrong.join(' | ')}`);
     if (result.statements.extracted) assert.ok(result.statements.precision >= QUALITY_BAR.statementPrecision, `${spec.name} statements: ${result.statements.other.join(' | ')}`);

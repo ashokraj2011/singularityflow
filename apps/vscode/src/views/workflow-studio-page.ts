@@ -1476,7 +1476,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   /** What the World Model gives a step about to be created, said before it exists. */
   function newStepWorldModelHint(agent, label) {
     var knowledge = state.model.choices.knowledge || {};
+    var brief = briefProfileOf(kebab(label || ''), null, null, null, null);
     return knowledge.prompt === 'off' ? 'World Model: the Repository brief is off in this repository.'
+      : brief && brief.included === false ? 'World Model: a step like this reads little code, so it gets no Repository brief by default.'
       : 'World Model: the step gets the Repository brief for the ' + knowledgeReader(kebab(label || '')) + ' reader.';
   }
   /** "What does this step do?": the ten step intents, in the words the engine gives (step-outputs.mjs). */
@@ -3201,25 +3203,30 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   /** A collapsible inspector section, with an optional switch in its header and a summary shown when closed. */
   /** The engine's brief rules (phaseBriefProfile), sent as data with the model. */
   function briefRules() {
-    return ((state.model.choices.knowledge || {}).rules) || { profiles: [], kinds: {}, tasks: {}, sectionTitles: {} };
+    return ((state.model.choices.knowledge || {}).rules) || { profiles: [], kinds: {}, tasks: {}, intents: {}, leftOut: [], sectionTitles: {} };
   }
   /**
    * The brief a step gets, by the engine's own rule (knowledge/phase-brief.mjs phaseBriefProfile): what it declares
-   * first (its output kind, then a code task), then its ID, then its other declared task.
+   * first (its output kind, then a code task, then its intent), then its ID, then its other declared task; and whether
+   * it gets one at all (intake, requirements, verification and release do not by default) [WMR:REQ-011, REQ-012].
    */
-  function briefProfileOf(phaseId, kind, task) {
+  function briefProfileOf(phaseId, kind, task, intent, workflowId) {
     var rules = briefRules();
+    var has = function (map, key) { return Object.prototype.hasOwnProperty.call(map || {}, key || ''); };
     var byId = function (id) { return rules.profiles.find(function (entry) { return entry.id === id; }) || null; };
     var id = String(phaseId || '').toLowerCase();
-    var declared = byId(Object.prototype.hasOwnProperty.call(rules.kinds, kind || '') ? rules.kinds[kind] : task === 'code' ? 'implementation' : null);
-    var named = rules.profiles.find(function (entry) { return new RegExp(entry.pattern, 'u').test(id); }) || byId('implementation');
+    var declared = byId(has(rules.kinds, kind) ? rules.kinds[kind] : task === 'code' ? 'implementation' : has(rules.intents, intent) ? rules.intents[intent] : null);
+    var named = rules.profiles.find(function (entry) { return entry.pattern && new RegExp(entry.pattern, 'u').test(id); }) || byId('implementation');
     if (!named) return null;
     var profile = declared && (named.pattern === '.*' || named.reader !== declared.reader) ? declared : named;
-    if (profile.pattern === '.*' && !declared && Object.prototype.hasOwnProperty.call(rules.tasks, task || '')) profile = byId(rules.tasks[task]) || profile;
-    var maxBytes = (state.model.choices.knowledge || {}).maxBytes;
+    if (profile.pattern === '.*' && !declared && has(rules.tasks, task)) profile = byId(rules.tasks[task]) || profile;
+    var knowledge = state.model.choices.knowledge || {};
+    var workflow = (state.model.workflows || []).find(function (entry) { return entry.id === workflowId; });
+    var setting = has(knowledge.steps, phaseId) ? knowledge.steps[phaseId] : null;
+    var included = setting ? setting !== 'off' : Boolean(workflow && (workflow.worldModel === 'on' || workflow.worldModel === 'required')) || (rules.leftOut || []).indexOf(profile.id) < 0;
     var sections = profile.order.filter(function (section) { return profile.reader === 'product' || section !== 'questions'; })
       .map(function (section) { return rules.sectionTitles[section] || section; });
-    return { profile: profile.id, reader: profile.reader, budget: typeof maxBytes === 'number' ? maxBytes : profile.budget, sections: sections };
+    return { profile: profile.id, reader: profile.reader, budget: typeof knowledge.maxBytes === 'number' ? knowledge.maxBytes : profile.budget, sections: sections, included: included };
   }
   /** The brief a step gets: the engine's own answer for a step the model has, else profiled here from what it declares. */
   function stepBrief(workflowId, phaseId, phase) {
@@ -3229,11 +3236,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var shared = (state.model.phases || []).find(function (entry) { return entry.id === phaseId; });
     if (shared && shared.brief && !(phase && phase.isNew)) return shared.brief;
     var task = (phase && phase.task) || (phase && phase.output === 'code' ? 'code' : null);
-    return briefProfileOf(phaseId, (phase && phase.kind) || null, task);
+    return briefProfileOf(phaseId, (phase && phase.kind) || null, task, (phase && phase.intent) || null, workflowId);
   }
   /** The reader a step's brief is written for, from its ID alone (a step being named, before it says what it produces). */
   function knowledgeReader(phaseId) {
-    var brief = briefProfileOf(phaseId, null, null);
+    var brief = briefProfileOf(phaseId, null, null, null, null);
     return brief ? brief.reader : 'developer';
   }
   /** "developer, 3 KB": a brief in a few words. */
@@ -3249,8 +3256,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       : el('p', { class: 'hint', 'data-key': 'world-model-knowledge', text: knowledge.prompt === 'off'
         ? 'The Repository brief is off for this repository (worldModel.knowledge.prompt: off).'
         : !brief ? 'The Repository brief is added to this step\'s prompt. Nothing to set here.'
+          : brief.included === false ? 'No brief here: this step reads little code, so its prompt gets no Repository brief by default. Bring it back for this step with worldModel.knowledge.prompt, or for every step with intelligence.worldModel: on.'
           : 'The Repository brief (the rules, contracts, flows, the Story\'s change and the risky places, read from the source) is added to this step\'s prompt for the ' + brief.reader + ' reader, up to ' + Math.round(brief.budget / 1024) + ' KB: ' + brief.sections.join(', ').toLowerCase() + '. Nothing to set here.' })];
-    var summary = off ? 'off in this workflow' : knowledge.prompt === 'off' ? 'off in this repository' : brief ? 'Repository brief: ' + briefWords(brief) : 'Repository brief';
+    var summary = off ? 'off in this workflow' : knowledge.prompt === 'off' ? 'off in this repository' : brief && brief.included === false ? 'no brief here'
+      : brief ? 'Repository brief: ' + briefWords(brief) : 'Repository brief';
     return section('views', 'World Model', body, null, summary, !phase.isNew && !readOnly);
   }
   function section(key, title, body, control, summary, closed) {

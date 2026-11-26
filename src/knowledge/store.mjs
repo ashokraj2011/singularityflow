@@ -66,10 +66,11 @@ async function prune(directory) {
  * The knowledge for HEAD (or one area of it). Reads the committed source, reuses an exact cache
  * entry when there is one, and otherwise analyses and stores the result.
  */
-export async function buildKnowledge(root, { area = null, ownOnly = false, history = true, refresh = false, limits = undefined, resolveCalls = true, ref = 'HEAD' } = {}) {
+export async function buildKnowledge(root, { area = null, ownOnly = false, history = true, refresh = false, limits = undefined, resolveCalls = true, ref = 'HEAD', scope = null } = {}) {
   const started = performance.now();
-  // `ref` is a commit to read instead of HEAD (from Git's objects; nothing is checked out).
-  const source = await readKnowledgeSource(root, { area, ownOnly, ref, ...(limits ? { limits } : {}) });
+  // `ref` is a commit to read instead of HEAD (from Git's objects; nothing is checked out). `scope` is a Story's pinned
+  // source scope, in place of the approved configuration's [WMR:REQ-009].
+  const source = await readKnowledgeSource(root, { area, ownOnly, ref, scope, ...(limits ? { limits } : {}) });
   if (source.status !== 'ok') {
     return {
       status: source.status, reason: source.reason, commit: source.commit, area, areas: source.areas ?? [],
@@ -116,13 +117,14 @@ export async function buildKnowledge(root, { area = null, ownOnly = false, histo
 
 /**
  * The areas worth building for one piece of work in a repository too large to build whole: those
- * holding the files it changed, then those whose folder names match its words. Pure, so a prompt
- * and a test choose the same areas.
+ * holding the files it changed or plans to change [WMR:REQ-008], then those whose folder names match its words. Pure,
+ * so a prompt and a test choose the same areas.
  */
-export function selectKnowledgeAreas(areas, { changedPaths = [], focus = null, limit = 3 } = {}) {
+export function selectKnowledgeAreas(areas, { changedPaths = [], plannedPaths = [], focus = null, limit = 3 } = {}) {
   const stems = focusStems(focus);
+  const story = [...new Set([...changedPaths, ...plannedPaths])];
   const scored = areas.map((area) => {
-    const changed = changedPaths.filter((file) => inArea(file, { path: area.path === '.' ? '' : area.path, own: area.own })).length;
+    const changed = story.filter((file) => inArea(file, { path: area.path === '.' ? '' : area.path, own: area.own })).length;
     const words = String(area.path).toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean);
     const named = stems.filter((stem) => words.some((word) => stemOf(word) === stem || (word.length >= 4 && (word.startsWith(stem) || stem.startsWith(word))))).length;
     return { area, score: changed * 10 + named * 3 };
@@ -137,12 +139,12 @@ export function selectKnowledgeAreas(areas, { changedPaths = [], focus = null, l
  * repository is too large to build whole: the result says which areas it covers, so no reader
  * mistakes it for the whole repository.
  */
-export async function buildKnowledgeForAreas(root, areaPaths, { history = true, refresh = false, limits = undefined } = {}) {
+export async function buildKnowledgeForAreas(root, areaPaths, { history = true, refresh = false, limits = undefined, scope = null } = {}) {
   const started = performance.now();
   const built = [];
   for (const entry of areaPaths) {
     const area = typeof entry === 'string' ? entry : entry.path;
-    const result = await buildKnowledge(root, { area, ownOnly: typeof entry === 'object' && Boolean(entry.own), history, refresh, limits });
+    const result = await buildKnowledge(root, { area, ownOnly: typeof entry === 'object' && Boolean(entry.own), history, refresh, limits, scope });
     if (result.status === 'ok') built.push(result);
   }
   if (!built.length) return { status: 'insufficient', reason: 'no-area-built', knowledge: null, cache: 'none', key: null, durationMs: Math.round(performance.now() - started) };

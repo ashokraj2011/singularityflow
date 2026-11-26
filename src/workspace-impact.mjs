@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile
+  copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,7 +13,6 @@ import { executeGitQuery } from './git-query.mjs';
 import { invokeModel } from './model-runner.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { loadDefinition } from './config.mjs';
-import { worldModelSourceSnapshot } from './grounding.mjs';
 
 export const WORKSPACE_IMPACT_SCHEMA_VERSION = currentSchemaVersion('workspace-impact-report');
 const MAX_COPILOT_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -48,6 +47,8 @@ async function regularFile(file) {
   return info?.isFile() && !info.isSymbolicLink();
 }
 
+// The removed registered World Model's committed projection, recorded in the report for readers of
+// older reports. Impact analysis neither reads it nor names it in its prompt or warnings.
 async function resolvedRepositoryWorldModel(root, commit, dirty) {
   const definition = await loadDefinition(root).catch(() => null);
   const outputDir = definition?.worldModel?.outputDir ?? 'singularity/world-model';
@@ -125,10 +126,7 @@ function requestPrompt(record) {
   const repositories = record.repositories.map((repository) => [
     `- ${repository.id}: ${repository.sandboxPath}`,
     `  - revision: ${repository.commit}`,
-    `  - configured branch: ${repository.branch ?? 'detached'}`,
-    `  - world model: ${repository.worldModel.present
-      ? `${repository.worldModel.status} (${repository.worldModel.sha256})`
-      : `${repository.worldModel.status} — ${repository.worldModel.reason}`}`
+    `  - configured branch: ${repository.branch ?? 'detached'}`
   ].join('\n')).join('\n');
   const documents = record.documents.length
     ? record.documents.map((document) => `- documents/${document.name} (${document.sha256}, ${document.bytes} bytes)`).join('\n')
@@ -186,12 +184,8 @@ async function buildRecord(workspacePath, options = {}) {
     result: null,
     warnings: []
   };
-  record.warnings = [
-    ...record.repositories.filter((repository) => repository.dirty)
-      .map((repository) => `${repository.id} has uncommitted changes; this analysis uses committed HEAD ${repository.commit.slice(0, 12)} only.`),
-    ...record.repositories.filter((repository) => !repository.worldModel.present)
-      .map((repository) => `${repository.id}: ${repository.worldModel.reason}`)
-  ];
+  record.warnings = record.repositories.filter((repository) => repository.dirty)
+    .map((repository) => `${repository.id} has uncommitted changes; this analysis uses committed HEAD ${repository.commit.slice(0, 12)} only.`);
   const prompt = requestPrompt(record);
   record.prompt.sha256 = sha256(prompt);
   return { workspace, record, prompt };
@@ -208,27 +202,6 @@ async function materializeSandbox(workspace, record) {
       if (clone.status !== 0) throw new SingularityFlowError(`Could not create detached analysis copy for '${repository.id}': ${clone.stderr.trim() || clone.stdout.trim()}`);
       const checkout = run('git', ['checkout', '--detach', repository.commit], { cwd: target, allowFailure: true });
       if (checkout.status !== 0) throw new SingularityFlowError(`Could not check out ${repository.id} at the commit it was pinned to, in the analysis sandbox.`, { details: { repository: repository.id, commit: repository.commit } });
-      if (repository.worldModel.present && repository.worldModel.source === 'state-branch') {
-        const resolved = await resolvedRepositoryWorldModel(repository.sourcePath, repository.commit, false);
-        if (!resolved.present || resolved.sha256 !== repository.worldModel.sha256
-          || resolved.sourceTreeSha256 !== repository.worldModel.sourceTreeSha256
-          || resolved.snapshotRef !== repository.worldModel.snapshotRef
-          || resolved.treeSha !== repository.worldModel.treeSha) {
-          throw new SingularityFlowError(`World model for '${repository.id}' changed after impact preparation.`);
-        }
-        const sandboxDefinition = await loadDefinition(target);
-        const sandboxSource = await worldModelSourceSnapshot(target, sandboxDefinition);
-        if (sandboxSource.sha256 !== repository.worldModel.sourceTreeSha256) {
-          throw new SingularityFlowError(
-            `World model for '${repository.id}' describes ${repository.worldModel.sourceTreeSha256}, `
-            + `but its detached repository snapshot is ${sandboxSource.sha256}.`
-          );
-        }
-        const destination = path.join(target, repository.worldModel.outputDir);
-        await rm(destination, { recursive: true, force: true });
-        await mkdir(path.dirname(destination), { recursive: true });
-        await cp(resolved.directory, destination, { recursive: true, force: false });
-      }
       // The analysis copy is self-contained. Removing origin prevents a model/tool invocation from
       // following the clone metadata back to the contributor's real working tree.
       run('git', ['remote', 'remove', 'origin'], { cwd: target, allowFailure: true });

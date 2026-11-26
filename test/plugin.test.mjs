@@ -290,7 +290,10 @@ test('plugin provides a read-only effective prompt inspection skill', async () =
   assert.match(content, /name: sflow-show-prompt/);
   assert.match(content, /singularity-flow wm show-prompt/);
   assert.match(content, /GOVERNED PHASE PROMPT/);
-  assert.match(content, /Do not build the world model/);
+  // The registered World Model was removed: nothing is built, and a missing brief never stops the handoff.
+  assert.match(content, /Do not prepare or publish an artifact/);
+  assert.doesNotMatch(content, /build the world model/i);
+  assert.match(content, /no Repository brief, preserve that warning and continue the handoff/);
   assert.match(content, /Read the complete skill and `GOVERNED PHASE PROMPT` sections privately/);
   assert.match(content, /Preserve exact prompt bytes in command output/);
   assert.match(content, /Do not invent a preview path or claim a summary is the complete prompt/);
@@ -1485,11 +1488,31 @@ test('interactive lifecycle skills ask only for durable human choices', async ()
 test('resume treats the Repository brief as guidance and never runs a removed World Model check or rebuild', async () => {
   const resume = await readFile(path.join(pluginRoot, 'skills', 'sflow-resume', 'SKILL.md'), 'utf8');
   // `wm check`, `wm availability` and `wm ensure` refuse with WMB_REMOVED; a skill naming them stops the Story.
-  assert.match(resume, /The Repository brief is guidance: never run a World Model check or rebuild, and never wait for one/);
+  assert.match(resume, /The Repository brief is guidance; it is built for you and never blocks/);
+  assert.doesNotMatch(resume, /World Model check or rebuild/);
   assert.match(resume, /singularity-flow wm brief --phase <ACTIVE-PHASE>/);
   assert.doesNotMatch(resume, /singularity-flow wm (?:check|availability|ensure|build)\b/);
   assert.doesNotMatch(resume, /If stale, rebuild for the active phase/);
   assert.match(resume, /Continue only in the active phase with the drafting route resume returned/);
+});
+
+test('shipped skills, agents and templates name no feature of the removed registered World Model', async () => {
+  // Its views, manifest, snapshots and old wm commands are gone; only the Repository brief is left
+  // (owner, 2026-11-26). A text that asks for one sends a person or an agent after nothing.
+  const removed = /world-model views?|worldModelViews|\b(?:arch\.contracts|dev\.impact|dev\.hotspots|biz\.rules|biz\.flows)\b|\bwm (?:build|status|light|context|availability|migrate-views|ensure|check)\b|World-Model manifest|world-model snapshot/i;
+  const files = async (directory, keep) => (await readdir(directory, { recursive: true, withFileTypes: true }))
+    .filter((entry) => entry.isFile() && keep(entry.name)).map((entry) => path.join(entry.parentPath ?? entry.path, entry.name));
+  const shipped = [
+    ...await files(path.join(pluginRoot, 'skills'), (name) => name === 'SKILL.md' || name.endsWith('.yaml')),
+    ...await files(path.join(pluginRoot, 'agents'), (name) => name.endsWith('.md')),
+    ...await files(path.join(root, 'templates', 'agents'), (name) => name.endsWith('.md')),
+    ...await files(path.join(root, 'templates', 'artifacts'), () => true),
+    ...await files(path.join(root, 'templates', 'skill-library'), () => true)
+  ];
+  assert.ok(shipped.length > 300, `read ${shipped.length} shipped files`);
+  const named = [];
+  for (const file of shipped) if (removed.test(await readFile(file, 'utf8'))) named.push(path.relative(root, file));
+  assert.deepEqual(named, []);
 });
 
 test('auto skill keeps planning storyless and requires exact human ratification', async () => {
@@ -1585,7 +1608,9 @@ test('initiative Copilot skills expose orchestration without agent authority sho
   assert.match(documents, /Summaries, links and opened previews are not human review or approval/);
   const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-initiative-phase', 'SKILL.md'), 'utf8');
   assert.match(phase, /initiative context/);
-  assert.match(phase, /repository world-model views/);
+  // Initiative phase prompts carry no Repository brief; the skill never waits for one.
+  assert.doesNotMatch(phase, /world-model views/);
+  assert.match(phase, /carries no Repository brief and never waits for one/);
   assert.match(phase, /Do not approve automatically/);
 });
 

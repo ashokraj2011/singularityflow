@@ -1341,8 +1341,8 @@ const PAGES = Object.freeze({
       '`phase rollover` previews an exact digest before opening a successor to changed consumed bytes,',
       'or, with the bytes unchanged, for a change the person asks for (typed after /sf-code, or --reason).',
       '',
-      'Publication refuses when the phase is not ready — a missing artifact, an unmet world-model',
-      'grounding policy, or a phase out of sequence. Nothing is written when it refuses.'
+      'Publication refuses when the phase is not ready — a missing artifact or a phase out of',
+      'sequence. Nothing is written when it refuses.'
     ],
     options: [
       ['enter [PHASE] [--compose]', 'Inspect the current phase; optionally compose its prompt through the existing kernel.'],

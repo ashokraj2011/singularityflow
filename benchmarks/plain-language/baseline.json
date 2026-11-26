@@ -13,7 +13,7 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 6,
-  "generic-route": 6208,
+  "generic-route": 6207,
   "jargon": 1348,
   "length": 647
  },
@@ -1971,7 +1971,7 @@
   "src/workspace-branch-locations.mjs": 3,
   "src/workspace-configuration-refresh.mjs": 31,
   "src/workspace-context.mjs": 6,
-  "src/workspace-impact.mjs": 22,
+  "src/workspace-impact.mjs": 20,
   "src/workspace-logs.mjs": 5,
   "src/workspace-manifest.mjs": 29,
   "src/workspace-reinitialize.mjs": 1,

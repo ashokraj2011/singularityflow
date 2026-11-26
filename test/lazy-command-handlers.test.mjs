@@ -1094,7 +1094,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // it (workflow-snapshots.mjs) [ITW:REQ-020]; the reading and choosing stay lazy (task-local.mjs). No new eager file.
     // 9,918,426 (measured for submit.mjs on main 30484105e with itw-local merged, 2026-11-26; start.mjs 9,917,678): the +329
     // above on top of the three bets' M1. No new eager file.
-    assert.ok(closure.bytes <= 9_918_426, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,919,298 (measured for submit.mjs, +1,201, 2026-11-26 on wm-clean; start.mjs 9,918,550): packaged-asset-history.mjs
+    // keeps the earlier digests of the two agents and five Initiative templates that stopped naming the removed World
+    // Model, so a refresh replaces them. No new eager file.
+    // 9,919,627 (measured for submit.mjs on main 53e996c00 with wm-clean merged, 2026-11-26; start.mjs 9,918,879): the +1,201
+    // above on top of itw-local. No new eager file.
+    assert.ok(closure.bytes <= 9_919_627, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1728,7 +1733,11 @@ test('the common session projection does not import attach, state stores or publ
   // frozen into its snapshot from where the plan read it (workflow-snapshots.mjs) [ITW:REQ-020]. No new eager file.
   // 4,376,620 (measured on main 30484105e with itw-local merged, 2026-11-26): the +329 above on top of the three bets'
   // M1. No new eager file.
-  assert.ok(current.bytes <= 4_376_620, `session current loads ${current.bytes} source bytes`);
+  // 4,377,492 (+1,201, measured 2026-11-26 on wm-clean): packaged-asset-history.mjs keeps the earlier digests of the
+  // templates that stopped naming the removed World Model. No new eager file.
+  // 4,377,821 (measured on main 53e996c00 with wm-clean merged, 2026-11-26): the +1,201 above on top of itw-local. No new
+  // eager file.
+  assert.ok(current.bytes <= 4_377_821, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

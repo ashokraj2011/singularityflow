@@ -24,9 +24,15 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/prompts/worldmodel-builder.md': Object.freeze([
     'cd93d41ccc98e4ccc09550c60cc79ad6c5a6004d7f8ea66cec596640ab73ffb4'
   ]),
+  'singularity/templates/initiatives/epic/impact-analysis.yml': Object.freeze([
+    // Before it stopped naming the removed World Model and its views (2026-11-26).
+    '25a9ebf19c65ea0144ff23a0c2222380f0e61ef9c97c0b3cd4fde66ab9c46ca2'
+  ]),
   'singularity/templates/initiatives/epic/repository-map.yml': Object.freeze([
     'd87a27fb71918827adbb9cbbcbc58efcf9e00689e24154215c021e217cb75b6b',
-    'f1d971a9d7791427572c8e6bca7fe86b30b3c7762b197e8f7189cd564fa4a64f'
+    'f1d971a9d7791427572c8e6bca7fe86b30b3c7762b197e8f7189cd564fa4a64f',
+    // Before it stopped naming the removed World Model and its views (2026-11-26).
+    'fc948774dce5b0263cd0823cd71f446a7c9c165b8e68a7ea6a4588486adfd328'
   ]),
   '.github/agents/demo-web-analyst.agent.md': Object.freeze(['4bf52173acab7a379c75157795e1a37ff5deb8154dd88894d60f0e4fde857e3f', '05e16faddfd28fec43c1500a7577a0e82dfceac91b28f71e6aa704555d595b2e']),
   '.github/agents/demo-web-developer.agent.md': Object.freeze(['1f6b44af2a0b2e15c8f8c39fd44812055baeda5fdb9faf6073b4aab1ee03684f', 'e4831b6094bf6a203e8593d4cd13fcc2477592ed6c4a2c707665cac5f4b8b0cb']),
@@ -246,7 +252,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'da4f136ae11c0cb459500d4008a5629797f168ec4df87ba807da31c12a59c467',
     '8770e647612b0c805ad583e7615f2ebe7fbb79b93bab2c1f3ad9237da5ff3d69',
     // Before it wrote the findings-remediation plan (CQF M6, 2026-11-08).
-    '9d481daa57ed45b31c0608ac50dc0876c8ddf27392f87f6e116a04b9c03dbb44'
+    '9d481daa57ed45b31c0608ac50dc0876c8ddf27392f87f6e116a04b9c03dbb44',
+    // Before it stopped naming the removed World Model and its views (2026-11-26).
+    '1a6832345721bb2530cba9e9da6944fb2a6714fddd73b0a8dd18a1d1140625e0'
   ]),
   '.github/agents/developer.agent.md': Object.freeze([
     'e58aa358944af2247810f2f272d6571c253d43709da34b0ec7f012083a233606',
@@ -408,7 +416,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     '84b653bdf4c778841221c46552a198deee1a23feb4e5bfc152a117796a673a10',
     'b64af2abe7d1dfe818e4a2d6461efc641f7a853105690789bb01912aa351e341',
     // Before it wrote the findings-remediation intake (CQF M6, 2026-11-08).
-    'a7631cf39679463f2e505ad7726352b7466ec1de73ee3db38a9f89541d21b18d'
+    'a7631cf39679463f2e505ad7726352b7466ec1de73ee3db38a9f89541d21b18d',
+    // Before it stopped naming the removed World Model and its views (2026-11-26).
+    '781dbe6c8ce3c8cfdfc894b5796a6e5d5c62c8737d03364ad6459c2cf3b6fb8a'
   ]),
   '.github/agents/qa.agent.md': Object.freeze([
     '1d9963e539be077db1efe3cbd55572c1365c755db98008857ed0aa958f67fd4a',
@@ -528,7 +538,11 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/initiatives/epic/parent-spec.md': Object.freeze(['4c80b3cb91962fd1b1fe64f01bd7dc4b0ed14ec7fb889750cabf1522eaabfa72']),
   'singularity/templates/initiatives/epic/requirements.md': Object.freeze(['174d57ca16c5b43a23c6292873c683335f9fb08c6efd6d0a7bf6e6594aa5ec0b']),
   'singularity/templates/initiatives/eta-register.md': Object.freeze(['adeda18823f2d52d82f17c5c029bd883a504205cf8757f2a7ee5237e5d1cd109']),
-  'singularity/templates/initiatives/feasibility-report.md': Object.freeze(['10fe5879b55d78b9a06b24589328fb2517eb0defd4f6e465b23ca0f6f833b63b']),
+  'singularity/templates/initiatives/feasibility-report.md': Object.freeze([
+    '10fe5879b55d78b9a06b24589328fb2517eb0defd4f6e465b23ca0f6f833b63b',
+    // Before it stopped naming the removed World Model and its views (2026-11-26).
+    '53230c9ff2a3257f38ebd15550fae3fffc2868dbc5a879df80e01f0acc9e6bb5'
+  ]),
   'singularity/templates/initiatives/functional-tests.md': Object.freeze(['760e46dd617e449ff8993dad3a98ce8c4e95e928dbf63c1b00017bff1d3ebdf3']),
   'singularity/templates/initiatives/generic-output.md': Object.freeze(['67e01f4cc8cfd624400128a7f16e50ab62a98d52a920b0f5e9a0fcea2607759a']),
   'singularity/templates/initiatives/implementation-index.md': Object.freeze(['8d3c8cdf27fe2aebf9991858836fc3bb7b37d902afa5638616c67a9c9961dca0']),
@@ -548,10 +562,18 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/initiatives/production-learning.md': Object.freeze(['5e090b0e8a4821698af7b86052d43c970e009b8c64bcb3ddfb8b5ac8bf57c50f']),
   'singularity/templates/initiatives/production-validation.md': Object.freeze(['8ce5dd20813d422778c1921a7658793b0b63640fe2b00af3ecca1a15cc08f56f']),
   'singularity/templates/initiatives/release-scope.md': Object.freeze(['56ef6617316bbbe052a595dafed210f5acf854d7426cb9420e89e1269038552d']),
-  'singularity/templates/initiatives/requirement-impact.md': Object.freeze(['f3afdcc90c5bd4e7d8c8218070b6bdac58f22d5dd787d288b515495e883dd1ff']),
+  'singularity/templates/initiatives/requirement-impact.md': Object.freeze([
+    'f3afdcc90c5bd4e7d8c8218070b6bdac58f22d5dd787d288b515495e883dd1ff',
+    // Before it stopped naming the removed World Model and its views (2026-11-26).
+    '12bf724dd853cbcd510331a3ebc1520047314187a1119f9426e5efcd6996ae11'
+  ]),
   'singularity/templates/initiatives/sequencing-plan.md': Object.freeze(['832d7d8e9820482b7263b87e9305a98037bd971e4a34a5c65e7d8c5cd5fd30b3']),
   'singularity/templates/initiatives/service-blueprint.md': Object.freeze(['36424028305ca3a95f355249783090907e9fab5620eed93a9537b777af33ccbf']),
-  'singularity/templates/initiatives/solution-architecture.md': Object.freeze(['699d6646a25f65bb7967081dced900e3c5235e16613089e54bb002f184e67862']),
+  'singularity/templates/initiatives/solution-architecture.md': Object.freeze([
+    '699d6646a25f65bb7967081dced900e3c5235e16613089e54bb002f184e67862',
+    // Before it stopped naming the removed World Model and its views (2026-11-26).
+    '261f098b927ee5967d102301c9eb2635d420cf907026353abfe18bb48e377290'
+  ]),
   'singularity/templates/initiatives/solution-validation.md': Object.freeze(['9e025f84f9ebdcc5a56d1a0ae5aa044e5e0f04ec3857ba72c18afee2a209052a']),
   'singularity/templates/initiatives/stakeholder-raci.md': Object.freeze(['7aa9d81064f4e41f5756ab2d0df1e1777c7b83530ff54f994823c359292f20c7']),
   'singularity/templates/initiatives/technical-poc-results.md': Object.freeze(['7fbe8d0159e55a79548d6a56cbb5e1990086c5abb821735c3a197bb95f9922de']),
@@ -657,7 +679,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/demo-web-e2e-testing/check.md': '10e17dfe84cf8b469025cdc52a34e8c71a026eda693fcbce47aedd37bf5c5c67',
   'singularity/templates/demo-web-e2e-testing/intake.md': 'a01c0ed028158443e51ad0c008bc5fd025e1bc9187b8c5ebe931d8dc02bbc0ea',
   'singularity/templates/demo-web-e2e-testing/repair.md': '1f652e4cb4a19004de7fb33ba1d5c372bc1417f6bcc7701aeea0421a3a368581',
-  '.github/agents/architect.agent.md': '1a6832345721bb2530cba9e9da6944fb2a6714fddd73b0a8dd18a1d1140625e0',
+  '.github/agents/architect.agent.md': 'c47a150a2b7f0c34ba424c6fc65d649a6411f65873307fe2dc134e7a7aa659a0',
   '.github/agents/developer.agent.md': 'a88a659a79439033c4eb7f43fee9223fe9cf10c013265bbe33fb08da3196047b',
   '.github/agents/document-analyst.agent.md': 'ec617bc402986620a35e86d8417fe1da5226432a4073678bd4cadb17430bafeb',
   '.github/agents/mobile-architect.agent.md': 'fb0e3273ea40c4af0d6faacd8c54e277fd7a902d8401f26813213e9452419726',
@@ -670,7 +692,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   '.github/agents/poc-test-developer.agent.md': '85cdcd87d11d4964ca9976cd189d1351c7c4aa8d7616c9f36f6b11d93a5a81a9',
   '.github/agents/poc-validator.agent.md': '466d8266770df2613784d0dc353fb370fab4900945893084a476c16f2c4ce192',
   '.github/agents/product-designer.agent.md': '01b6714c5e933cbee9a53dbb680b6166d2b83caa15fd38f28500c5dcbd4e438e',
-  '.github/agents/product-owner.agent.md': '781dbe6c8ce3c8cfdfc894b5796a6e5d5c62c8737d03364ad6459c2cf3b6fb8a',
+  '.github/agents/product-owner.agent.md': 'f66a322135acc15e739d8d9f201e061bb15e942ac49a39373e0f9cc2e9df1ddc',
   '.github/agents/qa.agent.md': '0e255fe098bdf64629605d449db145d180e8a7f5c8c9da3efab956422a393018',
   '.github/agents/scenario-developer.agent.md': '9ac24c7c72a73839a3c5b19816670bfaed0d5f71147ee3c4e8a70a87b323ec16',
   '.github/agents/scenario-tester.agent.md': 'f0e7ecd9c0c537459720f37fd25188e7819391616870bd8f7fa2c813a3085f48',
@@ -726,18 +748,18 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/initiatives/deployment-record.md': '10eaf9456e561f9ba36ae01f903296a4c828370d331134ecb90df9f937f08090',
   'singularity/templates/initiatives/design-specification.md': '97edfa88e4272fa4484a0b891e8f461e1c65ef2caeb251dd7318babedd0f1b97',
   'singularity/templates/initiatives/epic-record.yml': '9ca4bdb695a7cd07633746cbe8245a2e170315e09b3dd10a252684a25671ad94',
-  'singularity/templates/initiatives/epic/impact-analysis.yml': '25a9ebf19c65ea0144ff23a0c2222380f0e61ef9c97c0b3cd4fde66ab9c46ca2',
+  'singularity/templates/initiatives/epic/impact-analysis.yml': '466d296396b45fe8e314ca4638b0e925b357fc31afdb2bb7f63599063ef7fdc8',
   'singularity/templates/initiatives/epic/jira-write-plan.yml': '176c8c177d77e61df465472bdb5b9bfb67a9a3183e13e4704aafa1f4931e48e9',
   'singularity/templates/initiatives/epic/materialization-report.md': '02ec0607eb0adc6ef68e9f7425db2bb6ea6fee2639e8d73a432cac7bda407a8d',
   'singularity/templates/initiatives/epic/parent-spec.md': '362a54994213a9a184b7f97d9df2a5294b61aebcfafe631e864be8eba96a949a',
-  'singularity/templates/initiatives/epic/repository-map.yml': 'fc948774dce5b0263cd0823cd71f446a7c9c165b8e68a7ea6a4588486adfd328',
+  'singularity/templates/initiatives/epic/repository-map.yml': '6d3d04d1b4632228043c32349336d3e72ea2e047848841b96903271a0e09bad7',
   'singularity/templates/initiatives/epic/requirements-traceability.yml': '672a8ccb13f2945e9043e325f7fe0538bddfe8a43d3bf07864bee7937b680b73',
   'singularity/templates/initiatives/epic/requirements.md': '3f4dd8ee6b3775753fce7d75101a7b90d9878950ef3898ec01d1489cf398faa8',
   'singularity/templates/initiatives/epic/story-plan.yml': '9ff2b979d06de8302c36ef0e1898c1c74df6f0dd92df64c1b68accdf360b555f',
   'singularity/templates/initiatives/epic/story-spec-index.yml': '3aeff575724e8b53fd1bf7cb0a01a41280c99ee714920b637c317aaf5cf88526',
   'singularity/templates/initiatives/epic/story-spec.md': 'ee2791700162ce5b843ce9458bd8e2b6580b97d2e6db4343fafc5cc64ec9bfe4',
   'singularity/templates/initiatives/eta-register.md': '5f4a3351e4d76a4808266cdbcdc33f4385f947251461e39383bfa2aa2daea4ec',
-  'singularity/templates/initiatives/feasibility-report.md': '53230c9ff2a3257f38ebd15550fae3fffc2868dbc5a879df80e01f0acc9e6bb5',
+  'singularity/templates/initiatives/feasibility-report.md': 'fba99dbf8abd3aec982e0758c9abffc24bf55e90c67d7906a783f4b10acfe3e6',
   'singularity/templates/initiatives/functional-tests.md': '904937aeee28a10b4462269e7f2d1a3acbcc7402450194b9f7b381d40301200f',
   'singularity/templates/initiatives/generic-output.md': '72b59f924feb515d4fb68cbd3cfce7aac4f144e0c3de7ec304c80a59d1220363',
   'singularity/templates/initiatives/generic-output.yml': '6d57e9ed847259d3671f61f737eaad7604c2952cb5268da25f701b1facffcdd4',
@@ -758,10 +780,10 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/initiatives/production-learning.md': 'e34b48ba311d1995c6b89b7bdb9fae56e58bde9437036b8dedb2a3a4494b3d41',
   'singularity/templates/initiatives/production-validation.md': '2ab1828243980d2b9211f28e64ec2359c4ad198a36f23347c5d4c1b195f17571',
   'singularity/templates/initiatives/release-scope.md': '16c25bca5a462cc70285d8368297add5f3fadc6cc2e7d9b1fc026d794d3344cd',
-  'singularity/templates/initiatives/requirement-impact.md': '12bf724dd853cbcd510331a3ebc1520047314187a1119f9426e5efcd6996ae11',
+  'singularity/templates/initiatives/requirement-impact.md': '6467bdf5d20f9b65fa29ac2157b402fc10e9b468b262286a5b807f2dc560c337',
   'singularity/templates/initiatives/sequencing-plan.md': 'f0af9d69da908444df53efad6d1da192c2b04f95969f4b44ebc6e9f1f816b506',
   'singularity/templates/initiatives/service-blueprint.md': 'e7a1e7b618ec241ab417b417309364656bacf1123021c87b9e6fc6375be1715e',
-  'singularity/templates/initiatives/solution-architecture.md': '261f098b927ee5967d102301c9eb2635d420cf907026353abfe18bb48e377290',
+  'singularity/templates/initiatives/solution-architecture.md': 'c300574727a5fe0224e34d3038a759d16e931fe921cba44adee831ac921d5add',
   'singularity/templates/initiatives/solution-validation.md': 'a735f499342a87b5f6c3976b36d12f0c3a0bcb3b89d3624a2ae28dab4a7fe8b0',
   'singularity/templates/initiatives/stakeholder-raci.md': 'ac85aba4cace4aa5f96683ceecc3e963574f7314675306e9b2d11e4e9aa57d22',
   'singularity/templates/initiatives/technical-poc-results.md': '3355c70fbf78992aecb7f52929cddf4b715bddaf9d400a293dbc20423b39eb07',

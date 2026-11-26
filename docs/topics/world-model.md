@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 42
+version: 43
 ---
 ## Purpose and prerequisites
 
@@ -134,7 +134,8 @@ name with `WMB_REMOVED` and point to the brief; `architecture` refuses with `COM
 settings (every `worldModel` key except `knowledge`, `sourceRoots`, `sharedRoots`, `excludedRoots`,
 `stateBranch` and `remote`, the top-level `architectureIntent` block, and phase-level
 `worldModel` views) still load: they are dropped, and `sflow doctor` names them once as
-`removed-settings`. Delete them from `singularity/workflow.yml` to silence it. Old World Model files
+`removed-settings`. Delete them from `singularity/workflow.yml` to silence it. An agent's old
+`sflow-world-model-views:` header is read but changes nothing; delete it when you next edit the agent. Old World Model files
 on the state branch stay in Git, unread, and an old Story's pinned grounding is ignored, not
 rewritten.
 

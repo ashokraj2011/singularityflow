@@ -84,7 +84,7 @@ async function phaseBriefCommand(root, options) {
   };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else {
-    console.log(text || 'This phase receives no repository brief: knowledge is off and no registered view is selected.');
+    console.log(text || 'This phase receives no repository brief: knowledge is off.');
     for (const entry of brief?.polish?.rejected?.slice(0, 8) ?? []) console.log(`  kept its fixed wording: "${entry.text}" (${entry.reason})`);
     if (note) console.log(note);
   }

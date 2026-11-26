@@ -4,7 +4,7 @@
 
 # {{initiative.id}} — {{output.label}}
 
-<!-- sflow:guidance The technical design: what is being built, how the parts fit, and which constraints shaped it. Cite the repository world model for anything that already exists — if this document and the code disagree, the code is right and this document is stale. -->
+<!-- sflow:guidance The technical design: what is being built, how the parts fit, and which constraints shaped it. Cite the repository's code, by path, for anything that already exists — if this document and the code disagree, the code is right and this document is stale. -->
 
 ## Context and constraints
 
@@ -73,6 +73,6 @@
 
 ## Evidence
 
-<!-- sflow:guidance World-model views, pinned sources, and approved upstream artifacts. -->
+<!-- sflow:guidance Repository files read, pinned sources, and approved upstream artifacts. -->
 
 {{inputs}}

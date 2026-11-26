@@ -29,7 +29,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    - Record answers with `singularity-flow choices answer`.
    - When ready, run `singularity-flow story start <STORY-KEY> --fetch --selection-receipt <TOKEN>` plus the step 5 policy flags; add step 5's `--target-url` when given.
 7. Show the Epic → Jira Story → canonical branch lineage, base, workflow, agent, phase, outputs, commit, and push status of the Story ref. Verify the base ref did not move.
-8. The Repository brief is guidance: never run a World Model check or rebuild, and never wait for one; Story context comes from the governed workflow and never becomes a world-model task guide; `/sf-phase` composes the brief.
+8. The Repository brief is guidance; it is built for you and never blocks. Story context comes from the governed workflow and is never passed as `--task`; `/sf-phase` composes the brief.
 9. Continue only when asked; offer `/sf-phase` and read-only `/sf-nextsteps`.
 
 The canonical branch is the returned `workItem.branch`; `--ref` or `git.branchNaming.pattern` may differ from the Jira key. Intake pins the issue snapshot in Git without updating Jira or approving. Main/workspace/Epic intake never requires or warns about a world model.

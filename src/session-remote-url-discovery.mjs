@@ -18,6 +18,7 @@ import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { storyPointersFromLedger } from './story-state-index.mjs';
 import { validateId } from './state-stores.mjs';
 import { posix, removeTemporaryTree, SingularityFlowError } from './util.mjs';
+import { storiesRoot } from './story-paths.mjs';
 
 const CONFIGURATION_BRANCH = 'sflow/config';
 const MAX_HEADS = 4096;
@@ -425,7 +426,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
       const source = prefetched.get(`${scratch}:${definitionOids.get(commitOid)}`);
       if (source == null) continue;
       try {
-        const workRoot = YAML.parse(source)?.workItemRoot ?? 'singularity/work-items';
+        const workRoot = storiesRoot(YAML.parse(source));
         for (const entry of await pathsAt(commitOid, `${workRoot}/${indexedId}/workflow.json`)) stateOids.push(entry.oid);
       } catch {
         // The Story below reports what is wrong with it.
@@ -441,7 +442,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
         if (!ownOid) throw new Error('The state-indexed Story has no pinned workflow definition.');
         definition = YAML.parse(await readBlob(scratch, transport, ownOid));
         validateDefinition(definition);
-        const workRoot = definition.workItemRoot ?? 'singularity/work-items';
+        const workRoot = storiesRoot(definition);
         const entries = await pathsAt(ref, `${workRoot}/${indexedId}/workflow.json`);
         if (!entries.length) throw new Error('The state-indexed Story metadata is missing at its pinned path.');
         for (const entry of entries) {

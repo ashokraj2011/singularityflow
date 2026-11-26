@@ -104,6 +104,7 @@ import {
   publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink,
   retireCapabilityAuthorityLink
 } from './capability-authority-link.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const OK = 'pass';
 
@@ -5476,12 +5477,7 @@ export async function capabilityFsck(url, {
         if (!storyId) {
           throw new SingularityFlowError('Pinned configuration is not checked out on a Story branch.');
         }
-        const workflowFile = path.join(
-          canonicalRoot,
-          localConfig.workItemRoot ?? 'singularity/work-items',
-          storyId,
-          'workflow.json'
-        );
+        const workflowFile = storyLocation(canonicalRoot, localConfig, storyId).file('workflow.json');
         const workflow = await readJson(workflowFile);
         const workflowSource = workflow?.resolution?.configurationSource;
         if (workflow?.workItem?.branch !== storyBranch

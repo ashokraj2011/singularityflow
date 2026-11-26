@@ -51,10 +51,23 @@ export function flowArguments(request, { json = false } = {}) {
   throw new Error(`Action '${request.action}' does not invoke the Singularity Flow CLI.`);
 }
 
+// The default Stories folder and a small copy of the engine's Story classifier (src/story-paths.mjs storyRecordWithin
+// [SSB:REQ-009]): the plugin ships without the engine. test/vscode-story-record-path.test.mjs checks the two agree.
+const STORIES_FOLDER = 'singularity/work-items';
+
+function storyRecordWithin(recorded) {
+  const at = recorded.startsWith(`${STORIES_FOLDER}/`) ? 0 : recorded.indexOf(`/${STORIES_FOLDER}/`) + 1;
+  if (at === 0 && !recorded.startsWith(`${STORIES_FOLDER}/`)) return null;
+  const rest = recorded.slice(at + STORIES_FOLDER.length + 1);
+  const slash = rest.indexOf('/');
+  const id = slash < 0 ? rest : rest.slice(0, slash);
+  return id ? { id, inside: slash < 0 ? '' : rest.slice(slash + 1) } : null;
+}
+
 export function inferWorkId(records = []) {
   for (const record of records) {
-    const match = String(record.path ?? '').match(/singularity\/work-items\/([^/]+)\//);
-    if (match) return match[1];
+    const story = storyRecordWithin(String(record.path ?? ''));
+    if (story?.inside) return story.id;
   }
   return null;
 }

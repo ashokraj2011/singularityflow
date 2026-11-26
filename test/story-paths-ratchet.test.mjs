@@ -42,6 +42,10 @@ const ALLOWED = [
   // Spellings a test reads from the source. Each wrapper asks the resolver; the test keeps its words unchanged.
   // test/approval-witness-criteria.test.mjs: the approval's witness check reads the same clauses as the review page.
   { file: 'src/state.mjs', line: /activeWitnessClauses\(workDir\(root, config, workflow\.workItem\.id\), workflow\)/u, keys: ['W'] },
+  // The extension and the plugin do not bundle the engine: each keeps the default folder for its small copy of
+  // storyRecordWithin (test/vscode-story-record-path.test.mjs holds them to the engine's answers).
+  { file: 'apps/vscode/src/story-attach.ts', line: /^export const DEFAULT_STORIES_FOLDER = 'singularity\/work-items';$/u, keys: ['L'] },
+  { file: 'plugin/extensions/documents/documents.mjs', line: /^const STORIES_FOLDER = 'singularity\/work-items';$/u, keys: ['L'] },
   // A test seam: the command's tests inject their own workDir; the runtime's is the resolver-backed wrapper.
   { file: 'src/commands/story-test-attestation.mjs', line: /dependencies\.workDir\(/u, keys: ['W'] },
   { file: 'src/commands/story-test-repair.mjs', line: /dependencies\.workDir\(/u, keys: ['W'] }
@@ -50,7 +54,7 @@ const ALLOWED = [
 // Ceilings: lowered by each batch of M1, never raised. At M1's end W, R, P, I, B, X and H are 0; L keeps only help
 // text and comments; E stays for M6.
 const CEILINGS = {
-  W: 5, R: 1, P: 3, I: 14, B: 4, X: 95, H: 8, L: 30, S: 7, F: 45, E: 34
+  W: 1, R: 1, P: 2, I: 0, B: 1, X: 93, H: 2, L: 24, S: 6, F: 45, E: 34
 };
 
 async function* sourceFiles(directory) {

@@ -9,6 +9,7 @@ import { secureRepositoryPath, snapshot } from './util.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { initiativeRelative } from './state-stores.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function check(id, status, summary, detail = null) { return { id, status, summary, detail }; }
 
@@ -88,7 +89,7 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
   // The Story this branch belongs to; its branch need not be named after its ID.
   const { workIdForBranch } = await import('./story-branch-name.mjs');
   const storyId = definition ? await workIdForBranch(root, definition, current) ?? current : current;
-  const story = definition ? path.join(root, definition.workItemRoot ?? 'singularity/work-items', storyId, 'workflow.json') : null;
+  const story = definition ? storyLocation(root, definition, storyId).file('workflow.json') : null;
   const portfolio = await loadPortfolio(root, { required: false }).catch(() => null);
   // A branch that cannot be an initiative ID (a Story branch such as feature/x, or a detached HEAD)
   // has no initiative state to read.

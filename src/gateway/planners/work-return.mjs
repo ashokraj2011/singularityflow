@@ -32,6 +32,7 @@ import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../resu
 import { resolveWorkRecord, workRecords } from '../work-records.mjs';
 import { branch, head } from '../../git.mjs';
 import { autoHomeSummary } from '../auto-home-summary.mjs';
+import { storyLocation } from '../../story-paths.mjs';
 
 /**
  * What a reconciliation can say about a changed path, in the order a reader meets it.
@@ -318,7 +319,7 @@ export async function reconciliationFor(root, item, context) {
   const interval = workflow?.workIntervals?.current;
   if (!interval || interval.status !== 'open' || interval.phaseId !== workflow.currentPhase) return null;
   return reconcileWorkInterval(root, config, workflow, {
-    itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
     // A read never persists `[INT:CON-041]`. See the module note.
     writeLocal: false
   });

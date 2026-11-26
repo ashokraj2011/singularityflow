@@ -7,6 +7,7 @@ import YAML from 'yaml';
 import { GOVERNED_ROOTS, initializeDefinition } from './config.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function boundedOutput(text, limit = 4_000) {
   const value = text.trim();
@@ -138,7 +139,7 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
     steps.push(command(cli, repository, ['start', 'TOY-001', '--from-branch', 'main', '--story-file', story, '--work-type', 'quick-fix', '--agent', 'developer'], env));
     // Quick fix signs off its scope and plan before any code changes.
     steps.push(command(cli, repository, ['prepare', 'intake'], env));
-    await writeFile(path.join(repository, 'singularity/work-items/TOY-001/artifacts/intake/intake.md'), TOY_INTAKE);
+    await writeFile(storyLocation(repository, null, 'TOY-001').file('artifacts/intake/intake.md'), TOY_INTAKE);
     steps.push(command(cli, repository, ['wm', 'compose', '--phase', 'intake'], env));
     steps.push(command(cli, repository, ['phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place'], env));
     steps.push(command(cli, repository, ['submit', 'intake'], env));
@@ -155,7 +156,7 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
     steps.push(status);
     const workflow = JSON.parse(status.rawOutput);
     if (workflow.status !== 'closed') throw new SingularityFlowError(`Guide finished with state '${workflow.status ?? 'unknown'}', not closed.`);
-    const finalStateBytes = await readFile(path.join(repository, 'singularity/work-items/TOY-001/workflow.json'));
+    const finalStateBytes = await readFile(storyLocation(repository, null, 'TOY-001').workflowFile);
     completed = true;
     return {
       schemaVersion: 1,

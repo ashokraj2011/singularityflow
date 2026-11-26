@@ -19,13 +19,14 @@ import {
 } from './workspace-context.mjs';
 import { phaseKernelOwned, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phasePublicationAuthorship, phasePublicationCommand } from './manual-authorship.mjs';
-import { DEFAULT_WORK_ITEM_ROOT, workItemWorkflowRelative } from './work-item-location.mjs';
+import { workItemWorkflowRelative } from './work-item-location.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { readCopilotMode } from './copilot-mode.mjs';
 import { pendingContextBoundary } from './context-policy.mjs';
 import { parseArgs } from './util.mjs';
 import { resolveOperation } from './command-registry.mjs';
 import { CLI_PATH_CONTRACT } from './safe-command-guidance.mjs';
+import { storiesRoot } from './story-paths.mjs';
 
 // An initiative branch is a governed context in its own right: the branch name IS the initiative
 // ID, the profile and agent were pinned when it was started, and every phase output is
@@ -58,7 +59,7 @@ async function copilotAgentName(payload = {}) {
   return typeof value === 'string' && value.trim() ? (await import('./review-subagent.mjs')).ownAgentName(value) : null;
 }
 
-function pathGroundingContext(root, workId = null, workItemRoot = DEFAULT_WORK_ITEM_ROOT) {
+function pathGroundingContext(root, workId = null, workItemRoot = storiesRoot()) {
   const governedDirectory = workId
     ? path.posix.dirname(workItemWorkflowRelative(workId, workItemRoot))
     : null;
@@ -119,7 +120,7 @@ export async function copilotAgentStartHook(root, payload = {}) {
     const definition = await loadDefinition(root).catch(() => null);
     return {
       additionalContext: `${pathGroundingContext(
-        root, session?.workId ?? null, definition?.workItemRoot ?? DEFAULT_WORK_ITEM_ROOT
+        root, session?.workId ?? null, storiesRoot(definition)
       ).trim()} ${governedAgentRouteHint(agent, session?.workId ?? null)}`
     };
   }
@@ -191,7 +192,7 @@ async function sessionStartContext(root, definition, workflow, payload = {}) {
   const source = sourceKind(payload.source);
   const [existing, previous] = await Promise.all([loadSession(root, { required: false }), loadCopilotSession(root)]);
   const activeWorkId = workflow?.workItem?.id ?? null;
-  const workItemRoot = workflow?.resolution?.workItemRoot ?? definition.workItemRoot ?? DEFAULT_WORK_ITEM_ROOT;
+  const workItemRoot = storiesRoot(workflow, definition);
   const sameCopilotSession = Boolean(sessionId && previous?.sessionId === sessionId && previous?.repositoryRoot === root);
   const previousSelectionStillActive = sameCopilotSession && previous?.workId && previous.workId === activeWorkId && previous.workItemSelectionRequired !== true;
   // A workspace-only handoff is an explicit request not to adopt the checked-out Story. Preserve

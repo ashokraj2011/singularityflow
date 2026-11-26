@@ -29,6 +29,7 @@ import { STEP_INTENTS } from './phase-roles.mjs';
 import { composeTask, storyComposition, TASK_KINDS } from './task-composition.mjs';
 import { chooseTaskSkills, definitionStepIntent, librarySkillCandidate, marketplaceSkillCandidate, unapprovedMarketplaces } from './task-skills.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { storiesDirectory } from './story-paths.mjs';
 
 export const SKILL_CATALOG_RESULT = 'skill-catalog';
 export const SKILL_CATALOG_COMMAND = 'singularity-flow skill catalog';
@@ -289,7 +290,7 @@ function unreadable(marketplace, error) {
 
 /** The task Stories in this checkout whose composition chose skills: their records here, no other branch. */
 async function taskStories(root, definition) {
-  const directory = path.join(root, definition.workItemRoot ?? 'singularity/work-items');
+  const directory = storiesDirectory(root, definition);
   let names;
   try { names = (await readdir(directory, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort(byText).slice(0, STORY_LIMIT); }
   catch { return []; }

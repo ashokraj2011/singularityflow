@@ -13,7 +13,7 @@ import type {
 } from '../cli/snapshot.ts';
 import type { TreeNode } from './tree-model.ts';
 import { storyArtifactPublicationLabel } from './submission-presentation.ts';
-import { sameStoryAttachPath } from '../story-attach.ts';
+import { sameStoryAttachPath, storyRecordWithin } from '../story-attach.ts';
 
 export interface InboxArtifact {
   id: string;
@@ -169,8 +169,8 @@ function storyArtifact(
 }
 
 function storyDocumentWorkId(document: StoryDocument, fallback: string): string {
-  const match = document.path?.match(/(?:^|\/)singularity\/work-items\/([^/]+)\//);
-  return match?.[1] ?? fallback;
+  const story = storyRecordWithin(document.path);
+  return story?.inside ? story.id : fallback;
 }
 
 function phaseGroups(

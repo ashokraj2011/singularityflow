@@ -109,6 +109,7 @@ import { workflowCodeGeneration, codeOutcomeReviewOffer } from './code-delivery-
 import { captureEnvironmentDeclaration, ENVIRONMENT_DECLARATION_PATH, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
+import { storyLocation, storiesDirectory, storiesRoot } from './story-paths.mjs';
 
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
 const DEFAULT_WORLD_MODEL_PROMPT = 'singularity/prompts/worldmodel-builder.md';
@@ -182,10 +183,7 @@ async function mcpConfigurationStatus(root, definition) {
  */
 async function visualAssuranceSnapshot(root, definition, workflow) {
   if (!workflow) return null;
-  const itemDirectoryRelative = posix(path.join(
-    workflow.resolution?.workItemRoot ?? definition.workItemRoot ?? 'singularity/work-items',
-    workflow.workItem.id
-  ));
+  const itemDirectoryRelative = storyLocation(null, [workflow, definition], workflow.workItem.id).prefix;
   const itemDirectory = path.join(root, itemDirectoryRelative);
   const errors = [], warnings = [], passes = [];
 
@@ -365,7 +363,7 @@ async function planningPrompt(root, definition) {
 }
 
 async function workItems(root, definition) {
-  const base = path.join(root, definition.workItemRoot ?? 'singularity/work-items');
+  const base = storiesDirectory(root, definition);
   const results = new Map();
   const summarize = (state, fallbackId, source) => ({
     id: state.workItem?.id ?? fallbackId,
@@ -1707,7 +1705,7 @@ function allowedConfigurationPath(
 
 // World Model views are published to the state branch, not exported as checkout files.
 function exportablePath(definition, relative, portfolio = null) {
-  const workRoot = posix(definition.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '');
+  const workRoot = posix(storiesRoot(definition)).replace(/\/$/, '');
   const initiativeRoot = posix(portfolio?.initiativeRoot ?? 'singularity/initiatives').replace(/\/$/, '');
   return allowedConfigurationPath(definition, relative, portfolio)
     || relative === AGENT_LOCK_PATH

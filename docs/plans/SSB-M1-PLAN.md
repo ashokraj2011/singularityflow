@@ -386,6 +386,17 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
 - **B8.** `commands/nextsteps.mjs` keeps an OS-relative `workflow.json` path (`path.join` without a root, so Windows
   separators): `storyLocation('', definition, id).file('workflow.json')` gives the same string. Lazy `state.mjs`
   imports of `workflowPath` (`auto/auto-flight-store.mjs`) now lazily import `story-paths.mjs`.
+- **B9.** The extension's copy of the classifier lives in `apps/vscode/src/story-attach.ts` (`storyRecordWithin`,
+  `DEFAULT_STORIES_FOLDER`), a module both `views/inbox-model.ts` and `gdp-local-runner-review.ts` reach, so no
+  extension bundle gains a module. The plugin's documents extension ships without the engine and keeps its own copy.
+  A third new test, `test/vscode-story-record-path.test.mjs`, holds both copies to the engine's answers and to the
+  patterns they replaced. The plugin's old pattern matched the folder even glued to a longer segment name
+  (`xsingularity/work-items/`); the copy reads it only at the start of a path or after a `/`.
+  `watcher-refresh-fence.ts` matches Stories and Epics in one pattern and waits for M6. `copilot-plain-chat.mjs`
+  imports the resolver lazily, as it imports everything off the hook's first path. `cli-entry.mjs` keeps its
+  `ls-files` glob of every Story's `workflow.json`: root dispatch does not load `story-paths.mjs` (L, named).
+  `repository-subject-index.mjs` brings `storiesRoot` into the VS Code help and support runtimes: one module each
+  (+75 and +71 bytes), raised with their measurements.
 - **Not converted in M1: a Story prefix passed as a parameter** (`itemRelative`, `itemRoot`, `workRoot` joined by the
   callee, as in `recovery-preparation-context.mjs`). The prefix comes from the resolver; the callee's join stays until
   M2 passes the location instead. The ratchet does not count these.

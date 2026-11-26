@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { changeRequestApplies, deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationToolProtocol, mutationTurnMode } from './phase-mutation-contract.mjs';
 import { asSflowCommand, copilotModeFile, mentionsHookCli, noteTurnRenewal, readCopilotMode, readTurnRenewal, TURN_WINDOW_MS, turnWindowStart,
   withTurnRenewal } from './copilot-mode.mjs';
+import { storyLocation } from './story-paths.mjs';
 // The guard runs on every tool call: the staging-path helper loads only when a turn's record is built
 // or a staging refusal is written, never on the per-call path.
 const stagingPaths = () => import('./phase-staging-paths.mjs');
@@ -316,7 +317,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   if (mode === 'read' && requestedMode !== 'read') {
     contract.summary = 'The phase changed during this turn. Preserve work, end this turn, and start the configured author in a new turn.';
   }
-  const workflowFile = path.join(root, definition.workItemRoot, workflow.workItem.id, 'workflow.json');
+  const workflowFile = storyLocation(root, definition, workflow.workItem.id).workflowFile;
   // An open version's acceptance and writer, read from files: when either changes (a settled opening, a takeover), the
   // turn's grant is derived again, never kept from before [OSA:REQ-031, REQ-034].
   // So is the task record: a repair spent, or a wait recorded, after this turn began derives its grant again.

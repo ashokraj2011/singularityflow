@@ -8,6 +8,7 @@ import { SingularityFlowError, exists, readJson } from './util.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { scopedRead } from './read-scope.mjs';
 import { sourceFileAt } from './source-inspection.mjs';
+import { storiesRoot } from './story-paths.mjs';
 
 function unique(values) {
   return [...new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean))];
@@ -179,7 +180,7 @@ async function scanDirectory(index, root, base, suffix, parser, family) {
  * snapshot asked for it from several slices, each reading and parsing every workflow.json again.
  */
 export async function buildRepositorySubjectIndex(root, { definition = {}, portfolio = null } = {}) {
-  const workRoot = definition.workItemRoot ?? 'singularity/work-items';
+  const workRoot = storiesRoot(definition);
   const initiativeRoot = portfolio?.initiativeRoot ?? 'singularity/initiatives';
   return scopedRead(`subjectIndex:${path.resolve(root)}\0${workRoot}\0${initiativeRoot}`, async () => {
     const index = new RepositorySubjectIndex();
@@ -446,7 +447,7 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
   fresh = false
 } = {}) {
   const index = new RepositorySubjectIndex();
-  const workRoot = String(definition.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '');
+  const workRoot = String(storiesRoot(definition)).replace(/\/$/, '');
   const initiativeRoot = String(portfolio?.initiativeRoot ?? 'singularity/initiatives').replace(/\/$/, '');
   // The batch answers the same questions; any Git failure keeps the exact per-ref reads below.
   const prefetched = refs.length > 1 && !fresh && env === process.env

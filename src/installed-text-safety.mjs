@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { checkImportText, IMPORT_SAFETY_CHECKER, safetyFlag } from './import-safety.mjs';
+import { checkImportText, IMPORT_SAFETY_CHECKER, safetyFlag, safetyGate } from './import-safety.mjs';
 
 export const INSTALLED_TEXT_SAFETY_RESULT = 'installed-text-safety';
 const FILE = 'installed-text-safety.json';
@@ -45,8 +45,12 @@ export async function installedTexts(root) {
   const configRoot = configurationReadRoot(root);
   const texts = [];
   const library = await loadSkillLibrary(configRoot).catch(() => ({ skills: new Map() }));
-  for (const skill of library.skills.values()) texts.push({ key: `library-skill:${skill.id}`, kind: 'library-skill', id: skill.id, agent: null, path: skill.path, text: skill.text });
   const ledger = await loadImportsLedger(configRoot).catch(() => ({ imports: {} }));
+  // The lines a person looked at when it was imported, from its import record: they ask nothing again.
+  const looked = (key) => ledger.imports?.[key]?.source?.safety ?? null;
+  for (const skill of library.skills.values()) {
+    texts.push({ key: `library-skill:${skill.id}`, kind: 'library-skill', id: skill.id, agent: null, path: skill.path, text: skill.text, looked: looked(`library-skill:${skill.id}`) });
+  }
   for (const key of Object.keys(ledger.imports ?? {}).sort()) {
     const entry = ledger.imports[key];
     const relative = entry?.target?.path;
@@ -56,7 +60,7 @@ export async function installedTexts(root) {
     const text = await readFile(target.absolute, 'utf8').catch(() => null);
     if (text == null) continue;
     texts.push({ key, kind: entry.kind, id: entry.kind === 'workflow' ? entry.workflow ?? entry.target?.id ?? key : entry.target?.id ?? key,
-      agent: entry.target?.agent ?? null, path: relative, text });
+      agent: entry.target?.agent ?? null, path: relative, text, looked: looked(key) });
   }
   return texts;
 }
@@ -89,8 +93,11 @@ export async function installedTextSafety(root, { refresh = false, texts = null 
       fresh = true;
     }
     results[digest] = result;
-    const { text: _text, ...rest } = entry;
-    return { ...rest, sha256: digest, state: result.state, flag: safetyFlag({ ...result, checker: IMPORT_SAFETY_CHECKER, notes: [] }, { what: installedWhat(entry) }) };
+    const { text: _text, looked: record, ...rest } = entry;
+    // A look the person already gave at its import (its record's lines, by digest) is no flag; a block always is.
+    const looks = result.state === 'look' ? safetyGate({ ...result, checker: IMPORT_SAFETY_CHECKER }, { previous: record }).unlooked : result.looks;
+    const state = result.state === 'look' && !looks.length ? 'clean' : result.state;
+    return { ...rest, sha256: digest, state, flag: safetyFlag({ ...result, looks, state, checker: IMPORT_SAFETY_CHECKER, notes: [] }, { what: installedWhat(entry) }) };
   });
   const checkedAt = fresh || !kept?.checkedAt ? new Date().toISOString() : kept.checkedAt;
   if (file && (fresh || Object.keys(results).length !== Object.keys(known).length)) {

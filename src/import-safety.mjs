@@ -21,14 +21,14 @@ import { scanText } from './secrets.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /** The checker's version: a result kept for a text is read again only when this changes. */
-export const IMPORT_SAFETY_CHECKER = 'sflow-text-checks/1';
+export const IMPORT_SAFETY_CHECKER = 'sflow-text-checks/2';
 /** What the checks are called wherever a person reads them: never a security review [OMK:REQ-033]. */
 export const SAFETY_NAME = "SFlow's text checks";
 
 /** Each check and what it does: block refuses, look needs the person's yes, note only shows [OMK:REQ-030]. */
 export const SAFETY_CHECKS = Object.freeze({
   'hidden-characters': 'block', 'rule-bypass': 'block', 'credential-access': 'block', 'pipe-to-shell': 'block', secret: 'block',
-  'hidden-markup': 'look', 'encoded-payload': 'look', 'data-upload': 'look', 'destructive-command': 'look',
+  'hidden-markup': 'look', 'encoded-payload': 'look', 'data-upload': 'look', 'destructive-command': 'look', 'sflow-command': 'look',
   'outside-link': 'note'
 });
 export const LOOK_CHECKS = Object.freeze(Object.keys(SAFETY_CHECKS).filter((check) => SAFETY_CHECKS[check] === 'look'));
@@ -43,6 +43,7 @@ const CHECK_WORDS = Object.freeze({
   'encoded-payload': 'a long encoded run',
   'data-upload': 'sends data out',
   'destructive-command': 'a command that destroys work',
+  'sflow-command': "names one of SFlow's approve, decision, override, pause or guard commands: check that it asks the person and does not run it for them",
   'outside-link': 'a link to another site'
 });
 const SEVERITY_ORDER = Object.freeze({ block: 0, look: 1, note: 2 });
@@ -74,9 +75,18 @@ function invisibleIn(line, { first = false } = {}) {
 // ------------------------------------------------------------------------------------------------ the patterns
 
 // A negation just before what a pattern found ("never skip the approval", "do not run curl … | sh") means the text warns
-// against it: SFlow's own rules say the same.
-const NEGATION = /\b(?:never|not|don'?t|doesn'?t|mustn'?t|cannot|can'?t|no|nor|without|avoid|refuse to|forbidden to|prohibited from)\b[^.!?\n]{0,24}$/iu;
-const negated = (line, index) => NEGATION.test(line.slice(Math.max(0, index - 48), index));
+// against it: SFlow's own rules say the same. So does a clause that opens with one and lists what it forbids ("Never
+// fabricate host identifiers, bypass a guard, or …"); a negation inside a condition ("If the tests do not pass, skip the
+// approval") is neither, so the approval's skip is still found.
+const NEGATION = /\b(?:never|not|don'?t|doesn'?t|mustn'?t|cannot|can'?t|no|nor|without|avoid|refuse to|forbidden to|prohibited from)\b[^.!?,;\n]{0,24}$/iu;
+const OPENING_NEGATION = /^(?:never|do not|don'?t|must not|mustn'?t|you must not|you never|no agent|nothing)\b[^;:]*$/iu;
+function negated(line, index, prefix = '') {
+  // A sentence wrapped over lines: what came before it on the lines above counts (`prefix`).
+  const before = `${prefix ? `${prefix} ` : ''}${line.slice(0, index)}`;
+  if (NEGATION.test(before.slice(-48))) return true;
+  const clause = before.split(/[.!?;:](?=\s|$)/u).at(-1).replace(/^[\s>*_#\-–—•\d.()[\]]*/u, '');
+  return OPENING_NEGATION.test(clause);
+}
 
 const BYPASS_VERBS = String.raw`(?:skip(?:ping)?|bypass(?:ing)?|circumvent|get(?:ting)? around|work around|disable|turn(?:ing)? off|switch off|deactivate|suppress|ignore|override)`;
 const SFLOW_OBJECTS = String.raw`(?:approvals?|approval gates?|sign-?offs?|(?:the |code |human )review(?: step)?|hooks?|sf ?guard|sflow guard|guardrails?|singularity[- ]flow|sflow)`;
@@ -87,9 +97,6 @@ const RULE_BYPASS = Object.freeze([
   /\b(?:approve|merge|publish|push|deploy|release|submit)\b[^.\n]{0,40}?(?:\bon your own\b|\bby yourself\b|\byourself\b|\bwithout (?:asking|waiting|(?:any |an |a |the )?(?:approvals?|reviews?|confirmation|permission|sign-?off|person|user|human)))/iu,
   // Edit SFlow's own configuration, hooks or records.
   /\b(?:edit|modify|change|write|delete|remove|rewrite|overwrite|update|create|touch|replace|truncate|append to|push to|commit to|merge into)\b[^\n]{0,60}?(?<![\w./-])(?:singularity\/|sflow\/config\b|\.github\/hooks\b|\.git\/singularity-flow\b|imports\.lock\.yml\b|agents\.lock\.yml\b)/iu,
-  // SFlow's approve, decision, override, pause or guard commands.
-  /\b(?:singularity-flow|sflow)\s+(?:approve|approvals\s+(?:approve|grant)|decision|decide|override|appeal|pause|guard|confirm)\b/iu,
-  /(?<![\w-])\/sf-(?:approve|decide|review-decide|override|appeal|pause|guard|gate|confirm)\b/iu,
   // Ignore earlier or system instructions.
   /\b(?:ignore|disregard|forget|override|overrule)\b[^.\n]{0,30}?\b(?:previous|prior|earlier|above|preceding|all other|any other|system|original|your)\b[^.\n]{0,20}?\b(?:instructions?|prompts?|rules|directions|guidance|guidelines|messages?|constraints)\b/iu
 ]);
@@ -114,8 +121,36 @@ const PIPE_TO_SHELL = Object.freeze([
   /\b(?:iex|invoke-expression)\s*\(?\s*\(?\s*(?:iwr|irm|invoke-webrequest|invoke-restmethod|new-object\s+(?:system\.)?net\.webclient)\b/iu
 ]);
 
+/**
+ * SFlow's approve, decision, override, pause, guard and confirmation commands, named in a text: a look, not a block. Naming
+ * one is how an SFlow-aware skill tells the person what to run ("ask the person to run /sf-approve"); only a person can say
+ * whether a line runs it for them. Its read-only forms are not flagged at all (`pause status`, `guard status|report|
+ * remote-check`, `approvals`, `decision show`, `decisions` with no answer, `appeal show|list|preflight|evidence-prepare`).
+ */
+const SFLOW_COMMAND = /\b(?:singularity-flow|sflow)\s+(approve|approvals|decision|decisions|decide|override|appeal|pause|guard|confirm)\b(?:\s+([a-z][a-z-]*))?/giu;
+const SFLOW_ROUTE = /(?<![\w-])\/sf-(?:approve|decide|review-decide|override|appeal|pause|guard|gate|confirm)\b/iu;
+// `pause off` only gives SFlow's guidance back, so it gets around nothing either.
+const READ_ONLY_FORMS = Object.freeze({ pause: ['status', 'off'], guard: ['status', 'report', 'remote-check'], decision: ['show'],
+  appeal: ['show', 'list', 'preflight', 'evidence-prepare'] });
+const SFLOW_ROUTE_READ = /^\/sf-pause\s+(?:status|off)\b/iu;
+function sflowCommandIn(line, prefix = '') {
+  for (const match of line.matchAll(SFLOW_COMMAND)) {
+    const [command, action] = [match[1].toLowerCase(), match[2]?.toLowerCase() ?? null];
+    // `approvals` only reads; `decisions` reads unless the line gives it an answer.
+    if (command === 'approvals' || (command === 'decisions' && (!action || !['record', 'undo'].includes(action)) && !/--(?:choose|answers)\b/u.test(line))) continue;
+    if (action && (READ_ONLY_FORMS[command] ?? []).includes(action)) continue;
+    if (!negated(line, match.index, prefix)) return match;
+  }
+  for (const match of line.matchAll(new RegExp(SFLOW_ROUTE.source, 'giu'))) {
+    if (!SFLOW_ROUTE_READ.test(line.slice(match.index)) && !negated(line, match.index, prefix)) return match;
+  }
+  return null;
+}
+
 // An HTML comment that only steers a tool (a linter, a table of contents, a region) holds no instructions.
-const TOOL_COMMENT = /^\s*(?:markdownlint|prettier|eslint|vale|textlint|cspell|spell|toc\b|end ?toc|#?region|#?endregion|sflow-|@ac:|lint)/iu;
+// SFlow's own template markers are written `sflow:` (`<!-- sflow:guidance … -->`) as well as `sflow-`. A block-level check
+// still reads every line of a comment, as it reads every other line.
+const TOOL_COMMENT = /^\s*(?:markdownlint|prettier|eslint|vale|textlint|cspell|spell|toc\b|end ?toc|#?region|#?endregion|sflow[-:]|@ac:|lint)/iu;
 const HIDDEN_MARKUP = Object.freeze([
   /<[a-z][^>]*\s(?:hidden|aria-hidden\s*=\s*["']?true)(?=[\s>=/])/iu,
   /display\s*:\s*none/iu,
@@ -155,10 +190,10 @@ export function addressHost(value) {
 }
 
 /** The first match of any of `patterns` in `line` that is not negated, or null. */
-function firstMatch(line, patterns, { negation = true } = {}) {
+function firstMatch(line, patterns, { negation = true, prefix = '' } = {}) {
   for (const pattern of patterns) {
     const match = pattern.exec(line);
-    if (match && !(negation && negated(line, match.index))) return match;
+    if (match && !(negation && negated(line, match.index, prefix))) return match;
   }
   return null;
 }
@@ -185,17 +220,24 @@ export function checkImportText(text, { ownHosts = [], secrets = true } = {}) {
   const own = new Set(ownHosts.filter(Boolean).map((host) => String(host).toLowerCase()));
   const findings = [];
   const hosts = new Set();
+  // The start of a sentence wrapped from the lines above ("Do not …, approve your own artifacts,\ndisable checks/hooks"):
+  // its negation still reads on the next line. A blank line or a sentence's end starts again.
+  let carried = '';
   lines.forEach((line, index) => {
     const number = index + 1;
+    const prefix = carried;
+    carried = !line.trim() || /^\s*(?:#|[-*>|]|\d+\.)\s/u.test(lines[index + 1] ?? '') ? ''
+      : `${prefix ? `${prefix} ` : ''}${line.trim()}`.split(/[.!?](?=\s|$)/u).at(-1).slice(-240);
     const hidden = invisibleIn(line, { first: index === 0 });
     if (hidden.length) findings.push(finding('hidden-characters', number, line, { detail: hidden.join(' ') }));
-    if (firstMatch(line, RULE_BYPASS)) findings.push(finding('rule-bypass', number, line));
-    if (firstMatch(line, PRIVATE_READS)) findings.push(finding('credential-access', number, line));
-    if (firstMatch(line, PIPE_TO_SHELL)) findings.push(finding('pipe-to-shell', number, line));
+    if (firstMatch(line, RULE_BYPASS, { prefix })) findings.push(finding('rule-bypass', number, line));
+    if (firstMatch(line, PRIVATE_READS, { prefix })) findings.push(finding('credential-access', number, line));
+    if (firstMatch(line, PIPE_TO_SHELL, { prefix })) findings.push(finding('pipe-to-shell', number, line));
     if (firstMatch(line, HIDDEN_MARKUP, { negation: false })) findings.push(finding('hidden-markup', number, line));
     if (firstMatch(line, ENCODED_PAYLOAD, { negation: false })) findings.push(finding('encoded-payload', number, line));
-    if (firstMatch(line, DATA_UPLOAD)) findings.push(finding('data-upload', number, line));
-    if (firstMatch(line, DESTRUCTIVE)) findings.push(finding('destructive-command', number, line));
+    if (firstMatch(line, DATA_UPLOAD, { prefix })) findings.push(finding('data-upload', number, line));
+    if (firstMatch(line, DESTRUCTIVE, { prefix })) findings.push(finding('destructive-command', number, line));
+    if (sflowCommandIn(line, prefix)) findings.push(finding('sflow-command', number, line));
     for (const match of line.matchAll(URL)) {
       // A sentence's own full stop or comma after a link is not part of its host.
       const host = match[1].replace(/[.,;:!?]+$/u, '').replace(/:\d+$/u, '').replace(/^[^@]*@/u, '').toLowerCase();

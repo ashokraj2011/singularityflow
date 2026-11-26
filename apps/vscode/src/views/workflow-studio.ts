@@ -56,7 +56,7 @@ const AGENT_STAGE_ANSWER = { step: /^[a-z0-9]+(?:-[a-z0-9]+)*$/, intent: /^[a-z]
 const MARKETPLACE_REF = /^[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}$/;
 
 /** The look checks of SFlow's text checks (OMK §7) a person ticked "I looked at these lines" for, as `--looked`; anything else is dropped. */
-const LOOK_CHECKS = new Set(['hidden-markup', 'encoded-payload', 'data-upload', 'destructive-command']);
+const LOOK_CHECKS = new Set(['hidden-markup', 'encoded-payload', 'data-upload', 'destructive-command', 'sflow-command']);
 function lookedFlags(raw: unknown): string[] {
   const looked = Array.isArray(raw) ? [...new Set(raw.filter((entry): entry is string => typeof entry === 'string' && LOOK_CHECKS.has(entry)))].sort() : [];
   return looked.length ? ['--looked', looked.join(',')] : [];

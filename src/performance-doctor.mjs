@@ -106,7 +106,7 @@ export async function repositoryPerformanceSnapshot(root, definition = {}) {
     recommendations.push({
       id: 'scope-world-model',
       severity: 'high',
-      message: `The world model covers all ${totalTracked.toLocaleString('en-US')} tracked files. Set capability sourceRoots/sharedRoots before building it.`
+      message: `The Repository brief reads from all ${totalTracked.toLocaleString('en-US')} tracked files. Set capability sourceRoots/sharedRoots to narrow it.`
     });
   }
   if (totalTracked >= 50_000 && !sparse) {

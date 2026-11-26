@@ -49,7 +49,8 @@ export interface WorkspaceImpactReport {
   completedAt?: string | null;
   repositories: Array<{
     id: string; branch?: string | null; commit: string; dirty?: boolean;
-    worldModel: { present: boolean; sha256: string | null };
+    // The removed registered World Model's projection; older reports carry it, and nothing shows it.
+    worldModel?: { present: boolean; sha256: string | null };
   }>;
   warnings?: string[];
   changes?: Array<{ repository: string; reason: string }>;
@@ -108,8 +109,8 @@ function workspaceImpactHtml(
     ${(selected.warnings ?? []).length ? `<ul class="blockers">${selected.warnings?.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul>` : ''}
     ${(selected.changes ?? []).length ? `<p class="warning-text">Captured evidence changed: ${selected.changes?.map((change) => `${escape(change.repository)} (${escape(change.reason)})`).join(', ')}</p>` : ''}
     <details><summary>Captured analysis context</summary>
-      <table><thead><tr><th>Repository</th><th>Branch</th><th>World model</th></tr></thead><tbody>
-      ${selected.repositories.map((repository) => `<tr><td><code>${escape(repository.id)}</code></td><td>${repository.branch ? escape(repository.branch) : 'the captured commit'}</td><td>${repository.worldModel.present ? 'pinned' : '<span class="pill wait">missing</span>'}</td></tr>`).join('')}
+      <table><thead><tr><th>Repository</th><th>Branch</th></tr></thead><tbody>
+      ${selected.repositories.map((repository) => `<tr><td><code>${escape(repository.id)}</code></td><td>${repository.branch ? escape(repository.branch) : 'the captured commit'}</td></tr>`).join('')}
       </tbody></table>
       <p class="muted">Model: ${escape(selected.model?.name ?? 'provider default')} · Tokens: ${escape(selected.tokenUsage?.status ?? 'unavailable')}</p>
     </details>

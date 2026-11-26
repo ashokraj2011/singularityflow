@@ -150,7 +150,7 @@ test('workspace impact analyzes immutable repository copies without a Work ID or
     'impact/impact-passkeys/summary.md'), 'utf8'), '# Impact summary\n\n## Executive summary\nPasskeys affect API and web.\n');
 });
 
-test('workspace impact reports a governed repository World Model as unread instead of reusing it', async () => {
+test('workspace impact never reads, names or warns about the removed World Model', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-impact-governed-'));
   const api = await governedRepository(root, 'api');
   const web = await repository(root, 'web');
@@ -167,7 +167,8 @@ test('workspace impact reports a governed repository World Model as unread inste
     repositories: ['api']
   }, {
     runner: async ({ prompt }) => {
-      assert.match(prompt, /world model: not-available — Impact analysis reads the repository source; it does not read World Model views/);
+      // The registered World Model was removed: the prompt names no model for the analysis to look for.
+      assert.doesNotMatch(prompt, /world model/i);
       return { output: '# Impact summary\n\n## Executive summary\nNo World Model was read.' };
     }
   });
@@ -177,7 +178,8 @@ test('workspace impact reports a governed repository World Model as unread inste
   // worldModel.outputDir belonged to the removed registered World Model and is dropped at load.
   assert.equal(entry.worldModel.outputDir, 'singularity/world-model');
   assert.equal(entry.worldModel.sha256, null);
-  assert.match(report.warnings.join('\n'), /api: Impact analysis reads the repository source; it does not read World Model views/);
+  // A clean checkout has nothing to warn about; a missing model is no longer a warning.
+  assert.deepEqual(report.warnings, []);
 });
 
 test('workspace impact pins a detached HEAD and detects untracked work through registered local Git reads', async () => {

@@ -6,7 +6,9 @@
 not built: probe P1 showed JSX parsing did not cause the missing file. M3 (REQ-029) built on branch `wmr-m3`
 (2026-11-26); its measure of the owner's kept prompts, before and after M1 and M2, is in §11. M0 (the text clean-up)
 is on main (`4c8b464a6`). M1's last part, the dead `worldModelViews` fields and the rest of the removed World Model's
-code, is retired on branch `wm-dead` (§10). M4 (REQ-020–023) is not built. The probes' answers are in §7.
+code, is retired on branch `wm-dead` (§10). M4 (REQ-020–023) is not built. The probes' answers are in §7. The
+planning fix §11 left open is built on branch `wmr-words` (2026-11-26): every graph Story's planning brief now names the
+grapher file (§11).
 Written on 2026-11-26 from two read-only reviews of that day: one of the code, one of the owner's real use. Checked
 against `main@cbeb9978d`; built on `main@30484105e`.
 
@@ -390,8 +392,10 @@ Where the build reads the requirements one way among several:
   the same). The per-step switch is `worldModel.knowledge.prompt` written as a mapping of step IDs to `slice` or
   `off`; a plain `slice` or `off` still covers every step. "Verification and release" covers the conformance step too.
 - **REQ-012's plan steps.** A step whose intent is `plan` gets the implementation-spec profile (developer, 4 KB, the
-  plan's files first), as the feature workflow's plan step already did. So spec-driven-standard's `planning` step
-  moves from the architect's 3 KB brief to it. The reviewer's profile is 3 KB and is never chosen by a step's name.
+  plan's files first), as the feature workflow's plan step already did. The reviewer's profile is 3 KB and is never
+  chosen by a step's name. Corrected on `wmr-words`: spec-driven-standard's `planning` step does not move. It declares
+  `design` as its document's kind, and the kind comes before the intent, so it keeps the architect's 3 KB brief. Since
+  then that brief says what a change touches (§11).
 - **REQ-013's sameness.** A brief is reused while the Story's base commit, its changed files' bytes, its plan, its
   words, its source scope and the reviews people wrote (`docs/knowledge/*.yml`) are the same. Only a recorded compose
   keeps one; `wm brief` reads it.
@@ -520,17 +524,58 @@ no brief.
 - **The hit rate as A13 defines it does not tell before from after.** The app's shell file is named in almost every
   brief (it is the entry point), and most Stories change it. The most-changed-file rate does tell them apart: 67%
   became 84%, and every code brief now names the file its Story changed most (REQ-007). In the 6 graph Stories, the
-  code briefs that name the grapher file went from 11 of 20 to 20 of 20.
-- **Planning briefs still miss the graph Stories' main file: 0 of 6, before and after.**
-  - Cause (P1): a planning step's first version is composed before its plan exists, so only the Story's words can
-    point at a file. Those words ("graph", "plot") never match the grapher's component name, which is read as one word.
-    The same cause makes two Stories' planning briefs identical after the change.
-  - Smallest fix: split identifiers and file names at case changes when matching the Story's words
-    (`src/knowledge/phase-brief.mjs`, and the word weighting in `records/impact.mjs`).
-  - Not built here: it re-ranks every brief and so changes the 32 golden briefs, which is over this milestone's hour.
+  code briefs that name the grapher file went from 11 of 20 to 20 of 20. With the planning fix below it does tell
+  them apart: 93% became 100%.
+- **Planning briefs missed the graph Stories' main file: 0 of 6, before and after.** Fixed on branch `wmr-words`
+  (2026-11-26). A probe replayed one graph Story's planning step and found three causes, not one:
+  - The owner's planning steps pin the document kind `design`, so they get the architect's brief, which had no "What a
+    change touches" section. 5 of the 6 Stories pin no intent; the sixth pins `plan`, but the kind comes first.
+  - At the step's first version there is no plan and no change, so nothing could list a file. The grapher also has no
+    rule, contract, flow or risk record that the Story's words could have ranked first.
+  - The words did not meet. The record readers already split `FunctionGrapher` into "function grapher", but "grapher"
+    stayed apart from "graph". The template and docs ranking, the header and area selection did not split at all.
+  - Behind all three, the words are few. Every graph Story's title is "graph" (with "new" or "(copy)"), and no other
+    words are given; the approved requirements are not part of them.
+- **The fix.**
+  - One reader for a Story's words and the code's names: split at case changes, acronyms too, and a long word's
+    "-er" folded ("grapher" is "graph", "plotter" is "plot"), on both sides. Used by every record, the template and
+    docs ranking and the brief's header. Area selection splits the Story's words and folder names the same way; its
+    match by prefix already met "grapher".
+  - Before the Story plans or changes a file, "What a change touches" lists the code files whose own names its words
+    match: at most 3, never a test, as "`src/components/FunctionGrapher.jsx` (name matches the Story's words)". Once
+    there is a plan or a change, its files lead (REQ-007).
+  - The architect's brief has that section, second after contracts, and only from the Story itself. A Story whose
+    words name no file gets no list of the code's busiest functions there.
+  - The brief's renderer is version 2, so a brief kept by version 1 is composed again (REQ-013).
+- **Replayed after the fix** (the same 107 steps, all replayable):
+
+  | What | Before (kept) | M1 and M2 (replayed) | With the fix (replayed) |
+  |---|---|---|---|
+  | Plan and code steps whose brief names a changed file | 93% (40 of 43) | 93% (40 of 43) | **100%** (43 of 43): plan 12 of 12, code 31 of 31 |
+  | … the file the Story changed most | 67% (29 of 43) | 84% (36 of 43): plan 5 of 12 | **98%** (42 of 43): plan 11 of 12, code 31 of 31 |
+  | Graph Stories whose planning brief names the grapher file | 0 of 6 (0 of 7 briefs) | 0 of 6 (0 of 7) | **6 of 6** (7 of 7) |
+  | Graph Stories' code briefs naming it | 11 of 20 | 20 of 20 | 20 of 20 |
+  | Wrong claims | 97 of 1,164 judged | 0 | 0 |
+  | Brief bytes, all steps (plan median) | 239,404 (2,752) | 99,456 (2,266) | 100,150 (2,308) |
+  | Briefs identical across Stories | 26 | 2 plan briefs of 2 Stories | the same 2 |
+
+  - The one plan step that misses its most-changed file is a Story titled "bimary": its words name no code. It and a
+    Story titled "bin (copy)" keep identical planning briefs for that reason.
+  - Code briefs changed in one Story only: its rules now lead with the grapher's own rules instead of the interest
+    calculator's.
+  - Goldens: the 6 design goldens of the three fixtures with a change gain the section, naming the Story's own changed
+    function. A few contract and rule lines move into the "… N more" pointer to keep the 3 KB budget. No other golden
+    changes; the word reader alone changes none.
 - **New Stories.** A13 asks for new Stories of the same app after the change. The replay re-composes the same Stories'
   steps instead. Once the owner has run new Stories, the same command without `--replay` measures them.
 
 **Follow-ups already known:**
 - An area-size cap for one huge folder (P2: a flat `src/` of 1,081 files is one area and takes about 27 s cold).
 - A component whose parameters span lines (`export const X = ({\n … }) => …`) is not read as a function (P1).
+- Area selection matches folder names only. In a repository too large to build whole, a planning step whose words
+  name a file but no folder still gets no brief. Matching file names there would build more areas while composing
+  (P2's cost), so it is left until it is measured.
+- `wm show --focus` and the approved requirements' word leads keep their own readers. The first matches by substring
+  and so already reaches "grapher" from "graph"; the second does not fold "-er".
+- A plan's file table can name a file that is not code (a Story's evidence picture). It is listed as "(new, planned)"
+  (REQ-007), and now in the architect's brief too.

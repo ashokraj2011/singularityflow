@@ -7,6 +7,7 @@ import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
 import { nowIso, posix, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const SUMMARY_HEADINGS = Object.freeze(['agent brief', 'executive summary', 'summary', 'tl;dr', 'overview']);
 const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
@@ -333,7 +334,7 @@ export async function readAgentBrief(root, workflow, producerPhase, consumerPhas
   if (record.status === 'fallback-whole') return { status: record.status, record, content: null };
   if (record.status !== 'ready' || !record.rendered?.path) return { status: 'brief_invalid', error: 'approved agent brief has an unknown projection status' };
   try {
-    const content = await readFile(path.join(root, record.rendered.path), 'utf8');
+    const content = await readFile(storyLocation(root, workflow, workflow.workItem.id).fromRecord(record.rendered.path), 'utf8');
     if (sha256(content) !== record.rendered.sha256 || Buffer.byteLength(content) !== record.rendered.bytes) {
       return { status: 'brief_invalid', error: `approved agent brief bytes changed for ${producerPhase.id} → ${consumerPhase.id}` };
     }

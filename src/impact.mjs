@@ -316,7 +316,7 @@ export async function confirmImpactEnrollment(root, config, workflow, { complexi
   }
   const { integrity: _prior, ...core } = plan;
   plan.integrity = { sha256: impactSha256(core) };
-  await writeJson(path.join(root, workflow.measurement.plan.path), plan);
+  await writeJson(storyLocation(root, config, workflow.workItem.id).fromRecord(workflow.measurement.plan.path), plan);
   workflow.measurement.plan.sha256 = plan.integrity.sha256;
   workflow.measurement.classification = structuredClone(plan.classification);
   workflow.history.push({ at, actor: actor.email?.toLowerCase() ?? actor.name, event: optOut ? 'impact_opted_out' : 'impact_classified', phase: workflow.currentPhase, detail: optOut ? reason : `${complexity}/${risk}` });

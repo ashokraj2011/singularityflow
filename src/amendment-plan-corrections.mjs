@@ -234,7 +234,7 @@ export async function amendmentPlanReadiness(root, config, workflow, proposal, c
     }
     let claims;
     try {
-      const raw = JSON.parse(await readFile(path.join(root, pointer.path), 'utf8'));
+      const raw = JSON.parse(await readFile(storyLocation(root, config, workflow.workItem.id).fromRecord(pointer.path), 'utf8'));
       claims = applyPlanCorrections(raw, scratch, { evidenceRoot: storyLocation(null, config, workflow.workItem.id).record(`evidence`) })?.claims ?? null;
     } catch (error) {
       if (error?.code !== 'PLAN_ROW_CORRECTION_INTEGRITY') throw error;

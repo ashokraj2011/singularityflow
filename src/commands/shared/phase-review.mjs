@@ -17,6 +17,7 @@ import { owedDecisions, stepsThrough } from '../../owed-decisions.mjs';
 import { phaseUpstreamDiscrepancies } from '../../phase-upstream-discrepancies.mjs';
 import { openUpstreamIssues, upstreamIssueDecideCommand } from '../../upstream-issues.mjs';
 import { phaseAuthoringSummary } from '../../phase-authoring-summary.mjs';
+import { storyLocation } from '../../story-paths.mjs';
 
 /** This step's evidence-reuse decisions, each with its honest label and whether it applies now; {} when none. */
 async function reusedTestEvidence(root, config, workflow, phase) {
@@ -183,7 +184,7 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
   for (const execution of boundAttempts ?? []) {
     if (execution.kind === 'phase-validation-observation') continue;
     try {
-      const receipt = readRecord('test-execution', await readFile(path.join(root, execution.receiptPath))).record;
+      const receipt = readRecord('test-execution', await readFile(storyLocation(root, config, workflow.workItem.id).fromRecord(execution.receiptPath))).record;
       skippedTests += Math.max(0, Number(receipt.tests?.skipped ?? 0) || 0);
       attempts.set(execution.commandId, receipt);
     } catch {

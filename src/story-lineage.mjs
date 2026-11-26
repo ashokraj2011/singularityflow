@@ -148,7 +148,7 @@ function validateSubmittedArchitectureIntent(root, config, workflow, packet, evi
 async function witnessReviewSnapshot(root, config, workflow, phase) {
   const status = storyWelEnrollmentStatus(root, config, workflow.workItem.id);
   for (const execution of phase.deliveryEvidence?.testExecutions ?? []) {
-    const stored = JSON.parse(await readFile(path.join(root, execution.receiptPath), 'utf8'));
+    const stored = JSON.parse(await readFile(storyLocation(root, config, workflow.workItem.id).fromRecord(execution.receiptPath), 'utf8'));
     const storedSha256 = createHash('sha256').update(canonicalJson(stored)).digest('hex');
     if (storedSha256 !== String(execution.receiptSha256 ?? '').replace(/^sha256:/, '')) {
       throw new SingularityFlowError(
@@ -168,7 +168,7 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
   }
   const clauseMappings = new Map();
   if (phase.deliveryEvidence?.status === 'ready' && phase.deliveryEvidence.receiptPath) {
-    const receipt = JSON.parse(await readFile(path.join(root, phase.deliveryEvidence.receiptPath), 'utf8'));
+    const receipt = JSON.parse(await readFile(storyLocation(root, config, workflow.workItem.id).fromRecord(phase.deliveryEvidence.receiptPath), 'utf8'));
     const specRecords = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
     const clauses = new Map((specRecords.indexes ?? []).flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
     const contracts = mergedVerificationContracts(specRecords.planned ?? []);

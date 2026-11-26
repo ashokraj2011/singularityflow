@@ -33,7 +33,7 @@ async function verifiedIntentRecord(root, workflow, phase, intent) {
     throw new SingularityFlowError('The open generation intent has no durable receipt path.', { code: 'GENERATION_INTENT_REQUIRED' });
   }
   let receipt;
-  try { receipt = readRecord('generation-start', await readJson(path.join(root, intent.path))).record; }
+  try { receipt = readRecord('generation-start', await readJson(storyLocation(root, workflow, workflow.workItem.id).fromRecord(intent.path))).record; }
   catch (error) {
     throw new SingularityFlowError(`The generation-start receipt is unavailable or unreadable: ${error.message}`, {
       code: 'GENERATION_INTENT_REQUIRED', cause: error

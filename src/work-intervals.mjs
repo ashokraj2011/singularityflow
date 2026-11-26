@@ -532,7 +532,7 @@ export async function amendWorkIntervalBaseline(root, workflow, {
     );
   }
 
-  const file = path.join(root, current.path);
+  const file = storyLocation(root, workflow, workflow.workItem.id).fromRecord(current.path);
   const record = readRecord('work-interval-baseline', await readJson(file)).record;
   const event = {
     at,
@@ -612,7 +612,7 @@ export async function acknowledgeAmendment(root, workflow, {
   const already = Number(current.acknowledgedGeneration ?? 0);
   if (already >= target) return { ...current, acknowledged: false, acknowledgedGeneration: already };
 
-  const file = path.join(root, current.path);
+  const file = storyLocation(root, workflow, workflow.workItem.id).fromRecord(current.path);
   const record = readRecord('work-interval-baseline', await readJson(file)).record;
   const acknowledgements = [...(record.acknowledgements ?? []), { at, actor, throughGeneration: target }];
   await writeJson(file, { ...record, acknowledgements, acknowledgedGeneration: target });

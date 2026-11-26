@@ -1860,7 +1860,7 @@ async function approvedPlanClaims(root, config, workflow, phase) {
   const pointer = phase?.claimMaps?.planned;
   if (!pointer?.path) return null;
   try {
-    const raw = JSON.parse(await readFile(path.join(root, pointer.path), 'utf8'));
+    const raw = JSON.parse(await readFile(storyLocation(root, config, workflow.workItem.id).fromRecord(pointer.path), 'utf8'));
     const { applyPlanCorrections } = await import('./plan-row-corrections.mjs');
     return applyPlanCorrections(raw, workflow, { evidenceRoot: storyLocation(null, config, workflow.workItem.id).record(`evidence`) })?.claims ?? null;
   } catch { return null; }
@@ -6335,7 +6335,7 @@ async function submitPhaseTransition(root, config, workflow, {
     if (workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.laterStepTests) {
       for (const line of (await import('./later-step-tests.mjs')).laterStepTestLines(workflow, phase.id)) console.warn(line);
     }
-    const deliveryReceipt = await readJson(path.join(root, phase.deliveryEvidence.receiptPath));
+    const deliveryReceipt = await readJson(storyLocation(root, config, workflow.workItem.id).fromRecord(phase.deliveryEvidence.receiptPath));
     const traceabilityBindings = [];
     for (const binding of deliveryReceipt.traceability?.bindings ?? []) {
       // The command publication tied the test to (a package's end-to-end run, not its unit run) while it covers it.
@@ -7560,7 +7560,7 @@ export async function evaluateApproval(root, config, workflow, {
     await stage('decision', async () => {
       // One decision per implementation binding the step submitted [E2G-011, D7].
       const submittedBindings = phaseRequiresCodeDelivery(phase) && phase.deliveryEvidence?.receiptPath
-        ? (await readJson(path.join(root, phase.deliveryEvidence.receiptPath)).catch(() => null))?.implementationBindings ?? null
+        ? (await readJson(storyLocation(root, config, workflow.workItem.id).fromRecord(phase.deliveryEvidence.receiptPath)).catch(() => null))?.implementationBindings ?? null
         : null;
       const bindingReview = reviewBindings(submittedBindings, bindingDecisions);
       // What this approval decides over, so rework can retain it when none of it changes [E2G-021, D16].

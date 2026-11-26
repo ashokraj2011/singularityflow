@@ -420,6 +420,24 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
 - **Final ratchet.** W, R, P, I, B, X, H, L and S are 0 outside named lines: the three test-pinned `workDir` calls,
   the two copies' default folder, and eight lines of help text, agent guidance, comments, an example value and a unit
   word, each with its reason. F stays at 41 (above) and E at 34 (M6).
+- **B12, readers of recorded paths.** On this base the search (`path.join(root, <record>.<path field>)`) finds 81
+  candidates, not 133. Sorted:
+  - **State files, now `fromRecord`** (20): delivery receipts (`story-lineage.mjs` ×2, `state.mjs` ×2,
+    `commands/shared/phase-review.mjs`, `spec-drift.mjs`), claim pointers (`state.mjs`,
+    `amendment-plan-corrections.mjs`), intent-amendment proposals (`commands/story.mjs` ×3), the impact plan
+    (`impact.mjs`), generation-start receipts (`generation-boundary.mjs`, `amended-drafts.mjs`), phase telemetry
+    (`telemetry.mjs` ×2), work-interval baselines (`work-intervals.mjs` ×2), a dependency record's receipt
+    (`dependency-records.mjs`) and a rendered agent brief (`agent-briefs.mjs`). Each reads the Story's location from
+    the `config` and `workflow` in scope; for story-branch, `fromRecord(p)` is `path.join(root, p)`.
+  - **State files with no Story in scope, left for M2** (5): `evidence/graph.mjs` `loadAttempt`,
+    `criterion-test-failures.mjs`, `approval-waiver.mjs` `pendingWaiverSubmission`,
+    `verification/changed-line-coverage.mjs` `boundStepAttempts` and `generation-boundary.mjs`
+    `consumeGenerationIntent` take a phase or an entry, not a Story; M2 passes them the location.
+  - **Documents, code and configuration, unchanged** (the rest): step artifacts (`artifact.path`, documents in M4),
+    repository, template, skill, AST and workspace paths, and `story-lineage.mjs`'s governed-context seed, which mixes
+    kinds.
+- **The full suite is not run in M1.** §7 asks for it once at M1's end; the owner's rule for this build runs only the
+  touched-area tests and the named guard tests, so the full run is left to integration.
 - **Not converted in M1: a Story prefix passed as a parameter** (`itemRelative`, `itemRoot`, `workRoot` joined by the
   callee, as in `recovery-preparation-context.mjs`). The prefix comes from the resolver; the callee's join stays until
   M2 passes the location instead. The ratchet does not count these.

@@ -2473,7 +2473,7 @@ export async function previewIntentAmendment(root, config, workflow, proposalId,
       throw new SingularityFlowError(`${proposalId} is ${summary.status}, so approving it does nothing more; its record says what it did (story intent-amendment status).`,
         { code: 'INTENT_AMENDMENT_NOT_PENDING' });
     }
-    proposal = readRecord('intent-amendment-proposal', await readJson(path.join(root, summary.recordPath))).record;
+    proposal = readRecord('intent-amendment-proposal', await readJson(storyLocation(root, config, workflow.workItem.id).fromRecord(summary.recordPath))).record;
     const stale = await intentAmendmentStaleness(root, config, workflow, proposal);
     if (stale) {
       return { resultType: 'intent-amendment-preview', workId, recorded: false, amendment: proposalId, source: 'proposal',
@@ -2547,7 +2547,7 @@ async function decideProposedIntentAmendment(root, config, workflow, proposalId,
 export async function recordIntentAmendmentDecision(root, config, workflow, proposalId, { decision, reason = null, channel = 'terminal', raise = null } = {}) {
   const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
   if (!summary) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`);
-  const proposal = readRecord('intent-amendment-proposal', await readJson(path.join(root, summary.recordPath))).record;
+  const proposal = readRecord('intent-amendment-proposal', await readJson(storyLocation(root, config, workflow.workItem.id).fromRecord(summary.recordPath))).record;
   const beforeWorkflow = structuredClone(workflow);
   let transition;
   const publication = await commitAndPublish(
@@ -2619,7 +2619,7 @@ export async function refreshIntentAmendment(root, config, workflow, proposalId,
     throw new SingularityFlowError(`Intent amendment '${proposalId}' is not awaiting a decision, so there is nothing to refresh.`, {
       code: 'INTENT_AMENDMENT_NOT_PENDING', details: (await import('../sequence.mjs')).storyNextDetails(workflow) });
   }
-  const proposal = readRecord('intent-amendment-proposal', await readJson(path.join(root, summary.recordPath))).record;
+  const proposal = readRecord('intent-amendment-proposal', await readJson(storyLocation(root, config, workflow.workItem.id).fromRecord(summary.recordPath))).record;
   const { intentAmendmentStaleness } = await import('../state-stores.mjs');
   if (!await intentAmendmentStaleness(root, config, workflow, proposal)) {
     throw new SingularityFlowError(`${proposalId} still matches the step it was proposed in: decide it as it is.`, { code: 'INTENT_AMENDMENT_NOT_STALE' });

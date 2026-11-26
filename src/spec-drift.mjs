@@ -320,7 +320,7 @@ function storyBoundPaths(root, workflow) {
     const evidence = workflow.phases?.[phaseId]?.deliveryEvidence;
     if (workflow.phases[phaseId].status !== 'approved' || evidence?.status !== 'ready' || !evidence.receiptPath) continue;
     let receipt = null;
-    try { receipt = JSON.parse(readFileSync(path.join(root, evidence.receiptPath), 'utf8')); } catch { continue; }
+    try { receipt = JSON.parse(readFileSync(storyLocation(root, workflow, workflow.workItem.id).fromRecord(evidence.receiptPath), 'utf8')); } catch { continue; }
     for (const clause of boundClauses(receipt)) {
       for (const entry of [...clause.tags, ...clause.deletions, ...clause.regions]) paths.add(entry.path);
       for (const witness of clause.witnesses) paths.add(witness.testSource);

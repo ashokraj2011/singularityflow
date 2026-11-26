@@ -235,7 +235,10 @@ export class NeedsYouCardPanel {
         const reason = await vscode.window.showInputBox({ title: `Send ${item.step.label} back`, prompt: `What must change in ${item.step.label}? It is recorded and given to its next version.`,
           ignoreFocusOut: true, validateInput: (value) => (value.trim() ? null : 'A reason is required.') });
         if (!reason?.trim()) return;
-        await bound.runText(['reject', workId, '--fetch', '--phase', item.step.id, '--to', item.step.id, '--reason', reason.trim()]);
+        // The engine's own return command for this card (action-command-map.mjs), with the person's words for its reason.
+        const words = (choice.command ?? '').split(/\s+/u).filter(Boolean);
+        if (words[0] !== 'singularity-flow' || !words.includes('<reason>')) return this.done('This card cannot send it back; open it again.', { acted: false });
+        await bound.runText(words.slice(1).map((word) => (word === '<reason>' ? reason.trim() : word)));
         await this.done(`${item.step.label} was sent back with your note.`);
       } else if (item.kind === 'workflow-decision') {
         await this.chooseRoute(bound, item, choice.id);

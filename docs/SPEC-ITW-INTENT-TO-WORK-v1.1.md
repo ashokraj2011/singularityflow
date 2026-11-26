@@ -2,7 +2,7 @@
 
 **Specification ID:** `ITW-v1.1`
 
-**Status:** M1 built (2026-11-25): kinds, the composer, team rules, the Story's own workflow, `singularity-flow work`. M2 mostly built (2026-11-25): `/sf-task` takes the turn of what comes next (`src/task-turn.mjs`), words on an open task are its own (`TASK_OPEN_HERE`, `--new`), VS Code's approval page carries a task's chat on, `work status`, "… and open a pull request", `--from` and `--document`; journeys walk a fix and an investigation to their end (test/journey-tasks.test.mjs). Built 2026-11-25: a started task gains a step after its current one (`work add`, REQ-009), and a code step's files that touch a `tasks.paths` rule add that rule's steps (REQ-014). Skills from the library and trusted marketplaces built (2026-11-25, REQ-010). Not yet: a fix re-composed as a change when it needs a public interface or a data change (REQ-014), the refactor's before-and-after run (REQ-015), skills (REQ-010, REQ-011), VS Code's Start a task box, the fuzzer. Replaces [ITW v1](SPEC-ITW-INTENT-TO-WORK-v1.md). Also takes in the useful parts of
+**Status:** Built. M1 (2026-11-25): kinds, the composer, team rules, the Story's own workflow, `singularity-flow work`. M2 (2026-11-25 and 2026-11-26): `/sf-task` takes the turn of what comes next and carries on after each answer in the same chat (`src/task-turn.mjs`, test/task-turn-carry.test.mjs), words on an open task are its own (`TASK_OPEN_HERE`, `--new`), VS Code's approval page carries a task's chat on, `work status` and the last message, "… and open a pull request", a started task gains a step after its current one (`work add`, REQ-009), and a code step's files that touch a `tasks.paths` rule add that rule's steps (REQ-014). M3 (2026-11-25 and 2026-11-26): an investigation's report starts a fix (`--from`), a fix whose code needs a migration or a contract file becomes a change (REQ-014), the refactor's checks before and after, at its code step and on the decisions card (REQ-015, `src/refactor-behaviour.mjs`), and documents bound to their version (`--document`). M4 (2026-11-25 and 2026-11-26): skills from the library and trusted marketplaces (REQ-010) and a marketplace agent as the plan (REQ-011, `src/task-agents.mjs`). M5 (2026-11-25 and 2026-11-26): VS Code's Start a task box (`singularityFlow.startTask`), journeys that count a person's actions (test/journey-tasks.test.mjs), and the task fuzzer (test/task-composition-fuzz.test.mjs) beside the Story fuzzer (test/story-fuzzer.test.mjs). Built 2026-11-26: what the team already has (its own workflows, agents and skills) before any marketplace (REQ-020, `src/task-local.mjs`). Replaces [ITW v1](SPEC-ITW-INTENT-TO-WORK-v1.md). Also takes in the useful parts of
 an outside draft, "SPEC-IEX v1.1, Intent to Verified Execution" (2026-11-07); section 5 lists what was left out of it and
 why.
 
@@ -399,6 +399,46 @@ the intake's answers, and a Yes to the requirements and to the tests, nothing ty
   - everything else: typed commands, continue lines, repeated questions, and pages opened only to move on.
 - For the journeys in section 7, the second group is zero.
 
+**ITW:REQ-020, what the team already has, first.** (Owner, 2026-11-26: "sf-task also can pick up locally available
+skills and agents ...and of course scan marketplace also".) Workflows run exactly as they are: a task only adds to what
+it composes, and never rewrites, reorders or drops a team's workflow's steps.
+- Before any marketplace, a task's plan reads what the repository already has, in this order:
+  1. its own workflows: made in Workflow Studio, made from an agent (`workflow from-agent`), or imported. Never one
+     SFlow ships, one archived, or one a marketplace agent's import made (REQ-011 offers that one by the agent's name);
+  2. its agents, converted as `workflow from-agent <PATH>` converts them: each in `.github/agents` (a
+     `<name>.agent.md`, or a folder holding `agent.md`), and each APM installed, read from APM's copy of its package in
+     `apm_modules` (its `apm.yml`). An agent with no numbered stages is a chat agent and is never offered;
+  3. the marketplaces the repository trusts (REQ-011).
+- A `tasks.use` rule still decides its kind (A8): nothing else is offered, and a yes to another workflow is refused.
+- A workflow or agent covers the task by REQ-011's rule: a step for each of the task's own steps, the task's kind of
+  code, and no code step for a docs, investigate or review task. A team's workflow tells its kind of code from the tasks of
+  the library skills attached to its code steps, or from the agent it was made from while the repository still has it.
+  Because it runs as it is, it also has a step for each step the team's rules add, and leaves to a person each step the
+  rules give a person. Otherwise it is not offered, so no rule is lost (A4).
+- One offer, never a list: a workflow already here first, then an agent the repository has, then a marketplace agent;
+  in a group, the fewest steps the task does not need, then by name. A deprecated or retired item is never offered.
+- The offer says where it is from ("Your team's workflow Secure fix covers this task: use it as the plan, exactly as it
+  is, code → tests?", "Installed agent qa-test-automation-agent covers this task: …"). `--use-workflow ID` is the yes:
+  the Story runs that workflow as a `use` rule runs it, its steps in its order, nothing composed into it and none taken
+  out (a skip of one of its steps is refused), and the composition records it (`local`). The plan line and `work status`
+  say "from your team's workflow …". For an agent whose workflow is not here yet, the yes names its import through its
+  conversion review (`workflow from-agent <PATH> --propose`), as a marketplace agent's does, and a start without it.
+  `--without-workflow ID` is the no: the task keeps its own steps and nothing more is asked.
+- Skills (REQ-010): after the library and before any marketplace, the repository's own skills: each
+  `.github/skills/<id>/SKILL.md`, and each `.agents/skills/<id>/SKILL.md`, where APM installs a package's skills. Their
+  tags say what they are for, as a library skill's do; for one APM installed, `apm.lock.yaml` names its package, and
+  APM's copy of the package adds its tasks and tags. A skill the library also has is the library's; one the repository
+  has is never offered from a marketplace. Each one used is frozen into the Story's snapshot from where the plan read it,
+  with that path and where it came from (`from`: `apm` or `repository`, and its `package`).
+- A skill of the repository's own that cannot be used (its `SKILL.md` unreadable or invalid, a link, or changed since
+  APM installed it) is a note on the plan, with what fixes it (`apm install`, or the file to correct). It never stops a
+  task: the plan goes on without it, and the Story's start never reads it.
+- (Built 2026-11-26: `src/task-local.mjs` reads the team's workflows, agents and skills; `src/task-agents.mjs` orders and
+  offers them; `src/task-composition.mjs` runs the chosen workflow as it is; `src/workflow-snapshots.mjs` freezes a
+  local skill from its path. Tested by test/task-local-plan.test.mjs. As for a `use` rule's workflow, a started task that
+  runs the team's workflow does not grow by a `paths` rule its code touches later (REQ-014): its offer already covered
+  the rules that applied to the files it named.)
+
 ## 4. What stays as it is
 
 These already hold in SFlow, and `/sf-task` keeps them:
@@ -486,6 +526,15 @@ These already hold in SFlow, and `/sf-task` keeps them:
   person approved. No pull request exists unless the person asked for one.
 - **A21:** "… and open a pull request" in the task's words puts the pull request at the end of the plan line and opens
   it. "Open the pull request" after a finished task opens it without starting a new task.
+- **A22:** In a repository with its own workflows, an agent APM installed and a trusted marketplace's agent:
+  - a task's plan offers the team's workflow that covers it first, then the installed agent, then the marketplace's,
+    one offer, the same for the same words and repository;
+  - the yes starts a Story whose steps are exactly that workflow's; a `use` rule still wins; a deprecated or retired
+    item is never offered;
+  - a skill in `.github/skills` or one APM installed is used for a step the library has nothing for, and frozen into the
+    Story's snapshot; a broken one is a note, and the task starts.
+
+  Built 2026-11-26 (test/task-local-plan.test.mjs).
 
 ## 8. Milestones
 

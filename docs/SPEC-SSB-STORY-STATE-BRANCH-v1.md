@@ -5,7 +5,7 @@
 **Status:** Open questions decided by the owner on 2026-11-26 (§10). M0's local probes ran on 2026-11-26 (§11); the
 real-host and real-app probes are still to run. M1 (the resolver, [SSB-M1-PLAN](plans/SSB-M1-PLAN.md)) is on main. M2
 (the state ref and its checkout, created at Story start) is built on branch `ssb-m2` (2026-11-26), behind
-`story.storage`, with today's layout unchanged (§12). M3 to M6 are not built. On the roadmap as
+`story.storage` and held back by a preview gate until M5, with today's layout unchanged (§12). M3 to M6 are not built. On the roadmap as
 [`SSB-001`](PENDING-WORK-ROADMAP.md#story-storage-off-the-code-branch-ssb). Decision record:
 [ADR 0019](adr/0019-story-state-off-the-code-branch.md).
 
@@ -469,6 +469,18 @@ before, and today's tests pass unchanged.
 - **The setting.** `story.storage: story-branch | state-ref` in `singularity/workflow.yml`, checked when the
   configuration loads and in the definition schema. Absent is `story-branch` (decision 4). Its description says
   `state-ref` is being built. The build fence that makes an older SFlow refuse it is M5 (REQ-010).
+- **The gate (2026-11-27).** A Story whose configuration says `state-ref` stops at a step past its start until M3 to
+  M5 land, so the layout is held back: unless `SINGULARITY_FLOW_STORY_STATE_REF_PREVIEW=1` is set, such a Story starts
+  on today's layout. It records `resolution.story.storage: story-branch` for life and says one line with the start's
+  advisories: "Story records on their own Git ref are not finished yet; this Story keeps them on its branch as today."
+  The line reaches the terminal, `--json` (`readiness.warnings` and `storage`), VS Code and Copilot. Nothing refuses,
+  and nothing asks the person to type anything. `doctor` names the setting once while it is held
+  (`inactive-settings`). Only SFlow's own tests and builders set the switch: no help text, skill or doc tells a person
+  to. A clone with a state-ref Story started under the preview keeps working as built, because the gate decides only
+  new starts. Both starts take the gate (`newStoryLayout` in `work-item-location.mjs`): the command-line `start`
+  (`commands/start.mjs`) and the programmatic `startStory`. Under the preview, the command-line start also opens the
+  state ref and checkout. **M5's build fence replaces the gate:** when the layout is finished and an older SFlow refuses
+  it with "update SFlow", the switch goes and `state-ref` starts a Story as configured.
 - **Story start** (REQ-002, 003, 006). When the approved configuration says `state-ref`, Story start writes the exclude
   line, then creates `refs/singularity/state/<ID>` (one empty-tree root commit, create-only), then adds `.sflow-state/`
   as a detached linked worktree. All three come right after the Story branch is checked out, so every record lands in
@@ -547,8 +559,9 @@ before, and today's tests pass unchanged.
 - `test/story-state-ref.test.mjs` (10): the ref and checkout on real clones (exclude first, no application history,
   leased commits, repairs after delete, move and a foreign folder, removal refused while unsaved, fetch into a tracking
   ref with the local ref kept when ahead, one-call listing, branches transport, ignored listings, the gitlink refusal).
-- `test/story-state-ref-start.test.mjs` (7): Story start on both layouts and with `sflow/config`, a refused start
-  leaving nothing, a second clone's `resume --fetch`, a deleted checkout made again at the next command, and the
-  setting's checks.
+- `test/story-state-ref-start.test.mjs` (9): Story start on both layouts and with `sflow/config`, a refused start
+  leaving nothing, a second clone's `resume --fetch`, a deleted checkout made again at the next command, the setting's
+  checks, and the gate both ways (held back with its line and doctor's note; under the preview, the command-line start
+  on the state ref).
 - `test/story-paths-resolver.test.mjs`: the recorded field, the remembered layout, `recordsRoot` and the refusing
   `prefix`.

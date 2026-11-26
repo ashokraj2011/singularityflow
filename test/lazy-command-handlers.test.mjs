@@ -1113,7 +1113,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // start-path records through the records root (workflow-snapshots.mjs, state.mjs, work-intervals.mjs,
     // story-policy-anchor.mjs, story-state-write.mjs), resume's state fetch (start-context.mjs) and start recovery
     // (story-start-journal.mjs). The state ref's own module loads lazily. No new eager file.
-    assert.ok(closure.bytes <= 9_928_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,931,269 (measured for start.mjs, +2,919 over 9,928,350, 2026-11-27 on ssb-m2; submit.mjs 9,927,921): state-ref is
+    // held back to today's layout unless its preview is on (work-item-location.mjs newStoryLayout, the resolution in
+    // config.mjs), and the command-line start opens the state ref and says the held line (commands/start.mjs). No new
+    // eager file.
+    assert.ok(closure.bytes <= 9_931_269, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1771,7 +1775,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,388,333 (+8,956, measured 2026-11-26 on ssb-m2 over 2809f6edc): the state-ref layout the resolver remembers and
   // its records root (story-paths.mjs), the pinned-copy read root (configuration-read-scope.mjs), the setting
   // (work-item-location.mjs, config.mjs) and the state checkout the Story index finds [SSB M2]. No new eager file.
-  assert.ok(current.bytes <= 4_388_333, `session current loads ${current.bytes} source bytes`);
+  // 4,389,338 (+1,005, measured 2026-11-27 on ssb-m2): the held-back state-ref layout (work-item-location.mjs,
+  // config.mjs) [SSB M2]. No new eager file.
+  assert.ok(current.bytes <= 4_389_338, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

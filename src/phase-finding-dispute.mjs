@@ -191,9 +191,9 @@ export async function planDraftSha256(text, clauses) {
 async function planDraft(root, config, workflow, phase) {
   const { loadActiveSpecRecords } = await import('./specifications.mjs');
   const { requiredRepoPath } = await import('./story-state-validation.mjs');
-  const { workDir } = await import('./story-paths.mjs');
+  const { storyLocation } = await import('./story-paths.mjs');
   const { nextPhaseGeneration } = await import('./phase-generation.mjs');
-  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const records = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
   const indexes = (records.indexes ?? []).filter((index) => index.phase !== phase.id);
   const clauses = indexes.flatMap((index) => index.clauses ?? []);
   if (!clauses.length) return null;
@@ -204,7 +204,7 @@ async function planDraft(root, config, workflow, phase) {
   const policy = workflow.resolution?.spec ?? config.spec ?? {};
   const generation = Number(phase.status === 'in_progress' ? nextPhaseGeneration(phase) : phase.generation);
   return { text, clauses, indexes, policy, artifactPath, generation,
-    evidenceRoot: `${String(workflow.resolution?.workItemRoot ?? config.workItemRoot ?? 'singularity/work-items')}/${workflow.workItem.id}/evidence` };
+    evidenceRoot: storyLocation(null, [workflow, config], workflow.workItem.id).record('evidence') };
 }
 
 /** Each row of the plan that falls short of the approved intent, one at a time (the check stops at the first). */

@@ -9,8 +9,8 @@ import { governedDocumentPath } from './documents.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { exactFileAtObject } from './git.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { workDirRelative } from './story-paths.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const MAX_BYTES = 1024 * 1024;
 const fail = (message, code = 'PHASE_ARTIFACT_UNAVAILABLE') => { throw new SingularityFlowError(message, { code }); };
@@ -18,7 +18,7 @@ const fail = (message, code = 'PHASE_ARTIFACT_UNAVAILABLE') => { throw new Singu
 function phaseEntries(config, workflow, phase) {
   const entries = new Map();
   if (phase.requiredArtifact?.path) {
-    const relative = posix(path.join(workDirRelative(config, workflow.workItem.id), phase.requiredArtifact.path));
+    const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact.path);
     entries.set(relative, { path: relative, label: phase.label ?? phase.id, kind: phase.requiredArtifact.kind ?? 'document' });
   }
   for (const artifact of phase.artifacts ?? []) {
@@ -77,7 +77,7 @@ export async function viewPhaseArtifact(root, config, workflow, id, version = 'd
     }
     commit = publishedGenerationCommit(root, workflow, phase);
     if (!commit) fail('The approved generation is unavailable locally. Refresh Story history; no draft was substituted.');
-    const aggregateBytes = exactFileAtObject(root, commit, `${workDirRelative(config, workflow.workItem.id)}/workflow.json`, { maximumBytes: 16 * MAX_BYTES, regularOnly: true });
+    const aggregateBytes = exactFileAtObject(root, commit, storyLocation(null, config, workflow.workItem.id).record(`workflow.json`), { maximumBytes: 16 * MAX_BYTES, regularOnly: true });
     if (!aggregateBytes) fail('The published Story aggregate could not be read locally.');
     const published = readRecord('story-workflow', JSON.parse(aggregateBytes.toString('utf8'))).record;
     const publishedPhase = published.phases?.[phase.id];

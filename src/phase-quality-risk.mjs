@@ -18,6 +18,7 @@ import { DISPUTABLE_GATES, FindingDisputeDecisionSchema, FindingDisputePacketSch
 import { isArtifactQualityFinding, phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { terminalTransitionAt } from './workflow-terminal-time.mjs';
 import { countedRecords } from './presence/counted.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const fail = (message, code = 'PHASE_QUALITY_RISK_INVALID', details = null) => { throw new SingularityFlowError(message, { code, details }); };
@@ -141,7 +142,7 @@ export async function retainedQualityRiskRecords(root, config, workflow) {
     fail('Quality risk decisions must be a bounded append-only list.', 'PHASE_QUALITY_RISK_INTEGRITY');
   }
   if (!entries.length) return [];
-  const relative = `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/workflow.json`;
+  const relative = storyLocation(null, config, workflow.workItem.id).record(`workflow.json`);
   const tip = head(root);
   const bytes = exactFileAtObject(root, tip, relative, { maximumBytes: 16 * 1024 * 1024, regularOnly: true });
   let committed;

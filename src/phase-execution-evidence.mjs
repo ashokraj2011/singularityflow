@@ -10,6 +10,7 @@ import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { attemptLocalIntegrationLabel, testReceiptPassing } from './code-delivery-tests.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const SHA = /^sha256:[a-f0-9]{64}$/u;
@@ -212,7 +213,7 @@ export async function phaseExecutionEvidence(root, definition, workflow, phase) 
       }
       const receipts = new Map();
       packets.push({ ...candidate, packet, epochVerified, receipts,
-        executions: executionDetails(root, packet, workflow.resolution?.codeDelivery?.tests, `${definition.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`, receipts) });
+        executions: executionDetails(root, packet, workflow.resolution?.codeDelivery?.tests, storyLocation(null, definition, workflow.workItem.id).prefix, receipts) });
     } catch (error) {
       // A missing/shallow history is evidence unavailable, never a new gate on draft repair.
       diagnostics.push({ phase: candidate.phase.id, generation: candidate.entry.generation,

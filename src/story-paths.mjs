@@ -179,6 +179,15 @@ export function storyRecordOf(recorded, ...sources) {
   return id ? { id, inside: slashAt < 0 ? '' : rest.slice(slashAt + 1) } : null;
 }
 
+/** As storyRecordOf, for a path whose Stories folder may sit below another folder: the first at the start or after a '/'. */
+export function storyRecordWithin(recorded, ...sources) {
+  if (typeof recorded !== 'string') return null;
+  const base = storiesRoot(sources);
+  if (recorded.startsWith(`${base}/`)) return storyRecordOf(recorded, ...sources);
+  const at = recorded.indexOf(`/${base}/`);
+  return at < 0 ? null : storyRecordOf(recorded.slice(at + 1), ...sources);
+}
+
 /** The Story a story-branch record path belongs to, or null. */
 export function storyIdOfRecord(recorded, ...sources) { return storyRecordOf(recorded, ...sources)?.id ?? null; }
 

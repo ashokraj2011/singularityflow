@@ -21,6 +21,7 @@ import { phasePublicationContract } from './manual-authorship.mjs';
 
 // The kernel's adapter and the host's rendering of its decision live in step-decision.mjs, shared with every surface.
 export { decisionRoutes, stepSnapshotOf } from './step-decision.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const MUTATION_CONTRACT_VERSION = 1;
 /**
@@ -137,8 +138,8 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   const workId = workflow?.workItem?.id ?? null;
   const repositoryRoot = root ? realpathSync.native(root) : null;
   const ownership = applicationPathContext(definition, workflow);
-  const workItemRoot = workflow?.resolution?.workItemRoot ?? definition?.workItemRoot ?? 'singularity/work-items';
-  const item = `${workItemRoot}/${workId}`;
+  // String(): a contract without a Story still names `<Stories folder>/null`, as it always has.
+  const item = storyLocation(null, [workflow, definition], String(workId)).prefix;
   const code = phaseRequiresCodeDelivery(phase);
   // One decision owner: the kernel decides the step's state, what an authoring turn may write and its next action
   // [OSA:REQ-001, REQ-010]; this module renders it and keeps the path checks.

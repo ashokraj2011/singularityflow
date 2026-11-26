@@ -6,7 +6,6 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { branch, identity } from './git.mjs';
 import { currentPhase } from './phase-generation.mjs';
-import { workDir } from './story-paths.mjs';
 import { documentCatalog } from './documents.mjs';
 import { assistedRecordRelative } from './assisted-quality.mjs';
 import { citedArticleIds, requiredArticles } from './constitution.mjs';
@@ -22,6 +21,7 @@ import { reviewContinuation } from './review-continuation.mjs';
 import { phaseContinuationLines } from './phase-continuation.mjs';
 
 export { phaseContinuationLines as reviewContinuationLines } from './phase-continuation.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function escapeHtml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'); }
 
@@ -35,7 +35,7 @@ function escapeHtml(value) { return String(value).replaceAll('&', '&amp;').repla
 async function assistedCandidatesFor(root, config, workflow, phase, artifact) {
   if (!artifact) return [];
   const relative = assistedRecordRelative(
-    posix(path.relative(root, workDir(root, config, workflow.workItem.id))), phase.id, phase.generation
+    posix(path.relative(root, storyLocation(root, config, workflow.workItem.id).directory)), phase.id, phase.generation
   );
   const file = path.join(root, relative);
   if (!(await exists(file))) return [];
@@ -79,7 +79,7 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   }
   const phase = requestedPhase ? workflow.phases[requestedPhase] : currentPhase(workflow) ?? completionPhaseOf(workflow);
   if (!phase) throw new Error('Workflow has no phases to review.');
-  const itemRoot = workDir(root, config, workflow.workItem.id);
+  const itemRoot = storyLocation(root, config, workflow.workItem.id).directory;
   const artifactPath = path.join(itemRoot, phase.requiredArtifact.path);
   const artifact = await exists(artifactPath) ? { path: path.relative(root, artifactPath).replaceAll(path.sep, '/'), content: await readFile(artifactPath, 'utf8'), ...await snapshot(artifactPath) } : null;
   const inputs = [];

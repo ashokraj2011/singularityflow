@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   CONFIGURATION_SOURCE_RELATIVE, DEFAULT_WORK_ITEM_ROOT, STATE_CHECKOUT, STATE_REF_PREFIX, STORY_DOCUMENTS, STORY_LAYOUTS,
-  isStoryRecordPath, stateRefName, storiesDirectory, storiesRoot, storyIdOfRecord, storyLocation, storyRecordOf,
+  isStoryRecordPath, stateRefName, storiesDirectory, storiesRoot, storyIdOfRecord, storyLocation, storyRecordOf, storyRecordWithin,
   workDir, workDirRelative, workflowPath
 } from '../src/story-paths.mjs';
 import { DEFAULT_WORK_ITEM_ROOT as LOCATION_DEFAULT, workItemWorkflowRelative } from '../src/work-item-location.mjs';
@@ -205,6 +205,16 @@ test('record-path classifiers find the Story and the path inside it', () => {
   assert.equal(storyIdOfRecord('singularity/work-items/S.1/workflow.json', { workItemRoot: 'team/stories' }), null);
   assert.equal(isStoryRecordPath('singularity/work-items/W-1/workflow.json'), true);
   assert.equal(isStoryRecordPath('singularity/workflow.yml'), false);
+  // Below another folder, as the old `(^|\/)singularity\/work-items\/` patterns matched.
+  for (const [recorded, expected] of [
+    ['singularity/work-items/W-1/workflow.json', { id: 'W-1', inside: 'workflow.json' }],
+    ['member/singularity/work-items/W-1/context/claims/a.json', { id: 'W-1', inside: 'context/claims/a.json' }],
+    ['member/xsingularity/work-items/W-1/workflow.json', null], ['src/a.mjs', null], [null, null]]) {
+    assert.deepEqual(storyRecordWithin(recorded), expected, String(recorded));
+    if (typeof recorded === 'string') {
+      assert.equal(/(^|\/)singularity\/work-items\/[^/]+\/workflow\.json$/u.test(recorded), expected?.inside === 'workflow.json');
+    }
+  }
 });
 
 test('the location helpers delegate and keep their answers', () => {

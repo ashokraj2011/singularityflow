@@ -23,6 +23,7 @@ import { authoredInputsUnchanged, verifyInputsIntegrity } from './inputs.mjs';
 import { authoredEquivalence, changedUpstream, phaseUpstream } from './phase-upstream.mjs';
 import { snapshot } from './util.mjs';
 import { decisionAfter, decisionFedBy } from './workflow-decisions.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const actorKey = (actor) => actor?.login ?? actor?.email ?? actor?.name ?? null;
 
@@ -208,7 +209,7 @@ async function unrelatedLaterDecisions(root, config, workflow, phase, approvals)
 export async function retainUnchangedPhases(root, config, workflow, completed, { at, actor = null, agent = null } = {}) {
   const counts = await presenceCountsOf(root, workflow);
   const order = workflow.phaseOrder ?? [];
-  const itemRelative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
   const itemDirectory = path.join(root, itemRelative);
   const retained = [];
   let stale = null;

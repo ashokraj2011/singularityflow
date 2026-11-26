@@ -222,8 +222,8 @@ async function phaseReadiness(root, config, workflow, {
   if (readiness.lifecycleReady && phase?.status === 'in_progress' && phaseId === workflow.currentPhase
       && workflow.resolution?.verification?.coverage === 'enforce' && config) {
     const { visualCoverageHold } = await import('./visual-coverage.mjs');
-    const { workDir } = await import('./story-paths.mjs');
-    const hold = await visualCoverageHold(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) }).catch(() => null);
+    const { storyLocation } = await import('./story-paths.mjs');
+    const hold = await visualCoverageHold(root, workflow, phase, { itemDirectory: storyLocation(root, config, workflow.workItem.id).directory }).catch(() => null);
     if (hold) return { ...readiness, lifecycleReady: false, classification: 'visual-coverage-required', reasonCode: hold.code,
       reason: hold.reason, command: hold.command, nextCommand: hold.command, nextSkill: copilotSkillForCommand(hold.command) };
   }

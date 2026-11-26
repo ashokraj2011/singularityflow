@@ -24,6 +24,7 @@ import { assertStoryNotArchived } from './governance-archive.mjs';
 import { changeRequestApplies, deriveMutationContract, mutationContractPresentation } from './phase-mutation-contract.mjs';
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 import { repositoryCheckStatus } from './repository-check-cache.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
   allowTerminal = false, turnMode = 'authoring' } = {}) {
@@ -55,7 +56,7 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   // The request near the top, so an agent that reads only the start of the packet still has it,
   // marked as refined by the approved outputs this step receives from the steps before it.
   const refinedBy = approvedInputPhases(workflow, phase);
-  const story = await readFile(path.join(root, definition.workItemRoot, actualId, 'source.json'), 'utf8')
+  const story = await readFile(storyLocation(root, definition, actualId).file('source.json'), 'utf8')
     .then((text) => storyRequestSummary(JSON.parse(text), { refinedBy })).catch(() => null);
   const binding = { ready, repositoryPath: root, workItemRoot: definition.workItemRoot,
     workId: actualId, ...(story ? { story } : {}), phase: phase?.id ?? null, phaseStatus: phase?.status ?? null, generation: phase?.generation ?? null,

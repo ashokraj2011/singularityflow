@@ -1,6 +1,6 @@
 import { witnessedClauseReviewFields } from './specification-quality.mjs';
-import { workDir } from './story-paths.mjs';
 import { activeWitnessClauses, witnessClauseStatus } from './specifications.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export async function witnessMappingReview(root, config, workflow, phase) {
   const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
@@ -14,7 +14,7 @@ export async function witnessMappingReview(root, config, workflow, phase) {
   };
   // The criteria as `approve` reads them (specifications.mjs activeWitnessClauses): every active index, whatever its record's kind.
   let clauses = new Map();
-  try { clauses = await activeWitnessClauses(workDir(root, config, workflow.workItem.id), workflow); } catch { clauses = new Map(); }
+  try { clauses = await activeWitnessClauses(storyLocation(root, config, workflow.workItem.id).directory, workflow); } catch { clauses = new Map(); }
   return {
     ...structuredClone(packet.witnessReview ?? {}),
     mappings: mappings.slice(0, 1000).map((mapping) => {

@@ -14,11 +14,12 @@ import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { changedFiles, committedChangedPaths, exactFileAtObject } from './git.mjs';
 import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './phase-generation-need.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** A document step in progress with a publication: its document's path, the published text and the current one; else null. */
 async function publishedAndCurrent(root, config, workflow, phase) {
   if (phase?.status !== 'in_progress' || phaseRequiresCodeDelivery(phase) || isConvergencePhase(phase) || !hasPublishedPhaseGeneration(phase)) return null;
-  const story = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const story = storyLocation(null, config, workflow.workItem.id).prefix;
   const relative = path.posix.join(story, phase.requiredArtifact.path);
   const commit = publishedGenerationCommit(root, workflow, phase);
   const bytes = commit ? exactFileAtObject(root, commit, relative, { maximumBytes: 16 * 1024 * 1024, regularOnly: true }) : null;

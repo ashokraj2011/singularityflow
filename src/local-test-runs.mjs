@@ -16,12 +16,12 @@ import { operationContext } from './operation-context.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { localTestRunKernel as kernel, sourceTreeHash, testInputTreeHash } from './state-stores.mjs';
-import { workDirRelative } from './story-paths.mjs';
 import { gateTestEnvironmentModule, normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError, unknownStepDetails } from './util.mjs';
 import { recordRunsBeforeRefusal, recordTestAttempt } from './verification/attempts.mjs';
 import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
 import { prepareInferredSwiftTestReports } from './verification/swift-reports.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /**
  * Run one quality command for a local preview outside any Story [RUN M2], the way the code step
@@ -141,7 +141,7 @@ export async function stageStoryLocalTests(root, config, workflow, {
   const checks = await kernel.qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance])),
     localRun: { ranBy, requestedEnvironment },
-    onMutation: (ran) => recordRunsBeforeRefusal(root, workDirRelative(config, workflow.workItem.id), commands, ran, {
+    onMutation: (ran) => recordRunsBeforeRefusal(root, storyLocation(null, config, workflow.workItem.id).prefix, commands, ran, {
       purpose: 'local', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase), localRunId, uncommittedChanges })
   });
   const attempts = [];
@@ -149,7 +149,7 @@ export async function stageStoryLocalTests(root, config, workflow, {
     for (const command of commands) {
       const check = checks.find((entry) => entry.id === command.id);
       if (!check) continue;
-      const recorded = await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
+      const recorded = await recordTestAttempt(root, storyLocation(null, config, workflow.workItem.id).prefix, {
         command, check, purpose: 'local', workId: workflow.workItem.id, phaseId: phase.id,
         generation: nextPhaseGeneration(phase), localRunId, uncommittedChanges
       });
@@ -223,7 +223,7 @@ export async function candidateGateTests(root, config, workflow, phase) {
         if (block || run) return null;
         const [check] = await kernel.qualityChecks(root, phase, config, workflow, [command], { candidateRoot: await realpath(workspace) });
         try {
-          const { parsed } = await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
+          const { parsed } = await recordTestAttempt(root, storyLocation(null, config, workflow.workItem.id).prefix, {
             command, check, purpose: 'candidate', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase)
           });
           return { check, parsed };

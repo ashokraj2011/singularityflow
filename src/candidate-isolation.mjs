@@ -17,13 +17,14 @@ import { applicationPathContext, isApplicationChangePath } from './application-p
 import { outsideEveryCandidate } from './candidate-scope.mjs';
 import { secureRepositoryPath } from './util.mjs';
 import { addCandidateWorktree, changedFiles, removeCandidateWorktree, untrackedFiles } from './git.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /**
  * The changed application files outside every candidate, and the changed files
  * some step's plan names. Null when the Story scopes no code candidate.
  */
 export async function candidateIsolationNeed(root, config, workflow) {
-  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   const outside = await outsideEveryCandidate(itemDirectory, workflow);
   if (!outside) return null;
   const pathContext = applicationPathContext(config, workflow);

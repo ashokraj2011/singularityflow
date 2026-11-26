@@ -8,7 +8,6 @@ import { terminalTransitionAt } from './workflow-terminal-time.mjs';
 export { terminalTransitionAt } from './workflow-terminal-time.mjs';
 import path from 'node:path';
 import { currentPhase } from './phase-generation.mjs';
-import { workDir } from './story-paths.mjs';
 import { believedProducer, countedApprovals, countedRecords } from './presence/counted.mjs';
 import { sourceTreeHash, validateWorkflow, workflowPublicationBranch } from './state-stores.mjs';
 import { exists, gitHeadIsUnborn, gitReadOutput, posix, snapshot, run } from './util.mjs';
@@ -63,6 +62,7 @@ import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 import { verifyPhaseApprovalWaiver } from './approval-waiver.mjs';
 import { artifactSnapshotCheckoutMatches, readReviewArtifactBytes } from './artifact-review-read.mjs';
 import { pinnedStorySourceSnapshot } from './story-epic-sources.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 
@@ -375,7 +375,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     if (verification.valid) passes.push('impact receipt verified');
   }
 
-  const documentManifest = path.join(workDir(root, config, workflow.workItem.id), 'documents.json');
+  const documentManifest = storyLocation(root, config, workflow.workItem.id).file('documents.json');
   if (await exists(documentManifest)) {
     const manifest = readRecord('document-manifest', await readFile(documentManifest)).record; const seen = new Set();
     if (manifest.workId !== workflow.workItem.id) refuse('gate.documents.catalog', 'document catalog work ID does not match workflow');
@@ -515,15 +515,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       if (found) passes.push(...ast.passes);
       if (phaseRequiresCodeDelivery(phase)) {
         const reachedReview = generationReachedReview(workflow, phase, generation);
-        const receiptPath = posix(path.join(
-          config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
-          'context', 'code-delivery', `${phase.id}-gen${generation}.json`
-        ));
+        const receiptPath = storyLocation(null, config, workflow.workItem.id).record('context', 'code-delivery', `${phase.id}-gen${generation}.json`);
         if (!(await exists(path.join(root, receiptPath)))) {
-          const generationStartPath = posix(path.join(
-            config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
-            'context', 'generation-start', `${phase.id}-gen${generation}.json`
-          ));
+          const generationStartPath = storyLocation(null, config, workflow.workItem.id).record('context', 'generation-start', `${phase.id}-gen${generation}.json`);
           const v2Generation = phase.generationIntent?.generation === generation
             || await exists(path.join(root, generationStartPath))
             || Boolean(found && run('git', ['cat-file', '-e', `${found[0]}:${generationStartPath}`], {
@@ -611,23 +605,23 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         const telemetryPath = (phase.telemetry ?? []).find((item) => item.generation === generation)?.path;
         if (found && telemetryPath && run('git', ['cat-file', '-e', `${found[0]}:${telemetryPath}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.telemetry.uncommitted', `telemetry audit was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
       }
-      const agentContextRelative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `agents-${phase.id}-gen${generation}.json`);
+      const agentContextRelative = storyLocation(null, config, workflow.workItem.id).record('context', `agents-${phase.id}-gen${generation}.json`);
       if (await exists(path.join(root, agentContextRelative))) {
         if (found && run('git', ['cat-file', '-e', `${found[0]}:${agentContextRelative}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.agents.context-uncommitted', `remote agent context was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
         else if (found) passes.push(`remote agent audit: ${phaseId} generation ${generation}`);
       }
       for (const output of (phase.remoteOutputs ?? []).filter((entry) => entry.generation === generation)) {
-        const outputRecord = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${generation}.json`);
+        const outputRecord = storyLocation(null, config, workflow.workItem.id).record('context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${generation}.json`);
         if (!(await exists(path.join(root, outputRecord)))) refuse('gate.agents.remote-output-missing', `remote output provenance is missing: ${outputRecord}`, { phase: phaseId, path: outputRecord });
         else if (found && run('git', ['cat-file', '-e', `${found[0]}:${outputRecord}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.agents.remote-output-uncommitted', `remote output provenance was not committed with ${phaseId} generation ${generation}`, { phase: phaseId, path: outputRecord });
       }
     }
     const inputIntegrity = await verifyInputsIntegrity(root, workflow, phase, {
-      itemDirectory: workDir(root, config, workflow.workItem.id),
-      itemRelative: path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id)
+      itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
+      itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
     });
     refuseEach('gate.inputs.integrity', inputIntegrity.errors, { phase: phaseId }); warnings.push(...inputIntegrity.warnings); passes.push(...inputIntegrity.passes);
-    const agentIntegrity = await verifyAgentIntegrity(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+    const agentIntegrity = await verifyAgentIntegrity(root, workflow, phase, { itemDirectory: storyLocation(root, config, workflow.workItem.id).directory });
     refuseEach('gate.agents.integrity', agentIntegrity.errors, { phase: phaseId }); warnings.push(...agentIntegrity.warnings); passes.push(...agentIntegrity.passes);
     if (phase.status !== 'approved') continue;
     const decisions = countedApprovals(workflow, phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved'));
@@ -696,26 +690,26 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         else refuse('gate.approval.stale', `STALE ${phaseId} approval: ${artifact.path} changed after approval`, { phase: phaseId, path: artifact.path });
       }
     }
-    const required = path.join(root, config.workItemRoot, workflow.workItem.id, phase.requiredArtifact.path);
+    const required = storyLocation(root, config, workflow.workItem.id).file(phase.requiredArtifact.path);
     const text = await readFile(required, 'utf8').catch(() => '');
     if (decisions.some((item) => item.selfApproval) && !/"selfApproval": true/.test(text)) refuse('gate.approval.self-approval-undisclosed', `${phaseId} artifact does not expose its self-approval warning`, { phase: phaseId });
     passes.push(`approval integrity: ${phaseId}`);
   }
 
   const mcpIntegrity = await verifyMcpEvidence(root, workflow, {
-    itemDirectory: workDir(root, config, workflow.workItem.id)
+    itemDirectory: storyLocation(root, config, workflow.workItem.id).directory
   });
   refuseEach('gate.mcp.integrity', mcpIntegrity.errors); warnings.push(...mcpIntegrity.warnings); passes.push(...mcpIntegrity.passes);
 
   const designSourceIntegrity = await verifyDesignSourceLifecycle(root, workflow, {
-    itemDirectory: workDir(root, config, workflow.workItem.id)
+    itemDirectory: storyLocation(root, config, workflow.workItem.id).directory
   });
   refuseEach('gate.design-source.integrity', designSourceIntegrity.errors);
   warnings.push(...designSourceIntegrity.warnings);
   passes.push(...designSourceIntegrity.passes);
 
   const visualCoverage = await evaluateVisualCoverage(root, workflow, {
-    itemDirectory: workDir(root, config, workflow.workItem.id)
+    itemDirectory: storyLocation(root, config, workflow.workItem.id).directory
   });
   // The ending names the same ways forward as submission: capture the profile, or a person records
   // that it does not apply to this Story.
@@ -726,7 +720,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   warnings.push(...visualCoverage.warnings);
   if (visualCoverage.status === 'pass') passes.push(`visual coverage: ${visualCoverage.covered.length}/${visualCoverage.profiles.length} profiles`);
   if (visualCoverage.applicability) passes.push(visualCoverage.applicability.words);
-  const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+  const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: storyLocation(root, config, workflow.workItem.id).directory });
   for (const comparison of comparisons) {
     // Evidence that will not parse is an integrity failure, not a threshold decision, so it fails
     // the gate whatever the comparison mode says. Otherwise damaging a record is a way past it.
@@ -754,7 +748,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   }
   const specPolicy = workflow.resolution?.spec ?? config.spec ?? { mode: 'off', coverage: 'off' };
   if (specPolicy.mode !== 'off') {
-    const itemDirectory = workDir(root, config, workflow.workItem.id);
+    const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
     const records = terminal && workflow.resolution?.plannedClaims?.mode === 'required'
       ? await loadBoundActiveSpecRecords(root, itemDirectory, workflow, specPolicy)
       : await loadActiveSpecRecords(itemDirectory, workflow);
@@ -866,13 +860,13 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   // Every conformance report is governed alike, whatever its step is called [E2G-001]: its rows,
   // its disclosure of self-approval, its verdicts and its freshness against the tree it compared.
   for (const phase of conformancePhasesOf(workflow).filter((candidate) => candidate.status !== 'skipped' && candidate.generation > 0)) {
-    const reportPath = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path); const report = await readFile(reportPath, 'utf8');
+    const reportPath = storyLocation(root, config, workflow.workItem.id).file(phase.requiredArtifact.path); const report = await readFile(reportPath, 'utf8');
     const expected = new Set();
     // The stronger row contract is pinned into new Stories. Historical Story snapshots retain
     // their original substring check; a framework upgrade must not retroactively reject a report
     // that was authored and approved under the older contract.
     const qualifiedRows = terminal && specPolicy.conformanceRows === 'qualified'
-      ? (await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow))
+      ? (await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow))
         .indexes.flatMap((index) => index.clauses ?? []).map((clause) => clause.id)
       : [];
     if (qualifiedRows.length) {

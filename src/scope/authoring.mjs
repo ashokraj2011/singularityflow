@@ -6,6 +6,7 @@ import { decisionListRoute } from '../upstream-routes.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { scopeAuthorities } from './decisions.mjs';
 import { SCOPE_CHOICE_WORDS, scopeDecisionArgv, scopeDecisionCommandLine } from './extract.mjs';
+import { storiesRoot } from '../story-paths.mjs';
 
 export { finalScopeStep, phaseOwnsScope };
 
@@ -28,7 +29,7 @@ export async function scopeAuthoringCheckpoint(root, definition, workflow, phase
     const unresolved = inventory.items.filter(item => item.disposition === 'unresolved');
     const artifact = phase.requiredArtifact?.path;
     const artifactPath = artifact ? path.posix.join(
-      String(workflow.resolution?.workItemRoot ?? definition.workItemRoot ?? 'singularity/work-items').replaceAll('\\', '/'),
+      String(storiesRoot(workflow, definition)).replaceAll('\\', '/'),
       workflow.workItem.id, artifact) : null;
     return { ...common, status: unresolved.length ? draftPreview ? 'repair-or-human-decision' : 'human-decision' : 'covered',
       inventorySha256: inventory.inventorySha256, sourceSetSha256: inventory.sourceSetSha256,
@@ -54,7 +55,7 @@ export async function scopeAuthoringCheckpoint(root, definition, workflow, phase
       // An earlier step that defines the scope may already have said why no clause states one: that account stands.
       earlierArtifactPaths: (workflow.phaseOrder ?? []).slice(0, Math.max(0, (workflow.phaseOrder ?? []).indexOf(phase.id)))
         .map((id) => workflow.phases?.[id]).filter((step) => step && phaseOwnsScope(workflow, step) && step.requiredArtifact?.path)
-        .map((step) => path.posix.join(String(workflow.resolution?.workItemRoot ?? definition.workItemRoot ?? 'singularity/work-items').replaceAll('\\', '/'),
+        .map((step) => path.posix.join(String(storiesRoot(workflow, definition)).replaceAll('\\', '/'),
           workflow.workItem.id, step.requiredArtifact.path)),
       // Where a person decides what no clause states: the last step that defines the scope, at its approval when the
       // Story pinned owner-step checks, otherwise before the Story ends.

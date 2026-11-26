@@ -25,9 +25,9 @@ import { countedRecords } from './presence/counted.mjs';
 import { agentInputIssues } from './text-lines.mjs';
 import { extractClauses, loadActiveSpecRecords, normalizeClaimMap } from './specifications.mjs';
 import { requiredRepoPath } from './story-state-validation.mjs';
-import { workDir, workDirRelative } from './story-paths.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 import { validatePlannedVerification } from './verification/intent.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 // A row for a clause the amendment adds, or removes; and, for a clause it revises that the plan has a row for, that
 // row as it stands (keep-row) or updated with the decision plan corrections [PHR:REQ-008].
@@ -83,7 +83,7 @@ export async function carriedPlanCorrections(root, config, workflow, { afterClau
   if (!plans.length && !operations.length) return { corrections: [], uncovered: [] };
   const policy = workflow.resolution?.spec ?? config.spec ?? {};
   // The plans as every reader shows them (their corrections applied); a later plan still being written binds nothing yet.
-  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const records = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
   // The clauses the Story holds once the amendment is approved: the proposed scope's and every other document's.
   const clauses = [...(records.indexes ?? []).filter((index) => index.phase !== scope?.id).flatMap((index) => index.clauses ?? []), ...afterClauses];
   const clauseIds = [...new Set(clauses.map((clause) => upper(clause.id)))];
@@ -235,7 +235,7 @@ export async function amendmentPlanReadiness(root, config, workflow, proposal, c
     let claims;
     try {
       const raw = JSON.parse(await readFile(path.join(root, pointer.path), 'utf8'));
-      claims = applyPlanCorrections(raw, scratch, { evidenceRoot: `${workDirRelative(config, workflow.workItem.id)}/evidence` })?.claims ?? null;
+      claims = applyPlanCorrections(raw, scratch, { evidenceRoot: storyLocation(null, config, workflow.workItem.id).record(`evidence`) })?.claims ?? null;
     } catch (error) {
       if (error?.code !== 'PLAN_ROW_CORRECTION_INTEGRITY') throw error;
       stale.push({ phase: id, reason: error.message });
@@ -299,7 +299,7 @@ export function planSigners(workflow, proposal, actor, authorities) {
  * with nothing recorded, when they no longer fit), then record the rows this person signs, beside their decision.
  */
 export async function recordCarriedRows(root, config, workflow, proposal, decision, { signing, specification, candidate, actor, agent, at }) {
-  const others = (await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).indexes
+  const others = (await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow)).indexes
     .filter((index) => index.phase !== specification.id).flatMap((index) => index.clauses ?? []);
   const amendedClauseIds = [...others, ...extractClauses(candidate.proposedText, { sourcePath: candidate.specificationPath })]
     .map((clause) => upper(clause.id));
@@ -326,8 +326,8 @@ export async function recordCarriedRows(root, config, workflow, proposal, decisi
  */
 export async function carriedPlanBinding(root, config, workflow, phase, producer) {
   const { collectInputs } = await import('./inputs.mjs');
-  const inputs = await collectInputs(root, workflow, phase, { definition: config, itemDirectory: workDir(root, config, workflow.workItem.id),
-    itemRelative: workDirRelative(config, workflow.workItem.id), generation: phase.generation });
+  const inputs = await collectInputs(root, workflow, phase, { definition: config, itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
+    itemRelative: storyLocation(null, config, workflow.workItem.id).prefix, generation: phase.generation });
   const amended = inputs.records.find((entry) => entry.phase === producer);
   if (!amended || amended.status !== 'captured' || !phase.inputContext?.sha256) return null;
   return { phase: phase.id, generation: Number(phase.generation), binding: { producer, producerGeneration: Number(amended.producerGeneration),

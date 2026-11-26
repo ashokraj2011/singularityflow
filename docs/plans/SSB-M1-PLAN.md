@@ -364,6 +364,15 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
 - **B2.** `task-amendment.mjs` (R2) and the lazy `state.mjs` imports of `workDir` in `story-baseline-admission.mjs`
   were not in the appendix; both are converted. `story-readiness-snapshot.mjs` stamps the default folder's
   `workflow.json`, as before, through `storyLocation(member, null, story)`.
+- **B3.** `change-flight-plan.mjs` tested `(^|/)singularity/work-items/<ID>/` anywhere in a path. The resolver gains
+  `storyRecordWithin(path, ...sources)`: the first Stories folder at the start or after a `/`. It agrees with the old
+  patterns on every path SFlow writes; it differs only for a Stories folder nested in itself or glued to a longer
+  segment name. A local `workItemRoot` variable joined by hand (`phase-prompt-composer.mjs`) goes through
+  `storyLocation(root, { workItemRoot }, id)`. `phase-mutation-contract.mjs` names `<Stories folder>/null` for a
+  contract without a Story, as before, through `String(workId)`.
+- **Not converted in M1: a Story prefix passed as a parameter** (`itemRelative`, `itemRoot`, `workRoot` joined by the
+  callee, as in `recovery-preparation-context.mjs`). The prefix comes from the resolver; the callee's join stays until
+  M2 passes the location instead. The ratchet does not count these.
 - **Budgets.** The resolver adds about 8.5 KB of source to every closure that has it. B0 and B1 raise the eager budgets in
   `test/lazy-command-handlers.test.mjs` (submit.mjs 9,915,050; session current 4,376,031) and the VS Code
   `gateway-runtime.cjs` limit (7,896,000), each with its measurement. No module was added to any closure.

@@ -3,10 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { canonicalJson, LEDGER_INTENT_DIRECTORY } from './ledger.mjs';
-import {
-  approvalPath, artifactMetadataBlock, statusPath, storyArtifactMetadata,
-  storyStatusMarkdown, workDir, workDirRelative
-} from './state.mjs';
+import { approvalPath, artifactMetadataBlock, statusPath, storyArtifactMetadata, storyStatusMarkdown } from './state.mjs';
 import {
   initiativeDir, initiativeRelative, initiativeStatusMarkdown
 } from './initiative-state.mjs';
@@ -15,6 +12,7 @@ import {
 } from './initiative-evidence.mjs';
 import { exists, repoRelative, SingularityFlowError, writeAtomic } from './util.mjs';
 import { phaseApprovalSummaryVersion } from './schema-migrations.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const STORY_METADATA = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
 const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata\n[\s\S]*?\n-->/;
@@ -65,7 +63,7 @@ export async function projectArtifactMetadata(root, {
 }) {
   const specs = [];
   if (kind === 'story') {
-    const directory = workDir(root, definition, aggregate.workItem.id);
+    const directory = storyLocation(root, definition, aggregate.workItem.id).directory;
     for (const phaseId of aggregate.phaseOrder) {
       const phase = aggregate.phases[phaseId];
       const file = path.join(directory, phase.requiredArtifact.path);
@@ -111,7 +109,7 @@ export async function projectApprovalSummary(root, {
 }) {
   const specs = [];
   if (kind === 'story') {
-    const directory = workDir(root, definition, aggregate.workItem.id);
+    const directory = storyLocation(root, definition, aggregate.workItem.id).directory;
     for (const phaseId of aggregate.phaseOrder) {
       const phase = aggregate.phases[phaseId];
       const file = approvalPath(root, definition, aggregate.workItem.id, phaseId);
@@ -157,7 +155,7 @@ function packetSpec(root, directory, record, category) {
 
 export function projectReviewPacket(root, { kind, aggregate, definition }) {
   if (kind !== 'story') return [];
-  const directory = workDir(root, definition, aggregate.workItem.id);
+  const directory = storyLocation(root, definition, aggregate.workItem.id).directory;
   return [
     ...(aggregate.lineage?.submissions ?? []).map((record) => packetSpec(root, directory, record, 'ReviewPacket')),
     ...(aggregate.lineage?.finalizations ?? []).map((record) => packetSpec(root, directory, record, 'FinalizationPacket'))
@@ -171,10 +169,10 @@ export function projectLedgerIntent(root, {
   portfolio
 }) {
   const directory = kind === 'story'
-    ? workDir(root, definition, aggregate.workItem.id)
+    ? storyLocation(root, definition, aggregate.workItem.id).directory
     : initiativeDir(root, portfolio, aggregate.initiative.id);
   const relativeDirectory = kind === 'story'
-    ? workDirRelative(definition, aggregate.workItem.id)
+    ? storyLocation(null, definition, aggregate.workItem.id).prefix
     : initiativeRelative(portfolio, aggregate.initiative.id);
   return (aggregate.publicationProjections ?? [])
     .filter((record) => record.ledgerIntent)
@@ -207,7 +205,7 @@ export function projectLedgerIntent(root, {
 export async function declaredProjections(root, options) {
   const { kind, aggregate, definition, portfolio } = options;
   const directory = kind === 'story'
-    ? workDir(root, definition, aggregate.workItem.id)
+    ? storyLocation(root, definition, aggregate.workItem.id).directory
     : initiativeDir(root, portfolio, aggregate.initiative.id);
   const statusFile = kind === 'story'
     ? statusPath(root, definition, aggregate.workItem.id)

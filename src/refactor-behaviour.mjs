@@ -96,9 +96,9 @@ export const testEditWords = (entry) => `the expectations of ${entry.path}${entr
  */
 export async function versionBehaviourChange(root, config, workflow, phase) {
   if (!config || !await writtenRefactorCode(workflow, phase)) return null;
-  const [{ stepAttempts }, { workDirRelative }, rules] = await Promise.all([import('./verification/attempts.mjs'), import('./story-paths.mjs'),
+  const [{ stepAttempts }, { storyLocation }, rules] = await Promise.all([import('./verification/attempts.mjs'), import('./story-paths.mjs'),
     import('./failing-tests-return.mjs')]);
-  const attempts = await stepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id).catch(() => []);
+  const attempts = await stepAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, phase.id).catch(() => []);
   // The version being written is the newest one runs were kept for beyond the published one.
   const unpublished = attempts.filter((entry) => Number(entry?.generation) > Number(phase.generation ?? 0));
   if (!unpublished.length) return null;

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { correctionPlan, ownInspectionOpen } from './phase-finding-policy.mjs';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { storiesRoot } from './story-paths.mjs';
 
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 const REMEDIATION_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/governance-remediation.mjs')).href;
@@ -493,7 +494,7 @@ async function foreignClauseDrift(root, config, workflow) {
     const { foreignClauseAdvisories, removedClauseTagAdvisories } = await import('./spec-drift.mjs');
     return [
       ...foreignClauseAdvisories(root, {
-        workItemRoot: config.workItemRoot ?? 'singularity/work-items', workflow,
+        workItemRoot: storiesRoot(config), workflow,
         baseCommit: workflow.workItem?.baseCommit ?? workflow.phases?.[workflow.phaseOrder?.[0]]?.sourceCommit ?? null
       }),
       ...removedClauseTagAdvisories(root, workflow)

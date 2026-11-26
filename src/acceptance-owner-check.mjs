@@ -16,8 +16,8 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { specAcceptanceFindings } from './governance.mjs';
 import { ownerStepChecks } from './phase-roles.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
-import { workDir } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** The plan's own findings, met at planning's prepublish (G7); everything else is the code step's. */
 const PLANS_OWN = new Set(['gate.acceptance.planned-test-missing']);
@@ -33,7 +33,7 @@ function lastCodeStep(workflow) {
  * submission binds once it is recorded. The ending reads the same records through their bindings.
  */
 async function submittedRecords(root, config, workflow) {
-  return loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  return loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
 }
 
 /** The refusal for the last code step's submission, or null. `records` replaces the read, for tests. */

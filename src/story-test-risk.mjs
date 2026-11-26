@@ -2,7 +2,6 @@
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import { head, identity } from './git.mjs';
-import { workDir } from './story-paths.mjs';
 import { StoryStateStore, storyPublicationPending } from './state-stores.mjs';
 import { sealTrpRecord, trpDigest, trpEnvironmentDigest, validateTrpRecord } from './test-recovery-policy.mjs';
 import { appendTrpAuthorityReceipt, appendTrpRecord, consumeTrpAuthority, loadTrpRecords, trpAuthorityReview } from './test-recovery-store.mjs';
@@ -11,6 +10,7 @@ import { nowIso, SingularityFlowError } from './util.mjs';
 import { verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
 import { documentObligationsForPhase } from './trp-document-policy.mjs';
 import { ownerStepChecks } from './phase-roles.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -191,7 +191,7 @@ async function publishReview(root, config, workflow, { record, authority, planDi
     const freshAuthority = await refresh(current);
     const nonce = authorization.token;
     const witness = await consumeTrpAuthority(root, { record, ...(freshAuthority ?? authority), review, token: nonce });
-    const workRoot = workDir(root, config, current.workItem.id);
+    const workRoot = storyLocation(root, config, current.workItem.id).directory;
     await appendTrpRecord(workRoot, record);
     const saved = await appendTrpAuthorityReceipt(workRoot, witness);
     const entry = { action, planDigest, record: reference(record), authorityReceipt: reference(saved.receipt), reviewedAt: saved.receipt.issuedAt };
@@ -245,7 +245,7 @@ export async function acceptStoryTestRisk(root, config, workflow, options = {}) 
 async function recordReviewPlan(root, config, workflow, options, action) {
   const agreement = await acceptedAgreement(root, config, workflow);
   const authority = storyTestRiskAuthorityContext(workflow, agreement);
-  const records = await loadTrpRecords(workDir(root, config, workflow.workItem.id));
+  const records = await loadTrpRecords(storyLocation(root, config, workflow.workItem.id).directory);
   const target = records.find((record) => record.recordSha256 === (options.recordSha256 ?? agreement.recordSha256));
   const kinds = action === 'revoked' ? ['phase-risk-decision'] : ['story-test-recovery-agreement', 'phase-risk-decision', 'phase-risk-revocation'];
   if (!target || !kinds.includes(target.kind) || target.subject.workId !== workflow.workItem.id

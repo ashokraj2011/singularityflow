@@ -1,3 +1,4 @@
+import { storyLocation } from './story-paths.mjs';
 /** Canonical story policy anchor; legacy state exports delegate here. */
 import { DEFAULT_APPROVAL_AUTHORITY } from "./approval-authority.mjs";
 import { SingularityFlowError, gitHeadIsUnborn, gitReadOutput, run } from "./util.mjs";
@@ -70,7 +71,7 @@ export function storyHistoryCommits(root, args, label) {
 }
 
 export function initialWorkflowRecord(root, config, workId) {
-  const relative = workDirRelative(config, workId);
+  const relative = storyLocation(null, config, workId).prefix;
   const workflowRelative = `${relative}/workflow.json`;
   const history = storyHistoryCommits(root, [
     'log', '--format=%H', '--diff-filter=A', '--reverse', '--', workflowRelative

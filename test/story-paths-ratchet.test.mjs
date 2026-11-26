@@ -20,7 +20,8 @@ const SPELLINGS = {
   I: { what: "inline `workItemRoot ?? 'singularity/work-items'` joins", pattern: /workItemRoot\s*\?\?\s*['"`]singularity\/work-items['"`]/gu },
   B: { what: 'joins on a bare .workItemRoot', pattern: /(?:path(?:\.posix)?\.join\([^;\n]*?|\$\{\s*)[\w?.]*\.workItemRoot\b(?!\s*\?\?)/gu },
   X: { what: 'path patterns that spell singularity\\/work-items', pattern: /singularity\\\/work-items/gu },
-  H: { what: "uses of work-item-location.mjs's workItemWorkflowRelative and DEFAULT_WORK_ITEM_ROOT", pattern: /\b(?:workItemWorkflowRelative|DEFAULT_WORK_ITEM_ROOT)\b/gu },
+  // workItemWorkflowRelative is not counted: it validates the ID, then asks the resolver.
+  H: { what: 'uses of DEFAULT_WORK_ITEM_ROOT outside the resolver: storiesRoot() names the default', pattern: /\bDEFAULT_WORK_ITEM_ROOT\b/gu },
   L: { what: 'other singularity/work-items literals: one-off joins, help text, comments', pattern: /(?<!\?\?\s*['"`])singularity\/work-items/gu },
   S: { what: "'work-items' as a path segment", pattern: /['"`]work-items['"`]/gu },
   F: { what: 'configuration-source.json and CONFIGURATION_SOURCE_PATH', pattern: /configuration-source\.json|CONFIGURATION_SOURCE_PATH/gu },
@@ -43,7 +44,7 @@ const ALLOWED = [
 // Ceilings: lowered by each batch of M1, never raised. At M1's end W, R, P, I, B, X and H are 0; L keeps only help
 // text and comments; E stays for M6.
 const CEILINGS = {
-  W: 177, R: 137, P: 7, I: 141, B: 9, X: 97, H: 28, L: 36, S: 9, F: 45, E: 34
+  W: 103, R: 48, P: 4, I: 130, B: 9, X: 97, H: 8, L: 35, S: 9, F: 45, E: 34
 };
 
 async function* sourceFiles(directory) {

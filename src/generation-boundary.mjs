@@ -15,12 +15,10 @@ import { beginTelemetryCapture } from './telemetry.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function receiptRelative(config, workflow, phase, generation) {
-  return posix(path.join(
-    config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
-    'context', 'generation-start', `${phase.id}-gen${generation}.json`
-  ));
+  return storyLocation(null, config, workflow.workItem.id).record('context', 'generation-start', `${phase.id}-gen${generation}.json`);
 }
 
 function generationStartSha256(record) {

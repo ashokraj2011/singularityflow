@@ -358,6 +358,12 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
 - **Counts moved on.** `main` gained 17 commits after `5ac41f37e`. The ratchet's first ceilings are measured on
   `480c2f936` after B0 and B1: W 177, R 137, P 7, I 141, B 9, X 97, H 28, L 36, S 9, F 45, E 34. Its B pattern counts
   joins only (`path.join(... .workItemRoot` and `${... .workItemRoot`), so it finds 9, not 16.
+- **H counts `DEFAULT_WORK_ITEM_ROOT` only** (from B2). `workItemWorkflowRelative` validates a Work ID and normalizes the
+  root before it asks the resolver, so its callers keep that refusal; replacing it with a bare resolver call would drop
+  the check. `storiesRoot()` names the default everywhere else.
+- **B2.** `task-amendment.mjs` (R2) and the lazy `state.mjs` imports of `workDir` in `story-baseline-admission.mjs`
+  were not in the appendix; both are converted. `story-readiness-snapshot.mjs` stamps the default folder's
+  `workflow.json`, as before, through `storyLocation(member, null, story)`.
 - **Budgets.** The resolver adds about 8.5 KB of source to every closure that has it. B0 and B1 raise the eager budgets in
   `test/lazy-command-handlers.test.mjs` (submit.mjs 9,915,050; session current 4,376,031) and the VS Code
   `gateway-runtime.cjs` limit (7,896,000), each with its measurement. No module was added to any closure.

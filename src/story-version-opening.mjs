@@ -182,9 +182,9 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
   let checkpoint = await saveCheckpoint(commonDir, { ...base, state: 'prepared' });
   const move = async (state, extra = {}) => { checkpoint = await saveCheckpoint(commonDir, { ...checkpoint, ...extra, state }); return checkpoint; };
   if (fault) await fault('before-reservation', { operationId: id });
-  const [{ commitAndPublish }, { LIFECYCLE_EVENT }, { workDirRelative }, { writeJson }] = await Promise.all([
+  const [{ commitAndPublish }, { LIFECYCLE_EVENT }, { storyLocation }, { writeJson }] = await Promise.all([
     import('./story-publication-service.mjs'), import('./lifecycle-event.mjs'), import('./story-paths.mjs'), import('./util.mjs')]);
-  const directory = workDirRelative(config, workId);
+  const directory = storyLocation(null, config, workId).prefix;
   const recordPath = posix(path.join(directory, 'context', 'version-openings', `${phase.id}-v${proposal.version}.json`));
   const openedAt = nowIso();
   const writer = { fence, writerId, operationId: id };
@@ -309,8 +309,8 @@ export async function reconcileOpening(root, config, workflow, phase, { operatio
   let commit = checkpoint?.commit ?? null;
   if (!commit) {
     // No commit kept here: the opening settles by its committed record only, never by a working-copy edit [§14].
-    const [{ sourceFileAt }, { workDirRelative }] = await Promise.all([import('./source-inspection.mjs'), import('./story-paths.mjs')]);
-    const committed = sourceFileAt(root, 'HEAD', `${workDirRelative(config, workId)}/workflow.json`);
+    const [{ sourceFileAt }, { storyLocation }] = await Promise.all([import('./source-inspection.mjs'), import('./story-paths.mjs')]);
+    const committed = sourceFileAt(root, 'HEAD', storyLocation(null, config, workId).record(`workflow.json`));
     let held = false;
     try { held = committed.status === 'present' && named(JSON.parse(committed.value)?.phases?.[phase.id]?.versionOpening); } catch { held = false; }
     if (!held) throw refuse(`The opening ${operationId} of ${phase.id} is in this working copy only, never committed: it opens nothing. Inspect what this checkout knows of it; its next version opens only through its own preview and the person's yes.`,
@@ -425,9 +425,9 @@ export async function takeOverWriter(root, config, workflow, phase, { fault = nu
   await ensureKey(root);
   const id = `vt-${randomBytes(16).toString('hex')}`;
   const fence = Number(pointer.writer?.fence ?? 0) + 1;
-  const [{ commitAndPublish }, { LIFECYCLE_EVENT }, { workDirRelative }, { writeJson }] = await Promise.all([
+  const [{ commitAndPublish }, { LIFECYCLE_EVENT }, { storyLocation }, { writeJson }] = await Promise.all([
     import('./story-publication-service.mjs'), import('./lifecycle-event.mjs'), import('./story-paths.mjs'), import('./util.mjs')]);
-  const recordPath = posix(path.join(workDirRelative(config, workId), 'context', 'version-openings', `${phase.id}-v${pointer.version}-fence${fence}.json`));
+  const recordPath = storyLocation(null, config, workId).record('context', 'version-openings', `${phase.id}-v${pointer.version}-fence${fence}.json`);
   let checkpoint = await saveCheckpoint(commonDir, { operationId: id, payloadDigest: sha({ operation: TAKEOVER_OPERATION, workId, phase: phase.id, version: pointer.version, fence }),
     workId, phase: phase.id, version: pointer.version, proposalDigest: null, state: 'prepared', history: [] });
   const at = nowIso();

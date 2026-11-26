@@ -1,3 +1,4 @@
+import { storyLocation } from './story-paths.mjs';
 /** Canonical story state write; legacy state exports delegate here. */
 import { SingularityFlowError, ensureSecureRepositoryDirectory, stateFingerprint, writeJson, writeText } from "./util.mjs";
 import { assertStoryNotArchived } from "./governance-archive.mjs";
@@ -8,9 +9,9 @@ export { validateId };
 import { workDir, workDirRelative, workflowPath } from "./story-paths.mjs";
 
 
-export function statusPath(root, config, id) { return path.join(workDir(root, config, id), 'STATUS.md'); }
+export function statusPath(root, config, id) { return storyLocation(root, config, id).file('STATUS.md'); }
 
-export function legacyPendingPublicationPath(root, config, id) { return path.join(workDir(root, config, id), 'publication-pending.json'); }
+export function legacyPendingPublicationPath(root, config, id) { return storyLocation(root, config, id).file('publication-pending.json'); }
 
 export function storyStatusMarkdown(workflow) {
   const lines = [
@@ -87,10 +88,10 @@ export async function saveWorkflow(root, config, workflow) {
   assertStoryNotArchived(root, workflow);
   await ensureSecureRepositoryDirectory(
     root,
-    workDirRelative(config, workflow.workItem.id),
+    storyLocation(null, config, workflow.workItem.id).prefix,
     { label: `Story '${workflow.workItem.id}' state directory` }
   );
-  const file = workflowPath(root, config, workflow.workItem.id);
+  const file = storyLocation(root, config, workflow.workItem.id).workflowFile;
   // SF Guard M3: on a Story it requires, the person records this command added are signed (the card,
   // then one touch) before anything is written; a refusal writes nothing.
   if (workflow.resolution?.presence) await (await import('./presence/person-steps.mjs')).signNewPersonRecords(root, workflow, file);

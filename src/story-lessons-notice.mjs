@@ -14,8 +14,8 @@ import { recordSha256 } from './records.mjs';
 import { storyRefusals } from './lesson-refusals.mjs';
 import { KNOWLEDGE_ROOT, readKnowledgeWithDiagnostics, recordKnowledge } from './knowledge.mjs';
 import { agentLessonLines, givenLessons, lessonSecretFindings, lessonsLocalDirectory, mirrorLesson, stepIntent } from './story-lessons.mjs';
-import { workDirRelative } from './story-paths.mjs';
 import { stepAttempts } from './verification/attempts.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const PATHS_PER_LESSON = 6;
 const REFUSALS_BEFORE_A_LESSON = 2;
@@ -63,7 +63,7 @@ async function readJson(file) {
 async function environmentLessons(root, config, workflow, phase, intent) {
   const workId = workflow.workItem.id;
   let attempts = [];
-  try { attempts = await stepAttempts(root, workDirRelative(config, workId), workId, phase.id); } catch { return []; }
+  try { attempts = await stepAttempts(root, storyLocation(null, config, workId).prefix, workId, phase.id); } catch { return []; }
   const commandText = (id) => (phase.checks ?? []).find((check) => check?.id === id)?.command ?? id;
   const files = changedFiles(phase);
   const found = [];
@@ -139,7 +139,7 @@ async function refusalLessons(root, workflow, phase, intent) {
 }
 
 async function reviewGenerations(root, config, workflow, phaseId) {
-  const directory = path.join(root, workDirRelative(config, workflow.workItem.id), 'context', 'reviews', phaseId);
+  const directory = path.join(root, storyLocation(null, config, workflow.workItem.id).prefix, 'context', 'reviews', phaseId);
   let names = [];
   try { names = await readdir(directory); } catch { return []; }
   const generations = [];
@@ -290,7 +290,7 @@ async function agentLessons(root, config, workflow, phase, intent) {
   for (const artifact of phase.artifacts ?? []) {
     const relative = String(artifact?.path ?? '');
     if (!relative.endsWith('.md') || !/^[a-f0-9]{64}$/u.test(String(artifact.sha256 ?? ''))) continue;
-    const base = workDirRelative(config, workId);
+    const base = storyLocation(null, config, workId).prefix;
     const absolute = path.join(root, relative.startsWith(`${base}/`) ? relative : path.posix.join(base, relative));
     let text = '';
     try { text = await readFile(absolute, 'utf8'); } catch { continue; }

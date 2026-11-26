@@ -1064,7 +1064,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,914,178): one resolver joins a Story's paths [SSB:REQ-009] (story-paths.mjs storyLocation and its record
     // classifiers; the state-ref arm is named only by its own tests in M1), clarificationRecordRelative beside its twin
     // in phase-generation.mjs, and the first small helpers moved to the resolver (SSB M1 B0, B1). No new eager file.
-    assert.ok(closure.bytes <= 9_915_050, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,916,795 (measured for submit.mjs, +1,745, 2026-11-26 on ssb-m1; start.mjs 9,915,869): the Story state kernel
+    // joins a Story's paths through the resolver (state.mjs and 28 kernel modules, SSB M1 B2); a resolver call is
+    // longer than the helper it replaces. No new eager file.
+    assert.ok(closure.bytes <= 9_916_795, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1668,7 +1671,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,376,031 (+8,756 over 4,367,275 at 480c2f936, measured 2026-11-26 on ssb-m1): the Story path resolver
   // [SSB:REQ-009] (story-paths.mjs, already in this closure) and the first helpers moved to it (SSB M1 B0, B1). No new
   // eager file.
-  assert.ok(current.bytes <= 4_376_031, `session current loads ${current.bytes} source bytes`);
+  // 4,376,090 (+59, measured 2026-11-26 on ssb-m1): the kernel modules it loads join through the resolver (SSB M1 B2).
+  // No new eager file.
+  assert.ok(current.bytes <= 4_376_090, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

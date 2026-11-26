@@ -11,13 +11,14 @@ import { buildBaselineRiskDecision, qualifiedTrpIntakeDecisions } from './test-r
 import { trpDigest } from './test-recovery-policy.mjs';
 import { appendTrpAuthorityReceipt, appendTrpRecord, consumeTrpAuthority, loadTrpRecords, trpAuthorityReview } from './test-recovery-store.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const fail = (message, code = 'TRP_BASELINE_REVIEW_INVALID') => { throw new SingularityFlowError(message, { code }); };
 const ref = ({ kind, id, recordSha256 }) => ({ kind, id, recordSha256 });
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 async function resolve(root, config, workflow, options) {
-  const { loadStoryTestRecoveryAgreement, sourceTreeHash, storyPublicationPending, workDir } = await import('./state.mjs');
+  const { loadStoryTestRecoveryAgreement, sourceTreeHash, storyPublicationPending } = await import('./state.mjs');
   const { inspectTrpIntakeBaseline } = await import('./test-recovery-runtime.mjs');
   const { verifyWorkflowSnapshot } = await import('./workflow-snapshots.mjs');
   await verifyWorkflowSnapshot(root, config, workflow, { requireAccepted: true });
@@ -31,7 +32,7 @@ async function resolve(root, config, workflow, options) {
   if (!/^sha256:[a-f0-9]{64}$/u.test(options.recordSha256 ?? '') || !repository.baselineRefs.includes(options.recordSha256)) fail('Select an exact baseline reference in the immutable intake agreement.');
   const authority = storyTestRiskAuthorityContext(workflow, agreement);
   if (!authority.policy.enabledRiskCategories.includes('known-test-failure')) fail('The pinned policy does not delegate known-failure review.');
-  const workRoot = workDir(root, config, workflow.workItem.id);
+  const workRoot = storyLocation(root, config, workflow.workItem.id).directory;
   const records = await loadTrpRecords(workRoot);
   const baseline = records.find(record => record.kind === 'test-baseline-manifest' && record.recordSha256 === options.recordSha256);
   if (!baseline || baseline.subject.phaseId !== phaseId || baseline.observedOutcome !== 'failed'
@@ -87,7 +88,7 @@ export async function reviewStoryBaselineAdmission(root, config, workflow, optio
   const review = trpAuthorityReview(record, context.authority.policy);
   const authorization = await captureTerminalActionAuthorization(root, review.plan, review.action, { label: 'Re-review baseline admission', presenceInRecord: true });
   if (!authorization) return { ...context.preview, status: 'cancelled' };
-  const { workDir, storyPublicationPending } = await import('./state.mjs');
+  const { storyPublicationPending } = await import('./state.mjs');
   const transaction = await new StoryStateStore(root, config).transact(workflow, {
     type: 'test-risk-accepted', phaseId: record.subject.phaseId,
     payload: { planDigest: context.preview.planDigest, record: ref(record), agreementSha256: context.agreement.recordSha256 }
@@ -96,8 +97,8 @@ export async function reviewStoryBaselineAdmission(root, config, workflow, optio
     if (!fresh.preview.ready || fresh.preview.planDigest !== options.confirmation) fail('Baseline, candidate or policy changed during review.', 'TRP_RISK_REVIEW_STALE');
     const nonce = authorization.token;
     const witness = await consumeTrpAuthority(root, { record, ...fresh.authority, review, token: nonce });
-    await appendTrpRecord(workDir(root, config, current.workItem.id), record);
-    const saved = await appendTrpAuthorityReceipt(workDir(root, config, current.workItem.id), witness);
+    await appendTrpRecord(storyLocation(root, config, current.workItem.id).directory, record);
+    const saved = await appendTrpAuthorityReceipt(storyLocation(root, config, current.workItem.id).directory, witness);
     const entry = { action: 'accepted', planDigest: options.confirmation, record: ref(record), authorityReceipt: ref(saved.receipt), reviewedAt: saved.receipt.issuedAt };
     current.testRecovery.riskReviews ??= []; current.testRecovery.riskReviews.push(entry); return entry;
   }, { expectedLocalHead: initialHead });

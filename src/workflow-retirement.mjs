@@ -24,6 +24,7 @@ import { compiledSkillStep } from './code-delivery-policy.mjs';
 import { WORKFLOW_ARCHIVE_PATH, parseWorkflowArchive, workflowArchived } from './workflow-archive.mjs';
 
 export { WORKFLOW_ARCHIVE_PATH, parseWorkflowArchive, readWorkflowArchive, workflowArchived } from './workflow-archive.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const IMPACT_PATH = 'singularity/impact.yml';
 const DEFAULT_CONSTITUTION = 'singularity/constitution.md';
@@ -456,14 +457,13 @@ export async function workflowDeleteStories(root, definition, workflowId, { ledg
   } catch (error) {
     return { status: 'unavailable', reason: error.message, pinned: [], unpinned: [], unchecked: [] };
   }
-  const workItemRoot = definition.workItemRoot ?? 'singularity/work-items';
   const result = { status: 'checked', pinned: [], unpinned: [], unchecked: [] };
   // Through git.mjs, the reviewed Git owner, not a new process site (scripts/git-bypass-audit.mjs).
   const { fileAtRef } = await import('./git.mjs');
   for (const story of pointers.items ?? []) {
     if (story.workType !== workflowId || TERMINAL_STORY_STATUSES.has(String(story.status).toLowerCase())) continue;
     const summary = { id: story.id, status: story.status, branch: story.branch };
-    const shown = fileAtRef(root, story.commitOid, `${workItemRoot}/${story.id}/workflow.json`);
+    const shown = fileAtRef(root, story.commitOid, storyLocation(null, definition, story.id).object('workflow.json').path);
     if (shown == null) { result.unchecked.push(summary); continue; }
     let workflow = null;
     try { workflow = JSON.parse(shown); } catch { result.unchecked.push(summary); continue; }

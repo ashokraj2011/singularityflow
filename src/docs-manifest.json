@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "116f989cd817ffc0f2e65db7b1a45552453a5e33",
-  "topicCount": 95,
-  "contentSha256": "c92f4670406323d8064fd657b36c291e2587cb75d8f522739ab0154808c3e65d",
+  "sourceCommit": "480c2f9363a52757bef152b3358facc712d74639",
+  "topicCount": 96,
+  "contentSha256": "280bfcb2ab4062c95beec630cd4dee613ebafd368a37b3951dfa64ac09dcf7b4",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -396,6 +396,14 @@
       "sha256": "df0081255a378edffc706dd8187b835d4557d4d20795af1acc33d12905f469a3",
       "routingSha256": "a6c40596c5731d416c827727275c68cd65c23106f22739a055dfb8c34e7a4a47",
       "file": "manual-authorship.md"
+    },
+    {
+      "id": "marketplace-maintainers",
+      "title": "Setting up a marketplace repository for your organisation",
+      "version": 1,
+      "sha256": "06237b0a8f953a0003bbcf09c723ff97a1ba01a01ce36f0584aeb4ace9f03677",
+      "routingSha256": "1a071aa66a0c20746f3d7b5c54a68902519fb860ae759de5bddd84490a3f0777",
+      "file": "marketplace-maintainers.md"
     },
     {
       "id": "mcp-integration",

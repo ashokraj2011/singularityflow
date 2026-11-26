@@ -204,6 +204,8 @@ export function workRow(workflow, { repository, folder, mine, place = {}, now = 
     startedAt: workflow.workItem?.createdAt ?? null, startedWhen: timeWords(workflow.workItem?.createdAt, now),
     startedBy: storyCreatorName(workflow.workItem?.createdBy), mine,
     status: workflow.status ?? null, steps, chips: planChips(workflow, steps), statusLine: statusWords(workflow, steps),
+    // The line without this person's Needs-you item: what a surface shows once that item is acted on.
+    standing: statusWords(workflow, steps),
     updatedAt, ...(workflow.status === 'closed' ? { ended: { at: updatedAt, when: timeWords(updatedAt, now), where: endedWhere(workflow) } } : {}),
     place: { checkout: place.checkout ?? null, clone: place.clone ?? null }
   };

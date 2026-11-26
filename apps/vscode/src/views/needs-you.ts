@@ -14,7 +14,8 @@ import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
   advancedBackHtml, needsYouBadge, needsYouCardFrom, needsYouCardHtml, needsYouListFrom, needsYouPlaceBody, NEEDS_YOU_CARD_SCRIPT,
-  NEEDS_YOU_CARD_STYLE, NEEDS_YOU_SCRIPT, NEEDS_YOU_STYLE, PLACES_TABS_SCRIPT, type NeedsYouCard, type NeedsYouItem, type NeedsYouList, type PlaceTab
+  NEEDS_YOU_CARD_STYLE, NEEDS_YOU_SCRIPT, NEEDS_YOU_STYLE, PLACE_TABS, placePanelBody, PLACES_TABS_SCRIPT, type NeedsYouCard, type NeedsYouItem,
+  type NeedsYouList, type PlaceTab
 } from './needs-you-page.ts';
 import { decisionChooseArgv, decisionChoiceItems, pendingDecisionSummary } from '../decisions.ts';
 import { activateReviewedWorkflowProposal, selfApprovalWords, type ConfigurationSelfApproval } from './configuration-save.ts';
@@ -49,13 +50,31 @@ export interface NeedsYouHost {
   showRefusal(error: unknown, headline: string): void;
 }
 
-/** The sidebar's places while they are on: the list, its badge, and the tab shown. */
+/** Another place in the tab strip (Work, views/work.ts): its panel, its style and script, and its messages. */
+export interface PlacePart {
+  panel(): string;
+  readonly style: string;
+  /** Runs after the places' `vscode` handle and tab keys. */
+  readonly script: string;
+  receive(message: Record<string, unknown>): boolean;
+  /** The tab opened. */
+  activate(): void;
+  /** How it reaches the sidebar's page without repainting it. */
+  attach(post: (message: unknown) => void): void;
+}
+
+/**
+ * The sidebar's places while they are on: the Needs-you list and its badge, the tab shown, and the other places beside it
+ * (Work from M2). The sidebar opens on Work [FPL:REQ-001].
+ */
 export class NeedsYouPlace implements vscode.Disposable {
   private list: NeedsYouList | null = null;
   private reading = false;
   private error: string | null = null;
   private all = false;
-  private tab: PlaceTab = 'needs-you';
+  private tab: PlaceTab = 'work';
+  private work: PlacePart | null = null;
+  private post: ((message: unknown) => void) | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private pending: Promise<void> | null = null;
   private readonly removed = new Set<string>();
@@ -110,11 +129,30 @@ export class NeedsYouPlace implements vscode.Disposable {
   }
 
   get items(): readonly NeedsYouItem[] { return this.list?.items ?? []; }
+  /** The items once read, or null before the first read (Work's "Waiting for you" lines). */
+  readItems(): readonly NeedsYouItem[] | null { return this.list ? this.list.items : null; }
   badge(): { value: number; tooltip: string } | undefined { return needsYouBadge(this.list); }
+
+  /** Work beside Needs you [FPL:REQ-004 to REQ-007]: its tab comes first, and the sidebar opens on it. */
+  setWork(work: PlacePart): void {
+    this.work = work;
+    if (this.post) work.attach(this.post);
+    this.changed();
+  }
+
+  /** How a place reaches the sidebar's page without repainting it. */
+  attach(post: (message: unknown) => void): void {
+    this.post = post;
+    this.work?.attach(post);
+  }
 
   /** The sidebar's body for the open tab, or null under Advanced (today's Navigator, unchanged, below `advancedHeader`). */
   body(): { body: string; style: string; script: string } | null {
     if (this.tab === 'advanced') return null;
+    if (this.tab === 'work' && this.work) {
+      return { body: placePanelBody('work', this.list, this.work.panel()), style: `${NEEDS_YOU_STYLE}${this.work.style}`,
+        script: `const vscode = acquireVsCodeApi();\n${PLACES_TABS_SCRIPT}\n${this.work.script}` };
+    }
     return { body: needsYouPlaceBody(this.list, { reading: this.reading, error: this.error, all: this.all }), style: NEEDS_YOU_STYLE, script: NEEDS_YOU_SCRIPT };
   }
 
@@ -124,13 +162,15 @@ export class NeedsYouPlace implements vscode.Disposable {
   }
 
   /** A message from the sidebar's places; true when it was the places'. */
-  receive(message: { action?: unknown; tab?: unknown; key?: unknown }): boolean {
-    if (message.action === 'tab' && (message.tab === 'needs-you' || message.tab === 'advanced')) {
-      this.tab = message.tab;
+  receive(message: { action?: unknown; tab?: unknown; key?: unknown } & Record<string, unknown>): boolean {
+    if (message.action === 'tab' && PLACE_TABS.includes(message.tab as PlaceTab)) {
+      this.tab = message.tab as PlaceTab;
       if (this.tab === 'needs-you') void this.read({});
+      if (this.tab === 'work') this.work?.activate();
       this.changed();
       return true;
     }
+    if (this.work?.receive(message)) return true;
     if (message.action === 'more') { this.all = true; this.changed(); return true; }
     if (message.action === 'open' && typeof message.key === 'string' && this.list?.items.some((item) => item.key === message.key)) {
       void NeedsYouCardPanel.show(this.host, this, message.key);

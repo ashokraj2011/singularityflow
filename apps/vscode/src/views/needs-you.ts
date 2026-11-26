@@ -10,7 +10,8 @@
 import path from 'node:path';
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
   advancedBackHtml, needsYouBadge, needsYouCardFrom, needsYouCardHtml, needsYouListFrom, needsYouPlaceBody, NEEDS_YOU_CARD_SCRIPT,
@@ -203,7 +204,12 @@ export class NeedsYouCardPanel {
       open: (message: InboundMessage) => { const key = stringField(message, 'key'); if (key) void this.open(key); },
       read: () => { void this.readDocument(); }
     });
-    panel.webview.onDidReceiveMessage((raw: unknown) => router.route(raw));
+    // The footer's destinations, as every page with a script has them; the rest is this page's router.
+    panel.webview.onDidReceiveMessage((raw: unknown) => {
+      const navigation = navigationTarget(raw);
+      if (navigation) return void navigateTo(navigation);
+      return router.route(raw);
+    });
     panel.onDidDispose(() => { if (NeedsYouCardPanel.current === this) NeedsYouCardPanel.current = null; });
   }
 
@@ -240,7 +246,7 @@ export class NeedsYouCardPanel {
     if (!this.card) return;
     const token = nonce();
     this.panel.webview.html = page(this.card.card.question, needsYouCardHtml(this.card, { result: this.result }),
-      contentSecurityPolicy(this.panel.webview, token), token, NEEDS_YOU_CARD_SCRIPT, { nav: false, styles: NEEDS_YOU_CARD_STYLE });
+      contentSecurityPolicy(this.panel.webview, token), token, NEEDS_YOU_CARD_SCRIPT, { styles: NEEDS_YOU_CARD_STYLE });
   }
 
   private async done(words: string, { acted = true } = {}): Promise<void> {

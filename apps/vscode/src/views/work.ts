@@ -10,7 +10,8 @@
 import path from 'node:path';
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
   chatRouteOf, likelyPlanFrom, WORK_SCRIPT, WORK_STYLE, WORK_TASK_SCRIPT, WORK_TASK_STYLE, workListFrom, workPanelHtml, workTaskFrom, workTaskHtml,
@@ -157,7 +158,12 @@ export class WorkTaskPanel {
       document: (message: InboundMessage) => { const file = stringField(message, 'path'); if (file) void this.openDocument(file); },
       card: (message: InboundMessage) => { const key = stringField(message, 'key'); if (key) this.host.openCard(key); }
     });
-    panel.webview.onDidReceiveMessage((raw: unknown) => router.route(raw));
+    // The footer's destinations, as every page with a script has them; the rest is this page's router.
+    panel.webview.onDidReceiveMessage((raw: unknown) => {
+      const navigation = navigationTarget(raw);
+      if (navigation) return void navigateTo(navigation);
+      return router.route(raw);
+    });
     panel.onDidDispose(() => { if (WorkTaskPanel.current === this) WorkTaskPanel.current = null; });
   }
 
@@ -203,7 +209,7 @@ export class WorkTaskPanel {
     if (!this.row) return;
     const token = nonce();
     this.panel.webview.html = page(this.row.title, workTaskHtml(this.row, this.task, { result: this.result, lessons: this.lessons, error: this.error }),
-      contentSecurityPolicy(this.panel.webview, token), token, WORK_TASK_SCRIPT, { nav: false, styles: WORK_TASK_STYLE });
+      contentSecurityPolicy(this.panel.webview, token), token, WORK_TASK_SCRIPT, { styles: WORK_TASK_STYLE });
   }
 
   private async done(words: string, { changed = true } = {}): Promise<void> {

@@ -9,6 +9,7 @@ import { sourceFileAt } from '../source-inspection.mjs';
 import { storySummaryFromSubject } from '../story-state-index.mjs';
 import { definitionLedgerConfig } from '../subject-identity-records.mjs';
 import { ASK_PAGE_SIZE, coverage, historyFinding, pageRowCount, pageViewDigest } from './history-result.mjs';
+import { storiesRoot } from '../story-paths.mjs';
 
 const ENTRY_LIMIT = 1000;
 const OWNER_READ_LIMIT = 64;
@@ -56,7 +57,7 @@ export function retainedSubjectAtCommit(root, { kind, id, commit, env = retained
   if (definition.status === 'unavailable') return definition;
   try {
     const declared = definition.content ? YAML.parse(definition.content) : null;
-    const stateRoot = story ? safeRefRoot(declared?.workItemRoot, 'singularity/work-items')
+    const stateRoot = story ? safeRefRoot(declared?.workItemRoot, storiesRoot())
       : safeRefRoot(declared?.initiativeRoot, 'singularity/initiatives');
     const relative = [stateRoot, id, story ? 'workflow.json' : 'state.json'].join('/');
     const observed = sourceFileAt(root, commit, relative, { env, offline: true, maxBytes: 4 * 1024 * 1024 });

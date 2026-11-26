@@ -33,8 +33,8 @@ import { blockingDecisionFacts, evidenceDecisionFacts, phaseEndsStory } from './
 import { withPlainWords } from './decision-plain.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { pendingIntentAmendmentAcknowledgement } from './source-review-policy.mjs';
-import { workDir } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** The step that would stand on a reused run: the first after the producer with no run of its own, else the report's step. */
 function reuseConsumer(workflow, producerId, reportId) {
@@ -106,9 +106,9 @@ async function reuseCandidates(root, config, workflow, reports) {
  */
 async function testRisks(root, config, workflow, phase, at) {
   if (phase?.status !== 'in_progress') return { risks: [], narrowings: [] };
-  const [{ latestStepAttempts }, { testRunCause, testRunRiskIneligibility, testRunRiskStateFor }, { workDirRelative }, { pendingTestNarrowings }] = await Promise.all([
+  const [{ latestStepAttempts }, { testRunCause, testRunRiskIneligibility, testRunRiskStateFor }, { storyLocation }, { pendingTestNarrowings }] = await Promise.all([
     import('./verification/attempts.mjs'), import('./test-run-risk.mjs'), import('./story-paths.mjs'), import('./test-narrowing.mjs')]);
-  const latest = await latestStepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
+  const latest = await latestStepAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, phase.id);
   return { narrowings: pendingTestNarrowings(workflow, phase.id, latest.values(), { at }), risks: [...latest.values()].map((attempt) => ({ attempt,
     state: testRunRiskStateFor(workflow, { phaseId: phase.id, attempt }, { at })?.state ?? null }))
     .filter(({ attempt, state }) => !testRunRiskIneligibility(attempt) && state !== 'active')
@@ -127,7 +127,7 @@ async function visualProfiles(root, config, workflow, phase) {
   const [{ evaluateVisualCoverage }, { visualProfileDecisionOptions }] = await Promise.all([
     import('./visual-coverage.mjs'), import('./visual-profile-decisions.mjs')]);
   let coverage;
-  try { coverage = await evaluateVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id), phaseId: phase.id }); }
+  try { coverage = await evaluateVisualCoverage(root, workflow, { itemDirectory: storyLocation(root, config, workflow.workItem.id).directory, phaseId: phase.id }); }
   catch (error) { if (error instanceof SingularityFlowError) return []; throw error; }
   const order = workflow.phaseOrder ?? [];
   if (coverage.mode !== 'enforce' || !coverage.uncovered?.length || !coverage.phase || order.indexOf(coverage.phase) > order.indexOf(phase.id)) return [];
@@ -203,7 +203,7 @@ async function excludedChangeFacts(root, config, workflow, phase) {
     const paths = await unreconciledCandidatePaths(root, config, workflow, phase);
     if (!paths.length) return null;
     const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { planRowsOf }] = await Promise.all([import('./specifications.mjs'), import('./plan-amendments.mjs')]);
-    return { unclaimedPaths: paths, planRows: planRowsOf(mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? [])),
+    return { unclaimedPaths: paths, planRows: planRowsOf(mergePlannedClaimRecords((await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow)).planned ?? [])),
       waits: 'publishing this step would leave it out', keepOut: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` };
   } catch (error) { if (error instanceof SingularityFlowError) return null; throw error; }
 }
@@ -223,7 +223,7 @@ async function departureFacts(root, config, workflow, phase) {
     if (!readings.length) return null;
     const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { allPlanRows }] = await Promise.all([import('./specifications.mjs'), import('./plan-row-fit.mjs')]);
     // Every row: a clause a departure names is looked up however long the plan is; the list offers at most 40 of them.
-    const planRows = allPlanRows(mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []));
+    const planRows = allPlanRows(mergePlannedClaimRecords((await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow)).planned ?? []));
     // The register's words for each item a fix on the way carries, quoted [CQF:REQ-066]; one it cannot read shows its ID alone.
     const fixed = [...new Set(readings.flatMap((entry) => entry.departure.findings ?? []))];
     const findingTitles = fixed.length
@@ -408,7 +408,7 @@ async function intentAmendmentDraftFacts(root, config, workflow) {
   const state = await readFile(file.replace(/\.md$/u, '.json'), 'utf8').then(JSON.parse).catch(() => null);
   const present = state ? await readFile(file).then(() => true, () => false) : false;
   const scope = scopeStepOf(workflow)?.requiredArtifact?.path;
-  const text = present && scope ? await readFile(path.join(workDir(root, config, workflow.workItem.id), scope), 'utf8').catch(() => null) : null;
+  const text = present && scope ? await readFile(storyLocation(root, config, workflow.workItem.id).file(scope), 'utf8').catch(() => null) : null;
   const current = text !== null && state?.workId === workflow.workItem.id && Array.isArray(state.clauses)
     && state.specificationSha256 === createHash('sha256').update(text).digest('hex');
   return { path: file, clauses: current ? state.clauses.map(String) : [] };
@@ -420,7 +420,7 @@ const CARD_NAMES = 12;
 /** A file of this Story's own, or null: a record never names a file outside the Story to read. */
 function storyFile(root, config, workflow, relative) {
   if (typeof relative !== 'string' || !relative) return null;
-  const item = path.resolve(workDir(root, config, workflow.workItem.id));
+  const item = path.resolve(storyLocation(root, config, workflow.workItem.id).directory);
   const file = path.resolve(root, relative);
   return file.startsWith(`${item}${path.sep}`) ? readFile(file, 'utf8').catch(() => null) : null;
 }

@@ -18,6 +18,7 @@ import {
   exists, gitReadOutput, nowIso, readJson, run, SingularityFlowError, snapshot, writeAtomic, writeJson
 } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const FAULT_ENVELOPE_SCHEMA_VERSION = currentSchemaVersion('fault-envelope');
 export const FAULT_DIAGNOSIS_SCHEMA_VERSION = currentSchemaVersion('fault-diagnosis');
@@ -854,8 +855,8 @@ export async function diagnoseFault(root, faultId, { persist = true } = {}) {
   const workflowFile = path.join(root, 'singularity', 'workflow.yml');
   const workflowSnapshot = await exists(workflowFile) ? await snapshot(workflowFile) : null;
   const storyCandidates = fault.story ? [
-    path.join(root, 'singularity', 'work-items', fault.story, 'workflow.json'),
-    path.join(root, 'singularity', 'work-items', fault.story, 'state.json')
+    storyLocation(root, null, fault.story).file('workflow.json'),
+    storyLocation(root, null, fault.story).file('state.json')
   ] : [];
   const storyFile = (await Promise.all(storyCandidates.map(async (candidate) => await exists(candidate) ? candidate : null))).find(Boolean) ?? null;
   const storySnapshot = storyFile ? await snapshot(storyFile) : null;

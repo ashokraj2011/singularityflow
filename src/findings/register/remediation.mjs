@@ -17,6 +17,7 @@
 import { committedFileText, refCommit } from '../../git.mjs';
 import { compareItems, setItemStates } from './model.mjs';
 import { repositoryMatches } from './format.mjs';
+import { storyLocation, storiesRoot } from '../../story-paths.mjs';
 
 const slug = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 40) || 'item';
 
@@ -195,7 +196,7 @@ export function dependencyProof(root, ref, item, { env = process.env } = {}) {
 function storyClosed(root, story, workItemRoot, { env }) {
   for (const ref of [`refs/remotes/origin/${story.branch ?? story.workId}`, `refs/heads/${story.branch ?? story.workId}`]) {
     if (!refCommit(root, ref, { env })) continue;
-    const text = committedFileText(root, ref, `${workItemRoot}/${story.workId}/workflow.json`, { env });
+    const text = committedFileText(root, ref, storyLocation(null, { workItemRoot }, String(story.workId)).record('workflow.json'), { env });
     if (!text) continue;
     try {
       const workflow = JSON.parse(text);
@@ -210,7 +211,7 @@ function storyClosed(root, story, workItemRoot, { env }) {
  * default branch proves it, else fixed awaiting proof (checked again next time); a security finding
  * to fixed awaiting rescan. Returns the register and what moved.
  */
-export function reconcileClosedStories(root, register, { defaultBranch = 'main', remote = 'origin', workItemRoot = 'singularity/work-items',
+export function reconcileClosedStories(root, register, { defaultBranch = 'main', remote = 'origin', workItemRoot = storiesRoot(),
   at = new Date().toISOString(), env = process.env } = {}) {
   const proofRef = refCommit(root, `refs/remotes/${remote}/${defaultBranch}`, { env }) ? `refs/remotes/${remote}/${defaultBranch}` : `refs/heads/${defaultBranch}`;
   const moved = [];

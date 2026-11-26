@@ -18,7 +18,7 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { recordPlanAmendment, planAuthorities } from './plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specifications.mjs';
-import { workDir } from './story-paths.mjs';
+import { storyLocation } from './story-paths.mjs';
 import { actorKey, assertNoPendingPublication, sourceTreeHash, testInputTreeHash, transactStory } from './state-stores.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
@@ -119,7 +119,7 @@ async function currentBinding(root, config, workflow, phase, plan) {
       deliveryEvidence: phase.deliveryEvidence ?? null }) };
 }
 const activePlan = async (root, config, workflow) => mergePlannedClaimRecords(
-  (await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []);
+  (await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow)).planned ?? []);
 
 /**
  * Where a scope appeal the step cannot take goes instead, from where the step stands [D4]: its next version on the
@@ -226,7 +226,7 @@ export function renderPhaseAppeal(packet) {
     + `\n\n## Validation and review\n\nNo tests were run by this appeal. Review the before/after bytes in packet.json; all normal publication tests and code reviews remain required.\n\n`
     + `## Limits\n\n${packet.limitations.map(item => `- ${item}`).join('\n')}\n`;
 }
-const relative = (config, workflow, id, name) => path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'appeals', id, name);
+const relative = (config, workflow, id, name) => storyLocation(null, config, workflow.workItem.id).record('appeals', id, name);
 async function immutable(root, file, contents) {
   const secured = await secureRepositoryPath(root, file, { type: 'file', label: 'Immutable phase appeal' });
   if (secured.exists) fail('An appeal record already exists. Inspect the retained transaction; never overwrite it.', 'PHASE_APPEAL_CONFLICT');

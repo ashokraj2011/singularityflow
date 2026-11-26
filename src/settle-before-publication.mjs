@@ -24,9 +24,9 @@ export const outOfPlanSettling = (workflow) => Number(workflow?.resolution?.sett
 
 /** What every settle site reads once: the plan, the vetoes, and what the files hold. */
 async function settleContext(root, config, workflow, phase, files) {
-  const [{ rejectedDeparturePaths, departuresWithStatus }, { loadActiveSpecRecords, mergePlannedClaimRecords }, { workDir }, { settledDecisions }] = await Promise.all([
+  const [{ rejectedDeparturePaths, departuresWithStatus }, { loadActiveSpecRecords, mergePlannedClaimRecords }, { storyLocation }, { settledDecisions }] = await Promise.all([
     import('./departures.mjs'), import('./specifications.mjs'), import('./story-paths.mjs'), import('./settled-decisions.mjs')]);
-  const plan = mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []);
+  const plan = mergePlannedClaimRecords((await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow)).planned ?? []);
   const protectedPaths = [...(config.governance?.protectedPaths ?? []), ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])];
   const settled = settledDecisions(workflow).filter((entry) => entry.kind === 'plan-accounting');
   const fileOf = (entry) => entry.effect?.path ?? entry.effect?.file ?? String(entry.subject ?? '').replace(/^file:/u, '');

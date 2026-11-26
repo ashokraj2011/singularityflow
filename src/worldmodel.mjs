@@ -14,6 +14,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { clearCompositionCache, compositionCacheStatus } from './composition-cache.mjs';
 import { REMOVED_WORLD_MODEL_SUBCOMMANDS, removedWorldModelError } from './removed-features.mjs';
 import { compose, loadPromptConfig as load, phaseRepositoryBrief } from './phase-prompt-composer.mjs';
+import { storyLocation } from './story-paths.mjs';
 export { composePhasePrompt, resolveOptionalTokenReductionShadowRuntime, approvedReferenceAlreadyCaptured,
   intentConflictRecovery, phasePromptExecutionContract, withPhasePromptRuntimeGuidance,
   renderFinalClarificationGuard } from './phase-prompt-composer.mjs';
@@ -190,9 +191,7 @@ async function showPrompt(root, options) {
     const phaseRecord = config.workflow?.phases?.[phase] ?? null;
     const generationPrompt = config.workflow && phaseRecord
       ? await readPromptGeneration(root, config.workflow, phaseRecord, {
-          workDir: path.join(
-            root, config.workItemRoot ?? 'singularity/work-items', config.workflow.workItem.id
-          ),
+          workDir: storyLocation(root, config, config.workflow.workItem.id).directory,
           agent,
           ...(options.task !== undefined ? { task: optionString(options, 'task') ?? null } : {})
         })

@@ -18,6 +18,24 @@ interface ActiveWorkspaceSelection {
   branchCheckout?: { branch?: string } | null;
 }
 
+/** The default Stories folder: what the engine's storiesRoot() names when a definition sets none (src/story-paths.mjs). */
+export const DEFAULT_STORIES_FOLDER = 'singularity/work-items';
+
+/**
+ * A small copy of the engine's storyRecordWithin() (src/story-paths.mjs [SSB:REQ-009]): the Story a record path names,
+ * with the Stories folder at the start of the path or below another folder, and the path inside that Story. The
+ * extension does not bundle the engine's module; test/vscode-story-record-path.test.mjs checks the two agree.
+ */
+export function storyRecordWithin(recorded: string | null | undefined, storiesFolder = DEFAULT_STORIES_FOLDER): { id: string; inside: string } | null {
+  if (typeof recorded !== 'string') return null;
+  const at = recorded.startsWith(`${storiesFolder}/`) ? 0 : recorded.indexOf(`/${storiesFolder}/`) + 1;
+  if (at === 0 && !recorded.startsWith(`${storiesFolder}/`)) return null;
+  const rest = recorded.slice(at + storiesFolder.length + 1);
+  const slash = rest.indexOf('/');
+  const id = slash < 0 ? rest : rest.slice(0, slash);
+  return id ? { id, inside: slash < 0 ? '' : rest.slice(slash + 1) } : null;
+}
+
 export function sameStoryAttachPath(left: string, right: string): boolean {
   const canonical = (value: string) => process.platform === 'win32'
     ? path.resolve(value).toLowerCase() : path.resolve(value);

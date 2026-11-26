@@ -16,6 +16,7 @@ import {
   applicationPathContext, isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
   isGeneratedOutputPath, isTransientTestResultPath
 } from './application-paths.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export {
   applicationPathContext, isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
@@ -413,7 +414,7 @@ export async function reconcileWorkInterval(root, config, workflow, {
   const untracked = new Set(splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout).map(posix));
   // A file no plan names stays in the worktree, outside every generation, and is not a dirty
   // target [E2G-027, D9].
-  const outside = await outsideEveryCandidate(path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow) ?? (() => false);
+  const outside = await outsideEveryCandidate(storyLocation(root, config, workflow.workItem.id).directory, workflow) ?? (() => false);
   const uncommittedApplicationPaths = changedFiles(root)
     .filter((candidate) => !outside(candidate) && isApplicationChangePath(candidate, {
       ...pathContext, untracked: untracked.has(candidate)
@@ -531,7 +532,7 @@ export async function amendWorkIntervalBaseline(root, workflow, {
     );
   }
 
-  const file = path.join(root, current.path);
+  const file = storyLocation(root, workflow, workflow.workItem.id).fromRecord(current.path);
   const record = readRecord('work-interval-baseline', await readJson(file)).record;
   const event = {
     at,
@@ -611,7 +612,7 @@ export async function acknowledgeAmendment(root, workflow, {
   const already = Number(current.acknowledgedGeneration ?? 0);
   if (already >= target) return { ...current, acknowledged: false, acknowledgedGeneration: already };
 
-  const file = path.join(root, current.path);
+  const file = storyLocation(root, workflow, workflow.workItem.id).fromRecord(current.path);
   const record = readRecord('work-interval-baseline', await readJson(file)).record;
   const acknowledgements = [...(record.acknowledgements ?? []), { at, actor, throughGeneration: target }];
   await writeJson(file, { ...record, acknowledgements, acknowledgedGeneration: target });

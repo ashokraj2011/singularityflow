@@ -9,6 +9,7 @@ import {
   DEFAULT_IMPACT_METRIC_AUTHORITIES, deterministicStudyGroup, eligibleImpactStudies, IMPACT_BANDS, IMPACT_METRICS
 } from './impact-config.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { storiesDirectory, storyLocation } from './story-paths.mjs';
 
 export const IMPACT_EVIDENCE_STATUSES = Object.freeze(['exact', 'partial', 'self-reported', 'unavailable']);
 export const IMPACT_EXPOSURE_LEVELS = Object.freeze(['available', 'invoked', 'artifact-assisted', 'code-assisted', 'agent-executed', 'unknown']);
@@ -34,7 +35,7 @@ export function canonicalJson(value) { return JSON.stringify(stable(value)); }
 export function impactSha256(value) { return createHash('sha256').update(typeof value === 'string' ? value : canonicalJson(value)).digest('hex'); }
 
 function measurementRoot(root, config, workflow) {
-  return path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'measurement');
+  return storyLocation(root, config, workflow.workItem.id).file('measurement');
 }
 
 function relative(root, absolute) { return path.relative(root, absolute).split(path.sep).join('/'); }
@@ -315,7 +316,7 @@ export async function confirmImpactEnrollment(root, config, workflow, { complexi
   }
   const { integrity: _prior, ...core } = plan;
   plan.integrity = { sha256: impactSha256(core) };
-  await writeJson(path.join(root, workflow.measurement.plan.path), plan);
+  await writeJson(storyLocation(root, config, workflow.workItem.id).fromRecord(workflow.measurement.plan.path), plan);
   workflow.measurement.plan.sha256 = plan.integrity.sha256;
   workflow.measurement.classification = structuredClone(plan.classification);
   workflow.history.push({ at, actor: actor.email?.toLowerCase() ?? actor.name, event: optOut ? 'impact_opted_out' : 'impact_classified', phase: workflow.currentPhase, detail: optOut ? reason : `${complexity}/${risk}` });
@@ -886,7 +887,7 @@ export async function verifyImpactReceipt(root, workflow) {
 }
 
 export async function listImpactReceipts(root, config, { studyId = null } = {}) {
-  const directory = path.join(root, config.workItemRoot ?? 'singularity/work-items');
+  const directory = storiesDirectory(root, config);
   let entries;
   try { entries = await readdir(directory, { withFileTypes: true }); }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
@@ -1144,7 +1145,7 @@ export async function exportImpactReceipts(root, config, output, { studyId = nul
 }
 
 export async function impactBandDrift(root, config) {
-  const directory = path.join(root, config.workItemRoot ?? 'singularity/work-items');
+  const directory = storiesDirectory(root, config);
   let entries;
   try { entries = await readdir(directory, { withFileTypes: true }); }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }

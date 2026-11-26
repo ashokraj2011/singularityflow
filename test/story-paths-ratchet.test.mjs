@@ -1,0 +1,126 @@
+// SSB M1 [SSB:REQ-009]: nothing but src/story-paths.mjs joins a Story's paths. This counts each old spelling of a
+// Story's folder (docs/plans/SSB-M1-PLAN.md §2) outside an allow-list and fails when a count rises above its ceiling.
+// Each batch of M1 lowers the ceilings by hand in its own commit; the test never rewrites them. A spelling that other
+// work lands on main meanwhile fails here at the next rebase: join through storyLocation() instead.
+import assert from 'node:assert/strict';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const SCOPES = ['src', 'apps/vscode/src', 'plugin'];
+const SOURCE = /\.(?:mjs|cjs|js|ts|md)$/u;
+
+// Keys as the plan's §2. Each pattern counts one spelling per match.
+const SPELLINGS = {
+  W: { what: 'workDir(root, config, id) calls', pattern: /(?<![\w$])workDir\(/gu },
+  R: { what: 'workDirRelative(config, id) calls', pattern: /(?<![\w$])workDirRelative\(/gu },
+  P: { what: 'workflowPath( calls', pattern: /(?<![\w$])workflowPath\(/gu },
+  I: { what: "inline `workItemRoot ?? 'singularity/work-items'` joins", pattern: /workItemRoot\s*\?\?\s*['"`]singularity\/work-items['"`]/gu },
+  B: { what: 'joins on a bare .workItemRoot', pattern: /(?:path(?:\.posix)?\.join\([^;\n]*?|\$\{\s*)[\w?.]*\.workItemRoot\b(?!\s*\?\?)/gu },
+  X: { what: 'path patterns that spell singularity\\/work-items', pattern: /singularity\\\/work-items/gu },
+  // workItemWorkflowRelative is not counted: it validates the ID, then asks the resolver.
+  H: { what: 'uses of DEFAULT_WORK_ITEM_ROOT outside the resolver: storiesRoot() names the default', pattern: /\bDEFAULT_WORK_ITEM_ROOT\b/gu },
+  L: { what: 'other singularity/work-items literals: one-off joins, help text, comments', pattern: /(?<!\?\?\s*['"`])singularity\/work-items/gu },
+  S: { what: "'work-items' as a path segment", pattern: /['"`]work-items['"`]/gu },
+  F: { what: 'configuration-source.json and CONFIGURATION_SOURCE_PATH', pattern: /configuration-source\.json|CONFIGURATION_SOURCE_PATH/gu },
+  E: { what: 'Epic paths (M6)', pattern: /singularity\/initiatives|initiativeRoot\s*\?\?/gu }
+};
+
+// The places that may spell a Story's folder: the resolver itself, the definition's default and validation, the
+// location module's normalization, and the configuration assets' runtime roots. A file entry allows every line; a
+// line entry allows the lines that match it.
+const ALLOWED = [
+  { file: 'src/story-paths.mjs' },
+  { file: 'src/work-item-location.mjs', keys: ['H', 'L'] },
+  { file: 'src/config.mjs', line: /^\s*workItemRoot: definition\.workItemRoot \?\? 'singularity\/work-items',$/u },
+  { file: 'src/config.mjs', line: /initiativeRoot/u, keys: ['E'] },
+  { file: 'src/configuration-assets.mjs', line: /^\s*'singularity\/(?:work-items|initiatives)',$/u },
+  { file: 'src/configuration-assets.mjs', line: /^\s*: 'singularity\/(?:work-items|initiatives)',?$/u },
+  { file: 'src/configuration-assets.mjs', line: /^export const CONFIGURATION_SOURCE_PATH = /u, keys: ['F'] },
+  // Spellings a test reads from the source. Each wrapper asks the resolver; the test keeps its words unchanged.
+  // test/approval-witness-criteria.test.mjs: the approval's witness check reads the same clauses as the review page.
+  { file: 'src/state.mjs', line: /activeWitnessClauses\(workDir\(root, config, workflow\.workItem\.id\), workflow\)/u, keys: ['W'] },
+  // The extension and the plugin do not bundle the engine: each keeps the default folder for its small copy of
+  // storyRecordWithin (test/vscode-story-record-path.test.mjs holds them to the engine's answers).
+  { file: 'apps/vscode/src/story-attach.ts', line: /^export const DEFAULT_STORIES_FOLDER = 'singularity\/work-items';$/u, keys: ['L'] },
+  { file: 'plugin/extensions/documents/documents.mjs', line: /^const STORIES_FOLDER = 'singularity\/work-items';$/u, keys: ['L'] },
+  // Help text, guidance and comments that name the default folder as words, each by name (L), and a unit word (S).
+  { file: 'src/clarifications.mjs', line: /never write response input to the CLI-owned `singularity\/work-items\/\*\*\/context\/clarifications-\*\.json`|singularity\/work-items\/\*\*\/context\/clarifications-\*\.json/u, keys: ['L'] },
+  { file: 'src/comprehension/code-scope.mjs', line: /^\/\*\* The first two path segments name a group: /u, keys: ['L'] },
+  { file: 'src/documents.mjs', line: /'Allow singularity\/work-items document inputs in the repository ignore policy, then retry\.'/u, keys: ['L'] },
+  { file: 'src/help-pages.mjs', line: /wm ast evidence reproduce --receipt singularity\/work-items\/WRK-1\//u, keys: ['L'] },
+  { file: 'src/secrets.mjs', line: /^\s*\* \(`singularity\/work-items\/REF-1\/context\/session\.json`\)/u, keys: ['L'] },
+  { file: 'apps/vscode/src/views/schema-form-model.ts', line: /return 'singularity\/work-items\/PAY-1187\/intake\.md';/u, keys: ['L'] },
+  { file: 'plugin/skills/sflow-report/SKILL.md', line: /never assume `singularity\/work-items`/u, keys: ['L'] },
+  { file: 'src/ask/retained-history.mjs', line: /const unit = eventList \? 'events' : 'work-items';/u, keys: ['S'] },
+  // A test seam: the command's tests inject their own workDir; the runtime's is the resolver-backed wrapper.
+  { file: 'src/commands/story-test-attestation.mjs', line: /dependencies\.workDir\(/u, keys: ['W'] },
+  { file: 'src/commands/story-test-repair.mjs', line: /dependencies\.workDir\(/u, keys: ['W'] }
+];
+
+// Ceilings: lowered by each batch of M1, never raised. After M1 every Story spelling is 0 outside the named lines
+// above. F is the checks that ask whether a checkout holds a Story's configuration pin without naming the Story
+// (repository level: M2 answers them with the Story's layout); E is the Epic paths (M6).
+const CEILINGS = {
+  W: 0, R: 0, P: 0, I: 0, B: 0, X: 0, H: 0, L: 0, S: 0, F: 41, E: 34
+};
+
+async function* sourceFiles(directory) {
+  let entries;
+  try { entries = await readdir(path.join(ROOT, directory), { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    const relative = path.posix.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name !== 'node_modules' && entry.name !== 'dist') yield* sourceFiles(relative);
+    } else if (SOURCE.test(entry.name)) yield relative;
+  }
+}
+
+const allowed = (file, line, key) => ALLOWED.some((entry) => entry.file === file
+  && (!entry.keys || entry.keys.includes(key)) && (!entry.line || entry.line.test(line)));
+
+async function countSpellings() {
+  const counts = Object.fromEntries(Object.keys(SPELLINGS).map((key) => [key, 0]));
+  const sites = Object.fromEntries(Object.keys(SPELLINGS).map((key) => [key, {}]));
+  for (const scope of SCOPES) {
+    for await (const file of sourceFiles(scope)) {
+      const lines = (await readFile(path.join(ROOT, file), 'utf8')).split('\n');
+      for (const line of lines) {
+        for (const [key, { pattern }] of Object.entries(SPELLINGS)) {
+          // A definition is not a use: `function workDir(`.
+          const found = [...line.matchAll(pattern)].filter((match) => !/function\s+$/u.test(line.slice(0, match.index))).length;
+          if (!found || allowed(file, line, key)) continue;
+          counts[key] += found;
+          sites[key][file] = (sites[key][file] ?? 0) + found;
+        }
+      }
+    }
+  }
+  return { counts, sites };
+}
+
+test('no spelling of a Story\'s folder rises above its ceiling: join through storyLocation() [SSB:REQ-009]', async () => {
+  const { counts, sites } = await countSpellings();
+  const risen = Object.entries(counts).filter(([key, count]) => count > CEILINGS[key]);
+  assert.deepEqual(risen, [], risen.map(([key, count]) => `${key} (${SPELLINGS[key].what}): ${count} > ${CEILINGS[key]}; `
+    + Object.entries(sites[key]).map(([file, n]) => `${file} ${n}`).join(', ')).join('\n'));
+});
+
+test('the ratchet counts what it says: each pattern finds its own spelling', () => {
+  const sample = {
+    W: "workDir(root, config, id)", R: "workDirRelative(config, id)", P: "workflowPath(root, config, id)",
+    I: "path.join(root, config.workItemRoot ?? 'singularity/work-items', id)",
+    B: "path.join(root, config.workItemRoot, id)", X: "/^singularity\\/work-items\\/[^/]+\\/gdp\\//u",
+    H: 'DEFAULT_WORK_ITEM_ROOT', L: "'singularity/work-items/<ID>'", S: "path.join(root, 'singularity', 'work-items')",
+    F: 'singularity/configuration-source.json', E: "'singularity/initiatives'"
+  };
+  for (const [key, text] of Object.entries(sample)) {
+    assert.equal([...text.matchAll(SPELLINGS[key].pattern)].length > 0, true, key);
+  }
+  assert.equal([..."config.workItemRoot ?? 'singularity/work-items'".matchAll(SPELLINGS.L.pattern)].length, 0,
+    'an inline join is counted once, as I');
+  assert.equal([...'dependencies.workDir(root, config, id)'.matchAll(SPELLINGS.W.pattern)].length, 1, 'a member call counts');
+  assert.equal([...'storyLocation(root, config, id).directory'.matchAll(SPELLINGS.W.pattern)].length, 0);
+});

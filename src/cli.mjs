@@ -41,7 +41,7 @@ import { add, assertClean, branch, changedFiles, changes, checkout, commit, defa
 import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 
 import { currentPhase } from './phase-generation.mjs';
-import { workflowBranchAllowed, workDir } from './story-paths.mjs';
+import { workflowBranchAllowed, storyLocation } from './story-paths.mjs';
 import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, validateId, workflowPublicationBranch } from './state-stores.mjs';
 import { generationSkillForPhase, workflowAuthoringRoutes } from './code-delivery-policy.mjs';
 import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
@@ -2819,7 +2819,7 @@ async function specCommand(positionals, options) {
 
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
-  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   const itemRelative = posix(path.relative(root, itemDirectory));
   const phaseId = optionString(options, 'phase') ?? workflow.currentPhase;
   const phase = workflow.phases[phaseId];
@@ -3136,7 +3136,7 @@ async function agentsCommand(positionals, options) {
       phaseId: phase.id,
       executionCatalog: accepted.executionCatalog
     });
-    const itemDirectory = workDir(root, config, workflow.workItem.id);
+    const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
     const refreshed = await storyDraftTransaction(root, config, workflow, `agent-output-refresh:${phase.id}`, async () => {
       const prepared = await prepareRemoteOutputs(root, workflow, phase, session, {
         itemDirectory, refresh: true, replace: optionBoolean(options, 'replace'), resourceId,
@@ -3463,7 +3463,7 @@ async function mcpCommand(positionals, options) {
     }
     if (action !== 'status') throw new SingularityFlowError(`Unknown mcp design-sources action: ${action}`);
     const result = await verifyDesignSourceLifecycle(root, workflow, {
-      itemDirectory: workDir(root, config, workflow.workItem.id)
+      itemDirectory: storyLocation(root, config, workflow.workItem.id).directory
     });
     const payload = { approved: approvedDesignSourceBinding(workflow), ...result };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(payload, null, 2));

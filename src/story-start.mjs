@@ -30,7 +30,6 @@ import { GitRemoteSession, requireRemoteObservation } from './git-execution.mjs'
 import { storyPublicationPreflightError } from './story-publication-preflight.mjs';
 import { loadCopilotSession, loadSession, setAgentSession } from './session.mjs';
 import { loadWorkflow } from './story-workflow-read.mjs';
-import { workDirRelative } from './story-paths.mjs';
 import { commitAndPublish, createWorkflow, validateId } from './state-stores.mjs';
 import { gitReadOutput, run, SingularityFlowError } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
@@ -64,6 +63,7 @@ import { validateConfigurationSnapshotCapabilities } from './capability-context.
 import { resolveEffectiveCapabilityPolicy } from './capabilities.mjs';
 import { fosStoryConfigurationAuthority } from './onboard.mjs';
 import { collectRepositoryReadinessEvidence } from './repository-readiness-evidence.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -134,7 +134,7 @@ async function resumePinnedLocalStory(root, { id, agent = null } = {}) {
     try {
       const source = await readConfigurationSource(root, { verify: true });
       if (!source) {
-        throw new SingularityFlowError('singularity/configuration-source.json is missing.');
+        throw new SingularityFlowError(`${storyLocation(root, null, id).configurationSource.relative} is missing.`);
       }
       definition = await loadDefinition(root);
       validateId(definition, id);
@@ -754,7 +754,7 @@ export async function startStory(root, {
     assertStoryStartReady(startReadiness);
   }
   if (startJournal) await updateStoryStartJournal(root, id, startJournal.transactionId, {
-    stage: 'configuration-ready', workItemRelative: workDirRelative(definition, id)
+    stage: 'configuration-ready', workItemRelative: storyLocation(null, definition, id).prefix
   });
   const targetOrigin = storyStartTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, resolved.phases,
     { required: !existed, workType });
@@ -799,7 +799,7 @@ export async function startStory(root, {
   let returnLocator;
   await runDraftTransaction(root, {
     subject: { kind: 'story', id, branch: id },
-    allowedPaths: [workDirRelative(definition, id)],
+    allowedPaths: [storyLocation(null, definition, id).prefix],
     operation: 'story-start',
     write: async (creationPreimage) => {
       workflow = await createWorkflow(root, definition, {

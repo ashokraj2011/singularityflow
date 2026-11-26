@@ -23,6 +23,7 @@ import { resolveEffectiveCapabilityPolicy } from '../../capabilities.mjs';
 import { applyCapabilityPolicyToWorkResolution, validateConfigurationSnapshotCapabilities } from '../../capability-context.mjs';
 import { commandResult, effects, succeeded } from '../../narration/command-result.mjs';
 import { emitCommandResult } from '../../narration/emit.mjs';
+import { storyLocation, storiesRoot } from '../../story-paths.mjs';
 
 /**
  * Refuse to cut a Story branch from an application branch that does not carry the governed
@@ -217,7 +218,7 @@ export async function capabilityDoctorStoryPin(root) {
   try {
     currentBranch = branch(root);
   } catch { /* A detached/non-Git checkout cannot prove canonical Story identity. */ }
-  const roots = new Set(['singularity/work-items']);
+  const roots = new Set([storiesRoot()]);
   try {
     // This is a location hint, never a validated definition or policy decision. Parsing the whole
     // agent/template catalog here duplicated the subsequent exact authority read on every start.
@@ -238,7 +239,7 @@ export async function capabilityDoctorStoryPin(root) {
   const candidates = [];
   if (currentBranch) {
     for (const workItemRoot of roots) {
-      const relative = path.posix.join(workItemRoot, currentBranch, 'workflow.json');
+      const relative = storyLocation(null, { workItemRoot }, currentBranch).record('workflow.json');
       try {
         const located = await secureRepositoryPath(root, relative, {
           label: 'Current Story workflow', type: 'file'

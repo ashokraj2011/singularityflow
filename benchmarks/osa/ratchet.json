@@ -749,9 +749,6 @@
     "step-decision.mjs": {
       "predicateCalls": 1
     },
-    "story-paths.mjs": {
-      "predicateCalls": 1
-    },
     "story-test-command-amendment.mjs": {
       "intentReads": 1
     },

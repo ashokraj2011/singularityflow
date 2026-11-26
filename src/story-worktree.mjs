@@ -25,8 +25,9 @@ import { validatePortableWorkId } from './work-id.mjs';
 import { withRegistryFileLease } from './file-lease.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
 import {
-  DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
+  workItemRootFromDefinitionText, workItemWorkflowRelative
 } from './work-item-location.mjs';
+import { storiesRoot } from './story-paths.mjs';
 
 function digest(value) {
   return createHash('sha256').update(String(value)).digest('hex');
@@ -521,7 +522,7 @@ export function durableStoryWorkflowOnBranch(root, id, storyBranch = id) {
   const definition = run('git', ['show', `${storyBranch}:singularity/workflow.yml`], {
     cwd: root, allowFailure: true
   });
-  let workItemRoot = DEFAULT_WORK_ITEM_ROOT;
+  let workItemRoot = storiesRoot();
   if (definition.status === 0) {
     try {
       workItemRoot = workItemRootFromDefinitionText(definition.stdout);

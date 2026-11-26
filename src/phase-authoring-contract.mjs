@@ -4,6 +4,7 @@ import { isConformancePhase, isConvergencePhase, isTestEvidencePhase, phaseOwnsS
 import { CLI_PATH_CONTRACT } from './safe-command-guidance.mjs';
 import { REPAIR_CONTINUATION_CONTRACT, REPAIR_CONTINUATION_PROTOCOL, phaseRepairCapabilities } from './phase-finding-policy.mjs';
 import { REQUIREMENT_COVERAGE, REQUIREMENT_AUTHORING_PROTOCOL } from './requirement-coverage.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** Resolve responsibilities from the accepted workflow, never from a packaged phase name. */
 export function plannedDeliveryCodeSteps(workflow, phase) {
@@ -35,7 +36,7 @@ export function phaseAuthoringContract(definition, workflow, phase) {
   if (isConvergencePhase(phase)) roles.add('convergence');
   if (isTestEvidencePhase(phase)) roles.add('verification');
   if (isConformancePhase(phase)) roles.add('closure');
-  const evidenceRoot = path.posix.join(definition.workItemRoot ?? 'singularity/work-items', workflow?.workItem?.id ?? '<WORK-ID>', 'evidence');
+  const evidenceRoot = storyLocation(null, definition, workflow?.workItem?.id ?? '<WORK-ID>').record('evidence');
   return Object.freeze({ revision: 'phase-authoring-v9', phase: phase.id, roles: [...roles].sort(),
     priorApprovalsImmutable: true, revalidatePriorDraftQuality: false,
     executionEvidence: { authority: 'immutable-submission-packets', discoveryIsExecution: false,

@@ -88,12 +88,13 @@ export async function checkoutStory(repository) {
   let session = null;
   try { session = JSON.parse(small(path.join(repository.gitDir, 'singularity-flow', 'session.json')) ?? 'null'); } catch { /* no session */ }
   const definition = small(path.join(repository.root, 'singularity', 'workflow.yml'), STORY_FILE_BYTES);
+  const { storiesRoot, storyLocation } = await import('./story-paths.mjs');
   const workItemRoot = definition && /^workItemRoot\s*:/mu.test(definition)
-    ? (await import('./work-item-location.mjs')).workItemRootFromDefinitionText(definition) : 'singularity/work-items';
+    ? (await import('./work-item-location.mjs')).workItemRootFromDefinitionText(definition) : storiesRoot();
   const { readRecord } = await import('./schema-migrations.mjs');
   for (const id of [...new Set([session?.workId, branch])]) {
     if (typeof id !== 'string' || !WORK_ID.test(id)) continue;
-    const text = small(path.join(repository.root, ...workItemRoot.split('/'), id, 'workflow.json'), STORY_FILE_BYTES);
+    const text = small(storyLocation(repository.root, { workItemRoot }, id).workflowFile, STORY_FILE_BYTES);
     if (!text) continue;
     let state;
     try { state = readRecord('story-workflow', Buffer.from(text)).record; } catch { continue; }
@@ -108,7 +109,7 @@ export async function checkoutStory(repository) {
     const scope = scopeStepOf(state);
     const paused = intentAmendmentPause(state)?.id;
     const scopeArtifact = scope?.status === 'approved' && typeof scope.requiredArtifact?.path === 'string'
-      ? path.posix.normalize(`${workItemRoot}/${id}/${scope.requiredArtifact.path}`) : null;
+      ? path.posix.normalize(storyLocation(null, { workItemRoot }, id).record(scope.requiredArtifact.path)) : null;
     return { workId: id, phase: phase.id, label: phase.label ?? phase.id, code, generation: askedForGeneration(phase),
       typedFocusOff: typedFocusOff(state), gitDir: repository.gitDir, ...(scopeArtifact ? { scopeArtifact } : {}),
       ...(paused ? { paused } : {}) };

@@ -18,9 +18,9 @@ import { phaseAgentMutationRestriction } from './phase-actor-policy.mjs';
 import { phaseOwnsScope, scopeStepOf } from './phase-roles.mjs';
 import { recordSha256 } from './records.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { workDirRelative } from './story-paths.mjs';
 import { storyHistoryCommits } from './story-policy-anchor.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** Commits named in the message and details; every commit stays in `interveningCommits`. */
 export const BLOCKING_COMMIT_LIMIT = 10;
@@ -75,7 +75,7 @@ export function describeBlockingCommits(root, workflow, commits) {
 const AMENDMENT_KEYS = Object.freeze(['intentAmendments', 'history', 'publicationProjections']);
 const appendsOne = ({ before, after }, key) => Array.isArray(after[key]) && after[key].length === (before[key] ?? []).length + 1
   && recordSha256(after[key].slice(0, (before[key] ?? []).length)) === recordSha256(before[key] ?? []);
-const amendmentFile = (config, workflow, id, suffix) => `${workDirRelative(config, workflow.workItem.id)}/context/intent-amendments/${id}${suffix}`;
+const amendmentFile = (config, workflow, id, suffix) => storyLocation(null, config, workflow.workItem.id).record(`context/intent-amendments/${id}${suffix}`);
 const recordAt = (root, object, recordPath) => JSON.parse(exactFileAtObject(root, object, recordPath)?.toString('utf8') ?? 'null');
 
 /** The commits that wrote an amendment's record, newest first, as [commit, subject]; null when Git could not say. */
@@ -220,7 +220,7 @@ const DOCUMENT_KEYS = Object.freeze(['documents', 'history', 'publicationProject
 export async function reviewSafeDocumentAdditions(root, config, workflow, phase, commits) {
   if (!commits.length) return [];
   const { governedStateChange, stateChangesOnly } = await import('./state.mjs');
-  const manifestFile = `${workDirRelative(config, workflow.workItem.id)}/documents.json`;
+  const manifestFile = storyLocation(null, config, workflow.workItem.id).record(`documents.json`);
   const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
   return commits.filter((commit) => {
     const change = governedStateChange(root, config, workflow, commit);
@@ -684,6 +684,9 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   READ_ONLY_AGENT_CANNOT_MUTATE: 'this-checkout',
   // Whoever works here sets their Git name and email (SCF:REQ-018).
   GIT_COMMIT_IDENTITY_REQUIRED: 'this-checkout',
+  // A Story kept in a layout this SFlow does not read: whoever works here updates SFlow [SSB:REQ-009, REQ-010].
+  STORY_LAYOUT_UNKNOWN: 'this-checkout',
+  STORY_LAYOUT_CHANGED: 'this-checkout',
   SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE: 'this-checkout',
   INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'someone-decides',
   SOURCE_REVIEW_AUTHOR_COLLISION: 'author-repairs',

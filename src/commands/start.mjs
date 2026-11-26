@@ -19,7 +19,6 @@ import { validatePortableWorkId } from '../work-id.mjs';
 import { settleStoryStartReadWave } from '../story-start-read-wave.mjs';
 import { storyPublicationPreflightError } from '../story-publication-preflight.mjs';
 import { applyTestRecoveryAdmission, confirmTestRecoveryIntake, prepareTestRecoveryIntake, testRecoveryChoices } from '../test-recovery-intake.mjs';
-import { workDir, workDirRelative } from '../story-paths.mjs';
 import { commitAndPublish, createWorkflow, loadConfig, validateId } from '../state-stores.mjs';
 import { generationSkillForPhase } from '../code-delivery-policy.mjs';
 import { directCopilotSkill } from '../copilot-guidance.mjs';
@@ -62,6 +61,7 @@ import { publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecove
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { userDefinedAgentWorkType } from '../user-defined-agent-identity.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 export async function run(argv, { positionals, options }) {
   if (Object.hasOwn(options, 'prepare-only') || Object.hasOwn(options, 'discard-prepared')) {
@@ -1848,7 +1848,7 @@ async function startCommandAtRoot(positionals, options) {
     : await loadConfig(root)));
   validateId(config, id);
   await updateStoryStartJournal(root, id, startJournal.transactionId, {
-    stage: 'configuration-ready', workItemRelative: workDirRelative(config, id)
+    stage: 'configuration-ready', workItemRelative: storyLocation(null, config, id).prefix
   });
   if (receiptToken && !receipt) {
     throw new SingularityFlowError('A start selection receipt requires an initialized workflow definition before checkout.');
@@ -1924,7 +1924,7 @@ async function startCommandAtRoot(positionals, options) {
   try {
     await measureCommandSpan('start.publication', () => withLedgerRemoteView(publicationStateViews, () => runDraftTransaction(root, {
       subject: { kind: 'story', id, branch: canonicalBranch },
-      allowedPaths: [workDirRelative(config, id)],
+      allowedPaths: [storyLocation(null, config, id).prefix],
       operation: 'story-start',
       write: async (creationPreimage) => {
         const create = () => createWorkflow(root, config, {
@@ -2061,7 +2061,7 @@ async function startCommandAtRoot(positionals, options) {
   };
   // What this repository can test, sealed with the Story and disclosed before any code [E2G-019, §12 #18].
   const sealedTestPolicy = workflow.testPolicy
-    ? await readJson(path.join(workDir(root, config, workflow.workItem.id), workflow.testPolicy.path)).catch(() => null) : null;
+    ? await readJson(storyLocation(root, config, workflow.workItem.id).file(workflow.testPolicy.path)).catch(() => null) : null;
   // The picked items are "in a Story" now that the Story exists; a mark that cannot land is said.
   const findingsMark = addressedFindings?.picked.length
     ? await (await import('../findings/register/pick.mjs')).markFindingsInStory(root, addressedFindings.picked, workflow.workItem.id, { branch: workflow.workItem.branch, ledger: config.ledger ?? {} })

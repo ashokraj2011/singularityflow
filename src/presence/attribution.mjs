@@ -17,6 +17,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { canonicalJson } from '../records.mjs';
+import { storyLocation, storiesRoot } from '../story-paths.mjs';
 
 export const SF_GUARD_ATTRIBUTION_SCHEMA = 'sfg-attribution/1';
 const CLASSES = Object.freeze(['declared', 'outside-workflow', 'unknown-agent', 'shell', 'unattributed', 'pre-guard']);
@@ -42,8 +43,8 @@ export function governedRecordPath(relative, { workItemRoot, workId }) {
   const file = String(relative).replaceAll('\\', '/');
   if (file.startsWith('.sflow/')) return true;
   if (!workId) return false;
-  const prefix = `${String(workItemRoot ?? 'singularity/work-items').replaceAll('\\', '/').replace(/\/+$/u, '')}/${workId}/`;
-  return file.startsWith(prefix) && !file.slice(prefix.length).startsWith('artifacts/');
+  const story = storyLocation(null, { workItemRoot: String(storiesRoot({ workItemRoot })).replaceAll('\\', '/').replace(/\/+$/u, '') }, workId);
+  return story.owns(file) && !story.isDocument(file);
 }
 
 /** The resolved step `stepId` of `workflow`: its resolution entry with the phase's own state. */
@@ -86,7 +87,7 @@ export async function reconcileHere(root, { definition, policy, workflow = null,
   const changes = sfGuardChangeSet(root, base);
   const governed = { workItemRoot: definition?.workItemRoot, workId: workflow?.workItem?.id ?? null };
   // The whole-repository view [G4] leaves every Story's own directory, and lines a Story's record explains, to that Story.
-  const storyRoot = `${String(definition?.workItemRoot ?? 'singularity/work-items').replaceAll('\\', '/').replace(/\/+$/u, '')}/`;
+  const storyRoot = `${String(storiesRoot(definition)).replaceAll('\\', '/').replace(/\/+$/u, '')}/`;
   const files = [...reconcile.parseZeroContextPatch(changes.patch), ...await reconcile.untrackedAsAdded(changes.untracked, read)]
     .filter((file) => !excludeGoverned || !governedRecordPath(file.path, governed))
     .filter((file) => !outsideStories || !file.path.startsWith(storyRoot));
@@ -416,9 +417,9 @@ async function repositoryLabels(root, { definition, policy, recorder, agentDrift
 
 /** A Story's submitted labels, step by step, each with its packet file's standing. */
 async function storyLabels(root, definition, workId) {
-  const workItemRoot = String(definition?.workItemRoot ?? 'singularity/work-items').replaceAll('\\', '/');
+  const workItemRoot = String(storiesRoot(definition)).replaceAll('\\', '/');
   const read = checkoutReader(root);
-  const text = await read(path.posix.join(workItemRoot, workId, 'workflow.json'));
+  const text = await read(storyLocation(null, { workItemRoot }, workId).record('workflow.json'));
   if (text == null) return { status: 'absent', steps: [] };
   let workflow;
   try { workflow = JSON.parse(text); } catch { return { status: 'unreadable', steps: [] }; }

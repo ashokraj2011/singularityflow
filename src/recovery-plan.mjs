@@ -31,6 +31,7 @@ import { inspectPhasePublicationReadiness } from './phase-publication-readiness.
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { upstreamChangeRoutes } from './upstream-routes.mjs';
 import { authorCommand } from './action-command-map.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 // Runner findings only an approved test command resolves: no supported runner, two build systems,
 // or a native target (Android variant, Xcode scheme) that would otherwise be guessed.
@@ -123,7 +124,7 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
       if (!baseCommit) return null;
     } else {
       await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id,
-        itemDirectory: path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id) });
+        itemDirectory: storyLocation(root, config, workflow.workItem.id).directory });
       // A generation an approved amendment closed unpublished (SPEC-CIC switch 2): what it changed is in scope from its
       // baseline until `phase begin` opens the next one, which carries it (generation-boundary.mjs).
       closed = version.opening === 'superseded' && Number(version.facts.opening.version) === version.next();
@@ -356,8 +357,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
 
   const deterministicConvergence = isConvergencePhase(phase);
   if (!phaseRequiresCodeDelivery(phase) && !deterministicConvergence && version.recorded && !version.writing) {
-    const relative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
-      phase.requiredArtifact.path);
+    const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact.path);
     try {
       const commit = publishedGenerationCommit(root, workflow, phase);
       if (!commit) throw new SingularityFlowError('No authenticated publication is available for the retained document.',
@@ -425,7 +425,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   }
 
   if (!artifactFindings.length && !blockers.some((finding) => finding.category === 'convergence')) {
-    const itemRelative = `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`;
+    const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
     try {
       await planAgentBriefs(root, workflow, phase, {
         itemDirectory: path.join(root, itemRelative), itemRelative,
@@ -480,7 +480,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         // Before any change, resolve the runner the plan's paths will need, so a missing one is set
         // up while the code is written instead of found at publication.
         const { plannedStepPaths } = await import('./candidate-scope.mjs');
-        const planned = await plannedStepPaths(path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow, phase).catch(() => null);
+        const planned = await plannedStepPaths(storyLocation(root, config, workflow.workItem.id).directory, workflow, phase).catch(() => null);
         if (planned?.sourcePaths.length || planned?.testPaths.length) {
           // Judged as publication will judge them [TCE:REQ-050]: a test-configuration refusal, or a planned
           // path no command covers (an inferred one covers only its own ecosystem), is a missing runner now.

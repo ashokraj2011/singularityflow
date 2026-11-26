@@ -31,6 +31,7 @@ import {
 import {
   adhocSessionDirectory, clearActiveSession, readSessionRecord, writeSessionRecord
 } from './session-store.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 function sha256(value) {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -568,7 +569,7 @@ export async function publishAdhocLanding(root, definition, requested, { confirm
     decidedAt: nowIso()
   }, 'decisionSha256');
   const authorityDirectory = `singularity/adhoc-work/${packet.workId}`;
-  const gdpDirectory = `singularity/work-items/${packet.workId}/gdp`;
+  const gdpDirectory = storyLocation(null, null, String(packet.workId)).record('gdp');
   const applicationResources = packet.publication.allowedResources;
   const allowedPaths = [...new Set([
     ...applicationResources, authorityDirectory, ...(session.gdp ? [gdpDirectory] : [])

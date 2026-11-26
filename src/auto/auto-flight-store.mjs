@@ -1297,13 +1297,13 @@ function phaseApprovalSnapshot(workflow) {
 
 async function currentApprovalSnapshot(state) {
   try {
-    const [{ loadAcceptedStoryExecution }, { workflowPath }] = await Promise.all([
-      import('../accepted-story-execution.mjs'), import('../state.mjs')
+    const [{ loadAcceptedStoryExecution }, { storyLocation }] = await Promise.all([
+      import('../accepted-story-execution.mjs'), import('../story-paths.mjs')
     ]);
     const { definition, workflow } = await loadAcceptedStoryExecution(
       state.worktree, state.story.workId
     );
-    const authorityPath = workflowPath(state.worktree, definition, state.story.workId);
+    const authorityPath = storyLocation(state.worktree, definition, state.story.workId).workflowFile;
     const relative = path.relative(state.worktree, authorityPath);
     if (!relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       throw new Error('Story authority path escaped the managed worktree');

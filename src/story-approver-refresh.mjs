@@ -21,7 +21,6 @@ import { captureTerminalActionAuthorization, consumeActionAuthorization } from '
 import { approverRefreshAdditions, applyApproverRefresh, approverRefreshDigest, approverRefreshPolicyDigest,
   approverRefreshSummary } from './approver-refresh-contracts.mjs';
 import { approvedStoryApprovalAuthorities } from './configuration-branch.mjs';
-import { workDirRelative } from './story-paths.mjs';
 import { head, identity } from './git.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { canonicalJson } from './records.mjs';
@@ -32,6 +31,7 @@ import { prospectiveTestCommandAmendments as PROSPECTIVE } from './test-command-
 import { approverRefreshDecisionPath, captureWorkflowApproverRefresh, verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError, writeText } from './util.mjs';
 import { mkdir } from 'node:fs/promises';
+import { storyLocation } from './story-paths.mjs';
 
 const fail = (message, code = 'APR_REFRESH_REFUSED', details = undefined) => {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -232,7 +232,7 @@ export async function applyStoryApproverRefresh(root, config, workflow, options 
   if (!grant) return { status: 'cancelled', applied: false, stateChanged: false };
   // Exactly the files the refresh writes: its decision, the new snapshot manifest and the refreshed
   // policy's content-addressed blob. Nothing else in the work item, such as an open draft, is swept in.
-  const item = workDirRelative(config, initial.workId);
+  const item = storyLocation(null, config, initial.workId).prefix;
   const policyBlob = createHash('sha256').update(Buffer.from(canonicalJson(initial.proposed))).digest('hex');
   const exactWorkItemPaths = [approverRefreshDecisionPath(config, initial.workId, initial.id),
     `${item}/config/wfa/snapshots/${String(initial.to.revision).padStart(6, '0')}/manifest.json`,

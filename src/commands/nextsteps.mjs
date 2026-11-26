@@ -24,6 +24,7 @@ import { agentOrIndentedJson, agentPacketPresentation } from '../agent-packet-pr
 import { measureCommandSpan } from '../dx-timing-context.mjs';
 import { repositoryCheckStatus } from '../repository-check-cache.mjs';
 import { groundingRecordRelative } from '../phase-generation.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -197,7 +198,7 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   observeFile = null, publicationPending = undefined, modelMode: routeModelMode = null
 } = {}) {
   const selected = { id: workflow.workItem.id,
-    location: { path: path.join(definition.workItemRoot, workflow.workItem.id, 'workflow.json') } };
+    location: { path: storyLocation('', definition, workflow.workItem.id).file('workflow.json') } };
   const modelMode = routeModelMode ?? operationContext()?.modelMode ?? { enabled: true, source: 'default' };
   const active = activePhase(workflow);
   const { phaseAuthoringProgress, readPhaseDraftEvidence } = await import('../phase-authoring-progress.mjs');
@@ -377,8 +378,8 @@ export async function nextStepsAgentPacket(workId = null, { cwd = process.cwd() 
     const { collectInputs } = await import('./nextsteps-deferred.mjs');
     const resolved = await collectInputs(entry.root, entry.workflow, entry.phase, {
       definition: entry.definition,
-      itemDirectory: path.join(entry.root, entry.definition.workItemRoot, packet.workId),
-      itemRelative: path.posix.join(entry.definition.workItemRoot, packet.workId)
+      itemDirectory: storyLocation(entry.root, entry.definition, packet.workId).directory,
+      itemRelative: storyLocation(null, entry.definition, packet.workId).prefix
     });
     inputs = { phase: packet.phase, dryRun: true, ...resolved,
       records: resolved.records.map(({ content, ...record }) => record) };

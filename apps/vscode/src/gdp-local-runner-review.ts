@@ -10,6 +10,7 @@ import {
   localRunnerRunArguments, localRunnerSignerArguments, localRunnerVerifyArguments,
   type LocalRunnerCommandOption, type LocalRunnerOptions, type LocalRunnerPlan
 } from './gdp-local-runner-review-model.ts';
+import { DEFAULT_STORIES_FOLDER } from './story-attach.ts';
 
 function resultOf<T>(value: unknown): T {
   return ((value as { data?: T })?.data ?? value) as T;
@@ -157,7 +158,7 @@ async function verifyReceipt(client: SingularityFlowClient): Promise<void> {
   const repository = path.resolve(client.repository);
   const selected = await vscode.window.showOpenDialog({
     title: 'Verify developer-local signed receipt',
-    defaultUri: vscode.Uri.file(path.join(repository, 'singularity', 'work-items')),
+    defaultUri: vscode.Uri.file(path.join(repository, DEFAULT_STORIES_FOLDER)),
     canSelectFiles: true, canSelectFolders: false, canSelectMany: false,
     filters: { JSON: ['json'] }, openLabel: 'Verify exact receipt'
   });

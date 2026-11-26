@@ -11,6 +11,7 @@ import { requiredStepActionHold, stepActionNoticeSentence } from './step-action-
 import { SingularityFlowError } from './util.mjs';
 import { inspectPendingEvidenceContracts } from './draft-evidence-hold.mjs';
 import { upstreamChangeRoutes } from './upstream-routes.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /**
  * Local, read-only publication dependencies shared by preview, recovery and the transaction.
@@ -22,7 +23,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   generation = phase.status === 'in_progress' ? nextPhaseGeneration(phase) : Number(phase.generation ?? 0),
   agent = null
 } = {}) {
-  const itemRelative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
   const itemDirectory = path.join(root, itemRelative);
   const blockers = [];
   const actions = [];

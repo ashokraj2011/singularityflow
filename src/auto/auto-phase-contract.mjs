@@ -17,6 +17,7 @@ import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
 import { isLocalDocument } from '../document-storage.mjs';
 import { isLocalDocumentReadScope, localDocumentReadScope } from './auto-document-scope.mjs';
 import { AGENTS_HOME, LEGACY_AGENTS_ROOT } from '../configuration-assets.mjs';
+import { storiesRoot, storyLocation } from '../story-paths.mjs';
 
 function digest(value) { return `sha256:${recordSha256(value)}`; }
 
@@ -74,11 +75,8 @@ export function absoluteAutoReadScope(root, values) {
 
 function relativeArtifactPath(definition, state, phase) {
   return phase.requiredArtifact?.path
-    ? path.posix.join(
-      String(definition.workItemRoot ?? 'singularity/work-items').replaceAll('\\', '/'),
-      state.story.workId,
-      String(phase.requiredArtifact.path).replaceAll('\\', '/')
-    )
+    ? storyLocation(null, { workItemRoot: String(storiesRoot(definition)).replaceAll('\\', '/') }, state.story.workId)
+      .record(String(phase.requiredArtifact.path).replaceAll('\\', '/'))
     : null;
 }
 

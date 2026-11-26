@@ -11,9 +11,9 @@
  */
 import path from 'node:path';
 
-import { workDir } from '../story-paths.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { lineRanges, rangeLines } from './coverage-reports.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 export const CHANGED_LINE_COVERAGE_MODES = Object.freeze(['off', 'warn', 'enforce']);
 export const DEFAULT_CHANGED_LINE_COVERAGE = Object.freeze({ mode: 'warn', minimum: 80 });
@@ -32,7 +32,7 @@ const below = (covered, executable, minimum) => executable > 0 && covered * 100 
 export async function plannedClauseFiles(root, config, workflow) {
   try {
     const { loadActiveSpecRecords, mergePlannedClaimRecords } = await import('../specifications.mjs');
-    const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+    const records = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
     return Object.entries(mergePlannedClaimRecords(records.planned ?? []))
       .map(([clauseId, claim]) => ({ clauseId, paths: [...new Set(claim.expectedPaths ?? [])].sort() }))
       .filter((entry) => entry.paths.length);

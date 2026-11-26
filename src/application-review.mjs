@@ -2,7 +2,6 @@
 import path from 'node:path';
 import { mkdir, readFile } from 'node:fs/promises';
 import { identity } from './git.mjs';
-import { workDirRelative } from './story-paths.mjs';
 import { writeAtomicExclusive } from './util.mjs';
 import { canonicalJson } from './records.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -12,6 +11,7 @@ import { applicationReviewPhase } from './code-delivery-policy.mjs';
 import { applicationReviewPlan, applicationReviewStatus, applicationReviewResults, findReviewSession, reviewTargetCurrent,
   reviewEvidenceAvailable, reviewLocalRoot, localCheckoutIdentity, bytesDigest, compactReviewResults, reviewSnapshotReference } from './application-review-read.mjs';
 import { araFail, appendReviewEvent, newReviewSession, projectReview, reviewDigest, findingRoot, findingRepairAttempts, assertCanConfirm, validateReviewCaptureSet, applicationReviewPolicy } from './application-review-contract.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const MAX_SESSIONS = 100;
 const actorKey = actor => actor?.email ?? actor?.login ?? actor?.name;
@@ -24,7 +24,7 @@ export function reviewAuthority(config, workflow, phaseId, actor) {
 
 /** A narrow metadata transaction never sweeps unfinished source, documents or local images. */
 async function writeEvent(root, config, workflow, session, event, snapshotRecord = null) {
-  const relative = `${workDirRelative(config, workflow.workItem.id)}/context/application-reviews/${event.digest.slice(7)}.json`;
+  const relative = storyLocation(null, config, workflow.workItem.id).record(`context/application-reviews/${event.digest.slice(7)}.json`);
   const snapshotPath = snapshotRecord ? event.payload.target?.snapshot?.path : null;
   const { transactStory } = await import('./story-publication-store.mjs');
   const result = await transactStory(root, config, workflow, {

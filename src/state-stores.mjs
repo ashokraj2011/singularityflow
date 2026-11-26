@@ -3,6 +3,7 @@ import {
   pendingIntentAmendmentAcknowledgement, resolveWorkItem, saveWorkflow, syncPublication,
   validateWorkflow, workflowPath
 } from './state.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export { acknowledgeIntentAmendment, assertAmendedPlannedClaims, assertAmendedScopeContent, decideIntentAmendment, intentAmendmentEffect, intentAmendmentStaleness, pendingIntentAmendmentAcknowledgement };
 export { decideForwardAmendment, proposeForwardAmendment, revalidateAfterForwardAmendment } from './state.mjs';
@@ -42,7 +43,7 @@ export class StoryStateStore extends StoryPublicationStore {
   async load(id) {
     const aggregate = await loadWorkflow(this.root, this.definition, id);
     const resolvedId = aggregate.workItem?.id;
-    const current = revision(this.root, aggregate, workflowPath(this.root, this.definition, resolvedId));
+    const current = revision(this.root, aggregate, storyLocation(this.root, this.definition, resolvedId).workflowFile);
     attachRevision(aggregate, current);
     return { aggregate, revision: current };
   }

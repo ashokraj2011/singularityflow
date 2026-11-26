@@ -35,6 +35,7 @@ import {
 import { loadImpactDefinition } from '../impact-config.mjs';
 import { compareImpactReceipts, listImpactReceipts } from '../impact.mjs';
 import { actionCommandLines } from '../copilot-guidance.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const SUBCOMMANDS = new Set([
   'plan', 'show-plan', 'start', 'list', 'status', 'report', 'compare',
@@ -501,7 +502,7 @@ export async function run(_argv, { positionals, options }) {
         'fetch', '--no-tags', 'origin',
         `refs/heads/${storyBranch}:refs/remotes/origin/${storyBranch}`
       ], { cwd: root, allowFailure: true, timeoutMs: 120_000 });
-      const relative = `${definition.workItemRoot ?? 'singularity/work-items'}/${workId}/workflow.json`;
+      const relative = storyLocation(null, definition, String(workId)).record(`workflow.json`);
       const shown = fetched.status === 0 ? runProcess('git', [
         'show', `refs/remotes/origin/${storyBranch}:${relative}`
       ], { cwd: root, allowFailure: true }) : fetched;

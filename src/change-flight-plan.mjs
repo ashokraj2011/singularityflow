@@ -30,6 +30,7 @@ import {
   gitReadOutput, nowIso, posix, readJson, run, secureRepositoryPath, SingularityFlowError, writeAtomic,
   writeJson, writeText
 } from './util.mjs';
+import { storyLocation, storyRecordWithin } from './story-paths.mjs';
 
 const PLAN_ID = /^cfp-[a-f0-9]{20}$/;
 const TEST_PATH = /(^|\/)(?:tests?|__tests__|spec)(?:\/|\.)|(?:\.test|\.spec)\.[^/]+$/i;
@@ -107,7 +108,7 @@ function committedDigest(root, revision, relative) {
 }
 
 function approvedSpecificationSnapshot(root, revision, entries) {
-  const workflows = entries.filter((entry) => /(^|\/)singularity\/work-items\/[^/]+\/workflow\.json$/.test(entry.path)).slice(0, 200);
+  const workflows = entries.filter((entry) => storyRecordWithin(entry.path)?.inside === 'workflow.json').slice(0, 200);
   const indexes = entries.filter((entry) => entry.path.includes('/context/spec-indexes/') && entry.path.endsWith('.json'));
   const claims = entries.filter((entry) => entry.path.includes('/context/claims/') && entry.path.endsWith('.json'));
   const active = [];
@@ -135,8 +136,8 @@ function approvedSpecificationSnapshot(root, revision, entries) {
   for (const entry of claims.slice(0, 500)) {
     const record = gitJsonAt(root, revision, entry.path);
     if (record?.kind !== 'planned') continue;
-    const match = entry.path.match(/singularity\/work-items\/([^/]+)\//);
-    const workId = record.workId ?? match?.[1];
+    const story = storyRecordWithin(entry.path);
+    const workId = record.workId ?? (story?.inside ? story.id : undefined);
     const phase = record.phase ?? entry.path.match(/\/([^/]+)-gen\d+[^/]*\.json$/)?.[1];
     const generation = Number(record.generation ?? entry.path.match(/gen(\d+)/)?.[1]);
     if (workId && phase && activeKeys.has(`${workId}\0${phase}\0${generation}`)) {
@@ -1040,7 +1041,7 @@ function contextPackage(plan, workId) {
 }
 
 export async function pinAcceptedChangeFlightPlan(root, definition, workflow, plan) {
-  const directory = path.join(root, definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', 'change-flight-plan');
+  const directory = storyLocation(root, definition, workflow.workItem.id).file('context', 'change-flight-plan');
   const acceptedPath = path.join(directory, 'accepted-plan.json');
   const context = contextPackage(plan, workflow.workItem.id);
   const verification = {
@@ -1291,7 +1292,7 @@ export function recordChangeFlightPlanExpansionDisposition(root, workflow, relat
 
 export async function persistChangeFlightPlanBoundary(root, definition, workflow, boundary) {
   if (!boundary) return null;
-  const directory = path.join(root, definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', 'change-flight-plan');
+  const directory = storyLocation(root, definition, workflow.workItem.id).file('context', 'change-flight-plan');
   const verificationEvidence = Object.values(workflow.phases ?? {}).flatMap((phase) => (phase.checks ?? []).map((check) => ({
     phaseId: phase.id, generation: phase.generation, id: check.id, command: check.command,
     status: check.status, sourceCommit: check.sourceCommit ?? null, completedAt: check.completedAt ?? null

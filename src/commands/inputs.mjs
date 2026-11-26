@@ -1,13 +1,13 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { repoRoot } from '../git.mjs';
 import { optionBoolean, posix, table } from '../util.mjs';
-import { workDir } from '../story-paths.mjs';
 import { preparePhaseInputs, saveStoryDraft } from '../state-stores.mjs';
 import { storyDraftTransaction } from './shared/story-draft-transaction.mjs';
 import path from 'node:path';
 import { phaseContinuationLines } from '../phase-continuation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -41,7 +41,7 @@ export async function inputsCommand(positionals, options) {
     : await storyDraftTransaction(
       root, config, workflow, `inputs:${positionals[1] ?? workflow.currentPhase}`, prepareInputs
     );
-  const workItemDirectory = posix(path.relative(root, workDir(root, config, workflow.workItem.id)));
+  const workItemDirectory = posix(path.relative(root, storyLocation(root, config, workflow.workItem.id).directory));
   const records = result.records.map(({ content, ...entry }) => entry);
   const nextSnapshot = await resolveStorySnapshot(root, accepted);
   const continuation = snapshotContinuation(workflow, forAgent ? agentNextSteps(nextSnapshot) : nextSnapshot);

@@ -13,6 +13,7 @@ import { loadDefinition } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { worldModelStateAuthority } from './state-authority.mjs';
 import { USER_DEFINED_ROOT } from './user-defined-agent-identity.mjs';
+import { storiesRoot, storyLocation } from './story-paths.mjs';
 
 const MAXIMUM_STATE_AUTHORITY_CENSUS_BYTES = 64 * 1024 * 1024;
 const MAXIMUM_LIFECYCLE_REF_CENSUS_BYTES = 64 * 1024 * 1024;
@@ -397,7 +398,7 @@ function lifecycleRootsAtRef(root, entry, fallbackRoots, maximumFileBytes, fallb
     const definition = definitionText ? YAML.parse(definitionText) : null;
     const portfolio = portfolioText ? YAML.parse(portfolioText) : null;
     const workItemRoot = safeLifecycleRefRoot(
-      definition?.workItemRoot, 'singularity/work-items'
+      definition?.workItemRoot, storiesRoot()
     );
     const initiativeRoot = safeLifecycleRefRoot(
       portfolio?.initiativeRoot, 'singularity/initiatives'
@@ -568,8 +569,8 @@ function lifecycleRefFiles(root, refs, roots, historyDir, {
 }
 
 function isRetiredStoryPath(relative, roots, retiredStoryIds) {
-  const prefixes = ['singularity/work-items', roots?.workItemRoot].filter(Boolean);
-  return prefixes.some(prefix => retiredStoryIds.some(id => relative.startsWith(`${prefix}/${id}/`)));
+  const prefixes = [storiesRoot(), roots?.workItemRoot].filter(Boolean);
+  return prefixes.some(prefix => retiredStoryIds.some(id => storyLocation(null, { workItemRoot: prefix }, id).owns(relative)));
 }
 
 /**
@@ -658,8 +659,8 @@ export async function schemaCensus(root, {
       repositoryHistoryObjectsRoot,
       path.join(root, STARTER_PACK_TEMPLATES),
       path.join(root, USER_DEFINED_FOLDERS),
-      ...retiredStoryIds.flatMap(id => ['singularity/work-items', familyRoots.workItemRoot]
-        .filter(Boolean).map(prefix => path.join(root, prefix, id)))
+      ...retiredStoryIds.flatMap(id => [storiesRoot(), familyRoots.workItemRoot]
+        .filter(Boolean).map(prefix => storyLocation(root, { workItemRoot: prefix }, id).directory))
     ];
     if (authoritativeHistory) {
       // A configured history root may deliberately coincide with an existing governed root such

@@ -7,7 +7,6 @@ import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDelive
 import { head, identity, repoRoot } from '../git.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
-import { workDir } from '../story-paths.mjs';
 import { StoryStateStore, sourceTreeHash, storyPublicationPending } from '../state-stores.mjs';
 import { sealTrpRecord } from '../test-recovery-policy.mjs';
 import { appendTrpAuthorityReceipt, appendTrpRecord, consumeTrpAuthority, trpAuthorityReview } from '../test-recovery-store.mjs';
@@ -15,6 +14,7 @@ import { loadTrpDeliveryAgreement, resolveTrpDeliverySelection, trpSelectionAuth
   trpSelectionPublicPreview } from '../trp-delivery-selection.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 import { verifyWorkflowSnapshot } from '../workflow-snapshots.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 const reference = ({ kind, id, recordSha256 }) => ({ kind, id, recordSha256 });
@@ -117,7 +117,7 @@ export async function confirmStoryTestSelection(root, config, workflow, { phaseI
     const freshAuthority = trpSelectionAuthorityContext(current, fresh.phase, fresh.agreement);
     const nonce = authorization.token;
     const witness = await consumeTrpAuthority(root, { record: selection, ...freshAuthority, review, token: nonce });
-    const workRoot = workDir(root, config, current.workItem.id);
+    const workRoot = storyLocation(root, config, current.workItem.id).directory;
     await appendTrpRecord(workRoot, selection);
     const saved = await appendTrpAuthorityReceipt(workRoot, witness);
     const entry = { planDigest: confirmation, phaseId: selection.subject.phaseId, generation: selection.subject.generation,

@@ -20,11 +20,11 @@
 import { stepResponsibilities } from '../../phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 
 import { clauseReferences, extractClauses } from '../../specifications.mjs';
 import { secureRepositoryPath } from '../../util.mjs';
 import { deliveredContent } from './change-subject.mjs';
+import { storyLocation } from '../../story-paths.mjs';
 
 export const XPL2_CLAUSE_SOURCE_LIMITS = Object.freeze({
   maximumArtifacts: 8,
@@ -236,9 +236,9 @@ async function workItemRelative(root, workId) {
   try {
     const { comprehensionDefinition } = await import('../code-scope.mjs');
     const definition = await comprehensionDefinition(root);
-    return path.posix.join(definition.workItemRoot ?? 'singularity/work-items', workId);
+    return storyLocation(null, definition, workId).prefix;
   } catch {
-    return path.posix.join('singularity/work-items', workId);
+    return storyLocation(null, null, workId).prefix;
   }
 }
 

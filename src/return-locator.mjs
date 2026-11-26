@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { workDir } from './story-paths.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { posix, readJson, run, SingularityFlowError, writeJson } from './util.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -42,7 +42,7 @@ function remoteProjection(raw) {
 }
 
 export function returnLocatorPath(root, config, workId) {
-  return path.join(workDir(root, config, workId), 'context', 'return-locator.json');
+  return storyLocation(root, config, workId).file('context', 'return-locator.json');
 }
 
 /** Write the small non-secret locator that lets another clone identify durable Story refs. */

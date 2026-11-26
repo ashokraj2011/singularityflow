@@ -17,11 +17,12 @@ import { isAllowedTestAutomationPath } from './code-delivery-tests.mjs';
 import { accountedAmendmentPaths, classificationContext, departureCandidatePaths } from './plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from './specifications.mjs';
 import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** Dirty files excluded from this delivery must be accounted for before it is published. */
 export async function unreconciledCandidatePaths(root, config, workflow, phase, scope = undefined) {
   scope = scope === undefined ? await codeCandidateScope(
-    path.join(root, config.workItemRoot ?? workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow, phase) : scope;
+    storyLocation(root, [config, workflow], workflow.workItem.id).directory, workflow, phase) : scope;
   if (!scope) return [];
   const context = applicationPathContext(config, workflow);
   const { inspectLifecycleWorktree } = await import('./lifecycle-worktree.mjs');

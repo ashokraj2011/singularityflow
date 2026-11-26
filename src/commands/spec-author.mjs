@@ -25,6 +25,7 @@ import {
 } from '../spec-library/proposals.mjs';
 import { addPersonFact, gapImpact, mergeResearch, normalizeArea, removeResearch } from '../spec-library/research.mjs';
 import { optionBoolean, optionNumber, optionString, optionStrings, samePlatformPath, SingularityFlowError } from '../util.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 export const SPEC_AUTHOR_ACTIONS = Object.freeze([
   'new', 'edit', 'research', 'gap', 'gaps', 'propose', 'accept', 'reject', 'decide', 'settle', 'check', 'status', 'publish', 'show', 'list', 'discard', 'coverage', 'sync', 'shared', 'resume', 'history', 'source', 'sources', 'derive', 'fork', 'restore-version', 'screen'
@@ -574,7 +575,7 @@ async function coverageAction(root, positionals, options) {
     const workId = optionString(options, 'story');
     if (!workId) fail(`Repair names the Story whose records to write: --story WORK-ID.`, 'SPEC_USAGE_STORY_MISSING', { specId, nextAction: `singularity-flow spec author coverage ${specId}@${revision}` });
     const { committedFileText } = await import('../git.mjs');
-    const directory = `${config.workItemRoot ?? 'singularity/work-items'}/${workId}`;
+    const directory = storyLocation(null, config, String(workId)).prefix;
     const read = (name) => committedFileText(root, 'HEAD', `${directory}/${name}`);
     const [workflowText, sourceText] = [read('workflow.json'), read('source.json')];
     if (!workflowText || !sourceText) fail(`${workId}'s committed record is not on this checkout (${directory}); run the repair from a checkout of its branch.`, 'SPEC_USAGE_STORY_MISSING', { workId, nextAction: `singularity-flow session open ${workId}` });

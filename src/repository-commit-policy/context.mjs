@@ -13,6 +13,7 @@ import { discoverCommitPolicy } from './discovery.mjs';
 import { installCommitPolicyHintParser, registerCommitPolicyMode } from './gate.mjs';
 import { writeMutablePrivateSidecar } from '../private-sidecar.mjs';
 import { gitCommonDir } from '../git-execution.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 installCommitPolicyHintParser(bytes => {const policy=YAML.parse(bytes)?.git?.commitPolicy;return policy==null?'absent':policy.mode??'unknown';});
 
@@ -76,7 +77,7 @@ export async function resolveCommitTracking(binding, { subject, purpose = subjec
   const selector = policy.tracking.bindings?.[purpose] ?? (purpose === 'story' ? 'repository-story' : null);
   if (selector === 'repository-story' && subject.kind === 'story') {
     if (/[\\/\u0000]/u.test(subject.id) || ['.', '..'].includes(subject.id)) rcpFailure('RCP_TRACKING_KEY_MISMATCH', 'The canonical Story ID cannot be used as a state path.');
-    const file = await secureRepositoryPath(root, `${definition?.workItemRoot ?? 'singularity/work-items'}/${subject.id}/workflow.json`, { type: 'file', mustExist: true, label: 'Canonical Story tracking state' });
+    const file = await secureRepositoryPath(root, storyLocation(null, definition, String(subject.id)).record(`workflow.json`), { type: 'file', mustExist: true, label: 'Canonical Story tracking state' });
     const bytes = await readFile(file.absolute, 'utf8'), workflow = JSON.parse(bytes);
     if (workflow.workItem?.id !== subject.id) rcpFailure('RCP_TRACKING_KEY_MISMATCH', 'The tracking state belongs to another canonical Story.');
     const lineage = workflow.lineage ?? {};

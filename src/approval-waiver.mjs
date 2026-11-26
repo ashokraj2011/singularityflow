@@ -6,6 +6,7 @@ import { readStoryReviewPacket } from './story-lineage.mjs';
 import { evaluateQuickFixWaiver, supportedWaiverPolicy } from './quick-fix-policy.mjs';
 import { assertWorkReconciliationIntegrity } from './work-intervals.mjs';
 import { exactFileAtObject, head } from './git.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function committedJson(root, commit, relative) {
   const bytes = exactFileAtObject(root, commit, relative, { maximumBytes: 16 * 1024 * 1024 });
@@ -49,7 +50,7 @@ export async function verifyPhaseApprovalWaiver(root, config, workflow, phase, {
         || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(packet.submissionCommit ?? '')) {
       throw new Error('the immutable submission does not authorize this waived generation');
     }
-    const relative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'workflow.json');
+    const relative = storyLocation(null, config, workflow.workItem.id).record('workflow.json');
     const retained = committedJson(root, packet.evidenceCommit, relative);
     const historical = retained.phases?.[phase.id];
     const waiver = historical?.approvalWaiver;
@@ -65,8 +66,7 @@ export async function verifyPhaseApprovalWaiver(root, config, workflow, phase, {
       throw new Error('waiver, policy, source, or checks differ from the committed submission');
     }
     const reference = historical.workIntervalReconciliation;
-    const expectedPath = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
-      'context/work-intervals/reconciliations', `${waiver.reconciliationSha256}.json`);
+    const expectedPath = storyLocation(null, config, workflow.workItem.id).record('context/work-intervals/reconciliations', `${waiver.reconciliationSha256}.json`);
     if (!/^[a-f0-9]{64}$/u.test(waiver.reconciliationSha256 ?? '') || reference?.path !== expectedPath) {
       throw new Error('the waiver has no owned reconciliation binding');
     }

@@ -20,6 +20,7 @@ import { SingularityFlowError } from '../util.mjs';
 import {
   revisionRecordHashField, validateRevisionRecord
 } from './contracts.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const HASH = /^sha256:([a-f0-9]{64})$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -75,7 +76,7 @@ export function revisionRecordPath(root, record, { storage = 'private', loopSha2
     fail('REV_RECORD_STORE_PRIVATE_ONLY', `${validated.kind} may not be written into shared Story evidence.`);
   }
   const loop = digestPart(loopSha256, 'loopSha256');
-  return path.join(path.resolve(root), 'singularity', 'work-items', selected.workId, 'evidence',
+  return storyLocation(path.resolve(root), null, selected.workId).file('evidence',
     'revisions', selected.phaseId, loop, 'records', validated.kind, filename);
 }
 
@@ -236,7 +237,7 @@ export async function readRevisionRecord(root, kind, recordSha256, {
   const base = storage === 'private'
     ? path.join(path.resolve(gitCommonDir(root)), 'singularity-flow', 'revisions', shell.subject.workId,
       shell.subject.phaseId, String(shell.subject.phaseGeneration), 'records', kind, filename)
-    : path.join(path.resolve(root), 'singularity', 'work-items', shell.subject.workId, 'evidence',
+    : storyLocation(path.resolve(root), null, shell.subject.workId).file('evidence',
       'revisions', shell.subject.phaseId, digestPart(loopSha256, 'loopSha256'), 'records', kind, filename);
   let bytes;
   if (storage === 'private') {

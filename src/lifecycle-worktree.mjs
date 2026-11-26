@@ -4,6 +4,7 @@ import { applicationPathContext, isTestRunnerOutputPath, isTransientTestResultPa
 import { worktreeStatusDetail } from './git.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 // Transport output is not authoring. Never make tracked reports, links, conflicts, submodules,
 // or arbitrary generated directories disappear from a lifecycle boundary's review roster.
@@ -29,7 +30,7 @@ const ABANDONED_ATOMIC_WRITE = /\.tmp-\d+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0
 function abandonedStoryWrite(relative, config, workflow) {
   const id = workflow?.workItem?.id;
   if (!id) return false;
-  const itemRoot = `${config?.workItemRoot ?? workflow.resolution?.workItemRoot ?? 'singularity/work-items'}/${id}/`;
+  const itemRoot = `${storyLocation(null, [config, workflow], id).prefix}/`;
   return relative.startsWith(itemRoot) && (ABANDONED_ATOMIC_WRITE.test(relative) || /^evidence\/visual-sign-offs\/[\w.-]+\.png$/u.test(relative.slice(itemRoot.length)));
 }
 

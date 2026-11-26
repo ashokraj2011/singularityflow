@@ -27,6 +27,7 @@ import { answerSections, clauseSection, codeChange, definedClauses, fillDocument
 import { likelyCause, MET_REFUSALS, NOT_JUDGED_REFUSALS, shortMessage } from './refusals.mjs';
 import { reviewReport } from './reviewer.mjs';
 import { copySandbox, createSandbox, readConfigurationFolder, readRepositoryConfiguration, WALK_IDENTITY } from './sandbox.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 export const WALK_WORK_ID = 'WALK-1';
 const TITLE = 'Return the approved value';
@@ -201,7 +202,7 @@ async function startStory(walk) {
   if (data.repositoryPath) walk.cwd = data.repositoryPath;
   const YAML = (await import('yaml')).default;
   const configuration = YAML.parse(await walk.readText('singularity/workflow.yml').catch(() => '')) ?? {};
-  walk.workItem = path.posix.join(configuration.workItemRoot ?? 'singularity/work-items', WALK_WORK_ID);
+  walk.workItem = storyLocation(null, configuration, WALK_WORK_ID).prefix;
   const story = await walk.readStory();
   walk.order = story.phaseOrder ?? walk.order;
   walk.resolution = story.resolution ?? {};

@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { renderPlatformCommand } from './safe-command-guidance.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 
@@ -355,7 +356,7 @@ export async function assertReviewCodeEvidenceFresh(root, config, workflow, phas
   // An uncommitted file no plan names was never part of the tested candidate, so it cannot make it
   // stale [D9]; once committed it is part of what ships, and it does.
   const outsidePlan = changedPaths.length
-    ? await outsideEveryCandidate(path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow) : null;
+    ? await outsideEveryCandidate(storyLocation(root, config, workflow.workItem.id).directory, workflow) : null;
   if (outsidePlan) {
     const committed = new Set(committedChangedPaths(root, comparisonBase));
     changedPaths = changedPaths.filter((candidate) => committed.has(candidate) || !outsidePlan(candidate));
@@ -464,7 +465,7 @@ function legacySpecificationText(text) {
 
 export async function acceptanceIds(root, config, workflow, phase) {
   if (!config.governance?.requireAcceptanceCriteriaTags) return [];
-  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   const records = await loadActiveSpecRecords(itemDirectory, workflow);
   const indexed = predecessorSpecClauses(records, workflow, phase.id)
     .filter((clause) => clause.type === 'AC' || /:AC-\d+$/.test(clause.id ?? ''))
@@ -495,10 +496,7 @@ export async function acceptanceIds(root, config, workflow, phase) {
   for (const phaseId of workflow.phaseOrder.slice(0, Math.max(0, position))) {
     const prior = workflow.phases[phaseId];
     if (!prior?.requiredArtifact?.path) continue;
-    const relative = posix(path.join(
-      config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
-      prior.requiredArtifact.path
-    ));
+    const relative = storyLocation(null, config, workflow.workItem.id).record(prior.requiredArtifact.path);
     const secured = await secureRepositoryPath(root, relative, {
       label: 'Acceptance specification source', type: 'file'
     });
@@ -872,7 +870,7 @@ async function allocatedPlanObligations(root, config, workflow, phase) {
   if (workflow.resolution?.plannedClaims?.mode !== 'required') return null;
   const owner = workflow.phases?.[workflow.resolution.plannedClaims.owners?.[phase.id]];
   if (!owner?.claimMaps?.planned) return null;
-  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   const active = await loadActiveSpecRecords(itemDirectory, workflow);
   const plan = await readBoundSpecificationClaimMap(root, itemDirectory, workflow, owner, 'planned', {
     clauseIds: predecessorSpecClauses(active, workflow, phase.id).map((clause) => clause.id),
@@ -893,7 +891,7 @@ const SCREENSHOT_FILE = /\.(?:png|jpe?g|gif|webp)$/iu;
 
 export async function plannedEvidencePaths(root, config, workflow, phase) {
   const obligations = await allocatedPlanObligations(root, config, workflow, phase).catch(() => null);
-  const prefix = `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence/`;
+  const prefix = storyLocation(null, config, workflow.workItem.id).record(`evidence/`);
   return [...new Set((obligations ?? []).filter((entry) => entry.fulfillment === 'evidence')
     .flatMap((entry) => entry.expectedPaths ?? [])
     .map((candidate) => path.posix.normalize(String(candidate)))
@@ -983,7 +981,7 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
       { code: 'SPEC_PLANNED_CLAIM_MAP_REQUIRED' }
     );
   }
-  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   const active = await loadActiveSpecRecords(itemDirectory, workflow);
   const clauseIds = predecessorSpecClauses(active, workflow, phase.id).map((clause) => clause.id);
   const plan = await readBoundSpecificationClaimMap(root, itemDirectory, workflow, owner, 'planned', {
@@ -1186,9 +1184,7 @@ async function validatedReusablePaths(root, candidates, priorEvidence, { role, s
 
 function assertPublishedDocumentationBaseline(root, config, workflow, phase, priorCommit) {
   const priorGeneration = Number(phase.generation ?? 0);
-  const itemPath = posix(path.join(
-    config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id
-  ));
+  const itemPath = storyLocation(null, config, workflow.workItem.id).prefix;
   const receiptPath = posix(path.join(
     itemPath,
     'context', 'code-delivery', `${phase.id}-gen${priorGeneration}.json`
@@ -1255,7 +1251,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     );
   }
 
-  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory });
   const baselineCommit = phase.generationIntent?.baseline?.commit
     ?? workflow.workIntervals.current.sourceBaseCommit;
@@ -2264,7 +2260,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
           || (observation.observedOutcome === 'passed' && observation.counts.skipped <= 0)
           || observation.obligationId !== execution.commandId || observation.observedOutcome !== execution.status
           || observation.sourceManifestSha256 !== receipt.tree.workingStateDigest
-          || execution.receiptPath !== `${testRecovery.config.workItemRoot ?? 'singularity/work-items'}/${receipt.workId}/context/test-recovery/runs/${observation.id}.json`
+          || execution.receiptPath !== storyLocation(null, testRecovery.config, String(receipt.workId)).record(`context/test-recovery/runs/${observation.id}.json`)
           || receiptDigest(observation) !== String(execution.receiptSha256).replace(/^sha256:/u, '')) {
           throw new Error('the risk observation is not bound to this exact committed delivery');
         }

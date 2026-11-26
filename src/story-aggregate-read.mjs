@@ -1,7 +1,7 @@
 /** The Story store's exact read semantics without importing publication and ledger writers. */
 import { loadWorkflow, loadWorkflowWithExecution } from './story-workflow-read.mjs';
-import { workflowPath } from './story-paths.mjs';
 import { revision, attachRevision } from './state-revision-read.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export async function loadStoryAggregate(root, definition, id) {
   return withRevision(root, definition, await loadWorkflow(root, definition, id));
@@ -16,5 +16,5 @@ export async function loadStoryAggregateWithExecution(root, definition, id) {
 
 function withRevision(root, definition, workflow) {
   return attachRevision(workflow, revision(root, workflow,
-    workflowPath(root, definition, workflow.workItem?.id)));
+    storyLocation(root, definition, workflow.workItem?.id).workflowFile));
 }

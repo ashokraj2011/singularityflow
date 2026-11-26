@@ -175,11 +175,11 @@ export async function baseCheckFacts(root, config, workflow, phase, commandIds, 
   const baseCommit = storyBaseCommit(workflow, phase);
   const found = new Map();
   if (!baseCommit || !commandIds.length) return found;
-  const [{ resolveStoryLocalTestCommands }, { stepAttempts }, { workDirRelative }] = await Promise.all([
+  const [{ resolveStoryLocalTestCommands }, { stepAttempts }, { storyLocation }] = await Promise.all([
     import('../local-test-runs.mjs'), import('./attempts.mjs'), import('../story-paths.mjs')]);
   const { commands } = await resolveStoryLocalTestCommands(root, config, workflow, { phaseId: phase.id });
   // Every run of the step, a local one too, as `tests base` compares them: the latest of each command is "here".
-  const attempts = await stepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, herePhase.id).catch(() => []);
+  const attempts = await stepAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, herePhase.id).catch(() => []);
   // Another step's check of the same program in the same folder is the code step's command under its own ID (a test
   // step's `node-tests` is the code step's `.-node-tests`).
   const sameProgram = (id) => {

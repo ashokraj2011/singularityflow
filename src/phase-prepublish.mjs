@@ -38,6 +38,7 @@ import { planningEvidenceRepair } from './planning-evidence-repair.mjs';
 import { phaseAuthoringContract, phasePlansDelivery } from './phase-authoring-contract.mjs';
 import { clauseIntentOwner, upstreamChangeRoutes } from './upstream-routes.mjs';
 import { ownerStepChecks } from './phase-roles.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** What a plan's unmet intent says of its two owners: the step that approved the intent, and this plan. */
 function intentOwnerWords(workflow, phase, intent) {
@@ -138,8 +139,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
     && (plannedPolicy?.mode !== 'required' || plannedPolicy.clausePhases?.includes(phase.id));
   const plansClaims = specPolicy.mode !== 'off' && specPolicy.acceptance !== 'off'
     && plannedClaimOwner(workflow, phase);
-  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items',
-    workflow.workItem.id);
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   let records = null;
   let candidateIndex = null;
   if (specPolicy.mode !== 'off' && (definesClauses || plansClaims)) {
@@ -171,7 +171,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
       : records.indexes;
     const clauseIds = [...new Set(indexes.flatMap((index) =>
       (index.clauses ?? []).map((clause) => String(clause.id).toUpperCase())))].sort();
-    planningContract = { clauseIds, evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence` };
+    planningContract = { clauseIds, evidenceRoot: storyLocation(null, config, workflow.workItem.id).record(`evidence`) };
     if (!clauseIds.length && plannedPolicy?.mode === 'required') {
       // The clauses are the defining step's output, as at plan publication (noSpecificationClausesError):
       // this step routes it there and is never told to write them itself [PHR:REQ-001, finding 9].
@@ -197,7 +197,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         const upheldIntent = await (await import('./phase-finding-dispute.mjs')).upheldIntentRows(root, config, workflow, phase,
           { text: plannedSource, clauses: indexes.filter((index) => index.phase !== phase.id).flatMap((index) => index.clauses ?? []) });
         const derived = derivePlannedClaimMap(authored, { clauseIds, clauses: indexes.flatMap(index => index.clauses ?? []), policy: specPolicy,
-          evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence`,
+          evidenceRoot: storyLocation(null, config, workflow.workItem.id).record(`evidence`),
           requireComplete: plannedClaimsEnforced(workflow, specPolicy), upheldIntent });
         // Derivation already validates contracts through the author-owned visibility boundary.
         // Re-parsing raw authored comments/examples would disagree with publication [E2G-013].
@@ -227,9 +227,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
             `Clause ${clauseId} has no exact planned test or reviewed not-applicable reason. Complete the 'Clause | Expected paths | Planned tests' table.`,
             { details: { clauseId } });
         }
-        const claimPath = posix(path.join(config.workItemRoot ?? 'singularity/work-items',
-          workflow.workItem.id, 'context', 'claims',
-          `${phase.id}-gen${draft.generation}-planned.json`));
+        const claimPath = storyLocation(null, config, workflow.workItem.id).record('context', 'claims', `${phase.id}-gen${draft.generation}-planned.json`);
         if (await exists(path.join(root, claimPath))) {
           const bound = await secureRepositoryPath(root, claimPath, {
             label: 'Existing planned claim map', mustExist: true, type: 'file'
@@ -286,7 +284,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         if (plannedSource != null && ['SPEC_VERIFICATION_CONTRACT_INVALID',
           'SPEC_PLANNED_EVIDENCE_TYPE_INVALID'].includes(error.code)) {
           evidenceRepair = planningEvidenceRepair(plannedSource, { clauseIds, clauses: indexes.flatMap(index => index.clauses ?? []), policy: specPolicy,
-            evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence` });
+            evidenceRoot: storyLocation(null, config, workflow.workItem.id).record(`evidence`) });
         }
       }
     }
@@ -348,8 +346,7 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
   const id = workflow.workItem.id;
   const pending = await inspectPendingPublication(root, {
     kind: 'story', id,
-    legacyPath: path.join(root, config.workItemRoot ?? 'singularity/work-items', id,
-      'publication-pending.json'),
+    legacyPath: storyLocation(root, config, id).file('publication-pending.json'),
     roots: { workItemRoot: config.workItemRoot }
   });
   if (pending.status !== 'absent') {
@@ -443,7 +440,7 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
   }
   const artifactSet = resolvedArtifactSet(config, workflow, phase);
   if (artifactSet) {
-    const itemRelative = posix(path.join(config.workItemRoot ?? 'singularity/work-items', id));
+    const itemRelative = storyLocation(null, config, id).prefix;
     const catalog = await catalogArtifactSet(root, itemRelative, phase, artifactSet);
     const unpublishable = (await unpublishableRequiredArtifactSetMembers(root, catalog))
       .filter((member) => !catalog.missingRequired.includes(member));

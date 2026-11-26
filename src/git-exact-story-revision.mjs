@@ -12,6 +12,7 @@ import { validatePortableWorkId } from './work-id.mjs';
 import { removeTemporaryTree, SingularityFlowError } from './util.mjs';
 import { withLocalReadDeadline, assertLocalReadDeadline, localReadDeadlineRemainingMs,
   localReadDeadlineSignal, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const EXACT_STORY_REVISION_LIMITS = Object.freeze({ commits: 256, commitBytes: 65536,
   historyBytes: 8 * 1024 * 1024, files: 4096, bytes: 256 * 1024 * 1024,
@@ -159,7 +160,7 @@ async function readExactLocalStoryRevision(root, request, callback) {
     let workItemRoot;
     try { workItemRoot = normalizeWorkItemRoot(definition?.workItemRoot); }
     catch { fail('The selected commit has no safe Story root.'); }
-    const prefix = `${workItemRoot}/${workId}`;
+    const prefix = storyLocation(null, { workItemRoot }, String(workId)).prefix;
     if (!safePath(prefix)) fail('The selected Story path is not portable.', 'SKP_STORY_USAGE_INVALID');
     const reachable = new Set();
     const selectedPending = [selectedCommit];

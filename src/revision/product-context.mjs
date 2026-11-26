@@ -11,7 +11,6 @@ import { readPendingPublication } from '../publication-pending.mjs';
 import { recordSha256 } from '../records.mjs';
 import { loadSession, validAgentSession } from '../session.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
-import { workDir } from '../story-paths.mjs';
 import { loadConfig } from '../state-stores.mjs';
 import {
   loadActiveSpecRecords, predecessorSpecClauses
@@ -27,6 +26,7 @@ import {
 import { probeRevisionSavedState } from './current-context.mjs';
 import { createRevisionLoopStore } from './loop-store.mjs';
 import { assertCurrentRevisionPrecheck } from './precheck.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/u;
 const CLAUSE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -205,7 +205,7 @@ export async function loadActiveRevisionStory(root, {
 
 export async function activeRevisionClauses(active) {
   const records = await loadActiveSpecRecords(
-    workDir(active.root, active.config, active.workflow.workItem.id), active.workflow);
+    storyLocation(active.root, active.config, active.workflow.workItem.id).directory, active.workflow);
   const clauses = predecessorSpecClauses(records, active.workflow, active.phaseId)
     .map((clause) => ({
       id: String(clause.id).toUpperCase(),

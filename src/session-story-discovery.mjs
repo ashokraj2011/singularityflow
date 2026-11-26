@@ -16,6 +16,7 @@ import { readRecord } from './schema-migrations.mjs';
 import { storyLifecycleProgress } from './session-roster.mjs';
 import { validateId } from './state-stores.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /**
  * What a Story's exact committed state proved, kept for the next listing. `[perf]`
@@ -105,9 +106,7 @@ export function validatedRemoteStoryDefinition(root, remoteRef, subject, { files
     definitions?.set(source, definition);
   }
   validateId(definition, subject.id);
-  const expectedPath = posix(path.join(
-    definition.workItemRoot ?? 'singularity/work-items', subject.id, 'workflow.json'
-  ));
+  const expectedPath = storyLocation(null, definition, subject.id).record('workflow.json');
   if (subject.location.path !== expectedPath) {
     throw new Error(`state path '${subject.location.path}' does not match pinned root '${expectedPath}'`);
   }
@@ -177,7 +176,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       let pinned = definitions.get(source);
       if (!pinned) { pinned = YAML.parse(source); validateDefinition(pinned); definitions.set(source, pinned); }
       validateId(pinned, pointer.id);
-      const relative = posix(path.join(pinned.workItemRoot ?? 'singularity/work-items', pointer.id, 'workflow.json'));
+      const relative = storyLocation(null, pinned, pointer.id).record('workflow.json');
       files.set(`${pointer.commitOid}:${WORKFLOW_PATH}`, source);
       requested.push({ key: `${pointer.commitOid}:${relative}`, ref: pointer.commitOid, path: relative, pointer });
     } catch (error) {

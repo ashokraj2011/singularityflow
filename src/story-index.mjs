@@ -30,7 +30,8 @@ import { withRegistryFileLease } from './file-lease.mjs';
 import { localRepositoryId } from './repository-local-id.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, run, samePlatformPath, SingularityFlowError, writeAtomic } from './util.mjs';
-import { DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText } from './work-item-location.mjs';
+import { workItemRootFromDefinitionText } from './work-item-location.mjs';
+import { storiesRoot } from './story-paths.mjs';
 import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace-manifest.mjs';
 
 export const STORY_INDEX_FILE = 'story-index.json';
@@ -138,10 +139,10 @@ async function remoteKey(url) {
 async function workItemRoot(checkout, synced) {
   try {
     const text = await readSmall(path.join(checkout, 'singularity', 'workflow.yml'), { synced, limit: WORKFLOW_FILE_LIMIT });
-    return text == null ? DEFAULT_WORK_ITEM_ROOT : workItemRootFromDefinitionText(text);
+    return text == null ? storiesRoot() : workItemRootFromDefinitionText(text);
   } catch (error) {
     if (error?.code === 'STORY_INDEX_CHECKOUT_UNAVAILABLE') throw error;
-    return DEFAULT_WORK_ITEM_ROOT;
+    return storiesRoot();
   }
 }
 

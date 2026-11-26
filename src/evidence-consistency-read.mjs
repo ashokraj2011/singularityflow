@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { projectEvidenceConsistency } from './evidence-consistency.mjs';
 import { recordSha256 } from './records.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /**
  * Callers that already read execution evidence, witnesses or documents pass those observations.
@@ -37,7 +38,7 @@ export async function readEvidenceConsistency(root, config, workflow, phase, opt
       blocking: false });
   }
   if (!documents && reporting && phase.requiredArtifact?.path) {
-    const relative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, phase.requiredArtifact.path);
+    const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact.path);
     const { secureRepositoryPath } = await import('./util.mjs');
     try {
       const safe = await secureRepositoryPath(root, relative, { label: 'Evidence report', mustExist: false, type: 'file' });
@@ -51,7 +52,7 @@ export async function readEvidenceConsistency(root, config, workflow, phase, opt
   const reportedVerdicts = [];
   const documentBindings = [];
   for (const document of documents ?? []) {
-    const relative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, phase.requiredArtifact?.path ?? '');
+    const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact?.path ?? '');
     if (document.path !== relative) continue;
     if (document.error || document.truncated || document.binary || typeof document.content !== 'string') {
       findings.push({ code: 'EVIDENCE_REPORT_PARTIAL', path: document.path,

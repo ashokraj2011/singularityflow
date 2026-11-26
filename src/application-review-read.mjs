@@ -6,9 +6,9 @@ import { realpathSync } from 'node:fs';
 import { trackedPathListing, untrackedFiles, gitCommonDir, gitDir, workingTreeChangedPaths } from './git.mjs';
 import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
 import { secureRepositoryPath } from './util.mjs';
-import { workDirRelative } from './story-paths.mjs';
 import { phaseRequiresCodeDelivery, applicationReviewPhase } from './code-delivery-policy.mjs';
 import { araFail, applicationReviewPolicy, projectReview, reviewDigest, reviewSubject, reviewApplicability } from './application-review-contract.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const bytesDigest = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 export const reviewLocalRoot = root => path.join(gitCommonDir(root), 'singularity-flow', 'application-reviews');
@@ -19,7 +19,7 @@ export const localCheckoutIdentity = root => {
 
 export function reviewSnapshotReference(config, workflow, snapshot) {
   return { kind: 'application-review-snapshot-reference', digest: snapshot.digest, files: snapshot.manifest.length,
-    path: `${workDirRelative(config, workflow.workItem.id)}/context/application-reviews/snapshots/${snapshot.digest.slice(7)}.json` };
+    path: storyLocation(null, config, workflow.workItem.id).record(`context/application-reviews/snapshots/${snapshot.digest.slice(7)}.json`) };
 }
 
 /** Keep authoritative case inventories in their existing immutable execution records, once. */

@@ -287,7 +287,7 @@ async function taskStepChange(root, definition, workflow, { intent, rule = null,
         restart, { add: intent, agent: agentId });
     }
   }
-  const item = paths.workDirRelative(definition, id);
+  const item = paths.storyLocation(null, definition, id).prefix;
   const blobPath = (sha) => `${item}/config/wfa/blobs/sha256/${sha}`;
   const capturedTemplate = { ...template, source: 'workflow-snapshot', sourcePath: template.path, path: blobPath(template.sha256), sha256: template.sha256 };
   const phases = nextComposition.steps.map((entry, index) => {
@@ -729,7 +729,7 @@ export async function changeTaskKind(root, config, workflow, { from, to, because
       to: { revision: current.workflowSnapshot.revision + 1, policySha256: proposed.policySha256, compositionSha256: contracts.taskChangeDigest(next) },
       addedAssets: [], addedAgents: [] };
     contracts.assertTaskChangeScope(current.resolution, proposed, decision);
-    const item = paths.workDirRelative(config, id);
+    const item = paths.storyLocation(null, config, id).prefix;
     const decisionPath = snapshots.taskChangeDecisionPath(config, id, changeId);
     const policyBlob = createHash('sha256').update(Buffer.from(canonicalJson(proposed))).digest('hex');
     return { proposed, decision, decisionPath, exactWorkItemPaths: [decisionPath,

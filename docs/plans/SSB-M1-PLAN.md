@@ -4,7 +4,7 @@
 
 **Baseline:** `5ac41f37e` (2026-11-26).
 
-**Status:** Planned, not started.
+**Status:** Built on `ssb-m1` (from `480c2f936`): B0 to B12, with the touched-area tests (721 files) and the guard tests green on Node 22. Not merged. What changed from this plan while building is in §9.
 
 **Size:** 6 days. The spec's first estimate was 4 days. It counted only the `workDir(` and `workDirRelative(` calls.
 
@@ -339,6 +339,126 @@ did not change.
 - **The GDP lock:** B10 changes a lock companion, so it needs a lock review document. A bare hash refresh is not enough.
 - **Work landing on `main` meanwhile** adds new spellings. The ratchet fails them at the next rebase. Each batch is
   rebased before its gate.
+
+## 9. Changes while building
+
+Found while building M1, on `480c2f936`. Each batch's commit adds its own.
+
+- **B0, the resolver.** As §3, with these differences:
+  - `storyRecordOf(path, ...sources)` gives `{ id, inside }` for a record path, so a classifier gets the ID-free remainder
+    in one call; `storyIdOfRecord` and `isStoryRecordPath` use it.
+  - `CONFIGURATION_SOURCE_RELATIVE` names the story-branch pin, `singularity/configuration-source.json`.
+  - `storyLocation(..., { pathModule })` takes `path.win32` in tests, for the Windows flavour of §7.
+  - `inside(prefix)` is `''`, and `owns(p)` is true only strictly below the prefix: the sites that test
+    `startsWith(`${prefix}/`)` keep their answers.
+  - A source is a workflow when it has `workItem` or `resolution`; a definition has neither (its schema).
+- **C is not counted.** `clarificationRecordRelative` moved beside `groundingRecordRelative` and goes through the resolver,
+  as its twin does. So its six calls are calls of a resolver-backed helper, not joins, and the ratchet has no C.
+- **The ratchet counts member calls** (`paths.workDirRelative(`, `dependencies.workDir(`), which §2's counts left out.
+- **Counts moved on.** `main` gained 17 commits after `5ac41f37e`. The ratchet's first ceilings are measured on
+  `480c2f936` after B0 and B1: W 177, R 137, P 7, I 141, B 9, X 97, H 28, L 36, S 9, F 45, E 34. Its B pattern counts
+  joins only (`path.join(... .workItemRoot` and `${... .workItemRoot`), so it finds 9, not 16.
+- **H counts `DEFAULT_WORK_ITEM_ROOT` only** (from B2). `workItemWorkflowRelative` validates a Work ID and normalizes the
+  root before it asks the resolver, so its callers keep that refusal; replacing it with a bare resolver call would drop
+  the check. `storiesRoot()` names the default everywhere else.
+- **B2.** `task-amendment.mjs` (R2) and the lazy `state.mjs` imports of `workDir` in `story-baseline-admission.mjs`
+  were not in the appendix; both are converted. `story-readiness-snapshot.mjs` stamps the default folder's
+  `workflow.json`, as before, through `storyLocation(member, null, story)`.
+- **B3.** `change-flight-plan.mjs` tested `(^|/)singularity/work-items/<ID>/` anywhere in a path. The resolver gains
+  `storyRecordWithin(path, ...sources)`: the first Stories folder at the start or after a `/`. It agrees with the old
+  patterns on every path SFlow writes; it differs only for a Stories folder nested in itself or glued to a longer
+  segment name. A local `workItemRoot` variable joined by hand (`phase-prompt-composer.mjs`) goes through
+  `storyLocation(root, { workItemRoot }, id)`. `phase-mutation-contract.mjs` names `<Stories folder>/null` for a
+  contract without a Story, as before, through `String(workId)`.
+- **B4.** `departure-records.mjs` and `findings/register/on-the-way.mjs` imported `story-paths.mjs` only lazily; their
+  inline joins outside those functions now import it statically, so their own closures gain `story-paths.mjs` (they
+  already held `util.mjs`, its only import). `presence/attribution.mjs` keeps its root normalization (backslashes,
+  trailing slashes) and asks the location whether a path is the Story's record and not its document.
+- **B5.** A template string coerced a missing ID to `undefined`, where `path.join` throws. Where the ID is read from a
+  record (`receipt.workId` in `delivery-evidence.mjs`, `story.workId` in `findings/register/remediation.mjs`), the
+  resolver gets `String(id)`, so a malformed record is still refused with its own message. `trp-document-runtime.mjs`
+  and `test-recovery-admission.mjs` keep `story-paths.mjs` lazy, as they kept `state.mjs`.
+- **Spellings a test pins stay, by name.** "No test file is edited" holds, so where a test reads a module's source
+  and expects the old spelling, the site keeps it and the ratchet allows that line: `state.mjs`'s
+  `activeWitnessClauses(workDir(...))` (`test/approval-witness-criteria.test.mjs`), and `dependencies.workDir(` in
+  `commands/story-test-attestation.mjs` and `commands/story-test-repair.mjs`, a seam their tests inject. Each wrapper
+  asks the resolver. So W ends at these three allowed lines, not at a literal 0.
+- **B8.** `commands/nextsteps.mjs` keeps an OS-relative `workflow.json` path (`path.join` without a root, so Windows
+  separators): `storyLocation('', definition, id).file('workflow.json')` gives the same string. Lazy `state.mjs`
+  imports of `workflowPath` (`auto/auto-flight-store.mjs`) now lazily import `story-paths.mjs`.
+- **B9.** The extension's copy of the classifier lives in `apps/vscode/src/story-attach.ts` (`storyRecordWithin`,
+  `DEFAULT_STORIES_FOLDER`), a module both `views/inbox-model.ts` and `gdp-local-runner-review.ts` reach, so no
+  extension bundle gains a module. The plugin's documents extension ships without the engine and keeps its own copy.
+  A third new test, `test/vscode-story-record-path.test.mjs`, holds both copies to the engine's answers and to the
+  patterns they replaced. The plugin's old pattern matched the folder even glued to a longer segment name
+  (`xsingularity/work-items/`); the copy reads it only at the start of a path or after a `/`.
+  `watcher-refresh-fence.ts` matches Stories and Epics in one pattern and waits for M6. `copilot-plain-chat.mjs`
+  imports the resolver lazily, as it imports everything off the hook's first path. `cli-entry.mjs` keeps its
+  `ls-files` glob of every Story's `workflow.json`: root dispatch does not load `story-paths.mjs` (L, named).
+  `repository-subject-index.mjs` brings `storiesRoot` into the VS Code help and support runtimes: one module each
+  (+75 and +71 bytes), raised with their measurements.
+- **B10.** `schema-migrations.mjs` wraps each of its 95 Story patterns (93 literals and two `new RegExp`) as
+  `insideStory(/^<rest>$/)`, an object whose `test` asks `storyRecordOf` for the path inside the Story; the families'
+  `paths` arrays keep their order, so `familyForStoredPath` is unchanged. Compared before and after on paths generated
+  from each old pattern, under the default and a configured folder: 520 lookups, no difference. The lock review is
+  `docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-26-SSB-M1.md`. The import brings `story-paths.mjs` into root
+  dispatch (one new eager file, +8,885 bytes, raised with its measurement) and into the VS Code extension and
+  performance runtimes (one module each, raised). `ask/retained-history.mjs`'s `'work-items'` is a unit word in a
+  message, not a path, so S stays at 1.
+- **B11.** The Story-pin readers that know their Story ask the location: `story-start.mjs`'s refusal names
+  `configurationSource.relative`, and `session-read-service.mjs` stamps `configurationSource.absolute`. Those that read
+  a checkout's or a branch's pin without a Story ID (`organisation.mjs`, `configuration-restore.mjs`) use the
+  resolver's `CONFIGURATION_SOURCE_RELATIVE`, which a test holds equal to `configuration-assets.mjs`'s
+  `CONFIGURATION_SOURCE_PATH`. The 41 remaining F uses are `existsSync(path.join(root, CONFIGURATION_SOURCE_PATH))`
+  checks of whether a checkout is pinned, `readConfigurationSource` and `materializeConfigurationSnapshot` in
+  `configuration-branch.mjs`, and their messages: none names a Story, so M2 gives them the Story's layout rather than M1
+  a guess. `configuration-assets.mjs` is a leaf with no imports and keeps the constant. The Story-root defaults in
+  `knowledge.mjs`, `knowledge/requirements.mjs`, `harness-imports.mjs` and `initiative-repositories.mjs` (grouped
+  under M6 in the appendix) go through `storiesRoot()`; their Epic paths stay for M6. The last literal joins
+  (`commands/work.mjs`, `session-open-local.mjs`, `status-read.mjs`, `start-context.mjs`) and `cli-entry.mjs`'s
+  tracked-subjects glob use the resolver too.
+- **Final ratchet.** W, R, P, I, B, X, H, L and S are 0 outside named lines: the three `workDir` calls a test pins or injects,
+  the two copies' default folder, and eight lines of help text, agent guidance, comments, an example value and a unit
+  word, each with its reason. F stays at 41 (above) and E at 34 (M6).
+- **B12, readers of recorded paths.** On this base the search (`path.join(root, <record>.<path field>)`) finds 81
+  candidates, not 133. Sorted:
+  - **State files, now `fromRecord`** (20): delivery receipts (`story-lineage.mjs` ×2, `state.mjs` ×2,
+    `commands/shared/phase-review.mjs`, `spec-drift.mjs`), claim pointers (`state.mjs`,
+    `amendment-plan-corrections.mjs`), intent-amendment proposals (`commands/story.mjs` ×3), the impact plan
+    (`impact.mjs`), generation-start receipts (`generation-boundary.mjs`, `amended-drafts.mjs`), phase telemetry
+    (`telemetry.mjs` ×2), work-interval baselines (`work-intervals.mjs` ×2), a dependency record's receipt
+    (`dependency-records.mjs`) and a rendered agent brief (`agent-briefs.mjs`). Each reads the Story's location from
+    the `config` and `workflow` in scope; for story-branch, `fromRecord(p)` is `path.join(root, p)`.
+  - **State files with no Story in scope, left for M2** (5): `evidence/graph.mjs` `loadAttempt`,
+    `criterion-test-failures.mjs`, `approval-waiver.mjs` `pendingWaiverSubmission`,
+    `verification/changed-line-coverage.mjs` `boundStepAttempts` and `generation-boundary.mjs`
+    `consumeGenerationIntent` take a phase or an entry, not a Story; M2 passes them the location.
+  - **Documents, code and configuration, unchanged** (the rest): step artifacts (`artifact.path`, documents in M4),
+    repository, template, skill, AST and workspace paths, and `story-lineage.mjs`'s governed-context seed, which mixes
+    kinds.
+- **Found by the guard tests at the end.** Moving `clarificationRecordRelative` into `phase-generation.mjs` moved its
+  `nextPhaseGeneration` default with it, a second OSA predicate call there; the two twins now share one
+  `contextRecordRelative` that holds the single call, and `story-paths.mjs`'s fall to 0 is locked in
+  `benchmarks/osa/ratchet.json` by hand (no `--ratchet`). The resolver's two refusals name their way out, an SFlow
+  update, as `config.mjs`'s newer-workflow refusal does (plain-language rule: no refusal with only generic help).
+- **Budgets at the end of M1**, against `480c2f936`: eager submit.mjs 9,917,462 (+11,399), session current 4,375,656
+  (+8,381), root dispatch 888,719 bytes (+9,335) and 40 files (one new: `story-paths.mjs`); VS Code gateway 7,891,977
+  bytes (-977, its limit back at 7,893,000), extension 161 modules, help 147, support 115, performance 13 (one module
+  each, `story-paths.mjs`), lazy panels 3,747,716 bytes (+271).
+- **Found by the touched-area run.** The edit guard's static closure gains `story-paths.mjs` (56 to 57 modules: its
+  mutation contract, record-family read and own `workflow.json` path use the resolver), raised in
+  `test/lazy-startup-reads.test.mjs` and `benchmarks/performance-v2/import-budgets.json` with the measurement. The two
+  layout refusals are cleared by whoever works in the checkout (`APPROVAL_HOLD_OWNERS`, `this-checkout`), as a stage's
+  every code must say (`test/oap-m1-approval-check.test.mjs`). B12's `amended-drafts.mjs` variable shadowed the
+  module's `recorded()`; renamed.
+- **The full suite is not run in M1.** §7 asks for it once at M1's end; the owner's rule for this build runs only the
+  touched-area tests and the named guard tests, so the full run is left to integration.
+- **Not converted in M1: a Story prefix passed as a parameter** (`itemRelative`, `itemRoot`, `workRoot` joined by the
+  callee, as in `recovery-preparation-context.mjs`). The prefix comes from the resolver; the callee's join stays until
+  M2 passes the location instead. The ratchet does not count these.
+- **Budgets.** The resolver adds about 8.5 KB of source to every closure that has it. B0 and B1 raise the eager budgets in
+  `test/lazy-command-handlers.test.mjs` (submit.mjs 9,915,050; session current 4,376,031) and the VS Code
+  `gateway-runtime.cjs` limit (7,896,000), each with its measurement. No module was added to any closure.
 
 ## Appendix: every file, by module group
 

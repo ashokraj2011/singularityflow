@@ -14,9 +14,9 @@
 import path from 'node:path';
 import { assertClean, branch, fetchRemote, head, isAncestor, moveCheckedOutBranch, preserveCommitRef, refHead } from './git.mjs';
 import { clearPendingPublication, readPendingPublication } from './publication-pending.mjs';
-import { workDir } from './story-paths.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const REASONS = Object.freeze({
   'no-pending-publication': 'nothing is waiting to be published',
@@ -34,7 +34,7 @@ export function setAsideReason(plan) {
 function storySubject(root, config, workflow) {
   const workId = workflow.workItem.id;
   return {
-    kind: 'story', id: workId, legacyPath: path.join(workDir(root, config, workId), 'publication-pending.json'),
+    kind: 'story', id: workId, legacyPath: storyLocation(root, config, workId).file('publication-pending.json'),
     branch: workflow.workItem.branch ?? workId, remote: config.git?.remote ?? 'origin',
     command: (commit) => `singularity-flow sync ${workId} --set-aside --confirm ${commit}`
   };

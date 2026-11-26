@@ -33,9 +33,10 @@ import {
   extractClauses, isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap, readSubmittedSpecificationIndex,
   readBoundSpecificationIndex, selectActiveSpecRecords, plannedClaimsForObservedPhase
 } from '../specifications.mjs';
+import { storiesRoot, storyLocation } from '../story-paths.mjs';
 
 function itemDirectory(root, definition, workId) {
-  return path.join(root, definition.workItemRoot ?? 'singularity/work-items', workId);
+  return storyLocation(root, definition, workId).directory;
 }
 
 async function readJsonAt(root, relative) {
@@ -309,7 +310,7 @@ async function loadWitnessRecords(root, workflow) {
 /** The Story's accepted-scope inventory [E2G-006], or null with a finding when it cannot be built. */
 async function loadScopeInventory(root, definition, workflow, directory, records, findings) {
   try {
-    const source = await pinnedStorySource(root, { workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot }, workflow);
+    const source = await pinnedStorySource(root, { workItemRoot: storiesRoot(workflow, definition) }, workflow);
     const clauses = (records.indexes ?? []).flatMap((index) => index.clauses ?? []);
     const scopeNotApplicable = applicabilityStatus(workflow).some((entry) => entry.responsibility === 'scope' && entry.satisfied);
     return await buildScopeInventory(root, directory, workflow, { source, clauses, scopeNotApplicable });
@@ -328,7 +329,7 @@ async function loadScopeInventory(root, definition, workflow, directory, records
  * A preview for the people who decide scope; never evidence. Null when it cannot be built.
  */
 export async function previewScopeInventory(root, definition, workflow, { draftPhase = null, diagnostics = [] } = {}) {
-  const directory = itemDirectory(root, { workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot }, workflow.workItem.id);
+  const directory = itemDirectory(root, [workflow, definition], workflow.workItem.id);
   const { indexes } = await previewSpecIndexes(root, directory, workflow, draftPhase, diagnostics);
   return loadScopeInventory(root, definition, workflow, directory, { indexes }, diagnostics);
 }
@@ -341,7 +342,7 @@ export async function previewScopeInventory(root, definition, workflow, { draftP
  * clause the approved index lacks is not current.
  */
 export async function scopeDecisionPreview(root, definition, workflow, { diagnostics = [] } = {}) {
-  const directory = itemDirectory(root, { workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot }, workflow.workItem.id);
+  const directory = itemDirectory(root, [workflow, definition], workflow.workItem.id);
   const current = workflow.phases?.[workflow.currentPhase];
   const { indexes, previewed } = await previewSpecIndexes(root, directory, workflow,
     current && phaseOwnsScope(workflow, current) ? current : null, diagnostics);
@@ -393,7 +394,7 @@ export async function loadEvidenceGraph(root, { workId = null, scopePreview = fa
  * passes the Story its transition is about to commit.
  */
 export async function evidenceGraphFromAggregate(root, definition, workflow) {
-  const directory = itemDirectory(root, { workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot }, workflow.workItem.id);
+  const directory = itemDirectory(root, [workflow, definition], workflow.workItem.id);
   const findings = [];
   let untrusted = false;
   const projected = await loadProjectedSpecRecords(root, directory, workflow, findings);

@@ -1,2 +1,2 @@
 /** Compatibility export; canonical Story paths share one read-only owner. */
-export { clarificationRecordRelative } from './story-paths.mjs';
+export { clarificationRecordRelative } from './phase-generation.mjs';

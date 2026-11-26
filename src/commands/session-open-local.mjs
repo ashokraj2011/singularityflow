@@ -12,6 +12,7 @@ import { resolveSessionRepository } from './shared/session-repository-selection.
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { storyActiveElsewhere } from '../story-active-elsewhere.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -96,7 +97,7 @@ export async function openLocalSessionCommand(positionals, options) {
   // match. Try those first; any other layout falls back to verifying every registered checkout.
   const registeredWorktrees = indexed ? [{ repositoryPath: indexed.entry.checkoutPath, branch: indexed.entry.branch }]
     : listStoryWorktrees(root);
-  const holding = registeredWorktrees.filter((entry) => existsSync(path.join(entry.repositoryPath, 'singularity/work-items', workId, 'workflow.json')));
+  const holding = registeredWorktrees.filter((entry) => existsSync(storyLocation(entry.repositoryPath, null, workId).workflowFile));
   for (const registered of holding.length ? holding : registeredWorktrees) {
     const checkout = registered.repositoryPath;
     try {

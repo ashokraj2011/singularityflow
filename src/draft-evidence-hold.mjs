@@ -9,6 +9,7 @@ import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { EvidenceAmendmentSchema } from './plan-evidence-amendments.mjs';
 import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
 import { expectedPhaseEvidencePaths } from './recovery-preparation-context.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export async function inspectDraftEvidenceHold(root, config, workflow, phase, {
   unexpectedPaths, expectedPaths, inspection, simpleStatus
@@ -16,7 +17,7 @@ export async function inspectDraftEvidenceHold(root, config, workflow, phase, {
   if (!simpleStatus || !unexpectedPaths.length || unexpectedPaths.length > 64
       || phase?.id !== workflow.currentPhase || workflow.status !== 'in_progress'
       || !requiresProspectivePhaseInspection(workflow, phase) || !correctionOwner(workflow, phase)) return null;
-  const prefix = `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence/`;
+  const prefix = storyLocation(null, config, workflow.workItem.id).record(`evidence/`);
   const guards = [...(config.governance?.protectedPaths ?? []),
     ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])];
   const untracked = new Set(inspection.entries.filter(entry => entry.type === 'untracked'
@@ -56,7 +57,7 @@ export async function inspectPendingEvidenceContracts(root, config, workflow, ph
   generation = phaseInspectionGeneration(workflow, phase)
 } = {}) {
   if (!correctionOwner(workflow, phase) || !requiresProspectivePhaseInspection(workflow, phase)) return { paths: [], actions: [] };
-  const itemRoot = `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`;
+  const itemRoot = storyLocation(null, config, workflow.workItem.id).prefix;
   const candidates = inspectLifecycleWorktree(root, config, workflow).entries
     .filter(entry => entry.path.kind === 'utf8' && entry.path.value.startsWith(`${itemRoot}/evidence/`))
     .map(entry => entry.path.value);

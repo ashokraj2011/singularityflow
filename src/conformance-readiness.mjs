@@ -10,6 +10,7 @@ import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
 import { conformanceGapDecisions } from './upstream-routes.mjs';
 import { secureRepositoryPath } from './util.mjs';
 import { shown } from './draft-diagnostics.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const VERDICT = /^(matched|partial|missing|deviated|unplanned)(?:\s|\(|$)/u;
 const ANY_VERDICT = /\b(matched|partial|missing|deviated|unplanned)\b/;
@@ -93,7 +94,7 @@ export function withSelfApprovalDisclosures(markdown, workflow) {
  * Story's requirements and implementation-spec documents. An unreadable document adds none.
  */
 export async function traceableConformanceIds(root, config, workflow) {
-  const directory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const directory = storyLocation(root, config, workflow.workItem.id).directory;
   const found = new Set();
   for (const phase of (workflow.phaseOrder ?? []).map((id) => workflow.phases?.[id])) {
     if (!TRACEABILITY_KINDS.has(phase?.requiredArtifact?.kind)) continue;
@@ -277,11 +278,8 @@ export async function inspectPhaseConformance(root, config, workflow, phase) {
 async function inspectUnhonouredConformance(root, config, workflow, phase) {
   if (phase?.requiredArtifact?.kind !== 'conformance-report') return { findings: [], advisories: [], summary: null };
   const qualified = workflow.resolution?.spec?.conformanceRows === 'qualified';
-  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
-  const relative = path.posix.join(
-    config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
-    phase.requiredArtifact.path
-  );
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
+  const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact.path);
   const safe = await secureRepositoryPath(root, relative, {
     label: `Conformance report for phase '${phase.id}'`, mustExist: qualified, type: 'file'
   });

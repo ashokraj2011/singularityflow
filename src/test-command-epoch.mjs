@@ -12,10 +12,11 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { validateTestCommandEpochValidation } from './test-command-amendment-contracts.mjs';
 import { resolveTrpDeliverySelection } from './trp-delivery-selection.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError, writeText } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const fail = message => { throw new SingularityFlowError(message, { code: 'TCA_EPOCH_VALIDATION_REQUIRED' }); };
-const workRelative = (config, workflow) => path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+const workRelative = (config, workflow) => storyLocation(null, config, workflow.workItem.id).prefix;
 const phaseAmendment = (workflow, phase) => (workflow.testCommandAmendments ?? []).findLast(entry => entry.phaseId === phase.id);
 const liveRuns = new WeakMap();
 const bytesDigest = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;

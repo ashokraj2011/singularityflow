@@ -11,7 +11,7 @@ import {
 import { loadSession, setAgentSession } from './session.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { loadWorkflow } from './story-workflow-read.mjs';
-import { workflowBranchAllowed, workDir } from './story-paths.mjs';
+import { workflowBranchAllowed, storyLocation } from './story-paths.mjs';
 import { commitAndPublish, saveStoryDraft, sourceTreeDigests, sourceTreeHash, testInputTreeHash, storyWelEnrollmentStatus, workflowPublicationBranch } from './state-stores.mjs';
 import {
   gitHeadIsUnborn, gitReadOutput, nowIso, run, SingularityFlowError, snapshot, writeJson
@@ -80,7 +80,7 @@ function ownedClaimMapPath(root, config, workId, candidate) {
     || !candidate.endsWith('.json')) return false;
   const claimRoot = path.relative(
     root,
-    path.join(workDir(root, config, workId), 'context', 'claims')
+    storyLocation(root, config, workId).file('context', 'claims')
   ).split(path.sep).join('/');
   if (!claimRoot || claimRoot === '..' || claimRoot.startsWith('../')) return false;
   const prefix = `${claimRoot}/`;
@@ -112,7 +112,7 @@ function currentClaimMapBindings(root, config, workflow, phase) {
 function validateSubmittedArchitectureIntent(root, config, workflow, packet, evidenceCommit) {
   const binding = packet.submissionEvidence?.architectureIntent ?? null;
   if (binding == null) return null;
-  const workRoot = path.relative(root, workDir(root, config, workflow.workItem.id))
+  const workRoot = path.relative(root, storyLocation(root, config, workflow.workItem.id).directory)
     .replaceAll('\\', '/');
   const expectedPath = `${workRoot}/context/architecture/architecture-intent.json`;
   if (binding.workId !== packet.workId || binding.phase !== packet.phase
@@ -148,7 +148,7 @@ function validateSubmittedArchitectureIntent(root, config, workflow, packet, evi
 async function witnessReviewSnapshot(root, config, workflow, phase) {
   const status = storyWelEnrollmentStatus(root, config, workflow.workItem.id);
   for (const execution of phase.deliveryEvidence?.testExecutions ?? []) {
-    const stored = JSON.parse(await readFile(path.join(root, execution.receiptPath), 'utf8'));
+    const stored = JSON.parse(await readFile(storyLocation(root, config, workflow.workItem.id).fromRecord(execution.receiptPath), 'utf8'));
     const storedSha256 = createHash('sha256').update(canonicalJson(stored)).digest('hex');
     if (storedSha256 !== String(execution.receiptSha256 ?? '').replace(/^sha256:/, '')) {
       throw new SingularityFlowError(
@@ -168,8 +168,8 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
   }
   const clauseMappings = new Map();
   if (phase.deliveryEvidence?.status === 'ready' && phase.deliveryEvidence.receiptPath) {
-    const receipt = JSON.parse(await readFile(path.join(root, phase.deliveryEvidence.receiptPath), 'utf8'));
-    const specRecords = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+    const receipt = JSON.parse(await readFile(storyLocation(root, config, workflow.workItem.id).fromRecord(phase.deliveryEvidence.receiptPath), 'utf8'));
+    const specRecords = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
     const clauses = new Map((specRecords.indexes ?? []).flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
     const contracts = mergedVerificationContracts(specRecords.planned ?? []);
     const planned = mergePlannedClaimRecords(specRecords.planned ?? []);
@@ -398,7 +398,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
   const artifacts = [];
   const references = [];
   const harnessPolicy = workflow.resolution?.harnessImports ?? config.harnessImports ?? { mode: 'off' };
-  const governedItemPrefix = `${path.relative(root, workDir(root, config, workflow.workItem.id)).replaceAll('\\', '/')}/`;
+  const governedItemPrefix = `${path.relative(root, storyLocation(root, config, workflow.workItem.id).directory).replaceAll('\\', '/')}/`;
   for (const item of phase.artifacts ?? []) {
     const artifact = {
       path: item.path,
@@ -555,7 +555,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
   };
   const packetSha256 = hash(base);
   const packet = { ...base, packetSha256 };
-  const file = path.join(workDir(root, config, workflow.workItem.id), 'submissions', phase.id, `${packetSha256}.json`);
+  const file = storyLocation(root, config, workflow.workItem.id).file('submissions', phase.id, `${packetSha256}.json`);
   await writeJson(file, packet);
   workflow.lineage ??= { schemaVersion: currentSchemaVersion('story-lineage'), canonicalBranch: workflow.workItem.branch, parentStoryId: workflow.workItem.id, childBranches: [] };
   workflow.lineage.submissions ??= [];
@@ -847,7 +847,7 @@ export async function finalizeStoryDelivery(root, config, workflow, { persist = 
   };
   const packetSha256 = hash(base);
   const packet = { ...base, packetSha256 };
-  const file = path.join(workDir(root, config, workflow.workItem.id), 'finalizations', `${packetSha256}.json`);
+  const file = storyLocation(root, config, workflow.workItem.id).file('finalizations', `${packetSha256}.json`);
   await writeJson(file, packet);
   workflow.lineage ??= {
     schemaVersion: currentSchemaVersion('story-lineage'),

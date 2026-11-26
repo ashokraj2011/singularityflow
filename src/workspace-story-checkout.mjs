@@ -11,6 +11,7 @@ import { validatePortableWorkId } from './work-id.mjs';
 import { measureCommandSpan, incrementCommandCounter } from './dx-timing-context.mjs';
 import { automaticStoryPreparation } from './workspace-story-location-scope.mjs';
 export { withAutomaticStoryCheckout, automaticStoryRepositoryPath } from './workspace-story-location-scope.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const preparations = new WeakMap();
 const canonical = async (file) => realpath(file).catch(error => {
@@ -55,7 +56,7 @@ async function checkoutDirectory(cwd) {
 }
 
 async function localStoryPresent(root, id, ref) {
-  if (await lstat(path.join(root, 'singularity/work-items', id, 'workflow.json')).catch(() => null)) return true;
+  if (await lstat(storyLocation(root, null, id).workflowFile).catch(() => null)) return true;
   const common = repositoryGitDirectory(root);
   if (!common) return false;
   if (await lstat(path.join(common, 'singularity-flow/story-start', `${encodeURIComponent(id).replace(/%/gu, '_')}.json`)).catch(() => null)) return true;

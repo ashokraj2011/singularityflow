@@ -20,8 +20,9 @@ import {
   assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport
 } from './git-remote-diagnostics.mjs';
 import {
-  DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
+  workItemRootFromDefinitionText, workItemWorkflowRelative
 } from './work-item-location.mjs';
+import { storiesRoot } from './story-paths.mjs';
 
 function reviewClone(root, initiativeId, repositoryId) {
   return path.join(gitDir(root), 'singularity-flow', 'reviews', initiativeId, repositoryId);
@@ -86,7 +87,7 @@ function candidateRemoteRefs(clone) {
 
 function workflowAtRef(clone, ref, workId) {
   const definition = git(clone, ['show', `${ref}:singularity/workflow.yml`], { allowFailure: true });
-  let workItemRoot = DEFAULT_WORK_ITEM_ROOT;
+  let workItemRoot = storiesRoot();
   if (definition.status === 0) {
     try { workItemRoot = workItemRootFromDefinitionText(definition.stdout); }
     catch { return null; }

@@ -15,12 +15,10 @@ import { beginTelemetryCapture } from './telemetry.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function receiptRelative(config, workflow, phase, generation) {
-  return posix(path.join(
-    config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
-    'context', 'generation-start', `${phase.id}-gen${generation}.json`
-  ));
+  return storyLocation(null, config, workflow.workItem.id).record('context', 'generation-start', `${phase.id}-gen${generation}.json`);
 }
 
 function generationStartSha256(record) {
@@ -35,7 +33,7 @@ async function verifiedIntentRecord(root, workflow, phase, intent) {
     throw new SingularityFlowError('The open generation intent has no durable receipt path.', { code: 'GENERATION_INTENT_REQUIRED' });
   }
   let receipt;
-  try { receipt = readRecord('generation-start', await readJson(path.join(root, intent.path))).record; }
+  try { receipt = readRecord('generation-start', await readJson(storyLocation(root, workflow, workflow.workItem.id).fromRecord(intent.path))).record; }
   catch (error) {
     throw new SingularityFlowError(`The generation-start receipt is unavailable or unreadable: ${error.message}`, {
       code: 'GENERATION_INTENT_REQUIRED', cause: error

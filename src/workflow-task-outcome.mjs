@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { storyLocation, storiesRoot } from './story-paths.mjs';
 
 const OUTCOMES = new Set(['running', 'waiting-input', 'waiting-environment', 'waiting-person', 'repair-required']);
 const PATTERN = /^(running|waiting-input|waiting-environment|waiting-person|repair-required):([A-Za-z0-9_.-]{1,80}):([a-f0-9]{12})(?::([A-Za-z0-9_.-]{1,40}))?$/u;
@@ -93,7 +94,7 @@ export async function recordRefusalOutcome(root, workflow, phase, refusal) {
   let kept = workflow;
   try {
     const [{ readFile }, path, { readRecord }] = await Promise.all([import('node:fs/promises'), import('node:path'), import('./schema-migrations.mjs')]);
-    kept = readRecord('story-workflow', await readFile(path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'workflow.json'), 'utf8')).record;
+    kept = readRecord('story-workflow', await readFile(storyLocation(root, workflow, workflow.workItem.id).file('workflow.json'), 'utf8')).record;
   } catch { kept = workflow; }
   const blockedCode = outcomeCode(stop.outcome, stop.code, kept, stop.input);
   if (!blockedCode) return null;
@@ -199,7 +200,7 @@ async function askedForOwed(workflow, phase) {
 async function taskFactOf(root, workflow, phase, { pending } = {}) {
   try {
     const retained = pending !== undefined ? pending : await (await import('./publication-pending.mjs')).readPendingPublication(root,
-      { kind: 'story', id: workflow.workItem.id, migrate: false, roots: { workItemRoot: workflow.resolution?.workItemRoot ?? 'singularity/work-items' } }).catch(() => null);
+      { kind: 'story', id: workflow.workItem.id, migrate: false, roots: { workItemRoot: storiesRoot(workflow) } }).catch(() => null);
     if (retained) return publicationPendingFact(retained);
     const running = runningExecutionFact(await (await import('./subject-lock.mjs')).inspectSubjectLease(root, { kind: 'story', id: workflow.workItem.id }));
     if (running) return running;

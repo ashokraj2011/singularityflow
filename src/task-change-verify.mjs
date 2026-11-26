@@ -15,7 +15,7 @@ const same = (left, right) => canonicalJson(left ?? null) === canonicalJson(righ
 export async function verifyAcceptedTaskChanges(root, config, workflow, verified = null) {
   const changes = workflow?.taskChanges ?? [];
   if (!changes.length) return;
-  const [{ prospectiveTestCommandAmendment }, snapshots, contracts, { exactFileAtObject }, { workDirRelative }] = await Promise.all([
+  const [{ prospectiveTestCommandAmendment }, snapshots, contracts, { exactFileAtObject }, { storyLocation }] = await Promise.all([
     import('./test-command-amendment-contracts.mjs'), import('./workflow-snapshots.mjs'), import('./task-change-contracts.mjs'),
     import('./git.mjs'), import('./story-paths.mjs')]);
   if (prospectiveTestCommandAmendment(workflow)) return;
@@ -24,7 +24,7 @@ export async function verifyAcceptedTaskChanges(root, config, workflow, verified
     details: { nextAction: { command: 'singularity-flow validate', label: 'Check the Story\'s record against its history.' } } });
   verified ??= await snapshots.verifyWorkflowSnapshot(root, config, workflow, { requireAccepted: true, retainBytes: true });
   const bytes = verified.acceptanceCommit
-    ? exactFileAtObject(root, verified.acceptanceCommit, `${workDirRelative(config, id)}/workflow.json`, { maximumBytes: 16 * 1024 * 1024 }) : null;
+    ? exactFileAtObject(root, verified.acceptanceCommit, storyLocation(null, config, id).record(`workflow.json`), { maximumBytes: 16 * 1024 * 1024 }) : null;
   if (!bytes) throw stale(`${id}'s added steps cannot be read from the commit that accepted them.`);
   const accepted = JSON.parse(bytes.toString('utf8'));
   if (!same(accepted.taskChanges, workflow.taskChanges) || !same(accepted.resolution?.composition, workflow.resolution?.composition)) {

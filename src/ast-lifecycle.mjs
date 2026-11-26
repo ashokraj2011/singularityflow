@@ -12,6 +12,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, writeJson } from './util.mjs';
 import { astDisabledForWorkflow } from './intelligence-policy.mjs';
 import { sourceFileAt } from './source-inspection.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function configuredPredicates(config, workflow = null) {
   if (astDisabledForWorkflow(workflow)) return [];
@@ -33,10 +34,7 @@ async function lifecyclePolicy(config, workflow) {
 }
 
 function receiptRelative(config, workflow, phaseId, generation) {
-  return path.posix.join(
-    config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
-    'context', 'ast', `${phaseId}-gen${generation}.json`
-  );
+  return storyLocation(null, config, workflow.workItem.id).record('context', 'ast', `${phaseId}-gen${generation}.json`);
 }
 
 function withoutIntegrity(record) {

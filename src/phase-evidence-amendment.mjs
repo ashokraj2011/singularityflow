@@ -18,12 +18,13 @@ import { assertNoPendingPublication, actorKey, transactStory } from './state-sto
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { nowIso, secureRepositoryPath, writeText, SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const digest = value => `sha256:${recordSha256(value)}`;
 const fail = (message, code = 'PLAN_EVIDENCE_CORRECTION_INVALID', details = {}) => {
   throw new SingularityFlowError(message, { code, details });
 };
-const itemRoot = (config, workflow) => `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`;
+const itemRoot = (config, workflow) => storyLocation(null, config, workflow.workItem.id).prefix;
 
 export function correctionOwner(workflow, phase) {
   const ownerId = workflow.resolution?.plannedClaims?.owners?.[phase.id];

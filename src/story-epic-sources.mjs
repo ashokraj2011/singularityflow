@@ -17,10 +17,10 @@ import YAML from 'yaml';
 import { epicSourceIsActive, sourceRuntime, storageAdapter } from './epic-sources.mjs';
 import { exactFileAtObject, isAncestor } from './git.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
-import { workDir } from './story-paths.mjs';
 import { initiativeRelative } from './state-stores.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
 import { readReviewArtifactBytes } from './artifact-review-read.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -36,7 +36,7 @@ export async function pinnedStorySource(root, config, workflow) {
 
 /** Stable bytes and immutable identity; retain main's committed-source conversion proof. */
 export async function pinnedStorySourceSnapshot(root, config, workflow) {
-  const sourcePath = path.join(workDir(root, config, workflow.workItem.id), 'source.json');
+  const sourcePath = storyLocation(root, config, workflow.workItem.id).file('source.json');
   const relative = posix(path.relative(root, sourcePath));
   const checkout = await readReviewArtifactBytes(root, relative, 'Story source snapshot');
   if (checkout == null) return null;

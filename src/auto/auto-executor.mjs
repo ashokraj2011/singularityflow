@@ -52,6 +52,7 @@ import {
   alignAutoIntervalBoundary, armAutoIntervalBoundary, authorizeAutoAuthoringAttempt, mutateAutoFlightState,
   persistAutoFlightReport, readAutoFlightState
 } from './auto-flight-store.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 // Through the package root, so the bundled CLI (bundle/, one level deep) finds the same file.
 const BIN = path.join(PACKAGE_ROOT, 'bin', 'singularity-flow.mjs');
@@ -1160,9 +1161,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         // The registered World Model was removed; Auto flights record no World-Model reference.
         worldModelReference = null;
         const generationPrompt = await readPromptGeneration(worktree, workflow, phase, {
-          workDir: path.join(
-            worktree, definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id
-          ),
+          workDir: storyLocation(worktree, definition, workflow.workItem.id).directory,
           agent: phase.defaultAgent
         });
         if (!generationPrompt) {

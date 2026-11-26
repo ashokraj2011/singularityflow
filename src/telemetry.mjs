@@ -9,6 +9,7 @@ import { exists, nowIso, snapshot, writeJson } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { listTelemetryLaunches, telemetryPreferenceStatus, telemetryRawPath, telemetryWorktreeId } from './telemetry-provision.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const CURSOR_SCHEMA = currentSchemaVersion('telemetry-cursor');
 const RECORD_SCHEMA = currentSchemaVersion('phase-telemetry');
@@ -666,11 +667,11 @@ export function phaseTelemetrySummary(telemetry) {
 export async function verifyPhaseTelemetry(root, workflow, phase, generation) {
   const context = (phase.telemetry ?? []).find((item) => item.generation === generation);
   if (!context) return { errors: [`telemetry record missing for ${phase.id} generation ${generation}`], passes: [] };
-  const current = await snapshot(path.join(root, context.path));
+  const current = await snapshot(storyLocation(root, workflow, workflow.workItem.id).fromRecord(context.path));
   if (!current.exists) return { errors: [`telemetry file missing: ${context.path}`], passes: [] };
   if (current.sha256 !== context.sha256) return { errors: [`telemetry integrity failed: ${context.path}`], passes: [] };
   let record;
-  try { record = readRecord('phase-telemetry', await readFile(path.join(root, context.path))).record; }
+  try { record = readRecord('phase-telemetry', await readFile(storyLocation(root, workflow, workflow.workItem.id).fromRecord(context.path))).record; }
   catch (error) {
     if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
     return { errors: [`telemetry record is invalid JSON: ${context.path}`], passes: [] };

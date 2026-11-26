@@ -23,6 +23,7 @@ import { verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError, writeText } from './util.mjs';
 
 import { prospectiveTestCommandAmendments as PROSPECTIVE, prospectiveTestCommandAmendment } from './test-command-amendment-contracts.mjs';
+import { storyLocation } from './story-paths.mjs';
 export { prospectiveTestCommandAmendment };
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const bytesDigest = value => `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -31,7 +32,7 @@ const actorKey = actor => String(actor?.email || actor?.login || '').trim().toLo
 const identityKeys = actor => [['email', actor?.email], ['login', actor?.login]]
   .filter(([, value]) => String(value ?? '').trim()).map(([kind, value]) => `${kind}:${String(value).trim().toLowerCase()}`);
 const same = (left, right) => canonicalJson(left) === canonicalJson(right);
-const workRelative = (config, workflow) => path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+const workRelative = (config, workflow) => storyLocation(null, config, workflow.workItem.id).prefix;
 const recordPath = (config, workflow, id, suffix) => `${workRelative(config, workflow)}/context/test-recovery/command-amendments/${id}-${suffix}.json`;
 const policyDigest = resolution => { const value = structuredClone(resolution); delete value.policySha256; return digest(value); };
 

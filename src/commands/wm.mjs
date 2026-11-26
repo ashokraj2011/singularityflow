@@ -4,6 +4,7 @@ import { withCommandObservability } from '../command-observability.mjs';
 import { repoRoot } from '../git.mjs';
 import { SingularityFlowError, optionBoolean } from '../util.mjs';
 import { worldModelCommand } from '../worldmodel.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -25,7 +26,7 @@ export async function wmCommand(positionals, options) {
   const [
     { generateDesignInventory },
     { approvedDesignSourceBinding },
-    { loadConfig, loadStoryAggregate, workDir }
+    { loadConfig, loadStoryAggregate }
   ] = await Promise.all([
     import('../design-inventory.mjs'),
     import('../design-sources.mjs'),
@@ -33,7 +34,7 @@ export async function wmCommand(positionals, options) {
   ]);
   const root = repoRoot(), config = await loadConfig(root), workflow = await loadStoryAggregate(root, config);
   const binding = approvedDesignSourceBinding(workflow);
-  const result = await generateDesignInventory(root, workflow, binding, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+  const result = await generateDesignInventory(root, workflow, binding, { itemDirectory: storyLocation(root, config, workflow.workItem.id).directory });
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(`Design inventory: ${result.digest.digestSha256}\nJSON: ${result.json.path}\nMarkdown: ${result.markdown.path}`);
 }

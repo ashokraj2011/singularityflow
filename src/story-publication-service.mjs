@@ -5,6 +5,7 @@ import { assertNoPendingPublication } from "./story-publication-pending.mjs";
 import { assertStoryNotArchived } from "./governance-archive.mjs";
 import { buildDesignSourceSet } from "./design-sources.mjs";
 import { capabilityPublicationPlanSha256 } from './capability-publication-identity.mjs';
+import { storyLocation } from './story-paths.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from "./aggregate-recovery.mjs";
 import { clearPendingPublication } from "./publication-pending.mjs";
 import { actionActor, commitIsAncestor, head, identity } from "./git.mjs";
@@ -216,7 +217,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   // post-approval metadata (so the next command reported "Artifact changed after registration" and
   // blamed the operator) and a complete approved decision on disk for an approval that was undone —
   // which the next successful governed commit would then sweep into signed, pushed, attested history.
-  const workDirectory = workDirRelative(config, workflow.workItem.id);
+  const workDirectory = storyLocation(null, config, workflow.workItem.id).prefix;
   const lessonPaths = event?.type === 'phase-approved' ? ['singularity/knowledge/records'] : [];
   // Narrow evidence/appeal transactions must not sweep an unfinished phase draft into a commit.
   // The subject state and status projection remain mandatory owned paths; callers cannot use this
@@ -325,7 +326,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         if (event?.type === 'artifact-generated'
           && workflow.resolution?.designSources?.capturePhase === requestedPhase?.id) {
           await buildDesignSourceSet(root, workflow, {
-            itemDirectory: workDir(root, config, workflow.workItem.id),
+            itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
             selectionByFileKey: requestedPhase.designSourceSelection ?? {}
           });
           await updateArtifactMetadata(root, config, workflow, requestedPhase);
@@ -334,7 +335,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
           // refresh that registration inside the same publication transaction so
           // submit does not mistake Flow's own metadata update for user tampering.
           await registerArtifact(root, workflow, path.join(
-            workDirRelative(config, workflow.workItem.id),
+            storyLocation(null, config, workflow.workItem.id).prefix,
             requestedPhase.requiredArtifact.path
           ), { phaseId: requestedPhase.id, kind: requestedPhase.requiredArtifact.kind, config });
           const designValidation = await validatePhase(root, config, workflow, requestedPhase,
@@ -385,8 +386,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
             if (requestedPhase.status === 'approved') {
               await ensureWorkIntervalBaseline(root, config, workflow, {
                 phaseId: workflow.currentPhase,
-                itemDirectory: workDir(root, config, workflow.workItem.id),
-                itemRelative: workDirRelative(config, workflow.workItem.id)
+                itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
+                itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
               });
               // The step's lessons, noticed from its own records and kept with no stop [LRN:REQ-001, REQ-003]. Guidance
               // only: a lesson that cannot be kept never costs the approval [LRN:REQ-009].
@@ -458,7 +459,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     pendingRecord: () => pendingMetadata,
     retainPendingOnSuccess: Boolean(publicationTail),
     revisionAttestation,
-    ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: workDirRelative(config, workflow.workItem.id) },
+    ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: storyLocation(null, config, workflow.workItem.id).prefix },
     afterOwnedWrites,
     validateProspectiveTree: async ({ event: finalizedEvent, prospectiveTree }) => {
       await validateDocumentPublicationTree(root, config, workflow, finalizedEvent, { prospectiveTree });

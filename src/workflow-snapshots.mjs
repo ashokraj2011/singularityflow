@@ -34,6 +34,7 @@ import {
   SingularityFlowError, gitHeadIsUnborn, gitOutsideRepository, posix, readJson, run, secureRepositoryPath,
   writeBytes, writeJson
 } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const SNAPSHOT_FAMILY = 'workflow-snapshot';
 const SNAPSHOT_REFERENCE_FAMILY = 'workflow-snapshot-reference';
@@ -126,7 +127,7 @@ function digestHex(value, label) {
 }
 
 function storyRelative(config, workId, child = '') {
-  const root = posix(path.join(config.workItemRoot ?? 'singularity/work-items', workId));
+  const root = storyLocation(null, config, workId).prefix;
   return child ? `${root}/${child}` : root;
 }
 

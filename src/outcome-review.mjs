@@ -14,6 +14,7 @@ import { applicationReviewPhase, phaseRequiresCodeDelivery } from './code-delive
 import { authorRoute, returnRoute, versionQuestionRoute } from './action-command-map.mjs';
 import { phaseCorrectionTargets } from './approval-fallback.mjs';
 import { stepDecisionOf } from './step-decision.mjs';
+import { storiesRoot, storyLocation } from './story-paths.mjs';
 
 const MAX_TEXT = 400;
 const PORT_PROBE_MS = 300;
@@ -48,17 +49,18 @@ export async function outcomeReview(root, { workId = null, capabilityId = null }
     ? await (await import('./runtime-check.mjs')).runtimeTryItView(root, workflow, reviewPhase).catch(() => null) : null;
   return { ...(applicationReview ? { applicationReview } : {}), ...(tryIt ? { tryIt } : {}), ...buildOutcomeReview({ workflow, graph, evaluation, owed, application,
     contracts: mergedVerificationContracts(graph.records?.planned ?? []),
-    workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot ?? 'singularity/work-items' }) };
+    workItemRoot: storiesRoot(workflow, definition) }) };
 }
 
 /** The outcome from what the readers returned. Pure, so the shape is tested without a Story. */
-export function buildOutcomeReview({ workflow, graph, evaluation, owed = null, application = null, contracts = new Map(), workItemRoot = 'singularity/work-items' }) {
+export function buildOutcomeReview({ workflow, graph, evaluation, owed = null, application = null, contracts = new Map(), workItemRoot = storiesRoot() }) {
   const workId = workflow.workItem.id;
   const clauses = new Map((graph?.records?.indexes ?? []).flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
   const signOffs = owed?.status === 'owed' ? owed.witnesses ?? [] : [];
   // A visual check the plan gave no screenshot path: suggest one, and use it in the sign-off command.
   // Named for the criterion and slot, so two criteria with a slot of the same name never share a file.
-  const suggested = (clauseId, slot) => `${String(workItemRoot).replace(/\/+$/u, '')}/${workId}/evidence/${String(clauseId).split(':').pop().toLowerCase()}-${slot}.png`;
+  const suggested = (clauseId, slot) => storyLocation(null, { workItemRoot: String(workItemRoot).replace(/\/+$/u, '') }, workId)
+    .record(`evidence/${String(clauseId).split(':').pop().toLowerCase()}-${slot}.png`);
   const filled = (entry) => entry.method === 'visual' && !(entry.files ?? []).length && entry.command
     ? { suggestedFile: suggested(entry.clauseId, entry.slot), command: entry.command.replace("'<EVIDENCE-PATH>'", suggested(entry.clauseId, entry.slot)) }
     : { command: entry.command ?? null };

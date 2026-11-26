@@ -9,6 +9,7 @@ import { recordSha256 } from './records.mjs';
 import { enqueueStepActions, readStepActionDelivery } from './step-action-delivery.mjs';
 import { lifecycleOf } from './step-action-pipeline.mjs';
 import { missingRequiredStepActionReceipts, requiredStepActionDeliveries } from './step-action-receipts.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export async function reconstructRequiredStepActions(root, config, workflow, { keys = null } = {}) {
   const missing = await missingRequiredStepActionReceipts(root, config, workflow);
@@ -21,7 +22,7 @@ export async function reconstructRequiredStepActions(root, config, workflow, { k
   const restored = [];
   const unavailable = [];
   if (!wanted.size) return { restored, unavailable: [] };
-  const storyFile = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'workflow.json');
+  const storyFile = storyLocation(null, config, workflow.workItem.id).record('workflow.json');
   for (const commit of firstParentCommitsMentioning(root, 'Singularity-Flow-Event-SHA256:')) {
     const identity = governedCommitIdentity(root, commit);
     if (!identity?.eventSha256) continue;

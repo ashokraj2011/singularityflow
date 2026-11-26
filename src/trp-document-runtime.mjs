@@ -54,7 +54,8 @@ export async function inspectSupplementalDocument(root, config, workflow, contra
   contract = normalizeDocumentObligations([contract])[0];
   const phase = workflow.phases?.[contract.phaseId];
   if (!phase) fail('The supplemental document phase is not in this Story.');
-  const forbidden = [config.workItemRoot ?? 'singularity/work-items', 'singularity', '.git', '.singularity-flow',
+  const { storiesRoot } = await import('./story-paths.mjs');
+  const forbidden = [storiesRoot(config), 'singularity', '.git', '.singularity-flow',
     ...(config.governance?.protectedPaths ?? []), ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])];
   const protectedResult = evaluateProtectedPaths({ entries: [{ newPath: contract.path, oldPath: contract.path }] },
     forbidden, { caseInsensitive: true });
@@ -113,7 +114,8 @@ export async function loadStoryDocumentRiskContext(root, config, workflow, {
   phaseId = workflow.currentPhase, obligationId, repositoryId = null, operation = 'publish', at = nowIso(), generation = null,
   evidenceCommit = null, observationSha256 = null
 } = {}) {
-  const { loadStoryTestRecoveryAgreement, sourceTreeHash, storyPublicationPending, workflowPublicationBranch, workDir } = await import('./state.mjs');
+  const { loadStoryTestRecoveryAgreement, sourceTreeHash, storyPublicationPending, workflowPublicationBranch } = await import('./state.mjs');
+  const { storyLocation } = await import('./story-paths.mjs');
   const { storyTestRiskAuthorityContext } = await import('./story-test-risk.mjs');
   const agreement = await loadStoryTestRecoveryAgreement(root, config, workflow);
   if (!agreement) fail('Document risk review requires the pinned Story agreement.', 'TRP_NOT_ENABLED');
@@ -123,7 +125,7 @@ export async function loadStoryDocumentRiskContext(root, config, workflow, {
     : agreement.repositories.find(entry => entry.repositoryId === repositoryId);
   if (!repository) fail('An exact local repository binding is required.');
   const phase = workflow.phases[phaseId];
-  const workRoot = workDir(root, config, workflow.workItem.id);
+  const workRoot = storyLocation(root, config, workflow.workItem.id).directory;
   const records = await loadTrpRecords(workRoot);
   const historical = evidenceCommit ? records.find(record => record.kind === 'phase-validation-observation'
     && record.recordSha256 === observationSha256 && record.obligationId === obligationId) : null;
@@ -203,8 +205,8 @@ export async function materializeStoryDocumentRiskEvidence(root, config, workflo
     obligationId: context.contract.id, repositoryId: context.subject.repositoryId,
     operation: context.evaluation.operation, generation: context.subject.generation });
   if (fresh.observations[0].recordSha256 !== context.observations[0].recordSha256) fail('The document changed during review.', 'TRP_RISK_REVIEW_STALE');
-  const { workDir } = await import('./state.mjs');
-  await appendTrpRecord(workDir(root, config, workflow.workItem.id), fresh.observations[0]);
+  const { storyLocation } = await import('./story-paths.mjs');
+  await appendTrpRecord(storyLocation(root, config, workflow.workItem.id).directory, fresh.observations[0]);
 }
 
 export async function assertStoryDocumentRiskGates(root, config, workflow, phase, operation) {

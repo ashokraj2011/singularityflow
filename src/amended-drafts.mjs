@@ -32,6 +32,7 @@ import { buildRepositoryChangeSet, compareRepositoryIdentity, evaluateProtectedP
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** Whether the Story's pinned spec policy refuses drafts written before an approved amendment (switch 2) [CIC:REQ-018]. */
 export const refusesPreAmendmentDrafts = (workflow) => workflow?.resolution?.spec?.preAmendmentDrafts === 'refuse';
@@ -61,7 +62,8 @@ export async function pinReopenedStep(root, workflow, phase, { amendment, revisi
   let closedChangeSet = null;
   if (intent?.status === 'open') {
     // Its start receipt is kept beside the draft: the next `phase begin` writes that generation's receipt again.
-    const receipt = intent.path && existsSync(path.join(root, intent.path)) ? await keep(path.join(root, intent.path), 'generation-start.json') : intent.path;
+    const receiptFile = intent.path ? storyLocation(root, workflow, workflow.workItem.id).fromRecord(intent.path) : null;
+    const receipt = receiptFile && existsSync(receiptFile) ? await keep(receiptFile, 'generation-start.json') : intent.path;
     // The code it holds, as the generation boundary sees it from the same baseline: what stays for this step.
     if (config && intent.baseline?.commit) {
       const held = await heldCode(root, config, workflow, phase, intent.baseline.commit);

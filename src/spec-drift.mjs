@@ -28,6 +28,7 @@ import { readRecord } from './schema-migrations.mjs';
 import { scanSourceClauseTags } from './source-clause-tags.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
+import { storiesDirectory, storiesRoot, storyLocation } from './story-paths.mjs';
 
 export const DRIFT_STATUSES = Object.freeze(['in-sync', 'drifted', 'orphaned', 'unverifiable', 'accepted', 'resolving', 'adopted', 'restored']);
 export const DRIFT_OUTCOMES = Object.freeze(['accept', 'adopt', 'restore']);
@@ -81,14 +82,14 @@ function sha256(bytes) {
 }
 
 /** The Stories recorded in this checkout, readable ones only, by Work ID. */
-export function recordedStories(root, workItemRoot = 'singularity/work-items') {
-  const directory = path.join(root, workItemRoot);
+export function recordedStories(root, workItemRoot = storiesRoot()) {
+  const directory = storiesDirectory(root, { workItemRoot });
   const stories = [];
   let names = [];
   try { names = readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort(); }
   catch { return stories; }
   for (const name of names) {
-    const file = path.join(directory, name, 'workflow.json');
+    const file = storyLocation(root, { workItemRoot }, name).workflowFile;
     if (!existsSync(file)) continue;
     try {
       stories.push(readRecord('story-workflow', JSON.parse(readFileSync(file, 'utf8'))).record);
@@ -131,7 +132,7 @@ function boundClauses(receipt) {
  * Compare closed Stories' approved code and tests with `ref` (a commit) or the working tree (null).
  * `workId` limits it to one Story, of any status; `stories` lets a caller pass what it already read.
  */
-export function evaluateSpecDrift(root, { workItemRoot = 'singularity/work-items', workId = null, ref = null, stories = null } = {}) {
+export function evaluateSpecDrift(root, { workItemRoot = storiesRoot(), workId = null, ref = null, stories = null } = {}) {
   const read = (relative) => {
     if (ref) {
       const text = fileAtRef(root, ref, relative);
@@ -319,7 +320,7 @@ function storyBoundPaths(root, workflow) {
     const evidence = workflow.phases?.[phaseId]?.deliveryEvidence;
     if (workflow.phases[phaseId].status !== 'approved' || evidence?.status !== 'ready' || !evidence.receiptPath) continue;
     let receipt = null;
-    try { receipt = JSON.parse(readFileSync(path.join(root, evidence.receiptPath), 'utf8')); } catch { continue; }
+    try { receipt = JSON.parse(readFileSync(storyLocation(root, workflow, workflow.workItem.id).fromRecord(evidence.receiptPath), 'utf8')); } catch { continue; }
     for (const clause of boundClauses(receipt)) {
       for (const entry of [...clause.tags, ...clause.deletions, ...clause.regions]) paths.add(entry.path);
       for (const witness of clause.witnesses) paths.add(witness.testSource);
@@ -333,7 +334,7 @@ function storyBoundPaths(root, workflow) {
  * tree, makes drift: advisories only. The change may well be right; the other Story's clause then
  * reads drifted until a person adopts it (amends the clause) or restores the code.
  */
-export function foreignClauseAdvisories(root, { workItemRoot = 'singularity/work-items', workflow, baseCommit, maximum = 20 }) {
+export function foreignClauseAdvisories(root, { workItemRoot = storiesRoot(), workflow, baseCommit, maximum = 20 }) {
   if (!commitPresent(root, baseCommit)) return [];
   const others = recordedStories(root, workItemRoot)
     .filter((story) => !story.unreadable && story.status === 'closed' && story.workItem?.id !== workflow?.workItem?.id)

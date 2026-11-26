@@ -73,6 +73,7 @@ import {
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { tokenReductionShadowFailure } from './token-reduction/shadow-record.mjs';
+import { storyLocation, storiesRoot } from './story-paths.mjs';
 
 // Repository knowledge is loaded on use, through non-literal specifiers, so editor bundles that import
 // this module do not carry the analysis engine.
@@ -386,7 +387,7 @@ async function workflowPlannedPaths(root, workItemRoot, workflow) {
   if (!workflow?.workItem?.id) return [];
   try {
     const { loadActiveSpecRecords, mergePlannedClaimRecords } = await import('./specifications.mjs');
-    const records = await loadActiveSpecRecords(path.join(root, workItemRoot, workflow.workItem.id), workflow);
+    const records = await loadActiveSpecRecords(storyLocation(root, { workItemRoot }, workflow.workItem.id).directory, workflow);
     return [...new Set(Object.values(mergePlannedClaimRecords(records.planned ?? [])).flatMap((claim) => claim.expectedPaths ?? []).map(posix))].sort();
   } catch {
     return [];
@@ -402,7 +403,7 @@ export async function phaseRepositoryBrief(root, { definition, workflow, phase, 
   if (!workflow || worldModelDisabledForWorkflow(workflow)) return { text: '', warnings: [], receipt: null };
   return (await import(KNOWLEDGE_PROMPT_MODULE)).repositoryBriefPrompt(root, {
     definition, phase, workflow, changedPaths: changedPaths ?? workflowChangedPaths(root, definition, workflow),
-    plannedPaths: await workflowPlannedPaths(root, definition.workItemRoot ?? 'singularity/work-items', workflow), polish, refresh
+    plannedPaths: await workflowPlannedPaths(root, storiesRoot(definition), workflow), polish, refresh
   });
 }
 
@@ -611,8 +612,8 @@ export function renderFinalClarificationGuard(phaseId, clarificationPolicy, { de
 
 async function workflowPromptContext(root, definition, workflow, phase, workItemRoot, executionContext = null, requestedOutcome = null) {
   if (!workflow || !phase) return { contract: '', inputResult: { mode: 'off', records: [] }, inputRecords: [], evidence: '', evidenceFiles: [], evidenceEntries: [], warnings: [] };
-  const itemDirectory = path.join(root, workItemRoot, workflow.workItem.id);
-  const itemRelative = posix(path.join(workItemRoot, workflow.workItem.id));
+  const itemDirectory = storyLocation(root, { workItemRoot }, workflow.workItem.id).directory;
+  const itemRelative = storyLocation(null, { workItemRoot }, workflow.workItem.id).prefix;
   const requiredArtifact = phase.requiredArtifact?.path
     ? posix(path.join(itemRelative, phase.requiredArtifact.path))
     : 'not configured';
@@ -828,14 +829,14 @@ export async function compose(root, options, {
       workflow = config.workflow ?? workflow;
     }
   }
-  const workItemRoot = definition.workItemRoot ?? 'singularity/work-items';
+  const workItemRoot = storiesRoot(definition);
   if (workflow && !dryRun && !renderOnly) {
     const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
     await assertNoPendingPublication(root, definition, workflow, 'compose and record a generation prompt');
     await assertPhaseSequence(root, workflow, 'compose and record a generation prompt', { requestedPhase });
     if ((workflow.sequenceOverrides?.length ?? 0) > overridesBefore) await saveStoryDraft(root, definition, workflow);
   }
-  const sourcePath = workflow ? path.join(root, workItemRoot, workflow.workItem.id, 'source.json') : null;
+  const sourcePath = workflow ? storyLocation(root, { workItemRoot }, workflow.workItem.id).file('source.json') : null;
   const source = sourcePath && existsSync(sourcePath) ? JSON.parse(readFileSync(sourcePath, 'utf8')) : null;
   let sourceInfo = sourcePath ? await snapshot(sourcePath) : null;
   const sourceRelative = sourcePath ? posix(path.relative(root, sourcePath)) : null;
@@ -864,7 +865,7 @@ export async function compose(root, options, {
   if (workflow && !phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
   if (workflow && !dryRun) {
     const expectedPrompt = {
-      workDir: path.join(root, workItemRoot, workflow.workItem.id),
+      workDir: storyLocation(root, { workItemRoot }, workflow.workItem.id).directory,
       agent
     };
     // Omitting --task means "show/reuse this generation", not "prove it was composed without a
@@ -892,7 +893,7 @@ export async function compose(root, options, {
       ? await pendingEvidenceDrift(root, definition, workflow, phase, existing.record) : null;
     const inputDrift = existing
       ? await pendingInputDrift(root, definition, workflow, phase, existing.record, {
-        itemDirectory: expectedPrompt.workDir, itemRelative: posix(path.join(workItemRoot, workflow.workItem.id))
+        itemDirectory: expectedPrompt.workDir, itemRelative: storyLocation(null, { workItemRoot }, workflow.workItem.id).prefix
       }) : null;
     // A change request a stakeholder opened (or closed) after composition is part of what to author.
     const requestDrift = existing ? stakeholderRequestDrift(existing.record.promptBudget?.stakeholderProjection,
@@ -995,7 +996,7 @@ export async function compose(root, options, {
     ? await (await import('./user-defined-agents.mjs')).renderUserDefinedFolder(configurationReadRoot(root), agentProfile, { root }) : '';
   const remote = phase ? await renderAgentSkills(root, workflow, phase, { ...(session ?? {}), agent }, {
     record: !dryRun && !renderOnly,
-    itemDirectory: path.join(root, workItemRoot, workflow.workItem.id),
+    itemDirectory: storyLocation(root, { workItemRoot }, workflow.workItem.id).directory,
     executionContext: config.executionContext
   }) : { text: '', skills: [], warnings: [] };
   const governed = await workflowPromptContext(
@@ -1009,7 +1010,7 @@ export async function compose(root, options, {
     : { status: 'not-configured', text: '', repositories: [] };
   const clauseCapsule = workflow && phase
     ? await activeClauseCapsule(
-      path.join(root, workItemRoot, workflow.workItem.id), workflow, phase, source, { root }
+      storyLocation(root, { workItemRoot }, workflow.workItem.id).directory, workflow, phase, source, { root }
     )
     : { text: '', capsule: null };
   const openChangeRequests = (workflow?.changeRequests ?? []).filter(request =>
@@ -1040,7 +1041,7 @@ export async function compose(root, options, {
   const mcpPolicy = renderMcpPromptPolicy(definition, { agent, phase: signals.phase, workflow });
   const designSources = workflow && phase
     ? await renderDesignSourcePromptContext(root, workflow, phase, {
-      itemDirectory: path.join(root, workItemRoot, workflow.workItem.id),
+      itemDirectory: storyLocation(root, { workItemRoot }, workflow.workItem.id).directory,
       record: !dryRun && !renderOnly
     })
     : { markdown: '', files: [], warnings: [] };
@@ -1391,7 +1392,7 @@ export async function compose(root, options, {
       repositoryBrief: repositoryBrief.receipt ?? null,
       executionContext: executionIdentity
     }, {
-      workDir: path.join(root, workItemRoot, workflow.workItem.id),
+      workDir: storyLocation(root, { workItemRoot }, workflow.workItem.id).directory,
       beforePersist: null
     });
     persistedPromptRecord = record;

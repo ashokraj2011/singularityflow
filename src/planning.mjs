@@ -31,7 +31,6 @@ import { externalCommandText } from './external-command-policy.mjs';
 import { collectInputs, phaseInputsNotReadyError, renderInputsBlock } from './inputs.mjs';
 import { loadSession } from './session.mjs';
 import { loadWorkflow } from './story-workflow-read.mjs';
-import { workDir, workDirRelative } from './story-paths.mjs';
 import { commitAndPublish, preparePhaseInputs, registerArtifact, saveStoryDraft } from './state-stores.mjs';
 import {
   secureRepositoryPath,
@@ -53,6 +52,7 @@ import { requiredStructuralPromptContext } from './structural-prompt-context.mjs
 import { artifactContentContractLines, authoredArtifactText } from './publication-preflight.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const SESSION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata[\s\S]*?-->/;
@@ -288,7 +288,7 @@ async function workItemSupportingDocuments(root, definition, workflow, phaseId) 
     : entry.storage === 'local'
       ? { kind: 'machine-local-document', evidenceId: entry.id, path: null, sha256: entry.sha256, bytes: entry.bytes, mimeType: entry.mimeType }
       : { kind: 'uploaded-document', evidenceId: entry.id, path: entry.path, sha256: entry.sha256, bytes: entry.bytes, mimeType: entry.mimeType, packageId: entry.packageId });
-  const manifest = path.join(workDir(root, definition, workflow.workItem.id), 'documents.json');
+  const manifest = storyLocation(root, definition, workflow.workItem.id).file('documents.json');
   if (await exists(manifest)) {
     const info = await snapshot(manifest);
     sources.unshift({ kind: 'document-manifest', path: posix(path.relative(root, manifest)), sha256: info.sha256, bytes: info.size });
@@ -413,8 +413,8 @@ async function workItemPlanningParts(root, definition, {
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Work-item phase '${selectedPhase}' must be in_progress to start a planning session.`,
     { code: 'PLANNING_STEP_NOT_IN_PROGRESS', details: storyNextDetails(workflow) });
   if (targetId && targetId !== 'artifact') throw new SingularityFlowError(`Story planning supports only the 'artifact' promotion target.`);
-  const itemDirectory = workDir(root, definition, id);
-  const itemRelative = workDirRelative(definition, id);
+  const itemDirectory = storyLocation(root, definition, id).directory;
+  const itemRelative = storyLocation(null, definition, id).prefix;
   const target = path.join(itemDirectory, phase.requiredArtifact.path);
   const promptStudy = await resolveImpactPromptOverride(root, workflow, phase.id, {
     agentId: agent,
@@ -914,13 +914,13 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
   const phase = workflow.phases[pack.manifest.phase.id];
   if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress') throw new SingularityFlowError(`Work item advanced to '${workflow.currentPhase ?? 'closed'}'; rebuild the planning context.`);
   await preparePhaseInputs(root, definition, workflow, phase.id);
-  const target = path.join(workDir(root, definition, workflow.workItem.id), phase.requiredArtifact.path);
+  const target = storyLocation(root, definition, workflow.workItem.id).file(phase.requiredArtifact.path);
   const previous = await existingText(target);
   const authored = preserveManagedMetadata(previous, content, WORK_ITEM_METADATA);
   await writeText(target, authored);
   await registerArtifact(root, workflow, target, { phaseId: phase.id, config: definition });
   const current = await snapshot(target);
-  const auditDirectory = path.join(workDir(root, definition, workflow.workItem.id), 'context', 'planning', `${phase.id}-gen${nextPhaseGeneration(phase)}`, sessionId);
+  const auditDirectory = storyLocation(root, definition, workflow.workItem.id).file('context', 'planning', `${phase.id}-gen${nextPhaseGeneration(phase)}`, sessionId);
   await ensureDir(auditDirectory);
   const planPath = path.join(auditDirectory, 'plan.md');
   await writeText(planPath, authored);

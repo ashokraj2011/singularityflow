@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { redactDiagnosticText } from '../../git-remote-diagnostics.mjs';
+import { storyLocation } from '../../story-paths.mjs';
 
 /**
  * After an approval has landed, write the Story's specification usage records (SPEC-SPA v1.3 §6.4):
@@ -14,7 +15,7 @@ export async function recordSpecUsageAfterTransition(root, config, workflow, { p
   // Only the first step's approval claims and only the closing one delivers; any other approval adds nothing.
   if (phase && phase !== workflow.phaseOrder?.[0] && !ended) return null;
   const workId = workflow.workItem.id;
-  const file = path.join(root, config.workItemRoot ?? 'singularity/work-items', workId, 'source.json');
+  const file = storyLocation(root, config, workId).file('source.json');
   let source = null;
   try { source = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null; } catch { return null; }
   if (!Array.isArray(source?.specification) || !source.specification.length) return null;

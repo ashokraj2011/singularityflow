@@ -10,8 +10,8 @@ import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { configurationReadSnapshot } from './configuration-read-scope.mjs';
 import { agentBriefReviewDocuments, verifyAgentBriefsForReview } from './agent-briefs.mjs';
-import { workDirRelative } from './story-paths.mjs';
 import { acquireFileLease, heldFileLeaseRoute } from './file-lease.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const RECEIPT_TTL_MS = 15 * 60 * 1000;
 /**
@@ -97,7 +97,7 @@ async function assertApprovalBriefsReviewable(root, definition, workflow) {
   const phase = workflow?.currentPhase ? workflow.phases?.[workflow.currentPhase] : null;
   if (!phase || phase.status !== 'awaiting_approval') return;
   const review = await verifyAgentBriefsForReview(root, workflow, phase, {
-    itemRelative: workDirRelative(definition, workflow.workItem.id)
+    itemRelative: storyLocation(null, definition, workflow.workItem.id).prefix
   });
   if (!review.valid) {
     throw new SingularityFlowError(

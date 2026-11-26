@@ -26,6 +26,7 @@ import { headTreeDigest } from './git.mjs';
 import { resolvedPhaseInputs } from './inputs.mjs';
 import { recordSha256 } from './records.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** The Story decisions an evaluation reads; a change to any of them can change what was decided. */
 export const STORY_DECISION_LISTS = Object.freeze(['scopeDispositions', 'completenessReviews', 'scopeRevisions', 'planAmendments', 'riskDecisions', 'applicability']);
@@ -68,8 +69,8 @@ async function producerAuthoredDigest(root, phase) {
 }
 
 /** Every tracked file at HEAD outside the governance root, or null when HEAD cannot be read. */
-function applicationTreeDigest(root, config) {
-  return headTreeDigest(root, { excludedRoot: `${String(config.workItemRoot ?? 'singularity/work-items').split('/')[0]}/` });
+function applicationTreeDigest(root, config, workflow) {
+  return headTreeDigest(root, { excludedRoot: storyLocation(root, config, workflow.workItem.id).codeTreeExclusion });
 }
 
 async function offeredDocuments(root, config, workflow, phaseId) {
@@ -93,10 +94,10 @@ export async function phaseUpstream(root, config, workflow, phase) {
       authoredSha256: await producerAuthoredDigest(root, workflow.phases[id]) });
   }
   if (order.slice(0, index + 1).some((id) => phaseRequiresCodeDelivery(workflow.phases[id]))) {
-    const tree = applicationTreeDigest(root, config);
+    const tree = applicationTreeDigest(root, config, workflow);
     if (!tree) return null;
     refs.push({ kind: 'candidate', ref: 'HEAD', sha256: tree });
-    const records = await loadActiveSpecRecords(path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow);
+    const records = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
     refs.push({ kind: 'specification', ref: 'records', sha256: digest({
       indexes: records.indexes ?? [], planned: records.planned ?? [], observed: records.observed ?? [], acceptance: records.acceptance ?? []
     }) });

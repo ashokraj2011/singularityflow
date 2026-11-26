@@ -14,6 +14,7 @@ import { readRefTreeResult } from '../git-ref-tree.mjs';
 import { extractClauses } from '../specifications.mjs';
 import { normalizeWorkItemRoot } from '../work-item-location.mjs';
 import { stemOf } from './render.mjs';
+import { storiesRoot } from '../story-paths.mjs';
 
 export const REQUIREMENT_SOURCE_LIMITS = Object.freeze({
   maximumStories: 500,
@@ -29,7 +30,7 @@ function digest(value) {
 }
 
 function workItemRootOf(definition) {
-  try { return normalizeWorkItemRoot(definition?.workItemRoot ?? undefined); } catch { return 'singularity/work-items'; }
+  try { return normalizeWorkItemRoot(definition?.workItemRoot ?? undefined); } catch { return storiesRoot(); }
 }
 
 /** The approved Markdown artifacts a Story record lists, in phase order. */

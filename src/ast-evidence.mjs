@@ -12,6 +12,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, writeAtomicExclusive } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const ENGINE_FILES = Object.freeze([
   'src/ast-intelligence.mjs', 'src/ast-builtin-extractor.mjs', 'src/ast-evidence.mjs',
@@ -180,10 +181,7 @@ export function validateAstDerivationManifest(value) {
 }
 
 export function derivationRelativePath(config, workflow, digest) {
-  return path.posix.join(
-    config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
-    'context', 'ast', 'derivations', `${digest}.json`
-  );
+  return storyLocation(null, config, workflow.workItem.id).record('context', 'ast', 'derivations', `${digest}.json`);
 }
 
 /** Build and retain the immutable derivation without writing Story bytes. */

@@ -76,9 +76,9 @@ export async function authorizeTrpIntake(root, workflow, agreement, preview) {
 
 export async function materializeTrpIntake(root, config, workflow, review) {
   if (!review) return;
-  const { workDir } = await import('./state.mjs');
+  const { storyLocation } = await import('./story-paths.mjs');
   const { materializeTrpIntakeBaseline } = await import('./test-recovery-runtime.mjs');
-  const workRoot = workDir(root, config, workflow.workItem.id);
+  const workRoot = storyLocation(root, config, workflow.workItem.id).directory;
   for (const recordSha256 of review.baselineRefs) await materializeTrpIntakeBaseline(root, config, workflow, { recordSha256 });
   for (let index = 0; index < review.records.length; index++) {
     await appendTrpRecord(workRoot, review.records[index]);
@@ -90,10 +90,11 @@ export async function materializeTrpIntake(root, config, workflow, review) {
 export async function qualifiedTrpIntakeDecisions(root, config, workflow, agreement, phase) {
   const required = agreement.repositories.filter(repo => repo.baselineDisposition === 'accept-known-failures');
   if (!required.length) return { verifiedDecisions: [], verifyDecision: () => false };
-  const { storyPublicationPending, workflowPublicationBranch, workDir } = await import('./state.mjs');
+  const { storyPublicationPending, workflowPublicationBranch } = await import('./state.mjs');
+  const { storyLocation } = await import('./story-paths.mjs');
   const { inspectTrpIntakeBaseline } = await import('./test-recovery-runtime.mjs');
   if (await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false })) fail('Baseline risk publication must be acknowledged before feature admission.', 'TRP_PUBLICATION_PENDING');
-  const workRoot = workDir(root, config, workflow.workItem.id);
+  const workRoot = storyLocation(root, config, workflow.workItem.id).directory;
   const authority = storyTestRiskAuthorityContext(workflow, agreement);
   const localOnly = config.git?.publish === 'off' && workflow.resolution?.capability?.policy?.gitPublication !== 'required';
   const remote = localOnly ? null : await lifecycleAuthority(root).observe({ remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) });

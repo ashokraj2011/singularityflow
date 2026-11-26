@@ -19,13 +19,13 @@ import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { commandResult, effects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { loadSession } from '../session.mjs';
-import { workDirRelative } from '../story-paths.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
 import { narrowingWords, recordTestNarrowing, recordTestNarrowingRevocation, testNarrowingIneligibility } from '../test-narrowing.mjs';
 import { testRunRiskAuthorities } from '../test-run-risk.mjs';
 import { nowIso, optionBoolean, optionString, SingularityFlowError, unknownStepDetails } from '../util.mjs';
 import { latestStepAttempts } from '../verification/attempts.mjs';
 import { actionActor } from './kernel.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const fail = (message, code = 'TEST_NARROWING_INVALID') => { throw new SingularityFlowError(message, { code }); };
 
@@ -45,7 +45,7 @@ function chooseAttempt(latest, commandId, phaseId) {
  */
 export async function recordTestNarrowingDecision(root, config, workflow, { phaseId, revoke = null, commandId = null, reason = '', expires = null }, { actor, agent = null }) {
   const id = workflow.workItem.id;
-  const attempt = revoke ? null : chooseAttempt(await latestStepAttempts(root, workDirRelative(config, id), id, phaseId), commandId, phaseId);
+  const attempt = revoke ? null : chooseAttempt(await latestStepAttempts(root, storyLocation(null, config, id).prefix, id, phaseId), commandId, phaseId);
   const groups = testRunRiskAuthorities(workflow, phaseId);
   if (!groups.length) fail(`Step ${phaseId} has no approval group, so nobody can accept a narrowed run of its tests.`, 'RISK_AUTHORITY_UNAVAILABLE');
   const authority = requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,

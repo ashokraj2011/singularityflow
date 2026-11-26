@@ -12,6 +12,7 @@ import { exactFileAtObject } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** Each witness whose own test failed in its attempt, exactly attributed. */
 export function exactCriterionFailures(witnesses, attemptFor) {
@@ -194,7 +195,7 @@ export async function testedVerdictAdvisories(root, config, workflow, phase, mar
     for (const step of producers) criterionTests.push(...await phaseCriterionTests(root, step, current));
     if (!criterionTests.length) return [];
     const { loadActiveSpecRecords } = await import('./specifications.mjs');
-    const records = await loadActiveSpecRecords(path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow);
+    const records = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
     const clauses = (records.indexes ?? []).flatMap((index) => index.clauses ?? []).filter((clause) => clause.verification?.criterionId);
     return establishedVerdictAdvisories(markdown, criterionTests, Object.fromEntries(clauses.map((clause) => [clause.id, clause.verification.criterionId])));
   } catch { return []; }

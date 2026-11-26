@@ -144,8 +144,8 @@ function refused(message, code, details = undefined) {
 
 /** The rows of the approved plan a step delivers, by clause ID. */
 async function plannedClauses(root, config, workflow, phase) {
-  const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { workDir }] = await Promise.all([import('./specifications.mjs'), import('./story-paths.mjs')]);
-  const plan = mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []);
+  const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { storyLocation }] = await Promise.all([import('./specifications.mjs'), import('./story-paths.mjs')]);
+  const plan = mergePlannedClaimRecords((await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow)).planned ?? []);
   return Object.entries(plan).filter(([, claim]) => !(claim.steps ?? []).length || claim.steps.includes(phase.id)).map(([id]) => id.toUpperCase());
 }
 

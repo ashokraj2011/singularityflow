@@ -27,6 +27,7 @@ import { frozenRemoteTransport, sanitizeRemote, gitFailureDiagnostic } from './g
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { sameGitRepository } from './git-repository-identity.mjs';
 import { run, SingularityFlowError } from './util.mjs';
+import { CONFIGURATION_SOURCE_RELATIVE } from './story-paths.mjs';
 
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const RESTORE_REF = 'refs/sflow/configuration-restore/source';
@@ -80,7 +81,7 @@ async function newestLocalCopy(root, remote, env) {
   if (tracking.length) return { kind: 'clone', label: `this clone's ${tracking[0].ref.replace('refs/remotes/', '')}`, commit: tracking[0].commit, date: tracking[0].date };
   // The newest Story pin whose sflow/config commit this machine still holds.
   for (const branch of executeGitQuery(root, 'configuration.recent-branches', {}, { env })) {
-    const pin = sourceFileAt(root, branch.commit, 'singularity/configuration-source.json', { env, offline: true, maxBytes: 1024 * 1024 });
+    const pin = sourceFileAt(root, branch.commit, CONFIGURATION_SOURCE_RELATIVE, { env, offline: true, maxBytes: 1024 * 1024 });
     if (pin.status !== 'present') continue;
     const record = readConfigurationSourceRecord(pin.value);
     if (!record || record.branch !== CONFIGURATION_BRANCH || !OID.test(record.commit ?? '') || !sameGitRepository(record.repository ?? '', remote)) continue;

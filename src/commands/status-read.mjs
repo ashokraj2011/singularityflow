@@ -5,6 +5,7 @@ import { workflowAuthoringRoutes } from '../code-delivery-policy.mjs';
 import { executeGitQuery } from '../git-query.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { storiesRoot, storyLocation } from '../story-paths.mjs';
 export async function galStatusBranchCandidate(root, options = {}) {
   return executeGitQuery(root, 'repository.branch', {}, options);
 }
@@ -66,8 +67,8 @@ async function mayHoldPublicationRecords(root, legacyFiles) {
  */
 export async function retainedStoryPublication(root, selected) {
   const workItemRoot = path.dirname(path.dirname(selected.location.path));
-  if (!await mayHoldPublicationRecords(root, [...new Set([workItemRoot, 'singularity/work-items'])]
-    .map((directory) => path.join(root, directory, selected.id, 'publication-pending.json')))) return null;
+  if (!await mayHoldPublicationRecords(root, [...new Set([workItemRoot, storiesRoot()])]
+    .map((directory) => storyLocation(root, { workItemRoot: directory }, selected.id).file('publication-pending.json')))) return null;
   const { readPendingPublication } = await import('../publication-pending.mjs');
   let pending;
   try {

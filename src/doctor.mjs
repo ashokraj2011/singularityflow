@@ -11,7 +11,7 @@ import { loadPortfolio } from './initiative-config.mjs';
 import { loadSession } from './session.mjs';
 import { VERSION } from './version.mjs';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
-import { workflowPath } from './story-paths.mjs';
+import { storyLocation } from './story-paths.mjs';
 import { loadStoryAggregate } from './story-aggregate-read.mjs';
 import { inspectRequiredArtifactRegistration, storyPublicationPending, validateWorkflow } from './state-stores.mjs';
 import { findLegacyPendingPublications } from './publication-pending.mjs';
@@ -507,7 +507,7 @@ export async function doctorSnapshot(root, {
       const assigned = active ? workflow.collaboration?.assignments?.[active.id] : null;
       if (active && assignmentMode !== 'off') checks.push(check('assignment', assigned ? OK : assignmentMode === 'required' ? 'fail' : 'warn', assigned ? `${active.id} is assigned to ${assigned.assignee}.` : `${active.id} is unassigned (${assignmentMode}).`, assigned ? null : `Run singularity-flow assign ${active.id} <assignee>.`));
     } catch (error) {
-      checks.push(check('workflow-state', 'fail', error.message, `Inspect ${workflowPath(root, definition, selected.id)} in Git history.`));
+      checks.push(check('workflow-state', 'fail', error.message, `Inspect ${storyLocation(root, definition, selected.id).workflowFile} in Git history.`));
     }
   } else if (activeSubject?.kind === 'initiative') {
     checks.push(check(

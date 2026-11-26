@@ -7,6 +7,7 @@ import { canonicalJson, recordSha256 } from './records.mjs';
 import { exactFileAtObject, firstParentCommitsMentioning, governedCommitIdentity, head } from './git.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { posix } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /**
  * Abandoned draft files may be absent only when the governed rollback proves that history.
@@ -23,7 +24,7 @@ export function verifiedAbandonedGenerations(root, config, workflow, { errors = 
     if (!identities.has(commit)) identities.set(commit, governedCommitIdentity(root, commit));
     return identities.get(commit);
   };
-  const relative = posix(path.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'workflow.json'));
+  const relative = storyLocation(null, config, workflow.workItem.id).record('workflow.json');
   const committedWorkflow = (commit) => {
     const bytes = exactFileAtObject(root, commit, relative, { maximumBytes: 16 * 1024 * 1024 });
     return bytes ? JSON.parse(bytes.toString('utf8')) : null;

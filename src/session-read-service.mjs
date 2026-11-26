@@ -21,6 +21,7 @@ import { storyRequiresStepActions } from './step-actions.mjs';
 import { localPendingPublicationPath, readPendingPublication } from './publication-pending.mjs';
 import { publicationJournalPath } from './publication-journal.mjs';
 import { BUILD_INFO } from './build-info.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** Optimization eligibility only: called after the accepted aggregate owner verifies the Story. */
 export function sharedSessionReadEligible(workflow) {
@@ -49,7 +50,7 @@ export async function readOpenedSession(root, { workId, signal = null } = {}) {
   let observedHead = null, observedBranch = null;
   const files = [...new Set([
     path.join(root, 'singularity/workflow.yml'), path.join(root, 'singularity/portfolio.yml'),
-    path.join(root, 'singularity/configuration-source.json'), path.join(privateRoot, 'index'),
+    storyLocation(root, null, workId).configurationSource.absolute, path.join(privateRoot, 'index'),
     path.join(common, 'config'), path.join(privateRoot, 'config.worktree'),
     path.join(privateRoot, 'singularity-flow/session.json'), path.join(privateRoot, 'singularity-flow/copilot-session.json'),
     activeWorkspaceFile(), workspaceRegistryFile(), copilotModeFile()
@@ -94,7 +95,7 @@ export async function readOpenedSession(root, { workId, signal = null } = {}) {
       // Keep the reference path for exceptional review/recovery/delivery states until their
       // larger mutable dependency closures have an exact observer contract too.
       if (!sharedSessionReadEligible(workflow)) return isolatedReads();
-      const rootPath = path.join(root, definition.workItemRoot, workflow.workItem.id);
+      const rootPath = storyLocation(root, definition, workflow.workItem.id).directory;
       const observeRelative = async relative => {
         if (typeof relative !== 'string' || path.isAbsolute(relative) || relative.includes('\\')
             || relative.split('/').some(part => part === '..' || !part)) throw new SingularityFlowError(
@@ -106,7 +107,7 @@ export async function readOpenedSession(root, { workId, signal = null } = {}) {
         await watch(path.join(privateRoot, path.relative(common, target)));
       }
       await watch(path.join(rootPath, 'publication-pending.json'));
-      await watch(path.join(root, 'singularity/work-items', workId, 'publication-pending.json'));
+      await watch(storyLocation(root, null, workId).file('publication-pending.json'));
       if (await readPendingPublication(root, { kind: 'story', id: workId, roots: { workItemRoot: definition.workItemRoot }, migrate: false })) return isolatedReads();
       for (const producer of Object.values(workflow.phases ?? {})) {
         for (const brief of producer.agentBriefs ?? []) if (brief.consumerPhase === phase?.id && brief.renderedPath) {

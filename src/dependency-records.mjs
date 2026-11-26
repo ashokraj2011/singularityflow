@@ -30,6 +30,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { clauseReferences, loadActiveSpecRecords, mergePlannedClaimRecords, plannedClaimsForObservedPhase } from './specifications.mjs';
 import { posix, writeJson } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const STEP_DEPENDENCIES_SCHEMA = 'step-dependencies/v1';
 export const EDGE_KINDS = Object.freeze(['input', 'claim', 'path', 'test', 'witness', 'binding', 'citation']);
@@ -257,7 +258,7 @@ export async function stepDependencies(root, workflow, { step = null } = {}) {
       if (file.value && (`sha256:${recordSha256(body)}` !== stored || stored !== entry.recordSha256)) reasons.add('record-digest');
       for (const reason of record.coverage?.reasons ?? []) reasons.add(reason);
       if (record.receipt?.path) {
-        const receipt = await readFile(path.join(root, record.receipt.path)).catch(() => null);
+        const receipt = await readFile(storyLocation(root, workflow, workflow.workItem.id).fromRecord(record.receipt.path)).catch(() => null);
         if (!receipt || `sha256:${hex(receipt)}` !== record.receipt.sha256) reasons.add('receipt-changed');
       }
       for (const map of record.claimMaps ?? []) {

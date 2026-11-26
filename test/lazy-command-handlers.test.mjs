@@ -1069,7 +1069,27 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // No new eager file.
     // 9,906,698 (measured for submit.mjs on m1-int with fpl-m1 and omk-m1 merged, 2026-11-26; start.mjs 9,906,108): the two
     // branches' rises together. No new eager file.
-    assert.ok(closure.bytes <= 9_906_698, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,915,050 (measured for submit.mjs, +8,987 over 9,906,063 at 480c2f936, 2026-11-26 on ssb-m1; start.mjs
+    // 9,914,178): one resolver joins a Story's paths [SSB:REQ-009] (story-paths.mjs storyLocation and its record
+    // classifiers; the state-ref arm is named only by its own tests in M1), clarificationRecordRelative beside its twin
+    // in phase-generation.mjs, and the first small helpers moved to the resolver (SSB M1 B0, B1). No new eager file.
+    // 9,916,795 (measured for submit.mjs, +1,745, 2026-11-26 on ssb-m1; start.mjs 9,915,869): the Story state kernel
+    // joins a Story's paths through the resolver (state.mjs and 28 kernel modules, SSB M1 B2); a resolver call is
+    // longer than the helper it replaces. No new eager file.
+    // 9,917,391 (measured for submit.mjs, +596, 2026-11-26 on ssb-m1; start.mjs 9,916,515): steps, prompts and phase
+    // records join through the resolver, and storyRecordWithin reads a Story from a path below another folder (SSB M1
+    // B3). No new eager file.
+    // 9,917,440 (measured for submit.mjs, +49, 2026-11-26 on ssb-m1; start.mjs 9,916,556): publication, recovery and
+    // Git join a Story's paths through the resolver (SSB M1 B6). No new eager file.
+    // 9,917,446 (measured for submit.mjs, +6, 2026-11-26 on ssb-m1; start.mjs 9,916,616): discovery, sessions,
+    // workspaces, the editor and the hook-side guards join a Story's paths through the resolver (SSB M1 B9). No new
+    // eager file.
+    // 9,917,462 (measured for submit.mjs at the end of SSB M1, 2026-11-26 on ssb-m1; start.mjs 9,916,444): +11,399 over
+    // 9,906,063 at 480c2f936 for all of M1, most of it story-paths.mjs (~10 KB), the Story path resolver [SSB:REQ-009].
+    // No new eager file.
+    // 9,918,097 (measured for submit.mjs on m1-int with fpl-m1, omk-m1 and ssb-m1 merged, 2026-11-26; start.mjs 9,917,349):
+    // the three branches' rises together. No new eager file.
+    assert.ok(closure.bytes <= 9_918_097, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1255,7 +1275,17 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 879,384 (measured on itw-all2 with itw-walks merged, 2026-11-26): `work behaviour` and the marketplace's new options registered. No new eager file.
   // 879,468 (+84, measured 2026-11-26 on fpl-m1): `needs-you` registered as a read and left out of active-workspace
   // routing, as `inbox` is (command-registry.mjs, cli-entry.mjs) [FPL:REQ-010]. No new eager file.
-  assert.ok(root.bytes <= 879_468, `root dispatch loads ${root.bytes} source bytes`);
+  // 888,269 (measured, +8,885, 2026-11-26 on ssb-m1): schema-migrations.mjs tests a Story record's family on the path
+  // inside the Story, which the resolver reads (storyRecordOf), so story-paths.mjs joins root dispatch [SSB:REQ-009,
+  // SSB M1 B10]. One new eager file, story-paths.mjs (40 files, the budget above); util.mjs, its only import, was
+  // already here.
+  // 888,312 (measured, +43, 2026-11-26 on ssb-m1): cli-entry.mjs's tracked-subjects glob names the Stories folder
+  // through storiesRoot() (SSB M1 B11). No new eager file.
+  // 888,719 (measured, +407, 2026-11-26 on ssb-m1): the resolver's layout refusals name their way out, an SFlow update
+  // (story-paths.mjs). No new eager file.
+  // 888,803 (measured on m1-int with fpl-m1, omk-m1 and ssb-m1 merged, 2026-11-26): the rises above together; the one new
+  // eager file is ssb-m1's story-paths.mjs.
+  assert.ok(root.bytes <= 888_803, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1678,7 +1708,18 @@ test('the common session projection does not import attach, state stores or publ
   // lifecycles, read through a reader fetchMarketplaceIndex loads only when it fetches (marketplace.mjs) [OMK:REQ-005].
   // No new eager file.
   // 4,367,910 (measured on m1-int with fpl-m1 and omk-m1 merged, 2026-11-26): the two branches' rises together. No new eager file.
-  assert.ok(current.bytes <= 4_367_910, `session current loads ${current.bytes} source bytes`);
+  // 4,376,031 (+8,756 over 4,367,275 at 480c2f936, measured 2026-11-26 on ssb-m1): the Story path resolver
+  // [SSB:REQ-009] (story-paths.mjs, already in this closure) and the first helpers moved to it (SSB M1 B0, B1). No new
+  // eager file.
+  // 4,376,090 (+59, measured 2026-11-26 on ssb-m1): the kernel modules it loads join through the resolver (SSB M1 B2).
+  // No new eager file.
+  // 4,376,565 (+475, measured 2026-11-26 on ssb-m1): the step and prompt modules it loads join through the resolver
+  // (SSB M1 B3). No new eager file.
+  // 4,375,656 (measured at the end of SSB M1, 2026-11-26 on ssb-m1): +8,381 over 4,367,275 at 480c2f936 for all of
+  // M1, most of it story-paths.mjs, the Story path resolver [SSB:REQ-009]. No new eager file.
+  // 4,376,291 (measured on m1-int with fpl-m1, omk-m1 and ssb-m1 merged, 2026-11-26): the three branches' rises together.
+  // No new eager file.
+  assert.ok(current.bytes <= 4_376_291, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -34,6 +34,7 @@ import {
   synthesizeCornerCaseTestHarness
 } from './corner-case-harness.mjs';
 import { scanJavaScriptDeclarations } from './javascript-declarations.mjs';
+import { storiesRoot } from '../story-paths.mjs';
 
 export const CORNER_CASE_CATEGORIES = Object.freeze([
   'error-path',
@@ -839,7 +840,7 @@ export async function inspectCornerCaseObligations(root, config, workflow, phase
       throw Object.assign(new Error('Generation baseline is unavailable for corner-case inspection.'),
         { code: 'GENERATION_BASELINE_UNKNOWN' });
     }
-    const itemRoot = posix(config.workItemRoot ?? 'singularity/work-items');
+    const itemRoot = posix(storiesRoot(config));
     const changeSet = await buildRepositoryChangeSet(root, { baseCommit });
     const activeEntries = changeSet.entries.filter((entry) =>
       entry.newPath && entry.status !== 'deleted'

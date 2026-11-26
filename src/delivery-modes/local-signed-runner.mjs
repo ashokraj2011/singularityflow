@@ -27,6 +27,7 @@ import {
   ensureSecureRepositoryDirectory, run, secureRepositoryPath, SingularityFlowError,
   writeAtomicExclusive
 } from '../util.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
 const GIT_OBJECT = /^[a-f0-9]{40,64}$/;
@@ -443,9 +444,7 @@ export async function runLocalRunnerProcess(root, definition, value) {
 export async function publishLocalRunnerAttestation(root, workId, value) {
   const safeWorkId = workIdentifier(workId);
   digest(value?.attestationSha256, 'attestationSha256');
-  const directory = path.posix.join(
-    'singularity', 'work-items', safeWorkId, 'gdp', 'evidence', 'local-runner-attestation'
-  );
+  const directory = storyLocation(null, null, safeWorkId).record('gdp', 'evidence', 'local-runner-attestation');
   await ensureSecureRepositoryDirectory(root, directory, {
     label: 'Local runner evidence directory'
   });

@@ -15,6 +15,7 @@ import path from 'node:path';
 import { repoRoot } from '../git.mjs';
 import { sliceClauseItem } from '../spec-library/slice.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 
@@ -53,7 +54,7 @@ export async function specSliceDrop(positionals, options) {
   const [{ loadConfig }, { checkoutStoryBranch }] = await Promise.all([import('../state-stores.mjs'), import('../story-branch-name.mjs')]);
   const config = await loadConfig(root);
   await checkoutStoryBranch(root, config, workId, { fetch: optionBoolean(options, 'fetch') });
-  const file = path.join(root, config.workItemRoot ?? 'singularity/work-items', workId, 'source.json');
+  const file = storyLocation(root, config, workId).file('source.json');
   const source = JSON.parse(await readFile(file, 'utf8'));
   const slices = Array.isArray(source.specification) ? source.specification : [];
   if (!slices.length) {

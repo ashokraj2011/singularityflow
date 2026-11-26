@@ -19,6 +19,7 @@ import { completionPhaseOf } from '../lifecycle-transitions.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from '../specifications.mjs';
 import { gateRefusal } from './gate-refusal.mjs';
 import { obligationId } from './vocabulary.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 /** Which plan rows name a path: as a planned location (implement and verify) or a planned test (verify). */
 function rowsNaming(planned, accounted, candidate) {
@@ -37,7 +38,7 @@ export async function crossPhaseChange(root, config, workflow, phase, changedPat
   const here = order.indexOf(phase.id);
   const codeSteps = order.slice(0, Math.max(0, here)).filter((id) => phaseRequiresCodeDelivery(workflow.phases[id]));
   const paths = [...new Set(changedPaths.filter(Boolean))].sort();
-  const records = given ?? await loadActiveSpecRecords(path.join(root, config.workItemRoot ?? 'singularity/work-items', workId), workflow);
+  const records = given ?? await loadActiveSpecRecords(storyLocation(root, config, workId).directory, workflow);
   const planned = mergePlannedClaimRecords(records.planned ?? []);
   const accounted = Object.assign({}, ...(records.planned ?? []).map((record) => record.accountedPaths ?? {}));
   const supporting = new Set(plannedSupportingFiles(records.planned ?? []));

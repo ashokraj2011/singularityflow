@@ -1,7 +1,7 @@
-import path from 'node:path';
-import { invariant, posix, SingularityFlowError } from './util.mjs';
+import { invariant, SingularityFlowError } from './util.mjs';
 import { versionNumbers } from './kernel/step-versions.mjs';
 import { counters } from './phase-generation-need.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** Pure selection, shared with the persistence API without importing that API. */
 export function currentPhase(workflow) {
@@ -12,8 +12,17 @@ export function currentPhase(workflow) {
 }
 
 /** Pure context-record location, without grounding, source-review or input readers. */
-export function groundingRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
-  return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));
+export function groundingRecordRelative(definition, workflow, phase, generation) {
+  return contextRecordRelative(definition, workflow, phase, phase.id, generation);
+}
+
+/** Its twin: the clarification record of a step's generation. */
+export function clarificationRecordRelative(definition, workflow, phase, generation) {
+  return contextRecordRelative(definition, workflow, phase, `clarifications-${phase.id}`, generation);
+}
+
+function contextRecordRelative(definition, workflow, phase, name, generation = nextPhaseGeneration(phase)) {
+  return storyLocation(null, definition, workflow.workItem.id).record('context', `${name}-gen${generation}.json`);
 }
 
 /** max(generation, high-watermark, used reservation) + 1, validated: the kernel's one version arithmetic (§4.3). */

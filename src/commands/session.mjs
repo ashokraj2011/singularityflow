@@ -32,6 +32,7 @@ import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { resolveSessionRepository } from './shared/session-repository-selection.mjs';
 import { boundExecutionContextRoot } from '../execution-context-scope.mjs';
 import { storyActiveElsewhere } from '../story-active-elsewhere.mjs';
+import { storyLocation } from '../story-paths.mjs';
 export { resolveSessionRepository };
 
 export async function run(argv, { positionals, options }) {
@@ -190,9 +191,7 @@ export async function exactStoryMetadataAtRef(root, remote, item, expectedCommit
       code: 'SESSION_STORY_INVALID'
     });
   }
-  const itemPath = posix(path.join(
-    definition.workItemRoot ?? 'singularity/work-items', item.id, 'workflow.json'
-  ));
+  const itemPath = storyLocation(null, definition, item.id).record('workflow.json');
   let state;
   try { state = readRecord('story-workflow', JSON.parse(await readMetadata(itemPath))).record; }
   catch (error) {

@@ -11,6 +11,7 @@ import { readRecord } from './schema-migrations.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 export { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection, phaseInspectionGeneration } from './phase-generation-need.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 
 
@@ -56,7 +57,7 @@ export async function pendingCodeSubmissionEvidence(root, config, workflow, phas
   if (!commit) throw new SingularityFlowError('The current generation has no authenticated publication.', {
     code: 'GENERATION_PUBLICATION_MISSING'
   });
-  const item = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const item = storyLocation(null, config, workflow.workItem.id).prefix;
   const stored = committedJson(root, commit, `${item}/workflow.json`).phases?.[phase.id];
   if (!stored || Number(stored.generation) !== Number(phase.generation)
       || !same(stored.generationIntent, phase.generationIntent)

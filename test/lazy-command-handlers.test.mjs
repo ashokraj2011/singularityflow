@@ -1753,10 +1753,10 @@ test('the common session projection does not import attach, state stores or publ
   // intelligence.worldModel may be `on` (config.mjs, intelligence-policy.mjs) [WMR:REQ-011]. No new eager file.
   // 4,378,912 (measured on main 4c8b464a6 with wmr-m1m2 merged, 2026-11-26): the +1,091 above on top of wm-clean. No new
   // eager file.
-  // 4,379,383 (+471, measured 2026-11-26 on wm-dead over 0aaac1bb4): doctor names an agent file that still carries the
+  // 4,379,377 (+465, measured 2026-11-26 on wm-dead over 0aaac1bb4): doctor names an agent file that still carries the
   // retired sflow-world-model-views header (removed-features.mjs, +516); the parser and Story snapshot stop carrying it
   // (agent-document-parser.mjs, config.mjs) [WMR:REQ-005]. No new eager file.
-  assert.ok(current.bytes <= 4_379_383, `session current loads ${current.bytes} source bytes`);
+  assert.ok(current.bytes <= 4_379_377, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

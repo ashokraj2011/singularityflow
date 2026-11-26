@@ -13,6 +13,10 @@ import {
   stateCheckoutExcluded, storyStateRef
 } from '../src/story-state-ref.mjs';
 import { forgetStoryLayouts, storyLocation } from '../src/story-paths.mjs';
+import { STATE_CHECKOUT_FOLDER, withoutAgentOutputStatus } from '../src/agent-output-folder.mjs';
+import { STATE_CHECKOUT } from '../src/story-paths.mjs';
+import { releaseStateCheckout, storyWorktreeChanges } from '../src/story-worktree.mjs';
+import { assertNoStateCheckoutGitlink } from '../src/delivery-evidence.mjs';
 
 function git(cwd, ...args) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -228,4 +232,35 @@ test('where the ledger pins as branches, the state ref is the branch sflow/state
   await record(root, 'workflow.json', { workItem: { id: 'WRK-1' } });
   assert.equal(commitStoryState(root, 'WRK-1', 'start', { definition }).committed, true);
   assert.deepEqual((await listStoryStates(root, { definition })).map((entry) => entry.id), ['WRK-1']);
+});
+
+test('checks that list ignored files skip the state checkout; removal releases it first, never over unsaved records', async (t) => {
+  const { root } = await clone(t);
+  assert.equal(STATE_CHECKOUT_FOLDER, STATE_CHECKOUT);
+  await openStoryState(root, 'WRK-1');
+  await record(root, 'workflow.json', { workItem: { id: 'WRK-1' } });
+  commitStoryState(root, 'WRK-1', 'start');
+  const ignored = git(root, 'status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching');
+  assert.match(ignored, /^!! \.sflow-state\/$/mu);
+  assert.equal(withoutAgentOutputStatus(ignored, root), '');
+  assert.equal(storyWorktreeChanges(root).clean, true);
+  await record(root, 'decisions/unsaved.json', { n: 1 });
+  assert.equal(await releaseStateCheckout(root), false);
+  assert.equal(existsSync(path.join(root, '.sflow-state', 'decisions', 'unsaved.json')), true);
+  commitStoryState(root, 'WRK-1', 'saved');
+  assert.equal(await releaseStateCheckout(root), true);
+  assert.equal(existsSync(path.join(root, '.sflow-state')), false);
+});
+
+test('the code step refuses a state checkout staged into the code as a gitlink', async (t) => {
+  const { root } = await clone(t);
+  await openStoryState(root, 'WRK-1');
+  assertNoStateCheckoutGitlink(root);
+  // Forced past the exclude line, Git stages the nested worktree as a gitlink (mode 160000).
+  git(root, 'add', '-f', '.sflow-state');
+  assert.match(git(root, 'ls-files', '--stage', '--', '.sflow-state'), /^160000 /u);
+  assert.throws(() => assertNoStateCheckoutGitlink(root), (error) => error.code === 'CODE_DELIVERY_STATE_CHECKOUT_STAGED'
+    && error.details.nextAction.command === 'git rm -r --cached --quiet -- .sflow-state');
+  git(root, 'rm', '-r', '--cached', '--quiet', '--', '.sflow-state');
+  assertNoStateCheckoutGitlink(root);
 });

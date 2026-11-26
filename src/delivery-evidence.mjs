@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import { runBoundedTaskPool } from './quality-command-runner.mjs';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { renderPlatformCommand } from './safe-command-guidance.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { STATE_CHECKOUT, storyLocation } from './story-paths.mjs';
 
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 
@@ -1240,6 +1241,22 @@ function assertPublishedDocumentationBaseline(root, config, workflow, phase, pri
   }
 }
 
+/**
+ * The code never carries a Story's state checkout [SSB:REQ-006, spec §11.2 item 3]: staged or committed, `.sflow-state`
+ * would put a pointer to SFlow's records (a gitlink) into the code branch and its pull request. Only a checkout that
+ * has the folder is asked.
+ */
+export function assertNoStateCheckoutGitlink(root) {
+  if (!existsSync(path.join(root, STATE_CHECKOUT))) return;
+  const listed = run('git', ['ls-files', '--stage', '--', STATE_CHECKOUT], { cwd: root, allowFailure: true });
+  if (listed.status === 0 && !String(listed.stdout).trim()) return;
+  const command = `git rm -r --cached --quiet -- ${STATE_CHECKOUT}`;
+  throw new SingularityFlowError(`The code step's changes include ${STATE_CHECKOUT}, SFlow's records for this Story. They never go in the code branch. Nothing was changed.`, {
+    code: 'CODE_DELIVERY_STATE_CHECKOUT_STAGED', details: { path: STATE_CHECKOUT,
+      owner: 'person', nextAction: { command, label: `Take ${STATE_CHECKOUT} out of the code (its records stay on the Story's state ref), then run the same command again` } }
+  });
+}
+
 /** Refuse a code phase before generation state or telemetry is mutated. */
 export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase, { strictCoverage = false, ignoreDisputes = false, requireReconciled = false, assertionCheck = false } = {}) {
   if (!phaseRequiresCodeDelivery(phase)) return null;
@@ -1251,6 +1268,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     );
   }
 
+  assertNoStateCheckoutGitlink(root);
   const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory });
   const baselineCommit = phase.generationIntent?.baseline?.commit

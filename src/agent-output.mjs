@@ -551,7 +551,7 @@ export function agentAct(result) {
     state: 'read', do: null, read: ['data.outcome'], ...(result.data.outcome.validation?.line ? { show: result.data.outcome.validation.line } : {}),
     said: 'Show the actual retained test results, diagnostic runs separately, application readiness and outstanding human checks, then act.show as one line of optional choices. Ask nothing: run a choice\'s route only when the person picks one (a Start in the terminal tool\'s background mode, as its how says). Never accept, submit or approve from it.' };
   // A submission that completed its step (nobody approves it) moved the Story on: the turn ends there and names the next step
-  // for the person, never starts it [decision 7, OSA:REQ-050; owner, 2026-11-19].
+  // for the person, never starts it [decision 7, OSA:REQ-050; owner, 2026-11-19]. A task's goes on (below; owner, 2026-11-26).
   // So did a test step whose tests failed: SFlow returned it to its code step and started that step's next version (D1); its
   // fix is the code step's own work, in a new turn.
   const returned = result.submitIfReady?.result?.status === 'returned';
@@ -562,6 +562,13 @@ export function agentAct(result) {
     && /^singularity-flow work status\s/u.test(done.commandGuidance.command ?? '');
   if (finished) return { state: 'read', read: ['submitIfReady.result'], do: { reason: oneLine(done.reason), copilot: TASK_ROUTE, shell: done.commandGuidance.command, vscode: null },
     said: `Submitted, and that completed ${result.submitIfReady.result.phase ?? 'the step'}, the task's last step. Run do.shell now, in this turn, and say what the task did as /sf-task's step 1 says for a Story with no step left.` };
+  // A task's step SFlow approved itself: its /sf-task turn goes on with the next action, a step's work or an approval
+  // question (owner, 2026-11-26, replacing decision 7 for tasks) [ITW:REQ-008]. Its route stays the way on in a new turn.
+  if (result.submitIfReady?.submitted && result.submitIfReady.result?.status === 'completed' && done?.commandGuidance?.copilotCommand === TASK_ROUTE) {
+    return withRoute({ state: 'next', do: null, read: ['submitIfReady.next', 'submitIfReady.result'],
+      said: oneLine(`Submitted, and SFlow approved ${result.submitIfReady.result.phase ?? 'the step'}. When SFlow's note after this command says this /sf-task turn goes on, do /sf-task's step 1 again now; otherwise name do.copilot, typed in this chat, as the next step. Offer no other route.`) },
+    { commandGuidance: done.commandGuidance, reason: done.reason, turn: 'new-turn' });
+  }
   if (result.submitIfReady?.submitted && (result.submitIfReady.result?.status === 'completed' || returned || grown) && done) {
     const reset = done.contextBoundary?.commands?.length ? done.contextBoundary.commands.join(', then ') : null;
     return withRoute({ state: 'end-turn', do: null, read: ['submitIfReady.next', 'submitIfReady.result'],

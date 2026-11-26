@@ -60,7 +60,7 @@ Five rules.
 | D4 | **`/sf-recover` only for damage**: published bytes changed afterwards, a publication that failed to send, broken state, an interrupted operation. Removed from every other route. |
 | D5 | **Steps SFlow builds itself are built automatically** by the work command in the turn that reaches them, with nothing extra for the person to type. |
 | D6 | **Copies.** "May I edit" uses the working copy. "What is published, reviewed or approved" uses the committed copy. **Opening a version is committed at once**, so other chats, checkouts and laptops see it. |
-| D7 | **After a submit, the next step waits for a new turn.** The next command is pre-filled in VS Code chat. The turn that submitted does not start the next step. |
+| D7 | **After a submit, the next step waits for a new turn.** The next command is pre-filled in VS Code chat. The turn that submitted does not start the next step. Owner, 2026-11-26: on a task's Story (ITW), a step SFlow approves itself carries the same `/sf-task` turn on into the next step's work or approval question, as a person's approval in the chat does (SPEC-ITW v1.1 REQ-008); classic Stories keep D7. |
 | D8 | **Stage 1 starts this week**, after the 16 November fix branches land. |
 
 ## 4. One step state
@@ -173,7 +173,7 @@ stepState({ workflow, committed = null, phaseId = workflow.currentPhase, review 
 - **OSA:REQ-040** "May I edit" MUST read the working copy. "What is published, reviewed or approved" MUST read the committed copy. `basis` MUST say which copy answered, and whether the other differs.
 
 ### Turns
-- **OSA:REQ-050** After a submit moves the Story on, the turn MUST end. The next command is offered for the next turn and pre-filled in VS Code (D7, C15).
+- **OSA:REQ-050** After a submit moves the Story on, the turn MUST end. The next command is offered for the next turn and pre-filled in VS Code (D7, C15). Owner, 2026-11-26: except on a task's Story, whose `/sf-task` turn goes on into the next action once SFlow's automatic approval is recorded (SPEC-ITW v1.1 REQ-008).
 - **OSA:REQ-051** A person's answer renews the 30-minute turn window (built on branch turn-renew). A long build or test run inside one turn SHOULD NOT lose the window. Stage 3 decides how.
 
 ### Words

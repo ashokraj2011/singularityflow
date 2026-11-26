@@ -367,9 +367,24 @@ function blockedNextAction(source = {}) {
     : { command: 'singularity-flow imports', label: 'See what is imported here.' };
 }
 
-/** A preview's safety: the look and note lines, and the look checks `--looked` names once the person has looked. */
-const previewSafety = (safety) => ({ checker: safety.checker, state: safety.state, findings: [...safety.looks, ...safety.notes],
-  looks: [...new Set(safety.looks.map((entry) => entry.check))].sort() });
+/**
+ * A preview's safety: the look and note lines, and the look checks `--looked` names once the person has looked. A line the
+ * record of the same source already looked at (an update) is marked `lookedBefore` and asks nothing again [OMK:REQ-031].
+ */
+function previewSafety(safety, previous = null) {
+  const gate = safetyGate(safety, { previous });
+  const open = new Set(gate.unlooked);
+  return { checker: safety.checker, state: safety.state,
+    findings: [...safety.looks.map((entry) => (open.has(entry) ? entry : { ...entry, lookedBefore: true })), ...safety.notes], looks: gate.checks };
+}
+
+/** The lines the import record of the same source looked at: its marketplace entry, or its link. */
+async function previousSafety(root, source = {}) {
+  const ledger = await loadImportsLedger(configurationReadRoot(root)).catch(() => ({ imports: {} }));
+  const same = (other = {}) => (source.marketplace ? other.marketplace === source.marketplace && other.entry === source.entry
+    : Boolean(source.url) && other.url === source.url);
+  return Object.values(ledger.imports ?? {}).find((entry) => entry?.source?.safety && same(entry.source))?.source.safety ?? null;
+}
 
 /**
  * The checks' gate for an add of the staged text `sha256` as `as` [OMK:REQ-031]: a block, and the look lines `looked`
@@ -425,7 +440,7 @@ export async function previewImport(root, value, {
     details: inspection.details,
     warnings: inspection.warnings,
     // What the person looks at before adding it (`looks`, the check IDs `--looked` names) and the links it holds.
-    ...(safety ? { safety: previewSafety(safety) } : {}),
+    ...(safety ? { safety: previewSafety(safety, safety.looks.length ? await previousSafety(root, fetched.source) : null) } : {}),
     ...(fetched.entry ? {
       marketplace: {
         id: fetched.source.marketplace, entry: fetched.entry.id, version: fetched.entry.version,

@@ -4848,7 +4848,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   /** The lines SFlow's text checks ask a person to look at before an import is added (OMK section 7). */
   function previewLooks(preview) {
-    return ((preview && preview.safety && preview.safety.findings) || []).filter(function (entry) { return entry.severity === 'look'; });
+    // A line the earlier import of the same source already looked at asks nothing again.
+    return ((preview && preview.safety && preview.safety.findings) || []).filter(function (entry) { return entry.severity === 'look' && !entry.lookedBefore; });
   }
 
   /** The change with the look checks the person ticked, as --looked names them; the engine checks them again when it adds it. */

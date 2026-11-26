@@ -3937,7 +3937,7 @@ function printImportPreview(preview, command) {
   if (preview.source?.kind === 'mcp') console.log(`  Read from MCP server ${preview.source.server}${preview.source.serverInfo?.name ? ` (${preview.source.serverInfo.name} ${preview.source.serverInfo.version})` : ''}${Object.entries(preview.source.arguments ?? {}).map(([name, value]) => ` · ${name}=${value}`).join('')}`);
   for (const warning of preview.warnings ?? []) console.log(`  Warning: ${warning}`);
   // SFlow's text checks: the lines to look at before adding it, and the links to other sites [OMK:REQ-031].
-  const looks = (preview.safety?.findings ?? []).filter((entry) => entry.severity === 'look');
+  const looks = (preview.safety?.findings ?? []).filter((entry) => entry.severity === 'look' && !entry.lookedBefore);
   const notes = (preview.safety?.findings ?? []).filter((entry) => entry.severity === 'note');
   if (looks.length) {
     console.log("  Look at these lines (SFlow's text checks):");

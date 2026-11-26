@@ -29,11 +29,11 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
 import { loadSession } from '../session.mjs';
-import { workDir } from '../story-paths.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
 import { testRunRiskAuthorities } from '../test-run-risk.mjs';
 import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 import { actionActor } from './kernel.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const OPTIONS = Object.freeze(['url', 'reason', 'confirm', 'work-id', 'fetch', 'json']);
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
@@ -94,7 +94,7 @@ export function targetOriginPlan(workflow, url, { revision }) {
 
 /** Errors a pin would add to the Story's recorded MCP evidence: none, or the pin is refused. */
 async function evidenceConflicts(root, config, workflow, servers, record) {
-  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   const before = new Set((await verifyMcpEvidence(root, workflow, { itemDirectory })).errors);
   return (await verifyMcpEvidence(root, withPins(workflow, servers, record), { itemDirectory })).errors
     .filter((error) => !before.has(error));

@@ -1,11 +1,11 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { runDraftTransaction } from '../../draft-unit-of-work.mjs';
-import { workDir } from '../../story-paths.mjs';
 import { workflowPublicationBranch } from '../../state-stores.mjs';
 import { posix } from '../../util.mjs';
 import path from 'node:path';
 import { captureAggregateRecovery, restoreAggregateRecovery } from '../../aggregate-recovery.mjs';
 import { captureTelemetryCursorsForWorkItem, restoreTelemetryCursorsForWorkItem } from '../../telemetry.mjs';
+import { storyLocation } from '../../story-paths.mjs';
 
 export async function storyDraftTransaction(root, config, workflow, operation, write, validate = null) {
   let aggregateRecovery = null;
@@ -18,7 +18,7 @@ export async function storyDraftTransaction(root, config, workflow, operation, w
         branch: workflowPublicationBranch(root, workflow)
       },
       expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
-      allowedPaths: [posix(path.relative(root, workDir(root, config, workflow.workItem.id)))],
+      allowedPaths: [posix(path.relative(root, storyLocation(root, config, workflow.workItem.id).directory))],
       operation,
       // Capture caller-visible and optional machine-local state only after the Story lock and durable
       // draft journal exist. Capturing earlier lets a competing same-Story command complete between

@@ -479,11 +479,11 @@ function flakyFor(flaky, attempt) {
 }
 
 async function storySummary(root, options, { localRunId = null } = {}) {
-  const [{ loadAcceptedStoryExecution }, { stepAttempts }, { workDirRelative }, summary, { loadEnvironmentDeclaration }] = await Promise.all([
+  const [{ loadAcceptedStoryExecution }, { stepAttempts }, { storyLocation }, summary, { loadEnvironmentDeclaration }] = await Promise.all([
     import('../accepted-story-execution.mjs'), import('../verification/attempts.mjs'), import('../story-paths.mjs'),
     import('../test-summary.mjs'), import('../environment-declaration.mjs')]);
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
-  const itemRelative = workDirRelative(config, workflow.workItem.id);
+  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
   const wanted = localRunId ?? (typeof options.run === 'string' ? options.run : null);
   let phaseId = optionString(options, 'phase', null) ?? workflow.currentPhase;
   let consumedAttempts = null;
@@ -591,8 +591,8 @@ async function storyContext(root, options) {
 
 /** The paths a step's plan names, and the commands those paths would resolve to once they change. */
 async function plannedPaths(root, config, workflow, phase) {
-  const [{ plannedStepPaths }, { workDirRelative }] = await Promise.all([import('../candidate-scope.mjs'), import('../story-paths.mjs')]);
-  return plannedStepPaths(path.join(root, workDirRelative(config, workflow.workItem.id)), workflow, phase).catch(() => ({ sourcePaths: [], testPaths: [] }));
+  const [{ plannedStepPaths }, { storyLocation }] = await Promise.all([import('../candidate-scope.mjs'), import('../story-paths.mjs')]);
+  return plannedStepPaths(path.join(root, storyLocation(null, config, workflow.workItem.id).prefix), workflow, phase).catch(() => ({ sourcePaths: [], testPaths: [] }));
 }
 
 async function planStory(root, options) {
@@ -674,7 +674,7 @@ const cutByTime = (check, bounded, command) => check.timedOut === true && bounde
 export async function tryStoryBase(root, options) {
   const seconds = withinOf(options, 'base');
   const deadline = seconds === null ? null : Date.now() + seconds * 1000;
-  const [state, { localTestRunKernel: kernel }, { attemptFailureMessages, baseComparison, failedNames, runOnBase, storyBaseCommit, storyTestNode }, { stepAttempts }, { workDirRelative }, { parseTestResult }, { realpath }] = await Promise.all([
+  const [state, { localTestRunKernel: kernel }, { attemptFailureMessages, baseComparison, failedNames, runOnBase, storyBaseCommit, storyTestNode }, { stepAttempts }, { storyLocation }, { parseTestResult }, { realpath }] = await Promise.all([
     import('../local-test-runs.mjs'), import('../state-stores.mjs'), import('../verification/base-run.mjs'), import('../verification/attempts.mjs'),
     import('../story-paths.mjs'), import('../code-delivery-tests.mjs'), import('node:fs/promises')]);
   const context = await storyContext(root, options);
@@ -684,7 +684,7 @@ export async function tryStoryBase(root, options) {
   await prepareDependencies(root, context.config, commands);
   const scope = { kind: 'story', capability: context.workflow.resolution?.capability?.id ?? null, workId: context.workflow.workItem.id, phase: phase.id };
   if (!baseCommit) fail(`Story ${context.workflow.workItem.id} names no base commit to compare with.`, 'TESTS_BASE_UNKNOWN');
-  const attempts = await stepAttempts(root, workDirRelative(context.config, context.workflow.workItem.id), context.workflow.workItem.id, phase.id);
+  const attempts = await stepAttempts(root, storyLocation(null, context.config, context.workflow.workItem.id).prefix, context.workflow.workItem.id, phase.id);
   const results = [];
   for (const selected of context.select(commands)) {
     // Files only this Story added or changed are no question for the base: it runs the whole command.
@@ -831,13 +831,13 @@ function runText(result) {
  */
 async function heldRuns(root, options) {
   if (options['set-aside'] !== undefined && !optionString(options, 'command', null)) fail('tests held --set-aside names the test command with --command.');
-  const [{ loadAcceptedStoryExecution }, { workDirRelative }, marker] = await Promise.all([import('../accepted-story-execution.mjs'), import('../story-paths.mjs'),
+  const [{ loadAcceptedStoryExecution }, { storyLocation }, marker] = await Promise.all([import('../accepted-story-execution.mjs'), import('../story-paths.mjs'),
     import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'test-run-marker.mjs')).href)]);
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   const phaseId = optionString(options, 'phase', null) ?? workflow.currentPhase;
   if (!workflow.phases?.[phaseId]) fail(`This Story has no step '${phaseId}'.`, 'TESTS_COMMAND_INVALID', unknownStepDetails(workflow, phaseId));
   return marker.setAsideTestRun(root, { workId: workflow.workItem.id, phaseId, commandId: optionString(options, 'command', null) },
-    { confirm: optionBoolean(options, 'set-aside') ? optionString(options, 'confirm', null) : null, itemRelative: workDirRelative(config, workflow.workItem.id) });
+    { confirm: optionBoolean(options, 'set-aside') ? optionString(options, 'confirm', null) : null, itemRelative: storyLocation(null, config, workflow.workItem.id).prefix });
 }
 
 export async function run(_argv, { positionals, options = {} }) {

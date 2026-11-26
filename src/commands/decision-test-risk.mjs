@@ -20,7 +20,6 @@ import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { commandResult, effects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { loadSession } from '../session.mjs';
-import { workDirRelative } from '../story-paths.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
 import { testRunCauseCategory, testRunCauseWords } from '../test-run-cause.mjs';
 import { recordTestRunRisk, recordTestRunRiskRevocation, testRunRiskAuthorities, testRunRiskIneligibility } from '../test-run-risk.mjs';
@@ -30,10 +29,11 @@ import { actionActor } from './kernel.mjs';
 
 // Pure, so the decision list can say who decides without loading this command.
 export { testRunRiskAuthorities } from '../test-run-risk.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 /** The latest recorded run of each test command of a step, by command. */
 function latestAttempts(root, config, workflow, phaseId) {
-  return latestStepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phaseId);
+  return latestStepAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, phaseId);
 }
 
 function chooseAttempt(latest, commandId, phaseId, argvSha256 = null) {

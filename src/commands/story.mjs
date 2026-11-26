@@ -69,7 +69,6 @@ import {
 } from '../specifications.mjs';
 import { currentPhase } from '../phase-generation.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
-import { workDir } from '../story-paths.mjs';
 import { StoryStateStore, acknowledgeIntentAmendment, actorKey, assertAmendedScopeContent, commitAndPublish, createWorkflow, decideIntentAmendment, decideStorySkillVersion, loadConfig, preparePhase, previewReworkRollForward, previewStorySkillVersionDecision, previewStorySkillVersionProposal, proposeStorySkillVersion, rejectPhase, rollForwardRework, saveStoryDraft, sourceTreeHash, storySkillVersionStatus, workflowPublicationBranch } from '../state-stores.mjs';
 import { attachStoryBranch, createStoryBranch, promoteStoryBranch, storyBranchStatus } from '../story-lineage.mjs';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeBytes, writeJson, writeText } from '../util.mjs';
@@ -107,6 +106,7 @@ import {
 } from '../story-description-enhancement.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
+import { storyLocation, storiesRoot } from '../story-paths.mjs';
 
 async function runStory(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -602,7 +602,7 @@ export async function storyFetchCommand(positionals, options) {
       surface: 'shell'
     }));
   };
-  const creatingWorkflow = !await exists(path.join(workDir(target, config, storyKey), 'workflow.json'));
+  const creatingWorkflow = !await exists(storyLocation(target, config, storyKey).file('workflow.json'));
   let fetchedRepositoryBases = null;
   // Check explicitly required non-test proof before moving siblings. Test results are baseline
   // context, not a fetch gate; the fetched seed need not be checked out at its parent revision.
@@ -1033,7 +1033,7 @@ export async function storyCommand(positionals, options) {
        * alternative reports "not claimed by you" about work they are holding in their hands.
        */
       const planned = current
-        ? (await loadSpecRecords(workDir(root, config, workflow.workItem.id))).planned.at(-1) ?? null
+        ? (await loadSpecRecords(storyLocation(root, config, workflow.workItem.id).directory)).planned.at(-1) ?? null
         : null;
       const packet = current
         ? continuationPacket({
@@ -1103,7 +1103,7 @@ export async function storyCommand(positionals, options) {
     }
     if (action === 'reconcile') {
       const result = await reconcileWorkInterval(root, config, workflow, {
-        itemDirectory: workDir(root, config, workflow.workItem.id)
+        itemDirectory: storyLocation(root, config, workflow.workItem.id).directory
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(`Reconciliation: ${result.decision.status}`);
@@ -1449,7 +1449,7 @@ async function withConvergenceDraft(root, config, requestedWorkId, operation, wr
       branch: workflowPublicationBranch(root, selected)
     },
     expectedRevision: selected[Symbol.for('singularity-flow.state-revision')] ?? null,
-    allowedPaths: [posix(path.relative(root, workDir(root, config, selected.workItem.id)))],
+    allowedPaths: [posix(path.relative(root, storyLocation(root, config, selected.workItem.id).directory))],
     operation,
     write: async () => {
       const workflow = await loadStoryAggregate(root, config, selected.workItem.id);
@@ -1706,7 +1706,7 @@ export async function recordConvergenceAnswers(root, config, { workId, answers, 
  */
 async function adjudicatedClauses(root, config, workflow, decisions) {
   if (!decisions.some((decision) => (decision.clauseIds ?? []).some((id) => !String(id).includes(':')))) return decisions;
-  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const records = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
   const known = [...new Set((records.indexes ?? []).flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)))];
   const { resolveClauseIds, unresolvedClauseWords } = await import('../clause-id-resolution.mjs');
   return decisions.map((decision) => {
@@ -1880,7 +1880,7 @@ function sameAdjudication(recorded, decision, item) {
 }
 
 function amendmentDirectoryRelative(root, config, workflow) {
-  return posix(path.join(path.relative(root, workDir(root, config, workflow.workItem.id)),
+  return posix(path.join(path.relative(root, storyLocation(root, config, workflow.workItem.id).directory),
     'context', 'intent-amendments'));
 }
 
@@ -1905,7 +1905,7 @@ export async function phaseIntentAmendmentSource(root, config, workflow, sourceP
     );
   }
   const artifactPath = typeof phase.requiredArtifact?.path === 'string' ? posix(path.join(
-    path.relative(root, workDir(root, config, workflow.workItem.id)),
+    path.relative(root, storyLocation(root, config, workflow.workItem.id).directory),
     phase.requiredArtifact.path
   )) : null;
   const artifact = artifactPath ? await secureRepositoryPath(root, artifactPath, {
@@ -1957,7 +1957,7 @@ export async function draftIntentAmendment(root, config, workflow, options, { ro
     throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no scope artifact to amend.`, { code: 'INTENT_AMENDMENT_UNSUPPORTED' });
   }
   const workId = workflow.workItem.id;
-  const specificationPath = posix(path.join(path.relative(root, workDir(root, config, workId)), specification.requiredArtifact.path));
+  const specificationPath = posix(path.join(path.relative(root, storyLocation(root, config, workId).directory), specification.requiredArtifact.path));
   const text = await readFile(path.join(root, specificationPath), 'utf8');
   const clauses = extractClauses(text, { sourcePath: specificationPath });
   const revisions = new Map();
@@ -2033,7 +2033,7 @@ export async function draftIntentAmendment(root, config, workflow, options, { ro
   for (const relative of (defaultBase ? exactTreePathsAtObject(root, defaultBase, ['singularity/spec-drift']) : null) ?? []) {
     keep(path.posix.basename(relative), fileAtRef(root, defaultBase, relative));
   }
-  const workItemRoot = config.workItemRoot ?? 'singularity/work-items';
+  const workItemRoot = storiesRoot(config);
   // What to adopt: --adopt names a closed Story's clause this Story's change took over; a recorded
   // `spec drift decide --adopt --story` names this Story after the fact.
   const adoptions = new Map();
@@ -2064,7 +2064,7 @@ export async function draftIntentAmendment(root, config, workflow, options, { ro
     const statements = new Map();
     if (from) {
       try {
-        for (const index of (await loadActiveSpecRecords(workDir(root, config, fromWorkId), from)).indexes ?? []) {
+        for (const index of (await loadActiveSpecRecords(storyLocation(root, config, fromWorkId).directory, from)).indexes ?? []) {
           for (const clause of index.clauses ?? []) statements.set(clause.id, clause.body);
         }
       } catch { /* the statement is optional evidence */ }
@@ -2192,7 +2192,7 @@ async function proposeIntentAmendment(root, config, workflow, options, { given =
     throw new SingularityFlowError(`${departure} is not a clause departure of this Story.`, { code: 'INTENT_AMENDMENT_INVALID' });
   }
   const specificationPath = posix(path.join(
-    path.relative(root, workDir(root, config, workflow.workItem.id)), specification.requiredArtifact.path
+    path.relative(root, storyLocation(root, config, workflow.workItem.id).directory), specification.requiredArtifact.path
   ));
   const currentText = await readFile(path.join(root, specificationPath), 'utf8');
   const proposedText = given ? given.proposedText : await readFile(path.resolve(candidate), 'utf8');
@@ -2230,7 +2230,7 @@ async function proposeIntentAmendment(root, config, workflow, options, { given =
   const namedClauses = typedClauses.length ? (await import('../clause-id-resolution.mjs')).resolveClauseIds(typedClauses,
     [...diff.changed, ...afterClauses.map((clause) => clause.id), ...beforeClauses.map((clause) => clause.id)]) : null;
   const requiredClauses = intentAmendmentClauses(diff, namedClauses ? [...namedClauses.resolved, ...namedClauses.unresolved.map((entry) => entry.id)] : []);
-  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const records = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
   const radius = intentAmendmentBlastRadius(diff, records);
   // Proposals carry Git identity and exact reviewed bytes. Only the scope's existing authorized
   // human reviewers may decide them; drafting a proposal never grants amendment approval.
@@ -2589,7 +2589,7 @@ export async function recordIntentAmendmentDecision(root, config, workflow, prop
           publicationEvent,
           transactionId: transactionContext.transactionId,
           expectedHead: transactionContext.expectedHead,
-          workDirectory: posix(path.relative(root, workDir(root, config, workflow.workItem.id)))
+          workDirectory: posix(path.relative(root, storyLocation(root, config, workflow.workItem.id).directory))
         });
       }
     }
@@ -2861,7 +2861,7 @@ export async function storyReworkCommand(positionals, options) {
     }
     return expectedInputSnapshot;
   };
-  const reworkScope = posix(path.relative(root, workDir(root, config, workflow.workItem.id)));
+  const reworkScope = posix(path.relative(root, storyLocation(root, config, workflow.workItem.id).directory));
   const reworkParent = workflowBeforeRework[Symbol.for('singularity-flow.state-revision')]?.head
     ?? head(root);
   let expectedPostTransitionTree = null;
@@ -2970,7 +2970,7 @@ export async function storyReworkRollForwardCommand(_positionals, options) {
       { code: 'REWORK_ROLL_FORWARD_CONFIRMATION_STALE', details: { preview } }
     );
   }
-  const workRoot = posix(path.relative(root, workDir(root, config, workflow.workItem.id)));
+  const workRoot = posix(path.relative(root, storyLocation(root, config, workflow.workItem.id).directory));
   const applicationPaths = preview.paths.filter((candidate) =>
     candidate !== workRoot && !candidate.startsWith(`${workRoot}/`));
   const before = structuredClone(workflow);

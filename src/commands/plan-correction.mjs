@@ -21,6 +21,7 @@ import { commandResult, effects, noEffects, succeeded } from '../narration/comma
 import { emitCommandResult } from '../narration/emit.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 import { PLAN_CORRECTION_FLAGS as FLAGS } from '../command-skills.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 function refused(message, details = undefined) {
   throw new SingularityFlowError(message, { code: 'PLAN_ROW_CORRECTION_INVALID', ...(details ? { details } : {}) });
@@ -122,7 +123,7 @@ function correctionOwner(workflow, requested) {
 async function preview(root, config, workflow, options) {
   const owner = correctionOwner(workflow, optionString(options, 'owner'));
   const policy = workflow.resolution?.spec ?? config.spec ?? {};
-  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   const records = await loadBoundActiveSpecRecords(root, itemDirectory, workflow, policy, { plannedOnly: true });
   const ownerRecord = (records.planned ?? []).find((record) => !record.amendment && record.phase === owner.id);
   if (!ownerRecord) refused(`The approved plan of ${owner.id} could not be read.`);

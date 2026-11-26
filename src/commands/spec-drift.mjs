@@ -22,6 +22,7 @@ import { actorKey, loadConfig } from '../state-stores.mjs';
 import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 import { testRunRiskAuthorities } from './decision-test-risk.mjs';
 import { actionActor } from './kernel.mjs';
+import { storiesRoot } from '../story-paths.mjs';
 
 const LABEL = Object.freeze({ 'in-sync': 'in sync', drifted: 'drifted', orphaned: 'orphaned', unverifiable: 'unverifiable',
   accepted: 'drift accepted', resolving: 'resolving', adopted: 'adopted', restored: 'restored' });
@@ -62,7 +63,7 @@ export async function specDriftCommand(positionals, options) {
   const ref = optionString(options, 'ref') ?? null;
   if (ref && !refHead(root, ref)) throw new SingularityFlowError(`--ref ${ref} names no commit in this clone.`, { code: 'SPEC_DRIFT_REF_UNKNOWN' });
   const workId = optionString(options, 'work-id') ?? positionals[2] ?? null;
-  const report = evaluateSpecDrift(root, { workItemRoot: config.workItemRoot ?? 'singularity/work-items', workId, ref });
+  const report = evaluateSpecDrift(root, { workItemRoot: storiesRoot(config), workId, ref });
   if (workId && !report.stories.length) {
     throw new SingularityFlowError(`No Story ${workId} is recorded in this checkout.`, { code: 'SPEC_DRIFT_STORY_UNKNOWN' });
   }
@@ -90,7 +91,7 @@ function storyOfClause(stories, clauseId) {
 export async function specDriftDecideCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workItemRoot = config.workItemRoot ?? 'singularity/work-items';
+  const workItemRoot = storiesRoot(config);
   const stories = recordedStories(root, workItemRoot);
   const revoke = optionString(options, 'revoke') ?? null;
   const clauseId = positionals[3] ?? null;

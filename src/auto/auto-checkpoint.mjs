@@ -33,6 +33,7 @@ import { restoreAutoP1Records, snapshotAutoP1Records } from './auto-p1-records.m
 import {
   restoreAutoContractRecords, validateAutoPhaseContractSnapshots
 } from './auto-contract-records.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const CHECKPOINT_CLASSES = new Set([
   'phase-boundary', 'human-boundary', 'publication-boundary', 'recovery', 'completion'
@@ -431,11 +432,7 @@ export async function buildAutoBoundaryCheckpoint(
 
 function checkpointRelative(definition, state, record) {
   const sequence = String((state.boundaryCheckpoints?.length ?? 0) + 1).padStart(6, '0');
-  return posix(path.join(
-    definition.workItemRoot ?? 'singularity/work-items', state.story.workId,
-    'context', 'auto', 'checkpoints',
-    `${sequence}-${record.checkpointClass}-${record.checkpointSha256.slice(7, 19)}.json`
-  ));
+  return storyLocation(null, definition, state.story.workId).record('context', 'auto', 'checkpoints', `${sequence}-${record.checkpointClass}-${record.checkpointSha256.slice(7, 19)}.json`);
 }
 
 /** Publish one checkpoint as Story evidence in the ordinary transactional commit/push path. */

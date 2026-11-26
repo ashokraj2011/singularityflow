@@ -23,6 +23,7 @@ import { resolveEffectiveCapabilityPolicy } from '../../capabilities.mjs';
 import { applyCapabilityPolicyToWorkResolution, validateConfigurationSnapshotCapabilities } from '../../capability-context.mjs';
 import { commandResult, effects, succeeded } from '../../narration/command-result.mjs';
 import { emitCommandResult } from '../../narration/emit.mjs';
+import { storyLocation } from '../../story-paths.mjs';
 
 /**
  * Refuse to cut a Story branch from an application branch that does not carry the governed
@@ -238,7 +239,7 @@ export async function capabilityDoctorStoryPin(root) {
   const candidates = [];
   if (currentBranch) {
     for (const workItemRoot of roots) {
-      const relative = path.posix.join(workItemRoot, currentBranch, 'workflow.json');
+      const relative = storyLocation(null, { workItemRoot }, currentBranch).record('workflow.json');
       try {
         const located = await secureRepositoryPath(root, relative, {
           label: 'Current Story workflow', type: 'file'

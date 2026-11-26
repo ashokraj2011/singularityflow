@@ -9,6 +9,7 @@ import {
 import { readVerifiedAcceptedAutoBinding } from './auto-origin.mjs';
 import { readAutoPlan } from './auto-plan.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 function contained(parent, child) {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
@@ -173,9 +174,7 @@ function phaseAdvanceRead(root, args, label) {
 
 async function verifyGovernedPhaseAdvance(root, definition, workflow, state, currentHead) {
   const prior = state.lastSuccessfulStoryRevision;
-  const workflowRelative = posix(path.join(
-    definition.workItemRoot ?? 'singularity/work-items', state.story.workId, 'workflow.json'
-  ));
+  const workflowRelative = storyLocation(null, definition, state.story.workId).record('workflow.json');
   if (prior && prior === currentHead) {
     const shown = run('git', ['show', `${currentHead}:${workflowRelative}`], {
       cwd: root, allowFailure: true

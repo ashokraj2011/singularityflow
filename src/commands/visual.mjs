@@ -14,10 +14,10 @@ import { repoRoot } from '../git.mjs';
 import { loadSession } from '../session.mjs';
 import { loadConfig } from '../state-stores.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
-import { workDir } from '../story-paths.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 import { compareVisualArtifacts, listVisualComparisons } from '../visual-compare.mjs';
 import { evaluateVisualCoverage } from '../visual-coverage.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 async function visualRecordCommand(root, config, workflow, options) {
   const session = await loadSession(root);
@@ -28,7 +28,7 @@ async function visualRecordCommand(root, config, workflow, options) {
     screenId: optionString(options, 'screen-id'), stateId: optionString(options, 'state-id'),
     file: optionString(options, 'file'), source: optionString(options, 'source'), device: optionString(options, 'device'),
     osVersion: optionString(options, 'os-version') ?? null, note: optionString(options, 'note') ?? null,
-    actor: session.actor ?? null, agent: session.agent ?? null, itemDirectory: workDir(root, config, workflow.workItem.id)
+    actor: session.actor ?? null, agent: session.agent ?? null, itemDirectory: storyLocation(root, config, workflow.workItem.id).directory
   });
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   const { record } = result;
@@ -41,8 +41,8 @@ export async function visualCommand(positionals, options) {
   const action = positionals[1] ?? 'status';
   if (action === 'record') return visualRecordCommand(root, config, workflow, options);
   if (action === 'status') {
-    const coverage = await evaluateVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
-    const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+    const coverage = await evaluateVisualCoverage(root, workflow, { itemDirectory: storyLocation(root, config, workflow.workItem.id).directory });
+    const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: storyLocation(root, config, workflow.workItem.id).directory });
     const result = { coverage, comparisons };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(coverage.applicability?.words ?? `Visual coverage: ${coverage.status} (${coverage.covered.length}/${coverage.profiles.length} profiles)`);
@@ -62,7 +62,7 @@ export async function visualCommand(positionals, options) {
   if (action === 'compare') {
     const result = await compareVisualArtifacts(root, workflow, {
       expected: optionString(options, 'expected'), actual: optionString(options, 'actual'),
-      profileId: optionString(options, 'profile'), itemDirectory: workDir(root, config, workflow.workItem.id), config
+      profileId: optionString(options, 'profile'), itemDirectory: storyLocation(root, config, workflow.workItem.id).directory, config
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Visual comparison ${result.id}: ${result.status}; ${result.differingPixels} pixels (${(result.differingPixelRatio * 100).toFixed(3)}%).`);

@@ -3,12 +3,12 @@ import { requirePositional, SingularityFlowError, optionString, optionBoolean, r
 import { repoRoot } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { generationRecovery } from '../recovery-plan.mjs';
-import { workDir } from '../story-paths.mjs';
 import { generationResultMatches, generationResultDigest, saveStoryDraft, prefetchStoryPublicationObservation, scanArtifacts, commitAndPublish, publishGeneration } from '../state-stores.mjs';
 import { commandGuidanceLines } from '../safe-command-guidance.mjs';
 import { nextPhaseGeneration } from '../phase-generation.mjs';
 import { storyDraftTransaction } from './shared/story-draft-transaction.mjs';
 import { generationStartPublicationBinding } from '../generation-boundary.mjs';
+import { storyLocation } from '../story-paths.mjs';
 // Load the full document renderer only when a caller actually requests that projection.
 async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
 import { printPhaseReview } from './shared/print-phase-review.mjs';
@@ -392,7 +392,7 @@ async function phaseSubcommand(positionals, options) {
   const session = deterministicPublication
     ? { actor: actionActor(root), agent: null }
     : await loadSession(root);
-  const targetPath = path.join(workDir(root, config, workflow.workItem.id), requestedPhase.requiredArtifact.path);
+  const targetPath = storyLocation(root, config, workflow.workItem.id).file(requestedPhase.requiredArtifact.path);
   const targetRelative = path.relative(root, targetPath).replaceAll(path.sep, '/');
   const generation = nextPhaseGeneration(requestedPhase);
   const publicationArtifactContract = {

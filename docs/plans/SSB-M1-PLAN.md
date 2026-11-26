@@ -378,6 +378,14 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
   record (`receipt.workId` in `delivery-evidence.mjs`, `story.workId` in `findings/register/remediation.mjs`), the
   resolver gets `String(id)`, so a malformed record is still refused with its own message. `trp-document-runtime.mjs`
   and `test-recovery-admission.mjs` keep `story-paths.mjs` lazy, as they kept `state.mjs`.
+- **Spellings a test pins stay, by name.** "No test file is edited" holds, so where a test reads a module's source
+  and expects the old spelling, the site keeps it and the ratchet allows that line: `state.mjs`'s
+  `activeWitnessClauses(workDir(...))` (`test/approval-witness-criteria.test.mjs`), and `dependencies.workDir(` in
+  `commands/story-test-attestation.mjs` and `commands/story-test-repair.mjs`, a seam their tests inject. Each wrapper
+  asks the resolver. So W ends at these three allowed lines, not at a literal 0.
+- **B8.** `commands/nextsteps.mjs` keeps an OS-relative `workflow.json` path (`path.join` without a root, so Windows
+  separators): `storyLocation('', definition, id).file('workflow.json')` gives the same string. Lazy `state.mjs`
+  imports of `workflowPath` (`auto/auto-flight-store.mjs`) now lazily import `story-paths.mjs`.
 - **Not converted in M1: a Story prefix passed as a parameter** (`itemRelative`, `itemRoot`, `workRoot` joined by the
   callee, as in `recovery-preparation-context.mjs`). The prefix comes from the resolver; the callee's join stays until
   M2 passes the location instead. The ratchet does not count these.

@@ -29,6 +29,7 @@ import { upstreamChangeRoutes } from '../upstream-routes.mjs';
 import {
   optionBoolean, optionString, posix, secureRepositoryPath, SingularityFlowError, snapshot, unknownStepDetails, writeAtomic
 } from '../util.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const HISTORY_LIMIT = 200;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -133,7 +134,7 @@ async function approvedArtifactDrift(root, workflow, phase, itemRelative) {
  * the change is meant, and the restore preview when it is not.
  */
 export async function approvedArtifactDriftWarnings(root, config, workflow, phase) {
-  const itemRelative = posix(path.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id));
+  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
   const findings = await approvedArtifactDrift(root, workflow, phase, itemRelative).catch(() => []);
   return findings.map((finding) => {
     const route = upstreamChangeRoutes(workflow, finding.phase, { currentPhaseId: phase.id }).routes[0] ?? null;
@@ -149,7 +150,7 @@ export async function approvedArtifactDriftWarnings(root, config, workflow, phas
 /** Read-only preview with a digest the apply step must repeat exactly. */
 export async function inputRestorePlan(root, config, workflow, phaseId = null) {
   const phase = restorePhase(workflow, phaseId);
-  const itemRelative = posix(path.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id));
+  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
   const inputs = await collectInputs(root, workflow, phase, {
     definition: config, itemDirectory: path.join(root, itemRelative), itemRelative
   });

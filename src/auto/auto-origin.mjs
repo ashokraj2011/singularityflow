@@ -9,6 +9,7 @@ import { autoPlanHash } from './auto-plan.mjs';
 import {
   AUTO_PLAN_CONFIRMATION_PROTOCOL, buildAutoPlanPacket
 } from './auto-plan-packet.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 export function autoExecutionOrigin({ flightId, planId, planSha256 }) {
   return Object.freeze({
@@ -105,7 +106,7 @@ export function verifyLegacyAutoBindingCompatibility({
 }
 
 export async function pinAcceptedAutoPlan(root, definition, workflow, { plan, ratification, flightId }) {
-  const directory = path.join(root, definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', 'auto');
+  const directory = storyLocation(root, definition, workflow.workItem.id).file('context', 'auto');
   const acceptedPlan = structuredClone(plan);
   const acceptedPath = path.join(directory, 'accepted-plan.json');
   const ratificationRecord = {
@@ -147,9 +148,7 @@ export async function pinAcceptedAutoPlan(root, definition, workflow, { plan, ra
  */
 export async function readVerifiedAcceptedAutoBinding(root, definition, workflow, state) {
   const workId = workflow?.workItem?.id;
-  const expectedDirectory = path.join(
-    root, definition.workItemRoot ?? 'singularity/work-items', workId ?? '', 'context', 'auto'
-  );
+  const expectedDirectory = storyLocation(root, definition, workId ?? '').file('context', 'auto');
   const expectedPlanPath = path.join(expectedDirectory, 'accepted-plan.json');
   const expectedRatificationPath = path.join(expectedDirectory, 'ratification.json');
   const expectedPlanRelative = posix(path.relative(root, expectedPlanPath));

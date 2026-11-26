@@ -12,8 +12,8 @@ import { PACKAGE_ROOT } from '../package-root.mjs';
 import { planAuthorities, recordPlanAmendment } from '../plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords } from '../specifications.mjs';
 import { actorKey, assertNoPendingPublication, transactStory } from '../state-stores.mjs';
-import { workDir } from '../story-paths.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 /**
  * What each file an amendment names holds now, read as reconciliation reads it, so the two compare. A
@@ -51,7 +51,7 @@ export async function commitPlanAmendment(root, config, workflow, { changes: giv
   if (!groups.length) {
     throw new SingularityFlowError('No step of this Story holds the plan with an approval group, so nobody can amend it.', { code: 'PLAN_AMENDMENT_AUTHORITY_UNAVAILABLE' });
   }
-  const records = await loadActiveSpecRecords(workDir(root, config, id), workflow);
+  const records = await loadActiveSpecRecords(storyLocation(root, config, id).directory, workflow);
   const plan = mergePlannedClaimRecords(records.planned ?? []);
   const changes = await withPlanRows(given, Object.keys(plan));
   const authority = requireApprovalAuthority(

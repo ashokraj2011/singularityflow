@@ -41,13 +41,16 @@ const ALLOWED = [
   { file: 'src/configuration-assets.mjs', line: /^export const CONFIGURATION_SOURCE_PATH = /u, keys: ['F'] },
   // Spellings a test reads from the source. Each wrapper asks the resolver; the test keeps its words unchanged.
   // test/approval-witness-criteria.test.mjs: the approval's witness check reads the same clauses as the review page.
-  { file: 'src/state.mjs', line: /activeWitnessClauses\(workDir\(root, config, workflow\.workItem\.id\), workflow\)/u, keys: ['W'] }
+  { file: 'src/state.mjs', line: /activeWitnessClauses\(workDir\(root, config, workflow\.workItem\.id\), workflow\)/u, keys: ['W'] },
+  // A test seam: the command's tests inject their own workDir; the runtime's is the resolver-backed wrapper.
+  { file: 'src/commands/story-test-attestation.mjs', line: /dependencies\.workDir\(/u, keys: ['W'] },
+  { file: 'src/commands/story-test-repair.mjs', line: /dependencies\.workDir\(/u, keys: ['W'] }
 ];
 
 // Ceilings: lowered by each batch of M1, never raised. At M1's end W, R, P, I, B, X and H are 0; L keeps only help
 // text and comments; E stays for M6.
 const CEILINGS = {
-  W: 34, R: 15, P: 4, I: 33, B: 7, X: 95, H: 8, L: 30, S: 7, F: 45, E: 34
+  W: 5, R: 1, P: 3, I: 14, B: 4, X: 95, H: 8, L: 30, S: 7, F: 45, E: 34
 };
 
 async function* sourceFiles(directory) {

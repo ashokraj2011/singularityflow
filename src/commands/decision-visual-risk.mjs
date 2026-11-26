@@ -18,11 +18,11 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import { visualVerificationPhaseOf } from '../phase-roles.mjs';
 import { loadSession } from '../session.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
-import { workDir } from '../story-paths.mjs';
 import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 import { listVisualComparisons } from '../visual-compare.mjs';
 import { recordVisualRisk } from '../visual-risks.mjs';
 import { actionActor } from './kernel.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 export async function decisionVisualRiskCommand(positionals, options) {
   const root = repoRoot();
@@ -39,7 +39,7 @@ export async function decisionVisualRiskCommand(positionals, options) {
   const step = visualVerificationPhaseOf(workflow, null);
   if (!step) throw new SingularityFlowError(`Story ${id} has no visual verification step to accept a comparison's risk for.`, { code: 'VISUAL_RISK_INVALID' });
   const comparisonId = optionString(options, 'comparison') ?? '';
-  const comparison = (await listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, id) }))
+  const comparison = (await listVisualComparisons(root, workflow, { itemDirectory: storyLocation(root, config, id).directory }))
     .find((entry) => entry.id === comparisonId) ?? null;
   // Whoever approves the visual step decides; an exact, live comparison only.
   const groups = riskAuthorities(workflow, { owningSteps: [step.id] });

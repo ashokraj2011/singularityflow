@@ -3,8 +3,10 @@
 **Specification ID:** `SSB-v1`
 
 **Status:** Open questions decided by the owner on 2026-11-26 (§10). M0's local probes ran on 2026-11-26 (§11); the
-real-host and real-app probes are still to run. M1 is planned in [SSB-M1-PLAN](plans/SSB-M1-PLAN.md). Not built. On the
-roadmap as [`SSB-001`](PENDING-WORK-ROADMAP.md#story-storage-off-the-code-branch-ssb). Decision record:
+real-host and real-app probes are still to run. M1 (the resolver, [SSB-M1-PLAN](plans/SSB-M1-PLAN.md)) is on main. M2
+(the state ref and its checkout, created at Story start) is built on branch `ssb-m2` (2026-11-26), behind
+`story.storage`, with today's layout unchanged (§12). M3 to M6 are not built. On the roadmap as
+[`SSB-001`](PENDING-WORK-ROADMAP.md#story-storage-off-the-code-branch-ssb). Decision record:
 [ADR 0019](adr/0019-story-state-off-the-code-branch.md).
 
 **Owner, 2026-11-23:**
@@ -81,8 +83,8 @@ The ref:
 ```text
 workflow.json
 approvals/ context/ submissions/ …    as in today's singularity/work-items/<WORK-ID>/, without the documents
-configuration/                        the pinned copy, at its usual paths
-configuration-source.json
+configuration/                        the pinned copy, at its usual paths, with its pin
+                                      (configuration/singularity/configuration-source.json; M2, §12)
 ```
 
 **SSB:REQ-004, binding.**
@@ -204,7 +206,7 @@ In all, 242 files name a Story's or an Epic's paths. The plan's appendix lists t
 |---|---|---|
 | M0 | Probes, §8 | 1 day |
 | M1 | The resolver (REQ-009). Every path join goes through it; today's layout behaves the same and its tests pass unchanged. Plan: [SSB-M1-PLAN](plans/SSB-M1-PLAN.md) | 6 days (was 4: the joins above) |
-| M2 | The state ref and checkout (REQ-002, 003, 006, 007), created at Story start | 3 days |
+| M2 | The state ref and checkout (REQ-002, 003, 006, 007), created at Story start. Built on `ssb-m2` (§12) | 3 days |
 | M3 | Publication and recovery (REQ-004, 005, 008); approvals and decisions touch state only | 4 days |
 | M4 | Documents in the code base (REQ-001); agents, skills, hooks and the code step's scope | 3 days |
 | M5 | VS Code, Copilot hooks, status, landing, discovery; the setting (REQ-010) | 3 days |
@@ -456,3 +458,97 @@ Expected on today's build: outside the code step the edit is refused as an appli
 allowed, because the guard counts `.sflow-state/` as application code (11.2, item 7). That allowed edit is the gap M4
 closes, not a probe failure. A failure is a host whose hook never sees the edit or the shell write. On IntelliJ, also
 note whether SFlow's hooks run at all: the Local agent ran none on 2026-11-23.
+
+## 12. M2 as built (branch `ssb-m2`, 2026-11-26)
+
+Built from `main@2809f6edc`. Everything is behind `story.storage`; without it, Story start and every read are as
+before, and today's tests pass unchanged.
+
+### What a state-ref Story does now
+
+- **The setting.** `story.storage: story-branch | state-ref` in `singularity/workflow.yml`, checked when the
+  configuration loads and in the definition schema. Absent is `story-branch` (decision 4). Its description says
+  `state-ref` is being built. The build fence that makes an older SFlow refuse it is M5 (REQ-010).
+- **Story start** (REQ-002, 003, 006). When the approved configuration says `state-ref`, Story start writes the exclude
+  line, then creates `refs/singularity/state/<ID>` (one empty-tree root commit, create-only), then adds `.sflow-state/`
+  as a detached linked worktree. All three come right after the Story branch is checked out, so every record lands in
+  the state checkout. The start's records are committed on the state ref, under its expected value. The Story branch
+  stays at its base: no SFlow file, no SFlow commit.
+- **The pinned copy.** A pin from `sflow/config` moves into `configuration/` in the state, at its usual paths. Tracked
+  files it replaced in the code checkout come back from the branch.
+- **A refused start** removes the state checkout and the ref, as it removes the branch (the start journal records the
+  ref). A start that crashed after its state commit is finished, not undone.
+- **The layout is recorded** in `resolution.story.storage`, once, for the Story's life (REQ-010).
+- **Transitions.** A state-ref Story's `commitAndPublish` goes to a state-ref lifecycle authority. It writes the records
+  in the state checkout, commits there, and moves the ref under its expected value. A refusal rolls back through the
+  transition's own preimage of `.sflow-state/`. Nothing is pushed: publication is M3.
+- **Reading.** The Story index finds `.sflow-state/workflow.json` with no definition, since the folder's name is fixed.
+  Finding it, or creating it, tells the resolver the Story's layout for the process, by checkout and Story (the M1
+  plan's §4, step 3). A workflow's own `resolution.story.storage` always wins.
+- **Every command** in a clone that keeps a state-ref Story makes the state checkout right for the checkout's Story
+  branch at entry: made again, links repaired, a foreign folder set aside, moved to its ref when clean. A clone with a
+  state-ref Story is known from files only: the folder, or the exclude line SFlow writes before the first checkout.
+  Others pay one stat and one small file read. The pinned configuration is read from the state checkout for the command.
+  A checkout with uncommitted records is never moved; a read that finds no Story tries the same once before it refuses.
+- **Fetching** (REQ-007). `resume --fetch`, opening a local session and re-starting an existing Story fetch the state
+  ref with an explicit refspec into `refs/singularity/remotes/<remote>/state/<ID>`. The local ref is then created, or
+  fast-forwarded, only when nothing local is lost: a local ref ahead stays, and a diverged one is reported. Each is
+  asked only when the branches name no Story, or a state checkout is already there, so a Story on today's layout pays
+  nothing. Listing every Story's state is one `git ls-remote` (or a local `for-each-ref`).
+- **Git's own checks** (§11.2 items 3, 5, 6). The checks that list ignored files skip `.sflow-state/`. Removing a Story
+  checkout removes its state checkout first, and keeps both while it holds records not saved on the ref (launch
+  cleanup, rollback, retention). The code step's preflight refuses `.sflow-state` staged or committed as a gitlink, with
+  the `git rm --cached` command that takes it out.
+- **`ledger.pinTransport: branches`** makes the state ref the branch `sflow/state/<ID>`.
+
+### Design changes found while building
+
+1. **`resolution.story.storage`, not `resolution.storage.layout`.** `resolution.storage` already holds a Story's
+   document storage providers (SharePoint, S3 and so on), so the M1 resolver's field moved.
+2. **The pin stays inside the pinned copy**, at `configuration/singularity/configuration-source.json`, not at the state
+   root as REQ-003's first tree had it. Every reader of a pinned copy then finds it at its usual path through the
+   configuration overlay.
+3. **`recordsRoot`.** A record's spelling is relative to the Story's records: the checkout for `story-branch`
+   (`<Stories folder>/<ID>/…`), the state checkout for `state-ref` (REQ-009). Files are `recordsRoot` joined with the
+   spelling, and Git reads a record's history there: the state checkout's HEAD is the state ref. One rule converts a
+   site without changing `story-branch`: `prefix` becomes `record()`, and `root` becomes `recordsRoot` where it is
+   joined with a record or used for its history.
+4. **A state-ref Story's `prefix` refuses, loudly** (`STORY_STATE_REF_PATH_UNAVAILABLE`), instead of `null`, which
+   template strings turned into a `null/` folder in the code checkout. `branchPrefix` asks first. Every site not yet
+   moved to `recordsRoot` therefore stops a state-ref Story with a refusal rather than writing in the wrong place. M2
+   moved the sites Story start reaches: the workflow snapshot (capture, draft, verification, the creation record), the
+   policy anchor, the first work interval and the first step's inputs.
+
+### Probes 2 and 3 not run: the safe defaults taken
+
+- The state checkout is a linked worktree (probe 4's choice). Whether VS Code lists it as a second repository, and the
+  setting that hides it (`git.ignoredRepositories`), wait for probe 2 and M5.
+- The edit guard still counts `.sflow-state/` as an application path (§11.2 item 7). Refusing an agent's edit there is
+  M4, after probe 3. The exclude line keeps it out of `git status`, `git add -A` and the code step's commit today (A7's
+  second half).
+
+### Left for M3 and later
+
+- **M3:** publication of the state ref with the branch, the ledger and the pin in one atomic push (REQ-005), and its
+  recovery; approvals, decisions and clarifications on a state-ref Story (the sites past Story start still refuse with
+  `STORY_STATE_REF_PATH_UNAVAILABLE`: 126 `prefix` uses in 60 files, and the five state readers with no Story in scope,
+  M1 plan §9 B12); retention and the workspace drop checking unpublished state commits; WMR REQ-022 (lessons on the
+  state ref).
+- **M4:** documents in `docs/stories/<ID>/` (M2 keeps a state-ref Story's step documents in its state checkout); the
+  edit guard; WMR REQ-020 and REQ-021.
+- **M5:** discovery from `refs/singularity/state/*` (session discovery and takeover find a state-ref Story only by its
+  ID today), the VS Code views, the build fence for the setting.
+- **M6:** the fuzzer, invariants and journeys on both layouts (A8).
+- The four precedence orders of the Stories folder (M1 plan §2): compose now passes the workflow first (WMR REQ-023);
+  the other orders stay as they were.
+
+### Tests
+
+- `test/story-state-ref.test.mjs` (10): the ref and checkout on real clones (exclude first, no application history,
+  leased commits, repairs after delete, move and a foreign folder, removal refused while unsaved, fetch into a tracking
+  ref with the local ref kept when ahead, one-call listing, branches transport, ignored listings, the gitlink refusal).
+- `test/story-state-ref-start.test.mjs` (7): Story start on both layouts and with `sflow/config`, a refused start
+  leaving nothing, a second clone's `resume --fetch`, a deleted checkout made again at the next command, and the
+  setting's checks.
+- `test/story-paths-resolver.test.mjs`: the recorded field, the remembered layout, `recordsRoot` and the refusing
+  `prefix`.

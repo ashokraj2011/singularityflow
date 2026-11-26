@@ -6,7 +6,8 @@
 not built: probe P1 showed JSX parsing did not cause the missing file. M3 (REQ-029) built on branch `wmr-m3`
 (2026-11-26); its measure of the owner's kept prompts, before and after M1 and M2, is in §11. M0 (the text clean-up)
 is on main (`4c8b464a6`). M1's last part, the dead `worldModelViews` fields and the rest of the removed World Model's
-code, is retired on branch `wm-dead` (§10). M4 (REQ-020–023) is not built. The probes' answers are in §7. The
+code, is retired on branch `wm-dead` (§10). M4: REQ-023 is built with SSB M2 on branch `ssb-m2` (2026-11-26);
+REQ-020–022 wait for SSB M3 and M4 (§4.6). The probes' answers are in §7. The
 planning fix §11 left open is built on branch `wmr-words` (2026-11-26): every graph Story's planning brief now names the
 grapher file (§11).
 Written on 2026-11-26 from two read-only reviews of that day: one of the code, one of the owner's real use. Checked
@@ -232,25 +233,29 @@ analysis it was written from (REQ-017's key) and the selection. A commit that ch
 
 ### 4.6 Ready for clean PRs (with SSB M2–M4)
 
-**WMR:REQ-020, approved specifications follow the Story's layout.** `readApprovedRequirements` finds each Story's
-records through the resolver:
+**WMR:REQ-020, approved specifications follow the Story's layout.** *Waits for SSB M4 (documents in `docs/stories/`) and
+M3 (published state refs): at HEAD a state-ref Story has neither its records nor, before M4, its documents.*
+`readApprovedRequirements` finds each Story's records through the resolver:
 - in today's layout, the Story folder;
 - under SSB, the state ref (records) and `docs/stories/<ID>/` (approved documents).
 
 Approval digests are checked as today. In either layout, a Story whose records cannot be read is skipped with a
 warning, never silently.
 
-**WMR:REQ-021, Story documents are not repository docs.** `readDocumentation` leaves out `docs/stories/**` and the
+**WMR:REQ-021, Story documents are not repository docs.** *Waits for SSB M4: until `docs/stories/` is SFlow's (REQ-001
+refuses a folder a repository already uses), leaving it out would drop a team's own docs. `.sflow-state/` is never in a
+commit, so the HEAD reader cannot meet it.* `readDocumentation` leaves out `docs/stories/**` and the
 state checkout (`.sflow-state/`). The current Story's own unapproved drafts never become docs statements or
 docs-origin rules.
 
-**WMR:REQ-022, lessons leave the Story branch.** Story lessons (LRN) stop being committed to the code branch
-(`src/story-publication-service.mjs:221`, `src/story-lessons.mjs:233-245`). Under SSB they live on the Story's state
-ref. `phaseLessons` reads them through the resolver. A failure to record a lesson never blocks an approval (probe P5).
+**WMR:REQ-022, lessons leave the Story branch.** *Waits for SSB M3, where an approval commits only the state ref.* Story
+lessons (LRN) stop being committed to the code branch (`src/story-publication-service.mjs:221`,
+`src/story-lessons.mjs:233-245`). Under SSB they live on the Story's state ref. `phaseLessons` reads them through the
+resolver. A failure to record a lesson never blocks an approval (probe P5).
 
-**WMR:REQ-023, compose passes the workflow.** Every compose join that reads Story records passes the workflow as the
-first source to `storyLocation` (for example `workflowPlannedPaths`). A state-ref Story then never reads as an empty
-plan.
+**WMR:REQ-023 (built, SSB M2), compose passes the workflow.** Every compose join that reads Story records passes the
+workflow as the first source to `storyLocation` (for example `workflowPlannedPaths`). A state-ref Story then never reads
+as an empty plan.
 
 ### 4.7 Guidance only, everywhere
 
@@ -325,7 +330,7 @@ It never sends anything anywhere and calls no model.
 | M1 | Cache (REQ-017–019), guidance only (REQ-024, 025), surfaces (REQ-026, 027), dead `worldModelViews` fields retired | built (dead fields on `wm-dead`) |
 | M2 | Focus and placement (REQ-007–013) and true claims (REQ-014–016), with golden briefs updated | about 1.5 days |
 | M3 | The real-use measure (REQ-029), run on the owner's kept prompts before and after | built on `wmr-m3`; §11 |
-| M4 | Ready for clean PRs (REQ-020–023), built inside SSB M2–M4 | with SSB |
+| M4 | Ready for clean PRs (REQ-020–023), built inside SSB M2–M4 | REQ-023 built with SSB M2 (`ssb-m2`); the rest with SSB M3–M4 |
 
 M0 and M1 can land together. M2 lands with its measure from M3, so the change shows its effect.
 

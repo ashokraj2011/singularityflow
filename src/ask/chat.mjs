@@ -24,7 +24,8 @@ function providerFailure(error, withholdForModel) {
   const observed = error?.details?.observedTotalTokens;
   const maximum = error?.details?.maximumTotalTokens;
   const messages = {
-    MODEL_TOKEN_BUDGET_EXCEEDED: Number.isSafeInteger(observed) && Number.isSafeInteger(maximum)
+    MODEL_TOKEN_BUDGET_EXCEEDED:
+      Number.isSafeInteger(observed) && Number.isSafeInteger(maximum)
       ? `Copilot reported ${observed.toLocaleString('en-US')} tokens, above Ask SFlow’s ${maximum.toLocaleString('en-US')}-token limit.`
       : 'Copilot reached its token or request limit.',
     MODEL_PROVIDER_UNAVAILABLE: 'SFlow could not find the configured Copilot CLI executable.',

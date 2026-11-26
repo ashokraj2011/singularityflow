@@ -1058,7 +1058,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,905,847 (measured for submit.mjs, +367 over 9,905,480 at 42731f7ca, 2026-11-26 on itw-walks; start.mjs 9,904,987, +367):
     // a refactor's behaviour choice as a family SF Guard signs and counts, with the words its card names it by
     // (person-step-catalog.mjs) [ITW:REQ-015]. No new eager file.
-    assert.ok(closure.bytes <= 9_905_847, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,906,063 (+216, measured 2026-11-26 on itw-all2 merged with main 867d6da4a): main's Ask SFlow Story conversation and
+    // local help commits, small edits across modules the closure already held. No new eager file.
+    assert.ok(closure.bytes <= 9_906_063, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1657,7 +1659,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,366,692 (measured on itw-all2 with itw-walks and itw-market2 merged, 2026-11-26). No new eager file.
   // 4,367,059 (+367 over 4,366,692 at 42731f7ca, measured 2026-11-26 on itw-walks): a refactor's behaviour choice as a
   // family SF Guard signs and counts (person-step-catalog.mjs) [ITW:REQ-015]. No new eager file.
-  assert.ok(current.bytes <= 4_367_059, `session current loads ${current.bytes} source bytes`);
+  // 4,367,275 (+216, measured 2026-11-26 on itw-all2 merged with main 867d6da4a): main's Ask SFlow Story conversation and
+  // local help commits, small edits across modules it already loaded. No new eager file.
+  assert.ok(current.bytes <= 4_367_275, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

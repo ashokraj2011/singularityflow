@@ -3,7 +3,7 @@ const ARA_ACTIONS = ['plan', 'start', 'status', 'inspect', 'feedback', 'repair',
 const ARA_READS = ['plan', 'status'];
 const UI_ACTIONS = ['open', 'serve', 'status', 'stop'];
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
-import { REMOVED_WORLD_MODEL_SUBCOMMANDS, removedWorldModelError } from './removed-features.mjs';
+import { REMOVED_KNOWLEDGE_SUBCOMMANDS, REMOVED_WORLD_MODEL_SUBCOMMANDS, removedKnowledgeError, removedWorldModelError } from './removed-features.mjs';
 
 const READ_ONLY = new Set(['ask', 'outcome', 'result', 'specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'needs-you', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'gate', 'explain', 'comprehension', 'precheck', 'index', 'prompts']);
 const STRUCTURED = new Set(['ask', 'git-policy', 'outcome', 'result', 'confirm', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock', 'backup', 'guard', 'findings', 'prompts', 'update', 'lessons', 'work']);
@@ -328,7 +328,7 @@ const WM_AST_READ_ACTIONS = new Set(['doctor', 'status', 'context', 'query', 'ga
 const WM_AST_MUTATION_ACTIONS = new Set(['build', 'warm']);
 const WM_AST_ACTIONS = Object.freeze([...WM_AST_READ_ACTIONS, ...WM_AST_MUTATION_ACTIONS, 'cache', 'evidence', 'pack', 'preference']);
 // Repository knowledge reads the committed tree and writes only its machine-local cache; no model, no governed state.
-const WM_KNOWLEDGE_ACTIONS = Object.freeze(['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'brief', 'calls', 'areas', 'confirm', 'correct', 'reject']);
+const WM_KNOWLEDGE_ACTIONS = Object.freeze(['build', 'show', 'status', 'items', 'eval', 'explain', 'brief', 'calls', 'areas', 'confirm', 'correct', 'reject']);
 // Reviews write docs/knowledge/confirmations.yml in the working tree (committed by the person, with the code).
 const WM_KNOWLEDGE_REVIEW_ACTIONS = new Set(['confirm', 'correct', 'reject']);
 
@@ -1331,6 +1331,7 @@ function resolveWorldModelOperation(definition, positionals, options) {
   }
   if (subcommand === 'knowledge') {
     const action = positionals[2] ?? 'status';
+    if (Object.hasOwn(REMOVED_KNOWLEDGE_SUBCOMMANDS, action)) throw removedKnowledgeError(action);
     if (!WM_KNOWLEDGE_ACTIONS.includes(action)) return unknownSubcommand('wm knowledge', action, WM_KNOWLEDGE_ACTIONS, 'action');
     // Plain-language explanations use a model when one is enabled; without one the command shows what it would send.
     if (action === 'explain') return optional('wm.knowledge.explain', 'wm.knowledge.explain.deterministic', { ...definition, classification: 'read' });

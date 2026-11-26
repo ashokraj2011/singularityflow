@@ -44,6 +44,13 @@ function isCandidateSource(relative, pathContext) {
   return isCodeLanguage(languageOf(relative));
 }
 
+/** `worldModel.excludedRoots` as exact prefixes, sorted. */
+function excludedRoots(definition) {
+  return (Array.isArray(definition.worldModel?.excludedRoots) ? definition.worldModel.excludedRoots : [])
+    .filter((entry) => typeof entry === 'string' && entry.trim() && !/[*?[\]{}]/u.test(entry))
+    .map((entry) => entry.trim().replace(/\/+$/u, '')).sort();
+}
+
 /**
  * Paths no build reads: `worldModel.excludedRoots` prefixes, and environment-local files (secrets,
  * machine settings) the repository declares. A declaration that cannot be read stops the read
@@ -58,9 +65,7 @@ function excludedSource(root, definition) {
       code: 'KNOWLEDGE_SCOPE_INVALID'
     });
   }
-  const prefixes = (Array.isArray(definition.worldModel?.excludedRoots) ? definition.worldModel.excludedRoots : [])
-    .filter((entry) => typeof entry === 'string' && entry.trim() && !/[*?[\]{}]/u.test(entry))
-    .map((entry) => entry.trim().replace(/\/+$/u, ''));
+  const prefixes = excludedRoots(definition);
   return (relative) => prefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
     || Boolean(matchEnvironmentLocalPath(declaration, relative));
 }
@@ -148,7 +153,9 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
   }
   // What the code was asked to do: clauses of approved Story specifications, read at the same commit.
   const requirements = readApprovedRequirements(root, definition, { ref: ref === 'HEAD' ? 'HEAD' : commit });
-  const key = digest(JSON.stringify([commit, roots, ownOnly, files.map((file) => [file.path, file.sha256]),
+  // What was read, never which commit it was read at: a commit that changes none of it (a Story's own records, for
+  // one) keeps the same key, so nothing is analysed again [WMR:REQ-017]. History is keyed apart (store.mjs).
+  const key = digest(JSON.stringify([roots, ownOnly, excludedRoots(definition), files.map((file) => [file.path, file.sha256]),
     manifests.map((file) => [file.path, file.sha256]), requirements.documents.map((document) => [document.path, document.sha256]),
     ruleFiles.map((file) => [file.path, file.sha256])]));
   return { ...base, status: 'ok', reason: null, key, files, manifests, ruleFiles, skipped, bytes: total, name: path.basename(root),

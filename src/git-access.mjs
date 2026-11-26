@@ -22,7 +22,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { isFullyQualifiedWindowsPath } from './platform-process.mjs';
 import { gitHostSearchDirectories, isAppleDeveloperGit } from './git-host-selection.mjs';
-import { literalPathspec, repositoryRelative, typedGit, typedOutput } from './source-inspection.mjs';
+import { literalPathspec, repositoryRelative, TYPED_GIT_TIMEOUT_MS, typedGit, typedOutput } from './source-inspection.mjs';
 import { processResultCompleted } from './process-result.mjs';
 import { gitReadOutput, isGitRefName, networkDisabled, run, SingularityFlowError } from './util.mjs';
 
@@ -1153,6 +1153,21 @@ export function typedChangedPaths(root, left, right = null, { paths = [], max = 
   }
   entries.sort((a, b) => a.path.localeCompare(b.path));
   return { entries: entries.slice(0, max), total: entries.length, truncated: entries.length > max };
+}
+
+/**
+ * The newest commit at `ref` (merges skipped) that changed one of `paths`, or null when Git cannot say. The paths go on
+ * stdin as literal pathspecs, so a repository's whole list of source files fits in one process [WMR:REQ-017].
+ */
+export function newestCommitTouching(root, paths, { ref = 'HEAD' } = {}) {
+  if (!paths.length || String(ref).startsWith('-')) return null;
+  const result = run('git', ['-c', 'core.fsmonitor=false', 'log', '-1', '--no-merges', '--format=%H', '--stdin', ref], {
+    cwd: root, allowFailure: true, timeoutMs: TYPED_GIT_TIMEOUT_MS,
+    env: { ...withoutGitProcessOverrides(process.env), GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0' },
+    input: `--\n${paths.map((file) => `:(literal)${file}`).join('\n')}\n`
+  });
+  const commit = result.status === 0 ? String(result.stdout ?? '').trim() : '';
+  return /^[0-9a-f]{40,64}$/u.test(commit) ? commit : null;
 }
 
 /** Bounded commit metadata; author names only, never addresses, which are not evidence. */

@@ -85,3 +85,11 @@ export function removedWorldModelError(source) {
     { code: 'WMB_REMOVED', details: { source } }
   );
 }
+
+/** Retired `wm knowledge` subcommands [WMR:REQ-027]: refused by name, saying what replaced each. */
+export const REMOVED_KNOWLEDGE_SUBCOMMANDS = Object.freeze({ slice: 'It showed an old 8 KB slice, not what a step receives' });
+
+export function removedKnowledgeError(action) {
+  return new SingularityFlowError(`'wm knowledge ${action}' was removed. ${REMOVED_KNOWLEDGE_SUBCOMMANDS[action]}: see that with singularity-flow wm brief --phase PHASE.`,
+    { code: 'COMMAND_REMOVED', details: { command: `wm knowledge ${action}`, nextAction: 'singularity-flow wm brief --phase PHASE' } });
+}

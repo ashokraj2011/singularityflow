@@ -6,12 +6,20 @@
  * content it was built from and lives beside the repository's other machine-local state, under
  * the shared Git directory (so every Story worktree of a repository shares it). A cache entry is
  * never authority; it is only reused when its key matches exactly.
+ *
+ * The key is what was read, never the commit [WMR:REQ-017]: the files' digests, the manifests, the rule files, the
+ * approved requirements, the roots and the scope. History (churn, ownership, co-change) is keyed by the newest commit
+ * that touched a read path, and only read paths count in it, so a commit that changes none of them (a Story's own
+ * records) reuses the entry. Its `repository.commit` is the commit it was first analysed at: the read files are the
+ * same at every commit that reuses it. `prune` removes only analysis entries (`<64 hex>.json`); what a model wrote
+ * is kept apart (paid.mjs) and rule drafts are never pruned [WMR:REQ-018].
  */
 import { readFileSync } from 'node:fs';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { repositoryGitPath } from '../git-directory.mjs';
+import { newestCommitTouching } from '../git-access.mjs';
 import { recentCommitFileSets } from '../git.mjs';
 import { analyzeKnowledge, KNOWLEDGE_ANALYZER_VERSION } from './analyze.mjs';
 import { sha256 } from './items.mjs';
@@ -44,8 +52,11 @@ function cacheDirectory(root) {
   return repositoryGitPath(root, 'singularity-flow', 'knowledge');
 }
 
+/** An analysis entry's name: its key. Nothing else in the folder is ever pruned here [WMR:REQ-018]. */
+const ANALYSIS_ENTRY = /^[0-9a-f]{64}\.json$/u;
+
 async function prune(directory) {
-  const names = (await readdir(directory).catch(() => [])).filter((name) => name.endsWith('.json'));
+  const names = (await readdir(directory).catch(() => [])).filter((name) => ANALYSIS_ENTRY.test(name));
   if (names.length <= KEEP_ENTRIES) return;
   const dated = await Promise.all(names.map(async (name) => ({ name, at: (await stat(path.join(directory, name)).catch(() => null))?.mtimeMs ?? 0 })));
   for (const entry of dated.sort((a, b) => b.at - a.at).slice(KEEP_ENTRIES)) await rm(path.join(directory, entry.name), { force: true });
@@ -69,7 +80,10 @@ export async function buildKnowledge(root, { area = null, ownOnly = false, histo
   // warming a pack later rebuilds the knowledge instead of reusing a name-matched build.
   // Semantic packs are warmed for the checkout, so another commit's calls are matched by name.
   const resolvedCalls = resolveCalls && ref === 'HEAD' ? await readResolvedCalls(root, source) : { status: 'not-requested', calls: [], digest: null, providers: [] };
-  const key = sha256(JSON.stringify([source.key, KNOWLEDGE_ANALYZER_VERSION, analyzerSourceIdentity(), history, resolvedCalls.digest]));
+  // History is a function of the commits that touched what was read; one that touched none of it changes nothing.
+  const readPaths = [...source.files, ...source.manifests, ...(source.ruleFiles ?? [])].map((file) => file.path);
+  const historyCommit = history ? newestCommitTouching(root, readPaths, { ref: ref === 'HEAD' ? 'HEAD' : source.commit }) : null;
+  const key = sha256(JSON.stringify([source.key, KNOWLEDGE_ANALYZER_VERSION, analyzerSourceIdentity(), history, historyCommit, resolvedCalls.digest]));
   const directory = cacheDirectory(root);
   const file = path.join(directory, `${key}.json`);
   if (!refresh) {
@@ -82,7 +96,10 @@ export async function buildKnowledge(root, { area = null, ownOnly = false, histo
   let churn = null;
   let commits = null;
   if (history) {
-    commits = recentCommitFileSets(root, { paths: source.roots, ref: ref === 'HEAD' ? null : source.commit });
+    const read = new Set(readPaths);
+    // Only read paths count, so the analysis is the same at every commit its key reuses it for.
+    commits = recentCommitFileSets(root, { paths: source.roots, ref: ref === 'HEAD' ? null : source.commit })
+      .map((entry) => ({ ...entry, files: entry.files.filter((file) => read.has(file)) })).filter((entry) => entry.files.length);
     const counts = new Map();
     for (const entry of commits) for (const file of entry.files) counts.set(file, (counts.get(file) ?? 0) + 1);
     churn = counts.size ? counts : null;

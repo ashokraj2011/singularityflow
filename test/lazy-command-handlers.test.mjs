@@ -1089,7 +1089,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // No new eager file.
     // 9,918,097 (measured for submit.mjs on m1-int with fpl-m1, omk-m1 and ssb-m1 merged, 2026-11-26; start.mjs 9,917,349):
     // the three branches' rises together. No new eager file.
-    assert.ok(closure.bytes <= 9_918_097, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,918,831 (+734, measured for submit.mjs 2026-11-26 on wmr-m1m2; start.mjs 9,918,083): `wm knowledge slice` is refused by name as retired, pointing to `wm brief --phase` (removed-features.mjs,
+    // command-registry.mjs) [WMR:REQ-027]. No new eager file.
+    assert.ok(closure.bytes <= 9_918_831, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1285,7 +1287,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // (story-paths.mjs). No new eager file.
   // 888,803 (measured on m1-int with fpl-m1, omk-m1 and ssb-m1 merged, 2026-11-26): the rises above together; the one new
   // eager file is ssb-m1's story-paths.mjs.
-  assert.ok(root.bytes <= 888_803, `root dispatch loads ${root.bytes} source bytes`);
+  // 889,537 (+734, measured 2026-11-26 on wmr-m1m2): `wm knowledge slice` is refused by name as retired, pointing to `wm brief --phase` (removed-features.mjs,
+  // command-registry.mjs) [WMR:REQ-027]. No new eager file.
+  assert.ok(root.bytes <= 889_537, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1719,7 +1723,9 @@ test('the common session projection does not import attach, state stores or publ
   // M1, most of it story-paths.mjs, the Story path resolver [SSB:REQ-009]. No new eager file.
   // 4,376,291 (measured on m1-int with fpl-m1, omk-m1 and ssb-m1 merged, 2026-11-26): the three branches' rises together.
   // No new eager file.
-  assert.ok(current.bytes <= 4_376_291, `session current loads ${current.bytes} source bytes`);
+  // 4,377,025 (+734, measured 2026-11-26 on wmr-m1m2): `wm knowledge slice` is refused by name as retired, pointing to `wm brief --phase` (removed-features.mjs,
+  // command-registry.mjs) [WMR:REQ-027]. No new eager file.
+  assert.ok(current.bytes <= 4_377_025, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

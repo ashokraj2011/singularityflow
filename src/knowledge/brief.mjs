@@ -12,13 +12,12 @@
  * with fixed sentences. Either way nothing is invented, and nothing blocks: the brief is guidance.
  */
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { readRefTreeResult } from '../git-ref-tree.mjs';
-import { repositoryGitPath } from '../git-directory.mjs';
 import { scanText } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { readPaid, writePaid } from './paid.mjs';
 import { EXPLANATION_SHAPE, groundedTokens } from './explain.mjs';
 import { roleForPhase } from './render.mjs';
 
@@ -520,20 +519,13 @@ export function templateBrief(evidence, { limits = BRIEF_LIMITS } = {}) {
   return { views, rejected: [] };
 }
 
-function briefFile(root, key) {
-  return repositoryGitPath(root, 'singularity-flow', 'knowledge', `brief-${key}.json`);
-}
-
+/** A model-written brief is paid output, kept apart from the analysis entries a prune removes [WMR:REQ-018]. */
 export async function readCachedBrief(root, key) {
-  return readFile(briefFile(root, key), 'utf8').then(JSON.parse).catch(() => null);
+  return readPaid(root, `brief-${key}.json`);
 }
 
 export async function writeCachedBrief(root, key, record) {
-  const file = briefFile(root, key);
-  await mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.tmp`;
-  await writeFile(temporary, JSON.stringify(record));
-  await rename(temporary, file);
+  await writePaid(root, `brief-${key}.json`, record);
 }
 
 /** The cache key of a model brief: the knowledge build, the docs read, the prompt and the model. */

@@ -1083,6 +1083,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     proposalCard: function () { return proposalCard.apply(null, arguments); }, stepTestsWords: function () { return stepTestsWords.apply(null, arguments); },
     repositoryTestsCard: function () { return repositoryTestsCard(); },
     worldModelSection: function () { return worldModelSection.apply(null, arguments); }, knowledgeReader: function () { return knowledgeReader.apply(null, arguments); },
+    stepBrief: function () { return stepBrief.apply(null, arguments); }, briefProfileOf: function () { return briefProfileOf.apply(null, arguments); },
     newStepWorldModelHint: function () { return newStepWorldModelHint.apply(null, arguments); },
     renderReadOnlyStep: function () { return renderReadOnlyStep.apply(null, arguments); }, renderReadOnlyDecision: function () { return renderReadOnlyDecision.apply(null, arguments); },
     renderToolRail: function () { return renderToolRail.apply(null, arguments); },
@@ -3198,24 +3199,58 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   }
 
   /** A collapsible inspector section, with an optional switch in its header and a summary shown when closed. */
-  /** The reader a step's repository knowledge is written for: the engine's rules, applied to its ID. */
-  function knowledgeReader(phaseId) {
-    var id = String(phaseId || '').toLowerCase();
-    var rules = ((state.model.choices.knowledge || {}).readers) || [];
-    for (var i = 0; i < rules.length; i++) if (new RegExp(rules[i].pattern).test(id)) return rules[i].reader;
-    return 'developer';
+  /** The engine's brief rules (phaseBriefProfile), sent as data with the model. */
+  function briefRules() {
+    return ((state.model.choices.knowledge || {}).rules) || { profiles: [], kinds: {}, tasks: {}, sectionTitles: {} };
   }
-  /** A step's World Model: the Repository brief every step gets, read from the source. */
+  /**
+   * The brief a step gets, by the engine's own rule (knowledge/phase-brief.mjs phaseBriefProfile): what it declares
+   * first (its output kind, then a code task), then its ID, then its other declared task.
+   */
+  function briefProfileOf(phaseId, kind, task) {
+    var rules = briefRules();
+    var byId = function (id) { return rules.profiles.find(function (entry) { return entry.id === id; }) || null; };
+    var id = String(phaseId || '').toLowerCase();
+    var declared = byId(Object.prototype.hasOwnProperty.call(rules.kinds, kind || '') ? rules.kinds[kind] : task === 'code' ? 'implementation' : null);
+    var named = rules.profiles.find(function (entry) { return new RegExp(entry.pattern, 'u').test(id); }) || byId('implementation');
+    if (!named) return null;
+    var profile = declared && (named.pattern === '.*' || named.reader !== declared.reader) ? declared : named;
+    if (profile.pattern === '.*' && !declared && Object.prototype.hasOwnProperty.call(rules.tasks, task || '')) profile = byId(rules.tasks[task]) || profile;
+    var maxBytes = (state.model.choices.knowledge || {}).maxBytes;
+    var sections = profile.order.filter(function (section) { return profile.reader === 'product' || section !== 'questions'; })
+      .map(function (section) { return rules.sectionTitles[section] || section; });
+    return { profile: profile.id, reader: profile.reader, budget: typeof maxBytes === 'number' ? maxBytes : profile.budget, sections: sections };
+  }
+  /** The brief a step gets: the engine's own answer for a step the model has, else profiled here from what it declares. */
+  function stepBrief(workflowId, phaseId, phase) {
+    var workflow = (state.model.workflows || []).find(function (entry) { return entry.id === workflowId; });
+    var step = workflow && (workflow.steps || []).find(function (entry) { return entry.id === phaseId; });
+    if (step && step.brief && !(phase && phase.isNew)) return step.brief;
+    var shared = (state.model.phases || []).find(function (entry) { return entry.id === phaseId; });
+    if (shared && shared.brief && !(phase && phase.isNew)) return shared.brief;
+    var task = (phase && phase.task) || (phase && phase.output === 'code' ? 'code' : null);
+    return briefProfileOf(phaseId, (phase && phase.kind) || null, task);
+  }
+  /** The reader a step's brief is written for, from its ID alone (a step being named, before it says what it produces). */
+  function knowledgeReader(phaseId) {
+    var brief = briefProfileOf(phaseId, null, null);
+    return brief ? brief.reader : 'developer';
+  }
+  /** "developer, 3 KB": a brief in a few words. */
+  function briefWords(brief) { return brief.reader + ', ' + Math.round(brief.budget / 1024) + ' KB'; }
+  /** A step's World Model: the Repository brief it gets, as a Story would compose it [WMR:REQ-026]. */
   function worldModelSection(workflowId, phaseId, phase, readOnly) {
-    var knowledge = state.model.choices.knowledge || { prompt: 'slice', maxBytes: 8192 };
+    var knowledge = state.model.choices.knowledge || { prompt: 'slice' };
     var workflow = (state.model.workflows || []).find(function (entry) { return entry.id === workflowId; });
     var off = Boolean(workflow && workflow.worldModel === 'off');
+    var brief = off || knowledge.prompt === 'off' ? null : stepBrief(workflowId, phaseId, phase);
     var body = [off
       ? el('p', { class: 'hint', text: 'This workflow turns the World Model off: its steps get no Repository brief.' })
       : el('p', { class: 'hint', 'data-key': 'world-model-knowledge', text: knowledge.prompt === 'off'
         ? 'The Repository brief is off for this repository (worldModel.knowledge.prompt: off).'
-        : 'The Repository brief (the rules, contracts, flows, the Story\'s change and the risky places, read from the source) is added to this step\'s prompt for the ' + knowledgeReader(phaseId) + ' reader, up to ' + Math.round(knowledge.maxBytes / 1024) + ' KB. Nothing to set here.' })];
-    var summary = off ? 'off in this workflow' : knowledge.prompt === 'off' ? 'off in this repository' : 'Repository brief';
+        : !brief ? 'The Repository brief is added to this step\'s prompt. Nothing to set here.'
+          : 'The Repository brief (the rules, contracts, flows, the Story\'s change and the risky places, read from the source) is added to this step\'s prompt for the ' + brief.reader + ' reader, up to ' + Math.round(brief.budget / 1024) + ' KB: ' + brief.sections.join(', ').toLowerCase() + '. Nothing to set here.' })];
+    var summary = off ? 'off in this workflow' : knowledge.prompt === 'off' ? 'off in this repository' : brief ? 'Repository brief: ' + briefWords(brief) : 'Repository brief';
     return section('views', 'World Model', body, null, summary, !phase.isNew && !readOnly);
   }
   function section(key, title, body, control, summary, closed) {

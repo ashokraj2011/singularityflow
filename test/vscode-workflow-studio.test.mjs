@@ -2066,12 +2066,14 @@ test('a skill from a link for a seeded agent is added to the skill master and at
 
 test('a step\'s World Model is the Repository brief: the reader it is written for, and no views to choose', async () => {
   const { buildStudioModel } = await import('../src/workflow-studio.mjs');
-  const { roleForPhase } = await import('../src/knowledge/render.mjs');
+  const { phaseBriefProfile } = await import('../src/knowledge/phase-brief.mjs');
   // A stale view list in workflow.yml is dropped at load; it neither offers views nor asks for a migration.
   const root = await repository({ edit: (document) => document.setIn(['worldModel', 'views'], ['business', 'arch.contracts']) });
   const model = await buildStudioModel(root);
   assert.deepEqual([model.choices.views, model.choices.retiredViews], [[], []], 'there are no views to choose or migrate');
-  assert.deepEqual({ prompt: model.choices.knowledge.prompt, maxBytes: model.choices.knowledge.maxBytes }, { prompt: 'slice', maxBytes: 8192 });
+  // The real per-step brief, never the old 8 KB default [WMR:REQ-026]: no budget is set for every step here.
+  assert.deepEqual({ prompt: model.choices.knowledge.prompt, maxBytes: model.choices.knowledge.maxBytes }, { prompt: 'slice', maxBytes: null });
+  assert.equal(model.choices.knowledge.readers, undefined, 'the name-only reader rules are not sent');
 
   const element = (tag) => ({ tag, attributes: {}, children: [], style: {}, textContent: '', setAttribute(name, value) { this.attributes[name] = value; }, appendChild(child) { this.children.push(child); return child; }, addEventListener() {} });
   const page = loadedStudio(model, { getElementById: () => null, createElement: element, createTextNode: (text) => ({ text }) });
@@ -2087,16 +2089,28 @@ test('a step\'s World Model is the Repository brief: the reader it is written fo
   assert.equal(fresh.children[0].children[0].attributes['aria-expanded'], 'true', "a new step's World Model is open");
   const shown = text(fresh);
   assert.match(shown, /World Model/u);
-  assert.match(shown, /The Repository brief \(the rules, contracts, flows, the Story's change and the risky places, read from the source\) is added to this step's prompt for the developer reader, up to 8 KB\. Nothing to set here\./u);
+  assert.match(shown, /The Repository brief \(the rules, contracts, flows, the Story's change and the risky places, read from the source\) is added to this step's prompt for the developer reader, up to 3 KB: what a change touches, rules that apply, contracts, risks\. Nothing to set here\./u);
+  assert.doesNotMatch(shown, /8 KB/u);
   assert.doesNotMatch(shown, /retired views|migrate-views|arch\.contracts/u);
   assert.ok(!all(fresh).some((node) => node.tag === 'input' && node.attributes.type === 'checkbox'), 'there are no view checkboxes');
 
   const existing = page.worldModelSection('repo-feature', 'design', state.draft.phases.design);
   assert.equal(existing.children[0].children[0].attributes['aria-expanded'], 'false', "an existing step's World Model starts closed");
-  assert.match(text(existing), /Repository brief/u, 'the closed summary still says it gets the brief');
+  assert.match(text(existing), /Repository brief: architect, 3 KB/u, 'the closed summary says which brief it gets');
   for (const phase of ['intake', 'requirements', 'design', 'implementation', 'security-review', 'acceptance-testing', 'release']) {
-    assert.equal(page.knowledgeReader(phase), roleForPhase(phase), `the page and the engine agree on ${phase}`);
+    assert.equal(page.knowledgeReader(phase), phaseBriefProfile(phase).reader, `the page and the engine agree on ${phase}`);
   }
+  // A12 [WMR:REQ-026]: a code step named implement-story is the developer's, 3 KB, not the product owner's 8 KB slice.
+  const coded = page.createStep('repo-feature', 'Implement story', 'code', 'developer', 'intake');
+  const codedShown = text(page.worldModelSection('repo-feature', coded, state.draft.phases[coded]));
+  assert.match(codedShown, /for the developer reader, up to 3 KB/u);
+  assert.deepEqual(page.briefProfileOf('implement-story', null, 'code'), (({ id, reader, budget }) => ({ profile: id, reader, budget, sections: page.briefProfileOf('implement-story', null, 'code').sections }))(phaseBriefProfile('implement-story', { task: 'code' })));
+  // Every step the model lists carries the engine's own profile for it.
+  for (const workflow of model.workflows) {
+    for (const step of workflow.steps) assert.ok(['product', 'architect', 'developer', 'tester'].includes(step.brief?.reader) && step.brief.budget >= 2048, `${workflow.id}/${step.id}`);
+  }
+  const implementation = model.workflows.flatMap((workflow) => workflow.steps).find((step) => step.id === 'implementation');
+  assert.deepEqual([implementation.brief.reader, implementation.brief.budget], ['developer', 3072]);
 });
 
 test('a seeded workflow opens on a read-only canvas: its structure without editing tools, and each step\'s details', async () => {

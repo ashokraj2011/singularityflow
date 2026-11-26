@@ -1007,7 +1007,6 @@ Every public operation is classified before its implementation module is importe
 | wm.knowledge.items | read | never | — | — |
 | wm.knowledge.reject | mutation | never | — | — |
 | wm.knowledge.show | read | never | — | — |
-| wm.knowledge.slice | read | never | — | — |
 | wm.knowledge.status | read | never | — | — |
 | wm.read | read | never | — | — |
 | wm.read-contract | read | never | — | — |

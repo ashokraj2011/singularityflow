@@ -35,7 +35,7 @@ instead of padding a prompt.
 ```bash
 singularity-flow wm knowledge build [--area PATH] [--refresh] [--json]
 singularity-flow wm knowledge show [overview|business|rules|contracts|journeys|entities|tests|system|change] [--focus TEXT] [--max-bytes N] [--base REF]
-singularity-flow wm knowledge slice [--role developer|tester|architect|product | --phase PHASE] [--focus TEXT] [--max-bytes N]
+singularity-flow wm brief --phase PHASE [--work-id ID] [--json]   # what a step receives (wm knowledge slice was retired, WMR:REQ-027)
 singularity-flow wm knowledge items [--kind KIND] [--json]
 singularity-flow wm knowledge eval --expected FILE [--json]
 singularity-flow wm knowledge explain [--refresh] [--dry-run] [--json]
@@ -49,8 +49,12 @@ singularity-flow wm knowledge reject ITEM --note TEXT
 
 A build reads the committed tree only (never working files, Singularity Flow's records, Git
 metadata or build output) and keeps its result in a machine-local cache under the shared Git
-directory, keyed by the exact content and the analyzer's own code, so every Story worktree reuses
-it and a new commit or a new analyzer rebuilds it.
+directory, keyed by the exact content read and the analyzer's own code, never by the commit: every
+Story worktree reuses it, a commit that changes no file it read (a Story's own records) reuses it,
+and a change to a read file or a new analyzer rebuilds it. History is keyed by the newest commit
+that touched a read file. Only analysis entries are pruned (the newest 12); what a model wrote
+(briefs, phrasings, explanations) is kept in `knowledge/paid/` by its own count (30), and rule
+drafts are never pruned (WMR:REQ-017–019).
 
 ### Large repositories
 
@@ -60,7 +64,7 @@ branches; a folder's own files are an area separate from its subfolders), and `-
 one, cached on its own. A phase prompt builds only the areas the Story touches: those holding the
 files it changed, then those whose folder names match the words of its title, description and
 acceptance criteria (up to three), merged and marked as partial. A Story that names no area gets no
-knowledge slice and a warning instead of a guess. Measured on a generated 12,000-file Java
+brief and a warning instead of a guess. Measured on a generated 12,000-file Java
 repository: listing the areas takes about 1 second, building a 500-file area 0.7 seconds.
 
 ## Approved specifications

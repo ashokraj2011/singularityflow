@@ -2,8 +2,10 @@
 
 **Specification ID:** `WMR-v1`
 
-**Status:** Proposed, not built. Written on 2026-11-26 from two read-only reviews of that day: one of the code, one of
-the owner's real use. M0 (the text clean-up) is being built on branch `wm-clean`. Checked against `main@cbeb9978d`.
+**Status:** M1 built on branch `wmr-m1m2` (2026-11-26): REQ-017–019, REQ-024–027. M2 (REQ-007–016) is next on the same
+branch; M0 (the text clean-up) is being built on branch `wm-clean`; M3 and M4 are not built. The probes' answers are in §7.
+Written on 2026-11-26 from two read-only reviews of that day: one of the code, one of the owner's real use. Checked
+against `main@cbeb9978d`; built on `main@30484105e`.
 
 **Owner, 2026-11-26.**
 - "review the current repo world model and see if we need to improve it or not"
@@ -205,7 +207,7 @@ functions in the graph: function declarations, `const X = (...) => …`, and `me
 
 ### 4.5 The cache
 
-**WMR:REQ-017, rebuild only when source changes.** The knowledge key is built from these, without the commit:
+**WMR:REQ-017 (built, M1), rebuild only when source changes.** The knowledge key is built from these, without the commit:
 - the files' digests;
 - the manifests;
 - the rule files;
@@ -215,12 +217,12 @@ functions in the graph: function declarations, `const X = (...) => …`, and `me
 History (churn, ownership, co-change) is keyed by the newest commit that touched a read path. A bookkeeping commit
 that changes no read path reuses the entry.
 
-**WMR:REQ-018, prune only analysis entries.** `prune` removes only files named `^[0-9a-f]{64}\.json$`. Paid output
+**WMR:REQ-018 (built, M1), prune only analysis entries.** `prune` removes only files named `^[0-9a-f]{64}\.json$`. Paid output
 moves to `knowledge/paid/` and is pruned by its own count, 30 by default and oldest first. `rule-proposals.json`
 moves out of the cache folder to `knowledge/rule-proposals.json` and is never pruned. A rule draft a person has not
 confirmed is never lost to a prune.
 
-**WMR:REQ-019, paid output survives a commit.** A model-written brief, polish or explanation is keyed by the
+**WMR:REQ-019 (built, M1), paid output survives a commit.** A model-written brief, polish or explanation is keyed by the
 analysis it was written from (REQ-017's key) and the selection. A commit that changes no read path keeps it in use.
 
 ### 4.6 Ready for clean PRs (with SSB M2–M4)
@@ -247,20 +249,20 @@ plan.
 
 ### 4.7 Guidance only, everywhere
 
-**WMR:REQ-024, spec research degrades.** When the knowledge build fails, `spec author gaps` lists the gaps and marks
+**WMR:REQ-024 (built, M1), spec research degrades.** When the knowledge build fails, `spec author gaps` lists the gaps and marks
 their impact "not available (why)". It never refuses with `SPEC_RESEARCH_UNAVAILABLE` for that alone.
 
-**WMR:REQ-025, an inventory of refusals.** A test lists every `SingularityFlowError` that `src/knowledge/` and its
+**WMR:REQ-025 (built, M1), an inventory of refusals.** A test lists every `SingularityFlowError` that `src/knowledge/` and its
 callers raise. It fails when a new one is raised on a path a Story step, an approval or a publication takes. Read
 commands a person runs, such as `wm knowledge show` or `wm rules confirm`, may still refuse.
 
 ### 4.8 Surfaces say what happens
 
-**WMR:REQ-026, Studio shows the real brief.** The Studio World Model section calls `phaseBriefProfile` for each step
+**WMR:REQ-026 (built, M1), Studio shows the real brief.** The Studio World Model section calls `phaseBriefProfile` for each step
 and shows the step's real reader, budget and sections, or "no brief here (REQ-011)". `KNOWLEDGE_READER_RULES` and
 the 8 KB default stop being shown.
 
-**WMR:REQ-027, one slice.** `wm knowledge slice` either renders what `phaseBriefProfile` gives, or is retired with
+**WMR:REQ-027 (built, M1), one slice.** `wm knowledge slice` either renders what `phaseBriefProfile` gives, or is retired with
 `COMMAND_REMOVED` pointing to `wm brief --phase`. Default: retired.
 
 **WMR:REQ-028, where it lives in the four places.** In FPL, "What this phase sees" and the Repository Brief panel are
@@ -324,6 +326,21 @@ M0 and M1 can land together. M2 lands with its measure from M3, so the change sh
 
 ## 7. Probes before building
 
+Answered on 2026-11-26 while building M1 and M2 (`wmr-m1m2`):
+- **P1:** `FunctionGrapher.jsx` was parsed as code (its component is a function in the graph) and every graph Story's
+  planned claims named it. Two things kept it out of every brief. The planning step's brief (the architect's) had no
+  "What a change touches" section, and at the step's first version no plan existed yet. Then at the code step its file
+  record had nothing to say and was dropped (`records/impact.mjs`, `if (!parts.length) return`): its only importer,
+  `App.jsx`, was planned too, so "imported by" was empty. So the cause is REQ-007's, not JSX: **REQ-016 is not built.**
+  Seen on the way: a component whose parameters span lines (`export const Display = ({\n … }) => {`) is not read as a
+  function; it did not cause the missing file.
+- **P2:** measured with M2, which REQ-008 and REQ-009 belong to.
+- **P3:** not run: it needs real VS Code.
+- **P4:** yes: the 16 golden briefs pass on `main@30484105e`.
+- **P5:** no. Recording a step's lessons runs inside the approval's publication unit, in a `try` whose `catch` keeps the
+  approval (`story-publication-service.mjs`); what `approve` and `submit` print afterwards (`lessonsAfterApproval`)
+  catches its own reads. A test pins both (`test/knowledge-refusal-inventory.test.mjs`, P5).
+
 1. **P1, the missing file.** Why no brief named `FunctionGrapher.jsx` in the owner's graph Stories. Was it absent from
    the planned claims' paths? Dropped by the known-file filter? Or not parsed as code, given 21 functions and 13
    edges for 19 files? The answer decides whether REQ-016 is needed.
@@ -344,9 +361,9 @@ M0 and M1 can land together. M2 lands with its measure from M3, so the change sh
 - **SSB order.** REQ-020–023 must land before SSB's state-ref layout is switched on for any Story. Otherwise the brief
   quietly loses requirements and plans.
 
-## 9. Open questions for the owner (defaults apply if unanswered)
+## 9. Decided (owner, 2026-11-26)
 
-1. **Intake brief:** leave it out by default (REQ-011)? **Default: yes, leave it out.**
-2. **Lessons under SSB:** the Story's state ref (REQ-022), or the repository's shared lessons place? **Default: the
-   state ref, read through the resolver.**
-3. **`wm knowledge slice`:** retire it (REQ-027)? **Default: retire.**
+The owner answered "yes for 1, 2, 3":
+1. **Intake brief:** left out by default (REQ-011).
+2. **Lessons under SSB:** on the Story's state ref, read through the resolver (REQ-022, M4).
+3. **`wm knowledge slice`:** retired (REQ-027).

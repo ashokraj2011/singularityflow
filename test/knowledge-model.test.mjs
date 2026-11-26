@@ -228,17 +228,18 @@ test('wm knowledge works from the command line, read-only for the repository', a
   const summary = JSON.parse(built.stdout);
   assert.equal(summary.metrics.invalidCitations, 0);
   assert.ok(summary.metrics.byKind.rule >= 5);
+  // The old 8 KB slice was retired for `wm brief --phase` [WMR:REQ-027]: refused by name, saying where to look.
   const slice = run('slice', '--phase', 'testing', '--max-bytes', '4000');
-  assert.equal(slice.status, 0, slice.stderr);
-  assert.match(slice.stdout, /knowledge for the tester/u);
-  assert.match(slice.stdout, /Only placed orders can be cancelled/u);
+  assert.notEqual(slice.status, 0);
+  assert.match(slice.stderr, /'wm knowledge slice' was removed/u);
+  assert.match(slice.stderr, /wm brief --phase PHASE/u);
   const scored = run('eval', '--expected', path.join(fixtures, 'orders-spring.expected.yml'), '--json');
   assert.equal(scored.status, 0, scored.stderr);
   assert.equal(JSON.parse(scored.stdout).recall, 1);
   assert.equal(git(repository, 'status', '--porcelain'), '', 'the working tree is untouched');
   const unknown = run('explode');
   assert.notEqual(unknown.status, 0);
-  assert.match(unknown.stderr, /Available: areas, brief, build, calls, confirm, correct, eval, explain, items, reject, show, slice, status/u);
+  assert.match(unknown.stderr, /Available: areas, brief, build, calls, confirm, correct, eval, explain, items, reject, show, status/u);
 });
 
 test('phase prompts receive one repository brief for the phase reader, focused on the Story, unless turned off', async (t) => {

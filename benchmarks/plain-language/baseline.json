@@ -1893,7 +1893,7 @@
   "src/jira.mjs": 43,
   "src/knowledge-projection.mjs": 8,
   "src/knowledge.mjs": 16,
-  "src/knowledge/command.mjs": 5,
+  "src/knowledge/command.mjs": 4,
   "src/knowledge/confirm.mjs": 1,
   "src/knowledge/rules-command.mjs": 1,
   "src/ledger-config.mjs": 15,

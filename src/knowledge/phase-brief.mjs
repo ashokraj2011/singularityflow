@@ -72,6 +72,27 @@ export function phaseBriefProfile(phase, { maxBytes = null, task = null, kind = 
   return { ...profile, budget: Number.isInteger(maxBytes) ? maxBytes : profile.budget };
 }
 
+/** The sections a profile's brief has, in its order: questions are the product owner's alone. */
+function profileSections(profile) {
+  return profile.order.filter((id) => profile.reader === 'product' || id !== 'questions');
+}
+
+/**
+ * What a step's brief is, for a person deciding about the step (Workflow Studio) [WMR:REQ-026]: the reader, the budget
+ * and the sections `phaseBriefProfile` gives it, never a name-only guess or the old 8 KB default.
+ */
+export function briefProfileView(profile) {
+  return { profile: profile.id, reader: profile.reader, budget: profile.budget, sections: profileSections(profile).map((id) => SECTION_TITLES[id]) };
+}
+
+/** The rules `phaseBriefProfile` applies, as data: Studio profiles a step it has not saved yet the same way. */
+export function phaseBriefRules() {
+  return {
+    profiles: PHASE_BRIEF_PROFILES.map((entry) => ({ id: entry.id, reader: entry.reader, pattern: entry.pattern, budget: entry.budget, order: [...entry.order] })),
+    kinds: { ...KIND_PROFILES }, tasks: { ...TASK_PROFILES }, sectionTitles: { ...SECTION_TITLES }
+  };
+}
+
 function words(text) {
   return new Set(String(text ?? '').toLowerCase().match(/[a-z][a-z0-9]{2,}/gu) ?? []);
 }
@@ -233,7 +254,7 @@ export function renderPhaseBrief({
     }
   }
   const applied = phrasing?.sentences?.length ? applyPhrasing(sections, phrasing.sentences) : 0;
-  const order = profile.reader === 'product' ? profile.order : profile.order.filter((id) => id !== 'questions');
+  const order = profileSections(profile);
   const label = sourceLabeler([...sections.values()].flat().map((entry) => entry.source));
   // Header and closing lines name how many phrased lines the brief shows, which is known only after
   // the budget is applied: room is set aside for the longest form, and the final one is no longer.

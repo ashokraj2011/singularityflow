@@ -63,9 +63,16 @@ export function isAgentOutputEntry(root, relative) {
   try { return readdirSync(path.join(root, parent)).every((name) => name === folder); } catch { return false; }
 }
 
-/** Porcelain v1 status text, of the checkout at `root`, without the ignored output folder's own lines. */
+/** A state-ref Story's state checkout (story-paths.mjs STATE_CHECKOUT); its removal guards its records [SSB M2]. */
+export const STATE_CHECKOUT_FOLDER = '.sflow-state';
+export function isStateCheckoutEntry(relative) {
+  return String(relative ?? '').replace(/\/$/u, '') === STATE_CHECKOUT_FOLDER;
+}
+
+/** Porcelain v1 status text, of the checkout at `root`, without the ignored output folder's or state checkout's lines. */
 export function withoutAgentOutputStatus(text, root) {
-  return String(text ?? '').split(/\r?\n/u).filter((line) => !(line.startsWith('!! ') && isAgentOutputEntry(root, line.slice(3)))).join('\n').trim();
+  return String(text ?? '').split(/\r?\n/u).filter((line) => !(line.startsWith('!! ')
+    && (isAgentOutputEntry(root, line.slice(3)) || isStateCheckoutEntry(line.slice(3))))).join('\n').trim();
 }
 
 const absent = (error) => error?.code === 'ENOENT' ? null : Promise.reject(error);

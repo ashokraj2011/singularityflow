@@ -162,6 +162,14 @@
     "contextPolicy": { "$ref": "#/$defs/contextPolicy" },
     "defaultBaseBranch": { "type": "string", "minLength": 1 },
     "workItemRoot": { "type": "string", "minLength": 1 },
+    "story": {
+      "type": "object",
+      "description": "Where a new Story keeps SFlow's records. story-branch: on the Story's branch, as today. state-ref: on the Story's own state ref, refs/singularity/state/<ID>, checked out at .sflow-state/ (SSB, being built: leave it unset). A Story keeps the layout it started with.",
+      "properties": {
+        "storage": { "enum": ["story-branch", "state-ref"], "default": "story-branch" }
+      },
+      "additionalProperties": false
+    },
     "idPattern": { "type": "string", "minLength": 1 },
     "git": {
       "type": "object",

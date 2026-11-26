@@ -16,7 +16,7 @@ import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { commitIsAncestor, gitCommonDir, headAndBranch, localRefHeads, refExists, remoteNames } from './git.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { parsePorcelainV2Status } from './git-status-detail.mjs';
-import { isAgentOutputEntry } from './agent-output-folder.mjs';
+import { isAgentOutputEntry, isStateCheckoutEntry, STATE_CHECKOUT_FOLDER } from './agent-output-folder.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
@@ -338,6 +338,7 @@ export async function discardPreparedStoryWorktree(root, workId, { baseCommit, s
   if (current.head !== baseCommit || !stages.has(current.branch)) return { status: 'retained', reason: 'checkout-changed', path: target };
   // Git's last dirty check remains in force. A concurrent ref advance is retained by the CAS
   // deletion; even then its commit stays reachable and can be recovered, never silently erased.
+  if (!(await releaseStateCheckout(target))) return { status: 'retained', reason: 'state-records-unsaved', path: target };
   const removed = run('git', ['worktree', 'remove', '--', target], { cwd: root, allowFailure: true });
   if (removed.status !== 0) return { status: 'retained', reason: 'git-refused' };
   const deleted = run('git', ['update-ref', '--no-deref', '-d', `refs/heads/${current.branch}`, baseCommit], { cwd: root, allowFailure: true });
@@ -537,6 +538,18 @@ export function durableStoryWorkflowOnBranch(root, id, storyBranch = id) {
   ], { cwd: root, allowFailure: true }).status === 0;
 }
 
+/**
+ * Remove a Story checkout's state checkout before the checkout itself [SSB:REQ-006, spec §11.2 item 5]: false, and
+ * nothing removed, while it holds records not saved on the state ref. A checkout without one is untouched.
+ */
+function releaseStateCheckoutSync(repositoryPath) {
+  if (!existsSync(path.join(repositoryPath, STATE_CHECKOUT_FOLDER))) return true;
+  const status = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: path.join(repositoryPath, STATE_CHECKOUT_FOLDER), allowFailure: true });
+  if (status.status !== 0 || String(status.stdout).trim()) return false;
+  return run('git', ['worktree', 'remove', '--', path.join(repositoryPath, STATE_CHECKOUT_FOLDER)], { cwd: repositoryPath, allowFailure: true }).status === 0;
+}
+export async function releaseStateCheckout(repositoryPath) { return releaseStateCheckoutSync(repositoryPath); }
+
 /** Inspect every visible worktree change, including ignored files, before rollback. */
 export function storyWorktreeChanges(repositoryPath) {
   const head = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: repositoryPath }).stdout.trim();
@@ -560,8 +573,10 @@ export function storyWorktreeChanges(repositoryPath) {
       code: 'STORY_WORKTREE_RECOVERY_REQUIRED', cause: error
     });
   }
-  // SFlow's own excluded agent results are copies of printed output, not work to keep.
-  const entries = parsed.entries.filter((entry) => !(entry.type === 'ignored' && isAgentOutputEntry(repositoryPath, entry.path.value)));
+  // SFlow's own excluded agent results are copies of printed output, not work to keep. A state checkout is its own
+  // worktree: removal releases it first and refuses there while it holds unsaved records [SSB M2].
+  const entries = parsed.entries.filter((entry) => !(entry.type === 'ignored'
+    && (isAgentOutputEntry(repositoryPath, entry.path.value) || isStateCheckoutEntry(entry.path.value))));
   return {
     clean: entries.length === 0,
     changedPaths: [...new Set(entries.flatMap((entry) => [
@@ -614,6 +629,10 @@ export function rollbackStoryWorktree(prepared, {
       reason: 'worktree-changes', changedPaths: changes.changedPaths,
       changedEntries: changes.entries
     };
+  }
+  // A state checkout inside goes first, and only when its records are saved on the state ref [SSB M2].
+  if (!releaseStateCheckoutSync(prepared.repositoryPath)) {
+    return { removed: false, retained: true, repositoryPath: prepared.repositoryPath, reason: 'state-records-unsaved' };
   }
   // Git performs its own final dirty check, closing the gap between our read and removal.
   let removed = removeWorktree(root, prepared.repositoryPath);

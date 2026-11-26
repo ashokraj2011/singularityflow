@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { commandDefinition, operationById, resolveOperation } from './command-registry.mjs';
 import {
@@ -26,7 +26,7 @@ import { agentViewRequested, interpretsForAgent, withCliJsonOutput, withoutAgent
 import { scopedUtilityRead, validateUtilityEntry, withoutUtilityEntry } from './utility-entry.mjs';
 import { withCommandReadScope } from './read-scope.mjs';
 import { executionContextArguments, surfaceContext, withExecutionContextScope } from './execution-context-scope.mjs';
-import { storiesRoot } from './story-paths.mjs';
+import { STATE_CHECKOUT, storiesRoot } from './story-paths.mjs';
 // copilot-mode.mjs (the pause check, with personalization and the skill catalog) and
 // creation-context.mjs (Story creation only) load where they are read, not in root dispatch.
 // The bundled CLI keeps both in cold-core (build-cold-cli-bundle.mjs), so no chunk is added.
@@ -624,6 +624,20 @@ export async function withExplicitRepositoryMutationLeases(roots, operationId, c
   return enter(0);
 }
 
+/** Whether this clone keeps a state-ref Story: `.sflow-state/` is here, or its exclude names it. */
+function stateRefClone(root) {
+  if (existsSync(path.join(root, STATE_CHECKOUT))) return true;
+  try {
+    let gitDirectory = path.join(root, '.git');
+    if (lstatSync(gitDirectory).isFile()) {
+      gitDirectory = path.resolve(root, readFileSync(gitDirectory, 'utf8').replace(/^gitdir:\s*/u, '').trim());
+      const common = path.join(gitDirectory, 'commondir');
+      if (existsSync(common)) gitDirectory = path.resolve(gitDirectory, readFileSync(common, 'utf8').trim());
+    }
+    return readFileSync(path.join(gitDirectory, 'info', 'exclude'), 'utf8').includes(`/${STATE_CHECKOUT}/`);
+  } catch { return false; }
+}
+
 export async function main(argv) {
   // Where the agent's terminal is, before a command moves into a Story's checkout: kept results are
   // filed under it, and `result last` looks there (agent-result-keeper.mjs).
@@ -1068,6 +1082,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
       modelMode
     }));
     timer.stage('module-load');
+    // A state-ref Story's state checkout is made right for this checkout's Story branch [SSB:REQ-006].
+    if (root && stateRefClone(root)) await withCommandTiming(timer, async () => (await import('./story-state-ref.mjs')).adoptStateCheckout(root));
     // SF Guard (SPEC-PSS-v1 §10.6): a repository-level person step takes its presence signature first.
     if (root && repositoryStepCandidate(positionals)) await (await import('./presence/repository-steps.mjs')).gateRepositoryPersonStep(root, positionals, options);
     const startedAt = new Date().toISOString();

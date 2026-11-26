@@ -265,7 +265,8 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
     reconciliationPolicy: policy.reconciliation
   };
   const record = { ...core, baselineSha256: hash(core), createdAt: nowIso(), path: relative, status: 'open' };
-  await writeJson(path.join(root, relative), record);
+  // `relative` is the record's spelling: inside a state-ref Story's state checkout (itemRelative '.'), else the checkout's.
+  await writeJson(itemRelative === '.' && itemDirectory ? path.join(itemDirectory, relative) : path.join(root, relative), record);
   workflow.workIntervals.current = {
     intervalId,
     phaseId: phase.id,

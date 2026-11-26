@@ -1382,7 +1382,7 @@ export async function createWorkflow(root, config, {
   if (!firstPhaseNeedsReadinessRepair) await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: phases[0]?.id,
     itemDirectory: storyLocation(root, config, id).directory,
-    itemRelative: storyLocation(null, config, id).prefix
+    itemRelative: storyLocation(null, [workflow, config], id).record()
   });
   await saveWorkflow(root, config, workflow);
   // Story activation may pin a selected skill package before the qualified host exists. Keep its
@@ -2295,8 +2295,8 @@ export async function assertStoryTestRecoveryFeatureAdmission(root, config, work
 
 /** Only verified repair admission can move an unopened first feature baseline. */
 async function ensureStoryFeatureWorkInterval(root, config, workflow, phase, admission) {
-  const options = { phaseId: phase.id, itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-    itemRelative: storyLocation(null, config, workflow.workItem.id).prefix };
+  const options = { phaseId: phase.id, itemDirectory: storyLocation(root, [workflow, config], workflow.workItem.id).directory,
+    itemRelative: storyLocation(null, [workflow, config], workflow.workItem.id).record() };
   if (admission.featureBaseCommit && phaseRequiresCodeDelivery(phase)) {
     const codePhases = Object.values(workflow.phases ?? {}).filter(phaseRequiresCodeDelivery);
     const hasPublishedFeature = codePhases.some((candidate) => Number(candidate.generation ?? 0) > 0);
@@ -2424,8 +2424,8 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   await hydrateImpactPlan(root, workflow);
   const impactGate = impactImplementationGate(workflow, phase.id);
   if (impactGate) throw new SingularityFlowError(impactGate);
-  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemDirectory = storyLocation(root, [workflow, config], workflow.workItem.id).directory;
+  const itemRelative = storyLocation(null, [workflow, config], workflow.workItem.id).record();
   if (!dryRun) {
     if (phaseRequiresCodeDelivery(phase)) {
       await assertPlannedSpecificationClaims(root, config, workflow, phase);

@@ -98,11 +98,21 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
     ? resolveContext(await localStorySubjectIndex(root, { definition: initialConfig, reference }), {
       reference, kind: 'story', required: false
     }) : null;
+  // A Story kept on its state ref has no records on its branch, so the roster of branches cannot name it: its records
+  // come with its state ref, fetched into a tracking ref of their own [SSB:REQ-007]. Asked only when the roster does
+  // not find the Story (or its state checkout is here already), so a Story on today's layout pays nothing.
+  const stateRefStory = async (id) => (await import('../../story-state-ref.mjs')).resumeStoryState(root, id, { remote, fetch });
+  let rosterError = null;
   const refIndex = selectedBranch
     ? await buildRepositorySubjectIndexFromRefs(root, {
       definition: initialConfig, refs: [{ branch: selectedBranch, ref: `${remote}/${selectedBranch}` }]
-    }) : local ? null : await stateStorySubjectIndex(root, initialConfig, { remote, fetch, reference });
-  const refSubject = local ?? resolveContext(refIndex, { reference, kind: 'story', required: false });
+    }) : local ? null : await stateStorySubjectIndex(root, initialConfig, { remote, fetch, reference })
+      .catch((error) => { rosterError = error; return null; });
+  let refSubject = local ?? (refIndex ? resolveContext(refIndex, { reference, kind: 'story', required: false }) : null);
+  const stateStory = !selectedBranch && (!refSubject || refSubject.location?.source === 'state-checkout')
+    ? await stateRefStory(refSubject?.id ?? reference) : null;
+  if (stateStory && !refSubject) refSubject = stateStory.subject;
+  if (rosterError && !refSubject) throw rosterError;
   if (selectedBranch && !refSubject) throw new SingularityFlowError(
     `The refreshed Story branch '${selectedBranch}' does not prove Work ID '${reference}'. No session was selected.`,
     { code: 'STORY_SOURCE_CONFLICT' }
@@ -141,6 +151,8 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
   await checkout(executionRoot, targetBranch, {
     base: initialConfig.defaultBaseBranch, fetch: false, fetched: refreshed, existingOnly: true, remote
   });
+  // The state checkout follows the Story branch: made, repaired or moved to the state ref [SSB:REQ-006].
+  if (stateStory) await (await import('../../story-state-ref.mjs')).adoptStateCheckout(executionRoot, { required: true, id: resolved.workId });
   const accepted = await loadAcceptedStoryExecution(executionRoot, resolved.workId);
   const config = accepted.definition;
   const workflow = accepted.workflow;

@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import { runBoundedTaskPool } from './quality-command-runner.mjs';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { renderPlatformCommand } from './safe-command-guidance.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { STATE_CHECKOUT, storyLocation } from './story-paths.mjs';
 
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 
@@ -1251,6 +1252,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     );
   }
 
+  // The code never carries a Story's state checkout as a gitlink [SSB M2]; only a checkout that has one is asked.
+  if (existsSync(path.join(root, STATE_CHECKOUT))) (await import('./story-state-ref.mjs')).assertNoStateCheckoutGitlink(root);
   const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory });
   const baselineCommit = phase.generationIntent?.baseline?.commit

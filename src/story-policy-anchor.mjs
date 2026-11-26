@@ -70,9 +70,12 @@ export function storyHistoryCommits(root, args, label) {
   return (output ?? '').trim().split(/\r?\n/u).filter(Boolean);
 }
 
-export function initialWorkflowRecord(root, config, workId) {
-  const relative = storyLocation(null, config, workId).prefix;
-  const workflowRelative = `${relative}/workflow.json`;
+export function initialWorkflowRecord(checkoutRoot, config, workId) {
+  // The creation record's history: on the Story branch, or on a state-ref Story's state ref, read in its state
+  // checkout [SSB M2]. `workflowRelative` is the record's own spelling in either.
+  const location = storyLocation(checkoutRoot, config, workId);
+  const root = location.recordsRoot;
+  const workflowRelative = location.record('workflow.json');
   const history = storyHistoryCommits(root, [
     'log', '--format=%H', '--diff-filter=A', '--reverse', '--', workflowRelative
   ], `Story '${workId}' creation record`);

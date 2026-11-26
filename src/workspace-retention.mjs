@@ -295,6 +295,8 @@ export async function runWorkspaceRetention(workspacePath, { force = false, now 
               if (digest(proof) !== digest(fresh)) fail('Story cleanup proof changed.');
               await unchangedPolicy();
               if ((await protectedRoots(workspace.path, protect)).some(selected => contains(proof.root, selected))) fail('Checkout became active.', 'WORKSPACE_RETENTION_IN_USE');
+              // A state checkout inside goes first, only with its records saved on the state ref [SSB M2].
+              if (!(await (await import('./story-worktree.mjs')).releaseStateCheckout(proof.root))) fail('Story records are not saved on its state ref.');
               run('git', ['worktree', 'remove', '--', proof.root], { cwd: clone.root,
                 env: (await import('./workspace.mjs')).workspaceDropGitEnvironment(), timeoutMs: 30000 });
               result.removed.push({ kind: 'story-worktree', ...proof, recovery: 'published-story-ref', retainedMetadata, branchDeleted: false });

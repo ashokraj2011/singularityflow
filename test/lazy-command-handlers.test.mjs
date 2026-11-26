@@ -1105,7 +1105,19 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // intelligence.worldModel may be `on` (config.mjs, intelligence-policy.mjs) [WMR:REQ-011]. No new eager file.
     // 9,920,718 (measured for submit.mjs on main 4c8b464a6 with wmr-m1m2 merged, 2026-11-26; start.mjs 9,919,970): the
     // +1,091 above on top of wm-clean. No new eager file.
-    assert.ok(closure.bytes <= 9_920_718, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,928,350 (measured for start.mjs, +12,742 over 9,915,608 at 2809f6edc, 2026-11-26 on ssb-m2; submit.mjs 9,926,916,
+    // +10,560): a Story under story.storage: state-ref keeps its records on its state ref [SSB M2]: the resolver's
+    // layout memory, records root and refusing prefix (story-paths.mjs), the pinned-copy read root
+    // (configuration-read-scope.mjs), the setting (work-item-location.mjs, config.mjs), the state checkout found by the
+    // Story index and on a read that finds no Story (repository-subject-index.mjs, story-workflow-read.mjs), the
+    // start-path records through the records root (workflow-snapshots.mjs, state.mjs, work-intervals.mjs,
+    // story-policy-anchor.mjs, story-state-write.mjs), resume's state fetch (start-context.mjs) and start recovery
+    // (story-start-journal.mjs). The state ref's own module loads lazily. No new eager file.
+    // 9,931,269 (measured for start.mjs, +2,919 over 9,928,350, 2026-11-27 on ssb-m2; submit.mjs 9,927,921): state-ref is
+    // held back to today's layout unless its preview is on (work-item-location.mjs newStoryLayout, the resolution in
+    // config.mjs), and the command-line start opens the state ref and says the held line (commands/start.mjs). No new
+    // eager file.
+    assert.ok(closure.bytes <= 9_931_269, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1305,7 +1317,11 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // command-registry.mjs) [WMR:REQ-027]. No new eager file.
   // 890,053 (+516, measured 2026-11-26 on wm-dead over 0aaac1bb4): doctor names an agent file that still carries the
   // retired sflow-world-model-views header, once (removed-features.mjs) [WMR:REQ-005]. No new eager file.
-  assert.ok(root.bytes <= 890_053, `root dispatch loads ${root.bytes} source bytes`);
+  // 894,302 (+4,249, measured 2026-11-26 on ssb-m2 over 2809f6edc): every command in a clone that keeps a state-ref
+  // Story makes its state checkout right at entry, known from files only (cli-entry.mjs +1,004); the resolver's layout
+  // memory and records root (story-paths.mjs) and the pinned-copy read root (configuration-read-scope.mjs) [SSB M2].
+  // No new eager file.
+  assert.ok(root.bytes <= 894_302, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1756,7 +1772,12 @@ test('the common session projection does not import attach, state stores or publ
   // 4,379,377 (+465, measured 2026-11-26 on wm-dead over 0aaac1bb4): doctor names an agent file that still carries the
   // retired sflow-world-model-views header (removed-features.mjs, +516); the parser and Story snapshot stop carrying it
   // (agent-document-parser.mjs, config.mjs) [WMR:REQ-005]. No new eager file.
-  assert.ok(current.bytes <= 4_379_377, `session current loads ${current.bytes} source bytes`);
+  // 4,388,333 (+8,956, measured 2026-11-26 on ssb-m2 over 2809f6edc): the state-ref layout the resolver remembers and
+  // its records root (story-paths.mjs), the pinned-copy read root (configuration-read-scope.mjs), the setting
+  // (work-item-location.mjs, config.mjs) and the state checkout the Story index finds [SSB M2]. No new eager file.
+  // 4,389,338 (+1,005, measured 2026-11-27 on ssb-m2): the held-back state-ref layout (work-item-location.mjs,
+  // config.mjs) [SSB M2]. No new eager file.
+  assert.ok(current.bytes <= 4_389_338, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

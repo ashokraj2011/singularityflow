@@ -712,9 +712,14 @@ export async function changeTaskKind(root, config, workflow, { from, to, because
     const index = (composition?.steps ?? []).findIndex((step) => step.intent === 'plan');
     if (composition?.kind !== from || index < 0) throw refused(`${id} is not a ${from} with a plan, so it does not become a ${to}.`, statusAction(id));
     const entry = { change: 'grow', intent: 'plan', at, by, from, to, because, checks: checks.slice(0, 256), changeRequest };
-    const next = { ...structuredClone(composition), kind: to, changes: [...(composition.changes ?? []), entry] };
+    // The plan it keeps takes the change's own label ("Plan: what must not change" says nothing a change does), in the
+    // composition, its pinned step and its state alike (task-change-contracts.mjs relabeledStep).
+    const kept = { step: composition.steps[index], change: entry };
+    const next = { ...structuredClone(composition), kind: to, steps: composition.steps.map((step) => contracts.relabeledStep(step, kept)),
+      changes: [...(composition.changes ?? []), entry] };
     const proposed = structuredClone(current.resolution);
     proposed.composition = next;
+    proposed.phases = (proposed.phases ?? []).map((phase) => contracts.relabeledStep(phase, kept));
     proposed.policySha256 = contracts.taskChangePolicyDigest(proposed);
     const changeId = `TSC-${String((current.taskChanges ?? []).length + 1).padStart(3, '0')}`;
     const decision = { schemaVersion: currentSchemaVersion('task-change-decision'), kind: 'task-change-decision', id: changeId, workId: id, status: 'applied', approvedAt: at, by,
@@ -749,6 +754,7 @@ export async function changeTaskKind(root, config, workflow, { from, to, because
       const decisionSha256 = contracts.taskChangeDigest(fresh.decision);
       const prior = structuredClone(current);
       current.resolution = fresh.proposed;
+      if (current.phases?.[fresh.decision.step.id]) current.phases[fresh.decision.step.id] = contracts.relabeledStep(current.phases[fresh.decision.step.id], fresh.decision);
       current.taskChanges ??= [];
       current.taskChanges.push(contracts.taskChangeSummary(fresh.decision, { decisionPath: fresh.decisionPath, decisionSha256 }));
       const reference = await snapshots.captureWorkflowTaskChange(root, config, prior, current, {

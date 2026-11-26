@@ -1048,7 +1048,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // reader keeps a request and its redirects on the origins a trust allows and codes a body over its limit
     // (remote-fetch.mjs), and that size refusal's way on for a link and an index's workflow bundle (limit-remediation.mjs);
     // the bundle's fetch loads only for `workflow import market:…`. No new eager file.
-    assert.ok(closure.bytes <= 9_900_807, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,904,350 (measured for submit.mjs, +4,673 over 9,899,677 at c3b777ab1, 2026-11-26 on itw-walks; start.mjs 9,903,490,
+    // +3,881): the Story value a step's clarification asks in a marketplace agent's words, read where a submission's values
+    // are (phase-roles.mjs, workflow-decisions.mjs, and for submit submission-readiness.mjs and its own read), and `work
+    // behaviour` as a person's step the decisions card records (model-free-commands.mjs, person-step-catalog.mjs)
+    // [ITW:REQ-011, REQ-015]; the card's item, the edited-test check and the plan label load only for a task. No new eager file.
+    // 9,904,620 (measured on itw-all2 with itw-walks 99f7271c9 and itw-market2 9d32837b4 merged, 2026-11-26). No new eager file.
+    // 9,905,480 (measured on itw-all2 with itw-walks 99f7271c9 and itw-market2 9d32837b4 merged, 2026-11-26). No new eager file.
+    assert.ok(closure.bytes <= 9_905_480, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1641,7 +1648,11 @@ test('the common session projection does not import attach, state stores or publ
   // 4,361,681 (measured on itw-all2 with itw-walks merged, 2026-11-26): the rises above together. No new eager file.
   // 4,362,811 (+1,130 from 4,361,681 on its base c3b777ab1, measured 2026-11-26 on itw-market2): the hardened reader's
   // origin-pinned redirects and coded size refusal (remote-fetch.mjs) and its way on (limit-remediation.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_362_811, `session current loads ${current.bytes} source bytes`);
+  // 4,365,562 (+3,881 over 4,361,681 at c3b777ab1, measured 2026-11-26 on itw-walks): the Story value a step's
+  // clarification asks (phase-roles.mjs, workflow-decisions.mjs) and `work behaviour` as a step the decisions card records
+  // (model-free-commands.mjs, person-step-catalog.mjs) [ITW:REQ-011, REQ-015]. No new eager file.
+  // 4,366,692 (measured on itw-all2 with itw-walks and itw-market2 merged, 2026-11-26). No new eager file.
+  assert.ok(current.bytes <= 4_366_692, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

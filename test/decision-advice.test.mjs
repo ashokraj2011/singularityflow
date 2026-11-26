@@ -92,6 +92,8 @@ test('every item kind the list builds has a recommendation or says what to weigh
     departure: { details: { departureKind: 'path', status: 'open', clauses: [] }, options: [choice('accept', 'Accept', [{ kind: 'departure', decision: 'accept', writes: 'plan-amendment', changes: [] }]), choice('reject', 'Reject', [{ kind: 'departure', decision: 'reject' }])] },
     'convergence-item': { details: { itemKinds: ['failing-bound-test'] }, options: ['rework', 'accepted-deviation', 'dismissed'].map((id) => choice(id, id, [{ kind: 'convergence-adjudication', disposition: id, items: ['CF-1'] }])) },
     'asked-for': { details: {}, options: [own('account', 'Its author accounts for it', 'singularity-flow departure account', { decidedBy: { allowed: false, author: true, words: '' } })] },
+    'refactor-behaviour': { details: { phase: 'implementation', generation: 2, checks: ['\'the order\''], failing: ['\'the order\''], tests: [] },
+      options: ['keep', 'accept'].map((choiceOf) => choice(`${choiceOf}-behaviour`, `${choiceOf} it`, [{ kind: 'refactor-behaviour', phase: 'implementation', generation: 2, choice: choiceOf }])) },
     'generation-rollover': { details: { paths: ['src/late.js'], requested: false, chatRoute: '/sf-code implementation' },
       options: [own('start-next-generation', 'Start generation 3', 'singularity-flow phase rollover implementation')] },
     'routing-decision': { details: { reason: 'ask' }, options: [choice('choose-a', 'Route A', [{ kind: 'routing', option: 'a' }]), choice('choose-b', 'Route B', [{ kind: 'routing', option: 'b' }])] },

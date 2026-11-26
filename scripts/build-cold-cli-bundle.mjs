@@ -122,8 +122,8 @@ const FAMILIES = Object.freeze([
     'marketplace-repository.mjs',
     // A marketplace agent offered as the task's plan [ITW:REQ-011], read with the skill chooser.
     'task-agents.mjs',
-    // A refactor's behaviour choice, `work behaviour` [ITW:REQ-015].
-    'refactor-behaviour-decide.mjs']],
+    // A refactor's behaviour choice, `work behaviour` [ITW:REQ-015], and a done task's checks for its last message.
+    'refactor-behaviour-decide.mjs', 'task-checks.mjs']],
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs',
     // `skill catalog`, VS Code's All skills page: a broad read over the library, the trusted marketplaces and the task
     // chooser (intake, which this slot already imports). Unclaimed, each read loaded compatibility and models.
@@ -169,6 +169,9 @@ const FAMILIES = Object.freeze([
     'first-run-pass.mjs', 'configuration-review-pass.mjs',
     'commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs',
+    // A refactor's behaviour change at its code step's gate and on the list, and the Story value a step's clarification
+    // asked, read at its submission [ITW:REQ-015, REQ-011]. Unclaimed, each fell into compatibility.
+    'refactor-behaviour.mjs', 'story-value-answers.mjs',
     // What the plan already answered, imported only when a convergence step reads its inputs. Unclaimed,
     // every prepare, submit and approval of that step loaded compatibility and models.
     'plan-accounts.mjs',

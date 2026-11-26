@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 import { afterCheckOf, checkNames, refactorCodeStep, refactorHold } from '../src/failing-tests-return.mjs';
 import { behaviourCommands, behaviourDecisionsOf } from '../src/refactor-behaviour.mjs';
@@ -86,9 +87,18 @@ test('ITW REQ-015: a refactor whose new behaviour is accepted becomes a change i
   assert.equal(json(ran.stdout.slice(ran.stdout.indexOf('{'))).changeId, 'TSC-001');
   const record = storyRecord(story);
   assert.equal(record.resolution.composition.kind, 'change');
-  assert.deepEqual(record.resolution.composition.steps, before.resolution.composition.steps, 'the steps stay');
-  assert.deepEqual(record.resolution.phases, before.resolution.phases, 'every pinned step stays');
-  for (const id of record.phaseOrder) assert.deepEqual(stableTaskStepState(record.phases[id]), stableTaskStepState(before.phases[id]), `${id}'s state stays`);
+  // The steps stay, and the plan takes the change's own label, in the composition, its pinned step and its state alike.
+  const relabel = (entry) => (entry.id === 'implementation-spec' ? { ...entry, label: 'Plan' } : entry);
+  assert.equal(before.resolution.composition.steps[1].label, 'Plan: what must not change');
+  assert.deepEqual(record.resolution.composition.steps, before.resolution.composition.steps.map(relabel), 'the steps stay');
+  assert.deepEqual(record.resolution.phases, before.resolution.phases.map(relabel), 'every pinned step stays');
+  for (const id of record.phaseOrder) assert.deepEqual(stableTaskStepState(record.phases[id]), stableTaskStepState(relabel(before.phases[id])), `${id}'s state stays`);
+  // Every reader resolves the same steps: the definition the Story's own record rebuilds names the plan the same way.
+  const { definitionForStory } = await import('../src/task-composition.mjs');
+  const { resolveWorkType, validateDefinition } = await import('../src/config.mjs');
+  const definition = YAML.parse(readFileSync(path.join(story.root, 'singularity/workflow.yml'), 'utf8'));
+  const rebuilt = resolveWorkType(validateDefinition(structuredClone(definitionForStory(definition, record))), record.workItem.workType);
+  assert.deepEqual(rebuilt.phases.map((phase) => [phase.id, phase.label]), record.resolution.phases.map((phase) => [phase.id, phase.label]));
   const change = record.resolution.composition.changes.at(-1);
   assert.deepEqual({ change: change.change, from: change.from, to: change.to, checks: change.checks, changeRequest: change.changeRequest },
     { change: 'grow', from: 'refactor', to: 'change', checks: ['errors come in code order'], changeRequest: 'CR-001' });
@@ -99,6 +109,7 @@ test('ITW REQ-015: a refactor whose new behaviour is accepted becomes a change i
   json(story.cli('status', '--json'));
   const work = json(story.cli('work', 'status', '--json'));
   assert.equal(work.kind, 'change');
+  assert.deepEqual(work.steps.map((step) => step.label), ['Intake', 'Plan', 'Code', 'Tests']);
   // The contract: a kind change keeps the steps; one that also moved a step is refused.
   const decision = json(readFileSync(path.join(story.root, record.taskChanges[0].decisionPath), 'utf8'));
   assertTaskChangeScope(before.resolution, record.resolution, decision);
@@ -162,4 +173,73 @@ test('ITW REQ-015: keeping or accepting a refactor\'s behaviour is the person\'s
   const workflow = { behaviourDecisions: [{ id: 'BHV-001', phase: 'implementation', generation: 1, choice: 'keep', checks: ['\'order\''] },
     { id: 'BHV-002', phase: 'implementation', generation: 2, choice: 'keep', checks: ['\'format\''] }] };
   assert.deepEqual(behaviourDecisionsOf(workflow, { id: 'implementation' }, 2).map((entry) => entry.id), ['BHV-002'], 'a choice is for the version it was made on');
+});
+
+test('ITW REQ-015: a refactor\'s behaviour change is an item on the decisions card, SFlow recommends keeping it, and each choice stays the person\'s own step', async () => {
+  const [{ decisionPacket }, { withPlainWords }, { agentAct }, { refusalEnvelope }, { codeStepBehaviourHold }] = await Promise.all([import('../src/decision-list.mjs'),
+    import('../src/decision-plain.mjs'), import('../src/agent-output.mjs'), import('../src/refusal-remediation.mjs'), import('../src/refactor-behaviour.mjs')]);
+  const authorities = { engineering: { label: 'Engineering', members: [{ email: 'reviewer@example.test' }], allowAnyGitIdentity: true } };
+  const steps = [{ id: 'implementation-spec', intent: 'plan', label: 'Plan: what must not change' }, { id: 'implementation', intent: 'code', label: 'Code' }];
+  const workflow = { workItem: { id: 'TASK-7' }, currentPhase: 'implementation', phaseOrder: steps.map((step) => step.id), status: 'in_progress',
+    phases: { 'implementation-spec': { id: 'implementation-spec', label: steps[0].label, status: 'approved', generation: 1, approvals: [], approvalPolicy: { authorities: ['engineering'], minimum: 1 } },
+      implementation: { id: 'implementation', label: 'Code', status: 'in_progress', generation: 0, approvals: [], approvalPolicy: { authorities: ['engineering'], minimum: 1 } } },
+    resolution: { approvalAuthorities: authorities, composition: { kind: 'refactor', steps } } };
+  const behaviourChange = { phase: 'implementation', generation: 1, failing: ['\'errors come in code order\''], tests: [{ path: 'test/errors.test.mjs', removed: false }],
+    names: ['\'errors come in code order\'', 'the expectations of test/errors.test.mjs'], undecided: ['\'errors come in code order\'', 'the expectations of test/errors.test.mjs'], kept: false, changed: [] };
+  const packet = withPlainWords(workflow, decisionPacket(workflow, { phaseId: 'implementation', pending: {}, behaviourChange },
+    { authorities, actor: { name: 'Reviewer', email: 'reviewer@example.test' }, at: '2026-11-26T00:00:00.000Z' }));
+  const item = packet.items.find((entry) => entry.kind === 'refactor-behaviour');
+  assert.ok(item, JSON.stringify(packet.items.map((entry) => entry.kind)));
+  assert.equal(item.title, 'The refactor changes behaviour in Code version 1');
+  assert.match(item.why, /^'errors come in code order' passed before the change and fails now; the code changes the expectations of test\/errors\.test\.mjs\./u);
+  assert.deepEqual(item.options.map((entry) => [entry.id, entry.recommended, entry.terminal]), [
+    ['keep-behaviour', true, 'singularity-flow work behaviour keep --work-id TASK-7'], ['accept-behaviour', false, 'singularity-flow work behaviour accept --work-id TASK-7']]);
+  assert.equal(item.recommended?.option, 'keep-behaviour');
+  assert.match(item.recommended.words, /^Recommended: Keep the old behaviour\. A refactor keeps behaviour/u);
+  assert.equal(item.options[0].decidedBy.allowed, true, 'the code step\'s approvers decide it');
+  assert.equal(item.holds, 'this-step', 'the code step is not published until it is decided');
+  assert.equal(item.plain.question, 'Keep the old behaviour that Code changed?');
+  assert.equal(item.chatYesNo, false, 'never a yes a chat records for the person');
+  // The stop's route is the card, its terminal command the shell route; the agent runs neither.
+  const stop = await codeStepBehaviourHold('/nowhere', null, workflow, workflow.phases.implementation).catch(() => null);
+  assert.equal(stop, null, 'no Story here: nothing to stop on');
+  const { SingularityFlowError } = await import('../src/util.mjs');
+  const refusal = new SingularityFlowError('The refactor changed behaviour.', { code: 'REFACTOR_BEHAVIOUR_CHANGED',
+    details: { nextAction: { command: behaviourCommands('TASK-7').keep, label: 'Keep' }, recoveryCommands: [{ command: behaviourCommands('TASK-7').accept, label: 'Accept' }] } });
+  const act = agentAct(refusalEnvelope(refusal, ['phase', 'prepublish', 'implementation']));
+  assert.deepEqual([act.state, act.do.copilot, act.do.shell], ['confirm-in-terminal', '/sf-decide TASK-7', 'singularity-flow work behaviour keep --work-id TASK-7']);
+});
+
+test('ITW REQ-015: an existing test whose expectations a refactor changes is found from the diff against the base; a comment or an added test is not', async (t) => {
+  const { changedExistingTests } = await import('../src/refactor-behaviour.mjs');
+  const { mkdtemp, rm, writeFile, mkdir } = await import('node:fs/promises');
+  const { spawnSync } = await import('node:child_process');
+  const os = await import('node:os');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refactor-tests-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => { const ran = spawnSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.test', ...args], { cwd: root, encoding: 'utf8' }); assert.equal(ran.status, 0, ran.stderr); return ran.stdout.trim(); };
+  await mkdir(path.join(root, 'test'), { recursive: true });
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  const expects = (order) => `import test from 'node:test';\ntest('order', () => assert.deepEqual(errors(), ${JSON.stringify(order)}));\n`;
+  await writeFile(path.join(root, 'test/order.test.mjs'), expects(['name', 'email']));
+  await writeFile(path.join(root, 'test/gone.test.mjs'), expects(['a']));
+  await writeFile(path.join(root, 'src/order.mjs'), 'export const errors = () => [];\n');
+  git('init', '-q', '-b', 'main'); git('add', '-A'); git('commit', '-qm', 'base');
+  const base = git('rev-parse', 'HEAD');
+  const workflow = { workItem: { id: 'TASK-7', baseCommit: base } };
+  // A tag comment and blank lines say nothing a test expects; source changes and added tests are no test's expectations.
+  await writeFile(path.join(root, 'test/order.test.mjs'), `// @ac:TASK-7:BEH-001\n\n${expects(['name', 'email'])}`);
+  await writeFile(path.join(root, 'test/new.test.mjs'), expects(['x']));
+  await writeFile(path.join(root, 'src/order.mjs'), 'export const errors = () => [\'name\'];\n');
+  assert.deepEqual(await changedExistingTests(root, workflow, {}), []);
+  await writeFile(path.join(root, 'test/order.test.mjs'), expects(['email', 'name']));
+  await rm(path.join(root, 'test/gone.test.mjs'));
+  assert.deepEqual(await changedExistingTests(root, workflow, {}), [{ path: 'test/gone.test.mjs', removed: true }, { path: 'test/order.test.mjs', removed: false }]);
+  // Kept: what the test expected comes back from the base, hunk by hunk; a tag its author added stays.
+  const { expectationsRestored } = await import('../src/refactor-behaviour-decide.mjs');
+  const tagged = `// @ac:TASK-7:BEH-001\n${expects(['email', 'name'])}`;
+  await writeFile(path.join(root, 'test/order.test.mjs'), tagged);
+  const diff = spawnSync('git', ['diff', '-U0', '--no-color', base, '--', 'test/order.test.mjs'], { cwd: root, encoding: 'utf8' }).stdout;
+  assert.equal(expectationsRestored(tagged, diff), `// @ac:TASK-7:BEH-001\n${expects(['name', 'email'])}`);
+  assert.equal(expectationsRestored(tagged, ''), null, 'no diff to read: the base file is written whole');
 });

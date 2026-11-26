@@ -563,6 +563,9 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     nodePin,
     testRisks: tests.risks,
     testNarrowings: tests.narrowings,
+    // A refactor's behaviour change while its code is written waits for the person [ITW:REQ-015].
+    behaviourChange: workflow.resolution?.composition?.kind === 'refactor' && phase?.status === 'in_progress'
+      ? await (await import('./refactor-behaviour.mjs')).versionBehaviourChange(root, config, workflow, phase).catch(() => null) : null,
     testCommands: commandReviews.pending,
     inactiveTestCommands: commandReviews.inactive,
     visual: await visualProfiles(root, config, workflow, phase),
@@ -588,6 +591,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,
       evidenceReuses: (workflow.evidenceReuses ?? []).length, testRunRisks: (workflow.testRunRisks ?? []).length,
       testNarrowings: (workflow.testNarrowings ?? []).length,
+      behaviourDecisions: (workflow.behaviourDecisions ?? []).length,
       testCommandDecisions: (workflow.testCommandDecisions ?? []).length,
       testCommandReviewBindings: commandReviews.bindings,
       planAmendments: (workflow.planAmendments ?? []).length,

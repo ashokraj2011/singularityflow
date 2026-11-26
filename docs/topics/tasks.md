@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 19
+version: 20
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -62,7 +62,7 @@ tasks:
 
 A task with a skill that needs your yes does not start until you answer: `--use-skill <ID>` is yes, `--without-skill <ID>` is no. The Story keeps the exact text of each skill it uses with its steps, so a later change to the library, or a second laptop, uses the same text.
 
-**A marketplace agent as the plan.** When one agent of a marketplace the repository trusts has stages that cover the task, the plan offers that agent's workflow instead: "acme's qa-test-automation agent covers this task: use its workflow as the plan, requirements → write the tests → tests?". What each stage is for comes from the same conversion `sflow workflow from-agent` makes, read at the commit the repository trusts. The agent covers the task when it has a step for each of the task's own steps (a requirements step before the code also plans it), and its code is the task's kind of code: an agent whose code steps only write tests is offered for a tests task, and one with a code step is never offered for a task that changes no code. Only one agent is offered: one whose workflow is already in the repository first, then the closest fit. An agent marked deprecated is never offered; one marked proposed says so.
+**A marketplace agent as the plan.** When one agent of a marketplace the repository trusts has stages that cover the task, the plan offers that agent's workflow instead: "acme's qa-test-automation agent covers this task: use its workflow as the plan, requirements → write the tests → tests?". What each stage is for comes from the same conversion `sflow workflow from-agent` makes, read at the commit the repository trusts. The agent covers the task when it has a step for each of the task's own steps (a requirements step before the code also plans it), and its code is the task's kind of code: an agent whose code steps only write tests is offered for a tests task, and one with a code step is never offered for a task that changes no code. Only one agent is offered: one whose workflow is already in the repository first, then the closest fit. An agent marked deprecated is never offered; one marked proposed says so. A question the agent asks before any work, with its choices ("Which channel is this test automation for? 1. web 2. android"), is asked once, in its own words and choices, in the intake's clarification; the intake's submission records your answer, and the skills of each later step follow it.
 
 - Read what it becomes first: `sflow workflow from-agent acme/qa-test-automation-agent --review` shows its conversion review.
 - `--use-agent acme/qa-test-automation-agent` is yes: the task's steps are that workflow's, in its order, and the team's `tasks:` rules still add their steps and approvals. The plan line says whose they are ("Plan, from acme's qa-test-automation agent: …"), and the Story records the marketplace, the agent and its version with its steps, so a second laptop resumes the same steps.
@@ -128,12 +128,17 @@ code as before. Nothing else asks you anything. Tests' own files never count.
 **A refactor that changes behaviour.** Run its `task.before` (`sflow tests base`) before any edit: it runs the code
 step's tests on the base. The code step runs the same tests before it is published, so a behaviour change usually shows
 there first: when a test that passed before fails in a run of the code being written, the code step stops and names it,
-and its author changes nothing for it until you choose. Keep the old behaviour (`sflow work behaviour keep`: the code
-step goes on and restores it) or accept the new one (`sflow work behaviour accept`: the code goes back to the plan, the
-task becomes a change, and SFlow starts the plan's next version to say what changes; the code waits for it as it is).
-Only you run either: Copilot never runs them for you. A later run that passes again does not lift the stop; your choice
-does. The test step compares its own run the same way. A test that already failed before is a finding the refactor does
-not approve.
+and its author changes nothing for it until you choose. So does a change to what an existing test expects (an edited or
+removed test, from the code's difference with the base; a comment, such as a criterion's tag, or a new test is not), even
+when every run passes. The choice is on the decisions card (`/sf-decide`, VS Code's Decide card), where SFlow recommends
+keeping the old behaviour, as a refactor promises: keep it (the code step goes on and restores it, and SFlow puts back
+what each changed test expected, keeping comments its author added) or accept the new one (the code goes back to the
+plan, the task becomes a change, and SFlow starts the plan's next version to say what changes; the code waits for it as
+it is). In a terminal it is
+`sflow work behaviour keep` or `sflow work behaviour accept`. Only you choose: Copilot never records it for you. A later
+run that passes again does not lift the stop; your choice does. The test step compares its own run the same way. A test
+that already failed before is a finding the refactor does not approve. Once it is a change, its plan step is named as a
+change's plan ("Plan"), on every screen.
 
 **What no check covered.** A refactor's plan lists what must not change in its planned evidence rows, with the tests
 that show each. When the task is done, `sflow work status` says the checks that ran and, for a refactor, each row no

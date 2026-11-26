@@ -231,7 +231,14 @@ agent's hard gate is a Story value its intake's submission records (`--decision 
 answers such a question from the journey's scripted answer per value name (`values: { channel: 'web' }`), as the agent
 asks the person in the turn the route names. The task ends closed with the agent's four steps; the person takes 5 actions:
 the words, the intake's question, the channel, and the approvals of the requirements and the tests. Not yet: the
-submission's route names the value only as `<channel>`, with neither the agent's question nor its choices.)
+submission's route names the value only as `<channel>`, with neither the agent's question nor its choices.) (Built
+2026-11-26, second round: the hard gate is asked once, in the agent's own words with its choices, in the intake's
+clarification (its topic, `src/phase-roles.mjs` storyValueTopic); the intake's submission records the answer the person
+gave there (`src/story-value-answers.mjs`: the answer to that question naming exactly one choice), so no submit route carries the
+value (`decisionSubmitArguments`, submission readiness) and none names `<channel>`. With no answer recorded, the submission
+asks the agent's question with one complete command per choice (`DECISION_INPUTS_MISSING` with `details.question` and
+`choices`, an `ask-person` act). The journey's person answers it in the clarification, and takes 4 actions: the words,
+the intake's answers, and a Yes to the requirements and to the tests, nothing typed again.)
 
 **ITW:REQ-012, words and progress.**
 - The plan is one line.
@@ -322,6 +329,24 @@ submission's route names the value only as `<channel>`, with neither the agent's
   where the person accepts it, which ends as a change with a revised plan (6: the revised plan's approval too). Not yet:
   the choice on the decisions card (it is a person's terminal command today), and a test whose expectation the author
   edits, with no run of the version failing, is not stopped.
+- Built 2026-11-26, second round: **on the decisions card** (decision-list.mjs `refactor-behaviour`, with
+  decision-plain.mjs, decision-advice.mjs and `decisions record`): the code step's behaviour change is an item that holds
+  its publication, "Keep the old behaviour that Code changed?", with SFlow's recommendation to keep it (a refactor
+  promises it) and both choices, each the person's own step (never a chat's yes; the code step's approvers decide it);
+  `work behaviour keep|accept` stays its Shell route, and its Copilot route is the card (`/sf-decide <W>`, as every step
+  the card records: model-free-commands.mjs decideCardStep). **An edited test**: a change to what an existing test
+  expects (an edited or removed test, from the working tree's diff against the Story's base, its comments and blank
+  lines aside, so a criterion's tag is no change; an added test is new work) is a behaviour change too, though every run
+  passes; keeping it puts back each part of a changed test that says what it expects as the base had it (by the hunks of
+  its zero-context patch; a hunk of comments alone, such as a criterion's tag the author added, stays), a removed test
+  whole, and a keep covers the whole version: what still differs is the author's to restore (`REFACTOR_BEHAVIOUR_KEPT`).
+  **The plan's label**: the kind change gives the plan it keeps the change's own label
+  ("Plan"), in its composition, its pinned step and its state, through the task change record (task-change-contracts.mjs
+  `relabeledStep`, replayed; a kind change recorded before keeps its label), so every reader names the same steps.
+  Journeys (slow lane), with the after-tool hook: keep on the card (6 person actions: the words, the intake's answer, a
+  Yes to the plan, keep, `/sf-task` again, as a card decision carries no chat on, a Yes to the code); accept at the
+  terminal (7: and a Yes to the revised plan); an author who edits the test so no run fails, kept on the card (the
+  same 6), SFlow putting back what the test expected with the author's tags kept, the code restored.
 
 **ITW:REQ-016, documents.**
 - A `docs` task writes its document as its own step's document, kept with the Story on its branch. Git keeps its
@@ -419,7 +444,13 @@ These already hold in SFlow, and `/sf-task` keeps them:
   on into the intake, each submission into its approval question or, for a step SFlow approves itself (owner,
   2026-11-26), into the next step, each Yes into the next step, and the last step's completion into what the task did
   (test/task-turn-carry.test.mjs, through the real hooks, for a fix and for a change whose intake SFlow approves). The
-  route follower still types `/sf-task` between turns, so the journeys' counts are unchanged.
+  route follower still types `/sf-task` between turns, so the journeys' counts are unchanged. Built 2026-11-26, second
+  round: the route follower runs the host's after-tool hook after each shell command the agent runs in a task's chat and
+  follows SFlow's note when the turn goes on; a task's approval is asked in that chat (`choices begin approve`, the
+  person's Yes, its onYes and the approval, each through the real guard), and the reviewer sub-agent has a chat of its
+  own. Measured: a fix takes 4 (the words, the intake's answer, two Yeses), nothing typed again; the marketplace agent's
+  tests task 4. The hook reads the command as the agent typed it, quoted: joined unquoted, a task's words starting
+  "add …" read as `work add`, and the start did not carry on.
 - **A12:** "Fix it" after an investigation starts a fix whose intake is the report. No question is asked twice.
 - **A13:** A refactor that changes the order of two errors stops at its test step and names the change. A refactor with
   every check unchanged ends by listing the checks that ran. (Built 2026-11-26: it stops at its code step's own gate,

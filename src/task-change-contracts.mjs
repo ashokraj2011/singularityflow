@@ -11,6 +11,7 @@
  */
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { taskStepLabel } from './task-composition.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const TASK_CHANGE_DIALECT = 'task-step-added/v1';
@@ -55,6 +56,21 @@ const growthOf = (change) => TASK_GROWTHS.find((entry) => entry.from === change?
 const isGrow = (change) => change?.change === 'grow';
 /** Whether a decision adds its step (every change but a kind change that keeps the steps). */
 export const addsStep = (decision) => !isGrow(decision?.change) || growthOf(decision.change)?.adds !== false;
+
+/**
+ * The label a kind change gives the step it keeps [ITW:REQ-015]: a refactor's "Plan: what must not change" becomes the
+ * change's own plan label, in its composition, its pinned step and its state alike, so every reader names the same step.
+ * Null for a change that adds a step. A kind change recorded before 2026-11-26 kept the old label, which still replays.
+ */
+export function keptStepLabel(decision) {
+  return addsStep(decision) ? null : taskStepLabel(decision.change.to, decision.step.intent);
+}
+
+/** `phase` (a pinned step or a step's state) with the label a kind change gives it, when it is the step the change keeps. */
+export function relabeledStep(phase, decision) {
+  const label = keptStepLabel(decision);
+  return label && phase?.id === decision.step.id ? { ...phase, label } : phase;
+}
 
 /**
  * The change entry the composition gains: who asked, the team's rule and its reason (a `paths` rule for the files the
@@ -145,7 +161,8 @@ function assertCompositionScope(before, after, decision) {
     fail('A task change does not bind the exact composition it changed.');
   }
   const adds = addsStep(decision);
-  if (!same(after.steps, adds ? stepsWithInsertion(before.steps, decision.step, decision.position) : before.steps)
+  const kept = adds ? null : before.steps.map((step) => relabeledStep(step, decision));
+  if (!(adds ? same(after.steps, stepsWithInsertion(before.steps, decision.step, decision.position)) : same(after.steps, kept) || same(after.steps, before.steps))
       || (!adds && !same(before.steps[decision.position], decision.step))) {
     fail(adds ? 'A task change\'s steps are not the task\'s steps with exactly the recorded step added.' : 'A kind change changed the task\'s steps.');
   }
@@ -207,9 +224,11 @@ export function assertTaskChangeScope(previous, next, decision) {
   assertCompositionScope(previous.composition, next.composition, decision);
   const before = previous.phases ?? [];
   const after = next.phases ?? [];
-  // A kind change that keeps the steps keeps every pinned step, template and agent exactly as they were.
+  // A kind change that keeps the steps keeps every pinned step, template and agent exactly as they were, but the label it
+  // gives the step it keeps.
   if (!addsStep(decision)) {
-    if (!same(before, after) || !['templates', 'agents', 'plannedClaims', 'obligationGraph'].every((key) => same(previous[key], next[key]))
+    const relabeled = same(next.composition.steps, previous.composition.steps) ? before : before.map((phase) => relabeledStep(phase, decision));
+    if (!same(relabeled, after) || !['templates', 'agents', 'plannedClaims', 'obligationGraph'].every((key) => same(previous[key], next[key]))
         || !before.some((phase) => phase.id === decision.afterPhase)) fail('A kind change changed the Story\'s steps.');
     return;
   }

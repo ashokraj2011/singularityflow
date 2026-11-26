@@ -29,6 +29,7 @@ import { deriveWorkflowSettings } from './step-intent-settings.mjs';
 import { inferStepIntents, intentWordScores } from './step-intents.mjs';
 import { neededSteps, withNeededSteps } from './workflow-needs.mjs';
 import { AGENT_TASK_INTENTS } from './agent-task-intents.mjs';
+import { storyValueTopic } from './phase-roles.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const AGENT_WORKFLOW_RESULT = 'sflow-agent-workflow';
@@ -298,9 +299,8 @@ function intakeQuestions(gates) {
     .map((question, index) => ({ id: question.name ?? `question-${index + 1}`, ...question }));
 }
 
-const topic = (question) => (question.choices.length
-  ? `${question.question.replace(/\?*$/u, '?')} Choose one: ${question.choices.join(', ')}${question.name ? ` (recorded as ${question.name})` : ''}.`
-  : question.question);
+// The one form a Story value's question takes in the first step's clarification (phase-roles.mjs storyValueOfTopic reads it back).
+const topic = (question) => storyValueTopic(question);
 
 // The shapes a decision input and its routes take (workflow-decisions.mjs).
 const VALUE_NAME = /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/u;

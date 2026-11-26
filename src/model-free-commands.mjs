@@ -30,10 +30,11 @@ const decideCard = (t) => t[0] === 'decisions' && /^(?: --work-id)? [A-Za-z0-9][
 
 /**
  * A person's own step the Decide card records or opens [owner, 2026-11-13 and 2026-11-15]: an amendment's decision or
- * acknowledgement, a settled one's undo, an accepted risk, test-run risk or test command, a sign-off and its screenshot (2026-11-18). Its Copilot route is the card, which /sf-decide opens; no turn runs the command, which stays the person's.
+ * acknowledgement, a settled one's undo, an accepted risk, test-run risk or test command, a sign-off and its screenshot (2026-11-18),
+ * keeping or accepting what a refactor changed [ITW:REQ-015]. Its Copilot route is the card, which /sf-decide opens; no turn runs the command, which stays the person's.
  */
 export const decideCardStep = ([top, sub, verb, ...rest] = []) => (top === 'story' && sub === 'intent-amendment' && ['decide', 'acknowledge'].includes(verb))
-  || (top === 'decisions' && sub === 'undo') || (top === 'decision' && ![verb, ...rest].includes('--revoke')
+  || (top === 'decisions' && sub === 'undo') || (top === 'work' && sub === 'behaviour' && ['keep', 'accept'].includes(verb)) || (top === 'decision' && ![verb, ...rest].includes('--revoke')
     && (['risk', 'test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile', 'witness', 'screenshot'].includes(sub) || (sub === 'test-command' && [verb, ...rest].includes('--accept'))));
 /** Its Copilot route: /sf-decide with the Story it names. */
 export function decideCardCopilotCommand(argv) {

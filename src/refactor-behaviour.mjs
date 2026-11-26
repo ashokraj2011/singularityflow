@@ -24,6 +24,14 @@ export const BEHAVIOUR_CHANGED = 'REFACTOR_BEHAVIOUR_CHANGED';
 export const named = (list, limit = 4) => `${list.slice(0, limit).join(', ')}${list.length > limit ? ` and ${list.length - limit} more` : ''}`;
 export const stepName = (phase) => phase?.label ?? phase?.id ?? 'the step';
 
+/** The person's two choices at a refactor's behaviour change, each its complete command and what it does. Pure. */
+export function behaviourChoices(workId, phase) {
+  const { keep, accept } = behaviourCommands(workId);
+  return [
+    { id: 'keep-behaviour', label: `Keep the old behaviour: ${stepName(phase)} goes on and restores it`, command: keep },
+    { id: 'accept-behaviour', label: 'Accept the new behaviour: the task becomes a change', command: accept }];
+}
+
 /** The person's two commands at a refactor's behaviour change, each complete. Pure. */
 export function behaviourCommands(workId) {
   return { keep: `singularity-flow work behaviour keep --work-id ${workId}`, accept: `singularity-flow work behaviour accept --work-id ${workId}` };
@@ -40,11 +48,47 @@ async function writtenRefactorCode(workflow, phase) {
   return (await import('./code-delivery-policy.mjs')).phaseRequiresCodeDelivery(phase);
 }
 
+/** Whether a test file's line says nothing it expects: a comment or a blank line (a criterion's tag says nothing). Pure. */
+export const noteLine = (line) => !String(line).trim() || /^(?:\/\/|#(?!!)|\/\*|\*)/u.test(String(line).trim());
+
+/** A test file's lines that say what it expects: its comments and blank lines aside. */
+const expectations = (text) => String(text ?? '').split(/\r?\n/u).filter((line) => !noteLine(line)).map((line) => line.trim()).join('\n');
+
+/**
+ * The tests that existed before the change and this version changes or removes [ITW:REQ-015]: what they expect is the
+ * person's to change, whether or not any run of them fails. From the diff of the working tree against the Story's base,
+ * by path (source-boundary.mjs isTestAutomationPath) and by content, comments and blank lines aside. An added test is new
+ * work, never an expectation changed. `[{ path, removed }]`; [] when Git cannot tell.
+ */
+export async function changedExistingTests(root, workflow, phase) {
+  const [{ storyBaseCommit }, { isTestAutomationPath }, { committedFileText, workingTreeChangedPaths }, { readFile }, path] = await Promise.all([
+    import('./verification/base-run.mjs'), import('./source-boundary.mjs'), import('./git.mjs'), import('node:fs/promises'), import('node:path')]);
+  const base = storyBaseCommit(workflow, phase);
+  if (!base) return [];
+  let files;
+  try { files = workingTreeChangedPaths(root, base); } catch { return []; }
+  const changed = [];
+  for (const file of files) {
+    if (!isTestAutomationPath(file) || file.startsWith('singularity/')) continue;
+    // A file the base did not have is a test the version added.
+    const before = committedFileText(root, base, file);
+    if (before == null) continue;
+    const now = await readFile(path.join(root, file), 'utf8').catch(() => null);
+    if (now == null || expectations(before) !== expectations(now)) changed.push({ path: file, removed: now == null });
+  }
+  return changed;
+}
+
+/** A changed existing test as the person reads it. */
+export const testEditWords = (entry) => `the expectations of ${entry.path}${entry.removed ? ', which it removes' : ''}`;
+
 /**
  * What the version of `phase` being written changed that a person did not decide [ITW:REQ-015]: each test command's latest
- * failed run of this version against its run before the change. `{ generation, changed, undecided, kept }`, where `changed`
- * is afterCheckOf's list and `undecided` the checks (by name) no person decided; null when the Story is not a refactor,
- * `phase` is not its code step being written, or no run of this version failed.
+ * failed run of this version against its run before the change, and each existing test the version changes or removes.
+ * `{ generation, changed, tests, names, undecided, kept }`: `changed` is afterCheckOf's list, `tests` the edited tests,
+ * `names` both as the person reads them, and `kept` true once the person kept the old behaviour of this version (which
+ * keeps all of it: what still differs is the author's to restore). Null when the Story is not a refactor, `phase` is not
+ * its code step being written, no test of it ran yet in this version, or nothing changed.
  */
 export async function versionBehaviourChange(root, config, workflow, phase) {
   if (!config || !await writtenRefactorCode(workflow, phase)) return null;
@@ -57,13 +101,15 @@ export async function versionBehaviourChange(root, config, workflow, phase) {
   const generation = Math.max(...unpublished.map((entry) => Number(entry.generation)));
   const ofVersion = (entry) => Number(entry?.generation) === generation && entry.status === 'failed';
   const ids = [...new Set(attempts.filter(ofVersion).map((entry) => entry.commandId))];
-  if (!ids.length) return null;
-  const check = await rules.refactorAfterCheck(root, config, workflow, phase, ids.map((id) => ({ id })),
-    { pick: (runs) => runs.filter(ofVersion).at(-1) });
-  if (!check?.changed.length) return null;
-  const names = rules.checkNames(check.changed);
-  const kept = new Set(behaviourDecisionsOf(workflow, phase, generation).filter((entry) => entry.choice === 'keep').flatMap((entry) => entry.checks ?? []));
-  return { generation, changed: check.changed, names, undecided: names.filter((name) => !kept.has(name)), kept: names.filter((name) => kept.has(name)) };
+  const check = ids.length ? await rules.refactorAfterCheck(root, config, workflow, phase, ids.map((id) => ({ id })),
+    { pick: (runs) => runs.filter(ofVersion).at(-1) }) : null;
+  const changed = check?.changed ?? [];
+  const tests = await changedExistingTests(root, workflow, phase).catch(() => []);
+  if (!changed.length && !tests.length) return null;
+  const failing = rules.checkNames(changed);
+  const names = [...failing, ...tests.map(testEditWords)];
+  const kept = behaviourDecisionsOf(workflow, phase, generation).some((entry) => entry.choice === 'keep');
+  return { phase: phase.id, generation, changed, failing, tests, names, undecided: kept ? [] : names, kept };
 }
 
 /**
@@ -75,16 +121,22 @@ export async function codeStepBehaviourHold(root, config, workflow, phase, { ref
   const found = await versionBehaviourChange(root, config, workflow, phase).catch(() => null);
   if (!found) return refusal;
   const id = workflow.workItem.id;
-  if (!found.undecided.length) {
-    if (refusal) refusal.message = `${refusal.message} The person kept the old behaviour of ${named(found.kept)}: restore it in this version, so it passes as before the change.`;
+  if (found.kept) {
+    // The person kept the old behaviour: a test still edited is the author's to put back, passing or not.
+    if (found.tests.length) {
+      // Then the step's own next action, as the kernel names it (its checks again, which publish it once they pass).
+      const again = (await import('./step-decision.mjs')).stepRoute(workflow, phase)?.command ?? `singularity-flow work status ${id}`;
+      return new SingularityFlowError(`The person kept the old behaviour, so ${named(found.tests.map((entry) => entry.path))} must say what ${found.tests.length === 1 ? 'it' : 'they'} said before the change: put ${found.tests.length === 1 ? 'it' : 'them'} back, then ${again}.`,
+        { code: 'REFACTOR_BEHAVIOUR_KEPT', details: { workId: id, phase: phase.id, tests: found.tests, nextAction: { command: again, label: 'Carry the step on once the tests are back.' } } });
+    }
+    if (refusal) refusal.message = `${refusal.message} The person kept the old behaviour of ${named(found.names)}: restore it in this version, so it passes as before the change.`;
     return refusal;
   }
   const { keep, accept } = behaviourCommands(id);
-  const changed = named(found.undecided);
-  const choices = [
-    { id: 'keep-behaviour', label: `Keep the old behaviour: ${stepName(phase)} goes on and restores it`, command: keep },
-    { id: 'accept-behaviour', label: 'Accept the new behaviour: the task becomes a change', command: accept }];
-  return new SingularityFlowError(`The refactor changed behaviour: ${changed} passed before the change and ${found.undecided.length === 1 ? 'fails' : 'fail'} now. `
+  const choices = behaviourChoices(id, phase);
+  const what = found.failing.length ? `${named(found.failing)} passed before the change and ${found.failing.length === 1 ? 'fails' : 'fail'} now`
+    : `it changes ${named(found.tests.map(testEditWords))}`;
+  return new SingularityFlowError(`The refactor changed behaviour: ${what}. `
     + `Change nothing for it: the person runs ${keep} to keep it, or ${accept} to take the new one.`, {
     code: BEHAVIOUR_CHANGED,
     details: { workId: id, phase: phase.id, generation: found.generation, changed: found.changed, checks: found.undecided, choices,

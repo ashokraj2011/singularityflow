@@ -15,8 +15,21 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { firstClause, generatedAgent, generatedPerson } from './helpers/generated-journey.mjs';
+import { decideCard } from './helpers/journey-scripts.mjs';
 import { followRoutes, formatTrail, journeyRepository, storyRecord } from './helpers/route-follower.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
+
+/**
+ * What the person did on a walk, as a real chat counts it [ITW:REQ-019, A11]: their words, each /sf-task they had to type
+ * again (none when SFlow carries the turn on), each answer in the chat (a question, a Yes to an approval, a Story value)
+ * and each step of their own at the card or their terminal.
+ */
+const personActions = (trail) => {
+  const typed = trail.filter((entry) => entry.typed).length;
+  const answers = trail.filter((entry) => /the person answered/u.test(entry.did ?? '')).length;
+  const own = trail.filter((entry) => entry.turn === 'person').length;
+  return { words: 1, typed: Math.max(0, typed - 1), answers, own, total: Math.max(1, typed) + answers + own };
+};
 
 async function walkTask(t, words, kind, { files = {}, configure = null, agent = null, person = null, start = null, maxSteps = 160 } = {}) {
   const story = await journeyRepository(t, { files, configure });
@@ -42,10 +55,11 @@ test('journey ITW: a fix task goes from its words to a closed Story by its route
   const byPerson = record.phaseOrder.filter((id) => record.phases[id].approvedBy);
   assert.deepEqual(byPerson, ['intake', 'implementation'], 'a person approves the plan in the intake and the code; SFlow the test step');
   assert.equal(record.phases.verification.approvalDisposition, 'approved_automatically');
-  // What the person did [ITW:REQ-019]: the words, the intake's one question, and two approvals; the start's route is /sf-task.
-  assert.equal(walk.trail[1]?.turn, '/sf-task', formatTrail(walk.trail));
-  assert.equal(walk.trail.filter((entry) => entry.turn === 'person').length, 2, formatTrail(walk.trail));
-  assert.equal(walk.trail.filter((entry) => /the person answered/u.test(entry.did ?? '')).length, 1, formatTrail(walk.trail));
+  // What the person did [ITW:REQ-019, A11]: the words, the intake's one answer and a Yes to each approval, in one chat:
+  // SFlow carries the /sf-task turn on after the start, each submission and each Yes, so nothing is typed again.
+  assert.equal(walk.trail[0]?.turn, '/sf-task', formatTrail(walk.trail));
+  assert.ok(walk.trail.filter((entry) => /SFlow carries the \/sf-task turn on/u.test(entry.did ?? '')).length >= 5, formatTrail(walk.trail));
+  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 0, answers: 3, own: 0, total: 4 }, formatTrail(walk.trail));
   void firstClause;
 });
 
@@ -93,8 +107,9 @@ const REFACTOR_FILES = Object.freeze({
  * The agent of a refactor: the generated agent, whose code step rewrites the validator as a table of rules with the clause
  * tags its check asks for, the tests kept as they were. It lists the rules email first (a behaviour change) until a person
  * kept the old behaviour; once a person accepted the new one, the task is a change and the test says the new order.
+ * `editsTest`: the author also "fixes" the existing test to expect its new order, so no run fails [ITW:REQ-015].
  */
-function refactorAgent(story) {
+const refactorAgentWith = ({ editsTest = false } = {}) => (story) => {
   const agent = generatedAgent('TASK-1');
   return { ...agent,
     // A failed test the gate returns to the author: the code is written again as the Story now stands.
@@ -128,43 +143,47 @@ function refactorAgent(story) {
     const accepted = record.resolution.composition.kind === 'change';
     await context.story.write('src/value.mjs', `${clauses.join('\n')}\n${VALIDATOR(kept ? ['name', 'email'] : ['email', 'name'])}`);
     const [head, ...rest] = REFACTOR_FILES['test/value.test.mjs'].split('\n\n');
-    const tests = rest.join('\n\n').replace(accepted ? "['name is required', 'email is required']" : '\u0000', "['email is required', 'name is required']")
+    const newOrder = accepted || (editsTest && !kept);
+    const tests = rest.join('\n\n').replace(newOrder ? "['name is required', 'email is required']" : '\u0000', "['email is required', 'name is required']")
       .replace(accepted ? 'a missing name is reported before a missing email' : '\u0000', 'a missing email is reported before a missing name');
     await context.story.write('test/value.test.mjs', `${head}\n\n${criteria.join('\n')}\n${tests}`);
     return true;
   } };
-}
+};
+const refactorAgent = refactorAgentWith();
 
-/** The person of a refactor: the generated person, who at a behaviour change runs the choice offered for `choice`. */
-function behaviourPerson(choice) {
+/**
+ * The person of a refactor: the generated person, who at a behaviour change makes `choice` on the decisions card the stop
+ * names (`card`), or by the terminal command it offers.
+ */
+function behaviourPerson(choice, { card = false } = {}) {
   return (story) => {
     const person = generatedPerson(story, 'TASK-1');
     return (context) => {
       if (!/^singularity-flow work behaviour /u.test(context.route.shell ?? '')) return person(context);
+      if (card) {
+        const answer = decideCard(story, { choose: (item) => (item.kind === 'refactor-behaviour' ? item.options.find((entry) => entry.id === `${choice}-behaviour`) : null) });
+        return answer ? { command: answer.command, agent: false } : null;
+      }
       const offered = (context.result?.remediationPlan?.steps ?? []).map((step) => step.command).find((command) => new RegExp(`^singularity-flow work behaviour ${choice}\\b`, 'u').test(command ?? ''));
       return offered ? { command: offered, agent: false } : null;
     };
   };
 }
 
-/** What the person did on a walk: their own turns (approvals, choices), the questions they answered, and their first words. */
-const personActions = (trail) => {
-  const turns = trail.filter((entry) => entry.turn === 'person').length;
-  const answers = trail.filter((entry) => /the person answered/u.test(entry.did ?? '')).length;
-  return { words: 1, turns, answers, total: 1 + turns + answers };
-};
 const stopAtCode = (trail) => trail.findIndex((entry) => entry.code === 'REFACTOR_BEHAVIOUR_CHANGED' && /phase prepublish implementation\b/u.test(entry.ran ?? ''));
 
-test('journey ITW, A13: a refactor that changes the order of two errors stops at its code step; the person keeps the old behaviour, and the last message names what no check covered', slowLane({ timeout: 2_400_000 }), async (t) => {
+test('journey ITW, A13: a refactor that changes the order of two errors stops at its code step; the person keeps the old behaviour on the decisions card, and the last message names what no check covered', slowLane({ timeout: 2_400_000 }), async (t) => {
   const { story, walk } = await walkTask(t, 'tidy the validator in the value module', 'refactor', { files: REFACTOR_FILES,
-    agent: refactorAgent, person: behaviourPerson('keep') });
+    agent: refactorAgent, person: behaviourPerson('keep', { card: true }) });
   assert.equal(walk.reached, true, formatTrail(walk.trail));
   assert.deepEqual(walk.findings, [], JSON.stringify(walk.findings));
   // The run before any edit, then the stop at the code step's own gate, before the code was published or approved.
   assert.match(walk.trail[0].did ?? '', /checks on the base before any edit \(exit 0\)/u, formatTrail(walk.trail));
   const stop = stopAtCode(walk.trail);
   assert.ok(stop > 0, formatTrail(walk.trail));
-  assert.match(walk.trail[stop + 1].ran ?? '', /^singularity-flow work behaviour keep --work-id TASK-1/u, 'the person, never the agent, keeps the old behaviour');
+  // On the decisions card, with SFlow's recommendation to keep it; the person's own step, never the agent's.
+  assert.match(walk.trail[stop + 1].ran ?? '', /^singularity-flow decisions record TASK-1 --choose d1=keep-behaviour /u, formatTrail(walk.trail));
   assert.equal(walk.trail[stop + 1].turn, 'person');
   const record = storyRecord(story);
   assert.equal(record.resolution.composition.kind, 'refactor');
@@ -178,8 +197,9 @@ test('journey ITW, A13: a refactor that changes the order of two errors stops at
   const status = JSON.parse(story.cli('work', 'status', 'TASK-1', '--json'));
   assert.equal(status.words, 'TASK-1 is done: Intake, Plan: what must not change, Code, Tests, on branch TASK-1. Checks that ran: npm test (2 tests, all passed). '
     + 'Not covered by any check: The log line the validator writes keeps its format.');
-  // The person: the words, the intake's question, the plan, the choice to keep the old behaviour and the code.
-  assert.deepEqual(personActions(walk.trail), { words: 1, turns: 3, answers: 1, total: 5 }, formatTrail(walk.trail));
+  // The person: the words, the intake's answer, a Yes to the plan, keeping the old behaviour on the card, /sf-task again (a
+  // decision on the card carries no chat on) and a Yes to the code.
+  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 1, answers: 3, own: 1, total: 6 }, formatTrail(walk.trail));
 });
 
 test('journey ITW: a refactor whose new behaviour the person accepts at its code step becomes a change with a revised plan, and ends', slowLane({ timeout: 2_400_000 }), async (t) => {
@@ -205,8 +225,28 @@ test('journey ITW: a refactor whose new behaviour the person accepts at its code
   const status = JSON.parse(story.cli('work', 'status', 'TASK-1', '--json'));
   assert.equal(status.kind, 'change');
   assert.match(status.words, /^TASK-1 is done: .* Checks that ran: npm test \(2 tests, all passed\)\.$/u, 'a change has no list of what must not change');
-  // The person: the words, the intake's question, the plan, the choice to accept the new behaviour, the revised plan and the code.
-  assert.deepEqual(personActions(walk.trail), { words: 1, turns: 4, answers: 1, total: 6 }, formatTrail(walk.trail));
+  assert.deepEqual(status.steps.map((step) => step.label), ['Intake', 'Plan', 'Code', 'Tests'], 'the plan is the change\'s own plan now');
+  // The person: the words, the intake's answer, a Yes to the plan, accepting the new behaviour at their terminal, /sf-task
+  // again, and a Yes to the revised plan and one to the code.
+  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 1, answers: 4, own: 1, total: 7 }, formatTrail(walk.trail));
+});
+
+test('journey ITW: a refactor whose author edits an existing test to expect the new order stops though no run fails; kept, SFlow puts back what the test expected', slowLane({ timeout: 2_400_000 }), async (t) => {
+  const { story, walk } = await walkTask(t, 'tidy the validator in the value module', 'refactor', { files: REFACTOR_FILES,
+    agent: refactorAgentWith({ editsTest: true }), person: behaviourPerson('keep', { card: true }) });
+  assert.equal(walk.reached, true, formatTrail(walk.trail));
+  assert.deepEqual(walk.findings, [], JSON.stringify(walk.findings));
+  // The code step's tests passed with the edited test: the stop is the edit itself, from the version's diff against the base.
+  const stop = stopAtCode(walk.trail);
+  assert.ok(stop > 0, formatTrail(walk.trail));
+  const record = storyRecord(story);
+  assert.deepEqual(record.behaviourDecisions.map(({ choice, checks }) => ({ choice, checks })),
+    [{ choice: 'keep', checks: ['the expectations of test/value.test.mjs'] }]);
+  assert.equal(story.git('show', 'TASK-1:test/value.test.mjs').includes("['name is required', 'email is required']"), true, 'the test says what it said before');
+  assert.match(story.git('show', 'TASK-1:src/value.mjs'), /\[\['name', 'name is required'\], \['email', 'email is required'\]\]/u, 'the code keeps the old order');
+  assert.equal(record.status, 'closed');
+  // The same six as a kept failing test: SFlow, not the person, put back what the test expected.
+  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 1, answers: 3, own: 1, total: 6 }, formatTrail(walk.trail));
 });
 
 // ------------------------------------------------------------------------------------ a marketplace agent as the plan
@@ -266,8 +306,11 @@ test('journey ITW: a marketplace agent\'s workflow is a tests task\'s plan, walk
   assert.deepEqual(record.phaseOrder.map((id) => record.phases[id].status), ['approved', 'approved', 'approved', 'approved']);
   assert.deepEqual(record.phaseOrder.filter((id) => record.phases[id].approvedBy && record.phases[id].approvalDisposition !== 'approved_automatically'),
     ['qa-test-automation-test-case-creation', 'qa-test-automation-test-automation'], 'a person approves the requirements and the tests, as the plan line said');
-  // The person: the words, the intake's question, the channel, and the two approvals.
-  assert.deepEqual(personActions(walk.trail), { words: 1, turns: 2, answers: 2, total: 5 }, formatTrail(walk.trail));
+  // The agent's own question, with its choices, is asked once in the intake's clarification; the submission reads it, so
+  // no route ever carried a `<channel>` to fill in.
+  assert.ok(!walk.trail.some((entry) => /<channel>/u.test(`${entry.taking ?? ''} ${entry.ran ?? ''}`)), formatTrail(walk.trail));
+  // The person: the words, the intake's answers (the channel among them), and a Yes to the requirements and to the tests.
+  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 0, answers: 3, own: 0, total: 4 }, formatTrail(walk.trail));
   const status = JSON.parse(story.cli('work', 'status', 'TASK-1', '--json'));
   assert.equal(status.done, true);
   assert.match(status.words, /^TASK-1 is done: .* Checks that ran: /u);

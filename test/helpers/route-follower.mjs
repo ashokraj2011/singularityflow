@@ -313,9 +313,23 @@ async function runCommand(story, command, { agent = true } = {}) {
     writeFileSync(path.join(process.env.SINGULARITY_FLOW_JOURNEY_DUMP, `${story.workId}-${String(dumped).padStart(3, '0')}-${commandWords(argv.join(' ')).join('-').slice(0, 60)}.json`),
       JSON.stringify({ argv, status: output.status, result, ...(result ? {} : { stdout: output.stdout.slice(-4000) }), stderr: output.stderr.slice(-4000) }, null, 2));
   }
-  return { status: output.status, result, stdout: output.stdout, stderr: output.stderr, ran: `singularity-flow ${argv.join(' ')}` };
+  // In a task's chat the host's after-tool hook sees every command the agent ran, as Copilot calls it: it may carry the
+  // /sf-task turn on (task-turn.mjs taskTurnContinuation: a start into its intake, a submission into its approval question,
+  // the person's Yes or SFlow's own approval into the next step), which the walk then follows in the same turn.
+  const ran = `singularity-flow ${argv.join(' ')}`;
+  const chat = chatHooks?.story === story ? chatHooks : null;
+  if (agent && chat?.guard.turn && !chat.guard.subagent && storyRecord(story)?.resolution?.composition) {
+    // As the agent typed it: a word with a space or quote stays one word (a task's words starting "add …" are no `work add`).
+    const typed = ['singularity-flow', ...argv].map((word) => (/^[A-Za-z0-9_./:=@%+,-]+$/u.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`)).join(' ');
+    const said = chat.guard.turn.after('bash', { command: typed }, { resultType: output.status === 0 ? 'success' : 'failure', textResultForLlm: output.stdout.slice(0, 200_000) });
+    const note = String(said?.additionalContext ?? '');
+    if (/this \/sf-task turn goes on/u.test(note)) chat.guard.carried = { after: commandWords(argv.join(' ')).join(' '), note: note.slice(0, 240) };
+  }
+  return { status: output.status, result, stdout: output.stdout, stderr: output.stderr, ran };
 }
 let dumped = 0;
+// The walk whose chat the after-tool hook reports to (followRoutes): one at a time.
+let chatHooks = null;
 
 // ------------------------------------------------------------------------------------ state, routes and dead ends
 
@@ -415,6 +429,7 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
   const views = [];
   const entered = new Map();
   let route = { ...start, source: 'start' };
+  chatHooks = { story, guard };
   let turn = null;
   let idle = 0;
   let last = null;
@@ -481,13 +496,21 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     // the task's turn does from the work command's entry, as /sf-next does. In the work command's own turn its route is that
     // turn's work; in the task's turn it is hosted there; after a person's answer the person types /sf-task in the same chat.
     const task = taken.next?.copilot ? entries.get(taken.next.copilot.trim()) : null;
+    // SFlow's note after a command said this /sf-task turn goes on: its next action is this same turn's, nothing typed.
+    const carried = guard.carried;
+    guard.carried = null;
+    if (carried) entry.did = `${entry.did ? `${entry.did}; ` : ''}SFlow carries the /sf-task turn on (after ${carried.after})`;
+    if (carried && taken.next && isPersonRoute({ ...taken.next, inTurn: false })) taken.next = { ...taken.next, carried: true };
     if (task?.stepWork && !isPersonRoute({ ...taken.next, inTurn: false }) && !/^singularity-flow work\b/u.test(taken.next.shell ?? '') && current()) {
       const work = [...entries.values()].find((known) => known.oneWorkCommand && known.entry === task.stepWork)?.skill ?? null;
       const resolved = work ? { ...taken.next, copilot: work, source: `${taken.next.source ?? 'route'} (${task.skill}: the step's own work)` } : null;
       // The next step's work after this one completed (a submission SFlow approved) is a new turn the person types.
       const moved = before.mark.split(':')[1] !== storyState(story).mark.split(':')[1];
       const own = taken.next.turn !== 'new-turn' && !moved;
-      if (resolved) taken.next = entries.get(turn)?.oneWorkCommand && own ? { ...resolved, inTurn: Boolean(resolved.shell) }
+      if (resolved && carried) {
+        guard.skill = task.skill;
+        taken.next = { ...resolved, inTurn: false, within: task.skill, carried: true };
+      } else if (resolved) taken.next = entries.get(turn)?.oneWorkCommand && own ? { ...resolved, inTurn: Boolean(resolved.shell) }
         : turn === task.skill && guard.skill === task.skill && own ? { ...resolved, inTurn: false, within: task.skill }
           : { ...resolved, inTurn: false, typed: task.skill };
     }
@@ -660,6 +683,10 @@ const isPersonRoute = (route) => /^singularity-flow (?:approve|decisions record|
  * Returns { result, next, personPending, finding, turn }.
  */
 async function takeRoute({ story, route, entries, phases, currentPhase, agent, person, entry, turn, last, before, guard, values = {} }) {
+  // A task's approval is asked in its /sf-task chat (its SKILL.md step 1): the person's Yes there, never a terminal approve.
+  if (guard && route.source !== 'start' && isPersonRoute(route) && chatApprovalRoute(story, route)) {
+    return chatApproval({ story, route, person, entry, guard, phase: currentPhase, last });
+  }
   // A person's own step (approval, their decisions, a confirmation): theirs to answer, scripted.
   if (route.person || (route.source !== 'start' && isPersonRoute(route))) {
     const answer = person?.({ story, route, result: last, act: last?.act ?? null, phase: currentPhase });
@@ -706,6 +733,11 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
       guard.hosts = { ...(guard.hosts ?? {}), [skill]: within };
       entry.within = within;
       entry.did = `${within} does the step's own work in its turn, by ${skill}'s steps`;
+    } else if (guard && route.subagent && storyRecord(story)?.resolution?.composition) {
+      // A task's reviewer is a sub-agent with a chat of its own: the author's /sf-task turn, and what SFlow's notes carry on,
+      // stay its own (a classic Story's reviewer keeps the walk's one chat, as before).
+      copilotTurn(story, `${guard.sessionId}-reviewer`).prompt(skill);
+      guard.subagent = skill;
     } else if (guard) {
       // The person types the skill: a new turn of the chat, as Copilot's hooks see it. What they typed first reaches the
       // prompt hook whole, so words after the skill (`/sf-code <what to change>`) are kept as they are in a real chat.
@@ -720,7 +752,18 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
   }
   if (!command) return { finding: { kind: 'no-route', detail: 'a route with neither a command nor a skill' } };
   if (/<[A-Za-z][A-Za-z0-9_|-]*>/u.test(command)) return { finding: { kind: 'route-needs-value', detail: `${short(command)} needs a value no script gives` } };
-  const nextTurn = skill ?? turn;
+  // A task's words: the person types `/sf-task <words>`, and that turn starts the task (/sf-task step 4) [ITW:REQ-001].
+  if (guard && route.source === 'start' && !route.copilot && /^singularity-flow work\s/u.test(command)) {
+    guard.turn = copilotTurn(story, guard.sessionId);
+    guard.turn.prompt(`/sf-task ${argvOf(command)[1] ?? ''}`.trim());
+    Object.assign(guard, { skill: '/sf-task', hosts: {}, subagent: null });
+    entry.typed = true;
+    const said = guard.turn.tool('bash', { command: `${command} --json` });
+    if (said?.permissionDecision === 'deny') return { finding: { kind: 'guard-denied', detail: `the guard refused the start in /sf-task's turn: ${String(said.permissionDecisionReason ?? '').slice(0, 500)}` }, turn: '/sf-task' };
+  }
+  const nextTurn = skill ?? (guard?.skill === '/sf-task' && route.source === 'start' ? '/sf-task' : turn);
+  // Back from the reviewer sub-agent: the author's turn is the chat's again.
+  if (guard && !route.subagent && route.source !== 'reviewSubagent') guard.subagent = null;
   const held = guardedConfirmation(guard, command);
   if (held) return { finding: { kind: 'guard-denied', detail: `the guard refused ${short(command)}: ${String(held.permissionDecisionReason ?? '').slice(0, 500)}` }, turn: nextTurn };
   const ran = await runCommand(story, command);
@@ -851,7 +894,12 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
   const checkpoint = result.clarification?.checkpoint ?? null;
   const record = checkpoint?.recordAction?.commandGuidance?.command ?? null;
   if (act?.state === 'ask-person' && record && checkpoint.requiresHumanResponse !== false) {
-    const responses = await agent.clarify?.({ story, phase, checkpoint });
+    // A Story value the step's clarification asks in the agent's own words (phase-roles.mjs storyValueTopic), answered from the journey's
+    // scripted answer for it, beside the agent's own questions: one ask of the person [ITW:REQ-011].
+    const { storyValueOfTopic } = await import('../../src/phase-roles.mjs');
+    const valued = (checkpoint.topics ?? []).map(storyValueOfTopic).filter((asked) => asked && Object.hasOwn(values, asked.name))
+      .map((asked) => ({ question: `${asked.question} (${asked.choices.join(' / ')})`, answer: String(values[asked.name]) }));
+    const responses = [...(await agent.clarify?.({ story, phase, checkpoint }) ?? []), ...valued];
     if (!responses?.length) return { result, personPending: true, finding: { kind: 'clarification-unscripted', detail: `${phase} asks clarification questions the journey does not answer` }, turn: nextTurn };
     const staging = result.clarification.responseStagingPath ?? argvOf(record)[argvOf(record).indexOf('--response-file') + 1];
     await mkdir(path.dirname(staging), { recursive: true });
@@ -907,6 +955,67 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
     }
   }
   return { result, next, turn: nextTurn };
+}
+
+/** Whether a person's route is a task's step approval, which /sf-task asks in its chat. */
+function chatApprovalRoute(story, route) {
+  const record = storyRecord(story);
+  if (!record?.resolution?.composition || record.status !== 'in_progress') return false;
+  return /^singularity-flow approve\s/u.test(route.shell ?? '') || /^\/sf-approve\b/u.test(route.copilot ?? '');
+}
+
+/**
+ * A task's approval in its /sf-task chat, as its SKILL.md step 1 says: in the turn SFlow carried on (or the /sf-task the
+ * person types), the agent runs `choices begin approve`, asks its question with the host's question tool, and on the
+ * person's own Yes runs its onYes command, then the approval it returns; each through the real guard, and the after-tool
+ * hook sees each, so the Yes carries the turn on into the next step.
+ */
+async function chatApproval({ story, route, person, entry, guard, phase, last }) {
+  const said = [];
+  if (!route.carried || !guard.turn) {
+    guard.turn = copilotTurn(story, guard.sessionId);
+    guard.turn.prompt('/sf-task');
+    Object.assign(guard, { skill: '/sf-task', hosts: {}, subagent: null });
+    entry.typed = true;
+    said.push('the person types /sf-task');
+  }
+  const run = async (command) => {
+    const decision = guard.turn.tool('bash', { command });
+    if (decision?.permissionDecision === 'deny') throw stop('guard-denied', `the guard refused ${short(command)} in the /sf-task approval turn: ${String(decision.permissionDecisionReason ?? '').slice(0, 500)}`);
+    return runCommand(story, command);
+  };
+  try {
+    const begin = `singularity-flow choices begin approve ${story.workId} --fetch --for-agent --json --review-packet`;
+    const begun = await run(begin);
+    Object.assign(entry, { ran: begun.ran, status: begun.status, code: begun.result?.error?.code ?? null, act: begun.result?.act?.state ?? null });
+    if (begun.status !== 0) return refusalRoute(begun.result, begin, '/sf-task');
+    const ask = begun.result?.act?.ask ?? null;
+    if (!ask?.question || !ask.onYes) return { result: begun.result, finding: { kind: 'approval-without-question', detail: `${short(begin)} asked no question with an onYes` }, turn: '/sf-task' };
+    const answer = person?.({ story, route: { ...route, copilot: '/sf-approve' }, result: begun.result, act: begun.result.act, phase });
+    if (!answer) return { result: begun.result, personPending: true, finding: { kind: 'person-unanswered', detail: `the approval question "${ask.question}"` }, turn: '/sf-task' };
+    const yes = (ask.choices ?? []).map((choice) => choice?.label ?? choice).find((label) => typeof label === 'string' && !/^not now$/iu.test(label))
+      ?? ask.question.replace(/\?$/u, '');
+    guard.turn.tool('ask_user', { question: ask.question, choices: [yes, 'Not now'] });
+    guard.turn.after('ask_user', { question: ask.question, choices: [yes, 'Not now'] }, { resultType: 'success', textResultForLlm: `User responded: ${yes}` });
+    said.push(`the person answered Yes to "${ask.question}" in the chat`);
+    let ran = null;
+    for (const command of [ask.onYes].flat()) {
+      ran = await run(command);
+      if (ran.status !== 0) return refusalRoute(ran.result, command, '/sf-task') ?? { result: ran.result, finding: { kind: 'approval-refused', detail: `${short(command)}: ${ran.result?.error?.code ?? ''}` }, turn: '/sf-task' };
+    }
+    // The answer recorded names the approval itself as its next command, which this turn runs once.
+    const approve = [ran.result?.next?.command, ran.result?.act?.do?.shell].find((command) => /^singularity-flow approve\s/u.test(command ?? ''));
+    if (approve) {
+      ran = await run(approve);
+      if (ran.status !== 0) return refusalRoute(ran.result, approve, '/sf-task') ?? { result: ran.result, finding: { kind: 'approval-refused', detail: `${short(approve)}: ${ran.result?.error?.code ?? ''}` }, turn: '/sf-task' };
+    }
+    entry.did = `${said.join('; ')}; the agent ran its approval`;
+    Object.assign(entry, { ran: ran.ran, status: ran.status, act: ran.result?.act?.state ?? null });
+    return { result: ran.result, next: nextFrom(ran.result, { turn: '/sf-task' }), personPending: false, turn: '/sf-task' };
+  } catch (error) {
+    if (error?.journeyFinding) return { result: last, finding: error.journeyFinding, turn: '/sf-task' };
+    throw error;
+  }
 }
 
 /**

@@ -8,6 +8,7 @@ import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { decisionFedBy, decisionSubmitArguments, recordedDecisionValues, storyDecisionView } from './workflow-decisions.mjs';
+import { clarifiedValueQuestions } from './phase-roles.mjs';
 import { storyRequiresStepActions, submissionEndsStory } from './step-actions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
@@ -50,7 +51,9 @@ function submitCommand(workflow, phase) {
 function decisionInputsNeeded(workflow, phase) {
   const decision = decisionFedBy(workflow, phase.id);
   if (!decision || recordedDecisionValues(phase, decision)) return [];
-  return decision.inputs.map((input) => ({ ...input, decision: decision.id, decisionLabel: decision.label }));
+  // A value the step's own clarification asked is read from the person's answer there at submission [ITW:REQ-011].
+  const asked = clarifiedValueQuestions(workflow, phase.id);
+  return decision.inputs.filter((input) => !asked.has(input.name)).map((input) => ({ ...input, decision: decision.id, decisionLabel: decision.label }));
 }
 
 function result(workflow, phase, overrides) {

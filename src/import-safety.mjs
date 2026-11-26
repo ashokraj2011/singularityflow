@@ -94,7 +94,7 @@ const RULE_BYPASS = Object.freeze([
   /\b(?:ignore|disregard|forget|override|overrule)\b[^.\n]{0,30}?\b(?:previous|prior|earlier|above|preceding|all other|any other|system|original|your)\b[^.\n]{0,20}?\b(?:instructions?|prompts?|rules|directions|guidance|guidelines|messages?|constraints)\b/iu
 ]);
 
-const CREDENTIAL_ACCESS = Object.freeze([
+const PRIVATE_READS = Object.freeze([
   /(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%|\/home\/[\w.-]+|\/Users\/[\w.-]+)[/\\]\.(?:ssh|aws|gnupg|kube|netrc|npmrc|pypirc|git-credentials|docker[/\\]config\.json|config[/\\]gh)\b/iu,
   /\bgh\s+auth\s+(?:token|status\s+(?:-t|--show-token))\b/iu,
   /\bprintenv\b/iu,
@@ -190,7 +190,7 @@ export function checkImportText(text, { ownHosts = [], secrets = true } = {}) {
     const hidden = invisibleIn(line, { first: index === 0 });
     if (hidden.length) findings.push(finding('hidden-characters', number, line, { detail: hidden.join(' ') }));
     if (firstMatch(line, RULE_BYPASS)) findings.push(finding('rule-bypass', number, line));
-    if (firstMatch(line, CREDENTIAL_ACCESS)) findings.push(finding('credential-access', number, line));
+    if (firstMatch(line, PRIVATE_READS)) findings.push(finding('credential-access', number, line));
     if (firstMatch(line, PIPE_TO_SHELL)) findings.push(finding('pipe-to-shell', number, line));
     if (firstMatch(line, HIDDEN_MARKUP, { negation: false })) findings.push(finding('hidden-markup', number, line));
     if (firstMatch(line, ENCODED_PAYLOAD, { negation: false })) findings.push(finding('encoded-payload', number, line));

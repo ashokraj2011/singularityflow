@@ -1116,6 +1116,10 @@ async function record(root, options, workId, io) {
       : after?.items.length ? [{ id: 'decide-card', label: `${after.headline} ${decideCardNext(workflow.workItem.id).title}.`,
         command: decideCardNext(workflow.workItem.id).command, skill: null, rank: 'NOW', kind: 'workflow' }]
       : after?.next?.command ? [{ id: 'story-next', label: after.next.title, command: after.next.command, skill: after.next.skill ?? null, rank: 'NOW', kind: 'workflow' }] : [];
+    // A refactor's behaviour decided lets its task's step go on [ITW:REQ-008, REQ-015]: the host that showed the card carries
+    // the chat on with /sf-task (VS Code sends it to the chat the person used last), and an agent is told the same.
+    const continueTask = outcome.recorded.some((entry) => TASK_CARRYING_KINDS.has(entry.kind)) ? await taskContinuation(workflow) : null;
+    if (continueTask && !optionBoolean(options, 'json')) console.log(continueTask.words);
     emitCommandResult(commandResult({
       operation: { id: 'decisions.record', classification: 'mutation' },
       subject: { kind: 'story', id: workflow.workItem.id },
@@ -1125,11 +1129,24 @@ async function record(root, options, workId, io) {
       next: (await import('../safe-command-guidance.mjs')).withTaskRoutes(workflow, next.map((entry) => action(entry))),
       data: { recorded, decided, ...(drafted.length ? { drafted } : {}), ...(unchanged.length ? { unchanged } : {}), ...(summaryUpdate ? { summaryUpdate, agentInstruction: summaryUpdate.words } : {}), refused: plan.refused,
         remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null, packetSha256: after?.packetSha256 ?? null,
-        ...(after?.storyNext ? { storyNext: after.storyNext } : {}) }
+        ...(after?.storyNext ? { storyNext: after.storyNext } : {}), ...(continueTask ? { continueTask } : {}) }
     }), { json: optionBoolean(options, 'json'), postState: workflow });
   } finally {
     prompt?.close();
   }
+}
+
+// The decisions after which a task's step goes on with nothing else to decide: its chat carries on with /sf-task.
+const TASK_CARRYING_KINDS = new Set(['refactor-behaviour']);
+
+/** How a task's chat goes on after such a decision: `{ copilotCommand, words, instruction }`, or null on any other Story. */
+async function taskContinuation(workflow) {
+  const { isTaskStory, TASK_ROUTE } = await import('../safe-command-guidance.mjs');
+  if (!isTaskStory(workflow) || workflow.status !== 'in_progress' || !workflow.currentPhase) return null;
+  const step = workflow.phases?.[workflow.currentPhase];
+  return { copilotCommand: TASK_ROUTE, words: `${step?.label ?? workflow.currentPhase} goes on: ${TASK_ROUTE} in the chat carries it on.`,
+    instruction: `The decision is recorded, and ${workflow.workItem.id}'s ${step?.label ?? workflow.currentPhase} goes on. When SFlow's note after this says `
+      + `this /sf-task turn goes on, do /sf-task's step 1 again now; otherwise name ${TASK_ROUTE}, typed in this chat, as the next step. Offer no other route.` };
 }
 
 async function show(root, options, workId) {

@@ -798,7 +798,7 @@ export async function acceptBehaviourAfterReturn(root, workId, phaseId, changeRe
  * open version and code kept in place for it (amended-drafts.mjs holdReturnedCode), and the task becomes a change as at
  * the test step (becomeChange). The code step's author then goes on in that same version once the plan is approved.
  */
-export async function acceptBehaviourAtCode(root, workId, phaseId, { checks, actor }) {
+export async function acceptBehaviourAtCode(root, workId, phaseId, { checks, actor, decision = null }) {
   const [{ loadAcceptedStoryExecution }, composer, { rejectPhase, transactStory }, { LIFECYCLE_EVENT }] = await Promise.all([
     import('./accepted-story-execution.mjs'), import('./task-composition.mjs'), import('./state-stores.mjs'), import('./lifecycle-event.mjs')]);
   const { config, workflow } = await loadAcceptedStoryExecution(root, workId);
@@ -813,7 +813,12 @@ export async function acceptBehaviourAtCode(root, workId, phaseId, { checks, act
   const { value: returned } = await transactStory(root, config, workflow,
     { type: LIFECYCLE_EVENT.PHASE_REJECTED, phaseId, generation: code.generation, actor, agent: null, authorityGroup: null, payload: { targetPhaseId: plan.id } },
     `[${workflow.workItem.id}][phase:${phaseId}][reject] return to ${plan.id}: the refactor's new behaviour accepted`,
-    (aggregate) => rejectPhase(root, config, aggregate, { phaseId, target: plan.id, reason, actor, agent: null, behaviourChange: { checks } }),
+    async (aggregate) => {
+      const transition = await rejectPhase(root, config, aggregate, { phaseId, target: plan.id, reason, actor, agent: null, behaviourChange: { checks } });
+      // The person's record of the acceptance, beside the return it makes, in the same write SF Guard signs.
+      const recorded = decision ? decision(aggregate, { changeRequest: transition.changeRequest.id }) : null;
+      return { ...transition, ...(recorded ? { behaviourDecision: recorded.id } : {}) };
+    },
     { eventFromResult: (transition) => ({ payload: { targetPhaseId: plan.id, changeRequestId: transition.changeRequest.id } }) });
   const { workflow: after } = await loadAcceptedStoryExecution(root, workId);
   const request = (after.changeRequests ?? []).find((entry) => entry.id === returned.changeRequest?.id);
@@ -821,7 +826,7 @@ export async function acceptBehaviourAtCode(root, workId, phaseId, { checks, act
   // The plan's agent takes the session, as after any return (reject).
   const current = await loadAcceptedStoryExecution(root, workId);
   await (await import('./session.mjs')).activateWorkItemSession(root, current.config, current.workflow).catch(() => null);
-  return accepted;
+  return { ...accepted, ...(returned.behaviourDecision ? { decision: returned.behaviourDecision } : {}) };
 }
 
 /**

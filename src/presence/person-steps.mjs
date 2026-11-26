@@ -99,7 +99,8 @@ function thisCommand(argv = process.argv) {
 }
 
 function summary(family, record) {
-  const name = record.id ?? (record.revokes ? `revokes ${record.revokes}` : record.accepts ? `accepts ${record.accepts}` : record.item ?? record.issue
+  // A family that says what its record decides names it on the card in those words.
+  const name = family.name?.(record) ?? record.id ?? (record.revokes ? `revokes ${record.revokes}` : record.accepts ? `accepts ${record.accepts}` : record.item ?? record.issue
     ?? record.amendment ?? record.responsibility ?? record.articleId ?? (record.decision && record.route ? `${record.decision}: ${record.route}` : null) ?? null);
   const why = typeof record.reason === 'string' ? record.reason : typeof record.comment === 'string' ? record.comment : '';
   const reason = why.replace(/\s+/gu, ' ').slice(0, 80);

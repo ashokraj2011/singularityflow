@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
   CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, isChatRoute, nextChatPrefill, removeOldCopilotTurns, TURN_REMOVE_AFTER_MS, TURN_STALE_MS, participantRequestEnded, participantRequestStarted, PREFILL_COMMAND, PREFILL_SETTING,
-  taskChatContinuation
+  taskChatContinuation, taskDecisionContinuation
 } = await import(pathToFileURL(path.join(packageRoot, 'apps', 'vscode', 'src', 'chat-prefill.ts')).href);
 
 const phase = (id, label, status, generation) => ({ id, label, status, generation, artifacts: [], approvals: [] });
@@ -152,6 +152,33 @@ test('ITW REQ-008: a person\'s approval on any page sends /sf-task into the same
   assert.match(continuation, /taskChatContinuation\(/u);
   assert.doesNotMatch(continuation, /newChat/u, 'the same chat, never a new one');
   assert.match(continuation, /isPartialQuery: false/u, 'sent as the person would type it');
+});
+
+test('a decision on the Decide card after which a task\'s step goes on carries the chat on with /sf-task, as a page approval does [ITW:REQ-008, REQ-015]', async () => {
+  const { decisionRecordOutcome } = await import(pathToFileURL(path.join(packageRoot, 'apps', 'vscode', 'src', 'views', 'decision-list-model.ts')).href);
+  // What `decisions record --json` says after a refactor's behaviour is kept on a task's Story, as the card reads it.
+  const recorded = { data: { recorded: [{ item: 'd1', kind: 'refactor-behaviour', record: 'the old behaviour kept' }], decided: [], remaining: [],
+    continueTask: { copilotCommand: '/sf-task', words: 'Code goes on.', instruction: 'Name /sf-task, typed in this chat.' } } };
+  const { outcome } = decisionRecordOutcome(recorded);
+  assert.deepEqual([outcome.continueTask, outcome.continueTaskInstruction], ['/sf-task', 'Name /sf-task, typed in this chat.']);
+  assert.equal(decisionRecordOutcome({ data: { recorded: [], remaining: [] } }).outcome.continueTask, undefined, 'any other record says nothing');
+  const task = { workItem: { id: 'TASK-1', workType: 'task-refactor' }, status: 'in_progress', resolution: { composition: { kind: 'refactor', steps: [] } } };
+  assert.equal(taskDecisionContinuation(task, 'TASK-1', { continueTask: '/sf-task' }), '/sf-task');
+  assert.equal(taskDecisionContinuation(task, 'TASK-1', { continueTask: '/sf-task' }, { askedInChat: true }), null, 'a chat that opened the card names it in its own turn');
+  assert.equal(taskDecisionContinuation(task, 'TASK-1', {}), null, 'a decision after which nothing goes on');
+  assert.equal(taskDecisionContinuation(task, 'TASK-2', { continueTask: '/sf-task' }), null, 'another Story');
+  assert.equal(taskDecisionContinuation({ ...task, workItem: { id: 'TASK-1', workType: 'quick-fix' }, resolution: {} }, 'TASK-1', { continueTask: '/sf-task' }), null, 'a classic Story');
+  // The Decide card's command sends it, in the chat the person used last, by the same path the page approvals take.
+  const extension = await readFile(path.join(packageRoot, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
+  const decide = extension.slice(extension.indexOf("'singularityFlow.decide': async"), extension.indexOf("'singularityFlow.decisions': async"));
+  assert.match(decide, /reviewDecisions\([^]*continueTaskAfterDecision\(selected\.workId, result, target !== undefined\)/u);
+  const after = extension.slice(extension.indexOf('const continueTaskAfterDecision = async'), extension.indexOf('const openGovernedCopilot = async'));
+  assert.match(after, /taskDecisionContinuation\([^]*sendTaskRoute\(route\)/u);
+  assert.doesNotMatch(after, /newChat/u, 'the same chat, never a new one');
+  // The Decide card hands the record's word on, and its instruction for a chat that opened it.
+  const card = await readFile(path.join(packageRoot, 'apps', 'vscode', 'src', 'views', 'decide-card.ts'), 'utf8');
+  assert.match(card, /continueTask = outcome\.continueTask \?\? continueTask/u);
+  assert.match(card, /const result = continueTask \? \{ \.\.\.answer, continueTask/u);
 });
 
 test('only a /sf- skill or an @sflow command with plain arguments is a chat route', () => {

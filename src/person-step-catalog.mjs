@@ -239,9 +239,12 @@ export const PERSON_STEPS = Object.freeze([
   // A person's override of a check's blocking finding for the version being written (finding-overrides.mjs).
   { id: 'finding-override', guard: 'decision:finding-override', effect: 'finding-override', review: { kind: 'finding-override', entry: safe({ findingOverrides: 'finding_overridden' }) },
     family: { list: 'findingOverrides', action: 'decision.override-finding', label: 'Finding override', isPerson: always } },
-  // Keeping or accepting what a refactor's code changed, on the card or in the person's terminal (refactor-behaviour.mjs). Not
-  // signed by SF Guard yet: a keep counts as recorded, and an accept is the person's own return to the plan.
-  { id: 'refactor-behaviour', guard: 'own:refactor-behaviour', effect: 'refactor-behaviour' },
+  // Keeping or accepting what a refactor's code changed, on the card or in the person's terminal (refactor-behaviour.mjs):
+  // one record per choice, signed where the Story is written, and a keep counts only signed; an accept's record rides with
+  // its return to the plan, as an upstream issue's return does.
+  { id: 'refactor-behaviour', guard: 'own:refactor-behaviour', effect: 'refactor-behaviour',
+    family: { list: 'behaviourDecisions', action: 'work.behaviour', label: 'Refactor behaviour', isPerson: always,
+      name: (record) => `${record.id}: ${record.choice === 'accept' ? 'accept the new behaviour' : 'keep the old behaviour'} of ${record.phase} version ${record.generation}` } },
   // A visual step approver's accepted risk on one failed comparison, which nothing else clears [PHR:REQ-006].
   { id: 'visual-risk', guard: 'own:visual-risk', review: { kind: 'visual-risk', entry: safe({ visualRiskDecisions: 'visual_risk_accepted' }) },
     family: { list: 'visualRiskDecisions', action: 'decision.visual-risk', label: 'Visual risk', isPerson: always } },

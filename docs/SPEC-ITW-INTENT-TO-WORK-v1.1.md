@@ -347,6 +347,18 @@ the intake's answers, and a Yes to the requirements and to the tests, nothing ty
   Yes to the plan, keep, `/sf-task` again, as a card decision carries no chat on, a Yes to the code); accept at the
   terminal (7: and a Yes to the revised plan); an author who edits the test so no run fails, kept on the card (the
   same 6), SFlow putting back what the test expected with the author's tags kept, the code restored.
+- Built 2026-11-26, third round: **SF Guard** signs the choice as every other person decision: each keep and accept is a
+  `behaviourDecisions` record (person-step-catalog.mjs family `work.behaviour`, its card line naming the choice, the step
+  and the version), signed where the Story is written, one card and one touch; a refusal writes nothing (a keep's tests
+  are put back only after its record is written) and names the person's own terminal with the exact command
+  (`PSS_CARD_NOT_SHOWN`, `where: 'own-terminal'`). The gate counts a keep only when its signature verifies
+  (presence/counted.mjs); an accept's record rides with its return to the plan, as an upstream issue's return does.
+  **The chat after the card**: `decisions record` says when a task's step goes on after what it recorded (`continueTask`:
+  `/sf-task` and the agent's instruction); VS Code's Decide card then sends `/sf-task` to the chat the person used last,
+  as after an approval page (extension.ts continueTaskAfterDecision), unless a chat opened the card, whose turn reads the
+  same answer; Copilot CLI's card hands the instruction to the agent, which names `/sf-task` (no turn carries on from a
+  card decision: the card records outside the turn's terminal). Journeys: keep on the card and the edited test take 5
+  person actions now, nothing typed again; accept at the terminal stays 7.
 
 **ITW:REQ-016, documents.**
 - A `docs` task writes its document as its own step's document, kept with the Story on its branch. Git keeps its

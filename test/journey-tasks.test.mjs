@@ -163,7 +163,7 @@ function behaviourPerson(choice, { card = false } = {}) {
       if (!/^singularity-flow work behaviour /u.test(context.route.shell ?? '')) return person(context);
       if (card) {
         const answer = decideCard(story, { choose: (item) => (item.kind === 'refactor-behaviour' ? item.options.find((entry) => entry.id === `${choice}-behaviour`) : null) });
-        return answer ? { command: answer.command, agent: false } : null;
+        return answer ? { command: answer.command, agent: false, onCard: true } : null;
       }
       const offered = (context.result?.remediationPlan?.steps ?? []).map((step) => step.command).find((command) => new RegExp(`^singularity-flow work behaviour ${choice}\\b`, 'u').test(command ?? ''));
       return offered ? { command: offered, agent: false } : null;
@@ -197,9 +197,10 @@ test('journey ITW, A13: a refactor that changes the order of two errors stops at
   const status = JSON.parse(story.cli('work', 'status', 'TASK-1', '--json'));
   assert.equal(status.words, 'TASK-1 is done: Intake, Plan: what must not change, Code, Tests, on branch TASK-1. Checks that ran: npm test (2 tests, all passed). '
     + 'Not covered by any check: The log line the validator writes keeps its format.');
-  // The person: the words, the intake's answer, a Yes to the plan, keeping the old behaviour on the card, /sf-task again (a
-  // decision on the card carries no chat on) and a Yes to the code.
-  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 1, answers: 3, own: 1, total: 6 }, formatTrail(walk.trail));
+  // The person: the words, the intake's answer, a Yes to the plan, keeping the old behaviour on the card and a Yes to the
+  // code. Nothing typed again: after the card's decision VS Code sends /sf-task to the chat, as after a page approval.
+  assert.ok(walk.trail.some((entry) => /VS Code sends \/sf-task to the chat the person used last/u.test(entry.did ?? '')), formatTrail(walk.trail));
+  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 0, answers: 3, own: 1, total: 5 }, formatTrail(walk.trail));
 });
 
 test('journey ITW: a refactor whose new behaviour the person accepts at its code step becomes a change with a revised plan, and ends', slowLane({ timeout: 2_400_000 }), async (t) => {
@@ -245,8 +246,8 @@ test('journey ITW: a refactor whose author edits an existing test to expect the 
   assert.equal(story.git('show', 'TASK-1:test/value.test.mjs').includes("['name is required', 'email is required']"), true, 'the test says what it said before');
   assert.match(story.git('show', 'TASK-1:src/value.mjs'), /\[\['name', 'name is required'\], \['email', 'email is required'\]\]/u, 'the code keeps the old order');
   assert.equal(record.status, 'closed');
-  // The same six as a kept failing test: SFlow, not the person, put back what the test expected.
-  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 1, answers: 3, own: 1, total: 6 }, formatTrail(walk.trail));
+  // The same five as a kept failing test: SFlow, not the person, put back what the test expected.
+  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 0, answers: 3, own: 1, total: 5 }, formatTrail(walk.trail));
 });
 
 // ------------------------------------------------------------------------------------ a marketplace agent as the plan

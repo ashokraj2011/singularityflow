@@ -43,7 +43,7 @@ import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedA
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import { buildJourney } from './views/journey-model.ts';
-import { CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING, removeOldCopilotTurns, taskChatContinuation } from './chat-prefill.ts';
+import { CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING, removeOldCopilotTurns, taskChatContinuation, taskDecisionContinuation } from './chat-prefill.ts';
 import { copilotTurnDirectory } from '../../../src/copilot-mode.mjs';
 import {
   phaseGenerationChatPrefill, startsFreshChat, submissionCommandArgv
@@ -8092,7 +8092,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const route = taskChatContinuation(workflow, workId, phaseId)
       ?? taskChatContinuation(await client.run<unknown>(['status', workId, '--json']).catch(() => null), workId, phaseId);
     if (!route) return;
-    // The same chat, never a new one: VS Code sends it to the chat the person used last, as they would type it.
+    await sendTaskRoute(route);
+  };
+
+  /**
+   * After a person decides on the Decide card what a task's step waited on (a refactor's behaviour), the chat goes on as after
+   * a page approval [ITW:REQ-008, REQ-015]: `/sf-task`, when the record said the task goes on. Not when a chat opened the
+   * card (#sflowDecide): that chat's own turn reads the same answer and names /sf-task.
+   */
+  const continueTaskAfterDecision = async (workId: string, result: { continueTask?: unknown } | null | undefined, askedInChat: boolean): Promise<void> => {
+    const route = taskDecisionContinuation(store.current.snapshot?.workflow, workId, result, { askedInChat });
+    if (route) await sendTaskRoute(route);
+  };
+
+  /** The same chat, never a new one: VS Code sends the route to the chat the person used last, as they would type it. */
+  const sendTaskRoute = async (route: string): Promise<void> => {
     chatPrefill.noteRequestSent();
     await vscode.commands.executeCommand('workbench.action.chat.open', { query: route, isPartialQuery: false });
   };
@@ -9804,6 +9818,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const selected = target ?? { workId: store.current.snapshot?.workflow?.workItem.id ?? '' };
       const result = await lazyPanels().reviewDecisions(client, selected, refreshAfterKnownMutation, { askedInChat: target !== undefined });
       if (result.message) void showCompactInformationMessage(result.message);
+      // A task's step that goes on after the decision carries its chat on, as after a page approval [ITW:REQ-008, REQ-015].
+      if (typeof selected.workId === 'string') await continueTaskAfterDecision(selected.workId, result, target !== undefined);
       return result;
     },
     'singularityFlow.decisions': async (target?: unknown) => {

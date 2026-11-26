@@ -722,6 +722,8 @@ export async function runCard({ ask, show, read, record, witness, inspect, scree
   const drafted = [];
   // A pin or plan amendment that changed the open code step after its summary was written [owner, 2026-11-13].
   let summaryUpdate = null;
+  // A decision after which a task's step goes on (a refactor's behaviour): how the chat carries on, in the engine's words.
+  let continueTask = null;
   let asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
   // "Check first": SFlow runs it with the time the person chose to give it, then asks again once with what it found.
   for (let round = 0; asked.check && round < 2; round += 1) {
@@ -753,6 +755,7 @@ export async function runCard({ ask, show, read, record, witness, inspect, scree
       decided.push(...(result.decided ?? []).map((entry) => entry.words));
       drafted.push(...(result.drafted ?? []).map((entry) => `Drafted at ${entry.path}. ${entry.next?.words ?? ''}`.trim()));
       summaryUpdate = result.summaryUpdate?.words ?? summaryUpdate;
+      continueTask = result.continueTask ?? continueTask;
       answers = [];
     } catch (error) {
       // With SF Guard the signature is taken in the person's own terminal: one command, nothing to fill in, the same questions there.
@@ -794,6 +797,7 @@ export async function runCard({ ask, show, read, record, witness, inspect, scree
   // The list as it stands after what was recorded: with nothing left that waits on this person, the Story's next step.
   return { status: recorded.length ? 'recorded' : drafted.length ? 'drafted' : 'cancelled', recorded, decided, ...(drafted.length ? { drafted } : {}), remaining,
     ...(summaryUpdate ? { summaryUpdate } : {}), ...(packet.storyNext ? { next: packet.storyNext } : {}),
+    ...(continueTask ? { continueTask, instruction: continueTask.instruction } : {}),
     message: withNext(`${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : recorded.length ? `${recorded.length} recorded.` : 'No decision was recorded.'}`
       + `${drafted.length ? ` ${drafted.join(' ')}` : ''}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}${summaryUpdate ? ` ${summaryUpdate}` : ''}`, packet) };
 }

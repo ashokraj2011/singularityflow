@@ -31,7 +31,11 @@ import { approvalElsewhereWords, approvalFocus, approvalPageWords, approvalRows,
 const CHECK_SECONDS = 60;
 const CHECK_FIRST_SECONDS = 900;
 
-export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; drafted?: string[]; remaining?: string[]; summaryUpdate?: string; next?: unknown; declined?: string }
+export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; drafted?: string[]; remaining?: string[]; summaryUpdate?: string; next?: unknown; declined?: string;
+  /** A task's step goes on after what was recorded: the chat route that carries it on (decisions record's `continueTask`). */
+  continueTask?: string;
+  /** What the chat's agent does then, in the engine's words: a chat that opened this card goes on with /sf-task. */
+  instruction?: string }
 
 /** An absolute file the engine named, opened beside the page for the person to write in. */
 const openBeside = (file: string) => vscode.commands.executeCommand('vscode.open', vscode.Uri.file(file), { viewColumn: vscode.ViewColumn.Beside, preview: false })
@@ -146,14 +150,18 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     // A pin or plan amendment recorded here changed the open code step after its summary was written: however the page
     // closes, the chat's agent and the person are told to update the summary before prepublishing [owner, 2026-11-13].
     let summaryUpdate: string | undefined;
+    // A task whose step goes on after what was recorded here: the chat route that carries it on, and what a chat's agent does.
+    let continueTask: string | undefined;
+    let continueTaskInstruction: string | undefined;
     const render = (error: string | null = null, notice: string | null = null) => {
       const token = nonce();
       panel.webview.html = page(`Decide · ${workId}`, `<style nonce="${token}">${DECIDE_STYLE}</style>${decideHtml(shown(), { error, notice, busy, draft, route, declined: declined?.digest ?? null })}`,
         contentSecurityPolicy(panel.webview, token), token, DECIDE_SCRIPT);
     };
-    const finish = (result: DecideResult) => {
+    const finish = (answer: DecideResult) => {
       if (settled) return;
       settled = true;
+      const result = continueTask ? { ...answer, continueTask, ...(continueTaskInstruction ? { instruction: continueTaskInstruction } : {}) } : answer;
       resolve(summaryUpdate && !result.message.includes(summaryUpdate) ? { ...result, summaryUpdate, message: `${result.message} ${summaryUpdate}` }
         : summaryUpdate ? { ...result, summaryUpdate } : result);
       panel.dispose();
@@ -375,6 +383,8 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
           if (ran === null) { busy = false; panel.reveal(); return render(); }
           const outcome = decisionRecordOutcome(ran).outcome;
           summaryUpdate = outcome.summaryUpdate ?? summaryUpdate;
+          continueTask = outcome.continueTask ?? continueTask;
+          continueTaskInstruction = outcome.continueTaskInstruction ?? continueTaskInstruction;
           await refresh?.();
           const all = [...recorded, ...outcome.recorded];
           const decided = outcome.decided ?? [];

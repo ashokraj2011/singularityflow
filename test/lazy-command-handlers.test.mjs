@@ -1055,7 +1055,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // [ITW:REQ-011, REQ-015]; the card's item, the edited-test check and the plan label load only for a task. No new eager file.
     // 9,904,620 (measured on itw-all2 with itw-walks 99f7271c9 and itw-market2 9d32837b4 merged, 2026-11-26). No new eager file.
     // 9,905,480 (measured on itw-all2 with itw-walks 99f7271c9 and itw-market2 9d32837b4 merged, 2026-11-26). No new eager file.
-    assert.ok(closure.bytes <= 9_905_480, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,905,847 (measured for submit.mjs, +367 over 9,905,480 at 42731f7ca, 2026-11-26 on itw-walks; start.mjs 9,904,987, +367):
+    // a refactor's behaviour choice as a family SF Guard signs and counts, with the words its card names it by
+    // (person-step-catalog.mjs) [ITW:REQ-015]. No new eager file.
+    assert.ok(closure.bytes <= 9_905_847, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1652,7 +1655,9 @@ test('the common session projection does not import attach, state stores or publ
   // clarification asks (phase-roles.mjs, workflow-decisions.mjs) and `work behaviour` as a step the decisions card records
   // (model-free-commands.mjs, person-step-catalog.mjs) [ITW:REQ-011, REQ-015]. No new eager file.
   // 4,366,692 (measured on itw-all2 with itw-walks and itw-market2 merged, 2026-11-26). No new eager file.
-  assert.ok(current.bytes <= 4_366_692, `session current loads ${current.bytes} source bytes`);
+  // 4,367,059 (+367 over 4,366,692 at 42731f7ca, measured 2026-11-26 on itw-walks): a refactor's behaviour choice as a
+  // family SF Guard signs and counts (person-step-catalog.mjs) [ITW:REQ-015]. No new eager file.
+  assert.ok(current.bytes <= 4_367_059, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

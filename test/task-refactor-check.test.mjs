@@ -208,6 +208,22 @@ test('ITW REQ-015: a refactor\'s behaviour change is an item on the decisions ca
     details: { nextAction: { command: behaviourCommands('TASK-7').keep, label: 'Keep' }, recoveryCommands: [{ command: behaviourCommands('TASK-7').accept, label: 'Accept' }] } });
   const act = agentAct(refusalEnvelope(refusal, ['phase', 'prepublish', 'implementation']));
   assert.deepEqual([act.state, act.do.copilot, act.do.shell], ['confirm-in-terminal', '/sf-decide TASK-7', 'singularity-flow work behaviour keep --work-id TASK-7']);
+
+  // Decided on Copilot CLI's card: the person's own answers, and the record's word that the task goes on reaches the
+  // chat's agent, which names /sf-task, or does /sf-task's step 1 when SFlow's note says the turn goes on [ITW:REQ-008].
+  const { RECORD, runCard } = await import('../plugin/extensions/decisions/card.mjs');
+  const list = { ...packet, packetSha256: `sha256:${'a'.repeat(64)}`, repositoryPath: '/repo' };
+  const continueTask = { copilotCommand: '/sf-task', words: 'Code goes on: /sf-task in the chat carries it on.', instruction: 'Name /sf-task, typed in this chat.' };
+  const answers = [];
+  const answer = (form) => Object.fromEntries(Object.entries(form.requestedSchema.properties).map(([name, field]) => [name,
+    name === 'confirm' ? RECORD : field.enum ? field.enum.find((word) => /^Keep the old behaviour/u.test(word)) ?? field.enum[0] : 'Keep it as it was.']));
+  const card = await runCard({ read: async () => list, show: async () => {}, ask: async (form) => ({ action: 'accept', content: answer(form) }),
+    record: async (_packet, document) => { answers.push(document); return { recorded: [{ item: item.id, kind: 'refactor-behaviour', record: 'the old behaviour kept' }],
+      decided: [{ item: item.id, words: 'Keep the old behaviour' }], continueTask }; },
+    witness: async () => assert.fail('nothing to sign'), inspect: async () => {} });
+  assert.equal(answers.length, 1, JSON.stringify(card));
+  assert.deepEqual(answers[0].choose, { [item.id]: 'keep-behaviour' });
+  assert.deepEqual([card.status, card.continueTask, card.instruction], ['recorded', continueTask, continueTask.instruction]);
 });
 
 test('ITW REQ-015: an existing test whose expectations a refactor changes is found from the diff against the base; a comment or an added test is not', async (t) => {

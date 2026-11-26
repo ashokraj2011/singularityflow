@@ -1297,6 +1297,19 @@
    ]
   },
   {
+   "id": "refactor-behaviour",
+   "list": "behaviourDecisions",
+   "action": "work.behaviour",
+   "label": "Refactor behaviour",
+   "isPerson": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  },
+  {
    "id": "visual-risk",
    "list": "visualRiskDecisions",
    "action": "decision.visual-risk",

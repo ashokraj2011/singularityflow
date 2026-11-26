@@ -212,6 +212,10 @@ export interface DecisionListOutcome {
   summaryUpdate?: string;
   /** The entries of `remaining` that are the step's approval: a review on its own page, never a decision still open. */
   approvalLeft?: string[];
+  /** A task's step goes on after what was recorded (a refactor's behaviour): the chat route that carries it on, `/sf-task`. */
+  continueTask?: string;
+  /** What a chat's agent does then, in the engine's words. */
+  continueTaskInstruction?: string;
 }
 
 export interface StoryNext { kind: string; title: string; command: string | null; copilotCommand: string | null; modelFreeCommand?: string }
@@ -616,10 +620,14 @@ export function decisionRecordOutcome(result: unknown, failure: { message: strin
     const recordLine = recorded.length || (!drafted.length && !unchanged.length) ? `Recorded ${recorded.length} record${recorded.length === 1 ? '' : 's'} from your choices.` : '';
     const draftLine = drafted.length ? `Drafted ${drafted.length === 1 ? 'the amendment' : `${drafted.length} amendments`}; a draft is not a record, and nothing is decided until it is proposed and approved.` : '';
     const sameLine = unchanged.length ? `Nothing changed for ${unchanged.join('; ')}.` : '';
+    // The engine says when a task's step goes on after these decisions, and by which chat route (decisions record --json).
+    const continueTask = object(data.continueTask)?.copilotCommand === '/sf-task' ? '/sf-task' : '';
+    const continueTaskInstruction = continueTask && typeof object(data.continueTask)?.instruction === 'string' ? String(object(data.continueTask)!.instruction) : '';
     return {
       outcome: { kind: 'recorded', message: `${[recordLine, draftLine, sameLine].filter(Boolean).join(' ')}${refused.length ? ` Not recorded (not yours to decide): ${refused.join('; ')}.` : ''}${summaryUpdate ? ` ${summaryUpdate}` : ''}`,
         recorded, remaining, decided: (Array.isArray(data.decided) ? data.decided : []).map((value) => object(value)?.words).filter((words): words is string => typeof words === 'string'),
-        ...(drafted.length ? { drafted } : {}), ...(summaryUpdate ? { summaryUpdate } : {}), ...(approvalLeft.length ? { approvalLeft } : {}) },
+        ...(drafted.length ? { drafted } : {}), ...(summaryUpdate ? { summaryUpdate } : {}), ...(approvalLeft.length ? { approvalLeft } : {}),
+        ...(continueTask ? { continueTask } : {}), ...(continueTaskInstruction ? { continueTaskInstruction } : {}) },
       packet: null
     };
   }

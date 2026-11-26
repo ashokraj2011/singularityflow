@@ -9,7 +9,7 @@ commands:
   - work
 related:
   - starting-work
-version: 20
+version: 21
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -135,7 +135,10 @@ keeping the old behaviour, as a refactor promises: keep it (the code step goes o
 what each changed test expected, keeping comments its author added) or accept the new one (the code goes back to the
 plan, the task becomes a change, and SFlow starts the plan's next version to say what changes; the code waits for it as
 it is). In a terminal it is
-`sflow work behaviour keep` or `sflow work behaviour accept`. Only you choose: Copilot never records it for you. A later
+`sflow work behaviour keep` or `sflow work behaviour accept`. Only you choose: Copilot never records it for you. With
+SF Guard on, either choice takes your Touch ID, as every other decision of yours does. Chosen on VS Code's Decide card,
+the task carries on in the chat you used last with nothing to type (VS Code sends `/sf-task`, as after an approval page);
+in Copilot CLI the chat names `/sf-task`. A later
 run that passes again does not lift the stop; your choice does. The test step compares its own run the same way. A test
 that already failed before is a finding the refactor does not approve. Once it is a change, its plan step is named as a
 change's plan ("Plan"), on every screen.

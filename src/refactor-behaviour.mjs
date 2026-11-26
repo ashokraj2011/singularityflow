@@ -17,6 +17,7 @@
  * person's choice lets it through. Loaded by the code step's test gate (state.mjs); the person's `work behaviour` is
  * refactor-behaviour-decide.mjs, kept apart so the gate (bundled into VS Code) never reaches the task-change code.
  */
+import { countedRecords } from './presence/counted.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const BEHAVIOUR_CHOICES = Object.freeze(['keep', 'accept']);
@@ -37,9 +38,12 @@ export function behaviourCommands(workId) {
   return { keep: `singularity-flow work behaviour keep --work-id ${workId}`, accept: `singularity-flow work behaviour accept --work-id ${workId}` };
 }
 
-/** The person's decisions recorded for version `generation` of `phase`, oldest first. Pure. */
+/**
+ * The person's decisions recorded for version `generation` of `phase`, oldest first: on a Story SF Guard requires, only
+ * those whose presence signature verifies, or that an exception covers (presence/counted.mjs). Pure.
+ */
 export function behaviourDecisionsOf(workflow, phase, generation) {
-  return (workflow?.behaviourDecisions ?? []).filter((entry) => entry?.phase === phase?.id && Number(entry.generation) === Number(generation));
+  return countedRecords(workflow, workflow?.behaviourDecisions).filter((entry) => entry?.phase === phase?.id && Number(entry.generation) === Number(generation));
 }
 
 /** Whether `phase` is a refactor's code step being written now. Pure. */

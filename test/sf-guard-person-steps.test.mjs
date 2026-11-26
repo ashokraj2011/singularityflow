@@ -21,6 +21,7 @@ import { riskDecisionState } from '../src/evidence/risk-decisions.mjs';
 import { evidenceReuseDecision } from '../src/evidence-reuse.mjs';
 import { forwardAmendmentDecision } from '../src/forward-amendments.mjs';
 import { planRowCorrections } from '../src/plan-row-corrections.mjs';
+import { behaviourDecisionsOf } from '../src/refactor-behaviour.mjs';
 import { currentCompletenessReview } from '../src/scope/decisions.mjs';
 import { saveWorkflow } from '../src/story-state-write.mjs';
 import { loadWorkflow } from '../src/story-workflow-read.mjs';
@@ -289,7 +290,9 @@ function familyRecords(suffix, actor) {
       reviewAssurance: 'live-terminal-risk-review', testsWaived: false, phaseApproved: false, reason: why, ...by },
     phaseAppealDecisions: { schemaVersion: 2, kind: 'phase-appeal-decision', appealId: `APL-${String(suffix).repeat(24)}`, packetSha256: `sha256:${'5'.repeat(64)}`,
       decision: 'request-changes', reason: why, reviewAssurance: 'live-terminal-exact-diff-review', authorizationId: `auth-${suffix}`, amendmentId: null,
-      testsWaived: false, phaseApproved: false, ...by }
+      testsWaived: false, phaseApproved: false, ...by },
+    // A refactor's behaviour kept for a version of its code step [ITW:REQ-015].
+    behaviourDecisions: { id: `BHV-00${suffix}`, phase: 'specification', generation: suffix, choice: 'keep', checks: [`'check ${suffix}'`], reason: why, ...by }
   };
 }
 
@@ -318,7 +321,9 @@ function readers(workflow, suffix) {
     decisionLog: countedRecords(workflow, workflow.decisionLog, (entry) => isPersonStepRecord('decisionLog', entry)).some((entry) => entry.decision === `route-${suffix}`),
     // The risk and appeal readers' statuses are covered in sf-guard-retained-reviews.test.mjs; here, the counting they use.
     qualityRiskDecisions: countedRecords(workflow, workflow.qualityRiskDecisions).some((entry) => entry.id === `PQR-${String(suffix).repeat(24)}`),
-    phaseAppealDecisions: countedRecords(workflow, workflow.phaseAppealDecisions).some((entry) => entry.appealId === `APL-${String(suffix).repeat(24)}`)
+    phaseAppealDecisions: countedRecords(workflow, workflow.phaseAppealDecisions).some((entry) => entry.appealId === `APL-${String(suffix).repeat(24)}`),
+    // The code step's gate reads a keep through this (versionBehaviourChange `kept`).
+    behaviourDecisions: behaviourDecisionsOf(workflow, { id: 'specification' }, suffix).some((entry) => entry.id === `BHV-00${suffix}` && entry.choice === 'keep')
   };
 }
 
@@ -358,6 +363,8 @@ test('SF Guard required: every other family is signed where the Story is written
   await saveWorkflow(root, definition, workflow);
   assert.equal(person.shown.length, 1, 'one card for everything the command recorded');
   assert.equal(person.shown[0].lines.length, families.length + 1, person.shown[0].lines.join('\n'));
+  // A refactor's behaviour choice says on the card what it decides.
+  assert.ok(person.shown[0].lines.some((line) => line.startsWith('Refactor behaviour BHV-001: keep the old behaviour of specification version 1')), person.shown[0].lines.join('\n'));
   const saved = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   for (const family of families) {
     assert.equal(saved[family.list].at(-1).presence?.batch?.length, families.length, `${family.list} carries the one signature`);
@@ -385,6 +392,18 @@ test('SF Guard required: every other family is signed where the Story is written
   setPersonStepPresenceDependencies(next);
   await saveWorkflow(root, definition, view);
   assert.equal(next.shown.length, 0, 'records already on disk are never signed');
+
+  // A refactor's behaviour choice (`work behaviour keep`, or the Decide card's item) started where no person is, an agent's
+  // shell: nothing is written, and the refusal names the person's own terminal with the exact command [ITW:REQ-015].
+  const unchanged = await readFile(path.join(item, 'workflow.json'), 'utf8');
+  const latest = await load();
+  latest.behaviourDecisions.push(familyRecords(3, ONE.email).behaviourDecisions);
+  setPersonStepPresenceDependencies({ ...signer(key, { personTerminal: () => ({ person: false, reason: 'an agent started this command' }) }),
+    argv: ['node', 'singularity-flow', 'work', 'behaviour', 'keep', '--work-id', 'PSS-4'] });
+  await assert.rejects(saveWorkflow(root, definition, latest), (error) => error.code === 'PSS_CARD_NOT_SHOWN'
+    && error.details.nextAction.command === 'singularity-flow work behaviour keep --work-id PSS-4' && error.details.nextAction.where === 'own-terminal');
+  assert.equal(await readFile(path.join(item, 'workflow.json'), 'utf8'), unchanged, 'nothing was written');
+  assert.equal(readers(await load(), 3).behaviourDecisions, false, 'an unsigned keep does not count');
 });
 
 test('intent amendment, skill version and revalidation decisions are person records every check reads', async () => {

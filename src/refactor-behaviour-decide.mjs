@@ -41,28 +41,36 @@ export async function decideBehaviour(root, choice, { workId = null, generation 
   // The step's approvers decide it, as they would return it.
   const authority = requireApprovalAuthority(workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities, phase.approvalPolicy, actor);
   const checks = found.undecided;
+  const by = actorKey(actor);
+  // The person's record of the choice, in the Story's `behaviourDecisions`: SF Guard signs it where the Story is written
+  // (presence/person-steps.mjs), so on a Story it requires nothing is written without the person's touch.
+  const decision = (aggregate, extra = {}) => {
+    aggregate.behaviourDecisions ??= [];
+    const entry = { id: `BHV-${String(aggregate.behaviourDecisions.length + 1).padStart(3, '0')}`, phase: phase.id, generation: found.generation, choice,
+      checks, ...(reason ? { reason: String(reason).slice(0, 1000) } : {}), ...extra, actor: by, authorityGroup: authority.authorityGroup ?? null, at: nowIso() };
+    aggregate.behaviourDecisions.push(entry);
+    return entry;
+  };
   if (choice === 'accept') {
-    const accepted = await (await import('./task-amendment.mjs')).acceptBehaviourAtCode(root, workflow.workItem.id, phase.id, { checks, actor });
+    const accepted = await (await import('./task-amendment.mjs')).acceptBehaviourAtCode(root, workflow.workItem.id, phase.id, { checks, actor, decision });
     ({ workflow } = await loadAcceptedStoryExecution(root, id));
-    return behaviourResult(workflow, { choice, checks, words: accepted.line, changeId: accepted.changeId, changeRequest: accepted.changeRequest });
+    return behaviourResult(workflow, { choice, checks, words: accepted.line, changeId: accepted.changeId, changeRequest: accepted.changeRequest,
+      ...(accepted.decision ? { decision: accepted.decision } : {}) });
   }
   const [{ LIFECYCLE_EVENT }, { transactStory }] = await Promise.all([import('./lifecycle-event.mjs'), import('./state-stores.mjs')]);
-  const by = actorKey(actor);
-  // Keeping the old behaviour puts back each existing test the version changed, as it was before the change: what it
-  // expects is the person's, and they kept it. The code is the author's to restore.
-  const restored = await restoreExistingTests(root, workflow, phase, found.tests);
   const { value: record } = await transactStory(root, config, workflow, {
     type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: phase.id, generation: found.generation, actor, agent: null,
     authorityGroup: authority.authorityGroup, payload: { decision: 'refactor-behaviour', choice }
   }, `[${id}][phase:${phase.id}][behaviour] keep the old behaviour`, async (aggregate) => {
-    aggregate.behaviourDecisions ??= [];
-    const entry = { id: `BHV-${String(aggregate.behaviourDecisions.length + 1).padStart(3, '0')}`, phase: phase.id, generation: found.generation, choice,
-      checks, ...(reason ? { reason: String(reason).slice(0, 1000) } : {}), actor: by, authorityGroup: authority.authorityGroup ?? null, at: nowIso() };
-    aggregate.behaviourDecisions.push(entry);
+    const entry = decision(aggregate);
     aggregate.history.push({ at: entry.at, actor: by, agent: null, event: 'refactor_behaviour_kept', phase: phase.id,
       detail: `${entry.id}: the old behaviour of ${named(checks)} is kept; ${stepName(phase)} version ${found.generation} restores it.` });
     return entry;
   }, { exactWorkItemPaths: [] });
+  // Once it is recorded (a refusal, SF Guard's among them, writes nothing and puts nothing back): each existing test the
+  // version changed comes back as it was before the change, since what it expects is the person's and they kept it. The
+  // code is the author's to restore.
+  const restored = await restoreExistingTests(root, workflow, phase, found.tests);
   ({ workflow } = await loadAcceptedStoryExecution(root, id));
   return behaviourResult(workflow, { choice, checks, decision: record.id, ...(restored.length ? { restored } : {}),
     words: `You kept the old behaviour: ${named(checks)} must pass as ${checks.length === 1 ? 'it did' : 'they did'} before the change.${restored.length

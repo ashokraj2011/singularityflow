@@ -709,7 +709,15 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
       if (ran.status !== 0) return refusalRoute(ran.result, command, 'person') ?? { result: ran.result, finding: { kind: 'person-refused', detail: `${short(command)} refused: ${ran.result?.error?.code ?? ran.stderr.slice(-300)}` }, turn: 'person' };
     }
     // What the person does next is what their own last command returned, or the route they were answering again.
-    return { result: ran.result, next: answer.then ?? nextFrom(ran.result, { turn: null }) ?? (answer.retry ? { ...route, source: 'retry' } : null), personPending: false, turn: 'person' };
+    let next = answer.then ?? nextFrom(ran.result, { turn: null }) ?? (answer.retry ? { ...route, source: 'retry' } : null);
+    // A decision on VS Code's Decide card after which the task's step goes on: VS Code sends /sf-task to the chat the person
+    // used last, as after a page approval (extension.ts continueTaskAfterDecision), so nothing is typed [ITW:REQ-008].
+    const carriedOn = answer.onCard ? ran.result?.data?.continueTask?.copilotCommand ?? null : null;
+    if (carriedOn && next) {
+      next = { ...next, sent: 'VS Code' };
+      entry.did = `${entry.did}; VS Code sends ${carriedOn} to the chat the person used last`;
+    }
+    return { result: ran.result, next, personPending: false, turn: 'person' };
   }
   // A Story value the step's submission records (`--decision <name>=<<name>>`, a marketplace agent's hard gate): in the
   // turn the route names, the agent asks the person, and runs the command with the journey's scripted answer.
@@ -746,8 +754,8 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
       guard.turn.prompt(route.typed ?? (route.source === 'start' ? route.copilot.trim() : skill));
       guard.skill = route.typed ?? skill;
       guard.hosts = route.typed ? { [skill]: route.typed } : {};
-      if (route.typed) entry.did = `the person types ${route.typed}; it does the step's own work in its turn, by ${skill}'s steps`;
-      if (!route.subagent && !['refresh entry', 'after answers'].includes(route.source)) entry.typed = true;
+      if (route.typed) entry.did = `${route.sent ? `${route.sent} sends` : 'the person types'} ${route.typed}; it does the step's own work in its turn, by ${skill}'s steps`;
+      if (!route.subagent && !route.sent && !['refresh entry', 'after answers'].includes(route.source)) entry.typed = true;
     }
   }
   if (!command) return { finding: { kind: 'no-route', detail: 'a route with neither a command nor a skill' } };

@@ -134,6 +134,19 @@ export function taskChatContinuation(workflow: unknown, workId: string, phaseId:
   return story.phases?.[phaseId]?.status === 'approved' ? TASK_ROUTE : null;
 }
 
+/**
+ * What the chat is sent once a person decided on the Decide card what a task's step waited on (a refactor's behaviour)
+ * [ITW:REQ-008, REQ-015]: `/sf-task`, in the chat the person used last, as after a page approval, when the record said the
+ * task goes on (`decisions record`'s `continueTask`) and the card was not a chat's own: that chat's turn reads the same answer.
+ * Null for any other Story or answer.
+ */
+export function taskDecisionContinuation(workflow: unknown, workId: string, result: { continueTask?: unknown } | null | undefined,
+  { askedInChat = false }: { askedInChat?: boolean } = {}): string | null {
+  const story = workflow as { workItem?: { id?: unknown }; status?: unknown } | null | undefined;
+  if (askedInChat || !story || !workId || story.workItem?.id !== workId || !isTaskStory(story) || story.status === 'closed') return null;
+  return result?.continueTask === TASK_ROUTE ? TASK_ROUTE : null;
+}
+
 // --- Copilot turns in flight ---------------------------------------------------------------------
 
 /**

@@ -729,8 +729,8 @@ export function initiativeApplicabilityState(portfolio, initiative) {
  * Starting over used to mean deleting the branch and starting a new Epic, which is a bigger
  * hammer than the job: it threw away the Jira identity and pinned sources. None of that is what
  * "start again" means. Restarting keeps the branch it is already on, keeps the identity and pinned
- * evidence, and touches nothing outside this Epic's own directory. Story-branch world models are
- * outside the Epic restart boundary.
+ * evidence, and touches nothing outside this Epic's own directory. Story branches are outside the
+ * Epic restart boundary.
  *
  * Two things it deliberately does not do. It does not erase history: the record of the first
  * attempt is the reason anyone can explain the second. And it does not reuse the old resolution —

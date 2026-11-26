@@ -206,8 +206,7 @@ export function validateInitiativeBreakdown(value, portfolio) {
 
 // Epic planning resolves repository ownership from the committed workspace registry and pinned
 // source evidence. The generated answer still needs deterministic checking: every repository
-// named must exist in the portfolio. Custom profiles may additionally name world-model views, and
-// those references must exist whenever a manifest is available.
+// named must exist in the portfolio.
 export function validateImpactMap(portfolio, repositoryMap) {
   const problems = [];
   const repositories = repositoryMap?.repositories ?? {};
@@ -218,8 +217,8 @@ export function validateImpactMap(portfolio, repositoryMap) {
   } else if (repositories !== undefined && Object.keys(repositories ?? {}).length) {
     problems.push('impact map repositories must be a mapping of repository ID to impact');
   }
-  // World-model view names an impact map may carry are no longer checked: that model was removed.
-  // The findings are guidance: warnings, never refusals.
+  // A map written before the registered World Model was removed may name views per repository;
+  // they are not read [WMR:REQ-003]. The findings are guidance: warnings, never refusals.
   return { errors: [], warnings: problems };
 }
 

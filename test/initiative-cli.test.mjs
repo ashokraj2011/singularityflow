@@ -498,7 +498,8 @@ test('restart returns an Epic to its first phase without touching its branch or 
   const restarted = execute(root, ['initiative', 'restart', 'INIT-AGAIN',
     '--reason', 'Wrong scope; starting over.', '--confirm', 'INIT-AGAIN']);
   assert.match(restarted.stdout, /INIT-AGAIN restarted at/);
-  assert.match(restarted.stdout, /Epic branch and sources kept, Story-branch world models unchanged/);
+  assert.match(restarted.stdout, /Epic branch and sources kept, Story branches unchanged/);
+  assert.doesNotMatch(restarted.stdout, /world model/i);
 
   const after = await read();
   assert.equal(after.currentPhase, firstPhase);

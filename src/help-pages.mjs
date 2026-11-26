@@ -543,7 +543,7 @@ const PAGES = Object.freeze({
       '',
       'What the team already has comes before any marketplace. When one of the team\'s own workflows covers',
       'the task, the plan offers it, to run exactly as it is; then an agent this repository has (in',
-      '.github/agents, or installed with APM) whose stages cover it, imported through its conversion review',
+      'its Copilot agents folder, or installed with APM) whose stages cover it, imported through its review',
       'first. Then one agent of a marketplace the repository trusts may be offered, with its conversion',
       'review to read first; a yes uses its steps, with the team\'s task rules still adding to them.'
     ],

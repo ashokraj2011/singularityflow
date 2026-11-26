@@ -24,10 +24,12 @@
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
+
 /** Where a repository's skills are, besides the library: Copilot's folder first, then the one APM installs into. */
 export const LOCAL_SKILL_ROOTS = Object.freeze(['.github/skills', '.agents/skills']);
 /** Where a repository's agents are, and where APM installs an agent. */
-export const LOCAL_AGENTS_ROOT = '.github/agents';
+export const LOCAL_AGENTS_ROOT = LEGACY_AGENTS_ROOT;
 /** Where APM keeps the packages it installed, each with its apm.yml; not committed. */
 export const APM_MODULES = 'apm_modules';
 const LIMITS = Object.freeze({ depth: 6, folders: 2000, skillBytes: 256 * 1024 });

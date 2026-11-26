@@ -62,8 +62,8 @@ export async function pinReopenedStep(root, workflow, phase, { amendment, revisi
   let closedChangeSet = null;
   if (intent?.status === 'open') {
     // Its start receipt is kept beside the draft: the next `phase begin` writes that generation's receipt again.
-    const recorded = intent.path ? storyLocation(root, workflow, workflow.workItem.id).fromRecord(intent.path) : null;
-    const receipt = recorded && existsSync(recorded) ? await keep(recorded, 'generation-start.json') : intent.path;
+    const receiptFile = intent.path ? storyLocation(root, workflow, workflow.workItem.id).fromRecord(intent.path) : null;
+    const receipt = receiptFile && existsSync(receiptFile) ? await keep(receiptFile, 'generation-start.json') : intent.path;
     // The code it holds, as the generation boundary sees it from the same baseline: what stays for this step.
     if (config && intent.baseline?.commit) {
       const held = await heldCode(root, config, workflow, phase, intent.baseline.commit);

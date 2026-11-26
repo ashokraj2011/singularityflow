@@ -19,6 +19,24 @@ async function customWorkflows(root) {
   return health ? { checkedAt: health.checkedAt, source: health.source, workflows: health.workflows.length, attention: health.attention } : null;
 }
 
+/**
+ * SFlow's text checks on the text installed here, once per text and checker (installed-text-safety.mjs, OMK:REQ-032): each
+ * text they refuse is a warning, never a stop. The approved configuration is what Stories use, so that is what is read.
+ */
+async function installedText(root) {
+  const [{ installedTextSafety, installedWhat }, { withApprovedConfigurationRead }] = await Promise.all([
+    import('../installed-text-safety.mjs'), import('../approved-configuration-reader.mjs')]);
+  const result = await withApprovedConfigurationRead(root, () => installedTextSafety(root), { preferAuthority: true }).catch(() => null);
+  return result ? { checkedAt: result.checkedAt, source: result.source, checker: result.checker, texts: result.texts.length,
+    blocked: result.blocked.map((entry) => ({ key: entry.key, kind: entry.kind, id: entry.id, ...(entry.agent ? { agent: entry.agent } : {}),
+      what: installedWhat(entry), words: entry.flag.words })) } : null;
+}
+
+/** The way on from an installed text the checks refuse: its source's newer text, or the skill and who uses it. */
+const refusedTextRoute = (entry) => (entry.kind === 'library-skill'
+  ? { command: `singularity-flow skill show ${entry.id}`, skill: '/sf-skill' }
+  : { command: 'singularity-flow imports check', skill: '/sf-import' });
+
 export async function run(_argv, { positionals, options }) {
   if (positionals.length !== 1 || Object.keys(options).some(key => !['json', 'for-agent', 'timings', 'timing', 'no-model'].includes(key))) {
     throw new SingularityFlowError('Use singularity-flow check [--for-agent] [--json]. This command refreshes local checks; it does not run tests or fetch.', {
@@ -35,7 +53,7 @@ export async function run(_argv, { positionals, options }) {
       return { schemaVersion: 1, resultType: 'sflow-repository-check', status: 'ready',
         repositoryPath: root, head: head(root), branch: branch(root), workId: null,
         repositoryChecks: { ...repositoryCheckSettings(root), source: 'fresh', checkedAt: new Date().toISOString(), ageMs: 0 },
-        customWorkflows: await customWorkflows(root),
+        customWorkflows: await customWorkflows(root), installedText: await installedText(root),
         effects: { testsRun: false, storyAdvanced: false, committed: false, pushed: false } };
     }
     if (entry.packet.paused) return entry.packet;
@@ -48,7 +66,7 @@ export async function run(_argv, { positionals, options }) {
       head: entry.packet.head, branch: entry.packet.branch,
       repositoryChecks: { ...repositoryCheckStatus(root), source: 'fresh',
         checkedAt: repositoryCheckStatus(root).checkedAt ?? new Date().toISOString() },
-      findings: recovery.blockers, references, customWorkflows: await customWorkflows(root),
+      findings: recovery.blockers, references, customWorkflows: await customWorkflows(root), installedText: await installedText(root),
       next: safeCommandGuidance({ argv: ['nextsteps', '--json'] }),
       effects: { testsRun: false, storyAdvanced: false, committed: false, pushed: false } };
   }));
@@ -64,6 +82,9 @@ export async function run(_argv, { positionals, options }) {
     ...(result.customWorkflows?.attention ?? []).map((entry) => action({ id: `custom-workflow.fix.${entry.id}`,
       label: `Fix workflow ${entry.label}: ${[entry.problems ? `${entry.problems} problem${entry.problems === 1 ? '' : 's'}` : null,
         entry.warnings ? `${entry.warnings} warning${entry.warnings === 1 ? '' : 's'}` : null].filter(Boolean).join(' and ')}`,
-      command: entry.fix.shell, skill: '/sf-fix-workflow', kind: 'informational' }))]
+      command: entry.fix.shell, skill: '/sf-fix-workflow', kind: 'informational' })),
+    // An installed text SFlow's text checks refuse: a warning with its way on; tasks do not offer it [OMK:REQ-032].
+    ...(result.installedText?.blocked ?? []).map((entry) => action({ id: `installed-text.${entry.key}`,
+      label: `Warning: SFlow's text checks refuse ${entry.what}; tasks do not offer it`, ...refusedTextRoute(entry), kind: 'informational' }))]
   }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
 }

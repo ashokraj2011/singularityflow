@@ -93,7 +93,8 @@ export async function taskPlan(definition, { kind, touchedPaths = [], pullReques
     composition,
     plan: planLine(composition, { approvals, pullRequest, skills: byStep, skillWords }),
     steps: composition.steps.map((step) => ({ id: step.id, intent: step.intent, label: step.label, approvedBy: approvals[step.id],
-      ...(byStep[step.id]?.length ? { skills: byStep[step.id].map((entry) => entry.id) } : {}) })),
+      // A skill SFlow's text checks refuse is named in the plan line, never given to the step [OMK:REQ-032].
+      ...(byStep[step.id]?.some((entry) => entry.status !== 'withheld') ? { skills: byStep[step.id].filter((entry) => entry.status !== 'withheld').map((entry) => entry.id) } : {}) })),
     walk: walk.outcome,
     ...(chosen ? { skills: chosen.skills, offers: chosen.offers } : {}),
     ...(found?.offer ? { agentOffer: found.offer } : {}),

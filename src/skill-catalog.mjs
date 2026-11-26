@@ -176,7 +176,7 @@ const count = (rows, keyOf) => {
  * a map of skill ID to `{ agents, workflows }`, and `stories` the task Stories `{ workId, kind, skills }` in this checkout.
  */
 export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces = [], definition = {}, kinds = [], uses = new Map(), stories = [], warnings = [],
-  unapproved = [] } = {}) {
+  unapproved = [], safety = new Map() } = {}) {
   const libraryIds = new Set(library.map((skill) => skill.id));
   const recordOf = (id) => {
     const source = imports[`library-skill:${id}`]?.source ?? null;
@@ -191,14 +191,17 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
   for (const skill of [...library].sort((left, right) => byText(left.id, right.id))) {
     const record = recordOf(skill.id);
     const trusted = record ? readSkills.get(record.marketplace)?.get(record.entry ?? skill.id) ?? null : null;
-    const candidate = librarySkillCandidate(skill, imports[`library-skill:${skill.id}`] ?? null, { stepIntent, trusted });
+    const flag = safety.get(`library-skill:${skill.id}`) ?? null;
+    // A skill SFlow's text checks refuse is never picked by a task [OMK:REQ-032].
+    const candidate = { ...librarySkillCandidate(skill, imports[`library-skill:${skill.id}`] ?? null, { stepIntent, trusted }), ...(flag?.state === 'blocked' ? { safety: 'blocked' } : {}) };
     // Its marketplace's record now; else what its import recorded, said so.
     const lifecycleRecord = trusted?.lifecycleRecord ? lifecycleSummary(trusted.lifecycleRecord)
       : record?.lifecycleState ? lifecycleSummary(itemLifecycle({ state: trusted ? trusted.lifecycleState : record.lifecycleState, guard: null }), { recorded: !trusted }) : null;
     entries.push({ candidate, key: `library:${skill.id}`, source: 'library', marketplace: record?.marketplace ?? null, version: record?.version ?? null,
       label: skill.label ?? skill.id, description: skill.description ?? '', tags: [...(skill.tags ?? []), ...(record?.tags ?? [])],
       owner: trusted?.owner ?? (record?.owner?.name ? { team: record.owner.team ?? null, name: record.owner.name, from: 'import',
-        words: `Owner: ${record.owner.name} (as recorded when it was imported)` } : null), lifecycleRecord, channel: record ? channels.get(record.marketplace) ?? null : null, findings: trusted?.findings ?? [] });
+        words: `Owner: ${record.owner.name} (as recorded when it was imported)` } : null), lifecycleRecord, channel: record ? channels.get(record.marketplace) ?? null : null, findings: trusted?.findings ?? [],
+      safety: flag });
   }
   for (const marketplace of [...marketplaces].sort((left, right) => byText(left.id, right.id))) {
     for (const entry of [...(marketplace.skills ?? [])].sort((left, right) => byText(left.name, right.name))) {
@@ -221,7 +224,7 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
       storyUses.get(skill.id).push({ workId: story.workId, kind: story.kind, steps: [...(skill.steps ?? [])] });
     }
   }
-  const rows = entries.map(({ candidate, key, source, marketplace, version, label, description, tags, owner, lifecycleRecord, channel, findings }) => {
+  const rows = entries.map(({ candidate, key, source, marketplace, version, label, description, tags, owner, lifecycleRecord, channel, findings, safety: flag = null }) => {
     const id = candidate.id;
     const record = recordOf(id);
     const inLibrary = source === 'library' || libraryIds.has(id);
@@ -243,6 +246,8 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
       // Its owner, its lifecycle with who and when, and the channel its marketplace is trusted on [OMK:REQ-015]; whether it
       // is deprecated in use here is OMK's later milestone, and null until then.
       owner: owner ?? null, lifecycleRecord: lifecycleRecord ?? null, channel: channel ?? null, deprecatedInUse: null, findings: [...(findings ?? [])],
+      // What SFlow's text checks found in the library's copy (installed-text-safety.mjs), null when nothing [OMK:REQ-032].
+      safety: flag,
       actions: {
         ...(source === 'library' ? { show: `singularity-flow skill show ${id}` } : {}),
         ...(reference && (!inLibrary || newerVersion) ? { preview: `singularity-flow import preview "${reference}" --as skill --json`, reference } : {}),
@@ -394,9 +399,11 @@ async function readApprovedSkillCatalog(root, { only, fetchImpl, working }) {
       marketplaces.push({ id: marketplace.id, label: marketplace.label ?? marketplace.id, kind, skills: [], warning: unreadable(marketplace, error) });
     }
   }
+  const { installedTextSafety, safetyFlagsByKey } = await import('./installed-text-safety.mjs');
   return analyzeSkillCatalog({ library: [...library.skills.values()], imports: ledger.imports ?? {}, marketplaces, definition, kinds,
     uses: usesFrom(model), stories: await taskStories(root, definition), warnings,
-    unapproved: unapproved.filter((entry) => only == null || entry.id === only) });
+    unapproved: unapproved.filter((entry) => only == null || entry.id === only),
+    safety: safetyFlagsByKey(await installedTextSafety(root).catch(() => null)) });
 }
 
 /** The catalog as a person reads it in a terminal. */
@@ -423,6 +430,7 @@ export function skillCatalogLines(catalog) {
     if (row.pickedBy.length) lines.push(`             Picked by: ${row.pickedBy.map((pick) => `${pick.kind} (${HOW_WORDS[pick.how]})`).join(', ')}`);
     const users = [...row.usedBy.agents.map((use) => use.label), ...row.usedBy.workflows.map((use) => `workflow ${use.id}`), ...row.usedBy.tasks.map((use) => use.workId)];
     if (users.length) lines.push(`             Used by: ${users.join(', ')}`);
+    if (row.safety) lines.push(`             ${row.safety.words}`);
   }
   if (summary.overlaps.length) {
     lines.push('Skills that look alike:');

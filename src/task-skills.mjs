@@ -25,6 +25,9 @@
  *   it is trusted at now (an index's as last read), not the one recorded at import [OMK:REQ-011]: one deprecated since is
  *   never offered once the pin moves. When that marketplace cannot be read, the recorded one is used, and a note says so.
  * - The plan line names each offered skill's owner and state [OMK:REQ-015].
+ * - A library skill whose text SFlow's text checks refuse (installed-text-safety.mjs) is never offered or used: the plan
+ *   line names it where it would have fitted, or where the team's own workflow attaches it [OMK:REQ-032]. It stays in the
+ *   library, and a running Story keeps its snapshot.
  * - At most two skills per step, ranked by what the task touches, then by ID: the same words and repository give the
  *   same skills.
  *
@@ -174,8 +177,12 @@ export function chooseTaskSkills(composition, { candidates = [], kinds = [], wor
   const picked = new Map();
   const byStep = {};
   for (const step of composition.steps) {
+    // A skill SFlow's text checks refuse is never offered; where it would have fitted, the plan line says so [OMK:REQ-032].
+    for (const candidate of candidates.filter((entry) => entry.safety === 'blocked' && !declined.has(entry.id) && entry.intents.includes(step.intent))) {
+      if (!(byStep[step.id] ??= []).some((entry) => entry.id === candidate.id)) byStep[step.id].push({ id: candidate.id, status: 'withheld', marketplace: null, state: null, owner: null });
+    }
     const fits = candidates
-      .filter((candidate) => !declined.has(candidate.id) && candidate.lifecycle !== 'retired' && candidate.intents.includes(step.intent))
+      .filter((candidate) => !declined.has(candidate.id) && candidate.lifecycle !== 'retired' && candidate.safety !== 'blocked' && candidate.intents.includes(step.intent))
       // One ID, one skill: the library's copy, else the repository's own, else a marketplace's [ITW:REQ-020].
       .filter((candidate) => candidate.source === 'library' || (!libraryIds.has(candidate.id) && (candidate.source === 'local' || !localIds.has(candidate.id))))
       .map((candidate) => {
@@ -206,6 +213,10 @@ export function chooseTaskSkills(composition, { candidates = [], kinds = [], wor
   if (named.length) {
     const id = named[0];
     const there = candidates.find((candidate) => candidate.id === id);
+    if (there?.safety === 'blocked') {
+      throw refusal('TASK_SKILL_TEXT_REFUSED', `SFlow's text checks refuse ${id}'s text, so no task uses it. It stays in the library until a person updates or removes it.`,
+        { command: `singularity-flow skill show ${id}`, label: `Show ${id} and who uses it.` }, { skill: id });
+    }
     if (!there) {
       throw refusal('TASK_SKILL_UNKNOWN', `There is no skill '${id}' in this repository's skill library, its own skills or its trusted marketplaces.`,
         { command: 'singularity-flow skill list', label: 'See the skills in this repository\'s library.' }, { skill: id });
@@ -229,12 +240,16 @@ export function chooseTaskSkills(composition, { candidates = [], kinds = [], wor
   };
 }
 
-/** A skill as the plan line names it: used, needing a yes, or new here [ITW:REQ-012], with its owner [OMK:REQ-015]. */
+/**
+ * A skill as the plan line names it: used, needing a yes, or new here [ITW:REQ-012], with its owner [OMK:REQ-015]; or
+ * withheld, as SFlow's text checks refuse its text [OMK:REQ-032].
+ */
 export function planSkillWords(entries = []) {
   const used = entries.filter((entry) => entry.status === 'used').map((entry) => entry.id);
   const parts = [];
   if (used.length) parts.push(`with ${used.length > 1 ? `${used.slice(0, -1).join(', ')} and ${used.at(-1)}` : used[0]}`);
-  for (const entry of entries.filter((item) => item.status !== 'used')) {
+  for (const entry of entries.filter((item) => item.status === 'withheld')) parts.push(`not ${entry.id}: SFlow's text checks refuse its text`);
+  for (const entry of entries.filter((item) => !['used', 'withheld'].includes(item.status))) {
     const owner = entry.owner ? ` (${entry.owner})` : '';
     parts.push(entry.status === 'new'
       ? `with ${entry.id} from ${entry.marketplace}${owner}, ${entry.state ? `${entry.state} and ` : ''}new here: add it?`
@@ -471,6 +486,34 @@ export async function trustedMarketplaceAgents(root, marketplace) {
   return { agents, skills, channels: own.channels, marketplaceOwner: own.owner };
 }
 
+/** The library skills whose text SFlow's text checks refuse (installed-text-safety.mjs), by ID; none when it cannot be read. */
+async function refusedLibrarySkills(root) {
+  const { installedTextSafety } = await import('./installed-text-safety.mjs');
+  const result = await installedTextSafety(root).catch(() => null);
+  return new Set((result?.blocked ?? []).filter((entry) => entry.kind === 'library-skill').map((entry) => entry.id));
+}
+
+/**
+ * The steps of the team's own workflow `composition.uses` with each library skill it attaches (skill-attachments, by the
+ * workflow or by the agent that drafts the step) that SFlow's text checks refuse: `{ [step]: [{ id, status: 'withheld' }] }`.
+ */
+async function attachedWithheld(root, definition, composition) {
+  const refused = await refusedLibrarySkills(root);
+  if (!refused.size) return {};
+  const [{ configurationReadRoot }, { readSkillAttachments }] = await Promise.all([import('./configuration-read-scope.mjs'), import('./skill-library.mjs')]);
+  const attachments = await readSkillAttachments(configurationReadRoot(root)).catch(() => []);
+  const byStep = {};
+  for (const step of composition.steps) {
+    const agent = definition?.phases?.[step.id]?.agent ?? null;
+    for (const entry of attachments) {
+      const target = entry.workflow ? entry.workflow === composition.uses : Boolean(agent) && entry.agent === agent;
+      if (!target || !refused.has(entry.id) || (entry.phases.length && !entry.phases.includes(step.id))) continue;
+      if (!(byStep[step.id] ??= []).some((item) => item.id === entry.id)) byStep[step.id].push({ id: entry.id, status: 'withheld', marketplace: null, state: null, owner: null });
+    }
+  }
+  return byStep;
+}
+
 /**
  * The chooser `taskPlan` calls with the composed steps: it reads the repository's library and import record, its own
  * skills beside the library (task-local.mjs), the kinds of software the task touches, and, for a step neither has
@@ -481,11 +524,15 @@ export async function trustedMarketplaceAgents(root, marketplace) {
 export function taskSkillChooser(root, definition, { words = '', touchedPaths = [], use = [], without = [], fetchImpl = globalThis.fetch } = {}) {
   return async (composition) => {
     const notes = [];
-    if (composition.agent || composition.local) return { skills: [], offers: [], byStep: {}, notes };
+    if (composition.agent) return { skills: [], offers: [], byStep: {}, notes };
+    // The team's own workflow runs as it is [ITW:REQ-020]; the plan line only names a skill it attaches that SFlow's text
+    // checks refuse [OMK:REQ-032].
+    if (composition.local) return { skills: [], offers: [], byStep: await attachedWithheld(root, definition, composition), notes };
     const [{ configurationReadRoot }, { loadSkillLibrary }, { loadImportsLedger }] = await Promise.all([
       import('./configuration-read-scope.mjs'), import('./skill-library.mjs'), import('./imports-ledger.mjs')]);
     const configRoot = configurationReadRoot(root);
     const library = await loadSkillLibrary(configRoot).catch(() => ({ skills: new Map() }));
+    const refused = await refusedLibrarySkills(root);
     const ledger = await loadImportsLedger(configRoot).catch(() => ({ imports: {} }));
     const stepIntent = definitionStepIntent(definition);
     const marketplaces = Object.values(definition.marketplaces ?? {}).filter((entry) => (entry?.repository && entry.commit) || entry?.index)
@@ -511,7 +558,8 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
       }
     }
     const candidates = [...library.skills.values()].map((skill) => librarySkillCandidate(skill, imported(skill), { stepIntent,
-      trusted: trustedNow.get(fromMarketplace(skill))?.get(imported(skill)?.source?.entry ?? skill.id) ?? null }));
+      trusted: trustedNow.get(fromMarketplace(skill))?.get(imported(skill)?.source?.entry ?? skill.id) ?? null }))
+      .map((candidate) => (refused.has(candidate.id) ? { ...candidate, safety: 'blocked' } : candidate));
     // The repository's own skills come after the library and before any marketplace [ITW:REQ-020].
     const here = await (await import('./task-local.mjs')).localSkills(root, { libraryIds: new Set(library.skills.keys()) });
     candidates.push(...here.skills.map((entry) => localSkillCandidate(entry.skill, entry)));
@@ -519,7 +567,7 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
     if (!candidates.some((candidate) => candidate.intents.length) && !marketplaces.length && !use.length) return { skills: [], offers: [], byStep: {}, notes };
     const kinds = await taskSoftwareKinds(root, touchedPaths);
     const fromLibrary = chooseTaskSkills(composition, { candidates, kinds, words, use: use.filter((id) => candidates.some((entry) => entry.id === id)), without });
-    const bare = composition.steps.filter((step) => !fromLibrary.byStep[step.id]?.length);
+    const bare = composition.steps.filter((step) => !fromLibrary.byStep[step.id]?.some((entry) => entry.status !== 'withheld'));
     const namedElsewhere = use.some((id) => !candidates.some((entry) => entry.id === id));
     if ((bare.length || namedElsewhere) && marketplaces.length) {
       const approved = await approvedOnce();
@@ -544,6 +592,7 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
         { command: `singularity-flow import preview "market:${offered.marketplace}/${named}" --as skill --json`, label: `Show ${named}'s text; if the person says yes, run its addCommand.` },
         { skill: named, marketplace: offered.marketplace });
     }
-    return { ...chooseTaskSkills(composition, { candidates, kinds, words, use, without }), kinds, notes };
+    const chosen = chooseTaskSkills(composition, { candidates, kinds, words, use, without });
+    return { ...chosen, ...(composition.uses ? { byStep: await attachedWithheld(root, definition, composition) } : {}), kinds, notes };
   };
 }

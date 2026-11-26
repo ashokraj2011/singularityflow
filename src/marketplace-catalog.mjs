@@ -147,8 +147,9 @@ function textUpdate(installedVersion, version, label) {
 /**
  * One row. Beside today's fields it carries what OMK reads [OMK:REQ-015]: the item's `owner` (with where it came from),
  * its `lifecycleRecord` (lifecycleSummary: state, who, when, its change, the guard), the `channel` its marketplace is
- * trusted on, and the marketplace-owned `findings` on them. `deprecatedInUse`, `safety` and `use` are filled by OMK's
- * later milestones and are null until then.
+ * trusted on, and the marketplace-owned `findings` on them. `safety` is what SFlow's text checks found in the copy
+ * installed here (installed-text-safety.mjs safetyFlag, OMK §7), null when nothing; `deprecatedInUse` and `use` are filled
+ * by OMK's later milestones and are null until then.
  */
 function row({ key, kind, id, name = id, description = '', source, marketplace = null, labels, marketplaceKind = null, version = null, installedVersion = null,
   facts = null, tags = [], status, statusWords, update = null, newer = null, installedAs = null, fromAgent = null, conflict = null, importable = true, actions = {},
@@ -215,7 +216,7 @@ function cameFromWords(record, { trusted, listed, labels }) {
  * (`newer`), with the reviewed change that trusts that commit (`actions.trust`).
  */
 export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imports = {}, workflows = {}, steps = {}, unapproved = [], warnings = [],
-  only = null, kind = null, search = null, newest = false } = {}) {
+  only = null, kind = null, search = null, newest = false, safety = new Map() } = {}) {
   const markets = [...marketplaces].sort((left, right) => byText(left.id, right.id));
   const labels = new Map([...unapproved.map((entry) => [entry.id, entry.label ?? entry.id]), ...markets.map((market) => [market.id, market.label ?? market.id])]);
   const trusted = new Set(markets.map((market) => market.id));
@@ -521,6 +522,13 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       actions: { approve: action('singularity-flow configuration proposals', 'See whether the change that trusts it waits for approval.') } }));
   }
 
+  // What SFlow's text checks found in an installed copy (installed-text-safety.mjs): a badge on its row [OMK:REQ-032].
+  for (const item of rows) {
+    const installed = item.installedAs;
+    const key = installed?.as === 'library-skill' ? `library-skill:${installed.id}` : installed?.importKey ?? null;
+    if (key && safety.has(key)) item.safety = safety.get(key);
+  }
+
   const words = String(search ?? '').toLowerCase().split(/\s+/u).filter(Boolean);
   const shown = rows
     .filter((item) => only == null || item.marketplace === only)
@@ -676,8 +684,9 @@ async function readApprovedCatalog(root, { only, kind, search, newest, fetchImpl
   if (marketplaces.some((market) => (market.items ?? []).some((item) => item.kind === 'generated'))) {
     await markReadOnlySteps(configRoot, definition, steps, agents).catch(() => null);
   }
+  const { installedTextSafety, safetyFlagsByKey } = await import('./installed-text-safety.mjs');
   return analyzeMarketplaceCatalog({ marketplaces, library: [...library.skills.values()], imports: ledger.imports ?? {}, workflows, steps, unapproved, warnings,
-    only, kind, search, newest });
+    only, kind, search, newest, safety: safetyFlagsByKey(await installedTextSafety(root).catch(() => null)) });
 }
 
 /**
@@ -742,6 +751,7 @@ export function marketplaceCatalogLines(catalog) {
       for (const finding of (item.findings ?? []).slice(0, 3)) lines.push(`      For the marketplace: ${finding.words}`);
       if ((item.findings ?? []).length > 3) lines.push(`      For the marketplace: ${item.findings.length - 3} more, in --json under findings.`);
       if (item.newer) lines.push(`      Newer: ${item.newer.words}`);
+      if (item.safety) lines.push(`      ${item.safety.words}`);
       // A generated source has no text to preview: its next step is the reviewed proposal that adds it.
       const next = item.status === 'update-available' ? item.actions.preview ?? null : item.status === 'not-installed' ? item.actions.preview ?? item.actions.install ?? null
         : item.status === 'not-approved-yet' ? item.actions.approve : null;

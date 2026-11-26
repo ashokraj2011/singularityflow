@@ -127,7 +127,10 @@ const FAMILIES = Object.freeze([
     // has an agent; unclaimed, a plan in a repository with one loaded compatibility and models.
     'task-local.mjs', 'agent-folder.mjs', 'agent-workflow.mjs',
     // A refactor's behaviour choice, `work behaviour` [ITW:REQ-015], and a done task's checks for its last message.
-    'refactor-behaviour-decide.mjs', 'task-checks.mjs']],
+    'refactor-behaviour-decide.mjs', 'task-checks.mjs',
+    // SFlow's text checks on the text installed here, which the skill chooser, both catalogs and `check` read (OMK §7).
+    // Imported only dynamically; unclaimed, each of those reads loaded compatibility and models.
+    'installed-text-safety.mjs', 'import-safety.mjs']],
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs',
     // `skill catalog`, VS Code's All skills page: a broad read over the library, the trusted marketplaces and the task
     // chooser (intake, which this slot already imports). Unclaimed, each read loaded compatibility and models.

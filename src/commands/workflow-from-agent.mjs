@@ -19,12 +19,16 @@
  *   review shows only what changed since that import; a stage whose own words changed is asked again. With --propose
  *   its import is reviewed like any other. A workflow imported before its source was recorded is compared with the
  *   marketplace's pinned commit, and making it records its source.
+ * - SFlow's text checks (import-safety.mjs, OMK §7) read agent.md and every skill it brings: a row under Checks. A block
+ *   keeps the workflow from being made (IMPORT_SAFETY_BLOCKED) and goes into the feedback for the marketplace; a line to
+ *   look at needs the person's yes, `--looked <check IDs>`, which its record keeps, so an update asks again only for the
+ *   lines that changed.
  */
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { commandLineFile, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const OPTIONS = new Set(['answer', 'out', 'propose', 'json', 'review', 'feedback', 'update']);
+const OPTIONS = new Set(['answer', 'out', 'propose', 'json', 'review', 'feedback', 'update', 'looked']);
 const TARGET = /^([a-z0-9]+(?:-[a-z0-9]+)*)\/([a-z0-9][a-z0-9._-]{0,99})$/u;
 
 function usage(message, details = undefined) {
@@ -44,10 +48,10 @@ function parseAnswers(values) {
 const quoted = (value) => (/^[\w./:@%+=-]+$/u.test(value) ? value : `'${String(value).replaceAll("'", "'\\''")}'`);
 const command = (argv) => argv.map(quoted).join(' ');
 
-/** The person's whole command again, with `answers` and the same output choice. */
-function again(target, answers, { out = null, propose = false } = {}) {
+/** The person's whole command again, with `answers`, the look checks they looked at, and the same output choice. */
+function again(target, answers, { out = null, propose = false, looked = [], update = false } = {}) {
   return command(['singularity-flow', 'workflow', 'from-agent', target, ...Object.entries(answers).flatMap(([step, intent]) => ['--answer', `${step}=${intent}`]),
-    ...(out ? ['--out', out] : []), ...(propose ? ['--propose'] : [])]);
+    ...(update ? ['--update'] : []), ...(looked.length ? ['--looked', looked.join(',')] : []), ...(out ? ['--out', out] : []), ...(propose ? ['--propose'] : [])]);
 }
 
 /** Each choice of the first open stage as a whole command. */
@@ -166,7 +170,18 @@ async function updateOf(root, marketplace, agentName, newest, given, withApprove
       askedAgain: dropped.filter((step) => step in (record?.source.answers ?? {})), nothingChanged: nothing
     };
   };
-  return { answers, summary };
+  return { answers, summary, record };
+}
+
+/**
+ * SFlow's text checks on what the workflow brings into prompts [OMK:REQ-032]: agent.md and each skill's SKILL.md, by
+ * name, against the lines its earlier record looked at (`previous`) and the checks the person names (`looked`).
+ */
+async function textSafety({ agent, skills, marketplace, looked, previous }) {
+  const { addressHost, checkImportTexts, safetyGate } = await import('../import-safety.mjs');
+  const result = checkImportTexts([{ name: 'agent.md', text: agent.text }, ...skills.map((entry) => ({ name: `${entry.name}/SKILL.md`, text: entry.text ?? '' }))],
+    { ownHosts: [addressHost(marketplace?.repository)] });
+  return { result, gate: safetyGate(result, { looked, previous }) };
 }
 
 /** Problems reading the agent's source, each a finding the marketplace (or the folder's owner) fixes. */
@@ -206,12 +221,13 @@ export async function run(argv, { positionals, options }) {
   const json = optionBoolean(options, 'json');
   let answers = parseAnswers(optionStrings(options, 'answer'));
   const update = optionBoolean(options, 'update');
+  const looked = (await import('../import-safety.mjs')).parseLookedChecks(optionString(options, 'looked') ?? []);
   if (update && folder) throw usage('--update reads a marketplace agent at its newest commit: name it as MARKETPLACE/AGENT.');
   const [{ repoRoot }, { withApprovedConfigurationRead }, { configuredMarketplaces, requireMarketplace }, { readMarketplaceAgent }, { convertAgent }] = await Promise.all([
     import('../git.mjs'), import('../approved-configuration-reader.mjs'), import('../marketplace.mjs'), import('../marketplace-repository.mjs'), import('../agent-workflow.mjs')
   ]);
   const root = repoRoot();
-  let conversion; let agent; let skills; let updated = null;
+  let conversion; let agent; let skills; let updated = null; let trusted = null;
   if (folder) {
     const read = await readAgentFolder(target);
     ({ agent, skills } = read);
@@ -223,6 +239,7 @@ export async function run(argv, { positionals, options }) {
     throw usage(`Marketplace '${marketplace.id}' is an index of files. An agent becomes a workflow from a marketplace that is a Git repository: add that one with marketplace add --repo.`,
       { nextAction: 'singularity-flow marketplace list' });
   }
+  trusted = marketplace;
   const read = await readMarketplaceAgent(update ? { ...marketplace, commit: null } : marketplace, match[2]);
   ({ agent, skills } = read);
   if (update) {
@@ -239,6 +256,7 @@ export async function run(argv, { positionals, options }) {
   const own = [agent.name, ...skills.map((entry) => entry.name)];
   sourceProblems(conversion, (read.listing.problems ?? []).filter((problem) => own.some((name) => String(problem).startsWith(`${name}:`) || String(problem).startsWith(`${name} `))));
   }
+  conversion.safety = await textSafety({ agent, skills, marketplace: trusted, looked, previous: updated?.record?.source?.safety ?? null });
   const { conversionReview, conversionReviewMarkdown, feedbackDocument } = await import('../conversion-review.mjs');
   // The review as data and as the Markdown a Copilot turn shows as written (MCR §9).
   const withMarkdown = (value) => ({ ...value, markdown: conversionReviewMarkdown(value, { forPerson: true }) });
@@ -262,7 +280,7 @@ export async function run(argv, { positionals, options }) {
     if (issue) console.log(`Open an issue with it${issue.bodyInUrl ? ', filled in' : ' (paste the file into it)'}; you submit it: ${issue.url}`);
     return;
   }
-  const output = { out, propose };
+  const output = { out, propose, looked, update };
 
   if (!conversion.ready) {
     const routes = questionRoutes(conversion, target, answers, output);
@@ -279,7 +297,7 @@ export async function run(argv, { positionals, options }) {
 
   const { compileAgentWorkflow } = await import('../agent-workflow-bundle.mjs');
   const compiled = await compileAgentWorkflow(conversion, { agentText: agent.text, skillTexts: new Map(skills.map((entry) => [entry.name, entry.text])),
-    provenance: { agent, skills, answers } });
+    provenance: { agent, skills, answers, safety: conversion.safety.gate.record } });
   const { writeWorkflowBundle, readWorkflowBundle } = await import('../workflow-transfer.mjs');
   const result = { ...conversion, bundleSha256: compiled.bundle.bundleSha256, workflowYaml: compiled.workflowYaml, derived: compiled.resolved, walk: compiled.walk };
   result.review = (() => { const value = conversionReview(result); const document = feedbackDocument(value); return withMarkdown(document ? { ...value, feedbackDocument: document } : value); })();
@@ -291,10 +309,27 @@ export async function run(argv, { positionals, options }) {
       + `${compiled.walk.stops.map((stop) => `- ${stop.title}\n  Fix: ${stop.fix.text}`).join('\n')}\nThe preview shows each stop with its steps and the --answer choices that change them.`, {
       code: 'AGENT_WORKFLOW_WALK_STOPPED', details: { stops: compiled.walk.stops, nextAction: { label: 'Preview the workflow and its stops', command: preview } } });
   }
+  // SFlow's text checks: a block is never made; a line nobody looked at yet waits for the person's yes [OMK:REQ-031].
+  const { gate } = conversion.safety;
+  const feedbackCommand = command(['singularity-flow', 'workflow', 'from-agent', target, ...(update ? ['--update'] : []), '--feedback',
+    result.review.feedbackDocument?.name ?? 'conversion-feedback.md']);
+  if ((out || propose) && gate.blocked.length) {
+    const { safetyBlocked } = await import('../import-safety.mjs');
+    throw safetyBlocked({ checker: conversion.safety.result.checker, blocks: gate.blocked }, { label: `the workflow from ${conversion.source.agent}`,
+      nextAction: { command: feedbackCommand, label: "Write the feedback for the marketplace's maintainers." } });
+  }
+  if ((out || propose) && gate.unlooked.length) {
+    const { safetyLookNeeded } = await import('../import-safety.mjs');
+    throw safetyLookNeeded(gate, { label: `The workflow from ${conversion.source.agent}`, command: again(target, answers, { ...output, looked: [...new Set([...looked, ...gate.checks])].sort() }) });
+  }
   if (!out && !propose) {
     const suggested = `${conversion.workflow.id}.workflow.json`;
-    const next = [{ label: 'Write it as a workflow bundle', command: again(target, answers, { out: suggested }) },
-      { label: 'Show its import as a configuration proposal', command: again(target, answers, { propose: true }) }];
+    // The person looks at the lines the review shows; running one of these is their yes.
+    const seen = { looked: [...new Set([...looked, ...gate.checks])].sort(), update };
+    const next = gate.blocked.length
+      ? [{ label: "Write the feedback for the marketplace's maintainers", command: feedbackCommand }]
+      : [{ label: 'Write it as a workflow bundle', command: again(target, answers, { ...seen, out: suggested }) },
+        { label: 'Show its import as a configuration proposal', command: again(target, answers, { ...seen, propose: true }) }];
     if (json) return console.log(JSON.stringify({ ...result, next }, null, 2));
     if (review) {
       process.stdout.write(conversionReviewMarkdown(result.review));

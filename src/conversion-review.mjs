@@ -14,6 +14,7 @@
  *
  * Import is ready only when nothing needs an answer and every check passes. Pure: it reads only the conversion.
  */
+import { findingLine, SAFETY_NAME, safetyFeedbackFindings } from './import-safety.mjs';
 import { itemLifecycle, lifecycleSummary } from './marketplace-lifecycle.mjs';
 
 const STAGE_WORDS = Object.freeze({
@@ -26,6 +27,30 @@ function lifecycleOf(source) {
   if (source.lifecycleRecord) return source.lifecycleRecord.history ? lifecycleSummary(source.lifecycleRecord) : source.lifecycleRecord;
   // Read without the marketplace's CODEOWNERS (an agent folder, or a conversion made from its files): its guard is not known.
   return source.lifecycleState ? lifecycleSummary(itemLifecycle({ state: source.lifecycleState, owner: source.owner ?? null, guard: null })) : null;
+}
+
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+
+/**
+ * The Checks row of SFlow's text checks on agent.md and every skill it brings [OMK:REQ-032]: `safety` is the conversion's
+ * `{ result, gate }` (import-safety.mjs checkImportTexts and safetyGate). A block, or a line to look at that the person
+ * has not looked at yet (`--looked`), keeps the review from being ready; `looks` are the check IDs that yes names.
+ */
+function textChecksRow(safety, textCount) {
+  const { result, gate } = safety;
+  const links = [...new Set(result.notes.map((entry) => entry.words.replace(/^[^:]*: /u, '')))];
+  const linkWords = links.length ? ` It links to other sites: ${links.join(', ')}.` : '';
+  if (gate.blocked.length) {
+    return { id: 'text-checks', ok: false, looks: [], lines: gate.blocked.map(findingLine),
+      words: `${SAFETY_NAME} refuse ${plural(gate.blocked.length, 'line')}, so no workflow is made from this version. Tell the marketplace's maintainers (feedback below).` };
+  }
+  if (gate.unlooked.length) {
+    return { id: 'text-checks', ok: false, looks: gate.checks, lines: gate.unlooked.map(findingLine),
+      words: `${SAFETY_NAME} ask you to look at ${plural(gate.unlooked.length, 'line')} before the workflow is made.${linkWords}` };
+  }
+  return { id: 'text-checks', ok: true, looks: [], lines: [],
+    words: result.looks.length ? `You looked at the ${plural(result.looks.length, 'line')} ${SAFETY_NAME} asked about.${linkWords}`
+      : `${SAFETY_NAME} found nothing in ${textCount === 1 ? 'agent.md' : `agent.md and its ${plural(textCount - 1, 'skill')}`}.${linkWords}` };
 }
 
 /** The review of `result`, a `workflow from-agent` conversion (with `derived` and `walk` once it compiled). */
@@ -63,7 +88,8 @@ export function conversionReview(result) {
     ...(result.walk ? [{ id: 'walk', ok: stops.length === 0,
       words: stops.length ? `A Story of it would ${stops.some((stop) => stop.class === 'loop') ? 'loop' : 'stop'}: ${stops.map((stop) => stop.title).join('; ')}.`
         : `Walked with no Story: ${result.walk.paths} path${result.walk.paths === 1 ? '' : 's'} and ${result.walk.routes} route${result.walk.routes === 1 ? '' : 's'}, no loop and no stop.`,
-      fixes: stops.map((stop) => ({ title: stop.title, detail: stop.detail ?? null, fix: stop.fix?.text ?? null })) }] : [])
+      fixes: stops.map((stop) => ({ title: stop.title, detail: stop.detail ?? null, fix: stop.fix?.text ?? null })) }] : []),
+    ...(result.safety ? [textChecksRow(result.safety, result.safety.result.texts?.length ?? 1)] : [])
   ];
   const ready = Boolean(result.ready) && checks.every((check) => check.ok);
 
@@ -82,7 +108,8 @@ export function conversionReview(result) {
     changes: findings.filter((finding) => finding.owner === 'sflow'),
     open: (result.open ?? []).map((entry) => ({ step: entry.step, stage: entry.stage, question: entry.question, why: entry.why ?? null, choices: entry.choices ?? [] })),
     checks,
-    feedback: findings.filter((finding) => finding.owner !== 'sflow'),
+    // What SFlow's text checks refuse belongs to the marketplace too, so its feedback carries it [OMK:REQ-031].
+    feedback: [...findings.filter((finding) => finding.owner !== 'sflow'), ...(result.safety ? safetyFeedbackFindings({ blocks: result.safety.gate.blocked }) : [])],
     ...(result.update ? { update: result.update } : {}),
     ready
   };
@@ -176,7 +203,8 @@ export function conversionReviewMarkdown(review, { forPerson = false } = {}) {
     '', '## Needs your answer', '',
     ...(review.open.length ? review.open.flatMap((entry) => [bullet(`${entry.question} (stage ${entry.stage})`), ...entry.choices.map((choice) => `  - ${choice.label}`)]) : ['Nothing.']),
     '', '## Checks', '',
-    ...review.checks.flatMap((check) => [bullet(`${check.ok ? 'Passed' : 'Not yet'}: ${check.words}`), ...(check.fixes ?? []).map((fix) => `  - ${fix.title}.${fix.detail ? ` ${fix.detail}` : ''} Fix: ${fix.fix ?? '—'}`)]),
+    ...review.checks.flatMap((check) => [bullet(`${check.ok ? 'Passed' : 'Not yet'}: ${check.words}`), ...(check.fixes ?? []).map((fix) => `  - ${fix.title}.${fix.detail ? ` ${fix.detail}` : ''} Fix: ${fix.fix ?? '—'}`),
+      ...(check.lines ?? []).map((line) => `  - ${line}`)]),
     '', ...(review.update ? updateLines(review.update, { forPerson }) : []),
     '## Feedback for the marketplace', '',
     ...(review.feedback.length ? review.feedback.map((entry) => bullet(`${entry.words}${entry.fix ? ` Fix: ${entry.fix}` : ''}`)) : ['Nothing to report.']),

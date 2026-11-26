@@ -5,6 +5,7 @@
  * - the agent and its version;
  * - the SHA-256 of agent.md, of the agent's apm.yml and of each skill it attached;
  * - the person's answers (by step ID);
+ * - the lines a person looked at for SFlow's text checks, when there were any (OMK §7);
  * - the SFlow version that converted it.
  *
  * `imports check` compares it with the marketplace's newest commit (§8), and `workflow from-agent --update` converts again
@@ -34,7 +35,7 @@ export function sourcePieces(agent, skills = []) {
  * The record for a ready conversion of a marketplace agent, or null for one from a folder. `targetPath` is the agent
  * file the workflow carries and `agentText` its bytes as written, so `imports status` can tell when it was edited here.
  */
-export function agentProvenance(conversion, { agent, skills = [], answers = {}, convertedBy, targetPath, agentText }) {
+export function agentProvenance(conversion, { agent, skills = [], answers = {}, convertedBy, targetPath, agentText, safety = null }) {
   const { source } = conversion;
   if (!source?.marketplace) return null;
   const pieces = sourcePieces(agent, skills);
@@ -45,7 +46,10 @@ export function agentProvenance(conversion, { agent, skills = [], answers = {}, 
       agent: source.agent, version: source.version ?? null,
       // Its owning team, as the marketplace named it then: an optional field an older build ignores [OMK:REQ-006].
       ...(source.owner?.team || source.owner?.name ? { owner: { team: source.owner.team ?? null, name: source.owner.name ?? null } } : {}),
-      answers: Object.fromEntries(Object.entries(answers ?? {}).sort(([left], [right]) => left.localeCompare(right)))
+      answers: Object.fromEntries(Object.entries(answers ?? {}).sort(([left], [right]) => left.localeCompare(right))),
+      // The lines of agent.md and its skills a person looked at for SFlow's text checks, so an update asks again only for
+      // lines that changed: optional, and ignored by an older build [OMK:REQ-006, REQ-031].
+      ...(safety?.looked?.length ? { safety } : {})
     },
     workflow: conversion.workflow.id,
     pieces,

@@ -383,7 +383,8 @@ test('marketplace add --repo, browse at the pinned commit, and workflow from-age
     assert.deepEqual(shown.walk.stops, []);
     assert.ok(shown.walk.paths >= 1 && shown.walk.routes >= 4, JSON.stringify(shown.walk));
     // The conversion review (MCR §4): in every JSON answer, and as text with --review; the walk is one of its checks.
-    assert.deepEqual(shown.review.checks.map((check) => [check.id, check.ok]), [['stages', true], ['answers', true], ['walk', true]]);
+    // SFlow's text checks read agent.md and every skill it brings: the sample marketplace gives them nothing (OMK §7, probe P7).
+    assert.deepEqual(shown.review.checks.map((check) => [check.id, check.ok]), [['stages', true], ['answers', true], ['walk', true], ['text-checks', true]]);
     assert.equal(shown.review.ready, true);
     assert.equal(shown.review.source.commit, shown.source.commit);
     // The review as Markdown for a Copilot turn to show as written: versions, never a commit (MCR §9).

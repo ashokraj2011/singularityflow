@@ -93,6 +93,9 @@ const OVERRIDES = {
   'ask/conversation-store.mjs': 'local-authored',
   'ask/shared-conversations.mjs': 'local-authored',
   'ask/read.mjs': 'source-control',
+  // A person's keep or accept of a refactor's behaviour change [ITW:REQ-015]: recorded on the Story (behaviourDecisions),
+  // and on a keep the existing tests the version edited are put back in the Story's checkout as the base had them.
+  'refactor-behaviour-decide.mjs': 'shared-state',
   // The receipt of a task handed over from Ask SFlow, kept in the clone's Git folder so a retry keeps its Work ID.
   'task-admission.mjs': 'local-authored',
   // Moves SFlow's agents inside a refresh candidate of the approved configuration [SPEC-AGH].

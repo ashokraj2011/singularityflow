@@ -445,19 +445,47 @@ export async function moveConfigurationIntoState(root, id, snapshot) {
  * At a command's start, in a checkout that has a state checkout [REQ-006]: when the checkout is on a Story branch whose
  * records are on a local state ref, the state checkout is made right for that Story (repaired, made again, or moved
  * to its ref when clean), and the Story's layout and pinned configuration are remembered for the command. A checkout
- * on any other branch reads its own configuration, as today. Never refuses: a command that needs the records says so.
+ * on any other branch reads its own configuration, as today. It never refuses unless `required`: a command that needs
+ * the records says so itself.
  */
-export async function adoptStateCheckout(root) {
+export async function adoptStateCheckout(root, { required = false } = {}) {
   const current = git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
   const id = current.status === 0 ? String(current.stdout).trim() : '';
-  if (!id || !refTip(root, storyStateRef(id)) && !refTip(root, storyStateRef(id, { ledger: { pinTransport: 'branches' } }))) return null;
-  const definition = refTip(root, storyStateRef(id)) ? null : { ledger: { pinTransport: 'branches' } };
+  const branches = { ledger: { pinTransport: 'branches' } };
+  const definition = id && refTip(root, storyStateRef(id)) ? null : id && refTip(root, storyStateRef(id, branches)) ? branches : undefined;
+  if (definition === undefined) return null;
   try {
     const checkout = await ensureStateCheckout(root, id, { definition });
     const pinned = statePinnedConfiguration(root);
     if (pinned) rememberPinnedConfigurationRoot(root, pinned);
     return { id, ...checkout, configurationRoot: pinned };
-  } catch { return null; }
+  } catch (error) {
+    if (required) throw error;
+    return null;
+  }
+}
+
+/**
+ * Resume a state-ref Story [REQ-007]: with `fetch`, its state ref is fetched from `remote` into its tracking ref and the
+ * local ref brought up to it when nothing local is lost. The Story is then read from its local state ref: null when
+ * this clone has no records for it (a Story on today's layout, or none at all).
+ */
+export async function resumeStoryState(root, id, { remote = 'origin', fetch = false, definition = null } = {}) {
+  const reference = String(id ?? '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(reference)) return null;
+  const fetched = fetch ? await fetchStoryState(root, reference, { remote, definition }) : null;
+  const ref = storyStateRef(reference, definition);
+  const tip = refTip(root, ref);
+  if (!tip) return null;
+  const shown = git(root, ['show', `${tip}:workflow.json`]);
+  if (shown.status !== 0) return null;
+  let workflow;
+  try { workflow = JSON.parse(shown.stdout); } catch { return null; }
+  if (workflow?.workItem?.id !== reference) return null;
+  rememberStoryLayout(root, reference, 'state-ref');
+  const canonicalBranch = String(workflow.lineage?.canonicalBranch ?? workflow.workItem.branch ?? reference);
+  return { ref, commit: tip, fetched, subject: { kind: 'story', id: reference, canonicalBranch, branches: [canonicalBranch],
+    aliases: [reference], state: workflow, source: 'state-ref', location: { source: 'state-ref', ref, commit: tip } } };
 }
 
 /** The state commit that finished a state-ref Story's start (it holds workflow.json), or null [SSB M2]. */

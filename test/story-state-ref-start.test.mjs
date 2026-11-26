@@ -130,6 +130,44 @@ test('with approved configuration on sflow/config, the pinned copy is a record t
   assert.equal(existsSync(location.configurationSource.absolute), true);
 });
 
+test('a second laptop resumes a state-ref Story with --fetch: its records come with their own refspec [REQ-007]', async (t) => {
+  const root = await repository(t);
+  const started = await startStory(root, { id: 'SSB-5', workType: 'feature', baseBranch: 'main',
+    source: manualStorySource('SSB-5', { title: 'Opened on a second laptop' }) });
+  // Publication of the state ref with the branch is M3; here both are pushed by hand.
+  run('git', ['push', 'origin', 'SSB-5', `${started.storage.ref}:${started.storage.ref}`], root);
+  const second = `${root}-second`;
+  t.after(() => rm(second, { recursive: true, force: true }));
+  run('git', ['clone', '-q', `${root}.git`, second], path.dirname(root));
+  run('git', ['config', 'user.name', 'Second Laptop'], second);
+  run('git', ['config', 'user.email', 'second-laptop@example.com'], second);
+  assert.equal(spawnSync('git', ['rev-parse', '--verify', '--quiet', started.storage.ref], { cwd: second }).status, 1);
+  const resumed = JSON.parse(run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'resume', 'SSB-5', '--fetch', '--json'], second));
+  assert.equal(resumed.subject?.id ?? resumed.workId ?? 'SSB-5', 'SSB-5');
+  assert.equal(run('git', ['branch', '--show-current'], second), 'SSB-5');
+  assert.equal(run('git', ['rev-parse', 'refs/singularity/remotes/origin/state/SSB-5'], second), started.storage.commit);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], path.join(second, '.sflow-state')), started.storage.commit);
+  assert.equal(JSON.parse(await readFile(path.join(second, '.sflow-state/workflow.json'), 'utf8')).workItem.id, 'SSB-5');
+  assert.equal(run('git', ['status', '--porcelain', '--untracked-files=all'], second), '');
+});
+
+test('a deleted state checkout is made again from the ref at the next command [REQ-006]', async (t) => {
+  const root = await repository(t);
+  const started = await startStory(root, { id: 'SSB-6', workType: 'feature', baseBranch: 'main',
+    source: manualStorySource('SSB-6', { title: 'Rebuilt at the next command' }) });
+  await rm(path.join(root, '.sflow-state'), { recursive: true, force: true });
+  // The next command that reads the Story finds no records in the checkout and makes them again from the ref.
+  run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'status', '--json'], root);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], path.join(root, '.sflow-state')), started.storage.commit);
+  await rm(path.join(root, '.sflow-state'), { recursive: true, force: true });
+  run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'resume', 'SSB-6', '--json'], root);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], path.join(root, '.sflow-state')), started.storage.commit);
+  // Overwritten records are a changed checkout, never silently replaced.
+  await writeFile(path.join(root, '.sflow-state/STATUS.md'), 'edited by hand\n');
+  run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'status', '--json'], root);
+  assert.equal(await readFile(path.join(root, '.sflow-state/STATUS.md'), 'utf8'), 'edited by hand\n');
+});
+
 test('the setting is checked: an unknown layout or key is refused when the configuration loads', async (t) => {
   const root = await repository(t, { storage: null });
   const definitionPath = path.join(root, 'singularity/workflow.yml');

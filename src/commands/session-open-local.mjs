@@ -12,7 +12,7 @@ import { resolveSessionRepository } from './shared/session-repository-selection.
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { storyActiveElsewhere } from '../story-active-elsewhere.mjs';
-import { storyLocation } from '../story-paths.mjs';
+import { STATE_CHECKOUT, storyLocation } from '../story-paths.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -32,6 +32,12 @@ async function synchronizeLocalStory(checkout, workId) {
   if (!storyBranch || !hasRemote(checkout, remote)) return { status: 'no-remote', remote: null };
   try {
     await fetchRemote(checkout, remote, { respectPartialClone: true, branches: [storyBranch] });
+    // A Story kept on its state ref brings its records along, into a tracking ref of their own [SSB:REQ-007].
+    if (existsSync(path.join(checkout, STATE_CHECKOUT))) {
+      const stateRef = await import('../story-state-ref.mjs');
+      await stateRef.resumeStoryState(checkout, storyBranch, { remote, fetch: true });
+      await stateRef.adoptStateCheckout(checkout);
+    }
   } catch (error) {
     return { status: 'unavailable', remote, code: error.code ?? null,
       reason: `The remote could not be reached, so ${workId} was opened as it is and may be behind ${remote}/${storyBranch}: ${error.message}` };

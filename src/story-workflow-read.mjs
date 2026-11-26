@@ -41,6 +41,12 @@ async function readWorkflow(root, config, id, includeExecution) {
     const session = await (await import('./session.mjs')).loadSession(root, { required: false });
     if (session?.workId) selected = resolveContext(index, { reference: session.workId, kind: 'story', required: false });
   }
+  // A state-ref Story whose state checkout is missing or on another Story: made again from its ref, then read there
+  // [SSB:REQ-006]. Only on this not-found path, so a Story found as today pays nothing.
+  if (!selected && (await (await import('./story-state-ref.mjs')).adoptStateCheckout(root))) {
+    await (await import('./repository-subject-index.mjs')).scanStateCheckout(index, root);
+    selected = resolveContext(index, { reference: id ?? branch(root), kind: 'story', required: false });
+  }
   if (!selected) {
     const requested = id ?? branch(root);
     // A state file that exists but will not parse is the likeliest reason a Story "does not exist",

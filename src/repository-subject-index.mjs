@@ -179,7 +179,7 @@ async function scanDirectory(index, root, base, suffix, parser, family) {
  * A state-ref Story's records, in the checkout's state checkout [SSB:REQ-006, M2]. Its folder name is fixed, so no
  * definition is needed to find it; finding it remembers the Story's layout for this process.
  */
-async function scanStateCheckout(index, root) {
+export async function scanStateCheckout(index, root) {
   const relative = `${STATE_CHECKOUT}/workflow.json`;
   const absolute = path.join(root, STATE_CHECKOUT, 'workflow.json');
   if (!(await exists(absolute))) return;

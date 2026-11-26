@@ -784,19 +784,27 @@ export async function startStory(root, {
       fastForwardTo(root, `${remote}/${id}`);
     }
     let resumedWorkflow;
+    let resumedDefinition = definition;
     try {
       resumedWorkflow = await loadWorkflow(root, definition, id);
     } catch (error) {
-      throw new SingularityFlowError(
+      // A Story kept on its state ref has no records on its branch: fetch its state ref and read them from its state
+      // checkout [SSB:REQ-007]. Asked only when the branch holds no Story, so today's layout pays nothing.
+      const stateRef = await import('./story-state-ref.mjs');
+      const state = await stateRef.resumeStoryState(root, id, { remote, fetch: remoteExisted }).catch(() => null);
+      if (state) await stateRef.adoptStateCheckout(root, { required: true });
+      if (state) resumedDefinition = await loadDefinition(root);
+      try { if (state) resumedWorkflow = await loadWorkflow(root, resumedDefinition, id); } catch { /* refused below */ }
+      if (!resumedWorkflow) throw new SingularityFlowError(
         `Branch '${id}' already exists but is not a Singularity Story work item. Choose another Work ID or attach the branch explicitly. ${error.message}`
       );
     }
     const resumedAgent = agent || resumedWorkflow.phases?.[resumedWorkflow.currentPhase]?.defaultAgent;
     if (resumedWorkflow.status === 'cancelled') throw (await import('./lifecycle-transitions.mjs')).cancelledStoryRefusal(resumedWorkflow);
-    if (!definition.agents?.[resumedAgent]) {
+    if (!resumedDefinition.agents?.[resumedAgent]) {
       throw new SingularityFlowError(`Story phase '${resumedWorkflow.currentPhase}' has no valid agent.`);
     }
-    await setAgentSession(root, definition, actor, resumedAgent, id, {
+    await setAgentSession(root, resumedDefinition, actor, resumedAgent, id, {
       phaseId: resumedWorkflow.currentPhase,
       source: agent ? 'explicit-override' : 'phase-default'
     });

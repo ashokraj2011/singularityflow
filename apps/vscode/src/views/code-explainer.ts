@@ -1049,11 +1049,11 @@ export class CodeExplainerPanel {
 
 /** The deepest folder every file is in ('' when they share none): the area `wm knowledge calls --area` builds [WMR:REQ-010]. */
 function sharedFolder(files: string[]): string {
-  const folders = files.map((file) => file.split('/').slice(0, -1));
+  const [first = [], ...others] = files.map((file) => file.split('/').slice(0, -1));
   const shared: string[] = [];
-  for (let index = 0; folders.length && index < folders[0].length; index += 1) {
-    if (folders.some((parts) => parts[index] !== folders[0][index])) break;
-    shared.push(folders[0][index]);
+  for (const [index, part] of first.entries()) {
+    if (others.some((folder) => folder[index] !== part)) break;
+    shared.push(part);
   }
   return shared.join('/');
 }

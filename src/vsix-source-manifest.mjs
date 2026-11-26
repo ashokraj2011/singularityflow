@@ -32,6 +32,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'runtime/updater/files.mjs', 'runtime/install.mjs', 'runtime/resolve.cjs',
   'runtime/bootstrap.sh', 'runtime/bootstrap.ps1', 'runtime/node-runtime.lock',
   'scripts/install-staged-artifacts.mjs',
+  'src/install-source-build.mjs',
   'src/gal-async-read.mjs',
   'src/step-actions.mjs',
   'src/step-action-delivery.mjs',

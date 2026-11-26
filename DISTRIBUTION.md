@@ -389,6 +389,26 @@ The smoke validates the staged CLI and public Home/Start/Return commands, instal
 temporary profile, checks the installed version, and drives the built extension through its fresh
 repository Home fixture. The temporary profile is deleted afterward.
 
+## Build the package pair from an extracted source folder
+
+`install.sh` can build the matching CLI and VS Code packages from a complete source copy outside a
+Git checkout. Run this command with Node.js and npm available.
+
+```bash
+bash ./install.sh --build-only
+```
+
+The build writes `singularity-flow-<version>.tgz` and `singularity-flow-vscode-<version>.vsix` to
+`dist/` beside the installer. Both archives must contain the same SFlow build before they are
+published. Build dependencies are installed into an isolated copy. Product installation is a
+separate step.
+
+Use `--registry URL` to choose the npm registry or `--skip-tests` to skip the packaging safety
+tests. The VS Code typecheck and package checks still run. Use `--out-dir DIRECTORY` for another
+destination, such as when `dist/` holds a signed release or other files. Rebuilding replaces a
+previous package pair only after the new pair is ready. Use the signed distribution build for
+release packaging and promotion.
+
 ## Build a developer VSIX
 
 ```bash

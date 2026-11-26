@@ -21,6 +21,8 @@ function locations(destination) {
   };
 }
 
+export { locations as releaseDirectoryLocations };
+
 async function metadata(file) {
   return lstat(file).catch(() => null);
 }

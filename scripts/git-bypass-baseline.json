@@ -389,9 +389,9 @@
     },
     "install.sh": {
       "counts": {
-        "shell-process": 43
+        "shell-process": 44
       },
-      "digest": "f4c36c38be4eee5086f0123de2e66378ce346a804614592652f88a10d4cc5192"
+      "digest": "d27c35025445db38d5e08c8be66d9ba1ba1fd06ef1e01774a4fb5301fae0bfcd"
     },
     "plugin/extensions/decisions/extension.mjs": {
       "counts": {
@@ -1771,9 +1771,9 @@
     },
     "package.json": {
       "counts": {
-        "package-script": 67
+        "package-script": 68
       },
-      "digest": "88f081d8e72e367ea0166da4c5c73a9e9a6acaa55dfe37e2661cd3efba0a010e"
+      "digest": "6ce2853bd519379cc0e66a1d463145e4f96a1a266a935ab7604ea2e3c3e24f48"
     },
     "apps/vscode/package.json": {
       "counts": {

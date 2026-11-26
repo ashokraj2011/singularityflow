@@ -12,6 +12,18 @@ import {
 } from './configuration-assets.mjs';
 
 const scopes = new AsyncLocalStorage();
+/**
+ * A state-ref Story's checkout reads its pinned configuration from its state checkout (`.sflow-state/configuration`),
+ * since its code branch carries none [SSB M2, the M1 plan's §3]. Story start and command entry remember it for the
+ * checkout; a request scope above still wins.
+ */
+const pinnedStateRoots = new Map();
+
+/** Remember (or, with null, forget) where a checkout's pinned configuration is read from. */
+export function rememberPinnedConfigurationRoot(root, configurationRoot) {
+  if (configurationRoot == null) pinnedStateRoots.delete(path.resolve(root));
+  else pinnedStateRoots.set(path.resolve(root), path.resolve(configurationRoot));
+}
 
 /** Suspend caller overlays while an authority owner obtains a new verified capture. */
 export function withoutConfigurationReadScope(fn) {
@@ -51,9 +63,9 @@ export function isConfigurationReadCopy(root) {
 
 export function configurationReadRoot(root) {
   const scope = scopes.getStore();
-  return scope && path.resolve(root) === scope.applicationRoot
-    ? scope.configurationRoot
-    : path.resolve(root);
+  const resolved = path.resolve(root);
+  if (scope && resolved === scope.applicationRoot) return scope.configurationRoot;
+  return pinnedStateRoots.size ? pinnedStateRoots.get(resolved) ?? resolved : resolved;
 }
 
 export function configurationReadRootForPath(root, relative) {

@@ -490,7 +490,7 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
     const failure = discardUnstartedStoryState(root, record.stateRef);
     if (failure) {
       await updateStoryStartJournal(root, id, record.transactionId, { stage: 'recovery-diverged', recoveryErrors: [failure] });
-      throw new SingularityFlowError(`Story '${id}' start recovery stopped safely: ${failure}. The journal was retained.`,
+      throw new SingularityFlowError(`Story '${id}' start recovery stopped safely: ${failure}. Its record was kept.`,
         { code: 'STORY_START_RECOVERY_DIVERGED', details: { failures: [failure] } });
     }
   }

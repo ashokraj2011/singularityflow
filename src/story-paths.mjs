@@ -54,7 +54,7 @@ const layoutKey = (root, id) => `${root}\0${id}`;
 /** Remember a Story's layout in a checkout; null forgets it. */
 export function rememberStoryLayout(root, id, layout) {
   if (layout === null) { knownLayouts.delete(layoutKey(path.resolve(root), id)); return; }
-  if (!STORY_LAYOUTS.includes(layout)) throw new SingularityFlowError(`'${layout}' is not a Story storage layout.`, { code: 'STORY_LAYOUT_UNKNOWN' });
+  if (!STORY_LAYOUTS.includes(layout)) throw new SingularityFlowError(`'${layout}' is not a Story storage layout.`, { code: 'STORY_LAYOUT_UNKNOWN', details: { nextAction: UPDATE } });
   knownLayouts.set(layoutKey(path.resolve(root), id), layout);
 }
 

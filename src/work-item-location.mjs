@@ -12,12 +12,15 @@ export { DEFAULT_WORK_ITEM_ROOT };
  * the Story's own state ref, checked out at `.sflow-state/`. A Story keeps the layout it started with.
  */
 export function normalizeStoryPolicy(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('story must be a mapping, such as story: { storage: story-branch }.');
+  const route = { nextAction: { command: 'singularity-flow workflow validate', label: 'Set story.storage to story-branch or state-ref.' } };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new SingularityFlowError('story must be a mapping, such as story: { storage: story-branch }.', { code: 'STORY_STORAGE_SETTING_INVALID', details: route });
+  }
   for (const key of Object.keys(value)) {
-    if (key !== 'storage') throw new SingularityFlowError(`story.${key} is not a setting. Use story.storage (${STORY_LAYOUTS.join(' or ')}).`);
+    if (key !== 'storage') throw new SingularityFlowError(`story.${key} is not a setting. Use story.storage (${STORY_LAYOUTS.join(' or ')}).`, { code: 'STORY_STORAGE_SETTING_INVALID', details: route });
   }
   const storage = value.storage ?? 'story-branch';
-  if (!STORY_LAYOUTS.includes(storage)) throw new SingularityFlowError(`story.storage must be ${STORY_LAYOUTS.join(' or ')}.`);
+  if (!STORY_LAYOUTS.includes(storage)) throw new SingularityFlowError(`story.storage must be ${STORY_LAYOUTS.join(' or ')}.`, { code: 'STORY_STORAGE_SETTING_INVALID', details: route });
   return { storage };
 }
 

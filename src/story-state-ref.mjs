@@ -47,7 +47,8 @@ function gitOut(cwd, args, label, options) {
   const result = git(cwd, args, options);
   if (result.status !== 0) {
     throw new SingularityFlowError(`${label} failed: ${String(result.stderr || result.stdout || '').trim() || `git exited ${result.status}`}. Nothing else was changed.`, {
-      code: 'STORY_STATE_GIT_FAILED', details: { args, status: result.status }
+      code: 'STORY_STATE_GIT_FAILED', details: { args, status: result.status,
+        nextAction: { owner: 'person', command: `git -C ${JSON.stringify(cwd)} status`, label: 'See what Git says there, then run the command again' } }
     });
   }
   return String(result.stdout ?? '').trim();
@@ -82,7 +83,10 @@ export async function excludeStateCheckout(root) {
   const info = await lstat(file).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
   if (info && (info.isSymbolicLink() || !info.isFile())) {
     throw new SingularityFlowError(`${file} is not a regular file, so SFlow cannot keep ${STATE_CHECKOUT}/ out of Git. Nothing was changed.`, {
-      code: 'STORY_STATE_EXCLUDE_UNSAFE', details: { file }
+      code: 'STORY_STATE_EXCLUDE_UNSAFE', details: { file, nextAction: { owner: 'person',
+        // A copy keeps its lines; it then replaces the link, so the file is a regular file with the same lines.
+        command: `cp ${JSON.stringify(file)} ${JSON.stringify(`${file}.copy`)} && rm ${JSON.stringify(file)} && mv ${JSON.stringify(`${file}.copy`)} ${JSON.stringify(file)}`,
+        label: 'Make it a regular file with the same lines, then run the command again' } }
     });
   }
   const text = info ? await readFile(file, 'utf8') : '';
@@ -158,7 +162,7 @@ function healthyCheckout(root, folder) {
 function setAsideUnfinished(root) {
   const folder = stateCheckoutPath(root);
   return { owner: 'person', command: `git -C ${JSON.stringify(folder)} stash push --include-untracked -m "unfinished SFlow records"`,
-    label: 'Set the unfinished records aside (Git keeps them in the stash), then run the same command again' };
+    label: 'Set the unfinished records aside, then run the command again' };
 }
 
 /** Uncommitted changes in the state checkout, as porcelain lines; [] when it is clean or absent. */
@@ -240,7 +244,8 @@ export function commitStoryState(root, id, message, { definition = null, expecte
   const lease = expected === undefined ? parent : expected;
   if (tip !== lease || parent !== lease) {
     throw new SingularityFlowError(`${ref} moved while SFlow was writing Story '${id}' records (expected ${String(lease).slice(0, 12)}, found ${String(tip).slice(0, 12)}). Nothing was committed.`, {
-      code: 'STORY_STATE_REF_MOVED', details: { ref, expected: lease, found: tip, head: parent }
+      code: 'STORY_STATE_REF_MOVED', details: { ref, expected: lease, found: tip, head: parent,
+        nextAction: { executable: 'singularity-flow', argv: ['resume', id], label: 'Open the Story again from its records' } }
     });
   }
   gitOut(folder, ['add', '--all', '--', '.'], 'Staging the Story\'s records');
@@ -250,7 +255,7 @@ export function commitStoryState(root, id, message, { definition = null, expecte
   const moved = git(root, ['update-ref', '-m', message, ref, commit, parent]);
   if (moved.status !== 0) {
     throw new SingularityFlowError(`${ref} moved while SFlow was writing Story '${id}' records. Nothing was committed; the records stay in ${STATE_CHECKOUT}/.`, {
-      code: 'STORY_STATE_REF_MOVED', details: { ref, expected: parent, found: refTip(root, ref) }
+      code: 'STORY_STATE_REF_MOVED', details: { ref, expected: parent, found: refTip(root, ref), nextAction: setAsideUnfinished(root) }
     });
   }
   gitOut(folder, ['update-ref', '--no-deref', '-m', message, 'HEAD', commit, parent], 'Moving the state checkout');
@@ -394,7 +399,6 @@ export function storyStateAuthority(root, id, { definition = null } = {}) {
     descriptor: Object.freeze({ id: 'story-state-ref', qualification: 'local-only', ref }),
     async publish(transition) {
       const { event, commit: commitSpec, state = null, beforeCommit = null, afterOwnedWrites = null, fault = null } = transition;
-      if (!commitSpec?.message) throw new SingularityFlowError('A state commit needs a message.');
       await ensureStateCheckout(root, id, { definition });
       const expected = refTip(root, ref);
       const { capturePublicationPreimage } = await import('./publication-recovery.mjs');
@@ -409,7 +413,7 @@ export function storyStateAuthority(root, id, { definition = null } = {}) {
         if (state?.validate) await state.validate(envelope);
         if (beforeCommit) await beforeCommit(envelope);
         if (afterOwnedWrites) await afterOwnedWrites(envelope, { ledgerIntentPath: null });
-        const committed = commitStoryState(root, id, commitSpec.message, { definition, expected });
+        const committed = commitStoryState(root, id, commitSpec?.message ?? `[${id}][state] records`, { definition, expected });
         return { sha: committed.commit, pushed: false, replayed: false, event: envelope, ledger: null,
           state: { ref, commit: committed.commit, parent: expected, committed: committed.committed, published: false } };
       } catch (error) {
@@ -565,7 +569,7 @@ export function assertNoStateCheckoutGitlink(root) {
   const command = `git rm -r --cached --quiet -- ${STATE_CHECKOUT}`;
   throw new SingularityFlowError(`The code step's changes include ${STATE_CHECKOUT}, SFlow's records for this Story. They never go in the code branch. Nothing was changed.`, {
     code: 'CODE_DELIVERY_STATE_CHECKOUT_STAGED', details: { path: STATE_CHECKOUT,
-      owner: 'person', nextAction: { command, label: `Take ${STATE_CHECKOUT} out of the code (its records stay on the Story's state ref), then run the same command again` } }
+      owner: 'person', nextAction: { command, label: `Take ${STATE_CHECKOUT} out of the code, then run the command again` } }
   });
 }
 

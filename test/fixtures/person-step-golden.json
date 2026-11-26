@@ -1755,6 +1755,7 @@
   "decision-made:phase-appeal": "stales-submission",
   "decision-made:evidence-contract-correction": "stales-submission",
   "decision-made:target-origin": "stales-submission",
+  "decision-made:refactor-behaviour": "stales-submission",
   "decision-made:settled": {
    "effect": "review-safe",
    "lists": {

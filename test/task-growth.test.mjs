@@ -248,9 +248,12 @@ test('journey ITW REQ-014, A15: a fix whose code adds a migration becomes a chan
   assert.equal(record.status, 'closed', formatTrail(walk.trail));
   assert.equal(record.phases.implementation.generation, 2, 'the code step was kept, with its next version after the plan');
   // What the person did: the words, the intake's one question, and three approvals (the plan in the intake, the plan, the
-  // code). Nothing else: no yes for the change itself, none for the code's next version.
-  assert.equal(walk.trail.filter((entry) => entry.turn === 'person').length, 3, formatTrail(walk.trail));
-  assert.equal(walk.trail.filter((entry) => /the person answered/u.test(entry.did ?? '')).length, 1, formatTrail(walk.trail));
+  // code), each a Yes in the chat while SFlow carries the /sf-task turn on [owner 2026-11-26]. Nothing else: no yes for the
+  // change itself, none for the code's next version, and no step at the card or the terminal.
+  const yes = walk.trail.filter((entry) => /the person answered Yes to "Approve /u.test(entry.did ?? ''));
+  assert.deepEqual(yes.map((entry) => entry.did.match(/"Approve ([^"]+)\?"/u)[1]), ['Intake v1', 'Plan v1', 'Code v2'], formatTrail(walk.trail));
+  assert.equal(walk.trail.filter((entry) => /the person answered/u.test(entry.did ?? '')).length, 4, formatTrail(walk.trail));
+  assert.equal(walk.trail.filter((entry) => entry.turn === 'person').length, 0, formatTrail(walk.trail));
   assert.equal(walk.reached, true, formatTrail(walk.trail));
   assert.deepEqual(walk.findings, [], JSON.stringify(walk.findings));
 });

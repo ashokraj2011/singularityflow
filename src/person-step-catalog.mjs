@@ -242,7 +242,8 @@ export const PERSON_STEPS = Object.freeze([
   // Keeping or accepting what a refactor's code changed, on the card or in the person's terminal (refactor-behaviour.mjs):
   // one record per choice, signed where the Story is written, and a keep counts only signed; an accept's record rides with
   // its return to the plan, as an upstream issue's return does.
-  { id: 'refactor-behaviour', guard: 'own:refactor-behaviour', effect: 'refactor-behaviour',
+  // It is made while the code step is written, before its submission; one after a submission stales it, as the code changes.
+  { id: 'refactor-behaviour', guard: 'own:refactor-behaviour', effect: 'refactor-behaviour', review: { kind: 'refactor-behaviour', entry: 'stales-submission' },
     family: { list: 'behaviourDecisions', action: 'work.behaviour', label: 'Refactor behaviour', isPerson: always,
       name: (record) => `${record.id}: ${record.choice === 'accept' ? 'accept the new behaviour' : 'keep the old behaviour'} of ${record.phase} version ${record.generation}` } },
   // A visual step approver's accepted risk on one failed comparison, which nothing else clears [PHR:REQ-006].
@@ -318,7 +319,7 @@ export const PERSON_STEP_FAMILIES = Object.freeze(PERSON_STEPS.filter((row) => r
 
 // The order a commit's lists are read in (REVIEW_SAFE_DECISION_LISTS).
 const REVIEW_KIND_ORDER = Object.freeze(['applicability', 'scope', 'completeness', 'plan', 'departure', 'risk', 'test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'test-scope', 'visual-profile',
-  'witness-exception', 'witness-defer', 'finding-override', 'visual-risk', 'approver-refresh', 'quality-risk', 'witness', 'upstream-issue', 'forward-amendment', 'test-command', 'phase-appeal', 'evidence-contract-correction', 'target-origin', 'settled', 'workflow']);
+  'witness-exception', 'witness-defer', 'finding-override', 'visual-risk', 'approver-refresh', 'quality-risk', 'witness', 'upstream-issue', 'forward-amendment', 'test-command', 'phase-appeal', 'evidence-contract-correction', 'target-origin', 'refactor-behaviour', 'settled', 'workflow']);
 /** What each decision kind does to a submitted review: REVIEW_EFFECTS's `decision-made:*` (state.mjs). */
 export const PERSON_STEP_REVIEW_EFFECTS = Object.freeze(Object.fromEntries(REVIEW_KIND_ORDER.map((kind) =>
   [`decision-made:${kind}`, PERSON_STEPS.find((row) => row.review?.kind === kind).review.entry])));

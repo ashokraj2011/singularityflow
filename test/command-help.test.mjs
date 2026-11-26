@@ -167,7 +167,7 @@ test('Intent and Program help expose exact authoring and configuration-review ce
 test('workflow help distinguishes linked copy from independent duplication', () => {
   const page = renderCommandHelp('workflow');
   assert.match(page, /workflow export --workflow ID \[--workflow ID\.\.\.\] --out FILE/);
-  assert.match(page, /workflow import <FILE> \[--dry-run\] \[--confirm PLAN-SHA256\] \[--propose\]/);
+  assert.match(page, /workflow import <FILE\|market:ID\/ENTRY\[@VERSION\]> \[--dry-run\] \[--confirm PLAN-SHA256\] \[--propose\]/);
   assert.match(page, /workflow copy <\[story\|initiative:\]SOURCE> <TARGET> --label TEXT/);
   assert.match(page, /linked copy: preserve the complete workflow record and reuse dependencies/);
   assert.match(page, /workflow duplicate <\[story\|initiative:\]SOURCE> <TARGET> --label TEXT/);

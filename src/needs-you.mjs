@@ -68,7 +68,7 @@ export async function needsYouScope({ env = process.env, cwd = process.cwd() } =
 }
 
 /** The identity this repository records with: its Git email and the cached GitHub login, never dialling out [FPL:REQ-009]. */
-async function memberIdentity(root, env) {
+export async function memberIdentity(root, env) {
   const { identity } = await import('./git.mjs');
   try { return identity(root ?? process.cwd(), { offline: true, env }); } catch { return { name: null, email: null, login: null }; }
 }
@@ -78,7 +78,7 @@ function repositoryRef(member) {
 }
 
 /** Why a repository could not be read, in a few words for its one line. */
-function failureWords(error) {
+export function failureWords(error) {
   const code = String(error?.code ?? '');
   if (/OFFLINE|NETWORK|REMOTE|FETCH|REFRESH|TIMEOUT|UNREACHABLE|TRANSPORT/u.test(code)) return 'offline';
   if (/NOT_GOVERNED|NOT_INITIALIZED|NO_CONFIG|CONFIGURATION_UNAVAILABLE|STATE_INDEX/u.test(code)) return 'no SFlow Story list yet';
@@ -86,30 +86,36 @@ function failureWords(error) {
 }
 
 /**
+ * One member's Stories with their records [FPL:REQ-010]: its clone's Story list (the state index, then each Story's
+ * workflow.json at its exact commit), or its remote URL when it is not cloned yet, as `inbox` and session candidates read
+ * it; nothing is cloned or checked out. `skip(pointer)` keeps a Story unread (`kept`). Work's list reads the same way.
+ */
+export async function memberRoster(member, scope, { skip = null, env = process.env } = {}) {
+  if (member.root) {
+    const [{ discoverRemoteStoryCandidates }, { sessionRepositoryAuthority }, { sessionDiscoveryConfiguration }, { withApprovedConfigurationRead }] = await Promise.all([
+      import('./session-story-discovery.mjs'), import('./commands/shared/session-repository-authority.mjs'),
+      import('./commands/shared/session-discovery-configuration.mjs'), import('./approved-configuration-reader.mjs')]);
+    const authority = await sessionRepositoryAuthority(member.root, { remoteProbe: true });
+    if (!authority) throw new SingularityFlowError(`${member.name} has no SFlow configuration yet.`, { code: 'SESSION_REPOSITORY_NOT_GOVERNED' });
+    const { definition } = await withApprovedConfigurationRead(member.root, () => sessionDiscoveryConfiguration(member.root, authority));
+    return { definition, roster: await discoverRemoteStoryCandidates(member.root, definition, { fetch: true, includeState: true, ...(skip ? { skip } : {}) }) };
+  }
+  // Not cloned yet: read from its remote URL, as `inbox` and session candidates do; nothing is cloned for it.
+  if (!member.url || !scope.workspace?.configurationUrl) throw new SingularityFlowError(`${member.name} has no remote to read.`, { code: 'SESSION_REPOSITORY_UNAVAILABLE' });
+  const { discoverRemoteStoryCandidatesByUrl } = await import('./session-remote-url-discovery.mjs');
+  return { definition: null, roster: await discoverRemoteStoryCandidatesByUrl(member.url, { configurationUrl: scope.workspace.configurationUrl, includeState: true, env }) };
+}
+
+/**
  * The Stories of one repository and the record items they hold for this person: step approvals and workflow decisions.
  * Stories whose commit did not move since the kept read reuse their kept items; closed or cancelled Stories cost nothing.
  */
 async function storyRecords(member, scope, { actor, previous, env }) {
-  const [{ discoverRemoteStoryCandidates }, items] = await Promise.all([import('./session-story-discovery.mjs'), import('./needs-you-items.mjs')]);
-  let roster;
-  let definition = null;
-  if (member.root) {
-    const [{ sessionRepositoryAuthority }, { sessionDiscoveryConfiguration }, { withApprovedConfigurationRead }] = await Promise.all([
-      import('./commands/shared/session-repository-authority.mjs'), import('./commands/shared/session-discovery-configuration.mjs'),
-      import('./approved-configuration-reader.mjs')]);
-    const authority = await sessionRepositoryAuthority(member.root, { remoteProbe: true });
-    if (!authority) throw new SingularityFlowError(`${member.name} has no SFlow configuration yet.`, { code: 'SESSION_REPOSITORY_NOT_GOVERNED' });
-    ({ definition } = await withApprovedConfigurationRead(member.root, () => sessionDiscoveryConfiguration(member.root, authority)));
-    const kept = previous.stories ?? {};
-    roster = await discoverRemoteStoryCandidates(member.root, definition, { fetch: true, includeState: true,
-      // Unchanged since the kept read, or ended: no workflow.json is read for it.
-      skip: (pointer) => kept[pointer.id]?.commit === pointer.commitOid || TERMINAL.has(pointer.story?.status) });
-  } else {
-    // Not cloned yet: read from its remote URL, as `inbox` and session candidates do; nothing is cloned for it.
-    if (!member.url || !scope.workspace?.configurationUrl) throw new SingularityFlowError(`${member.name} has no remote to read.`, { code: 'SESSION_REPOSITORY_UNAVAILABLE' });
-    const { discoverRemoteStoryCandidatesByUrl } = await import('./session-remote-url-discovery.mjs');
-    roster = await discoverRemoteStoryCandidatesByUrl(member.url, { configurationUrl: scope.workspace.configurationUrl, includeState: true, env });
-  }
+  const items = await import('./needs-you-items.mjs');
+  const kept = previous.stories ?? {};
+  // Unchanged since the kept read, or ended: no workflow.json is read for it.
+  const { roster, definition } = await memberRoster(member, scope, { env,
+    skip: (pointer) => kept[pointer.id]?.commit === pointer.commitOid || TERMINAL.has(pointer.story?.status) });
   const counts = member.root ? await import('./presence/person-records.mjs').then((module) => module.presenceCountsFor) : null;
   const stories = {};
   const tally = { read: 0, kept: 0 };

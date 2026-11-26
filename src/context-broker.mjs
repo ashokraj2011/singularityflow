@@ -84,8 +84,8 @@ async function readBriefs(root, workflow, phaseId, budget) {
  * "unavailable". Asked for by name, it says what replaced it.
  */
 function removedWorldModelSlice() {
-  return new SingularityFlowError("The 'world-model' context slice was removed with the registered World Model. The brief slice "
-    + "and the phase prompt's Repository brief carry what the code says: see what a step receives with singularity-flow wm brief --phase PHASE.",
+  return new SingularityFlowError("The 'world-model' slice was removed with the registered World Model. "
+    + 'See what a step receives with singularity-flow wm brief --phase PHASE.',
   { code: 'COMMAND_REMOVED', details: { command: 'session context --slice world-model', nextAction: 'singularity-flow wm brief --phase PHASE' } });
 }
 

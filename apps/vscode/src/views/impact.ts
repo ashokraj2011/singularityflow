@@ -131,7 +131,7 @@ function workspaceImpactHtml(
       <label for="impact-description"><strong>What are you considering?</strong></label>
       <textarea id="impact-description" name="impact-description" rows="7" placeholder="Describe the proposed change, constraints, expected outcome, and questions Copilot should assess." ${running ? 'disabled' : ''}></textarea>
       <p class="card-foot"><button data-impact-analyze ${running ? 'disabled' : ''}>${running ? 'Copilot is analyzing…' : 'Analyze impact with Copilot'}</button>
-        <span class="muted">Uses all repositories, mapped capabilities and staged workspace documents.</span></p>
+        <span class="muted">Uses all repositories, mapped capabilities and the workspace's documents.</span></p>
     </div>
   </section>
   <section><h2>${icon('artifact')}Previous analyses</h2>${rows ? `<div class="artifact-cards">${rows}</div>` : '<p class="muted">No workspace impact analyses yet.</p>'}</section>

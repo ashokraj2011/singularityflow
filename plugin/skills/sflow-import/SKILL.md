@@ -17,9 +17,9 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Preview first: `singularity-flow import preview <LINK> --as skill|template|agent --json`. Show source, size,
-   warnings and the full `text`, the one exception to the no-paste rule. Ask what it is for: which agent and steps for a skill, which steps for a template. Never supply these yourself.
-2. Add only those bytes, with the person's agent, ID and steps:
-   `singularity-flow import add <LINK> --as <KIND> [--agent AGENT] [--id ID] [--phases A,B] --sha256 <HASH> --propose --json`.
+   warnings and the full `text`, the one exception to the no-paste rule, and each `safety.findings` line under "Look at these lines". Ask what it is for: which agent and steps for a skill, which steps for a template, and, when `safety.looks` is set, whether they looked at those lines. Never supply these yourself.
+2. Add only those bytes, with the person's agent, ID and steps, and `--looked <safety.looks>` only after that yes:
+   `singularity-flow import add <LINK> --as <KIND> [--agent AGENT] [--id ID] [--phases A,B] --sha256 <HASH> [--looked CHECKS] --propose --json`.
    `--replace` only when the person asks to update an import; `--without-defaults` only when they say it must not take over steps.
 3. Generated sources are rows: `singularity-flow import add --as generated --agent A --id ID --url-template URL --phase P --target artifacts/P/F.md --propose --json`.
 4. `singularity-flow imports --json` lists imports; `singularity-flow imports check --json` re-reads sources with each
@@ -33,7 +33,8 @@ or `--repo <GIT-URL|FOLDER> [--ref BRANCH]`, with `--propose --json`) only when 
 Agent to workflow: a `workflowCommand` entry, or an agent folder the person names. `singularity-flow workflow from-agent
 <MARKETPLACE/AGENT|FOLDER> --json` writes nothing; show `review.markdown` whole, like step 1's bytes. While `ready` is
 false, ask the first `open` question with its `choices` in one `ask_user` and run it again with every answer as
-`--answer <step>=<intent>`; ask about each `walk` hold-up with its `fix` the same way. To send the marketplace its
+`--answer <step>=<intent>`; ask about each `walk` hold-up with its `fix` the same way, and about a `text-checks` check's
+`lines`, adding `--looked <looks>` on yes. To send the marketplace its
 findings, run it with `--feedback` and `review.feedbackDocument.name`, then give `review.feedbackDocument.issue.url`;
 the person submits that issue, never you. When ready, run it with `--propose --json`, show what `importPlan` adds, and
 once the person accepts run `singularity-flow workflow import <bundlePath> --confirm <importPlan.planSha256> --propose --json`.

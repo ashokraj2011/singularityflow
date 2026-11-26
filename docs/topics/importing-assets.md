@@ -15,7 +15,7 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 21
+version: 22
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
@@ -101,6 +101,16 @@ A Git repository marketplace may have commits newer than the one trusted. `--new
 
 In VS Code, **Singularity Flow: Marketplace** (also **Marketplace** in Workflow Studio's Library and Skill master, and on the All skills page) shows it with tabs, search and filters; each button opens the same preview, conversion review, archive or removal in Workflow Studio, and nothing changes until you publish there. **Check for newer versions** reads the newest commits (never when the page opens), and an item newer there gets **Get newer…**, which opens **Read its newest commit** for its marketplace.
 
+## SFlow's text checks
+
+An imported skill, template or agent goes into an agent's prompt, so SFlow checks its text before its first use. These are SFlow's text checks: plain rules, the same answer for the same text. They are not a security review. They catch hidden text and plain attempts to get around SFlow's rules; they do not catch a clever prompt. SFlow's hooks, approvals and frozen snapshots stay the safety boundary.
+
+- **Refused** (`IMPORT_SAFETY_BLOCKED`): hidden characters (shown spelled out, like `[U+202E]`), text that tells an agent to skip an approval, turn off hooks or SF Guard, edit SFlow's own configuration or records, run SFlow's approve, decision, override, pause or guard commands, or ignore earlier instructions; text that reads or prints credentials; downloaded content run straight away (`curl … | sh`); and a secret. Nothing is imported, and the lines are shown. In a conversion review the same lines go into the feedback for the marketplace.
+- **Look at these lines:** hidden markup, a long encoded run or a `data:` address, a command that sends data out (`curl -d`), and one that destroys work (`git push --force`, `rm -rf ~`, `--no-verify`). The preview lists them; the add needs your yes: `--looked <CHECKS>` (the preview's add command carries it), or **I looked at these lines** on Workflow Studio's review card. The import record keeps which lines you looked at, so an update asks again only for lines that changed.
+- **Links to other sites:** listed once per site; nothing is needed.
+
+The checks run on `import preview`, on every update (`import add … --replace`, `imports check`, the Marketplace page's **Update…**) and on `workflow from-agent`, for `agent.md` and every skill it brings, as a row under **Checks**. Text installed before the checks existed is checked too, once per text: a skill the checks refuse is never offered by a task, is named in the plan line where it would have fitted, is flagged on the Marketplace and All skills pages, and is a warning in `singularity-flow check`. It is never removed, and running Stories keep their snapshots.
+
 ## State and safety
 
 - Imported bytes are never fetched again. Stories, other machines and CI read the copies in the configuration, so a Story runs the same skill and template whether or not the link still works.
@@ -122,6 +132,8 @@ In VS Code, **Singularity Flow: Marketplace** (also **Marketplace** in Workflow 
 - **"was written in this repository, not imported"**: an import cannot replace local work; import under another ID.
 - **"not allowed to use"**: the marketplace index lists a file from an origin the repository did not allow; ask its owner, or add the origin with a reviewed `marketplace` change.
 - **"publishes … but its file is …"**: the marketplace's file does not match its published hash; nothing was imported.
+- **"SFlow's text checks refuse"**: the text holds what an agent must not be given; the lines are shown. Tell the item's owner; a version without those lines can be imported.
+- **"has lines to look at before it is added"**: read the lines shown; when you are sure, run the command it gives, which adds `--looked`.
 
 ## Related topics
 

@@ -2,8 +2,9 @@
 
 **Specification ID:** `SSB-v1`
 
-**Status:** Proposed, not built. Parked on the roadmap as
-[`SSB-001`](PENDING-WORK-ROADMAP.md#story-storage-off-the-code-branch-ssb). Decision record:
+**Status:** Open questions decided by the owner on 2026-11-26 (§10). M0's local probes ran on 2026-11-26 (§11); the
+real-host and real-app probes are still to run. M1 is planned in [SSB-M1-PLAN](plans/SSB-M1-PLAN.md). Not built. On the
+roadmap as [`SSB-001`](PENDING-WORK-ROADMAP.md#story-storage-off-the-code-branch-ssb). Decision record:
 [ADR 0019](adr/0019-story-state-off-the-code-branch.md).
 
 **Owner, 2026-11-23:**
@@ -185,23 +186,32 @@ reads each Story's `workflow.json` from its state ref.
 
 ## 7. Milestones
 
-Measured on `main@99b0b01f8`:
-- 180 `workDir(` calls in 55 files, and 131 `workDirRelative(` calls in 35;
-- 138 source files and 492 test files that name `work-items`;
-- 7 source files that name `configuration-source.json`.
+Measured again on `5ac41f37e` (2026-11-26). The first count, on `main@99b0b01f8`, is in brackets:
+- 180 `workDir(` calls in 55 files [180 in 55], and 138 `workDirRelative(` calls in 39 [131 in 35];
+- 141 source files and 509 test files that name `work-items` [138 and 492];
+- 7 source files that name `configuration-source.json` [7]. 10 more use its constant `CONFIGURATION_SOURCE_PATH`.
+
+The first count missed these. Each one joins a Story's path without either helper:
+- 164 inline `workItemRoot ?? 'singularity/work-items'` joins in 110 files;
+- 16 joins on a bare `.workItemRoot`;
+- 98 path patterns that spell `singularity\/work-items`, 93 of them in `schema-migrations.mjs`;
+- 26 uses of `work-item-location.mjs`'s helpers, 7 `workflowPath(` calls and 6 `clarificationRecordRelative(` calls;
+- 5 files in the VS Code extension and 2 in the plugin.
+
+In all, 242 files name a Story's or an Epic's paths. The plan's appendix lists them by module.
 
 | Milestone | Scope | Size |
 |---|---|---|
 | M0 | Probes, §8 | 1 day |
-| M1 | The resolver (REQ-009). Every path join goes through it; today's layout behaves the same and its tests pass unchanged | 4 days |
+| M1 | The resolver (REQ-009). Every path join goes through it; today's layout behaves the same and its tests pass unchanged. Plan: [SSB-M1-PLAN](plans/SSB-M1-PLAN.md) | 6 days (was 4: the joins above) |
 | M2 | The state ref and checkout (REQ-002, 003, 006, 007), created at Story start | 3 days |
 | M3 | Publication and recovery (REQ-004, 005, 008); approvals and decisions touch state only | 4 days |
 | M4 | Documents in the code base (REQ-001); agents, skills, hooks and the code step's scope | 3 days |
 | M5 | VS Code, Copilot hooks, status, landing, discovery; the setting (REQ-010) | 3 days |
 | M6 | Epics (REQ-011); fuzzer, invariants and journeys on both layouts; storage and state docs | 3 days |
 
-About four weeks. Every milestone lands on `main` behind `story.storage`, with today's layout unchanged, so `main`
-stays shippable throughout.
+About four and a half weeks, with M1 at 6 days. Every milestone lands on `main` behind `story.storage`, with today's
+layout unchanged, so `main` stays shippable throughout.
 
 ## 8. Probes before building (M0)
 
@@ -215,18 +225,234 @@ stays shippable throughout.
    refuse an edit to it.
 4. `git clean -fdx`, `git stash -u` and a branch switch in the code checkout leave the state checkout repairable.
 
-A probe that fails changes the design here before M1 starts.
+A probe that fails changes the design here before M1 starts. Results so far: §11.
 
 ## 9. Relation to CPR-v1
 
 [CPR-v1](SPEC-CPR-CLEAN-PULL-REQUESTS-v1.md) would build a code-only copy of the branch at landing. With SSB the Story
 branch is already that, so CPR is not built.
 
-## 10. Open questions for the owner
+## 10. Decided 2026-11-26
 
-1. **The documents' folder.** Default `docs/stories/<WORK-ID>/`.
-2. **Which documents.** Default: every step's, including the two SFlow writes from its records (verification evidence
-   and the release report). The alternative is to keep those two on the state ref.
-3. **A hidden ref or a visible branch.** Default: the hidden ref `refs/singularity/state/<WORK-ID>`, which adds no
-   branches and starts no CI. The alternative is a visible branch `sflow/state/<WORK-ID>` for everyone.
-4. **When it starts.** Default: every new Story once it ships. The alternative is a repository opting in.
+The owner answered the four open questions on 2026-11-26:
+
+1. **The documents' folder:** `docs/stories/<WORK-ID>/` (REQ-001).
+2. **Which documents:** every step's, including the two SFlow writes from its records: verification evidence and the
+   release report (REQ-001). Neither stays on the state ref.
+3. **The records:** the hidden ref `refs/singularity/state/<WORK-ID>` (REQ-002). It shows in no branch list and starts
+   no CI. A visible branch for everyone is not taken. The branch `sflow/state/<WORK-ID>` stays only where
+   `ledger.pinTransport: branches` is set, as REQ-002 says.
+4. **When it starts:** every new Story once it ships. Stories in flight finish in today's layout (REQ-010, A6). So
+   `story.storage` defaults to `state-ref` from the release that ships SSB. Until then it defaults to `story-branch`,
+   which is what keeps `main` shippable during the build (§7).
+
+## 11. Probe results
+
+Run on 2026-11-26 with Git 2.54.0 on macOS, against local repositories (a bare remote over `file://`). The probe
+scripts stay outside the repository. The commands that matter are below.
+
+| Probe | Result |
+|---|---|
+| 1. One atomic push | **Passed locally.** GitHub, GitLab, Azure DevOps and the CI check still need real hosts (11.1) |
+| 2. Real VS Code | **To run** by the coordinator (11.3) |
+| 3. Copilot on VS Code, CLI and IntelliJ | **To run** by the coordinator (11.4). Code reading found a gap the probe will confirm |
+| 4. The state checkout survives `git clean`, `git stash` and a branch switch | **Passed** for a linked worktree, with design changes (11.2) |
+
+### 11.1 Probe 1: one atomic push
+
+One `git push --atomic --porcelain` moved the Story branch, `refs/singularity/state/<ID>`, the ledger branch and a pin,
+each under `--force-with-lease`. This is the form `publishBranchWithLedgerEntry` uses today.
+
+| Case | What happened |
+|---|---|
+| First publication: all four refs created, each with a create-only lease (`--force-with-lease=<ref>:`) | All four landed together. Each reported `*`, the flag today's landed check reads |
+| Second publication: every ref fast-forwarded under its exact lease | Landed. Each reported a space (fast-forward) |
+| A teammate moved the state ref first, so only its lease is stale | Nothing moved. The state ref reported `! [rejected] (stale info)`, the others `! [rejected] (atomic push failed)` |
+| A host hook refuses `refs/singularity/state/*` | Nothing moved. The hook's text names the ref, which is what today's fallback for a refused own ref looks for |
+| An approval: the state ref and the ledger, no branch | Landed. The Story branch was not among the pushed refs, so a CI trigger on branches would not see it |
+| `ledger.pinTransport: branches`: `refs/heads/sflow/state/<ID>` and a branch pin | Landed atomically |
+| Listing: `git ls-remote <remote> 'refs/singularity/state/*'` | One call listed every Story's state ref |
+| A plain clone | Fetched no `refs/singularity/*`. An explicit refspec fetched one Story's state. No branch list showed it |
+| The Story branch deleted after a merge, then `git gc --prune=now` on the host | The state ref kept all its history, and pinned code commits survived. A code commit named only inside a state record was collected |
+| A ref named at the value the host already has, such as an unchanged Story branch | Reported `=` (up to date), and its lease was not checked |
+
+What it changes:
+- **M3:** the push leaves the Story branch out when its tip did not move. Today's check accepts only a space or `+`
+  for the branch, so an unchanged branch named in the push would read as not landed.
+- **REQ-004 and REQ-008:** a state record binds only a code commit the ledger pins. A pin is added in the same push when
+  a commit isn't pinned yet, such as one a person pushed before an approval. The state ref keeps no code commit alive:
+  Git does not follow a commit ID written inside a file, and the ref has no application history by design.
+- **REQ-007 (M2):** a fetched state ref lands in a tracking ref of its own (the probe used
+  `refs/singularity/remotes/<remote>/state/<ID>`). A fetch then never overwrites local state commits that are not
+  published yet. Every fetch names the refspec, since a clone or a plain fetch brings none.
+
+**Still needs real hosts.** Use a throwaway repository on each host, with any content and one CI workflow that runs on
+every push (GitHub Actions `on: push` with no filter; a GitLab pipeline; an Azure Pipelines trigger on all branches).
+From a clone of it, in bash or zsh (the braces keep zsh from reading `$x:r` as a modifier):
+
+```bash
+R=origin; ID=SSB-PROBE-1; P=refs/singularity/pins/ssb-probe/e1; L=refs/heads/ssb-probe-ledger
+base=$(git rev-parse HEAD)
+code=$(git commit-tree "$(git rev-parse HEAD^{tree})" -p "$base" -m 'probe code 1')
+state=$(git commit-tree "$(git mktree </dev/null)" -m 'probe state 1')
+ledger=$(git commit-tree "$(git mktree </dev/null)" -m 'probe ledger 1')
+# 1. One atomic push of four refs, create-only leases. Expect four lines starting with '*', then 'Done'.
+git push --atomic --porcelain --force-with-lease="refs/heads/${ID}:" --force-with-lease="refs/singularity/state/${ID}:" \
+  --force-with-lease="${L}:" --force-with-lease="${P}:" \
+  "$R" "${code}:refs/heads/${ID}" "${state}:refs/singularity/state/${ID}" "${ledger}:${L}" "${code}:${P}"
+# 2. Move only the state ref. Expect no CI run for this push (check the host's Actions/Pipelines page).
+state2=$(git commit-tree "$(git mktree </dev/null)" -p "$state" -m 'probe state 2')
+git push --porcelain --force-with-lease="refs/singularity/state/${ID}:${state}" "$R" "${state2}:refs/singularity/state/${ID}"
+# 3. A stale lease. Expect '(stale info)' on the state ref, '(atomic push failed)' on the ledger, nothing moved.
+state3=$(git commit-tree "$(git mktree </dev/null)" -p "$state" -m 'probe state 3')
+ledger2=$(git commit-tree "$(git mktree </dev/null)" -p "$ledger" -m 'probe ledger 2')
+git push --atomic --porcelain --force-with-lease="refs/singularity/state/${ID}:${state}" --force-with-lease="${L}:${ledger}" \
+  "$R" "${state3}:refs/singularity/state/${ID}" "${ledger2}:${L}"
+git ls-remote "$R" 'refs/singularity/*' "$L"
+```
+
+Then open a pull request from `SSB-PROBE-1`, merge it with the branch deleted, and run `git ls-remote` again: the state
+ref and the pin must still be there. Clean up with
+`git push "$R" ":refs/singularity/state/${ID}" ":${P}" ":${L}"`. Record for each host:
+- whether the push in step 1 is accepted at all. If a host refuses `refs/singularity/*` (Azure DevOps is the one to
+  watch), the repository uses `ledger.pinTransport: branches` and the state ref becomes `sflow/state/<ID>`. That is a
+  branch, so the host's CI sees it, and the docs must then tell teams to exclude `sflow/state/**` from CI triggers;
+- the porcelain lines of steps 1 and 3;
+- whether any CI run, pipeline or webhook push event started for step 2.
+
+### 11.2 Probe 4: the state checkout survives everyday Git commands
+
+Three ways of keeping the state at `.singularity/` were tried, with `/.singularity/` in the clone's common
+`.git/info/exclude`. Each was tried with the code checkout as the clone's main work tree and as a linked Story
+worktree. Both kinds of checkout behaved the same.
+- **Linked:** a linked worktree of the same repository, from
+  `git worktree add --detach .singularity refs/singularity/state/<ID>`;
+- **Gitfile:** a separate repository whose Git directory is under `.git/`, with `.singularity/.git` a file pointing to
+  it;
+- **Bare work tree:** a Git directory under `.git/` and no `.git` marker inside `.singularity/`.
+
+| Command in the code checkout | Linked | Gitfile | Bare work tree |
+|---|---|---|---|
+| `git status`, `git add -A` | Clean, nothing staged | Same | Same |
+| `git clean -fdx` | Kept: Git skips a nested repository | Kept | **Deleted** |
+| `git clean -ffdx` (forced twice) | Deleted | Deleted | Deleted |
+| `git stash -u` | Kept, nothing stashed | Kept | Kept |
+| `git stash -a` | Kept ("Ignoring path .singularity/") | Kept | **The state files went into the stash** and left the disk until `stash pop` |
+| A branch switch, `git reset --hard`, `git checkout -- .` | Kept | Kept | Kept |
+| A switch to a branch that tracks files under `.singularity/` | **Overwritten:** Git wrote the branch's files into the state checkout with exit 0. A tracked file at a state file's path replaced it, and switching back deleted it | Same | Same |
+
+Without the exclude line, `git status` shows `?? .singularity/`, and `git add -A` stages it as an embedded repository
+(a gitlink, mode 160000). A commit would then put a pointer to the state into the code branch.
+
+Repair of the linked worktree:
+- **Folder deleted** (by `git clean -ffdx` or by hand): `git worktree add` refuses ("a missing but already registered
+  worktree"). `git worktree prune`, then the same `git worktree add`, rebuilds it. A record survives when it was
+  committed and the commit was put on `refs/singularity/state/<ID>`. An uncommitted file is lost, and so is a commit
+  left only on the checkout's detached HEAD, which the next `git gc` collects.
+- **Overwritten by a branch switch:** `git -C .singularity checkout -- .` restores every committed record.
+- **Checkout moved:** both worktree links break. `git worktree repair <checkout> <checkout>/.singularity` fixes them.
+  `worktree.useRelativePaths=true` survives a move without repair, but it sets `extensions.relativeWorktrees` and
+  repository format 1, which Git before 2.48 refuses to open. So it is not used.
+- **Story checkout removed:** `git worktree remove <Story checkout>`, without `--force`, removed the checkout and the
+  state checkout inside it, uncommitted state included, and left a stale entry for `git worktree prune`.
+- A HEAD that names `refs/singularity/state/<ID>` (not detached) moves the ref on every commit, but
+  `git branch --show-current` then fails ("HEAD not found below refs/heads"). Tools would stumble, so it is not used.
+
+What it changes (REQ-006, M2 unless named):
+1. The state checkout is a linked worktree. The bare work tree is ruled out by `git clean -fdx` and `git stash -a`. The
+   gitfile layout survives as well, but needs a fetch between the two repositories. Keep it as the fallback if probe 2
+   finds that VS Code lists the linked worktree and the gitfile hides better. Both have a `.git` file, so that is
+   unlikely.
+2. The checkout stays on a detached HEAD, and every state commit moves `refs/singularity/state/<ID>` at once, under
+   its expected value (`git update-ref <ref> <new> <old>`). Nothing lives only on the detached HEAD.
+3. The exclude line carries weight. SFlow writes it before it creates the checkout, as `excludeAgentOutput` does for
+   `.sflow/out`, and every command checks it. The code step's commit refuses a staged gitlink at the state folder.
+4. **The folder's name.** `.singularity/` is SFlow's retired control root, and four things treat it so:
+   - `refuseRetiredControlRoot` (`config.mjs`) refuses a checkout that holds `.singularity/` without `singularity/`. A
+     state-ref Story checkout is exactly that, since application branches do not carry `singularity/`
+     (`configuration-read-scope.mjs`);
+   - `factory-reset` backs up and replaces `.singularity/`, the fresh-install reset lists it as installer-generated, and
+     `DEFAULT_RUNTIME_ROOTS` reserves it;
+   - VS Code's runner looks there for legacy configuration;
+   - an old branch from a repository's `.singularity/` days tracks files there, and Git writes them into the state
+     checkout on a switch (the table above).
+
+   **Proposed, for the owner:** a folder name SFlow never used, such as `.sflow-state/`. M1 holds the name in one
+   constant, so either answer costs one line. If `.singularity/` stays, those four places must tell a state checkout
+   from the retired root.
+5. Removing a Story checkout (`story-worktree.mjs`, `workspace-retention.mjs`, `workspace-relink.mjs` and the other
+   `git worktree remove` callers) removes its state checkout first. It refuses while the state checkout holds
+   uncommitted records.
+6. The checks that list ignored files skip the state checkout, as they skip `.sflow/out` (`withoutAgentOutputStatus`).
+   They are in `git-query.mjs`, `workspace.mjs`, `workspace-retention.mjs`, `story-worktree.mjs`, `git.mjs`,
+   `copilot-mutation-guard.mjs`, `factory-reset.mjs` and `fresh-install-reset.mjs`.
+7. **M4, the edit guard:** today `.singularity/` counts as an application path (`isApplicationPath`: it is in no
+   governed root). So a code step's agent may edit it, and any other step refuses it only as an application edit. M4
+   adds the state folder to the governed roots, so the guard refuses it as SFlow's own state (A7).
+
+Found while planning M1, not by a probe: a state-ref Story's pinned configuration, at `.singularity/configuration/`,
+can be served through the configuration overlay that already exists (`withConfigurationReadRoot` in
+`configuration-read-scope.mjs`). The 177 `loadDefinition(root)` calls then do not change (the M1 plan, §6).
+
+### 11.3 Probe 2: real VS Code (for the coordinator)
+
+This opens a VS Code window. Build the fixture from a terminal first. It needs no SFlow Story:
+
+```bash
+P="$HOME/ssb-probe"; rm -rf "$P"; mkdir -p "$P"; cd "$P"
+git init -q -b main app && cd app
+printf 'probe app\n' > README.md && git add README.md && git commit -qm base
+git switch -qc WRK-1 && printf 'code\n' > code.txt && git add code.txt && git commit -qm code
+idx="$P/state.index"; rm -f "$idx"
+add() { GIT_INDEX_FILE="$idx" git update-index --add --cacheinfo "100644,$(printf '%s' "$2" | git hash-object -w --stdin),$1"; }
+add workflow.json '{"workItem":{"id":"WRK-1"}}'
+add approvals/a.json '{"token":"ssbprobe-needle-7731"}'
+add context/notes.md 'ssbprobe-needle-7731 in a state note'
+git update-ref refs/singularity/state/WRK-1 "$(git commit-tree "$(GIT_INDEX_FILE="$idx" git write-tree)" -m 'WRK-1 state')"
+rm -f "$idx"
+printf '/.singularity/\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
+git worktree add -q --detach .singularity refs/singularity/state/WRK-1
+git status --porcelain    # must print nothing
+```
+
+Then, in VS Code as installed, with SFlow's extension as installed:
+1. Run `code --version` and note it. Open the folder: `code "$HOME/ssb-probe/app"`.
+2. **Source Control:** open the Source Control Repositories view. Passes when only `app` is listed. Note whether
+   `.singularity` shows as a second repository or under a worktrees entry.
+3. If it shows, add `"git.ignoredRepositories": ["<the absolute path of app/.singularity>"]` to `app/.vscode/settings.json`
+   and reload the window. Note whether that hides it. If not, try `"git.repositoryScanIgnoredFolders": [".singularity"]`
+   instead. The setting that works is the one SFlow's extension would write.
+4. **Explorer:** note whether `.singularity/` is listed (greyed as ignored). Open `.singularity/approvals/a.json` and note
+   whether the status bar's branch changes to a detached HEAD.
+5. **Search:** search for `ssbprobe-needle-7731` (Ctrl+Shift+F). The expected result is no match, because search honours
+   ignore files. Turn off "Use Exclude Settings and Ignore Files" and search again: both state files should be found.
+   In Quick Open (Ctrl+P), type `notes.md` and note whether it is offered.
+6. **A commit:** edit `code.txt` and note that Source Control offers only `code.txt`. Commit it, then run
+   `git -C "$HOME/ssb-probe/app" show --stat HEAD`: it must name no `.singularity` path.
+7. Close the window. If step 2 listed `.singularity`, repeat steps 2–6 with the gitfile layout: run
+   `git worktree remove --force .singularity`, then
+   `git init -q --separate-git-dir="$(git rev-parse --git-common-dir)/singularity-flow/state/WRK-1" .singularity`
+   (create the parent folder first), fetch `refs/singularity/state/WRK-1` into it and check it out detached.
+
+### 11.4 Probe 3: Copilot on VS Code, the CLI and IntelliJ (for the coordinator)
+
+This opens VS Code and IntelliJ windows, and spends a few premium requests.
+
+**Reads, in the probe 2 fixture:** start each host's agent in `$HOME/ssb-probe/app`: Copilot Chat in agent mode in
+VS Code, `copilot` in a terminal there, and Copilot Chat in agent mode in IntelliJ. Ask each:
+"Read .singularity/approvals/a.json and tell me the token." It passes when the agent answers `ssbprobe-needle-7731` with
+no prompt about reading outside the workspace. Note whether the agent had to be given the path, or found the file with
+its own search.
+
+**Edits, in a throwaway SFlow repository with a Story open,** such as the daily-run fixture:
+1. Make the state checkout for that Story's ID the same way, with the same exclude line.
+2. In a step other than the code step, ask each host's agent: "Add a line to .singularity/approvals/a.json". Then ask it
+   to run `echo x >> .singularity/approvals/a.json` in its terminal.
+3. Repeat both in the code step.
+4. For each host and each request, record: whether SFlow's hook saw the edit (its refusal, or the hook log), whether the
+   edit was refused, and the reason shown.
+
+Expected on today's build: outside the code step the edit is refused as an application edit. In the code step it is
+allowed, because the guard counts `.singularity/` as application code (11.2, item 7). That allowed edit is the gap M4
+closes, not a probe failure. A failure is a host whose hook never sees the edit or the shell write. On IntelliJ, also
+note whether SFlow's hooks run at all: the Local agent ran none on 2026-11-23.

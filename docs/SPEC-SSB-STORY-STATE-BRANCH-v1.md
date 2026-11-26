@@ -44,7 +44,7 @@ CI runs for every decision, and the default branch collects every Story's record
 | Holds | code, tests, and the Story's documents in `docs/stories/<WORK-ID>/` | everything else SFlow keeps for the Story |
 | A commit when | code or a document changes | any step, approval, decision or receipt |
 | In the pull request | yes, reviewed and merged | never |
-| On disk | the checkout | `.singularity/` inside the checkout, ignored by Git |
+| On disk | the checkout | `.sflow-state/` inside the checkout, ignored by Git |
 
 ## 3. The rules
 
@@ -109,11 +109,11 @@ today's sequential path, in this order:
 The publication journal records every ref's expected and new tip, so recovery finishes or reports an interrupted push.
 
 **SSB:REQ-006, the state checkout.**
-- SFlow keeps the state ref checked out at `.singularity/`, a linked worktree inside the Story's checkout. Agents read it
+- SFlow keeps the state ref checked out at `.sflow-state/`, a linked worktree inside the Story's checkout. Agents read it
   as workspace files, with no prompt for reading outside the workspace.
-- `.singularity/` is listed in `.git/info/exclude`, never in a committed `.gitignore`. So `git status`, `git add -A` and
+- `.sflow-state/` is listed in `.git/info/exclude`, never in a committed `.gitignore`. So `git status`, `git add -A` and
   the code step's file scope never see it.
-- Agents never edit it. The hooks refuse a direct edit to `.singularity/`, as they refuse one to SFlow's records today.
+- Agents never edit it. The hooks refuse a direct edit to `.sflow-state/`, as they refuse one to SFlow's records today.
 - A missing or damaged state checkout is rebuilt from the ref at the next command. Only unpublished work is lost, as with
   an uncommitted file today.
 
@@ -155,7 +155,7 @@ reads each Story's `workflow.json` from its state ref.
 
 ## 5. Surfaces
 
-- **Agents, skills and prompts:** documents are named by their `docs/stories/…` path and state by its `.singularity/…`
+- **Agents, skills and prompts:** documents are named by their `docs/stories/…` path and state by its `.sflow-state/…`
   path, both from the resolver.
 - **The code step:** its file scope covers the code checkout only. `docs/stories/<WORK-ID>/` stays each step's own
   document, under today's rule for another step's document. No new question.
@@ -181,7 +181,7 @@ reads each Story's `workflow.json` from its state ref.
 - **A4:** A code commit pushed after an approval makes that approval stale.
 - **A5:** A second laptop, a takeover and `resume --fetch` open the Story with its state.
 - **A6:** A Story started on today's layout finishes on it, unchanged.
-- **A7:** An agent's direct edit to `.singularity/` is refused. `git status` in the checkout never shows it.
+- **A7:** An agent's direct edit to `.sflow-state/` is refused. `git status` in the checkout never shows it.
 - **A8:** The Story fuzzer and the invariant checks walk both layouts. The journeys walk the new one.
 
 ## 7. Milestones
@@ -218,10 +218,10 @@ layout unchanged, so `main` stays shippable throughout.
 1. GitHub, GitLab and Azure DevOps accept one atomic push of a branch, `refs/singularity/state/*`, the ledger and a pin
    under leases. GitHub Actions does not start for the state ref.
 2. **Real VS Code:**
-   - a linked worktree at `.singularity/` does not appear as a second repository in Source Control, or SFlow's
+   - a linked worktree at `.sflow-state/` does not appear as a second repository in Source Control, or SFlow's
      extension hides it;
    - search and the file explorer behave.
-3. **Copilot (VS Code, CLI and IntelliJ):** an agent reads `.singularity/` without a prompt, and SFlow's hooks see and
+3. **Copilot (VS Code, CLI and IntelliJ):** an agent reads `.sflow-state/` without a prompt, and SFlow's hooks see and
    refuse an edit to it.
 4. `git clean -fdx`, `git stash -u` and a branch switch in the code checkout leave the state checkout repairable.
 
@@ -377,20 +377,20 @@ What it changes (REQ-006, M2 unless named):
    - an old branch from a repository's `.singularity/` days tracks files there, and Git writes them into the state
      checkout on a switch (the table above).
 
-   **Proposed, for the owner:** a folder name SFlow never used, such as `.sflow-state/`. M1 holds the name in one
-   constant, so either answer costs one line. If `.singularity/` stays, those four places must tell a state checkout
-   from the retired root.
+   **Decided (owner, 2026-11-26):** the state checkout is `.sflow-state/`, a folder SFlow never used, so none of the
+   four places above meets it. M1 holds the name in one constant (`STATE_CHECKOUT`). Probe 4 above ran at
+   `.singularity/`; nothing it found depends on the name.
 5. Removing a Story checkout (`story-worktree.mjs`, `workspace-retention.mjs`, `workspace-relink.mjs` and the other
    `git worktree remove` callers) removes its state checkout first. It refuses while the state checkout holds
    uncommitted records.
 6. The checks that list ignored files skip the state checkout, as they skip `.sflow/out` (`withoutAgentOutputStatus`).
    They are in `git-query.mjs`, `workspace.mjs`, `workspace-retention.mjs`, `story-worktree.mjs`, `git.mjs`,
    `copilot-mutation-guard.mjs`, `factory-reset.mjs` and `fresh-install-reset.mjs`.
-7. **M4, the edit guard:** today `.singularity/` counts as an application path (`isApplicationPath`: it is in no
+7. **M4, the edit guard:** today `.sflow-state/` counts as an application path (`isApplicationPath`: it is in no
    governed root). So a code step's agent may edit it, and any other step refuses it only as an application edit. M4
    adds the state folder to the governed roots, so the guard refuses it as SFlow's own state (A7).
 
-Found while planning M1, not by a probe: a state-ref Story's pinned configuration, at `.singularity/configuration/`,
+Found while planning M1, not by a probe: a state-ref Story's pinned configuration, at `.sflow-state/configuration/`,
 can be served through the configuration overlay that already exists (`withConfigurationReadRoot` in
 `configuration-read-scope.mjs`). The 177 `loadDefinition(root)` calls then do not change (the M1 plan, §6).
 
@@ -406,32 +406,32 @@ git switch -qc WRK-1 && printf 'code\n' > code.txt && git add code.txt && git co
 idx="$P/state.index"; rm -f "$idx"
 add() { GIT_INDEX_FILE="$idx" git update-index --add --cacheinfo "100644,$(printf '%s' "$2" | git hash-object -w --stdin),$1"; }
 add workflow.json '{"workItem":{"id":"WRK-1"}}'
-add approvals/a.json '{"token":"ssbprobe-needle-7731"}'
+add approvals/a.json '{"marker":"ssbprobe-needle-7731"}'
 add context/notes.md 'ssbprobe-needle-7731 in a state note'
 git update-ref refs/singularity/state/WRK-1 "$(git commit-tree "$(GIT_INDEX_FILE="$idx" git write-tree)" -m 'WRK-1 state')"
 rm -f "$idx"
-printf '/.singularity/\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
-git worktree add -q --detach .singularity refs/singularity/state/WRK-1
+printf '/.sflow-state/\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
+git worktree add -q --detach .sflow-state refs/singularity/state/WRK-1
 git status --porcelain    # must print nothing
 ```
 
 Then, in VS Code as installed, with SFlow's extension as installed:
 1. Run `code --version` and note it. Open the folder: `code "$HOME/ssb-probe/app"`.
 2. **Source Control:** open the Source Control Repositories view. Passes when only `app` is listed. Note whether
-   `.singularity` shows as a second repository or under a worktrees entry.
-3. If it shows, add `"git.ignoredRepositories": ["<the absolute path of app/.singularity>"]` to `app/.vscode/settings.json`
-   and reload the window. Note whether that hides it. If not, try `"git.repositoryScanIgnoredFolders": [".singularity"]`
+   `.sflow-state` shows as a second repository or under a worktrees entry.
+3. If it shows, add `"git.ignoredRepositories": ["<the absolute path of app/.sflow-state>"]` to `app/.vscode/settings.json`
+   and reload the window. Note whether that hides it. If not, try `"git.repositoryScanIgnoredFolders": [".sflow-state"]`
    instead. The setting that works is the one SFlow's extension would write.
-4. **Explorer:** note whether `.singularity/` is listed (greyed as ignored). Open `.singularity/approvals/a.json` and note
+4. **Explorer:** note whether `.sflow-state/` is listed (greyed as ignored). Open `.sflow-state/approvals/a.json` and note
    whether the status bar's branch changes to a detached HEAD.
 5. **Search:** search for `ssbprobe-needle-7731` (Ctrl+Shift+F). The expected result is no match, because search honours
    ignore files. Turn off "Use Exclude Settings and Ignore Files" and search again: both state files should be found.
    In Quick Open (Ctrl+P), type `notes.md` and note whether it is offered.
 6. **A commit:** edit `code.txt` and note that Source Control offers only `code.txt`. Commit it, then run
-   `git -C "$HOME/ssb-probe/app" show --stat HEAD`: it must name no `.singularity` path.
-7. Close the window. If step 2 listed `.singularity`, repeat steps 2–6 with the gitfile layout: run
-   `git worktree remove --force .singularity`, then
-   `git init -q --separate-git-dir="$(git rev-parse --git-common-dir)/singularity-flow/state/WRK-1" .singularity`
+   `git -C "$HOME/ssb-probe/app" show --stat HEAD`: it must name no `.sflow-state` path.
+7. Close the window. If step 2 listed `.sflow-state`, repeat steps 2–6 with the gitfile layout: run
+   `git worktree remove --force .sflow-state`, then
+   `git init -q --separate-git-dir="$(git rev-parse --git-common-dir)/singularity-flow/state/WRK-1" .sflow-state`
    (create the parent folder first), fetch `refs/singularity/state/WRK-1` into it and check it out detached.
 
 ### 11.4 Probe 3: Copilot on VS Code, the CLI and IntelliJ (for the coordinator)
@@ -440,19 +440,19 @@ This opens VS Code and IntelliJ windows, and spends a few premium requests.
 
 **Reads, in the probe 2 fixture:** start each host's agent in `$HOME/ssb-probe/app`: Copilot Chat in agent mode in
 VS Code, `copilot` in a terminal there, and Copilot Chat in agent mode in IntelliJ. Ask each:
-"Read .singularity/approvals/a.json and tell me the token." It passes when the agent answers `ssbprobe-needle-7731` with
+"Read .sflow-state/approvals/a.json and tell me the marker." It passes when the agent answers `ssbprobe-needle-7731` with
 no prompt about reading outside the workspace. Note whether the agent had to be given the path, or found the file with
 its own search.
 
 **Edits, in a throwaway SFlow repository with a Story open,** such as the daily-run fixture:
 1. Make the state checkout for that Story's ID the same way, with the same exclude line.
-2. In a step other than the code step, ask each host's agent: "Add a line to .singularity/approvals/a.json". Then ask it
-   to run `echo x >> .singularity/approvals/a.json` in its terminal.
+2. In a step other than the code step, ask each host's agent: "Add a line to .sflow-state/approvals/a.json". Then ask it
+   to run `echo x >> .sflow-state/approvals/a.json` in its terminal.
 3. Repeat both in the code step.
 4. For each host and each request, record: whether SFlow's hook saw the edit (its refusal, or the hook log), whether the
    edit was refused, and the reason shown.
 
 Expected on today's build: outside the code step the edit is refused as an application edit. In the code step it is
-allowed, because the guard counts `.singularity/` as application code (11.2, item 7). That allowed edit is the gap M4
+allowed, because the guard counts `.sflow-state/` as application code (11.2, item 7). That allowed edit is the gap M4
 closes, not a probe failure. A failure is a host whose hook never sees the edit or the shell write. On IntelliJ, also
 note whether SFlow's hooks run at all: the Local agent ran none on 2026-11-23.

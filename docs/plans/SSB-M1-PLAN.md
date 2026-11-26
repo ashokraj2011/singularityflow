@@ -83,7 +83,7 @@ beside its twin `groundingRecordRelative`, and points its two importers there (`
 
 export const DEFAULT_WORK_ITEM_ROOT = 'singularity/work-items';  // work-item-location.mjs re-exports it
 export const STORY_LAYOUTS = Object.freeze(['story-branch', 'state-ref']);
-export const STATE_CHECKOUT = '.singularity';    // REQ-006. Its name is open: spec §11.2, item 4
+export const STATE_CHECKOUT = '.sflow-state';    // REQ-006, owner 2026-11-26: spec §11.2, item 4
 export const STORY_DOCUMENTS = 'docs/stories';   // REQ-001, owner 2026-11-26
 export const STATE_REF_PREFIX = 'refs/singularity/state/';
 
@@ -137,19 +137,19 @@ What each member gives, for Story `W-1`, checkout `/r` and the default Stories f
 
 | Member | `story-branch` (today, unchanged) | `state-ref` (used from M2) |
 |---|---|---|
-| `directory` | `/r/singularity/work-items/W-1` | `/r/.singularity` |
+| `directory` | `/r/singularity/work-items/W-1` | `/r/.sflow-state` |
 | `record('evidence', 'a.json')` | `singularity/work-items/W-1/evidence/a.json` | `evidence/a.json` |
-| `fromRecord(p)` | `/r/<p>` | `/r/.singularity/<p>` |
+| `fromRecord(p)` | `/r/<p>` | `/r/.sflow-state/<p>` |
 | `inside('singularity/work-items/W-1/gdp/x.json')` | `gdp/x.json` | not asked: its records are already state-relative |
 | `prefix` | `singularity/work-items/W-1` | null |
 | `owns(p)` | `p` is under the prefix | always false: no state file is in the code checkout |
 | `document('artifacts/design/design.md')` | `singularity/work-items/W-1/artifacts/design/design.md` | `docs/stories/W-1/design/design.md`. M4 may flatten it to `design.md` (REQ-001) |
 | `isDocument(p)` | under `<prefix>/artifacts/` | under `docs/stories/W-1/` |
-| `configurationSource` | `singularity/configuration-source.json` in `/r` | `configuration-source.json` in `/r/.singularity` |
-| `configurationRoot` | `/r` | `/r/.singularity/configuration` |
+| `configurationSource` | `singularity/configuration-source.json` in `/r` | `configuration-source.json` in `/r/.sflow-state` |
+| `configurationRoot` | `/r` | `/r/.sflow-state/configuration` |
 | `codeTreeExclusion` | `singularity/` (the Stories folder's first segment, as `phase-upstream.mjs` does) | null until M3 decides on `docs/stories/` |
 | `object('workflow.json')` | `{ revision: null, path: 'singularity/work-items/W-1/workflow.json' }` | `{ revision: 'refs/singularity/state/W-1', path: 'workflow.json' }` |
-| `commitScope` | `{ cwd: '/r', pathspecs: ['singularity/work-items/W-1'] }` | `{ cwd: '/r/.singularity', pathspecs: ['.'] }` |
+| `commitScope` | `{ cwd: '/r', pathspecs: ['singularity/work-items/W-1'] }` | `{ cwd: '/r/.sflow-state', pathspecs: ['.'] }` |
 
 Rules:
 - **The `story-branch` arm is today's formulas, unchanged.** Disk paths are `path.join(root, storiesRoot, id, …)`, as
@@ -165,7 +165,7 @@ Rules:
 
 ### The pinned configuration
 
-A state-ref Story's pinned copy lives at `.singularity/configuration/`, and its code checkout has no `singularity/`.
+A state-ref Story's pinned copy lives at `.sflow-state/configuration/`, and its code checkout has no `singularity/`.
 `loadDefinition(root)` (177 calls in 91 files) reads `singularity/workflow.yml` and its siblings through
 `configurationReadRoot(root)`. The configuration overlay (`withConfigurationReadRoot`, `configuration-read-scope.mjs`)
 already serves configuration from a root other than the checkout: that is how read-only surfaces read `sflow/config`

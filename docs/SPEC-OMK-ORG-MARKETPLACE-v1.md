@@ -818,8 +818,8 @@ skill-body budget (risk R6).
 ## 15. Probes before building (M0)
 
 1. **P1, APM 0.35.** `apm pack` runs on the sample marketplace with `owner:`, `lifecycle.yml` and `marketplace.channels`
-   in place. It warns and does not fail. `lifecycle.yml` either stays out of the Copilot and Claude outputs, or is
-   harmless in them.
+   in place. It warns and does not fail. `lifecycle.yml` either stays out of what it writes for each agent host, or
+   is harmless there.
 2. **P2, the office host (needs a person).** Which host serves the office marketplace: GitHub Enterprise, GitLab or
    Azure DevOps. Whether it reads `CODEOWNERS`, and from where. Whether code-owner review can be required. Whether the
    maintainers can create protected channel branches.

@@ -18,6 +18,7 @@ import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
 import { posix } from './util.mjs';
+import { storiesRoot } from './story-paths.mjs';
 
 export const CODE_DOCUMENTATION_LIMITS = Object.freeze({
   files: 200,
@@ -83,7 +84,7 @@ export async function inspectCodeDocumentation(root, config, workflow, phase) {
     }
     const baseCommit = phase.generationIntent?.baseline?.commit ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null;
     if (!baseCommit) return { documentation: summary('unavailable', { reason: 'generation-baseline-unknown' }), advisories: [] };
-    const itemRoot = posix(config.workItemRoot ?? 'singularity/work-items');
+    const itemRoot = posix(storiesRoot(config));
     const changeSet = await buildRepositoryChangeSet(root, { baseCommit });
     const candidates = changeSet.entries.filter((entry) => entry.newPath && entry.status !== 'deleted' && productSource(entry.newPath, itemRoot));
     const supported = candidates.filter((entry) => documentationLanguage(entry.newPath));

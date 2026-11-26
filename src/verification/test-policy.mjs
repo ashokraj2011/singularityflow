@@ -26,6 +26,7 @@ import { commandCovering } from './adapters.mjs';
 import { capabilityLines, launcherPresent, repositoryTestCapability } from './capability.mjs';
 import { effectiveContract } from './contracts.mjs';
 import { profileCeiling, profileForCommand } from './profiles.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 export const BASELINE_FAILURE_DISPOSITIONS = Object.freeze(['repair-in-story', 'accept-pre-existing', 'resolve-outside']);
 export const TEST_POLICY_PATH = 'context/test-policy.json';
@@ -64,7 +65,7 @@ async function assertBaseFailuresResolved(root, baseCommit) {
 export async function readSealedStoryTestPolicy(root, config, workflow) {
   if (!workflow?.testPolicy?.path) return null;
   try {
-    const file = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, workflow.testPolicy.path);
+    const file = storyLocation(root, config, workflow.workItem.id).file(workflow.testPolicy.path);
     const record = JSON.parse(await readFile(file, 'utf8'));
     if (`sha256:${recordSha256(record)}` !== workflow.testPolicy.sha256) return { record: null, error: 'the sealed test policy no longer matches the digest recorded at creation' };
     return { record, path: workflow.testPolicy.path, sha256: workflow.testPolicy.sha256 };

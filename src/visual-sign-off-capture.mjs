@@ -34,9 +34,9 @@ import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { workDirRelative } from './story-paths.mjs';
 import { witnessContextBinding } from './verification/witness-records.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** Where in the Story's folder SFlow's sign-off screenshots go; lifecycle-worktree.mjs names the same folder. */
 export const SIGN_OFF_CAPTURE_DIRECTORY = 'evidence/visual-sign-offs';
@@ -55,7 +55,7 @@ export const captureName = (clauseId, slot, binding) => `${slug(clauseId)}-${slu
 
 /** The repository path of SFlow's screenshot for a criterion's slot, for the candidate `binding` names. */
 export function signOffCapturePath(config, workflow, clauseId, slot, binding = witnessContextBinding(workflow)) {
-  return `${workDirRelative(config, workflow.workItem.id)}/${SIGN_OFF_CAPTURE_DIRECTORY}/${captureName(clauseId, slot, binding)}.png`;
+  return storyLocation(null, config, workflow.workItem.id).record(`${SIGN_OFF_CAPTURE_DIRECTORY}/${captureName(clauseId, slot, binding)}.png`);
 }
 
 /** SFlow's screenshot of this candidate for the slot, when one was taken here (a regular file), else null. */

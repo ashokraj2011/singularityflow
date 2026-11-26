@@ -196,7 +196,7 @@ export function dependencyProof(root, ref, item, { env = process.env } = {}) {
 function storyClosed(root, story, workItemRoot, { env }) {
   for (const ref of [`refs/remotes/origin/${story.branch ?? story.workId}`, `refs/heads/${story.branch ?? story.workId}`]) {
     if (!refCommit(root, ref, { env })) continue;
-    const text = committedFileText(root, ref, storyLocation(null, { workItemRoot }, story.workId).record(`workflow.json`), { env });
+    const text = committedFileText(root, ref, storyLocation(null, { workItemRoot }, String(story.workId)).record('workflow.json'), { env });
     if (!text) continue;
     try {
       const workflow = JSON.parse(text);

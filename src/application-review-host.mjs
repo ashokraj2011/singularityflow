@@ -9,9 +9,9 @@ import { createApplicationReviewHumanServer, applicationReviewPage } from './app
 import { mutateApplicationReview, recordApplicationFeedback, confirmApplicationReview, finalizeApplicationReview, prepareApplicationRepair } from './application-review.mjs';
 import { araFail, projectReview, reviewDigest, reviewReportPages, findingRoot, validateReviewCaptureSet } from './application-review-contract.mjs';
 import { captureApplicationReview, prepareStaticReview, reviewedPageFingerprint, applicationResultHtml } from './application-review-preview.mjs';
-import { workDirRelative } from './story-paths.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const safeErrorMessage = error => redactDiagnosticText(error.message ?? String(error), { multiline: true }).slice(0, 4000);
 
@@ -25,7 +25,7 @@ export async function createApplicationReviewHost(root, { workId = null, session
   const read = async () => {
     const { config, workflow } = await loadAcceptedStoryExecution(root, workId);
     if (!lifecycleWatch && !['completed', 'cancelled', 'archived'].includes(workflow.status)) {
-      const directory = path.join(root, workDirRelative(config, workflow.workItem.id));
+      const directory = path.join(root, storyLocation(null, config, workflow.workItem.id).prefix);
       try {
         lifecycleWatch = watch(directory, { persistent: false }, (_event, filename) => {
           if (filename && String(filename) !== 'workflow.json') return;

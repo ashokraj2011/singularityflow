@@ -11,6 +11,7 @@ import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { resolveStorySkillPackage } from './story-execution-context.mjs';
 import { posix, secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -166,10 +167,7 @@ export async function verifyTemplateProducerSetContinuity(root, definition, work
 }
 
 function itemRelative(definition, workflow) {
-  return posix(path.posix.join(
-    workflow.resolution?.workItemRoot ?? definition.workItemRoot ?? 'singularity/work-items',
-    workflow.workItem.id
-  ));
+  return storyLocation(null, [workflow, definition], workflow.workItem.id).prefix;
 }
 
 function exactArtifactPath(phaseId, value) {

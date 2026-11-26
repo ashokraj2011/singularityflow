@@ -31,6 +31,7 @@ import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope
 import { loadStoryAggregate } from './story-aggregate-read.mjs';
 import { loadConfig, storyWelEnrollmentStatus } from './state-stores.mjs';
 import { run, secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const EVIDENCE_PACKET_SLICES = Object.freeze([
   'brief', 'impact', 'world-model', 'ast', 'evidence', 'history', 'knowledge', 'observation'
@@ -309,7 +310,7 @@ async function briefCandidates(root, definition, workflow) {
       if (brief.consumerPhase !== phaseId || brief.status !== 'ready' || !brief.renderedPath) continue;
       try {
         const verified = await readAgentBrief(root, workflow, producer, consumer, declaration, {
-          itemRelative: `${definition.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`
+          itemRelative: storyLocation(null, definition, workflow.workItem.id).prefix
         });
         if (verified.status !== 'ready') continue;
         const content = boundedText(verified.content, 4096);
@@ -416,7 +417,7 @@ function mandatoryGovernanceCandidate(definition, workflow, phaseId) {
     reason: { code: 'governance.mandatory', findingIds: [] },
     source: {
       type: 'pinned-work-resolution',
-      reference: `${definition.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/workflow.json`,
+      reference: storyLocation(null, definition, workflow.workItem.id).record(`workflow.json`),
       sha256: recordSha256(policy)
     },
     expansion: null, sourceMaterial: false, mandatory: true, cacheClass: 'session-stable'
@@ -595,7 +596,7 @@ export async function compileEvidencePacket(root, request = {}) {
       classification: 'proven', representation: 'L0-work-identity',
       content: `${workflow.workItem.id} is ${workflow.status}${phase ? ` in ${phase}` : ''}.`,
       relationship: 'current-phase', reason: { code: 'phase.required-context', findingIds: [] },
-      source: { type: 'governed-workflow', reference: `${definition.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/workflow.json` },
+      source: { type: 'governed-workflow', reference: storyLocation(null, definition, workflow.workItem.id).record(`workflow.json`) },
       sourceMaterial: false, mandatory: true, cacheClass: 'session-stable'
     });
     if (requested(slices, 'impact')) unavailable.push({

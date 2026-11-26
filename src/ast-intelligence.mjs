@@ -24,6 +24,7 @@ import { bindingForFile, discoverProjectBindings } from './ast-project-binding.m
 import { astSemanticWarmCommand } from './ast-semantic-warm.mjs';
 import { latestStoryStartAstWarmStatus, readRepositoryAstWarmStatus } from './ast-story-start-status.mjs';
 import { BUNDLED_AST_SEMANTIC_PACKS, OPTIONAL_AST_SEMANTIC_PACKS, optionalSemanticPack } from './ast-semantic-pack-catalog.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const BUNDLED_SEMANTIC_PACK_IDS = new Set(BUNDLED_AST_SEMANTIC_PACKS.map((pack) => pack.id));
 import { replayAstEvidence } from './ast-replay.mjs';
@@ -239,7 +240,7 @@ async function loadRuntime(root, requestedWorkBinding = null) {
     const branch = (astGitRead(root, ['branch', '--show-current'], 'The checked-out branch') ?? '').trim();
     const workId = expectedBinding?.workId ?? branch;
     const statePath = workId
-      ? path.join(root, definition.workItemRoot ?? 'singularity/work-items', workId, 'workflow.json')
+      ? storyLocation(root, definition, workId).file('workflow.json')
       : null;
     if (statePath && existsSync(statePath)) {
       state = readRecord('story-workflow', await readFile(statePath)).record;

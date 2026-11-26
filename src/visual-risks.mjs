@@ -81,8 +81,8 @@ export function visualRiskCommand(workflow, comparison) {
 export async function visualThresholdRefusal(root, config, workflow, phase, { comparisons = null } = {}) {
   if (!ownerStepChecks(workflow, 2) || visualVerificationPhaseOf(workflow, null)?.id !== phase?.id) return null;
   const listed = comparisons ?? await (async () => {
-    const [{ listVisualComparisons }, { workDir }] = await Promise.all([import('./visual-compare.mjs'), import('./story-paths.mjs')]);
-    return listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+    const [{ listVisualComparisons }, { storyLocation }] = await Promise.all([import('./visual-compare.mjs'), import('./story-paths.mjs')]);
+    return listVisualComparisons(root, workflow, { itemDirectory: storyLocation(root, config, workflow.workItem.id).directory });
   })();
   const open = listed.filter((comparison) => comparisonFails(workflow, comparison) && !activeVisualRisk(workflow, comparison));
   if (!open.length) return null;

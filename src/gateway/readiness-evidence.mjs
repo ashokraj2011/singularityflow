@@ -17,8 +17,8 @@ import {
 import { secureRepositoryPath, snapshot } from '../util.mjs';
 import { evaluateVisualCoverage } from '../visual-coverage.mjs';
 import { reconcileWorkInterval } from '../work-intervals.mjs';
-import { workDir } from '../story-paths.mjs';
 import { applicationPathContext } from '../application-paths.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const row = (id, state, source, evidence, slots = {}, action = null) => ({
   id, code: `readiness.${id}`, state, source, evidence, slots, action
@@ -114,7 +114,7 @@ async function claimsRow(root, config, workflow) {
   if (policy.coverage === 'off') {
     return row('unclaimed-changes', 'met', 'policy', 'spec.coverage:off', { configured: 'false' });
   }
-  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const records = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
   const base = workflow.workItem.baseCommit
     ?? workflow.phases[workflow.phaseOrder[0]]?.sourceCommit
     ?? workflow.workItem.baseBranch;
@@ -134,9 +134,7 @@ async function claimsRow(root, config, workflow) {
 async function publishedArtifactsRow(root, config, workflow, phase, publishedCommit) {
   const requiredPath = phase?.requiredArtifact?.path ?? null;
   if (!requiredPath) return row('published-artifacts', 'met', 'policy', 'artifact:not-required', { required: 'false' });
-  const expected = path.posix.join(
-    config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, requiredPath
-  );
+  const expected = storyLocation(null, config, workflow.workItem.id).record(requiredPath);
   const artifacts = (phase.artifacts ?? []).filter((entry) =>
     entry.generation == null || Number(entry.generation) === Number(phase.generation)
   );
@@ -171,7 +169,7 @@ async function reconciliationRow(root, config, workflow, phase) {
   }
   const report = await reconcileWorkInterval(root, config, workflow, {
     phaseId: phase.id,
-    itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
     writeLocal: false,
     requireCleanTarget: false
   });
@@ -209,7 +207,7 @@ async function astRow(root, config, workflow, phase) {
 
 async function visualRow(root, config, workflow) {
   const coverage = await evaluateVisualCoverage(root, workflow, {
-    itemDirectory: workDir(root, config, workflow.workItem.id)
+    itemDirectory: storyLocation(root, config, workflow.workItem.id).directory
   });
   if (coverage.status === 'not-configured') {
     return row('visual', 'met', 'policy', 'visual:not-configured', { required: 'false' });

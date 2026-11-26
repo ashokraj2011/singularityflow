@@ -26,10 +26,10 @@ import { storyTestScope } from '../code-delivery-policy.mjs';
 import { isTestQualityCommand, resolveDeliveryQualityCommands, reviewCodeSource, testCommandProvenance } from '../delivery-evidence.mjs';
 import { nextPhaseGeneration } from '../phase-generation.mjs';
 import { inferRepositoryTestCommands } from '../repository-test-command-inference.mjs';
-import { workDirRelative } from '../story-paths.mjs';
 import { nowIso } from '../util.mjs';
 import { admitTestAttempts, recordRunsBeforeRefusal, recordTestAttempt } from './attempts.mjs';
 import { readSealedStoryTestPolicy } from './test-policy.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 export const REPOSITORY_TESTS_SOURCE = 'repository-tests';
 const SETUP_ROUTE = "Set the repository's test commands, which every step that runs tests uses (Configuration Center → Tests, or "
@@ -150,7 +150,7 @@ export async function preflightRepositoryTests(root, config, workflow, phase, ke
   const configured = await resolveDeliveryQualityCommands(root, phase, { executionMode: storyTestScope(workflow) });
   const added = await verificationRepositoryTests(root, config, workflow, phase, configured);
   if (!added.commands.length) return null;
-  const itemRelative = workDirRelative(config, workflow.workItem.id);
+  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
   const fields = { purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase) };
   const checks = await kernel.qualityChecks(root, phase, config, workflow, added.commands, {
     commandProvenance: new Map(added.commands.map((command) => [command, testCommandProvenance(phase, command)])),

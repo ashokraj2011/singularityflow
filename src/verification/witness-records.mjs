@@ -18,6 +18,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { createHash } from 'node:crypto';
+import { storiesRoot } from '../story-paths.mjs';
 
 export const WITNESS_CHECKLIST = Object.freeze(['states-the-outcome', 'matches-the-criterion', 'current-for-this-change']);
 /**
@@ -85,7 +86,7 @@ export async function applicationReviewWitnesses(root, workflow, config = null) 
   if (!workflow?.applicationAcceptanceRecords?.length) return [];
   const runtime = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'application-review-read.mjs')).href;
   return (await import(runtime)).applicationReviewWitnessResults(root,
-    config ?? { workItemRoot: workflow.resolution?.workItemRoot ?? 'singularity/work-items' }, workflow);
+    config ?? { workItemRoot: storiesRoot(workflow) }, workflow);
 }
 const AC_ID = /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u;
 

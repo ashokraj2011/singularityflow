@@ -374,6 +374,10 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
   inline joins outside those functions now import it statically, so their own closures gain `story-paths.mjs` (they
   already held `util.mjs`, its only import). `presence/attribution.mjs` keeps its root normalization (backslashes,
   trailing slashes) and asks the location whether a path is the Story's record and not its document.
+- **B5.** A template string coerced a missing ID to `undefined`, where `path.join` throws. Where the ID is read from a
+  record (`receipt.workId` in `delivery-evidence.mjs`, `story.workId` in `findings/register/remediation.mjs`), the
+  resolver gets `String(id)`, so a malformed record is still refused with its own message. `trp-document-runtime.mjs`
+  and `test-recovery-admission.mjs` keep `story-paths.mjs` lazy, as they kept `state.mjs`.
 - **Not converted in M1: a Story prefix passed as a parameter** (`itemRelative`, `itemRoot`, `workRoot` joined by the
   callee, as in `recovery-preparation-context.mjs`). The prefix comes from the resolver; the callee's join stays until
   M2 passes the location instead. The ratchet does not count these.

@@ -8,8 +8,8 @@ import { applicationPathContext } from './application-paths.mjs';
 import { storyRepositoryBases, storyRepositoryBaseText } from './capability-branches.mjs';
 import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 import { countedApprovals } from './presence/counted.mjs';
-import { workDir } from './story-paths.mjs';
 import { run } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** The receipt's next human action while people review the phase. */
 const REVIEW_ACTION = 'Review and decide this phase.';
@@ -174,7 +174,7 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
   if (specPolicy.coverage === 'off') requirements = requirementProjection({}, specPolicy);
   else {
     try {
-      const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+      const records = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
       requirements = requirementProjection(records, specPolicy);
     } catch {
       // The packet remains usable even when optional specification records cannot be read.

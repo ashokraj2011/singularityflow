@@ -2,8 +2,8 @@
  * Flaky test commands [CQF:REQ-013]: runs of one command on the same code and environment that disagree.
  * Read by the review packet and `tests summary`, only when asked, so no gate loads it.
  */
-import { workDirRelative } from '../story-paths.mjs';
 import { stepAttempts } from './attempts.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 /**
  * The commands whose runs disagree on the same code and environment: one failed and one passed [CQF:REQ-013].
@@ -47,7 +47,7 @@ export async function storyFlakyTestRuns(root, itemRelative, workflow) {
 export async function flakyTestReview(root, config, workflow, phase) {
   const reused = (phase.checks ?? []).map((check) => check.reusedFrom?.attemptId).filter(Boolean);
   if (!phase.deliveryEvidence && !reused.length && !(phase.checks ?? []).some((check) => check.kind === 'test')) return {};
-  const itemRelative = workDirRelative(config, workflow.workItem.id);
+  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
   const own = new Set([...(await stepAttempts(root, itemRelative, workflow.workItem.id, phase.id)).map((attempt) => attempt.reusedFrom?.attemptId ?? attempt.attemptId), ...reused]);
   const flaky = (await storyFlakyTestRuns(root, itemRelative, workflow)).filter((entry) => entry.attemptIds.some((id) => own.has(id)));
   return flaky.length ? { flakyTestRuns: flaky.map(({ commandId, failed, passed, words }) => ({ commandId, failed, passed, words })) } : {};

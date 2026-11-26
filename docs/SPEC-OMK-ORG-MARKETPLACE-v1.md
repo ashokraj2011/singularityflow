@@ -2,8 +2,10 @@
 
 **Specification ID:** `OMK-v1`
 
-**Status:** Proposed, not built. Written on 2026-11-26 from the owner's decisions of that day, so that it can be built
-next (roadmap Bet 4). Checked against `bet4` at `5ac41f37e`.
+**Status:** M1 and M2 built. M1 (the metadata read and shown, §4, §5) is on main (merged at `8a386d941`, 2026-11-26).
+M2 (the safety review, §7) is built on branch `omk-m2` from main `2809f6edc`, 2026-11-26, not merged yet; what it
+built, and where it differs from the text below, is under §7 "Built in M2". M3 to M7 are not built. Written on 2026-11-26
+from the owner's decisions of that day (roadmap Bet 4). Checked against `bet4` at `5ac41f37e`.
 
 **Owner, 2026-11-26.** Bets 2, 3 and 4 are the priority, and every open decision for Bet 4 is answered:
 1. **Lifecycle approval.** The marketplace repository's own code owners approve a change of an item's lifecycle
@@ -478,6 +480,35 @@ a check ID, a line, a severity and words. The checks:
 **OMK:REQ-033, honest limits.** The checks are labelled as what they are, "SFlow's text checks", and never called a
 security review. They catch hidden text and plain attempts to get around SFlow's rules. They do not catch a clever
 prompt. SFlow's hooks, approvals and frozen snapshots stay the safety boundary.
+
+**Built in M2 (2026-11-26, branch `omk-m2`).**
+- `src/import-safety.mjs` holds the checks of REQ-030 (checker `sflow-text-checks/1`), the gate that names what still
+  needs a yes, the refusals `IMPORT_SAFETY_BLOCKED` and `IMPORT_SAFETY_LOOK_NEEDED` (each with a whole command or the
+  review card's tick), and the words. A warning against a thing ("never skip the approval") is no finding.
+  `hidden-characters` also counts the control characters other than tab and line ends, and the Hangul fillers.
+- `import preview` refuses a block before anything is staged; its JSON carries `safety { state, findings, looks }`, and
+  its add command carries `--looked` for the looks it listed. `import add` checks the staged bytes again before it builds
+  the change, and Workflow Studio's apply checks them a third time from the bytes it adds. An import's `source.safety`
+  is written only when there were lines to look at.
+- `secret` stays today's refusal at import (`IMPORT_SECRET_DETECTED`, run first); it is a `secret` block in the sweep and
+  the conversion review, which never scanned secrets before.
+- `imports check` checks every changed text: a refused one keeps its row with no update command and says why; a look
+  lists only the lines its record did not look at.
+- `workflow from-agent` checks `agent.md` and each skill's `SKILL.md` (a Checks row named `text-checks`, with its lines);
+  a block goes into the feedback for the marketplace as an `import-safety` finding and the workflow is not made; a look
+  needs `--looked`, kept in the workflow's record with the file of each line.
+- The sweep is `src/installed-text-safety.mjs`: every library skill (written here or imported), each import whose file is
+  text (an agent's skill, a template, an agent, a workflow's agent file), kept in `.git/singularity-flow/` by text SHA-256
+  and checker. `singularity-flow check`, `skill catalog`, `marketplace catalog` and a task's plan read it. The Copilot
+  session-start hook does not run it yet; it costs one read of each text the first time.
+- A task never offers or uses a refused library skill; the plan line says `not <ID>: SFlow's text checks refuse its
+  text` at the step it would have fitted, and at each step of the team's own workflow that attaches it. Naming it with
+  `--use-skill` is refused (`TASK_SKILL_TEXT_REFUSED`).
+- VS Code: Studio's import review card shows **Look at these lines** with **I looked at these lines**; the conversion
+  review's Checks row has the same tick, which re-reads the review with `--looked`. The Marketplace and All skills pages
+  badge an installed copy **Refused by text checks** or **Lines to look at**. `/sf-import` shows the lines and asks.
+- Probe P7 ran on the sample marketplace and SFlow's own library skills only: no block, no look. The office
+  marketplace's run needs a person on the office host, and its result tunes the rules before M2 merges.
 
 ## 8. Deprecated and retired items still in use
 

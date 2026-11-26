@@ -1,0 +1,14 @@
+# skills/android-ui-test-creation/lifecycle.yml
+# Changed only through a reviewed pull request that this file's code owners approve (see .github/CODEOWNERS).
+state: approved
+history:
+  - to: proposed
+    at: 2026-09-14
+    by: "@acme/android-qa"
+    change: https://git.example.com/acme/sdlc-marketplace/pull/33
+  - from: proposed
+    to: approved
+    at: 2026-10-02
+    approved-by: ["@acme/marketplace-stewards"]
+    change: https://git.example.com/acme/sdlc-marketplace/pull/34
+    note: Piloted by two teams on the checkout web app.

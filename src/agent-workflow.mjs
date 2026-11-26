@@ -29,6 +29,7 @@ import { deriveWorkflowSettings } from './step-intent-settings.mjs';
 import { inferStepIntents, intentWordScores } from './step-intents.mjs';
 import { neededSteps, withNeededSteps } from './workflow-needs.mjs';
 import { AGENT_TASK_INTENTS } from './agent-task-intents.mjs';
+import { lifecycleStateOf } from './marketplace-lifecycle.mjs';
 import { storyValueTopic } from './phase-roles.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -537,9 +538,27 @@ export function convertAgent({ marketplace, folder = null, agent, skills = [], a
       steps[0].because = { ...(steps[0].because ?? {}), 'clarification.mode': `The agent's first stage is a hard gate: the person answers ${questions.map((question) => `"${question.question}"`).join(', ').slice(0, 600)} before any work.` };
     }
   }
-  if (agent.lifecycleState && agent.lifecycleState !== 'approved') {
-    find('marketplace-lifecycle', 'marketplace', `${agent.name} is ${agent.lifecycleState} in ${marketplace ? 'the marketplace' : 'its apm.yml'}${agent.lifecycleState === 'proposed' ? ', not yet reviewed by its maintainers' : ''}.`,
-      { fix: `Review ${agent.name}, then set its lifecycle-state to approved.` });
+  // Only a lifecycle that is not yet an approval for everyone is the marketplace's to settle [OMK:REQ-010]: proposed, early, or
+  // (for a marketplace's agent) none at all. Approved and generally available raise nothing; deprecated and retired are
+  // shown where the agent is used.
+  const lifecycleWord = agent.lifecycleRecord?.word ?? agent.lifecycleState ?? null;
+  const lifecycleState = lifecycleStateOf(lifecycleWord);
+  const inRecord = ['lifecycle.yml', 'apm.yml'].includes(agent.lifecycleRecord?.source);
+  const approveFix = inRecord ? `Review ${agent.name}, then record its approval in its lifecycle.yml (state approved, with the reviewed change), approved by its code owners.`
+    : `Review ${agent.name}, then set its lifecycle-state to approved.`;
+  if (lifecycleState === 'proposed' || (lifecycleWord && !lifecycleState)) {
+    find('marketplace-lifecycle', 'marketplace', `${agent.name} is ${lifecycleWord} in ${marketplace ? 'the marketplace' : 'its apm.yml'}${lifecycleState === 'proposed' ? ', not yet reviewed by its maintainers' : ''}.`,
+      { fix: approveFix });
+  } else if (lifecycleState === 'early') {
+    find('marketplace-lifecycle', 'marketplace', `${agent.name} is ${lifecycleWord} in ${marketplace ? 'the marketplace' : 'its apm.yml'}: approved for early use, and it may still change.`,
+      { fix: `Once ${agent.name} is ready for every team, ${inRecord ? 'record it as approved in its lifecycle.yml' : 'set its lifecycle-state to approved'}.` });
+  } else if (!lifecycleWord && marketplace) {
+    find('marketplace-lifecycle', 'marketplace', `${agent.name} has no lifecycle recorded in the marketplace, so nobody can see whether it was reviewed.`,
+      { fix: `Give ${agent.name} a lifecycle.yml beside its apm.yml (or a lifecycle-state), set to approved once it is reviewed.` });
+  }
+  // What the marketplace's own records say is wrong with its owner or lifecycle record [OMK:REQ-001, REQ-003].
+  for (const entry of agent.findings ?? []) {
+    if (entry?.class && entry.words) find(entry.class, 'marketplace', entry.words, { ...(entry.fix ? { fix: entry.fix } : {}) });
   }
   const usedSkills = [...new Set(steps.flatMap((step) => step.skills.map((entry) => entry.skill)))];
   for (const name of known) {
@@ -587,6 +606,8 @@ export function convertAgent({ marketplace, folder = null, agent, skills = [], a
     source: { marketplace: marketplace?.id ?? null, repository: marketplace?.repository ?? null, commit: marketplace?.commit ?? null, ...(folder ? { folder } : {}),
       agent: agent.name, version: agent.version ?? null, lifecycleState: agent.lifecycleState ?? null, document: agent.document ?? null,
       maintainer: agent.maintainer ?? null, sourceRepository: agent.sourceRepository ?? null,
+      // Who owns it and its lifecycle record, as the marketplace keeps them [OMK:REQ-015]; null for an agent without them.
+      ...(agent.owner ? { owner: agent.owner } : {}), ...(agent.lifecycleRecord ? { lifecycleRecord: agent.lifecycleRecord } : {}),
       pdlcPhases: [...(agent.pdlcPhases ?? [])], pdlcTasks: [...(agent.pdlcTasks ?? [])] },
     workflow: { id: workflowId, label, description: oneLine(`${agent.description ?? ''} ${folder && !marketplace ? `From folder ${folder}` : `From marketplace ${marketplace?.id ?? ''}`}: ${agent.name} ${agent.version ?? ''}`.trim()) },
     agent: { id: kebab(agent.name), label: parsed.title ?? agent.name, description: oneLine(agent.description ?? parsed.frontmatter?.description ?? agent.name) },

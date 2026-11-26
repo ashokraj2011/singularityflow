@@ -17,4 +17,12 @@ pdlc-phases:
 pdlc-tasks:
   - e2e-testing
   - ui-test-automation
-lifecycle-state: approved
+lifecycle-state: ga
+# Who owns it: its feedback goes to this team (SFlow OMK §4.1). Its lifecycle record is lifecycle.yml beside this file.
+owner:
+  team: web-qa
+  name: Web QA
+  handle: "@acme/web-qa"
+  contact: web-qa@example.com
+  issues: https://git.example.com/acme/sdlc-marketplace/issues
+  feedback-labels: [sflow-feedback, web-e2e-test-generation]

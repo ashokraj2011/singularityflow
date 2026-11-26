@@ -1,0 +1,14 @@
+# Code owners of the sample marketplace (SFlow OMK §11): the governance group owns every lifecycle record, and each
+# team owns its own items. GitHub and GitLab use the last rule that matches, so the lifecycle rule comes last.
+*                                      @acme/marketplace-stewards
+/agents/product-agent/                 @acme/product-guild
+/agents/qa-test-automation-agent/      @acme/qa-guild
+/skills/requirements-writer/           @acme/product-guild
+/skills/acceptance-criteria-writer/    @acme/product-guild
+/skills/web-e2e-test-generation/       @acme/web-qa
+/skills/web-xray-creation/             @acme/web-qa
+/skills/android-*/                     @acme/android-qa
+/apm.yml                               @acme/marketplace-stewards
+/registry/                             @acme/marketplace-stewards
+# Last, so it wins: every lifecycle change needs the stewards.
+**/lifecycle.yml                       @acme/marketplace-stewards

@@ -14,9 +14,14 @@
  *   read: only `marketplaces:` in workflow.yml names what is read. An index entry names the steps it is for by their IDs
  *   here (`phases`); each counts as the intent that step has.
  * - A library skill is used as it is, unless it is marked proposed or beta (its `lifecycle:` tag, or the marketplace's
- *   lifecycle its import recorded): that one needs the person's yes (`--use-skill <ID>`). A marketplace skill not yet in
- *   the library is offered, new here: the yes imports it through `import`, its exact text shown, and the next task finds
- *   it in the library. `--without-skill <ID>` is the person's no.
+ *   lifecycle): that one needs the person's yes (`--use-skill <ID>`). A marketplace skill not yet in the library is
+ *   offered, new here: the yes imports it through `import`, its exact text shown, and the next task finds it in the
+ *   library. `--without-skill <ID>` is the person's no. The lifecycle words are marketplace-lifecycle.mjs's [OMK:REQ-010];
+ *   a deprecated or retired skill is never offered.
+ * - The lifecycle that counts for a library skill imported from a trusted marketplace is the marketplace's at the commit
+ *   it is trusted at now (an index's as last read), not the one recorded at import [OMK:REQ-011]: one deprecated since is
+ *   never offered once the pin moves. When that marketplace cannot be read, the recorded one is used, and a note says so.
+ * - The plan line names each offered skill's owner and state [OMK:REQ-015].
  * - At most two skills per step, ranked by what the task touches, then by ID: the same words and repository give the
  *   same skills.
  *
@@ -29,6 +34,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { AGENT_TASK_INTENTS } from './agent-task-intents.mjs';
+import { isLifecycleWord, lifecycleReadiness } from './marketplace-lifecycle.mjs';
 import { STEP_INTENTS } from './phase-roles.mjs';
 import { SOFTWARE_KINDS } from './software-kinds.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -36,10 +42,6 @@ import { SingularityFlowError } from './util.mjs';
 /** The most skills one step of a task is given. */
 export const TASK_SKILL_LIMIT = 2;
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-/** A marketplace's or a skill's lifecycle marks: offered directly, needs a person's yes, or never offered. */
-const READY = new Set(['approved', 'ga', 'released', 'stable']);
-const UNREVIEWED = new Set(['proposed', 'beta', 'alpha', 'draft', 'experimental', 'preview']);
-const RETIRED = new Set(['deprecated', 'retired', 'withdrawn', 'archived']);
 /** Platform words a skill's tags use for a kind of software. */
 const KIND_ALIASES = Object.freeze({ android: 'mobile', ios: 'mobile', 'react-native': 'mobile', flutter: 'mobile', frontend: 'web', browser: 'web',
   api: 'backend', server: 'backend', service: 'backend', batch: 'job', infrastructure: 'artifact', terraform: 'artifact' });
@@ -72,7 +74,7 @@ function facts({ tags = [], tasks = [], lifecycleState = null }) {
     if (prefix === 'lifecycle') { marked ??= value; continue; }
     const kind = SOFTWARE_KINDS.includes(value) ? value : KIND_ALIASES[value];
     if ((prefix === null || prefix === 'software') && kind) { own.kinds.push(kind); continue; }
-    if (prefix === null && (READY.has(value) || UNREVIEWED.has(value) || RETIRED.has(value))) { marked ??= value; continue; }
+    if (prefix === null && isLifecycleWord(value)) { marked ??= value; continue; }
     for (const word of tokens(value)) if (!GENERIC.has(word)) own.words.push(word);
   }
   own.state ??= marked;
@@ -92,17 +94,26 @@ export function definitionStepIntent(definition) {
 /** `phases` (step IDs here) as `intent:` tags, by `stepIntent`. */
 const phaseTags = (phases = [], stepIntent = null) => (stepIntent ? phases.map(stepIntent).filter(Boolean).map((intent) => `intent:${intent}`) : []);
 
+/** The lifecycle word a marketplace entry carries: its record's, else its apm.yml's lifecycle-state [OMK:REQ-002]. */
+export const entryLifecycleWord = (entry) => entry?.lifecycleRecord?.word ?? entry?.lifecycle?.word ?? entry?.lifecycleState ?? null;
+
 /**
  * A library skill as a task reads it: its own tags, and, when it came from a marketplace, the tasks, tags, steps and
  * lifecycle its import recorded (singularity/imports.lock.yml), so an imported skill is found by the same step the next
- * time. `stepIntent` (definitionStepIntent) reads an index entry's recorded steps.
+ * time. `stepIntent` (definitionStepIntent) reads an index entry's recorded steps. `trusted` is the same skill in its
+ * marketplace at the commit trusted now: its lifecycle is the one that counts [OMK:REQ-011]; with none, the recorded one
+ * is used (`lifecycleFrom: 'recorded'`).
  */
-export function librarySkillCandidate(skill, imported = null, { stepIntent = null } = {}) {
+export function librarySkillCandidate(skill, imported = null, { stepIntent = null, trusted = null } = {}) {
   const source = ['marketplace-skill', 'marketplace'].includes(imported?.source?.kind) ? imported.source : null;
+  const trustedWord = trusted ? entryLifecycleWord(trusted) : null;
   const own = facts({ tags: [...(skill.tags ?? []), ...(source?.tags ?? []), ...phaseTags(source?.phases, stepIntent)], tasks: source?.tasks ?? [],
-    lifecycleState: source?.lifecycleState ?? null });
+    lifecycleState: trusted ? trustedWord : source?.lifecycleState ?? null });
   return { id: skill.id, label: skill.label ?? skill.id, source: 'library', marketplace: source?.marketplace ?? null, sha256: skill.sha256,
-    ...own, lifecycle: RETIRED.has(own.state) ? 'retired' : UNREVIEWED.has(own.state) ? 'unreviewed' : 'ready' };
+    owner: trusted?.owner?.name ?? source?.owner?.name ?? null, ...own,
+    ...(source ? { lifecycleFrom: trusted ? 'trusted' : 'recorded' } : {}),
+    // A library skill written here, with no mark, is used as it is [OMK §5.1].
+    lifecycle: lifecycleReadiness(own.state, { unmarked: 'ready' }) };
 }
 
 /**
@@ -110,9 +121,9 @@ export function librarySkillCandidate(skill, imported = null, { stepIntent = nul
  * (indexMarketplaceSkillEntries), whose `phases` `stepIntent` reads. One with no lifecycle mark needs a yes.
  */
 export function marketplaceSkillCandidate(entry, marketplaceId, { stepIntent = null } = {}) {
-  const own = facts({ tags: [...(entry.tags ?? []), ...phaseTags(entry.phases, stepIntent)], tasks: entry.pdlcTasks ?? [], lifecycleState: entry.lifecycleState ?? null });
-  return { id: entry.name, label: entry.name, source: 'marketplace', marketplace: marketplaceId, version: entry.version ?? null, ...own,
-    lifecycle: RETIRED.has(own.state) ? 'retired' : READY.has(own.state) ? 'ready' : 'unreviewed' };
+  const own = facts({ tags: [...(entry.tags ?? []), ...phaseTags(entry.phases, stepIntent)], tasks: entry.pdlcTasks ?? [], lifecycleState: entryLifecycleWord(entry) });
+  return { id: entry.name, label: entry.name, source: 'marketplace', marketplace: marketplaceId, version: entry.version ?? null, owner: entry.owner?.name ?? null, ...own,
+    lifecycle: lifecycleReadiness(own.state) };
 }
 
 /** Why a skill fits a step, in a person's words. */
@@ -166,7 +177,7 @@ export function chooseTaskSkills(composition, { candidates = [], kinds = [], wor
       current.steps.push(step.id);
       picked.set(candidate.id, current);
       (byStep[step.id] ??= []).push({ id: candidate.id, status, marketplace: candidate.source === 'marketplace' ? candidate.marketplace : null,
-        state: candidate.lifecycle === 'unreviewed' ? candidate.state ?? 'not yet approved' : null });
+        state: candidate.lifecycle === 'unreviewed' ? candidate.state ?? 'not yet approved' : null, owner: candidate.owner ?? null });
     }
   }
   const named = [...wanted].filter((id) => !picked.has(id));
@@ -188,20 +199,21 @@ export function chooseTaskSkills(composition, { candidates = [], kinds = [], wor
     offers: entries.filter((entry) => entry.status !== 'used').map((entry) => ({
       id: entry.candidate.id, steps: entry.steps, source: entry.candidate.source, marketplace: entry.candidate.marketplace ?? null,
       new: entry.status === 'new', state: entry.candidate.lifecycle === 'unreviewed' ? entry.candidate.state ?? 'not yet approved' : null,
-      why: entry.why, ...(entry.candidate.version ? { version: entry.candidate.version } : {}) })),
+      owner: entry.candidate.owner ?? null, why: entry.why, ...(entry.candidate.version ? { version: entry.candidate.version } : {}) })),
     byStep
   };
 }
 
-/** A skill as the plan line names it: used, needing a yes, or new here [ITW:REQ-012]. */
+/** A skill as the plan line names it: used, needing a yes, or new here [ITW:REQ-012], with its owner [OMK:REQ-015]. */
 export function planSkillWords(entries = []) {
   const used = entries.filter((entry) => entry.status === 'used').map((entry) => entry.id);
   const parts = [];
   if (used.length) parts.push(`with ${used.length > 1 ? `${used.slice(0, -1).join(', ')} and ${used.at(-1)}` : used[0]}`);
   for (const entry of entries.filter((item) => item.status !== 'used')) {
+    const owner = entry.owner ? ` (${entry.owner})` : '';
     parts.push(entry.status === 'new'
-      ? `with ${entry.id} from ${entry.marketplace}, ${entry.state ? `${entry.state} and ` : ''}new here: add it?`
-      : `with ${entry.id}, ${entry.state}: use it?`);
+      ? `with ${entry.id} from ${entry.marketplace}${owner}, ${entry.state ? `${entry.state} and ` : ''}new here: add it?`
+      : `with ${entry.id}${owner}, ${entry.state}: use it?`);
   }
   return parts.length ? ` (${parts.join('; ')})` : '';
 }
@@ -218,12 +230,14 @@ export async function taskSoftwareKinds(root, touchedPaths = []) {
   return [...new Set((touched.length ? touched : projects).map((project) => project.kind).filter(Boolean))].sort();
 }
 
-// v2 keeps each skill's description too, for the page of every skill (skill-catalog.mjs); a v1 listing is read again once.
-const CATALOG_FORMAT = 'sflow-task-marketplace-skills/v2';
-// A marketplace's agents, each with its agent.md, for a marketplace agent as a task's plan [ITW:REQ-011]. v2 keeps each
-// skill's SHA-256 too, so the marketplace page (marketplace-catalog.mjs) tells an installed copy from a changed one; a v1
-// listing is read again once.
-const AGENTS_FORMAT = 'sflow-task-marketplace-agents/v2';
+// v2 kept each skill's description too, for the page of every skill (skill-catalog.mjs). v3 keeps each item's owner,
+// lifecycle record and the marketplace's findings on them, and the marketplace's channels [OMK:REQ-006]; a v2 listing is
+// read again once.
+const CATALOG_FORMAT = 'sflow-task-marketplace-skills/v3';
+// A marketplace's agents, each with its agent.md, for a marketplace agent as a task's plan [ITW:REQ-011]. v2 kept each
+// skill's SHA-256 too, so the marketplace page (marketplace-catalog.mjs) tells an installed copy from a changed one; v3
+// adds what the skills' listing adds. A v2 listing is read again once.
+const AGENTS_FORMAT = 'sflow-task-marketplace-agents/v3';
 
 /** Where a trusted marketplace's listing at its pinned commit is kept: the clone's Git folder, one file per commit. */
 async function listingFile(root, folder, marketplace) {
@@ -248,26 +262,42 @@ async function keepListing(file, value) {
   } catch { /* the listing is read again next time */ }
 }
 
+/** What a listing keeps of an item's owner, lifecycle record and the marketplace's findings on them [OMK §4]. */
+const listingMetadata = (entry) => ({ owner: entry.owner ?? null, lifecycleRecord: entry.lifecycleRecord ?? null, findings: entry.findings ?? [] });
+
 const listingSkills = (listing) => listing.packages.filter((entry) => entry.kind === 'skill' && ID.test(entry.name)).map((entry) => ({
   name: entry.name, version: entry.version ?? null, description: entry.description ?? null, tags: entry.tags ?? [], pdlcTasks: entry.pdlcTasks ?? [],
-  lifecycleState: entry.lifecycleState ?? null }));
+  lifecycleState: entry.lifecycleState ?? null, ...listingMetadata(entry) }));
+
+/** What a listing keeps of the marketplace itself: its owner and its channels [OMK:REQ-004]. */
+const listingMarketplace = (listing) => ({ owner: { name: listing.owner ?? null, email: listing.ownerEmail ?? null }, channels: listing.channels ?? {} });
 
 /**
- * A trusted marketplace's skill packages at the commit the repository trusts. The listing at a pinned commit never
- * changes, so it is kept in the clone's Git folder and read once per commit; reading it again would fetch the same commit.
- * `skill catalog` (skill-catalog.mjs) reads a marketplace through this same listing.
+ * A trusted marketplace's skill packages at the commit the repository trusts, with its channels and the channel the
+ * trust reads (marketplace-repository.mjs trustChannel): `{ skills, channels, channel }`. The listing at a pinned commit
+ * never changes, so it is kept in the clone's Git folder and read once per commit; reading it again would fetch the same
+ * commit. `skill catalog` (skill-catalog.mjs) reads a marketplace through this same listing.
  */
-export async function trustedMarketplaceSkills(root, marketplace) {
+export async function trustedMarketplaceSkillListing(root, marketplace) {
   const file = await listingFile(root, 'task-marketplace-skills', marketplace);
+  const { trustChannel } = await import('./marketplace-repository.mjs');
   const kept = await keptListing(file, CATALOG_FORMAT, marketplace, 'skills');
-  if (kept) return kept.skills;
+  if (kept) return { skills: kept.skills, channels: kept.channels ?? {}, channel: trustChannel(kept.channels, marketplace.ref ?? null) };
   const { readMarketplaceRepository } = await import('./marketplace-repository.mjs');
-  const skills = listingSkills(await readMarketplaceRepository(marketplace));
-  await keepListing(file, { format: CATALOG_FORMAT, repository: marketplace.repository, commit: marketplace.commit, skills });
-  return skills;
+  const listing = await readMarketplaceRepository(marketplace);
+  const skills = listingSkills(listing);
+  const own = listingMarketplace(listing);
+  await keepListing(file, { format: CATALOG_FORMAT, repository: marketplace.repository, commit: marketplace.commit, ...own, skills });
+  return { skills, channels: own.channels, channel: trustChannel(own.channels, marketplace.ref ?? null) };
 }
 
-const INDEX_LISTING_FORMAT = 'sflow-task-index-skills/v1';
+/** A trusted marketplace's skill packages at the commit the repository trusts (trustedMarketplaceSkillListing's). */
+export async function trustedMarketplaceSkills(root, marketplace) {
+  return (await trustedMarketplaceSkillListing(root, marketplace)).skills;
+}
+
+// v2 keeps each entry's owner and lifecycle and the index's channel [OMK:REQ-005]; a v1 listing is read again once.
+const INDEX_LISTING_FORMAT = 'sflow-task-index-skills/v2';
 /** How long an index marketplace's skill listing is used before it is read again. */
 export const INDEX_LISTING_FRESH_MS = 60 * 60 * 1000;
 
@@ -280,7 +310,7 @@ export function indexMarketplaceSkillEntries(index, compareVersions) {
   }
   return [...newest.values()].sort((left, right) => (left.id < right.id ? -1 : 1)).map((entry) => ({ name: entry.id, label: entry.label ?? entry.id,
     version: entry.version ?? null, description: entry.description ?? null, tags: [...(entry.tags ?? [])], phases: [...(entry.phases ?? [])], pdlcTasks: [],
-    lifecycleState: null }));
+    lifecycleState: null, owner: entry.owner ?? null, lifecycleRecord: entry.lifecycle ?? null, findings: [...(entry.findings ?? [])] }));
 }
 
 /**
@@ -293,7 +323,12 @@ export function indexMarketplaceSkillEntries(index, compareVersions) {
  * answer is read and checked in full, and a listing with no validators is read in full, by age as before. An import of
  * one of its skills fetches and verifies the entry's own file again, by its pinned SHA-256.
  */
-export async function trustedIndexMarketplaceSkills(root, marketplace, { fetchImpl = globalThis.fetch, fresh = false, now = Date.now() } = {}) {
+export async function trustedIndexMarketplaceSkills(root, marketplace, options = {}) {
+  return (await trustedIndexMarketplaceSkillListing(root, marketplace, options)).skills;
+}
+
+/** trustedIndexMarketplaceSkills's listing with the channel the index says it is (`{ skills, channels, channel }`). */
+export async function trustedIndexMarketplaceSkillListing(root, marketplace, { fetchImpl = globalThis.fetch, fresh = false, now = Date.now() } = {}) {
   const { repositoryGitPath } = await import('./git-directory.mjs');
   const origins = [...(marketplace.allowedOrigins ?? [])].sort();
   const key = createHash('sha256').update(`${marketplace.index}\n${origins.join(' ')}`).digest('hex');
@@ -305,7 +340,8 @@ export async function trustedIndexMarketplaceSkills(root, marketplace, { fetchIm
       && Array.isArray(read.skills)) kept = read;
   } catch { /* not kept yet */ }
   const age = now - Date.parse(kept?.readAt ?? '');
-  if (kept && !fresh && age >= 0 && age < INDEX_LISTING_FRESH_MS) return kept.skills;
+  const answer = (from) => ({ skills: from.skills, channels: from.channels ?? {}, channel: from.channel ?? null });
+  if (kept && !fresh && age >= 0 && age < INDEX_LISTING_FRESH_MS) return answer(kept);
   const keep = async (value) => {
     try {
       await mkdir(path.dirname(file), { recursive: true });
@@ -319,14 +355,16 @@ export async function trustedIndexMarketplaceSkills(root, marketplace, { fetchIm
   if (index.notModified) {
     // The same list, from the address it was read at: kept, with its digest, and its hour starts again.
     if (index.resolvedIndex === kept.resolvedIndex) {
-      await keep({ indexSha256: kept.indexSha256, resolvedIndex: kept.resolvedIndex, ...validators({ ...kept, ...index }), skills: kept.skills });
-      return kept.skills;
+      await keep({ indexSha256: kept.indexSha256, resolvedIndex: kept.resolvedIndex, ...validators({ ...kept, ...index }), channel: kept.channel ?? null,
+        channels: kept.channels ?? {}, skills: kept.skills });
+      return answer(kept);
     }
     index = await fetchMarketplaceIndex(marketplace, { fetchImpl });
   }
   const skills = indexMarketplaceSkillEntries(index, compareVersions);
-  await keep({ indexSha256: index.indexSha256, resolvedIndex: index.resolvedIndex, ...validators(index), skills });
-  return skills;
+  const listing = { skills, channel: index.channel ?? null, channels: index.channels ?? {} };
+  await keep({ indexSha256: index.indexSha256, resolvedIndex: index.resolvedIndex, ...validators(index), ...listing });
+  return listing;
 }
 
 /** Whether two `marketplaces:` entries trust the same thing: the same repository and commit, or the same index and origins. */
@@ -373,6 +411,11 @@ export function trustedSkillsOf(root, marketplace, options = {}) {
   return marketplace.repository ? trustedMarketplaceSkills(root, marketplace) : trustedIndexMarketplaceSkills(root, marketplace, options);
 }
 
+/** trustedSkillsOf's listing, with the channel the trust reads: `{ skills, channels, channel }` [OMK:REQ-015]. */
+export function trustedSkillListingOf(root, marketplace, options = {}) {
+  return marketplace.repository ? trustedMarketplaceSkillListing(root, marketplace) : trustedIndexMarketplaceSkillListing(root, marketplace, options);
+}
+
 /**
  * A trusted marketplace's agents at the commit the repository trusts, each with what its apm.yml says and its agent.md
  * text, and its skills as trustedMarketplaceSkills lists them: what convertAgent (agent-workflow.mjs) reads to tell what
@@ -382,7 +425,7 @@ export function trustedSkillsOf(root, marketplace, options = {}) {
 export async function trustedMarketplaceAgents(root, marketplace) {
   const file = await listingFile(root, 'task-marketplace-agents', marketplace);
   const kept = await keptListing(file, AGENTS_FORMAT, marketplace, 'agents');
-  if (kept && Array.isArray(kept.skills)) return { agents: kept.agents, skills: kept.skills };
+  if (kept && Array.isArray(kept.skills)) return { agents: kept.agents, skills: kept.skills, channels: kept.channels ?? {}, marketplaceOwner: kept.owner ?? null };
   const { readMarketplaceRepository } = await import('./marketplace-repository.mjs');
   // Each skill's SKILL.md is read too, for its SHA-256 alone: what an import of it would add (marketplace-catalog.mjs).
   const listing = await readMarketplaceRepository(marketplace, { documents: (packages) => packages.filter((entry) => ['agent', 'skill'].includes(entry.kind)).map((entry) => entry.name) });
@@ -390,16 +433,17 @@ export async function trustedMarketplaceAgents(root, marketplace) {
     name: entry.name, version: entry.version ?? null, description: entry.description ?? null, lifecycleState: entry.lifecycleState ?? null,
     pdlcPhases: entry.pdlcPhases ?? [], pdlcTasks: entry.pdlcTasks ?? [], tags: entry.tags ?? [], skills: entry.skills ?? [],
     maintainer: entry.maintainer ?? null, sourceRepository: entry.sourceRepository ?? null, document: entry.document ?? null,
-    manifestSha256: entry.manifestSha256 ?? null, text: entry.text }));
+    manifestSha256: entry.manifestSha256 ?? null, ...listingMetadata(entry), text: entry.text }));
   const texts = new Map(listing.packages.filter((entry) => entry.kind === 'skill' && typeof entry.text === 'string').map((entry) => [entry.name, entry.text]));
   const skills = listingSkills(listing).map((skill) => ({ ...skill,
     sha256: texts.has(skill.name) ? createHash('sha256').update(texts.get(skill.name), 'utf8').digest('hex') : null }));
-  await keepListing(file, { format: AGENTS_FORMAT, repository: marketplace.repository, commit: marketplace.commit, agents, skills });
+  const own = listingMarketplace(listing);
+  await keepListing(file, { format: AGENTS_FORMAT, repository: marketplace.repository, commit: marketplace.commit, ...own, agents, skills });
   const skillFile = await listingFile(root, 'task-marketplace-skills', marketplace);
   if (!await keptListing(skillFile, CATALOG_FORMAT, marketplace, 'skills')) {
-    await keepListing(skillFile, { format: CATALOG_FORMAT, repository: marketplace.repository, commit: marketplace.commit, skills });
+    await keepListing(skillFile, { format: CATALOG_FORMAT, repository: marketplace.repository, commit: marketplace.commit, ...own, skills });
   }
-  return { agents, skills };
+  return { agents, skills, channels: own.channels, marketplaceOwner: own.owner };
 }
 
 /**
@@ -418,16 +462,37 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
     const library = await loadSkillLibrary(configRoot).catch(() => ({ skills: new Map() }));
     const ledger = await loadImportsLedger(configRoot).catch(() => ({ imports: {} }));
     const stepIntent = definitionStepIntent(definition);
-    const candidates = [...library.skills.values()].map((skill) => librarySkillCandidate(skill, ledger.imports?.[`library-skill:${skill.id}`], { stepIntent }));
     const marketplaces = Object.values(definition.marketplaces ?? {}).filter((entry) => (entry?.repository && entry.commit) || entry?.index)
       .sort((left, right) => (left.id < right.id ? -1 : 1));
+    const imported = (skill) => ledger.imports?.[`library-skill:${skill.id}`] ?? null;
+    const fromMarketplace = (skill) => (['marketplace-skill', 'marketplace'].includes(imported(skill)?.source?.kind) ? imported(skill).source.marketplace : null);
+    let approvedRead = null;
+    const approvedOnce = () => (approvedRead ??= approvedMarketplaces(root).catch(() => null));
+    // The lifecycle that counts for an imported library skill is its marketplace's now [OMK:REQ-011]: each trusted one a
+    // library skill came from is read once (kept per commit, or for an index's hour), and one that cannot be read keeps
+    // the lifecycle recorded at import, with a note.
+    const trustedNow = new Map();
+    for (const id of [...new Set([...library.skills.values()].map(fromMarketplace).filter(Boolean))].sort()) {
+      const named = marketplaces.find((entry) => entry.id === id);
+      if (!named) continue;
+      const approved = await approvedOnce();
+      const marketplace = approved ? approved[id] ?? null : named;
+      if (!marketplace) continue;
+      try {
+        trustedNow.set(id, new Map((await trustedSkillsOf(root, marketplace, { fetchImpl })).map((entry) => [entry.name, entry])));
+      } catch (error) {
+        notes.push(`Marketplace ${id} could not be read, so the skills imported from it keep the lifecycle recorded when they were imported: ${String(error?.message ?? error).split('\n')[0]}`);
+      }
+    }
+    const candidates = [...library.skills.values()].map((skill) => librarySkillCandidate(skill, imported(skill), { stepIntent,
+      trusted: trustedNow.get(fromMarketplace(skill))?.get(imported(skill)?.source?.entry ?? skill.id) ?? null }));
     if (!candidates.some((candidate) => candidate.intents.length) && !marketplaces.length && !use.length) return { skills: [], offers: [], byStep: {}, notes };
     const kinds = await taskSoftwareKinds(root, touchedPaths);
     const fromLibrary = chooseTaskSkills(composition, { candidates, kinds, words, use: use.filter((id) => candidates.some((entry) => entry.id === id)), without });
     const bare = composition.steps.filter((step) => !fromLibrary.byStep[step.id]?.length);
     const namedElsewhere = use.some((id) => !candidates.some((entry) => entry.id === id));
     if ((bare.length || namedElsewhere) && marketplaces.length) {
-      const approved = await approvedMarketplaces(root).catch(() => null);
+      const approved = await approvedOnce();
       for (const named of marketplaces) {
         // Read as the approved configuration trusts it (its commit or index), which is what an import of it reads.
         const marketplace = approved ? approved[named.id] ?? null : named;

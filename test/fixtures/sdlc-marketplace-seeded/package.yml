@@ -1,0 +1,3 @@
+    - name: legacy-smoke-checks
+      description: Run the old smoke checks against a deployed web page before a release.
+      source: ./skills/legacy-smoke-checks

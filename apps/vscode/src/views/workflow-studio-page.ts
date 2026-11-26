@@ -4950,6 +4950,14 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     return box;
   }
 
+  /** A marketplace entry's owner and lifecycle in one line: "Owner: Web QA · Generally available since 1 Nov 2026". */
+  function entryOwnership(entry) {
+    var lifecycle = entry.lifecycleRecord || entry.lifecycle || null;
+    var parts = [entry.owner && entry.owner.words ? entry.owner.words : '', lifecycle && lifecycle.words ? lifecycle.words : '',
+      lifecycle && lifecycle.guarded === false && (lifecycle.state === 'approved' || lifecycle.state === 'ga') ? 'not guarded by code owners' : ''];
+    return parts.filter(Boolean).join(' · ');
+  }
+
   function renderEntries(lib) {
     var market = lib.market; var result = lib.entries;
     var box = el('div', { class: 'decision-box', 'aria-label': 'Entries in ' + market.label });
@@ -4965,6 +4973,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       grid.appendChild(el('article', { class: 'studio-card' },
         el('div', { class: 'studio-row spread' }, el('strong', { text: entry.label }), el('span', { class: 'pill', text: (KIND_WORDS[entry.kind] || entry.kind) + (entry.version ? ' ' + entry.version : '') })),
         entry.description ? el('span', { class: 'muted', text: entry.description }) : null,
+        // Its owner and lifecycle, with who and when (OMK section 5.3): a repository's record, or what an index states.
+        entryOwnership(entry) ? el('span', { class: 'muted', text: entryOwnership(entry) }) : null,
         (entry.tags || []).length ? el('div', { class: 'rail' }, entry.tags.map(function (tag) { return el('span', { class: 'pill', text: tag }); })) : null,
         // A Git repository marketplace's skill: on its own, into the skill master (it also comes with the agents that use it).
         entry.importable && market.repository && entry.kind === 'skill'
@@ -5044,7 +5054,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       // No commit or digest for a person to read: the agent's version says which one it is.
       // An update reads the marketplace at its newest commit, which this repository does not trust yet: what changed is below.
       el('div', { text: source.agent + (source.version ? ' ' + source.version : '') + (source.marketplace ? ', marketplace ' + source.marketplace + (review.update ? ', at its newest commit' : ', at the commit this repository trusts') : source.folder ? ', folder ' + source.folder : '') }),
+      source.owner && source.owner.words ? el('div', { class: 'muted', text: source.owner.words + (source.owner.confirmWords ? '. ' + source.owner.confirmWords : '') }) : null,
       source.lifecycle ? el('div', { class: 'muted', text: 'Lifecycle: ' + source.lifecycle }) : null,
+      source.lifecycleRecord && source.lifecycleRecord.guardWords ? el('div', { class: 'muted', text: source.lifecycleRecord.guardWords }) : null,
       source.maintainer ? el('div', { class: 'muted', text: 'Maintainer: ' + source.maintainer }) : null)));
 
     var rowsByStep = {};
@@ -5154,7 +5166,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       var mark = row.status === 'missing' || row.status.indexOf('edited (') === 0 ? 'bad' : row.status === 'current' && !waiting ? 'ok' : 'wait';
       section.appendChild(el('div', { class: 'check-row' },
         el('span', { class: 'mark ' + mark, text: mark === 'ok' ? '✓' : '!' }),
-        el('div', null, el('strong', { text: row.key }), el('div', { class: 'muted', text: row.source + ' · ' + importStatusWords(row.status) + (checked ? ' · ' + importCheckWords(checked) : '') })),
+        el('div', null, el('strong', { text: row.key }), el('div', { class: 'muted', text: row.source + (row.owner ? ' · owned by ' + row.owner : '') + ' · ' + importStatusWords(row.status) + (checked ? ' · ' + importCheckWords(checked) : '') })),
         el('div', { class: 'studio-row' },
           checked && checked.updateCommand ? button('Review update', function () { reviewUpdate(row, checked); }, { class: 'primary', 'aria-label': 'Review the update to ' + row.key }) : null,
           row.kind === 'mcp-server' && row.status === 'current' ? button('Add host entry', function () { post({ type: 'studio.mcpHostAdd', id: row.target.id }); }, { class: 'secondary', 'aria-label': 'Add the host entry for ' + row.target.id }) : null,

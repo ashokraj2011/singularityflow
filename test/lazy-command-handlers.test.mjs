@@ -1063,7 +1063,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,906,163 (measured for submit.mjs, +100 over 9,906,063 at 480c2f936, 2026-11-26 on fpl-m1; start.mjs 9,905,573, +370):
     // `needs-you` registered as a read with /sf-inbox as its skill (command-registry.mjs, command-skills.mjs), and Story
     // discovery skips a Story Needs you keeps (session-story-discovery.mjs) [FPL:REQ-017]. No new eager file.
-    assert.ok(closure.bytes <= 9_906_163, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,906,598 (measured for submit.mjs, +535 over 9,906,063 at 480c2f936, 2026-11-26 on omk-m1; start.mjs 9,905,738, +535):
+    // an index's channels and its entries' owners and lifecycles, read through the reader fetchMarketplaceIndex loads only
+    // when it fetches an index (marketplace.mjs) [OMK:REQ-005]; the lifecycle, owner and CODEOWNERS readers stay lazy.
+    // No new eager file.
+    // 9,906,698 (measured for submit.mjs on m1-int with fpl-m1 and omk-m1 merged, 2026-11-26; start.mjs 9,906,108): the two
+    // branches' rises together. No new eager file.
+    assert.ok(closure.bytes <= 9_906_698, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1668,7 +1674,11 @@ test('the common session projection does not import attach, state stores or publ
   // local help commits, small edits across modules it already loaded. No new eager file.
   // 4,367,375 (+100, measured 2026-11-26 on fpl-m1): `needs-you` registered with /sf-inbox as its skill (command-registry.mjs,
   // command-skills.mjs) [FPL:REQ-038]. No new eager file.
-  assert.ok(current.bytes <= 4_367_375, `session current loads ${current.bytes} source bytes`);
+  // 4,367,810 (+535 over 4,367,275 at 480c2f936, measured 2026-11-26 on omk-m1): an index's channels, owners and
+  // lifecycles, read through a reader fetchMarketplaceIndex loads only when it fetches (marketplace.mjs) [OMK:REQ-005].
+  // No new eager file.
+  // 4,367,910 (measured on m1-int with fpl-m1 and omk-m1 merged, 2026-11-26): the two branches' rises together. No new eager file.
+  assert.ok(current.bytes <= 4_367_910, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

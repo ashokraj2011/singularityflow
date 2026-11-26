@@ -25,6 +25,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { compareVersions } from './marketplace.mjs';
+import { itemLifecycle, lifecycleSummary } from './marketplace-lifecycle.mjs';
 import { STEP_INTENTS } from './phase-roles.mjs';
 import { composeTask, storyComposition, TASK_KINDS } from './task-composition.mjs';
 import { chooseTaskSkills, definitionStepIntent, librarySkillCandidate, marketplaceSkillCandidate, unapprovedMarketplaces } from './task-skills.mjs';
@@ -181,19 +182,32 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
     return source && ['marketplace', 'marketplace-skill'].includes(source.kind) ? source : null;
   };
   const stepIntent = definitionStepIntent(definition);
+  // Each read marketplace's skills, by name: what a library skill imported from it counts as now [OMK:REQ-011].
+  const readSkills = new Map(marketplaces.filter((marketplace) => !marketplace.warning)
+    .map((marketplace) => [marketplace.id, new Map((marketplace.skills ?? []).map((entry) => [entry.name, entry]))]));
+  const channels = new Map(marketplaces.map((marketplace) => [marketplace.id, marketplace.channel ?? null]));
   const entries = [];
   for (const skill of [...library].sort((left, right) => byText(left.id, right.id))) {
     const record = recordOf(skill.id);
-    const candidate = librarySkillCandidate(skill, imports[`library-skill:${skill.id}`] ?? null, { stepIntent });
+    const trusted = record ? readSkills.get(record.marketplace)?.get(record.entry ?? skill.id) ?? null : null;
+    const candidate = librarySkillCandidate(skill, imports[`library-skill:${skill.id}`] ?? null, { stepIntent, trusted });
+    // Its marketplace's record now; else what its import recorded, said so.
+    const lifecycleRecord = trusted?.lifecycleRecord ? lifecycleSummary(trusted.lifecycleRecord)
+      : record?.lifecycleState ? lifecycleSummary(itemLifecycle({ state: trusted ? trusted.lifecycleState : record.lifecycleState, guard: null }), { recorded: !trusted }) : null;
     entries.push({ candidate, key: `library:${skill.id}`, source: 'library', marketplace: record?.marketplace ?? null, version: record?.version ?? null,
-      label: skill.label ?? skill.id, description: skill.description ?? '', tags: [...(skill.tags ?? []), ...(record?.tags ?? [])] });
+      label: skill.label ?? skill.id, description: skill.description ?? '', tags: [...(skill.tags ?? []), ...(record?.tags ?? [])],
+      owner: trusted?.owner ?? (record?.owner?.name ? { team: record.owner.team ?? null, name: record.owner.name, from: 'import',
+        words: `Owner: ${record.owner.name} (as recorded when it was imported)` } : null), lifecycleRecord, channel: record ? channels.get(record.marketplace) ?? null : null, findings: trusted?.findings ?? [] });
   }
   for (const marketplace of [...marketplaces].sort((left, right) => byText(left.id, right.id))) {
     for (const entry of [...(marketplace.skills ?? [])].sort((left, right) => byText(left.name, right.name))) {
       // An index entry names the steps it is for by their IDs here; each is the intent that step has.
       const candidate = marketplaceSkillCandidate(entry, marketplace.id, { stepIntent });
       entries.push({ candidate, key: `market:${marketplace.id}/${entry.name}`, source: 'marketplace', marketplace: marketplace.id, version: entry.version ?? null,
-        label: entry.label ?? entry.name, description: entry.description ?? '', tags: entry.tags ?? [] });
+        label: entry.label ?? entry.name, description: entry.description ?? '', tags: entry.tags ?? [],
+        owner: entry.owner ?? null, lifecycleRecord: entry.lifecycleRecord ? lifecycleSummary(entry.lifecycleRecord)
+          : entry.lifecycleState ? lifecycleSummary(itemLifecycle({ state: entry.lifecycleState, guard: null })) : null,
+        channel: marketplace.channel ?? null, findings: entry.findings ?? [] });
     }
   }
   const candidates = entries.map((entry) => entry.candidate);
@@ -206,7 +220,7 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
       storyUses.get(skill.id).push({ workId: story.workId, kind: story.kind, steps: [...(skill.steps ?? [])] });
     }
   }
-  const rows = entries.map(({ candidate, key, source, marketplace, version, label, description, tags }) => {
+  const rows = entries.map(({ candidate, key, source, marketplace, version, label, description, tags, owner, lifecycleRecord, channel, findings }) => {
     const id = candidate.id;
     const record = recordOf(id);
     const inLibrary = source === 'library' || libraryIds.has(id);
@@ -225,6 +239,9 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
       inLibrary, libraryVersion, newerVersion,
       usedBy: source === 'library' ? { agents: used.agents, workflows: used.workflows, tasks: storyUses.get(id) ?? [] } : { agents: [], workflows: [], tasks: [] },
       overlaps: [],
+      // Its owner, its lifecycle with who and when, and the channel its marketplace is trusted on [OMK:REQ-015]; whether it
+      // is deprecated in use here is OMK's later milestone, and null until then.
+      owner: owner ?? null, lifecycleRecord: lifecycleRecord ?? null, channel: channel ?? null, deprecatedInUse: null, findings: [...(findings ?? [])],
       actions: {
         ...(source === 'library' ? { show: `singularity-flow skill show ${id}` } : {}),
         ...(reference && (!inLibrary || newerVersion) ? { preview: `singularity-flow import preview "${reference}" --as skill --json`, reference } : {}),
@@ -336,7 +353,7 @@ export async function readSkillCatalog(root, { marketplace: only = null, fetchIm
 }
 
 async function readApprovedSkillCatalog(root, { only, fetchImpl, working }) {
-  const [{ configurationReadRoot }, { loadDefinition }, { loadSkillLibrary }, { loadImportsLedger }, { readAssetCatalog }, { taskSoftwareKinds, trustedSkillsOf }] = await Promise.all([
+  const [{ configurationReadRoot }, { loadDefinition }, { loadSkillLibrary }, { loadImportsLedger }, { readAssetCatalog }, { taskSoftwareKinds, trustedSkillListingOf }] = await Promise.all([
     import('./configuration-read-scope.mjs'), import('./config.mjs'), import('./skill-library.mjs'), import('./imports-ledger.mjs'),
     import('./asset-catalog.mjs'), import('./task-skills.mjs')]);
   const configRoot = configurationReadRoot(root);
@@ -370,8 +387,8 @@ async function readApprovedSkillCatalog(root, { only, fetchImpl, working }) {
     const kind = marketplace.repository ? 'repository' : 'index';
     try {
       // A person reads this page to see what is there now: an index is read fresh, and kept for the next plan.
-      const skills = await trustedSkillsOf(root, marketplace, { fetchImpl, fresh: true });
-      marketplaces.push({ id: marketplace.id, label: marketplace.label ?? marketplace.id, kind, skills, warning: null });
+      const { skills, channel } = await trustedSkillListingOf(root, marketplace, { fetchImpl, fresh: true });
+      marketplaces.push({ id: marketplace.id, label: marketplace.label ?? marketplace.id, kind, skills, channel, warning: null });
     } catch (error) {
       marketplaces.push({ id: marketplace.id, label: marketplace.label ?? marketplace.id, kind, skills: [], warning: unreadable(marketplace, error) });
     }
@@ -392,7 +409,10 @@ export function skillCatalogLines(catalog) {
     const where = row.source === 'library' ? 'library' : row.marketplace;
     const facts = [
       row.version ? `version ${row.version}` : null,
-      row.lifecycle,
+      row.owner?.name ? `owned by ${row.owner.name}` : null,
+      // Who and when, where the marketplace records them; else its word, as before.
+      row.lifecycleRecord?.since ? `${row.lifecycleRecord.words[0].toLowerCase()}${row.lifecycleRecord.words.slice(1)}` : row.lifecycle,
+      row.channel ? `${row.channel} channel` : null,
       row.intents.length ? `for ${listWords(row.intents)} steps` : 'for no step',
       row.softwareKinds.length ? `on ${listWords(row.softwareKinds)}` : null,
       row.source === 'marketplace' ? (row.inLibrary ? `in the library${row.libraryVersion ? ` (version ${row.libraryVersion})` : ''}` : 'not in the library') : null,

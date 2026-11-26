@@ -4125,6 +4125,9 @@ async function marketplaceCommand(positionals, options) {
     for (const entry of entries) {
       console.log(`  ${entry.kind.padEnd(9)} ${entry.id}@${entry.version} — ${entry.label}${entry.importable ? '' : ' (not importable by this version)'}`);
       if (entry.description) console.log(`            ${entry.description}`);
+      // Its owner and lifecycle, as the index states them [OMK:REQ-015].
+      const known = [entry.owner?.words, entry.lifecycle ? `Lifecycle: ${entry.lifecycle.words}` : null].filter(Boolean);
+      if (known.length) console.log(`            ${known.join(' · ')}`);
     }
     if (entries.some((entry) => entry.importable)) console.log(`Preview one with: singularity-flow import preview market:${marketplace.id}/<ENTRY>`);
     return;

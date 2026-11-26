@@ -7966,7 +7966,7 @@ like a credential, report the field name only and never repeat the value.
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~920 body tokens</span>
+          <span class="pill">~949 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-marketplace</code></dd></div>
@@ -7997,7 +7997,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Run `singularity-flow marketplace catalog --json` once. Add `--kind &lt;KIND&gt;` only when the person names one kind (skill, agent, workflow, template, mcp-server, generated), `--search &quot;&lt;their words&gt;&quot;` only for words that name items, and `--newest` only when they ask about versions newer than the ones trusted.
-2. Say `summary` in one line, then one table: name, marketplace (`marketplaceLabel`, or &quot;here&quot;), `version`, `status` in words, and `statusWords` unless installed; add `newer.words` when there. At most 20 rows; say how many more. Relay `warnings` and each source&#39;s `notApproved` and `newest.words` as given.
+2. Say `summary` in one line, then one table: name, marketplace (`marketplaceLabel`, or &quot;here&quot;), owner (`owner.name`), `version`, lifecycle (`lifecycleRecord.words`, else `lifecycle`), `channel`, `status` in words, and `statusWords` unless installed; add `newer.words` and `deprecatedInUse.words` when there. At most 20 rows; say how many more. Relay `warnings` and each source&#39;s `notApproved` and `newest.words` as given.
 3. To install, update, remove or get newer one item, find it by the person&#39;s words; when several match, `ask_user` with those items as choices. Show its `actions.preview.command` when it has one, and that action&#39;s `label` (`actions.trust` for get newer). Then `ask_user` &quot;Propose this change for review?&quot; with Yes and No.
 4. Only on the person&#39;s own Yes, run that action&#39;s `command` exactly, with `--json`, and relay its result and next action. Never show its `--sha256` value. On No, change nothing.
 5. An item with no such action: relay its `statusWords`. An MCP server is added through `/sf-import` from its preview, with the agents the person names.

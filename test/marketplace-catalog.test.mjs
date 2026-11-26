@@ -460,7 +460,7 @@ test('marketplace catalog reads what the approved configuration trusts once per 
   const kept = path.join(story.root, '.git', 'singularity-flow', 'task-marketplace-agents');
   const files = await readdir(kept);
   assert.equal(files.length, 2);
-  for (const file of files) assert.equal(JSON.parse(await readFile(path.join(kept, file), 'utf8')).format, 'sflow-task-marketplace-agents/v2');
+  for (const file of files) assert.equal(JSON.parse(await readFile(path.join(kept, file), 'utf8')).format, 'sflow-task-marketplace-agents/v3');
   await rm(acme.repository, { recursive: true, force: true });
   assert.deepEqual(JSON.parse(story.cli('marketplace', 'catalog', '--marketplace', 'acme', '--json')).items.map((item) => [item.key, item.status]),
     [...after.values()].filter((item) => item.marketplace === 'acme').map((item) => [item.key, item.status]), 'read again from what was kept');

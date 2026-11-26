@@ -265,3 +265,69 @@ test('the host takes a row\'s key, never a reference or a command, and opens Wor
   // The page's read is a read for VS Code's command classes.
   assert.match(source('apps/vscode/src/cli/client.ts'), /if \(args\[0\] === 'marketplace'\) return \['list', 'browse', 'catalog'\]\.includes/u);
 });
+
+// OMK §5.3: the owner, the lifecycle with who and when, the channel and the guard, from the engine's own rows.
+function omkAnswer() {
+  const lifecycle = (state, extra = {}) => ({ state, word: state, source: 'lifecycle.yml', since: '2026-11-01', by: ['@acme/marketplace-stewards'],
+    change: 'https://git.example.com/acme/sdlc-marketplace/pull/26', guarded: true, approvers: ['@acme/marketplace-stewards'], deprecation: null, history: [],
+    words: 'Generally available since 1 Nov 2026', guardWords: 'The marketplace declares @acme/marketplace-stewards as the code owners of its lifecycle record.', ...extra });
+  const owner = (team, name) => ({ team, name, handle: `@acme/${team}`, contact: null, issues: 'https://git.example.com/acme/sdlc-marketplace/issues', from: 'apm.yml',
+    words: `Owner: ${name}`, confirmed: true, confirmWords: null });
+  return JSON.parse(JSON.stringify(analyzeMarketplaceCatalog({
+    marketplaces: [{ id: 'acme', label: 'Acme', kind: 'repository', commit: 'e'.repeat(40), channel: 'beta', warning: null, items: repositoryItems({ skills: [
+      { name: 'web-e2e-test-generation', version: '1.0.0', tags: ['web'], lifecycleState: 'ga', sha256: '1'.repeat(64), owner: owner('web-qa', 'Web QA'), lifecycleRecord: lifecycle('ga') },
+      { name: 'legacy-smoke-checks', version: '0.3.0', tags: ['web'], lifecycleState: 'ga', sha256: '2'.repeat(64), owner: owner('release-tools', 'Release Tools'),
+        lifecycleRecord: lifecycle('ga', { guarded: false, approvers: [], since: '2026-10-05', words: 'Generally available since 5 Oct 2026',
+          guardWords: 'Lifecycle not guarded by code owners: anyone who can merge to the marketplace can change it.' }),
+        findings: [{ class: 'marketplace-lifecycle-jump', owner: 'marketplace', words: 'It moves from proposed straight to ga.', fix: 'Move it through approved.' }] },
+      { name: 'web-xray-creation', version: '1.0.0', tags: ['web'], lifecycleState: 'proposed', sha256: '3'.repeat(64) }], agents: [] }) }]
+  })));
+}
+
+test('the page shows the owner, the lifecycle with who and when, the channel and the guard; its change opens through the host [OMK:REQ-015]', () => {
+  const catalog = marketplaceCatalogFrom(omkAnswer());
+  const item = (key) => catalog.items.find((entry) => entry.key === key);
+  assert.deepEqual([item('market:acme/skill/web-e2e-test-generation').owner.name, item('market:acme/skill/web-e2e-test-generation').channel,
+    item('market:acme/skill/legacy-smoke-checks').lifecycleRecord.notGuarded, item('market:acme/skill/web-xray-creation').owner], ['Web QA', 'beta', true, null]);
+  const html = marketplacePageHtml({ catalog, busy: false, error: null, notice: null });
+  assert.match(html, /<th scope="col">From<\/th><th scope="col">Owner<\/th><th scope="col">Version<\/th><th scope="col">Lifecycle<\/th>/u);
+  assert.match(html, /id="mkt-owner"/u);
+  assert.match(html, /<option value="web-qa">Web QA<\/option>/u);
+  assert.match(html, /<option value="none">No owner named<\/option>/u);
+  const rowOf = (key) => html.match(new RegExp(`<tr class="mkt-row" data-key="${key.replace(/[/.]/gu, '\\$&')}"[\\s\\S]*?</tr>`, 'u'))[0];
+  const ga = rowOf('market:acme/skill/web-e2e-test-generation');
+  assert.match(ga, /<td>Web QA<\/td>/u);
+  assert.match(ga, /<span class="mkt-badge mkt-channel mkt-channel-beta">Beta<\/span>/u);
+  assert.doesNotMatch(ga, /Not guarded/u);
+  assert.match(ga, /<details class="mkt-more"><summary>Who and when<\/summary><div>Generally available since 1 Nov 2026<\/div><div>The marketplace declares @acme\/marketplace-stewards as the code owners of its lifecycle record\.<\/div><div>Owner: Web QA<\/div>/u);
+  assert.match(ga, /data-change="market:acme\/skill\/web-e2e-test-generation"[^>]*>Open its lifecycle change<\/button>/u);
+  assert.doesNotMatch(ga, /https:\/\/git\.example\.com/u, 'the page never carries the address: the host finds it from the row');
+  const unguarded = rowOf('market:acme/skill/legacy-smoke-checks');
+  assert.match(unguarded, /<span class="mkt-badge mkt-unguarded"[^>]*>Not guarded<\/span>/u);
+  assert.match(unguarded, /For the marketplace's maintainers:<\/span><ul><li>It moves from proposed straight to ga\. <span class="mkt-dim">Fix: Move it through approved\.<\/span><\/li><\/ul>/u);
+  assert.match(rowOf('market:acme/skill/web-xray-creation'), /<td>proposed <span class="mkt-badge mkt-channel mkt-channel-beta">Beta<\/span><details class="mkt-more"><summary>Details<\/summary><div>No lifecycle recorded<\/div>/u);
+  assert.doesNotMatch(html, /\b[0-9a-f]{40}\b|[0-9a-f]{64}/u, 'no commit and no hash');
+  // In use here (OMK §8): the badge and its filter, when the engine says so.
+  const used = omkAnswer();
+  used.items.find((entry) => entry.key === 'market:acme/skill/web-e2e-test-generation').deprecatedInUse = { state: 'deprecated', words: 'Deprecated by Web QA; still used by 1 workflow.' };
+  const usedHtml = marketplacePageHtml({ catalog: marketplaceCatalogFrom(used), busy: false, error: null, notice: null });
+  assert.match(usedHtml, /<span class="mkt-badge mkt-in-use">Deprecated · in use here<\/span>/u);
+  assert.match(usedHtml, /<input type="checkbox" id="mkt-in-use"> Deprecated in use/u);
+  assert.doesNotMatch(html, /id="mkt-in-use"/u, 'no filter when nothing is in use');
+  // The script filters by owner and by in use.
+  const window = {};
+  runInNewContext(MARKETPLACE_SCRIPT, { window });
+  const { factsOf, matches } = window.__marketplace;
+  const rows = [...usedHtml.matchAll(/<tr class="mkt-row"([^>]*)>/gu)].map((match) => factsOf(Object.fromEntries([...match[1].matchAll(/data-([a-z-]+)="([^"]*)"/gu)]
+    .map(([, name, value]) => [name.replace(/-([a-z])/gu, (_, letter) => letter.toUpperCase()), value]))));
+  const keys = (filters) => rows.filter((row) => matches(row, filters)).map((row) => row.key);
+  assert.deepEqual(keys({ owner: 'release-tools' }), ['market:acme/skill/legacy-smoke-checks']);
+  assert.deepEqual(keys({ owner: 'none' }), ['market:acme/skill/web-xray-creation']);
+  assert.deepEqual(keys({ 'in-use': true }), ['market:acme/skill/web-e2e-test-generation']);
+  assert.deepEqual(keys({ search: 'release tools' }), ['market:acme/skill/legacy-smoke-checks']);
+  // The host opens only the row's own https change, in the browser.
+  const host = source('apps/vscode/src/views/marketplace.ts');
+  assert.match(host, /'marketplace\.openChange': \(message\) => this\.openChange\(stringField\(message, 'key'\)\)/u);
+  assert.match(host, /const change = item\?\.lifecycleRecord\?\.change \?\? null;\s*if \(!change \|\| !\/\^https:\\\/\\\/\[\^\\s\]\+\$\/\.test\(change\)\) return;\s*await vscode\.env\.openExternal\(vscode\.Uri\.parse\(change, true\)\);/u);
+  assert.match(MARKETPLACE_SCRIPT, /api\.postMessage\(\{ type: 'marketplace\.openChange', key: target\.dataset\.change \}\)/u);
+});

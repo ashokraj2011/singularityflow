@@ -1,0 +1,19 @@
+# skills/web-e2e-test-generation/lifecycle.yml
+# Changed only through a reviewed pull request that this file's code owners approve (see .github/CODEOWNERS).
+state: ga
+history:
+  - to: proposed
+    at: 2026-09-05
+    by: "@acme/web-qa"
+    change: https://git.example.com/acme/sdlc-marketplace/pull/24
+  - from: proposed
+    to: approved
+    at: 2026-10-02
+    approved-by: ["@acme/marketplace-stewards"]
+    change: https://git.example.com/acme/sdlc-marketplace/pull/25
+    note: Piloted by two teams on the checkout web app.
+  - from: approved
+    to: ga
+    at: 2026-11-01
+    approved-by: ["@acme/marketplace-stewards"]
+    change: https://git.example.com/acme/sdlc-marketplace/pull/26

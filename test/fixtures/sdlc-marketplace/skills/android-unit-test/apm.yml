@@ -17,3 +17,11 @@ pdlc-phases:
 pdlc-tasks:
   - unit-testing
 lifecycle-state: approved
+# Who owns it: its feedback goes to this team (SFlow OMK §4.1). Its lifecycle record is lifecycle.yml beside this file.
+owner:
+  team: android-qa
+  name: Android QA
+  handle: "@acme/android-qa"
+  contact: android-qa@example.com
+  issues: https://git.example.com/acme/sdlc-marketplace/issues
+  feedback-labels: [sflow-feedback, android-unit-test]

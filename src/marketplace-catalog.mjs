@@ -36,6 +36,7 @@ import { createHash } from 'node:crypto';
 
 import { differencesWords, piecesDifferences } from './agent-workflow-provenance.mjs';
 import { compareVersions } from './marketplace.mjs';
+import { itemLifecycle, lifecycleInstallable, lifecycleSummary } from './marketplace-lifecycle.mjs';
 import { librarySkillCandidate, marketplaceSkillCandidate, unapprovedMarketplaces } from './task-skills.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -62,17 +63,21 @@ function refusal(code, message, nextAction, details = {}) {
 
 // ---------------------------------------------------------------------------------------------- what a marketplace has
 
+/** What an item says of itself beyond its text [OMK §4]: its owner, its lifecycle record, the marketplace's findings on them. */
+const metadataOf = (entry) => ({ owner: entry.owner ?? null, lifecycleRecord: entry.lifecycleRecord ?? null, findings: [...(entry.findings ?? [])] });
+
 /**
  * A Git repository marketplace's items, from task-skills.mjs trustedMarketplaceAgents at the trusted commit: each skill
- * with the SHA-256 of its SKILL.md, each agent with the pieces a workflow made from it records.
+ * with the SHA-256 of its SKILL.md, each agent with the pieces a workflow made from it records, and each one's owner,
+ * lifecycle record and findings [OMK §4].
  */
 export function repositoryItems({ agents = [], skills = [] } = {}) {
   const skillSha256 = new Map(skills.map((skill) => [skill.name, skill.sha256 ?? null]));
   return [
     ...skills.map((skill) => ({ kind: 'skill', name: skill.name, label: skill.name, version: skill.version ?? null, description: skill.description ?? '',
-      tags: skill.tags ?? [], pdlcTasks: skill.pdlcTasks ?? [], lifecycleState: skill.lifecycleState ?? null, sha256: skill.sha256 ?? null })),
+      tags: skill.tags ?? [], pdlcTasks: skill.pdlcTasks ?? [], lifecycleState: skill.lifecycleState ?? null, sha256: skill.sha256 ?? null, ...metadataOf(skill) })),
     ...agents.map((agent) => ({ kind: 'agent', name: agent.name, label: agent.name, version: agent.version ?? null, description: agent.description ?? '',
-      tags: agent.tags ?? [], pdlcTasks: agent.pdlcTasks ?? [], lifecycleState: agent.lifecycleState ?? null, sha256: null,
+      tags: agent.tags ?? [], pdlcTasks: agent.pdlcTasks ?? [], lifecycleState: agent.lifecycleState ?? null, sha256: null, ...metadataOf(agent),
       // As agent-workflow-provenance.mjs sourcePieces makes them from the same files.
       pieces: { agent: sha256(agent.text), manifest: agent.manifestSha256 ?? null, skills: Object.fromEntries((agent.skills ?? [])
         .filter((name) => skillSha256.has(name)).sort(byText).map((name) => [name, skillSha256.get(name) ?? EMPTY_SHA256])) } }))
@@ -93,6 +98,7 @@ export function indexItems(index = {}) {
   }
   return [...newest.values()].map((entry) => ({ kind: entry.kind, name: entry.id, label: entry.label ?? entry.id, version: entry.version ?? null,
     description: entry.description ?? '', tags: entry.tags ?? [], pdlcTasks: [], lifecycleState: null, sha256: entry.sha256 ?? null,
+    owner: entry.owner ?? null, lifecycleRecord: entry.lifecycle ?? null, findings: [...(entry.findings ?? [])],
     ...(entry.kind === 'generated' ? { generated: { urlTemplate: entry.urlTemplate ?? null, phase: entry.phase ?? null, target: entry.target ?? null } } : {}),
     ...(entry.kind === 'workflow' ? { url: entry.url ?? null } : {}) }));
 }
@@ -138,14 +144,27 @@ function textUpdate(installedVersion, version, label) {
     words: `Marketplace ${label} has a changed text${version ? ` at the same version, ${version}` : ''}; the copy installed here is the earlier one.` };
 }
 
+/**
+ * One row. Beside today's fields it carries what OMK reads [OMK:REQ-015]: the item's `owner` (with where it came from),
+ * its `lifecycleRecord` (lifecycleSummary: state, who, when, its change, the guard), the `channel` its marketplace is
+ * trusted on, and the marketplace-owned `findings` on them. `deprecatedInUse`, `safety` and `use` are filled by OMK's
+ * later milestones and are null until then.
+ */
 function row({ key, kind, id, name = id, description = '', source, marketplace = null, labels, marketplaceKind = null, version = null, installedVersion = null,
-  facts = null, tags = [], status, statusWords, update = null, newer = null, installedAs = null, fromAgent = null, conflict = null, importable = true, actions = {} }) {
+  facts = null, tags = [], status, statusWords, update = null, newer = null, installedAs = null, fromAgent = null, conflict = null, importable = true, actions = {},
+  owner = null, lifecycleRecord = null, channel = null, findings = [] }) {
   return {
     key, kind, id, name, description, source, marketplace, marketplaceLabel: marketplace ? labels.get(marketplace) ?? marketplace : null, marketplaceKind,
     version, installedVersion, lifecycle: facts?.state ?? null, readiness: facts?.lifecycle ?? null, tags: displayTags(tags), softwareKinds: [...(facts?.kinds ?? [])],
-    status, statusWords, update, ...(newer ? { newer } : {}), installedAs, fromAgent, conflict, importable, actions
+    status, statusWords, update, ...(newer ? { newer } : {}), installedAs, fromAgent, conflict, importable, actions,
+    owner, lifecycleRecord: lifecycleRecord?.history ? lifecycleSummary(lifecycleRecord) : lifecycleRecord, channel, deprecatedInUse: null, safety: null, use: null,
+    findings: [...findings]
   };
 }
+
+/** What a marketplace row carries of its item's owner, lifecycle and channel. */
+const omkFields = (market, entry) => ({ owner: entry.owner ?? null, lifecycleRecord: entry.lifecycleRecord ?? null, channel: market.channel ?? null, findings: entry.findings ?? [] });
+const RETIRED_WORDS = 'Retired in the marketplace: no longer supported, so it is not installed here.';
 
 /**
  * Trusting a Git repository marketplace's newest commit: `marketplace add --repo` reads it at its ref now and proposes the
@@ -251,8 +270,9 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
           ? { replaces: true, words: `The library's ${entry.name} came from ${MARKETPLACE_SOURCES.has(other.source?.kind) ? `marketplace ${labels.get(other.source.marketplace) ?? other.source.marketplace}` : 'elsewhere'}; installing this one replaces it.` }
           : { replaces: false, words: `The library has its own ${entry.name}, written in this repository, so this one cannot be installed under that name.` };
       }
-      statusWords = conflict?.words ?? (entry.sha256 ? 'Not installed here.' : 'Not installed here, and it has no SKILL.md in the marketplace to install.');
-      if (entry.sha256 && (!conflict || conflict.replaces)) {
+      const installable = lifecycleInstallable(facts.state);
+      statusWords = !installable ? RETIRED_WORDS : conflict?.words ?? (entry.sha256 ? 'Not installed here.' : 'Not installed here, and it has no SKILL.md in the marketplace to install.');
+      if (entry.sha256 && installable && (!conflict || conflict.replaces)) {
         actions.install = action(addCommand('skill', market.id, entry.name, { id: entry.name, sha256: entry.sha256, replace: Boolean(conflict) }),
           'Propose adding it to the skill library, reviewed like any change.');
       }
@@ -260,12 +280,12 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
     const newer = newerOf(market, entry, actions);
     return row({ key: `market:${market.id}/skill/${entry.name}`, kind: 'skill', id: entry.name, name: entry.label, description: entry.description, source: 'marketplace',
       marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version, installedVersion: install?.source?.version ?? null, facts, tags: entry.tags,
-      status, statusWords, update, newer, installedAs, conflict, importable: Boolean(entry.sha256), actions });
+      status, statusWords, update, newer, installedAs, conflict, importable: Boolean(entry.sha256) && lifecycleInstallable(facts.state), actions, ...omkFields(market, entry) });
   };
 
   /** A Git repository marketplace's agent: installed as the workflow made from it. */
   const agentRow = (market, entry) => {
-    const facts = marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [], lifecycleState: entry.lifecycleState }, market.id);
+    const facts = marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [], lifecycleState: entry.lifecycleState, lifecycleRecord: entry.lifecycleRecord }, market.id);
     const record = records.find((item) => item.kind === 'workflow' && item.source?.kind === 'marketplace-agent' && item.source.marketplace === market.id
       && item.source.agent === entry.name && workflows[item.workflow]) ?? null;
     if (record) represented.add(record.key);
@@ -297,21 +317,21 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       actions.install = action(`singularity-flow workflow restore ${workflow.id} --propose`, 'Propose offering its archived workflow to new Stories again.');
     } else {
       status = 'not-installed';
-      statusWords = 'Not installed here: it becomes a workflow through its conversion review.';
+      statusWords = lifecycleInstallable(facts.state) ? 'Not installed here: it becomes a workflow through its conversion review.' : RETIRED_WORDS;
       actions.preview = action(`singularity-flow workflow from-agent ${target} --review`, 'See the workflow it becomes, stage by stage.');
-      actions.install = action(`singularity-flow workflow from-agent ${target} --propose`, 'Propose its workflow, through its conversion review.');
+      if (lifecycleInstallable(facts.state)) actions.install = action(`singularity-flow workflow from-agent ${target} --propose`, 'Propose its workflow, through its conversion review.');
     }
     const newer = newerOf(market, entry, actions);
     const made = row({ key: `market:${market.id}/agent/${entry.name}`, kind: 'agent', id: entry.name, name: entry.label, description: entry.description, source: 'marketplace',
       marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version, installedVersion: record?.source?.version ?? null, facts, tags: entry.tags,
-      status, statusWords, update, newer, installedAs, importable: true, actions });
+      status, statusWords, update, newer, installedAs, importable: lifecycleInstallable(facts.state), actions, ...omkFields(market, entry) });
     if (record) agentRows.set(record.key, made);
     return made;
   };
 
   /** An index marketplace's agent, template or MCP server: installed by its import. */
   const importRow = (market, entry) => {
-    const facts = marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [], lifecycleState: null }, market.id);
+    const facts = marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [], lifecycleState: null, lifecycleRecord: entry.lifecycleRecord }, market.id);
     const install = fromMarket([entry.kind], market.id, entry.name)[0] ?? null;
     if (install) represented.add(install.key);
     const label = labels.get(market.id);
@@ -334,9 +354,10 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       actions.remove = action(`singularity-flow imports remove ${install.key} --propose`, `Propose removing the ${kindWords}.`);
     } else {
       status = 'not-installed';
-      statusWords = server ? 'Not installed here: its preview shows the tools it offers and the command that adds it; name the agents that may use them with --agents.'
-        : 'Not installed here.';
-      if (entry.sha256 && !server) {
+      statusWords = !lifecycleInstallable(facts.state) ? RETIRED_WORDS
+        : server ? 'Not installed here: its preview shows the tools it offers and the command that adds it; name the agents that may use them with --agents.'
+          : 'Not installed here.';
+      if (entry.sha256 && !server && lifecycleInstallable(facts.state)) {
         actions.install = action(addCommand(entry.kind, market.id, entry.name, { id: entry.kind === 'template' ? entry.name : null, sha256: entry.sha256 }),
           `Propose adding the ${kindWords}, reviewed like any change.`);
       }
@@ -345,7 +366,7 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       source: 'marketplace', marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version, installedVersion: install?.source?.version ?? null,
       facts, tags: entry.tags, status, statusWords, update,
       installedAs: install ? { as: entry.kind, id, ...(server ? { agents: [...(target.agents ?? [])] } : {}), importKey: install.key } : null,
-      importable: Boolean(entry.sha256), actions });
+      importable: Boolean(entry.sha256) && lifecycleInstallable(facts.state), actions, ...omkFields(market, entry) });
   };
 
   /**
@@ -353,7 +374,7 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
    * Installed by its import for that agent; the same when its version, URL template, step and target are.
    */
   const generatedRow = (market, entry) => {
-    const facts = marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [], lifecycleState: null }, market.id);
+    const facts = marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [], lifecycleState: null, lifecycleRecord: entry.lifecycleRecord }, market.id);
     const source = entry.generated ?? {};
     const install = fromMarket(['generated'], market.id, entry.name)[0] ?? null;
     if (install) represented.add(install.key);
@@ -396,7 +417,7 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       source: 'marketplace', marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version, installedVersion: install?.source?.version ?? null,
       facts, tags: entry.tags, status, statusWords, update,
       installedAs: install ? { as: 'generated', id: target.id ?? entry.name, agent: target.agent ?? null, importKey: install.key } : null,
-      importable: Boolean(actions.install || actions.update || install), actions });
+      importable: Boolean(actions.install || actions.update || install), actions, ...omkFields(market, entry) });
   };
 
   /**
@@ -412,10 +433,10 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
     } : {};
     return row({ key: `market:${market.id}/workflow/${entry.name}`, kind: 'workflow', id: entry.name, name: entry.label, description: entry.description,
       source: 'marketplace', marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version,
-      facts: marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [] }, market.id), tags: entry.tags, status: 'not-installed',
+      facts: marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [], lifecycleRecord: entry.lifecycleRecord }, market.id), tags: entry.tags, status: 'not-installed',
       statusWords: here ? `A workflow called ${entry.name} is here already: its import review asks whether to keep yours, replace it or import this one under another name.`
         : 'Not installed here: its bundle is fetched and checked against the digest its marketplace pins, and you confirm its import after its review.',
-      importable: Boolean(entry.sha256), actions });
+      importable: Boolean(entry.sha256), actions, ...omkFields(market, entry) });
   };
 
   for (const market of markets) {
@@ -443,6 +464,7 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
     represented.add(record.key);
     if (agent) {
       rows.push(row({ ...base, description: agent.description, version: agent.version, facts: { state: agent.lifecycle, lifecycle: agent.readiness, kinds: agent.softwareKinds },
+        owner: agent.owner, lifecycleRecord: agent.lifecycleRecord, channel: agent.channel, findings: agent.findings,
         tags: agent.tags, status: agent.status, update: agent.update, newer: agent.newer ?? null,
         statusWords: agent.status === 'installed' ? `Made from agent ${record.source.agent}, the same as in marketplace ${agent.marketplaceLabel}.` : agent.statusWords,
         actions: Object.fromEntries(Object.entries(agent.actions).filter(([name_]) => ['preview', 'update', 'remove', 'trust'].includes(name_))) }));
@@ -463,7 +485,11 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
   const hereRow = (record, fields) => {
     const marketplace = MARKETPLACE_SOURCES.has(record?.source?.kind) ? record.source.marketplace : null;
     const unknown = unknownNow(record);
+    // Its marketplace could not be read: the lifecycle its import recorded, and the row says so [OMK:REQ-011].
+    const recorded = unknown && record.source.lifecycleState ? lifecycleSummary(itemLifecycle({ state: record.source.lifecycleState, guard: null }), { recorded: true }) : null;
     return row({ source: 'here', marketplace, labels, marketplaceKind: marketplace && trusted.has(marketplace) ? markets.find((market) => market.id === marketplace).kind : null,
+      lifecycleRecord: recorded, owner: unknown && record.source.owner?.name ? { team: record.source.owner.team ?? null, name: record.source.owner.name, handle: null, contact: null,
+        issues: null, from: 'import', words: `Owner: ${record.source.owner.name} (as recorded when it was imported)`, confirmed: null, confirmWords: null } : null,
       installedVersion: record?.source?.version ?? null, version: record?.source?.version ?? null, status: unknown ? 'installed' : 'local-only',
       statusWords: unknown ? `Installed here from marketplace ${labels.get(marketplace)}, which could not be read just now, so an update is not known.`
         : cameFromWords(record, { trusted, listed: false, labels }), ...fields });
@@ -625,9 +651,12 @@ async function readApprovedCatalog(root, { only, kind, search, newest, fetchImpl
     if (only != null && marketplace.id !== only) { marketplaces.push({ ...base, items: [], warning: null, skipped: true }); continue; }
     let read;
     try {
-      const items = marketplace.repository ? repositoryItems(await trustedMarketplaceAgents(root, marketplace))
-        : indexItems(await fetchMarketplaceIndex(marketplace, { fetchImpl }));
-      read = { ...base, items, warning: null };
+      // The channel the trust reads: a repository's by its ref at the pinned commit, an index's as it says [OMK:REQ-021, REQ-026].
+      const [items, channel] = marketplace.repository
+        ? await trustedMarketplaceAgents(root, marketplace).then(async (listing) => [repositoryItems(listing),
+          (await import('./marketplace-repository.mjs')).trustChannel(listing.channels, marketplace.ref ?? null)])
+        : await fetchMarketplaceIndex(marketplace, { fetchImpl }).then((index) => [indexItems(index), index.channel ?? null]);
+      read = { ...base, items, channel, warning: null };
     } catch (error) {
       marketplaces.push({ ...base, items: [], warning: unreadableWords(marketplace, error) });
       continue;
@@ -702,8 +731,16 @@ export function marketplaceCatalogLines(catalog) {
     lines.push(KIND_HEADINGS[name]);
     for (const item of items) {
       const where = item.marketplace ? `${item.marketplaceLabel ?? item.marketplace}${item.source === 'here' ? ' (here)' : ''}` : 'this repository';
-      lines.push(`  ${item.id.padEnd(30)} ${where.padEnd(16)} ${(item.version ?? '').padEnd(12)} ${STATUS_WORDS[item.status]}`);
+      // The owner column, and the channel the trust reads [OMK:REQ-015].
+      lines.push(`  ${item.id.padEnd(30)} ${where.padEnd(16)} ${(item.owner?.name ?? '').padEnd(18)} ${(item.version ?? '').padEnd(12)} ${STATUS_WORDS[item.status]}${item.channel ? ` (${item.channel})` : ''}`);
       if (item.status !== 'installed' || item.update) lines.push(`      ${item.statusWords}`);
+      // A lifecycle line for each marketplace item that is not generally available, and for an approval no code owner guards.
+      const lifecycle = item.lifecycleRecord;
+      if (lifecycle && (lifecycle.state !== 'ga' || lifecycle.notGuarded)) {
+        lines.push(`      Lifecycle: ${lifecycle.words}.${lifecycle.notGuarded ? ' Not guarded by code owners.' : ''}`);
+      } else if (!lifecycle && item.marketplace && item.kind !== 'marketplace') lines.push('      Lifecycle: No lifecycle recorded.');
+      for (const finding of (item.findings ?? []).slice(0, 3)) lines.push(`      For the marketplace: ${finding.words}`);
+      if ((item.findings ?? []).length > 3) lines.push(`      For the marketplace: ${item.findings.length - 3} more, in --json under findings.`);
       if (item.newer) lines.push(`      Newer: ${item.newer.words}`);
       // A generated source has no text to preview: its next step is the reviewed proposal that adds it.
       const next = item.status === 'update-available' ? item.actions.preview ?? null : item.status === 'not-installed' ? item.actions.preview ?? item.actions.install ?? null

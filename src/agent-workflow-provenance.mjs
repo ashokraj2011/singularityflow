@@ -43,6 +43,8 @@ export function agentProvenance(conversion, { agent, skills = [], answers = {}, 
     source: {
       kind: MARKETPLACE_AGENT_SOURCE, marketplace: source.marketplace, repository: source.repository ?? null, commit: source.commit ?? null,
       agent: source.agent, version: source.version ?? null,
+      // Its owning team, as the marketplace named it then: an optional field an older build ignores [OMK:REQ-006].
+      ...(source.owner?.team || source.owner?.name ? { owner: { team: source.owner.team ?? null, name: source.owner.name ?? null } } : {}),
       answers: Object.fromEntries(Object.entries(answers ?? {}).sort(([left], [right]) => left.localeCompare(right)))
     },
     workflow: conversion.workflow.id,

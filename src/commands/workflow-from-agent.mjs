@@ -60,7 +60,7 @@ function printConversion(conversion) {
   const { source } = conversion;
   console.log(`${conversion.workflow.label}: a workflow from ${source.agent}${source.version ? ` ${source.version}` : ''}`
     + (source.marketplace ? ` in marketplace ${source.marketplace} (commit ${String(source.commit ?? '').slice(0, 12)})` : ` in folder ${source.folder}`)
-    + `${source.lifecycleState ? `, ${source.lifecycleState}` : ''}.`);
+    + `${source.lifecycleRecord?.word ?? source.lifecycleState ? `, ${source.lifecycleRecord?.word ?? source.lifecycleState}` : ''}${source.owner?.name ? `, owned by ${source.owner.name}` : ''}.`);
   if (conversion.questions.length) {
     console.log(`The person answers at ${conversion.steps[0].label}, before any work:`);
     for (const question of conversion.questions) console.log(`  ${question.topic}`);

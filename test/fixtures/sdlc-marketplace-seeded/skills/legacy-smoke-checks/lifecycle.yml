@@ -1,0 +1,11 @@
+state: ga
+history:
+  - to: proposed
+    at: 2026-09-20
+    by: "@acme/release-tools"
+    change: https://git.example.com/acme/sdlc-marketplace/pull/61
+  - from: proposed
+    to: ga
+    at: 2026-10-05
+    approved-by: ["@acme/release-tools"]
+    change: https://git.example.com/acme/sdlc-marketplace/pull/62

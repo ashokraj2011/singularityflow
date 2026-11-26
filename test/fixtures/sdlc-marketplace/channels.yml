@@ -1,0 +1,9 @@
+# The channels teams trust (SFlow OMK §4.3): beta first, and stable only at a commit that is already on beta. They live
+# beside apm.yml, not in its marketplace block, because APM 0.35's apm pack refuses a key it does not know there.
+channels:
+  beta:
+    ref: channels/beta
+    description: New and changed items, about two weeks before stable.
+  stable:
+    ref: channels/stable
+    after: beta

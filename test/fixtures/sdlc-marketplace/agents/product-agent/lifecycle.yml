@@ -1,0 +1,14 @@
+# agents/product-agent/lifecycle.yml
+# Changed only through a reviewed pull request that this file's code owners approve (see .github/CODEOWNERS).
+state: approved
+history:
+  - to: proposed
+    at: 2026-09-13
+    by: "@acme/product-guild"
+    change: https://git.example.com/acme/sdlc-marketplace/pull/12
+  - from: proposed
+    to: approved
+    at: 2026-10-02
+    approved-by: ["@acme/marketplace-stewards"]
+    change: https://git.example.com/acme/sdlc-marketplace/pull/13
+    note: Piloted by two teams on the checkout web app.

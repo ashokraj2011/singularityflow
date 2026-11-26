@@ -78,7 +78,8 @@ test('every served topic is a surface-aware tutorial', async () => {
   // 93: changing-requirements (the user's guide to an intent amendment partway through a Story, SPEC-CIC v1.1).
   // 94: browser-workspace (the ui command: the local browser service and Spec Studio drafts).
   // 95: tasks (the work command and /sf-task, docs/SPEC-ITW-INTENT-TO-WORK-v1.1.md).
-  assert.equal(topics.length, 95);
+  // 96: marketplace-maintainers (owners, lifecycle records, CODEOWNERS and channels, docs/SPEC-OMK-ORG-MARKETPLACE-v1.md §11).
+  assert.equal(topics.length, 96);
   for (const topic of topics) {
     for (const section of requiredSections) {
       assert.match(topic.body, new RegExp(`^## ${section}$`, 'm'), `${topic.file} lacks ${section}`);

@@ -1,0 +1,8 @@
+# agents/qa-test-automation-agent/lifecycle.yml
+# Changed only through a reviewed pull request that this file's code owners approve (see .github/CODEOWNERS).
+state: proposed
+history:
+  - to: proposed
+    at: 2026-09-16
+    by: "@acme/qa-guild"
+    change: https://git.example.com/acme/sdlc-marketplace/pull/15

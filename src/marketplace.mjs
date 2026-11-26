@@ -145,9 +145,10 @@ export function compareVersions(left, right) {
 
 /**
  * Parse and check a marketplace index against the marketplace's configured trust. Entries whose
- * files would come from an origin the repository did not allow are refused, not filtered.
+ * files would come from an origin the repository did not allow are refused, not filtered. `metadata`
+ * reads its channels and owners (marketplace-lifecycle.mjs indexMetadata) [OMK:REQ-005].
  */
-export function parseMarketplaceIndex(bytes, marketplace) {
+export function parseMarketplaceIndex(bytes, marketplace, { metadata = null } = {}) {
   let index;
   try { index = JSON.parse(decodeUtf8(bytes, `Marketplace '${marketplace.id}' index`)); }
   catch (error) { throw fail(`Marketplace '${marketplace.id}' index is not valid JSON: ${error.message}`); }
@@ -156,6 +157,7 @@ export function parseMarketplaceIndex(bytes, marketplace) {
   }
   if (index.entries.length > MAX_ENTRIES) throw fail(`Marketplace '${marketplace.id}' lists more than ${MAX_ENTRIES} entries.`);
   const allowed = new Set([origin(marketplace.index), ...marketplace.allowedOrigins]);
+  const stated = metadata ? metadata(index, { allowed, origin, validateUrl: validatePublicHttpsUrl }) : null;
   const seen = new Set();
   const entries = [];
   const ignored = [];
@@ -175,6 +177,7 @@ export function parseMarketplaceIndex(bytes, marketplace) {
       tags: Array.isArray(raw.tags) ? raw.tags.map((tag) => String(tag)).filter((tag) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(tag)).slice(0, 12) : [],
       phases: Array.isArray(raw.phases) ? raw.phases.map(String).filter((phase) => ID.test(phase)).slice(0, 32) : []
     };
+    if (stated) Object.assign(entry, stated.entry(raw));
     if (raw.kind === 'generated') {
       entry.urlTemplate = validatePublicHttpsUrl(String(raw.urlTemplate ?? ''), `${label} urlTemplate`, { dynamic: true, allowedTokens: GENERATED_TOKENS });
       if (!allowed.has(origin(entry.urlTemplate))) throw fail(`${label} fetches from ${origin(entry.urlTemplate)}, which marketplace '${marketplace.id}' is not allowed to use.`, 'MARKETPLACE_ORIGIN_REFUSED');
@@ -199,7 +202,8 @@ export function parseMarketplaceIndex(bytes, marketplace) {
     name: text(index.name, `Marketplace '${marketplace.id}' name`, 120) ?? marketplace.label,
     publisher: text(index.publisher, `Marketplace '${marketplace.id}' publisher`, 120),
     entries: Object.freeze(entries),
-    ignored: Object.freeze(ignored)
+    ignored: Object.freeze(ignored),
+    channel: stated?.channel ?? null, channels: stated?.channels ?? {}, ...(stated?.problems.length ? { problems: stated.problems } : {})
   });
 }
 
@@ -220,7 +224,8 @@ export async function fetchMarketplaceIndex(marketplace, { fetchImpl = globalThi
   });
   const validators = { ...(fetched.etag ? { etag: fetched.etag } : {}), ...(fetched.lastModified ? { lastModified: fetched.lastModified } : {}) };
   if (fetched.notModified) return { notModified: true, resolvedIndex: fetched.resolvedUrl, ...validators };
-  return { ...parseMarketplaceIndex(fetched.bytes, marketplace), indexSha256: fetched.sha256, resolvedIndex: fetched.resolvedUrl, ...validators };
+  const { indexMetadata } = await import('./marketplace-lifecycle.mjs');
+  return { ...parseMarketplaceIndex(fetched.bytes, marketplace, { metadata: indexMetadata }), indexSha256: fetched.sha256, resolvedIndex: fetched.resolvedUrl, ...validators };
 }
 
 /** The entry an import names: an exact version, or the newest version of that ID. */

@@ -5,7 +5,8 @@
  * change itself is published from Studio as a reviewed proposal; nothing here writes configuration. A page message names
  * a row by its key, found here in the engine's own answer. Coming back to the page after a button reads it again. Check
  * for newer versions reads the Git repository marketplaces' newest commits too (`--newest`); Get newer… opens Studio's
- * Read its newest commit for that marketplace, which queues trusting that commit.
+ * Read its newest commit for that marketplace, which queues trusting that commit. Open its lifecycle change opens the
+ * reviewed change a row's lifecycle record names, in the browser (OMK §5.3).
  */
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
@@ -70,6 +71,7 @@ export class MarketplacePanel implements vscode.Disposable {
     'marketplace.remove': (message) => this.act('remove', stringField(message, 'key')),
     'marketplace.open': (message) => this.act('open', stringField(message, 'key')),
     'marketplace.approve': (message) => this.act('approve', stringField(message, 'key')),
+    'marketplace.openChange': (message) => this.openChange(stringField(message, 'key')),
     'marketplace.allSkills': () => vscode.commands.executeCommand('singularityFlow.allSkills'),
     'marketplace.studio': () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'library' })
   });
@@ -97,6 +99,17 @@ export class MarketplacePanel implements vscode.Disposable {
     if (!target) return;
     if (act !== 'open') { this.stale = true; this.notice = target.notice || null; this.render(); }
     await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', target.studio);
+  }
+
+  /**
+   * A row's lifecycle change, the reviewed pull request the marketplace recorded (OMK §4.2), opened in the person's
+   * browser: found from the engine's row, and only an https address.
+   */
+  private async openChange(key: string | null): Promise<void> {
+    const item = key ? this.catalog?.items.find((entry) => entry.key === key) ?? null : null;
+    const change = item?.lifecycleRecord?.change ?? null;
+    if (!change || !/^https:\/\/[^\s]+$/.test(change)) return;
+    await vscode.env.openExternal(vscode.Uri.parse(change, true));
   }
 
   private render(): void {

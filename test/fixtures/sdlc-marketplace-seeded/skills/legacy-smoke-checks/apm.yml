@@ -1,0 +1,21 @@
+# The seeded bad item of the sample marketplace (SFlow OMK §11, REQ-080): laid over test/fixtures/sdlc-marketplace by
+# test/helpers/sdlc-marketplace.mjs. Its lifecycle-state disagrees with its lifecycle.yml, which jumps from proposed
+# straight to ga and is left unguarded by CODEOWNERS; its owner's issues address is not https; its SKILL.md holds a
+# hidden character (written in by the helper, so the repository holds none).
+name: legacy-smoke-checks
+version: 0.3.0
+description: Run the old smoke checks against a deployed web page before a release.
+type: skill
+source-repository: https://git.example.com/acme/sdlc-marketplace
+maintainer-email: maintainers@example.com
+tags:
+  - web
+  - smoke
+pdlc-phases:
+  - delivery
+lifecycle-state: approved
+owner:
+  team: release-tools
+  name: Release Tools
+  handle: "@acme/release-tools"
+  issues: http://git.example.com/acme/sdlc-marketplace/issues

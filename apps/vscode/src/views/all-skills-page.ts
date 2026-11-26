@@ -25,6 +25,8 @@ export interface SkillCatalogRow {
   owner: { name: string; words: string } | null;
   lifecycleRecord: { word: string | null; words: string; guardWords: string | null; notGuarded: boolean } | null;
   channel: 'stable' | 'beta' | null; deprecatedInUse: { state: string; words: string } | null;
+  /** What SFlow's text checks found in the library's copy (OMK §7): refused, or lines to look at. */
+  safety: { state: 'blocked' | 'look'; words: string } | null;
 }
 /** A source: read, or not; `approved: false` is trusted only in the working copy of workflow.yml, and `notApproved` says so. */
 export interface SkillCatalogSource { id: string; kind: string; label: string; read: boolean; approved: boolean; skills: number; warning?: string; notApproved?: string }
@@ -86,7 +88,9 @@ export function skillCatalogFrom(value: unknown): SkillCatalog | null {
           guardWords: textOrNull(record(row.lifecycleRecord).guardWords), notGuarded: record(row.lifecycleRecord).notGuarded === true } : null,
         channel: row.channel === 'stable' || row.channel === 'beta' ? row.channel : null,
         deprecatedInUse: ['deprecated', 'retired'].includes(String(record(row.deprecatedInUse).state)) ? { state: String(record(row.deprecatedInUse).state),
-          words: text(record(row.deprecatedInUse).words) } : null
+          words: text(record(row.deprecatedInUse).words) } : null,
+        safety: ['blocked', 'look'].includes(String(record(row.safety).state)) && typeof record(row.safety).words === 'string'
+          ? { state: record(row.safety).state as 'blocked' | 'look', words: text(record(row.safety).words) } : null
       };
     }),
     summary: {
@@ -156,6 +160,7 @@ function detailHtml(catalog: SkillCatalog, row: SkillCatalogRow): string {
     ['Lifecycle', `${escape(row.lifecycleRecord?.words ?? row.lifecycle ?? 'Not marked')} · ${escape(READINESS_WORDS[row.readiness] ?? row.readiness)}${row.lifecycleRecord?.guardWords
       ? ` <span class="ask-dim">${escape(row.lifecycleRecord.guardWords)}</span>` : ''}${row.channel ? ` <span class="ask-dim">${escape(`Read through its marketplace's ${row.channel} channel.`)}</span>` : ''}${row.deprecatedInUse
       ? ` <span class="ask-warn">${escape(row.deprecatedInUse.words)}</span>` : ''}`],
+    ...(row.safety ? [['Text checks', `<span class="${row.safety.state === 'blocked' ? 'ask-warn' : 'ask-dim'}">${escape(row.safety.words)}</span>`] as [string, string]] : []),
     ['For steps', row.intents.length ? `${pills(row.intents)}${row.tasks.length ? ` <span class="ask-dim">${escape(`tasks: ${row.tasks.join(', ')}`)}</span>` : ''}` : 'No step: it names no task or step intent.'],
     ['Picked by /sf-task', row.pickedBy.length ? `<ul>${row.pickedBy.map((pick) => `<li>${escape(pick.words)}</li>`).join('')}</ul>`
       : escape('No kind of task picks it on its own here; a person can still name it.')],
@@ -194,7 +199,8 @@ function rowHtml(catalog: SkillCatalog, row: SkillCatalogRow, index: number): st
   <td>${escape(row.version ?? '')}</td>
   <td>${escape(row.lifecycle ?? '')}${row.readiness === 'unreviewed' ? ' <span class="ask-dim">needs a yes</span>' : row.readiness === 'retired' ? ' <span class="ask-warn">retired</span>' : ''}${
     row.channel ? ` <span class="ask-pill">${escape(CHANNEL_WORDS[row.channel])}</span>` : ''}${row.lifecycleRecord?.notGuarded ? ' <span class="ask-pill ask-alike" title="No code owner guards its lifecycle record">Not guarded</span>' : ''}${
-    row.deprecatedInUse ? ` <span class="ask-pill ask-in-use">${escape(row.deprecatedInUse.state === 'retired' ? 'Retired · in use here' : 'Deprecated · in use here')}</span>` : ''}</td>
+    row.deprecatedInUse ? ` <span class="ask-pill ask-in-use">${escape(row.deprecatedInUse.state === 'retired' ? 'Retired · in use here' : 'Deprecated · in use here')}</span>` : ''}${
+    row.safety ? ` <span class="ask-pill ${row.safety.state === 'blocked' ? 'ask-in-use' : 'ask-alike'}" title="${escape(row.safety.words)}">${row.safety.state === 'blocked' ? 'Refused by text checks' : 'Lines to look at'}</span>` : ''}</td>
   <td>${row.intents.length ? pills(row.intents) : '<span class="ask-dim">none</span>'}</td>
   <td>${row.softwareKinds.length ? pills(row.softwareKinds, KIND_WORDS) : '<span class="ask-dim">any</span>'}</td>
   <td>${escape(row.pickedBy.length ? [...new Set(row.pickedBy.map((pick) => pick.kind))].join(', ') : '')}</td>

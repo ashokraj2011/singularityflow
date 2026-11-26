@@ -4760,8 +4760,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   function queueImport(change, message) {
     var lib = library();
+    change = lookedChange(change);
     state.draft.imports = (state.draft.imports || []).filter(function (existing) { return importKey(existing) !== importKey(change); }).concat([change]);
-    lib.preview = null; lib.target = null; lib.reference = ''; lib.error = null;
+    lib.preview = null; lib.target = null; lib.reference = ''; lib.error = null; lib.looked = false;
     setStatus(message);
     changed();
   }
@@ -4786,6 +4787,18 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     }
     if (preview.details && preview.details.description) card.appendChild(el('span', { text: preview.details.description }));
     (preview.warnings || []).forEach(function (warning) { card.appendChild(el('div', { class: 'callout wait', text: warning })); });
+    // SFlow's text checks (OMK section 7): the lines to look at before it is added, ticked by the person, and the links it holds.
+    var looks = previewLooks(preview);
+    var links = ((preview.safety && preview.safety.findings) || []).filter(function (entry) { return entry.severity === 'note'; });
+    if (looks.length) {
+      card.appendChild(el('div', { class: 'callout wait', role: 'group', 'aria-label': 'Look at these lines', 'data-key': 'import-looks' },
+        el('strong', { text: 'Look at these lines' }),
+        el('div', { class: 'muted', text: 'SFlow\'s text checks ask you to look at these before it is added. They are text checks, not a security review.' }),
+        el('ul', null, looks.map(function (entry) { return el('li', { text: 'Line ' + entry.line + ' (' + entry.words + '): ' + (entry.text || '') }); })),
+        el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' }, el('input', { type: 'checkbox', 'data-key': 'import-looked', checked: Boolean(lib.looked),
+          onchange: function (event) { lib.looked = event.target.checked; render(); } }), 'I looked at these lines')));
+    }
+    if (links.length) card.appendChild(el('span', { class: 'muted', text: 'Links to other sites: ' + links.map(function (entry) { return String(entry.words).replace(/^[^:]*: /, ''); }).join(', ') + '.' }));
     card.appendChild(el('pre', { class: 'preview-text', 'aria-label': 'Exact content', text: preview.text + (preview.truncated ? '\n…' : '') }));
     card.appendChild(el('p', { class: 'muted', text: 'This exact content is what gets added. It is copied into your configuration, so Stories never fetch it again.' }));
     if (preview.as === 'skill' && lib.as === 'library-skill') {
@@ -4828,14 +4841,28 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     }
     if (lib.replace) card.appendChild(el('div', { class: 'callout wait', text: 'This replaces what was imported before; the change shows the difference.' }));
     card.appendChild(el('div', { class: 'studio-row' },
-      button('Add to changes', function () { addPreviewedImport(); }, { class: 'primary' }),
-      button('Cancel', function () { lib.preview = null; lib.target = null; lib.replace = false; lib.attachTo = null; render(); }, { class: 'secondary' })));
+      button('Add to changes', function () { addPreviewedImport(); }, { class: 'primary', disabled: looks.length > 0 && !lib.looked, title: looks.length && !lib.looked ? 'Look at the lines above first.' : null }),
+      button('Cancel', function () { lib.preview = null; lib.target = null; lib.replace = false; lib.attachTo = null; lib.looked = false; render(); }, { class: 'secondary' })));
     return card;
+  }
+
+  /** The lines SFlow's text checks ask a person to look at before an import is added (OMK section 7). */
+  function previewLooks(preview) {
+    return ((preview && preview.safety && preview.safety.findings) || []).filter(function (entry) { return entry.severity === 'look'; });
+  }
+
+  /** The change with the look checks the person ticked, as --looked names them; the engine checks them again when it adds it. */
+  function lookedChange(change) {
+    var lib = library(); var preview = lib.preview;
+    var checks = (preview && preview.safety && preview.safety.looks) || [];
+    if (checks.length && lib.looked && change.sha256 && change.sha256 === preview.sha256) change.looked = checks.slice();
+    return change;
   }
 
   function addPreviewedImport() {
     var lib = library(); var preview = lib.preview; var target = lib.target;
     var replace = Boolean(lib.replace);
+    if (previewLooks(preview).length && !lib.looked) { setStatus('Look at the lines SFlow\'s text checks show, then tick I looked at these lines.'); return; }
     if (preview.as === 'skill' && lib.as === 'library-skill') {
       if (!target.id) { setStatus('Give the skill an ID.'); return; }
       var librarySkill = { op: 'import.librarySkill', id: target.id, source: preview.reference, sha256: preview.sha256, replace: replace };
@@ -5040,14 +5067,18 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   // ---- Library: an agent of a Git repository marketplace as a workflow --------------------------
 
   /** The workflow the agent becomes, read by the engine with the answers given so far; nothing is written. */
-  function previewAgentWorkflow(target, label, answers, update) {
+  function previewAgentWorkflow(target, label, answers, update, looked) {
     var lib = library();
-    // An update keeps its mode while the person answers (MCR section 8).
-    var updating = update === true || Boolean(update === undefined && lib.agentWorkflow && lib.agentWorkflow.target === target && lib.agentWorkflow.update);
-    lib.agentWorkflow = { target: target, label: label, answers: answers || {}, result: null, update: updating };
+    // An update keeps its mode while the person answers (MCR section 8), and so does the person's "I looked at these lines".
+    var same = lib.agentWorkflow && lib.agentWorkflow.target === target;
+    var updating = update === true || Boolean(update === undefined && same && lib.agentWorkflow.update);
+    var seen = looked !== undefined ? looked : same ? lib.agentWorkflow.looked || [] : [];
+    lib.agentWorkflow = { target: target, label: label, answers: answers || {}, result: null, update: updating, looked: seen };
     lib.busy = 'agent-workflow'; lib.error = null; lib.feedbackStatus = null; render();
-    post(updating ? { type: 'studio.agentWorkflowPreview', target: target, answers: lib.agentWorkflow.answers, update: true }
-      : { type: 'studio.agentWorkflowPreview', target: target, answers: lib.agentWorkflow.answers });
+    var message = { type: 'studio.agentWorkflowPreview', target: target, answers: lib.agentWorkflow.answers };
+    if (updating) message.update = true;
+    if (seen.length) message.looked = seen.slice();
+    post(message);
   }
 
   /** The person's answer to what a stage is for, then the preview again with it. */
@@ -5063,8 +5094,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var lib = library(); var flow = lib.agentWorkflow;
     if (!flow || !flow.result || !flow.result.ready || !(flow.result.review && flow.result.review.ready) || ((flow.result.walk || {}).stops || []).length || lib.busy || state.busy) return;
     lib.busy = 'agent-workflow-make'; lib.error = null; render();
-    post(flow.update ? { type: 'studio.agentWorkflowMake', target: flow.target, answers: flow.answers, update: true }
-      : { type: 'studio.agentWorkflowMake', target: flow.target, answers: flow.answers });
+    var message = { type: 'studio.agentWorkflowMake', target: flow.target, answers: flow.answers };
+    if (flow.update) message.update = true;
+    if ((flow.looked || []).length) message.looked = flow.looked.slice();
+    post(message);
   }
 
   // The conversion review (docs/SPEC-MCR-MARKETPLACE-CONVERSION-REVIEW-v1.md section 4): what the agent became, stage by
@@ -5142,9 +5175,14 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     }
 
     box.appendChild(reviewSection('Checks', el('div', null, (review.checks || []).map(function (check) {
+      // SFlow's text checks (OMK section 7): each line they found; a line to look at waits for the person's tick.
+      var looks = check.looks || [];
       return el('div', { class: 'check-row', 'data-check': check.id },
         el('span', { class: 'mark ' + (check.ok ? 'ok' : 'bad'), text: check.ok ? '✓' : '!' }),
-        el('div', null, el('div', { text: check.words }), (check.fixes || []).map(function (fix) { return el('div', { class: 'muted', text: fix.title + '.' + (fix.detail ? ' ' + fix.detail : '') + ' Fix: ' + (fix.fix || '—') }); })),
+        el('div', null, el('div', { text: check.words }), (check.fixes || []).map(function (fix) { return el('div', { class: 'muted', text: fix.title + '.' + (fix.detail ? ' ' + fix.detail : '') + ' Fix: ' + (fix.fix || '—') }); }),
+          (check.lines || []).length ? el('ul', null, check.lines.map(function (line) { return el('li', { class: 'muted', text: line }); })) : null,
+          looks.length ? el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' }, el('input', { type: 'checkbox', 'data-key': 'agent-looked', disabled: Boolean(lib.busy),
+            onchange: function (event) { if (event.target.checked) previewAgentWorkflow(flow.target, flow.label, flow.answers, flow.update, looks.slice()); } }), 'I looked at these lines') : null),
         el('span'));
     }))));
 
@@ -7672,7 +7710,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       delete state.confirms[message.id];
       if (confirmed && message.ok === true) confirmed();
     } else if (message.type === 'studio.importPreviewed') {
-      var lib = library(); lib.busy = null; lib.error = null; lib.preview = message.preview;
+      var lib = library(); lib.busy = null; lib.error = null; lib.preview = message.preview; lib.looked = false;
       if (!lib.target && lib.pendingAgent) lib.target = { agent: lib.pendingAgent, id: suggestedId(message.preview), phases: (message.preview.marketplace && message.preview.marketplace.phases) || [], optional: false, label: '', withoutDefaults: false };
       lib.pendingAgent = null; render();
     } else if (message.type === 'studio.marketplaceEntries') {

@@ -25,6 +25,8 @@ export interface MarketplaceLifecycle {
 }
 /** A deprecated or retired item still used here (OMK §8), when the engine says so. */
 export interface MarketplaceInUse { state: string; words: string }
+/** What SFlow's text checks found in the copy installed here (OMK §7): refused, or lines a person should look at. */
+export interface MarketplaceSafety { state: 'blocked' | 'look'; words: string }
 export interface MarketplaceItem {
   key: string; kind: MarketplaceKind; id: string; name: string; description: string; source: 'marketplace' | 'here';
   marketplace: string | null; marketplaceLabel: string | null; marketplaceKind: string | null; version: string | null; installedVersion: string | null;
@@ -35,6 +37,7 @@ export interface MarketplaceItem {
   installedAs: MarketplaceInstall | null; fromAgent: { marketplace: string; agent: string } | null; conflict: { replaces: boolean; words: string } | null;
   importable: boolean; actions: Partial<Record<'preview' | 'install' | 'update' | 'remove' | 'open' | 'approve' | 'trust', MarketplaceAction>>;
   owner: MarketplaceOwner | null; lifecycleRecord: MarketplaceLifecycle | null; channel: 'stable' | 'beta' | null; deprecatedInUse: MarketplaceInUse | null;
+  safety: MarketplaceSafety | null;
   /** What the marketplace's own records get wrong, for its maintainers. */
   findings: { class: string; words: string; fix: string | null }[];
 }
@@ -91,6 +94,11 @@ function inUseFrom(value: unknown): MarketplaceInUse | null {
   return (used.state === 'deprecated' || used.state === 'retired') ? { state: used.state, words: text(used.words) } : null;
 }
 
+function safetyFrom(value: unknown): MarketplaceSafety | null {
+  const found = record(value);
+  return (found.state === 'blocked' || found.state === 'look') && typeof found.words === 'string' && found.words ? { state: found.state, words: found.words } : null;
+}
+
 /** The engine's answer, checked field by field: anything it does not say is empty, never guessed. */
 export function marketplaceCatalogFrom(value: unknown): MarketplaceCatalog | null {
   const data = record(value);
@@ -126,7 +134,7 @@ export function marketplaceCatalogFrom(value: unknown): MarketplaceCatalog | nul
         actions: Object.fromEntries(ACTIONS.filter((name) => typeof record(actions[name]).command === 'string')
           .map((name) => [name, { command: text(record(actions[name]).command), label: text(record(actions[name]).label) }])),
         owner: ownerFrom(item.owner), lifecycleRecord: lifecycleFrom(item.lifecycleRecord),
-        channel: item.channel === 'stable' || item.channel === 'beta' ? item.channel : null, deprecatedInUse: inUseFrom(item.deprecatedInUse),
+        channel: item.channel === 'stable' || item.channel === 'beta' ? item.channel : null, deprecatedInUse: inUseFrom(item.deprecatedInUse), safety: safetyFrom(item.safety),
         findings: records(item.findings).filter((finding) => typeof finding.words === 'string').map((finding) => ({ class: text(finding.class), words: text(finding.words),
           fix: textOrNull(finding.fix) }))
       };
@@ -248,6 +256,8 @@ function versionWords(item: MarketplaceItem): string {
 export const ownerKey = (item: MarketplaceItem): string => item.owner?.team ?? item.owner?.name ?? 'none';
 const CHANNEL_WORDS: Record<string, string> = { stable: 'Stable', beta: 'Beta' };
 const IN_USE_WORDS: Record<string, string> = { deprecated: 'Deprecated · in use here', retired: 'Retired · in use here' };
+/** The badge of what SFlow's text checks found in the installed copy; its words say which line and why (OMK §7). */
+const SAFETY_WORDS: Record<string, string> = { blocked: 'Refused by text checks', look: 'Lines to look at' };
 
 /**
  * The lifecycle cell (OMK §5.3): the state, the channel's badge, Not guarded and in-use badges, and a detail that says
@@ -287,7 +297,8 @@ function rowHtml(item: MarketplaceItem, index: number): string {
   <td>${escape(versionWords(item))}</td>
   <td>${lifecycleHtml(item)}</td>
   <td><span class="mkt-badge mkt-${escape(item.status)}">${escape(STATUS_WORDS[item.status])}</span>${item.status === 'installed' && !item.statusWords.includes('could not be read') ? ''
-    : `<div class="mkt-words">${escape(item.statusWords)}</div>`}${item.newer ? `<div class="mkt-words mkt-newer">${escape(item.newer.words)}</div>` : ''}</td>
+    : `<div class="mkt-words">${escape(item.statusWords)}</div>`}${item.newer ? `<div class="mkt-words mkt-newer">${escape(item.newer.words)}</div>` : ''}${item.safety
+    ? ` <span class="mkt-badge mkt-safety-${escape(item.safety.state)}">${escape(SAFETY_WORDS[item.safety.state])}</span><div class="mkt-words">${escape(item.safety.words)}</div>` : ''}</td>
   <td class="mkt-actions">${buttonsHtml(item)}</td>
 </tr>`;
 }
@@ -413,7 +424,8 @@ export const MARKETPLACE_STYLE = `
 .mkt-check { display: flex; gap: 4px; align-items: center; font-size: .9em; }
 .mkt-channel-beta, .mkt-unguarded { color: var(--vscode-editorWarning-foreground, var(--vscode-foreground)); }
 .mkt-channel-stable { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); }
-.mkt-in-use { color: var(--vscode-errorForeground, var(--vscode-foreground)); font-weight: 600; }
+.mkt-in-use, .mkt-safety-blocked { color: var(--vscode-errorForeground, var(--vscode-foreground)); font-weight: 600; }
+.mkt-safety-look { color: var(--vscode-editorWarning-foreground, var(--vscode-foreground)); }
 .mkt-more { margin-top: 4px; font-size: .9em; max-width: 48ch; }
 .mkt-more summary { cursor: pointer; color: var(--vscode-textLink-foreground, var(--vscode-foreground)); }
 .mkt-more div { margin: 2px 0; }

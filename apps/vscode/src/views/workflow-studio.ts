@@ -55,6 +55,13 @@ const AGENT_STAGE_ANSWER = { step: /^[a-z0-9]+(?:-[a-z0-9]+)*$/, intent: /^[a-z]
 /** A branch or tag name as Git allows it, never an option. */
 const MARKETPLACE_REF = /^[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}$/;
 
+/** The look checks of SFlow's text checks (OMK §7) a person ticked "I looked at these lines" for, as `--looked`; anything else is dropped. */
+const LOOK_CHECKS = new Set(['hidden-markup', 'encoded-payload', 'data-upload', 'destructive-command']);
+function lookedFlags(raw: unknown): string[] {
+  const looked = Array.isArray(raw) ? [...new Set(raw.filter((entry): entry is string => typeof entry === 'string' && LOOK_CHECKS.has(entry)))].sort() : [];
+  return looked.length ? ['--looked', looked.join(',')] : [];
+}
+
 /** The person's answers to what a stage is for, as `--answer` flags; anything else is dropped. */
 function agentStageAnswers(raw: unknown): string[] {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
@@ -372,8 +379,10 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.marketplaceBrowse': (message) => this.marketplaceBrowse(stringField(message, 'id')),
     'studio.marketplaceRead': (message) => this.marketplaceRead(stringField(message, 'id'), stringField(message, 'repository'),
       stringField(message, 'ref'), stringField(message, 'label')),
-    'studio.agentWorkflowPreview': (message) => this.agentWorkflowPreview(stringField(message, 'target'), (message as { answers?: unknown }).answers, (message as { update?: unknown }).update === true),
-    'studio.agentWorkflowMake': (message) => this.agentWorkflowMake(stringField(message, 'target'), (message as { answers?: unknown }).answers, (message as { update?: unknown }).update === true),
+    'studio.agentWorkflowPreview': (message) => this.agentWorkflowPreview(stringField(message, 'target'), (message as { answers?: unknown }).answers, (message as { update?: unknown }).update === true,
+      (message as { looked?: unknown }).looked),
+    'studio.agentWorkflowMake': (message) => this.agentWorkflowMake(stringField(message, 'target'), (message as { answers?: unknown }).answers, (message as { update?: unknown }).update === true,
+      (message as { looked?: unknown }).looked),
     'studio.agentFeedbackSave': (message) => this.agentFeedbackSave(stringField(message, 'target'), (message as { answers?: unknown }).answers),
     'studio.agentFeedbackCopy': (message) => this.agentFeedbackCopy(stringField(message, 'target')),
     'studio.agentFeedbackIssue': (message) => this.agentFeedbackIssue(stringField(message, 'target')),
@@ -868,10 +877,11 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   }
 
   /** The workflow a marketplace agent becomes, with the person's answers so far: `workflow from-agent`, which writes nothing. */
-  private async agentWorkflowPreview(target: string | null, answers: unknown, update = false): Promise<void> {
+  private async agentWorkflowPreview(target: string | null, answers: unknown, update = false, looked: unknown = []): Promise<void> {
     if (!target || !MARKETPLACE_AGENT.test(target)) { this.post({ type: 'studio.importFailed', message: 'Choose an agent of a marketplace this repository trusts.' }); return; }
     try {
-      const result = await this.client.run<Record<string, unknown>>(['workflow', 'from-agent', target, ...agentStageAnswers(answers), ...(update ? ['--update'] : []), '--json']);
+      // The person's "I looked at these lines" is the engine's --looked: it says whether the review is ready (OMK §7).
+      const result = await this.client.run<Record<string, unknown>>(['workflow', 'from-agent', target, ...agentStageAnswers(answers), ...(update ? ['--update'] : []), ...lookedFlags(looked), '--json']);
       this.agentPreview = { target, answers, result };
       this.post({ type: 'studio.agentWorkflowPreviewed', target, result });
     } catch (error) {
@@ -883,10 +893,10 @@ export class WorkflowStudioPanel implements vscode.Disposable {
    * Make it: `workflow from-agent --propose` keeps the bundle in SFlow's private folder, and the page starts Import… with
    * it, so the person reviews and confirms the import exactly as for any bundle, with the page's own count of changes.
    */
-  private async agentWorkflowMake(target: string | null, answers: unknown, update = false): Promise<void> {
+  private async agentWorkflowMake(target: string | null, answers: unknown, update = false, looked: unknown = []): Promise<void> {
     if (!target || !MARKETPLACE_AGENT.test(target)) { this.post({ type: 'studio.importFailed', message: 'Choose an agent of a marketplace this repository trusts.' }); return; }
     try {
-      const result = await this.client.run<{ bundlePath?: string; workflow?: { id?: string } }>(['workflow', 'from-agent', target, ...agentStageAnswers(answers), ...(update ? ['--update'] : []), '--propose', '--json']);
+      const result = await this.client.run<{ bundlePath?: string; workflow?: { id?: string } }>(['workflow', 'from-agent', target, ...agentStageAnswers(answers), ...(update ? ['--update'] : []), ...lookedFlags(looked), '--propose', '--json']);
       if (!result.bundlePath || !path.isAbsolute(result.bundlePath)) { this.post({ type: 'studio.importFailed', message: 'The workflow bundle was not written.' }); return; }
       this.post({ type: 'studio.agentWorkflowMade', workflowId: result.workflow?.id ?? null });
       this.requestImport(result.bundlePath);

@@ -13,8 +13,8 @@ import path from 'node:path';
 import { subjectWords } from './records/anchors.mjs';
 import { meaningText, ruleStatusWords } from './records/rules.mjs';
 
-// Version 2: Story words are read split at case changes [WMR:§11]. A brief kept by version 1 is composed again
-// (REQ-013's key names the renderer).
+// Version 2: Story words are read split at case changes, and the architect's brief says what a change touches
+// [WMR:§11]. A brief kept by version 1 is composed again (REQ-013's key names the renderer).
 export const PHASE_BRIEF_RENDERER = Object.freeze({ id: 'repository-brief', version: 2 });
 
 /**
@@ -22,6 +22,11 @@ export const PHASE_BRIEF_RENDERER = Object.freeze({ id: 'repository-brief', vers
  * output kind, then a code task, then its intent), then by its ID (first match wins), then by its other declared task
  * (TASK_PROFILES). The budgets are defaults: `worldModel.knowledge.maxBytes` replaces them for every phase. The
  * reviewer's profile has no name pattern: only a review task's step is given it [WMR:REQ-012].
+ *
+ * The architect's brief says what a change touches only from the Story itself (`storyOnly`): the files it changes, its
+ * plan names or, before either, its words name [WMR:§11]. A planning step that writes a design document is profiled
+ * as the architect, and at its first version no plan exists yet; a list of the code's busiest functions would say
+ * nothing about this Story.
  */
 export const PHASE_BRIEF_PROFILES = Object.freeze([
   Object.freeze({ id: 'reproduction', reader: 'developer', pattern: '(reproduc|fix-spec)', budget: 3072, order: Object.freeze(['rules', 'impact', 'risks', 'contracts']) }),
@@ -30,7 +35,7 @@ export const PHASE_BRIEF_PROFILES = Object.freeze([
   Object.freeze({ id: 'release', reader: 'product', pattern: '(release|deploy)', budget: 2048, order: Object.freeze(['contracts', 'rules']) }),
   Object.freeze({ id: 'verification', reader: 'tester', pattern: '(test|verif|qa|accept)', budget: 3072, order: Object.freeze(['rules', 'risks', 'flows', 'impact']) }),
   Object.freeze({ id: 'intake', reader: 'product', pattern: '(intake|requirement|specif|discover|product|business|story)', budget: 2048, order: Object.freeze(['overview', 'rules', 'questions', 'contracts']) }),
-  Object.freeze({ id: 'design', reader: 'architect', pattern: '(design|architect|plan)', budget: 3072, order: Object.freeze(['contracts', 'flows', 'rules', 'risks', 'overview']) }),
+  Object.freeze({ id: 'design', reader: 'architect', pattern: '(design|architect|plan)', budget: 3072, order: Object.freeze(['contracts', 'impact', 'flows', 'rules', 'risks', 'overview']), storyOnly: Object.freeze(['impact']) }),
   Object.freeze({ id: 'review', reader: 'reviewer', pattern: null, budget: 3072, order: Object.freeze(['rules', 'risks', 'impact', 'contracts']) }),
   Object.freeze({ id: 'implementation', reader: 'developer', pattern: '.*', budget: 3072, order: Object.freeze(['impact', 'rules', 'contracts', 'risks']) })
 ]);
@@ -283,7 +288,7 @@ export function renderPhaseBrief({
   for (const record of risks ?? []) push('risks', `${record.change === 2 ? '(changed by this Story) ' : ''}${record.text}`, record.scope === 'file' ? null : record.sources.code, { id: record.id, pathLeads: record.scope === 'file' });
   const replaced = { rules, questions, contracts, flows: flows?.length ? flows : null, impact: impact?.length ? impact : null, risks: risks?.length ? risks : null };
   for (const id of Object.keys(SECTION_TITLES)) {
-    if (replaced[id]) continue;
+    if (replaced[id] || profile.storyOnly?.includes(id)) continue;
     for (const statement of template?.views?.[id] ?? []) {
       const source = statement.sources?.[0] ?? null;
       const heading = source?.label?.includes(' › ') ? source.label.split(' › ').slice(1).join(' › ') : null;

@@ -14,8 +14,10 @@
  * takes or returns is a contract change. Nothing here needs a model.
  *
  * Every planned file is listed, with what it defines when nothing else is known of it, and a planned file that does not
- * exist yet is "(new, planned)" [WMR:REQ-007]. `trust(file)` says whether its calls are resolved: while they are only
- * matched by name, no caller, flow or test reach is stated [WMR:REQ-014].
+ * exist yet is "(new, planned)" [WMR:REQ-007]. Before the Story plans or changes any file, the files whose names its
+ * words match are listed instead: "src/components/FunctionGrapher.jsx (name matches the Story's words): imported by
+ * 1 file" [WMR:§11]. `trust(file)` says whether its calls are resolved: while they are only matched by name, no caller,
+ * flow or test reach is stated [WMR:REQ-014].
  */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -93,6 +95,28 @@ function focusWeight(focus) {
   return (text) => [...subjectWords(text)].reduce((sum, word) => sum + (counts.get(word) ?? 0), 0);
 }
 
+/** At most this many files a Story's words name are listed before it plans or changes one. */
+const NAMED_FILES = 3;
+
+/**
+ * The code files whose names the Story's words match, best first: "graph" names `FunctionGrapher.jsx`. Only the file's
+ * own name counts (split at case changes), never its folder or a test.
+ */
+function filesNamedBy(knowledge, relevance, imports) {
+  const tests = new Set((knowledge?.items ?? []).filter((item) => item.kind === 'test-case').map((item) => item.subject?.path));
+  const code = new Set([...(knowledge?.graph?.functions ?? []).map((fn) => fn.file),
+    ...(knowledge?.items ?? []).filter((item) => item.kind === 'layer').map((item) => item.subject?.path)]);
+  const importers = (file) => imports.filter(([, to]) => to === file).length;
+  return [...code].filter((file) => file && !tests.has(file) && !/(?:^|[./_-])(?:test|spec)s?\.[^/]+$|(?:^|\/)__tests__\//u.test(file))
+    .map((file) => ({ file, score: relevance(path.posix.basename(file).replace(/\.[^.]+$/u, '')) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || importers(b.file) - importers(a.file) || a.file.localeCompare(b.file, 'en'))
+    .slice(0, NAMED_FILES).map((entry) => entry.file);
+}
+
+/** How a file record says why it is listed. */
+const STATE_LABELS = Object.freeze({ named: 'name matches the Story\'s words' });
+
 export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges = null, plannedPaths = [], newPaths = [], focus = null, trust = () => true } = {}) {
   const items = knowledge?.items ?? [];
   const functions = knowledge?.graph?.functions ?? [];
@@ -103,7 +127,11 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
   const planned = [...new Set(plannedPaths)].filter((file) => known.has(file) && !changed.includes(file));
   const fresh = [...new Set(newPaths)].filter((file) => !known.has(file) && !changed.includes(file));
   const story = new Set([...changed, ...planned]);
-  if (!story.size && !fresh.length) return [];
+  const relevance = focusWeight(focus);
+  // Before the Story plans or changes a file, only its words can point at one: a planning step's first version is
+  // composed before its plan exists [WMR:§11]. Once there is a plan or a change, its files lead (REQ-007).
+  const named = story.size || fresh.length ? [] : filesNamedBy(knowledge, relevance, imports);
+  if (!story.size && !fresh.length && !named.length) return [];
 
   const callersOf = new Map();
   for (const [from, to] of calls) {
@@ -213,12 +241,14 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
       tests.length ? `tested by ${names(tests.map(basename), 2)}` : rules && resolved ? 'no test reaches it' : null,
       partnerText(file)
     ].filter(Boolean);
-    // A planned file is always listed: the plan's files lead [WMR:REQ-007]. With nothing else known, what it defines.
-    if (!parts.length && state === 'planned' && inFile.length) parts.push(`defines ${names(inFile.map((fn) => shortName(fn.qualifiedName)), 3)}`);
-    if (!parts.length && state !== 'planned') return;
+    // A planned file is always listed: the plan's files lead [WMR:REQ-007]; so is one the Story's words name. With
+    // nothing else known, what it defines.
+    if (!parts.length && state !== 'changed' && inFile.length) parts.push(`defines ${names(inFile.map((fn) => shortName(fn.qualifiedName)), 3)}`);
+    if (!parts.length && state === 'changed') return;
+    const label = STATE_LABELS[state] ?? state;
     records.push({
       id: recordId(`${state}:${file}`), kind: 'impact', scope: 'file', state,
-      text: parts.length ? `${file} (${state}): ${parts.join('; ')}` : `${file} (${state})`,
+      text: parts.length ? `${file} (${label}): ${parts.join('; ')}` : `${file} (${label})`,
       parts: { path: file, functions: inFile.length, flows, rules, tests, importedBy: importers },
       sources: { code: [{ path: file, line: null }] },
       weight: flows.length * 4 + importers.length + rules + (contractText(file).length ? 6 : 0)
@@ -233,16 +263,17 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
     for (const fn of touched) functionRecord(fn, 'changed');
   }
   for (const file of planned) fileRecord(file, 'planned');
+  for (const file of named) fileRecord(file, 'named');
   // A file the plan names that does not exist yet: listed, never dropped [WMR:REQ-007].
   for (const file of fresh) {
     records.push({ id: recordId(`new:${file}`), kind: 'impact', scope: 'file', state: 'new', text: `${file} (new, planned)`,
       parts: { path: file, functions: 0, flows: [], rules: 0, tests: [], importedBy: [] }, sources: { code: [{ path: file, line: null }] }, weight: 0 });
   }
-  // Changed before planned before new, then what the Story's own words name, then what the change reaches most.
-  const relevance = focusWeight(focus);
-  const named = (record) => relevance(`${record.parts.symbol ?? ''} ${record.parts.path}`);
-  const rank = { changed: 0, planned: 1, new: 2 };
-  return records.sort((a, b) => rank[a.state] - rank[b.state] || named(b) - named(a) || b.weight - a.weight || a.text.localeCompare(b.text, 'en'));
+  // Changed before planned before new before named by words, then what the Story's own words name, then what the
+  // change reaches most.
+  const wordsName = (record) => relevance(`${record.parts.symbol ?? ''} ${record.parts.path}`);
+  const rank = { changed: 0, planned: 1, new: 2, named: 3 };
+  return records.sort((a, b) => rank[a.state] - rank[b.state] || wordsName(b) - wordsName(a) || b.weight - a.weight || a.text.localeCompare(b.text, 'en'));
 }
 
 /** The functions a change's lines fall in, from its impact records. */

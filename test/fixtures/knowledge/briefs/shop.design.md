@@ -4,6 +4,9 @@
 - Calls GET /products via request (orders.ts:14)
 - Calls POST /orders via request (orders.ts:7)
 
+## What a change touches
+- shipping (changed): called by total; 1 rule; tested by pricing.test.ts (pricing.ts:12)
+
 ## Flows
 - onSubmit on <form> in CheckoutForm.tsx → handleSubmit → couponDiscount (and 2 helpers: submitOrder, subtotal); refuses 1 way; 6 rules on the way; calls POST /orders, may fail with Error (CheckoutForm.tsx:37)
 

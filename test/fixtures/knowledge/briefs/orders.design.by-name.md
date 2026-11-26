@@ -10,6 +10,10 @@
 - Configuration orders.payment.base-url = https://payments.internal.example (application.properties:2)
 - program start → OrdersApplication.main (OrdersApplication.java:8)
 
+## What a change touches
+- OrderService.cancel (changed): 1 rule (OrderService.java:41)
+- OrderService.place (changed): 5 rules (OrderService.java:22)
+
 ## Rules that apply
 - OrderService.cancel: when `order.getStatus() != OrderStatus.PLACED` → refuses "Only placed orders can be cancelled" (HTTP 409). Documented, enforced. (OrderService.java:43; README.md › Business rules)
 - 409 — the order cannot be cancelled in its state. Documented, enforced. (OrderService.java:44; README.md › Error responses)

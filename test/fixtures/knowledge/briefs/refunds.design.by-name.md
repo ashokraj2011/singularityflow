@@ -7,11 +7,14 @@
 - POST /orders takes OrderRequest {lines: List<String> (required, at least 1 long, at most 20 long); total: BigDecimal (at least 10); email: String (an email address)} and returns String (OrderController.java:11)
 - class OrderRequest {lines: List<String> (required, at least 1 long, at most 20 long); total: BigDecimal (at least 10); email: String (an email address)} (OrderRequest.java:10)
 
+## What a change touches
+- OrderController.refund (changed): handles POST /refunds (OrderController.java:16)
+
 ## Rules that apply
 - Refund.amount: more than 0. Documented; declared on Refund, but no endpoint validates it (@Valid is missing). (Refund.java:7; README.md › Business rules)
 - Refund.reason: required, not blank. Not documented; declared on Refund, but no endpoint validates it (@Valid is missing). (Refund.java:7)
 - OrderRequest.email: an email address. Not documented, enforced by bean-validation. (OrderRequest.java:18)
-- OrderRequest.lines: required, at least 1 long, at most 20 long ("An order has 1 to 20 lines"). Documented, enforced by bean-validation. (OrderRequest.java:11; README.md › Business rules)
+- OrderRequest.total: at least 10. Documented, enforced by bean-validation. (OrderRequest.java:15; README.md › Business rules)
 
 ## Risks
 - src/main/java/com/acme/api/OrderController.java: changed 1 time, complexity 2, imported by 0 (OrderController.java)

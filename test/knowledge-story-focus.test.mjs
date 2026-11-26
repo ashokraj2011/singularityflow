@@ -2,8 +2,8 @@
  * The Repository brief, focused on the Story and placed where it helps [WMR:REQ-007–015], on fixtures:
  * the plan's files lead (A2), a large repository reads the Story's scope and planned areas (A3), the brief is left
  * out of intake, verification and release unless a team turns it back on (A4), a step's intent picks its reader (A5),
- * a step's next version reuses its brief (A6), calls matched by name are never stated as facts (A7), and the Story's
- * words are read split at case changes, as the code's names are (A8, §11).
+ * a step's next version reuses its brief (A6), calls matched by name are never stated as facts (A7), and before a
+ * plan exists the Story's words name the files they match, read split at case changes (A8, §11).
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -195,6 +195,20 @@ test('A7: with calls matched by name only, no brief states reach, callers or tes
   assert.match(resolved.text, /called from \d+ places|reached by \d+ entry point/u);
 });
 
+/** The owner's graph Stories' planning step, as they pinned it: it writes a design document, has no intent and no plan yet. */
+function planningStory(title) {
+  return {
+    workItem: { id: 'GRAPH-2', title, baseCommit: null },
+    phaseOrder: ['specification', 'planning', 'implementation'],
+    phases: {
+      specification: { id: 'specification', status: 'approved', generation: 1, requiredArtifact: { path: 'artifacts/specification/spec.md', kind: 'document' } },
+      planning: { id: 'planning', status: 'in_progress', generation: 1, requiredArtifact: { path: 'artifacts/planning/plan.md', kind: 'design' } },
+      implementation: { id: 'implementation', status: 'pending', generation: 0, requiredArtifact: { path: 'artifacts/implementation/summary.md', kind: 'implementation-summary' } }
+    },
+    resolution: {}
+  };
+}
+
 test('A8: Story words and code names are read alike, split at case changes and with "-er" folded, on both sides [WMR:§11]', async () => {
   const { splitCase, subjectWords } = await import('../src/knowledge/records/anchors.mjs');
   assert.deepEqual([...subjectWords('src/components/FunctionGrapher.jsx')], ['src', 'component', 'function', 'graph', 'jsx']);
@@ -203,6 +217,33 @@ test('A8: Story words and code names are read alike, split at case changes and w
   assert.equal(splitCase('parseHTTPRequest'), 'parse HTTP Request', 'an acronym is a word of its own');
   // Short words keep their "-er": "order" and "user" are not cut.
   assert.deepEqual([...subjectWords('order orders user')], ['order', 'user']);
+});
+
+test('A8: before its plan exists, a planning step that writes a design document names the file its Story\'s words name [WMR:§11]', async (t) => {
+  const repository = await fixture(t, 'graph-calc');
+  const workflow = planningStory('graph');
+  const brief = await phaseRepositoryBrief(repository, { definition: { worldModel: {} }, workflow, phase: 'planning', changedPaths: [], polish: 'off' });
+  // The owner's planning steps get the architect's brief: the document kind they pinned comes first (REQ-012).
+  assert.equal(brief.profile, 'design');
+  assert.match(brief.text, /^## What a change touches\n- src\/FunctionGrapher\.jsx \(name matches the Story's words\)/mu, brief.text);
+  // A Story whose words name no file: the architect is given no list of the code's busiest functions in its place.
+  const none = await phaseRepositoryBrief(repository, { definition: { worldModel: {} }, workflow: planningStory('bimary'), phase: 'planning', changedPaths: [], polish: 'off' });
+  assert.match(none.text, /^# Repository brief: /u);
+  assert.doesNotMatch(none.text, /## What a change touches/u, none.text);
+  // A developer's brief keeps what depends on the functions the Story names, as before.
+  const code = await repositoryBriefPrompt(repository, { definition: null, phase: 'implementation', workflow: planningStory('bimary'), polish: 'off' });
+  assert.match(code.text, /## What a change touches/u);
+});
+
+test('A8: once there is a plan or a change, its files lead and no file is listed for its name alone [WMR:§11, REQ-007]', async (t) => {
+  const repository = await fixture(t, 'graph-calc');
+  const { knowledge } = await buildKnowledge(repository, { history: false });
+  const named = buildImpactRecords(knowledge, { focus: 'Plot a graph' });
+  assert.deepEqual(named.map((record) => [record.state, record.parts.path]), [['named', 'src/FunctionGrapher.jsx']]);
+  assert.equal(buildImpactRecords(knowledge, { focus: 'Plot a graph', plannedPaths: ['src/App.jsx'] }).some((record) => record.state === 'named'), false);
+  assert.deepEqual(buildImpactRecords(knowledge, { focus: 'Test the evaluator' }).map((record) => record.parts.path), ['src/utils/evaluator.js'],
+    'its test file is never listed for its name');
+  assert.deepEqual(buildImpactRecords(knowledge, { focus: 'unrelated words' }), []);
 });
 
 test('A8: a large repository\'s areas are chosen by folder names split at case changes too [WMR:§11, REQ-008]', async () => {

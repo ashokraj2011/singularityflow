@@ -7,8 +7,10 @@
 - class Order {id: Long; customerId: String; lines: List<OrderLine>; total: BigDecimal; status: OrderStatus; vip: boolean} (Order.java:9)
 - OrderRepository stores Order (id Long) (OrderRepository.java:6)
 - Configuration orders.max-items = 20 (application.properties:1)
-- Configuration orders.payment.base-url = https://payments.internal.example (application.properties:2)
-- program start → OrdersApplication.main (OrdersApplication.java:8)
+
+## What a change touches
+- OrderService.cancel (changed): called by OrderController.cancel; on POST /orders/{id}/cancel; 1 rule; no test reaches it (OrderService.java:41)
+- OrderService.place (changed): called by OrderController.place; on POST /orders; 5 rules; tested by OrderServiceTest.java (OrderService.java:22)
 
 ## Flows
 - POST /orders/{id}/cancel → OrderController.cancel → OrderService.cancel; refuses 1 way (HTTP 409); 1 rule on the way; writes the database; returns Order (OrderController.java:26)
@@ -17,7 +19,6 @@
 ## Rules that apply
 - OrderService.cancel: when `order.getStatus() != OrderStatus.PLACED` → refuses "Only placed orders can be cancelled" (HTTP 409). Documented, enforced, no test reaches it. (OrderService.java:43; README.md › Business rules)
 - 409 — the order cannot be cancelled in its state. Documented, enforced. (OrderService.java:44; README.md › Error responses)
-- 400 — the order is invalid. Documented, enforced. (OrderService.java:24; README.md › Error responses)
 
 ## Risks
 - (changed by this Story) OrderService.cancel: reached by 1 entry point, no test reaches it (OrderService.java:41)
@@ -29,7 +30,7 @@
 - Takes customer orders, checks them and stores them. (README.md › Orders Service)
 - test: `mvn test` (Maven Surefire) (pom.xml:1)
 
-- … 6 more: singularity-flow wm brief --phase design
+- … 9 more: singularity-flow wm brief --phase design
 
 Not known: calls are matched by name (no semantic pack is warmed); no runtime or incident data.
 Read without a model from the committed source. Open the cited lines before relying on a detail.

@@ -109,7 +109,8 @@ export class MarketplacePanel implements vscode.Disposable {
     const item = key ? this.catalog?.items.find((entry) => entry.key === key) ?? null : null;
     const change = item?.lifecycleRecord?.change ?? null;
     if (!change || !/^https:\/\/[^\s]+$/.test(change)) return;
-    await vscode.env.openExternal(vscode.Uri.parse(change, true));
+    // As the string SFlow wrote: a parsed Uri is encoded again on its way to the browser (vscode-open-external).
+    await vscode.env.openExternal(change as unknown as vscode.Uri);
   }
 
   private render(): void {

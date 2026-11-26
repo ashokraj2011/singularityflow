@@ -328,6 +328,6 @@ test('the page shows the owner, the lifecycle with who and when, the channel and
   // The host opens only the row's own https change, in the browser.
   const host = source('apps/vscode/src/views/marketplace.ts');
   assert.match(host, /'marketplace\.openChange': \(message\) => this\.openChange\(stringField\(message, 'key'\)\)/u);
-  assert.match(host, /const change = item\?\.lifecycleRecord\?\.change \?\? null;\s*if \(!change \|\| !\/\^https:\\\/\\\/\[\^\\s\]\+\$\/\.test\(change\)\) return;\s*await vscode\.env\.openExternal\(vscode\.Uri\.parse\(change, true\)\);/u);
+  assert.match(host, /const change = item\?\.lifecycleRecord\?\.change \?\? null;\s*if \(!change \|\| !\/\^https:\\\/\\\/\[\^\\s\]\+\$\/\.test\(change\)\) return;\s*(?:\/\/[^\n]*\n\s*)?await vscode\.env\.openExternal\(change as unknown as vscode\.Uri\);/u);
   assert.match(MARKETPLACE_SCRIPT, /api\.postMessage\(\{ type: 'marketplace\.openChange', key: target\.dataset\.change \}\)/u);
 });

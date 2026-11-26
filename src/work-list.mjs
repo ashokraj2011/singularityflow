@@ -177,7 +177,9 @@ async function waitingItems({ env, cwd, now }) {
 
 async function resultOf(scope, repositories, rows, { now, offline, env, cwd, entries }) {
   const items = await waitingItems({ env, cwd, now });
-  const joined = rows.map((row) => withWaiting(row, items.find((item) => item.story?.id === row.id && item.repository?.id === row.repository.id) ?? null));
+  // Times are said as of this paint ("Monday", "yesterday"), whenever the row was kept.
+  const dated = rows.map((row) => ({ ...row, startedWhen: timeWords(row.startedAt, now), ...(row.ended ? { ended: { ...row.ended, when: timeWords(row.ended.at, now) } } : {}) }));
+  const joined = dated.map((row) => withWaiting(row, items.find((item) => item.story?.id === row.id && item.repository?.id === row.repository.id) ?? null));
   const { inProgress, doneThisWeek } = orderRows(await withRoutes(joined, scope, entries), { now });
   const read = repositories.filter((entry) => entry.read !== 'failed');
   const checked = read.map((entry) => entry.at).filter(Boolean).sort().at(-1) ?? null;

@@ -7,12 +7,13 @@ aliases:
   - reviewers
 commands:
   - inbox
+  - needs-you
   - review
   - report
 related:
   - approvals
   - epics-and-planning
-version: 4
+version: 5
 ---
 `sflow inbox` lists phases awaiting approval, labeled by authority group, from exact Story commits
 named by the configured Flow Ledger (`state` by default). It never fetches or scans every application
@@ -21,13 +22,20 @@ branch. A standalone governed clone is sufficient; workspace users can select an
 An absent or unreadable ledger is an explicit error, not an empty approval inbox. (`sflow workspace`
 aggregates a capability's repositories for multi-repo reviewers — a convenience, never a prerequisite.)
 
+`sflow needs-you` is the person's read: everything waiting on you across every repository of the active
+workspace, oldest first — step approvals, workflow decisions, decisions on Stories checked out here, a
+step's next version, a task's intake answers, configuration changes you may approve and Initiative
+approvals. Each repository is judged with the identity SFlow records with there. `--offline` shows what
+the last read kept and fetches nothing; `sflow needs-you show <KEY>` prints one item's card with the
+command for each choice. `/sf-inbox` reads it; `inbox` stays for scripts.
+
 ## Purpose and prerequisites
 
 Use this topic when the current goal matches **inbox and review**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
-- **Shell:** `sflow inbox`, `sflow review`, `sflow report`. Run `singularity-flow inbox --help` for the exact forms supported by this build.
+- **Shell:** `sflow needs-you`, `sflow inbox`, `sflow review`, `sflow report`. Run `singularity-flow inbox --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-inbox`, `/sf-review`, `/sf-report`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Inbox and Approvals**. The extension renders engine results; it does not independently decide lifecycle state.
 

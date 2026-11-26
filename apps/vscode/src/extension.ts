@@ -5478,6 +5478,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let repositoryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   const repositoryWatcherFence = new RevisionSliceWatcherFence(() => repository);
   let mutationRefreshDeferred = false;
+  // The Needs-you place, while the four places are on (wired below): it reads again after any change made here, and when a
+  // local Story's records change under the repository watchers [FPL:REQ-016].
+  let needsYouAfterChange: (() => void) | null = null;
   const armRepositoryRefresh = (): void => {
     if (repositoryRefreshTimer) clearTimeout(repositoryRefreshTimer);
     if (client.mutating) {
@@ -5501,6 +5504,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (await repositoryWatcherFence.matchesDelayedEcho(batch, () => client.revisionProbe())) return;
         if (!repositoryEpoch.isCurrent(scope)) return;
         repositoryWatcherFence.clearDelayedEcho();
+        needsYouAfterChange?.();
         const autoPrivateChanged = batch.events.some((event) => event.origin === 'auto-private');
         const refreshCurrentHome = autoPrivateChanged && resultPanelIsHome({ visibleOnly: false });
         if (refreshCurrentHome) {
@@ -5532,6 +5536,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** One explicit mutation refresh, with an exact fence around already-observed watcher echoes. */
   const refreshAfterKnownMutation = async (): Promise<void> => {
+    needsYouAfterChange?.();
     client.invalidateReads();
     if (repositoryRefreshTimer) {
       clearTimeout(repositoryRefreshTimer);
@@ -10208,6 +10213,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // A contributed command with no handler here would be one the palette offers and nothing answers.
   const orphaned = REPOSITORY_COMMANDS.filter((id) => !handlers.has(id));
   if (orphaned.length) output.appendLine(`Commands with no handler: ${orphaned.join(', ')}`);
+
+  // The four places [FPL:REQ-001]: in M1 Needs you and Advanced, behind `singularityFlow.navigation.layout` until M5 makes
+  // `places` the default. Loaded lazily; with the setting off nothing of it loads. Each card choice runs today's path with a
+  // client bound to its item's repository and Story (views/needs-you.ts).
+  let needsYouPlace: import('./views/needs-you.ts').NeedsYouPlace | null = null;
+  const syncPlaces = (): void => {
+    const on = vscode.workspace.getConfiguration('singularityFlow').get<string>('navigation.layout') === 'places';
+    if (on && !needsYouPlace) {
+      const place = new (lazyPanels().NeedsYouPlace)({
+        client, output, bind: (where) => client.forkForRepository(where),
+        approve: (bound, request) => approveWithReceipt(bound, request, output),
+        decide: (bound, workId) => lazyPanels().reviewDecisions(bound, { workId }, refreshAfterKnownMutation),
+        refresh: refreshAfterKnownMutation,
+        continueTask: continueTaskInChat,
+        continueAfterDecision: (workId, result) => continueTaskAfterDecision(workId, result, false),
+        sendChat: sendTaskRoute,
+        waitUntilIdle: () => backgroundWork.waitUntilIdle({}),
+        showRefusal: (error, headline) => showRefusal(error, { headline })
+      }, () => sidebar.placesChanged());
+      needsYouPlace = place;
+      needsYouAfterChange = () => { void place.read({}); };
+      sidebar.setPlaces(place);
+      place.start();
+    } else if (!on && needsYouPlace) {
+      needsYouPlace.dispose();
+      needsYouPlace = null;
+      needsYouAfterChange = null;
+      sidebar.setPlaces(null);
+    }
+  };
+  syncPlaces();
+  const placesListener = vscode.workspace.onDidChangeConfiguration?.((event) => {
+    if (event.affectsConfiguration('singularityFlow.navigation.layout')) syncPlaces();
+  });
+  context.subscriptions.push({ dispose: () => { needsYouPlace?.dispose(); needsYouPlace = null; } }, ...(placesListener ? [placesListener] : []));
 
   // Content first, confirmation second. Every view is subscribed by now, so the previous session's
   // snapshot paints immediately; the refresh below replaces it a second later. Without this the

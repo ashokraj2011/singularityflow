@@ -496,6 +496,19 @@
           "default": "",
           "description": "Preferred name for SFlow Copilot replies and suggestions. Falls back to the active repository's Git name. Stored locally; sign-offs still use Git and provider identities."
         },
+        "singularityFlow.navigation.layout": {
+          "type": "string",
+          "default": "classic",
+          "enum": [
+            "classic",
+            "places"
+          ],
+          "enumDescriptions": [
+            "Today's Navigator.",
+            "The four places, in preview: Needs you (everything waiting on you across the workspace, with its badge) and Advanced (today's Navigator)."
+          ],
+          "description": "What the SFlow sidebar opens on. The places only read and route: every choice runs today's command, and no workflow changes."
+        },
         "singularityFlow.role": {
           "type": "string",
           "default": "",

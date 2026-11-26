@@ -121,11 +121,13 @@ export function validatedRemoteStoryDefinition(root, remoteRef, subject, { files
  * Fetch and enumerate published Stories in one already materialized delivery repository.
  * Fetch updates only remote-tracking refs; the checkout, branch and working tree are untouched.
  * A failed fetch is an error, never an empty Story list.
+ * `skip(pointer)`: a Story the caller holds at that commit, returned `kept` with no state read [FPL:REQ-017].
  */
 export async function discoverRemoteStoryCandidates(root, definition, {
   fetch = true,
   remote = definition?.git?.remote ?? 'origin',
-  includeState = false
+  includeState = false,
+  skip = null
 } = {}) {
   if (!root || !hasRemote(root, remote)) {
     throw new SingularityFlowError(
@@ -155,6 +157,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
     const known = summarized ? null : cache.rows.get(provenKey(pointer));
     if (summarized && !includeState) items.push(summarized);
     else if (known && !includeState) { items.push(known); kept.set(provenKey(known), known); }
+    else if (includeState && skip?.(pointer)) items.push({ id: pointer.id, branch: pointer.branch, commitOid: pointer.commitOid, kept: true });
     else pointers.push(pointer);
   }
   const definitions = new Map();

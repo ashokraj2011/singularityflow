@@ -10,6 +10,14 @@ import { PRIMARY_NAVIGATION, sidebarBody, SIDEBAR_STYLE, SIDEBAR_SCRIPT, type Pr
 
 export type SidebarSection = 'favorites' | 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
 
+/** The four places, when on (views/needs-you.ts): the open tab's body, the strip above Advanced, the badge. */
+export interface SidebarPlaces {
+  body(): { body: string; style: string; script: string } | null;
+  advancedHeader(): { html: string; style: string; script: string };
+  badge(): { value: number; tooltip: string } | undefined;
+  receive(message: { action?: unknown; tab?: unknown; key?: unknown }): boolean;
+}
+
 interface TreeSource {
   readonly onDidChangeTreeData: vscode.Event<TreeNode | undefined>;
   snapshot(): readonly TreeNode[];
@@ -156,6 +164,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private favoriteIds: string[];
   private favoritesCustomized: boolean;
   private menuCollapsed: boolean;
+  private places: SidebarPlaces | null = null;
   /** Three tree providers publish one snapshot synchronously; replace the document once, not thrice. */
   private readonly renders = new MicrotaskCoalescer(() => this.render());
 
@@ -303,6 +312,17 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.renders.request();
   }
 
+  /** The four places on, or null for today's Navigator alone [FPL:REQ-001]; `placesChanged` repaints them. */
+  setPlaces(places: SidebarPlaces | null): void {
+    this.places = places;
+    this.placesChanged();
+  }
+
+  placesChanged(): void {
+    this.renderedBody = null;
+    this.renders.request();
+  }
+
   bind(section: SidebarSection, source: TreeSource): void {
     // Until a section is bound it has no data source at all, which is a different thing from having
     // a source that returned nothing — and the reader deserves to be told which.
@@ -347,6 +367,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       this.menuCollapsed = value.collapsed;
       // Presentation only: no repository read, command dispatch or document replacement.
       void this.state.update(MENU_COLLAPSED_KEY, this.menuCollapsed);
+      return;
+    }
+    if (value.type === 'places') {
+      this.places?.receive(value as { action?: unknown; tab?: unknown; key?: unknown });
       return;
     }
     if (value.type === 'navigation-ready') {
@@ -462,6 +486,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
   private render(): void {
     if (!this.view) return;
+    // The badge counts Holds work and Reviews while the places are on [FPL:REQ-018].
+    if (this.places || this.view.badge) this.view.badge = this.places?.badge();
+    const place = this.places?.body() ?? null;
+    if (place) return this.paint(place.body, place.style, place.script);
     this.nodeIndex.clear();
     this.roots.favorites.forEach((node, index) => this.nodeIndex.set(`favorites:${index}`, node));
     const body = sidebarBody({
@@ -474,14 +502,21 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           return menu ? [{ id, label: menu.label, icon: menu.icon }] : [];
         })
       });
-    if (body === this.renderedBody) return;
+    // Advanced: today's Navigator, its body unchanged, under the places' tab strip [FPL:REQ-032].
+    const header = this.places?.advancedHeader();
+    this.paint(header ? `${header.html}${body}` : body, header ? `${SIDEBAR_STYLE}${header.style}` : SIDEBAR_STYLE,
+      header ? `${SIDEBAR_SCRIPT}${header.script}` : SIDEBAR_SCRIPT);
+  }
+
+  private paint(body: string, style: string, script: string): void {
+    if (!this.view || body === this.renderedBody) return;
     this.renderedBody = body;
     const token = nonce();
     this.view.webview.html = `<!doctype html><html><head><meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy(this.view.webview, token)}">
-      <style nonce="${token}">${SIDEBAR_STYLE}</style></head><body>${body}
-      <script nonce="${token}">${SIDEBAR_SCRIPT}</script></body></html>`;
+      <style nonce="${token}">${style}</style></head><body>${body}
+      <script nonce="${token}">${script}</script></body></html>`;
     this.onRender();
   }
 

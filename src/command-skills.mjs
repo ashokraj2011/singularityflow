@@ -77,6 +77,7 @@ const entries = {
   agent: ['sf-agent'],
   session: ['sf-session', 'sf-stories'],
   inbox: ['sf-inbox'],
+  'needs-you': ['sf-inbox'],
   finalize: ['sf-finalize'],
   status: ['sf-status'],
   approvals: ['sf-approvals'],

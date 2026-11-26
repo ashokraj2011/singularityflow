@@ -67,6 +67,7 @@ export { FindingsPanel, uploadFindings } from './views/findings.ts';
 export { LessonsPanel } from './views/lessons.ts';
 export { AllSkillsPanel } from './views/all-skills.ts';
 export { MarketplacePanel } from './views/marketplace.ts';
+export { NeedsYouPlace, NeedsYouCardPanel } from './views/needs-you.ts';
 export { importSummary as findingsImportSummary } from './views/findings-model.ts';
 export { RunAndTest, runAndTestCommand, editRunConfigurationsCommand } from './views/run-and-test.ts';
 export { TestSummaryPanel } from './views/test-summary.ts';

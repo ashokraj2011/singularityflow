@@ -12,8 +12,8 @@
  * so every uncertain case is treated as actionable.
  */
 import { sheetNextIsTheList } from '../decisions.ts';
+import { initiativePendingApprovals } from '../../../../src/initiative-approvals.mjs';
 import {
-  initiativeOutputRepositoryPath,
   type ApprovalPolicy, type RepositorySnapshot, type InitiativeSnapshot, type StoryWorkflow
 } from '../cli/snapshot.ts';
 
@@ -78,16 +78,6 @@ export interface Approvals {
   empty: string | null;
 }
 
-interface ApprovalRecord {
-  phase?: string;
-  subjectType?: string;
-  subjectId?: string;
-  subjectSha256?: string;
-  actorEmail?: string;
-  at?: string;
-  chainStep?: number;
-}
-
 const lower = (value: unknown): string => String(value ?? '').trim().toLowerCase();
 
 type Person = { email: string | null; login: string | null };
@@ -127,41 +117,6 @@ function samePerson(value: unknown, person: Person): boolean {
   const identity = value as { email?: string; login?: string } | null | undefined;
   return Boolean((person.email && lower(identity?.email) === person.email)
     || (person.login && lower(identity?.login) === person.login));
-}
-
-/**
- * Which chain step is open, read from the gate's own sentence.
- *
- * The gate composes these — "artifact pack X has waiting on Executive Decisioning (0/1) for exact
- * pack abc" — and it is the thing that actually blocks the phase. The report's projection of the
- * approval records drops the chainStep each decision recorded, so recomputing progress here would
- * mean guessing which body signed. Reading the sentence keeps one implementation of chain state, and
- * where no sentence exists the chain simply reports no open step rather than inventing one.
- */
-function openStepFrom(gateErrors: string[], subjectId: string): { label: string; signed: number; needed: number } | null {
-  for (const error of gateErrors) {
-    if (!error.includes(subjectId)) continue;
-    const match = /waiting on (.+?) \((\d+)\/(\d+)\)/.exec(error);
-    if (match?.[1]) return { label: match[1], signed: Number(match[2]), needed: Number(match[3]) };
-  }
-  return null;
-}
-
-/** The declared chain, marked up with whichever step the gate says is open. */
-function chainProgress(policy: ApprovalPolicy | undefined, open: { label: string; signed: number; needed: number } | null): ChainStep[] {
-  if (!policy?.chain?.length) return [];
-  const openIndex = open
-    ? policy.chain.findIndex((step) => ((step as { label?: string }).label ?? step.authority) === open.label)
-    : -1;
-  return policy.chain.map((step, index) => ({
-    authority: step.authority,
-    label: (step as { label?: string }).label ?? step.authority,
-    minimum: step.minimum,
-    signatures: index === openIndex ? open?.signed ?? 0 : (openIndex < 0 && !open) || index < openIndex ? step.minimum : 0,
-    // Everything before the open step must have been satisfied for it to be open at all.
-    satisfied: openIndex >= 0 ? index < openIndex : !open,
-    open: index === openIndex
-  }));
 }
 
 /** Whose decision this is now, and why it is not yours when it is not. */
@@ -208,18 +163,6 @@ function standingFor(
       : `Waiting on ${authorities.join(', ')}.`,
     authorities
   };
-}
-
-/** The phase a pack's approval is attributed to: the latest phase any member sits in. */
-function packTerminalPhase(phaseOrder: string[], members2: string[]): string | null {
-  let terminal: string | null = null;
-  let latest = -1;
-  for (const member of members2) {
-    const phase = member.split('/')[0] ?? '';
-    const position = phaseOrder.indexOf(phase);
-    if (position > latest) { latest = position; terminal = phase; }
-  }
-  return terminal;
 }
 
 export function buildApprovals(snapshot: RepositorySnapshot | null): Approvals {
@@ -410,132 +353,17 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
   };
 }
 
+/**
+ * The open Initiative's approvals, by the engine's rule (src/initiative-approvals.mjs), which Needs you reads for every
+ * Initiative in the workspace [FPL:REQ-008]. This page shows what it returns, nothing of its own.
+ */
 function approvalsOf(snapshot: RepositorySnapshot, initiative: InitiativeSnapshot): Approvals {
-  const actor = lower((snapshot.identities as { git?: { email?: string } } | undefined)?.git?.email) || null;
-  // `records` in the report is a count; the decisions themselves are grouped by phase.
-  const byPhase = (initiative.report as { approvals?: { byPhase?: Record<string, ApprovalRecord[]> } } | undefined)
-    ?.approvals?.byPhase ?? {};
-  const records = Object.values(byPhase).flat();
-  const { state } = initiative;
-  const phaseId = state.currentPhase;
-  const pending: PendingApproval[] = [];
-
-  const gateErrors = initiative.phaseGate?.ready ? [] : initiative.phaseGate?.errors ?? [];
-  const recordsFor = (phase: string, type: string, id: string): ApprovalRecord[] =>
-    records.filter((record) => record.phase === phase && record.subjectType === type && record.subjectId === id);
-
-  if (phaseId) {
-    const resolution = state.resolution.phases.find((phase) => phase.id === phaseId);
-    const phase = state.phases[phaseId];
-
-    // Artifacts that exist and are not yet approved.
-    for (const output of Object.values(phase?.outputs ?? {})) {
-      if (!output.sha256 || output.status === 'approved') continue;
-      const policy = resolution?.outputs.find((declared) => declared.id === output.id)?.approval;
-      const signed = recordsFor(phaseId, 'output', output.id);
-      const chain = chainProgress(policy, openStepFrom(gateErrors, output.id));
-      const { standing, reason, authorities } = standingFor(snapshot, actor, policy, chain);
-      const artifactPath = initiativeOutputRepositoryPath(initiative, phaseId, output);
-      pending.push({
-        source: 'initiative',
-        id: `output:${phaseId}/${output.id}`,
-        kind: 'output',
-        phase: phaseId,
-        subject: output.id,
-        label: output.label ?? output.id,
-        detail: artifactPath,
-        artifactPath,
-        sha256: output.sha256,
-        expected: `${phaseId}:${output.id}`,
-        standing,
-        reason,
-        selfApproval: Boolean(actor) && lower(output.generatedBy) === actor,
-        chain,
-        authorities,
-        rejectTo: [phaseId],
-        signatures: signed.map((record) => ({ actor: record.actorEmail ?? 'unknown', at: record.at ?? null }))
-      });
-    }
-
-    // Packs whose last member sits in this phase.
-    for (const pack of state.resolution.packs ?? []) {
-      if (packTerminalPhase(state.phaseOrder, pack.members) !== phaseId) continue;
-      const complete = pack.members.every((member) => {
-        const [memberPhase, memberOutput] = [member.split('/')[0] ?? '', member.split('/')[1] ?? ''];
-        return Boolean(state.phases[memberPhase]?.outputs?.[memberOutput]?.sha256);
-      });
-      if (!complete) continue;
-      const policy = (pack as { approval?: ApprovalPolicy }).approval;
-      const signed = recordsFor(phaseId, 'pack', pack.id);
-      const open = openStepFrom(gateErrors, pack.id);
-      // A pack has no status of its own, so "already approved" is: somebody signed it and the gate
-      // has stopped asking. Listing a signed-off pack as pending would invite a second decision on
-      // something already decided.
-      if (signed.length && !open && !gateErrors.some((error) => error.includes(pack.id))) continue;
-      const chain = chainProgress(policy, open);
-      const { standing, reason, authorities } = standingFor(snapshot, actor, policy, chain);
-      pending.push({
-        source: 'initiative',
-        id: `pack:${pack.id}`,
-        kind: 'pack',
-        phase: phaseId,
-        subject: `pack:${pack.id}`,
-        label: pack.label ?? pack.id,
-        detail: `${pack.members.length} artifacts across ${new Set(pack.members.map((member) => member.split('/')[0])).size} phases`,
-        sha256: null,
-        expected: `${phaseId}:pack:${pack.id}`,
-        standing,
-        reason,
-        selfApproval: false,
-        chain,
-        authorities,
-        rejectTo: [phaseId],
-        signatures: signed.map((record) => ({ actor: record.actorEmail ?? 'unknown', at: record.at ?? null }))
-      });
-    }
-
-    // The phase itself, once its gate is ready.
-    if (phase && phase.status !== 'approved' && initiative.phaseGate?.ready) {
-      const policy = resolution?.bundleApproval;
-      const signed = recordsFor(phaseId, 'phase', phaseId);
-      const chain = chainProgress(policy, openStepFrom(gateErrors, phaseId));
-      const { standing, reason, authorities } = standingFor(snapshot, actor, policy, chain);
-      pending.push({
-        source: 'initiative',
-        id: `phase:${phaseId}`,
-        kind: 'phase',
-        phase: phaseId,
-        subject: 'phase',
-        label: `${phase.label ?? phaseId} — the phase itself`,
-        detail: 'Approving the phase closes it and opens the next.',
-        sha256: initiative.phaseGate?.bundleSha256 ?? null,
-        expected: `${phaseId}:phase`,
-        standing,
-        reason,
-        selfApproval: Boolean(actor)
-          && Object.values(phase.outputs ?? {}).some((output) => lower(output.generatedBy) === actor),
-        chain,
-        authorities,
-        rejectTo: [phaseId],
-        signatures: signed.map((record) => ({ actor: record.actorEmail ?? 'unknown', at: record.at ?? null }))
-      });
-    }
-  }
-
-  // Yours first: it is the only part most readers need.
-  const order: Record<Standing, number> = { yours: 0, others: 1, blocked: 2 };
-  pending.sort((left, right) => order[left.standing] - order[right.standing]
-    || left.label.localeCompare(right.label));
-
-  // Gate errors that are not approvals: evidence, checklists, artifacts that do not exist yet.
-  const obstacles = (initiative.phaseGate?.ready ? [] : initiative.phaseGate?.errors ?? [])
-    .filter((error) => !/\bapprovals?\b|waiting on/i.test(error));
-
-  return {
-    initiativeId: state.initiative.id,
-    actor,
-    pending,
-    obstacles,
-    empty: pending.length || obstacles.length ? null : 'Nothing is waiting for a decision.'
-  };
+  const person = personOf(snapshot);
+  const groupOf = (authority: string) => snapshot.workflow?.resolution?.approvalAuthorities?.[authority]
+    ?? snapshot.definition?.approvalAuthorities?.[authority]
+    ?? snapshot.portfolio?.approvalAuthorities?.[authority] ?? null;
+  const read = initiativePendingApprovals(initiative, {
+    person: { email: lower(snapshot.identities?.git?.email) || null, login: person.login }, groupOf
+  });
+  return { ...read, pending: read.pending.map(({ waitingSince: _waiting, couldNotTell: _tell, ...entry }) => entry as PendingApproval) };
 }

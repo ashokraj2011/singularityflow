@@ -41,6 +41,7 @@ export const COMMAND_LOADERS = Object.freeze({
   './commands/logs.mjs': () => import('./commands/logs.mjs'),
   './commands/home.mjs': () => import('./commands/home.mjs'),
   './commands/inbox.mjs': () => import('./commands/inbox.mjs'),
+  './commands/needs-you.mjs': () => import('./commands/needs-you.mjs'),
   './commands/init.mjs': () => import('./commands/init.mjs'),
   './commands/inputs.mjs': () => import('./commands/inputs.mjs'),
   './commands/instruction.mjs': () => import('./commands/instruction.mjs'),

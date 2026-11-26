@@ -687,6 +687,8 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   // A Story kept in a layout this SFlow does not read: whoever works here updates SFlow [SSB:REQ-009, REQ-010].
   STORY_LAYOUT_UNKNOWN: 'this-checkout',
   STORY_LAYOUT_CHANGED: 'this-checkout',
+  // A state-ref Story at a step that does not read its state ref yet (SSB M2): whoever works here updates SFlow.
+  STORY_STATE_REF_PATH_UNAVAILABLE: 'this-checkout',
   SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE: 'this-checkout',
   INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'someone-decides',
   SOURCE_REVIEW_AUTHOR_COLLISION: 'author-repairs',

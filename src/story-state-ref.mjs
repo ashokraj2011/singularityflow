@@ -151,6 +151,16 @@ function healthyCheckout(root, folder) {
   } catch { return false; }
 }
 
+/**
+ * The way past records an unfinished command left in the state checkout: set them aside in its stash, which Git keeps
+ * in the clone (so it outlives the checkout), then run the same command again. Nothing is deleted.
+ */
+function setAsideUnfinished(root) {
+  const folder = stateCheckoutPath(root);
+  return { owner: 'person', command: `git -C ${JSON.stringify(folder)} stash push --include-untracked -m "unfinished SFlow records"`,
+    label: 'Set the unfinished records aside (Git keeps them in the stash), then run the same command again' };
+}
+
 /** Uncommitted changes in the state checkout, as porcelain lines; [] when it is clean or absent. */
 export function stateCheckoutChanges(root) {
   const folder = stateCheckoutPath(root);
@@ -207,7 +217,7 @@ export async function ensureStateCheckout(root, id, { definition = null } = {}) 
     if (stateCheckoutChanges(root).length) {
       throw new SingularityFlowError(`The state checkout ${STATE_CHECKOUT}/ holds changes that are not on ${ref}, so SFlow did not move it. Nothing was changed.`, {
         code: 'STORY_STATE_CHECKOUT_CHANGED', details: { ref, head, tip, changes: stateCheckoutChanges(root),
-          nextAction: { executable: 'singularity-flow', argv: ['recover'], label: 'Finish or undo the command that wrote them' } }
+          nextAction: setAsideUnfinished(root) }
       });
     }
     gitOut(folder, ['checkout', '--quiet', '--detach', tip], 'Moving the state checkout to its ref');
@@ -267,7 +277,7 @@ export function removeStateCheckout(root, { id = null } = {}) {
   if (changes.length) {
     throw new SingularityFlowError(`${STATE_CHECKOUT}/ in ${root} holds ${changes.length} record change(s) not saved on the Story's state ref, so the checkout was kept. Nothing was removed.`, {
       code: 'STORY_STATE_CHECKOUT_UNSAVED', details: { root, id, changes,
-        nextAction: { executable: 'singularity-flow', argv: ['recover'], label: 'Finish or undo the command that wrote them' } }
+        nextAction: setAsideUnfinished(root) }
     });
   }
   gitOut(root, ['worktree', 'remove', folder], `Removing ${STATE_CHECKOUT}/`);

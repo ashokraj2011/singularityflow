@@ -4,7 +4,7 @@
 
 **Baseline:** `5ac41f37e` (2026-11-26).
 
-**Status:** In progress on `ssb-m1` (from `480c2f936`). What changed from this plan while building is in §9.
+**Status:** Built on `ssb-m1` (from `480c2f936`): B0 to B12, with the touched-area tests (721 files) and the guard tests green on Node 22. Not merged. What changed from this plan while building is in §9.
 
 **Size:** 6 days. The spec's first estimate was 4 days. It counted only the `workDir(` and `workDirRelative(` calls.
 

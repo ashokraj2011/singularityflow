@@ -267,6 +267,28 @@ test('research cites code that verifies; a changed span is stale and blocks a re
   assert.equal(json(root, ['spec', 'author', 'check', SPEC]).report.reviewReady, true, 'refreshing research brings the cited span up to date');
 });
 
+test('A11: when the knowledge build fails, spec author gaps still lists the gaps, their impact "not available" with why [WMR:REQ-024]', async (t) => {
+  const { root, directory } = await repository(t);
+  await readySpec(root, directory);
+  const { items } = json(root, ['spec', 'author', 'research', SPEC]);
+  const rule = items.find((item) => item.kind === 'rule' && /total >= DISCOUNT_THRESHOLD/u.test(item.summary));
+  const options = path.join(directory, 'options-degraded.json');
+  await writeFile(options, JSON.stringify([
+    { wording: 'WHEN an order total is greater than INR 5000.00, the cart SHALL apply a 10 percent discount.', changesCode: true },
+    { wording: 'WHEN an order total is INR 5000.00 or more, the cart SHALL apply a 10 percent discount.', changesCode: false }]));
+  json(root, ['spec', 'author', 'gap', SPEC, '--kind', 'code-disagrees', '--question', 'Strictly above, or at and above?', '--research', rule.id, '--options', options]);
+  // An environment declaration nobody can read stops every knowledge read: the World Model is guidance, so the listing goes on.
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'environments.yml'), 'environments: [unclosed\n');
+  const [gap] = json(root, ['spec', 'author', 'gaps', SPEC]).gaps;
+  assert.equal(gap.id, 'GAP-001');
+  assert.equal(gap.impact.status, 'not-available');
+  assert.match(gap.impact.reason, /environments\.yml could not be read/u);
+  const shown = sf(root, ['spec', 'author', 'gaps', SPEC]).stdout;
+  assert.match(shown, /O1 WHEN an order total is greater than INR 5000\.00[^\n]*\n\s+impact: not available \(singularity\/environments\.yml could not be read/u);
+  assert.match(shown, /impact: none \(keeps the code as it is\)/u, 'an option that keeps the code needs no knowledge');
+});
+
 test('deciding, settling, publishing and discarding are the person\'s own steps; opening a gap is not (SPA:AC-006)', () => {
   for (const command of [`spec author decide ${SPEC} GAP-001 --option O1 --reason Agreed.`, `spec author settle ${SPEC} --all-articles satisfied`,
     `spec author publish ${SPEC} --reviewed`, `spec author discard ${SPEC}`]) {

@@ -12,6 +12,10 @@
  * the tests that reach them and the files that usually change with theirs. A planned file, or one
  * whose lines are not known, is read as a whole. A changed file that declares a type an endpoint
  * takes or returns is a contract change. Nothing here needs a model.
+ *
+ * Every planned file is listed, with what it defines when nothing else is known of it, and a planned file that does not
+ * exist yet is "(new, planned)" [WMR:REQ-007]. `trust(file)` says whether its calls are resolved: while they are only
+ * matched by name, no caller, flow or test reach is stated [WMR:REQ-014].
  */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -89,7 +93,7 @@ function focusWeight(focus) {
   return (text) => [...subjectWords(text)].reduce((sum, word) => sum + (counts.get(word) ?? 0), 0);
 }
 
-export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges = null, plannedPaths = [], focus = null } = {}) {
+export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges = null, plannedPaths = [], newPaths = [], focus = null, trust = () => true } = {}) {
   const items = knowledge?.items ?? [];
   const functions = knowledge?.graph?.functions ?? [];
   const calls = knowledge?.graph?.calls ?? [];
@@ -97,8 +101,9 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
   const known = knowledgePaths(knowledge);
   const changed = [...new Set(changedPaths)].filter((file) => known.has(file));
   const planned = [...new Set(plannedPaths)].filter((file) => known.has(file) && !changed.includes(file));
+  const fresh = [...new Set(newPaths)].filter((file) => !known.has(file) && !changed.includes(file));
   const story = new Set([...changed, ...planned]);
-  if (!story.size) return [];
+  if (!story.size && !fresh.length) return [];
 
   const callersOf = new Map();
   for (const [from, to] of calls) {
@@ -175,12 +180,13 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
     // A helper no test calls is still reached by its callers' tests: those are the tests to re-run.
     const callerTests = tests.length ? [] : [...new Set(callers.flatMap((caller) => [...(testsOf.get(caller) ?? [])]))].sort();
     const via = tests.length || callerTests.length ? null : testedThrough.get(qn);
+    const resolved = trust(fn.file);
     const parts = [
-      callers.length ? `called by ${names(callers.map(callerName))}` : null,
+      resolved && callers.length ? `called by ${names(callers.map(callerName))}` : null,
       handles.length ? `handles ${names(handles, 2)}` : null,
-      flows.length ? `on ${names(flows, 2)}` : null,
+      resolved && flows.length ? `on ${names(flows, 2)}` : null,
       rules ? plural(rules, 'rule') : null,
-      tests.length ? `tested by ${names(tests.map(basename), 2)}`
+      !resolved ? null : tests.length ? `tested by ${names(tests.map(basename), 2)}`
         : callerTests.length ? `tested through its callers by ${names(callerTests.map(basename), 2)}` : via ? `tested through ${via}` : 'no test reaches it',
       partnerText(fn.file)
     ].filter(Boolean);
@@ -194,22 +200,25 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
   };
   const fileRecord = (file, state) => {
     const inFile = functions.filter((fn) => fn.file === file);
-    const flows = [...new Set(inFile.flatMap((fn) => flowsThrough(fn.qualifiedName)))];
+    const resolved = trust(file);
+    const flows = resolved ? [...new Set(inFile.flatMap((fn) => flowsThrough(fn.qualifiedName)))] : [];
     const rules = inFile.reduce((total, fn) => total + (rulesOf.get(fn.qualifiedName) ?? 0), 0);
-    const tests = [...new Set(inFile.flatMap((fn) => [...(testsOf.get(fn.qualifiedName) ?? [])]))];
+    const tests = resolved ? [...new Set(inFile.flatMap((fn) => [...(testsOf.get(fn.qualifiedName) ?? [])]))] : [];
     const importers = [...(importedBy.get(file) ?? [])].filter((importer) => !story.has(importer));
     const parts = [
       ...contractText(file),
       flows.length ? `on ${names(flows, 2)}` : null,
       importers.length ? `imported by ${plural(importers.length, 'file')}` : null,
       rules ? plural(rules, 'rule') : null,
-      tests.length ? `tested by ${names(tests.map(basename), 2)}` : rules ? 'no test reaches it' : null,
+      tests.length ? `tested by ${names(tests.map(basename), 2)}` : rules && resolved ? 'no test reaches it' : null,
       partnerText(file)
     ].filter(Boolean);
-    if (!parts.length) return;
+    // A planned file is always listed: the plan's files lead [WMR:REQ-007]. With nothing else known, what it defines.
+    if (!parts.length && state === 'planned' && inFile.length) parts.push(`defines ${names(inFile.map((fn) => shortName(fn.qualifiedName)), 3)}`);
+    if (!parts.length && state !== 'planned') return;
     records.push({
       id: recordId(`${state}:${file}`), kind: 'impact', scope: 'file', state,
-      text: `${file} (${state}): ${parts.join('; ')}`,
+      text: parts.length ? `${file} (${state}): ${parts.join('; ')}` : `${file} (${state})`,
       parts: { path: file, functions: inFile.length, flows, rules, tests, importedBy: importers },
       sources: { code: [{ path: file, line: null }] },
       weight: flows.length * 4 + importers.length + rules + (contractText(file).length ? 6 : 0)
@@ -224,10 +233,16 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
     for (const fn of touched) functionRecord(fn, 'changed');
   }
   for (const file of planned) fileRecord(file, 'planned');
-  // Changed before planned, then what the Story's own words name, then what the change reaches most.
+  // A file the plan names that does not exist yet: listed, never dropped [WMR:REQ-007].
+  for (const file of fresh) {
+    records.push({ id: recordId(`new:${file}`), kind: 'impact', scope: 'file', state: 'new', text: `${file} (new, planned)`,
+      parts: { path: file, functions: 0, flows: [], rules: 0, tests: [], importedBy: [] }, sources: { code: [{ path: file, line: null }] }, weight: 0 });
+  }
+  // Changed before planned before new, then what the Story's own words name, then what the change reaches most.
   const relevance = focusWeight(focus);
   const named = (record) => relevance(`${record.parts.symbol ?? ''} ${record.parts.path}`);
-  return records.sort((a, b) => Number(a.state === 'planned') - Number(b.state === 'planned') || named(b) - named(a) || b.weight - a.weight || a.text.localeCompare(b.text, 'en'));
+  const rank = { changed: 0, planned: 1, new: 2 };
+  return records.sort((a, b) => rank[a.state] - rank[b.state] || named(b) - named(a) || b.weight - a.weight || a.text.localeCompare(b.text, 'en'));
 }
 
 /** The functions a change's lines fall in, from its impact records. */

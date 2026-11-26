@@ -10,12 +10,10 @@
  * cached with the exact knowledge they were checked against.
  */
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 
-import { repositoryGitPath } from '../git-directory.mjs';
 import { scanText } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { readPaid, writePaid } from './paid.mjs';
 
 export const EXPLANATION_LIMITS = Object.freeze({
   subjects: 24,
@@ -211,20 +209,12 @@ export function validateExplanations(output, subjects, evidence, { limits = EXPL
   return { accepted, rejected };
 }
 
-function explanationFile(root, knowledgeKey) {
-  return repositoryGitPath(root, 'singularity-flow', 'knowledge', `explanations-${knowledgeKey}.json`);
-}
-
+/** Explanations are paid output, kept apart from the analysis entries a prune removes [WMR:REQ-018]. */
 export async function readExplanations(root, knowledgeKey) {
   if (!knowledgeKey) return null;
-  return readFile(explanationFile(root, knowledgeKey), 'utf8').then(JSON.parse).catch(() => null);
+  return readPaid(root, `explanations-${knowledgeKey}.json`);
 }
 
 export async function writeExplanations(root, knowledgeKey, record) {
-  const file = explanationFile(root, knowledgeKey);
-  await mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.tmp`;
-  await writeFile(temporary, JSON.stringify(record));
-  await rename(temporary, file);
-  return file;
+  return writePaid(root, `explanations-${knowledgeKey}.json`, record);
 }

@@ -69,6 +69,8 @@ async function phaseBriefCommand(root, options) {
   const unphrased = (brief?.warnings ?? []).find((warning) => /could not phrase it/u.test(warning)) ?? null;
   const notes = [
     blocked ? `This phase's prompt cannot be composed yet (${blocked.replace(/[.:\s]+$/u, '')}); this is the Repository brief it would carry now.` : null,
+    // A step the brief is left out of by default says why and how to bring it back [WMR:REQ-011].
+    !text && brief?.reasonCode ? brief.why : null,
     !polishAsked ? null
       : !brief ? 'This phase\'s prompt is already composed, so its brief is shown as it was composed; a phrasing applies to its next generation.'
         : !polish ? 'Model use is off, so the brief keeps its fixed wording.'
@@ -77,6 +79,7 @@ async function phaseBriefCommand(root, options) {
   const note = notes.join(' ') || null;
   const result = {
     status: text ? 'ok' : 'none', phase: optionString(options, 'phase') ?? null, bytes: Buffer.byteLength(text), text,
+    ...(!text && brief?.reasonCode ? { reasonCode: brief.reasonCode } : {}),
     budget: brief?.budget ?? null, profile: brief?.profile ?? null, saved: Boolean(text) && !brief,
     phrasing: brief?.receipt?.phrasing ?? null, records: brief?.receipt?.records ?? [], omitted: brief?.omitted ?? null,
     composed: !blocked, note, ...(polishAsked ? { polish: brief?.polish ?? null } : {}),
@@ -84,7 +87,7 @@ async function phaseBriefCommand(root, options) {
   };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else {
-    console.log(text || 'This phase receives no repository brief: knowledge is off.');
+    console.log(text || (brief?.reasonCode ? 'This step receives no Repository brief.' : 'This phase receives no repository brief: knowledge is off.'));
     for (const entry of brief?.polish?.rejected?.slice(0, 8) ?? []) console.log(`  kept its fixed wording: "${entry.text}" (${entry.reason})`);
     if (note) console.log(note);
   }

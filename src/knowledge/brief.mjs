@@ -12,13 +12,12 @@
  * with fixed sentences. Either way nothing is invented, and nothing blocks: the brief is guidance.
  */
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { readRefTreeResult } from '../git-ref-tree.mjs';
-import { repositoryGitPath } from '../git-directory.mjs';
 import { scanText } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { readPaid, writePaid } from './paid.mjs';
 import { EXPLANATION_SHAPE, groundedTokens } from './explain.mjs';
 import { roleForPhase } from './render.mjs';
 
@@ -222,7 +221,7 @@ function shortSymbol(symbol) {
 }
 
 /** A rule as one plain line: "Calc.calculate: when `principal < 0` → refuses "principal must be non-negative"". */
-function ruleText(item, statusByMessage) {
+function ruleText(item, statusByMessage, resolved = true) {
   const statement = item.statement ?? {};
   const symbol = shortSymbol(item.subject?.symbol);
   const when = (statement.when ?? []).filter(Boolean);
@@ -232,7 +231,10 @@ function ruleText(item, statusByMessage) {
   const condition = when.length ? `when ${when.map((part) => `\`${part}\``).join(' and ')}` : '';
   const outcome = then ? `${verb} ${then.kind === 'refuses' || then.kind === 'shows' ? `"${then.text}"` : `\`${then.text}\``}` : '';
   const tested = (item.relations ?? []).some((relation) => relation.type === 'tested-by' || relation.type === 'tested-through');
-  return `${symbol}: ${[condition, outcome].filter(Boolean).join(' → ')}${status ? ` (HTTP ${status})` : ''}${tested ? '; tested' : '; no test reaches it'}`;
+  // With calls matched by name only a test that names it is said; reach through calls is not [WMR:REQ-014].
+  const named = (item.relations ?? []).some((relation) => relation.type === 'tested-by');
+  const test = resolved ? (tested ? '; tested' : '; no test reaches it') : named ? '; tested' : '';
+  return `${symbol}: ${[condition, outcome].filter(Boolean).join(' → ')}${status ? ` (HTTP ${status})` : ''}${test}`;
 }
 
 const HTTP_STATUS = Object.freeze({
@@ -256,7 +258,7 @@ const RULE_KIND_WEIGHT = { refusal: 6, threshold: 5, calculation: 5, message: 4,
  * The evidence the brief is written from: one entry per fact, each with a short ID, the view it
  * belongs to, a plain text and its source. Ranked by the focus (a Story's words) and bounded per view.
  */
-export function briefEvidence(knowledge, documentation, { focus = null, limits = BRIEF_LIMITS } = {}) {
+export function briefEvidence(knowledge, documentation, { focus = null, limits = BRIEF_LIMITS, trust = () => true } = {}) {
   const items = knowledge.items ?? [];
   const focusStems = stems(focus);
   const relevance = (text) => [...stems(text)].filter((stem) => focusStems.has(stem)).length;
@@ -280,9 +282,11 @@ export function briefEvidence(knowledge, documentation, { focus = null, limits =
   for (const item of items) {
     const source = itemSource(item);
     const statement = item.statement ?? {};
+    // Whether this item's calls are resolved: claims of reach, callers or test reach need it [WMR:REQ-014, REQ-015].
+    const resolved = trust(item.subject?.path ?? source?.path);
     switch (item.kind) {
       case 'rule':
-        add('rules', 'rule', ruleText(item, statusByMessage), source, { weight: RULE_KIND_WEIGHT[statement.kind] ?? 2, raw: `${ruleText(item, statusByMessage)} ${JSON.stringify(statement)}` });
+        add('rules', 'rule', ruleText(item, statusByMessage, resolved), source, { weight: RULE_KIND_WEIGHT[statement.kind] ?? 2, raw: `${ruleText(item, statusByMessage, resolved)} ${JSON.stringify(statement)}` });
         break;
       case 'limit':
         add('rules', 'limit', `${statement.name} = ${statement.value}${statement.usedIn?.length ? `, used in ${statement.usedIn.slice(0, 3).map((use) => use.symbol ?? use.path).join(', ')}` : ''}`, source, { weight: 4 });
@@ -312,13 +316,14 @@ export function briefEvidence(knowledge, documentation, { focus = null, limits =
         add('contracts', 'configuration', `Configuration key ${statement.key}${statement.value != null ? ` = ${statement.value}` : ''}`, source, { weight: 2 });
         break;
       case 'journey':
-        if ((statement.steps ?? []).filter(Boolean).length < 2) break;
+        if (!resolved || (statement.steps ?? []).filter(Boolean).length < 2) break;
         add('flows', 'journey', `${statement.trigger} → ${(statement.steps ?? []).slice(0, 7).join(' → ')}${(statement.steps ?? []).length > 7 ? ' → …' : ''}${statement.effects?.length ? `; ${statement.effects.join(', ')}` : ''}`, source, { weight: 6 });
         break;
       case 'impact': {
         const callers = statement.callers?.length ? `called by ${statement.callers.slice(0, 4).join(', ')}` : 'no caller in the repository';
         const tests = statement.tests?.length ? `tests ${statement.tests.slice(0, 3).map((test) => path.posix.basename(test)).join(', ')}` : statement.testedThrough ? `tested through ${statement.testedThrough}` : 'no test reaches it';
-        add('impact', 'impact', `${shortSymbol(item.subject?.symbol)}: ${callers}; ${tests}; ${statement.rules ?? 0} ${statement.rules === 1 ? 'rule' : 'rules'}${statement.changesWith?.length ? `; changes with ${statement.changesWith.slice(0, 2).join(', ')}` : ''}`, source, { weight: 3 + (statement.rules ?? 0) });
+        const reach = resolved ? `${callers}; ${tests}; ` : '';
+        add('impact', 'impact', `${shortSymbol(item.subject?.symbol)}: ${reach}${statement.rules ?? 0} ${statement.rules === 1 ? 'rule' : 'rules'}${statement.changesWith?.length ? `; changes with ${statement.changesWith.slice(0, 2).join(', ')}` : ''}`, source, { weight: 3 + (statement.rules ?? 0) });
         break;
       }
       case 'co-change':
@@ -328,6 +333,7 @@ export function briefEvidence(knowledge, documentation, { focus = null, limits =
         add('risks', 'hotspot', `${item.subject?.path}: changed ${statement.changes} ${statement.changes === 1 ? 'time' : 'times'}, complexity ${statement.complexity}, imported by ${statement.importedBy}`, { path: item.subject?.path, line: null }, { weight: Math.min(20, Math.round((statement.score ?? 0) / 10)) });
         break;
       case 'untested-rule':
+        if (!resolved) break;
         add('risks', 'untested-rule', `${shortSymbol(item.subject?.symbol) || item.subject?.path}: ${statement.rules ?? 'its'} rule(s) with no test reaching them`, source, { weight: 6 });
         break;
       case 'drift':
@@ -520,20 +526,13 @@ export function templateBrief(evidence, { limits = BRIEF_LIMITS } = {}) {
   return { views, rejected: [] };
 }
 
-function briefFile(root, key) {
-  return repositoryGitPath(root, 'singularity-flow', 'knowledge', `brief-${key}.json`);
-}
-
+/** A model-written brief is paid output, kept apart from the analysis entries a prune removes [WMR:REQ-018]. */
 export async function readCachedBrief(root, key) {
-  return readFile(briefFile(root, key), 'utf8').then(JSON.parse).catch(() => null);
+  return readPaid(root, `brief-${key}.json`);
 }
 
 export async function writeCachedBrief(root, key, record) {
-  const file = briefFile(root, key);
-  await mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.tmp`;
-  await writeFile(temporary, JSON.stringify(record));
-  await rename(temporary, file);
+  await writePaid(root, `brief-${key}.json`, record);
 }
 
 /** The cache key of a model brief: the knowledge build, the docs read, the prompt and the model. */

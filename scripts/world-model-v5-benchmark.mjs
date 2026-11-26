@@ -93,13 +93,18 @@ export function impactRecall(records, expected = []) {
   return { expected: expected.length, found: found.length, recall: expected.length ? found.length / expected.length : null, missed: expected.filter((needle) => !found.includes(needle)) };
 }
 
-/** Measure one repository against one spec. */
-export async function measureRepository(root, spec, { polishAnswer = null } = {}) {
+/**
+ * Measure one repository against one spec. `calls: 'resolved'` reads every call as a compiler would have resolved it,
+ * so the claims built on calls are stated as they are with a warmed semantic pack [WMR:REQ-014]; by default calls are
+ * as built (matched by name in a fixture) and those claims are left out.
+ */
+export async function measureRepository(root, spec, { polishAnswer = null, calls = 'as-built' } = {}) {
+  const trustCalls = calls === 'resolved' ? () => true : null;
   const story = { title: spec.story.title, description: spec.story.description ?? null, acceptanceCriteria: spec.story.acceptanceCriteria ?? [], baseCommit: 'HEAD' };
   const changedPaths = spec.change?.paths ?? [];
   const briefs = {};
   for (const phase of spec.phases) {
-    const brief = await repositoryBriefPrompt(root, { definition: null, phase, workflow: { workItem: story }, changedPaths, polish: 'off' });
+    const brief = await repositoryBriefPrompt(root, { definition: null, phase, workflow: { workItem: story }, changedPaths, polish: 'off', trustCalls });
     briefs[phase] = { profile: brief.profile, budget: brief.budget, ...briefQuality(brief.text), relevance: relevantFirst(brief.text, spec.labels?.relevant ?? []), text: brief.text };
   }
   const built = await buildKnowledge(root, {});
@@ -113,7 +118,7 @@ export async function measureRepository(root, spec, { polishAnswer = null } = {}
   let polish = null;
   if (polishAnswer) {
     const recorded = { model: 'recorded', output: JSON.stringify({ sentences: polishAnswer.sentences.map(({ text, cites }) => ({ text, cites })) }) };
-    const written = await repositoryBriefPrompt(root, { definition: null, phase: polishAnswer.phase, workflow: { workItem: story }, changedPaths, polish: 'write', refresh: true, ask: async () => recorded });
+    const written = await repositoryBriefPrompt(root, { definition: null, phase: polishAnswer.phase, workflow: { workItem: story }, changedPaths, polish: 'write', refresh: true, ask: async () => recorded, trustCalls });
     // Every sentence is kept or rejected with its text; none is kept when the answer failed as a whole.
     const rejectedTexts = new Set(written.polish.rejected.map((entry) => entry.text));
     const kept = written.polish.accepted ? polishAnswer.sentences.filter((sentence) => !rejectedTexts.has(sentence.text)) : [];

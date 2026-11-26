@@ -723,7 +723,14 @@
           "type": "object",
           "description": "The Repository brief: the rules that apply, contracts, flows, what the Story's change touches and the risky places, read deterministically from the committed source and added to phase prompts.",
           "properties": {
-            "prompt": { "enum": ["slice", "off"], "default": "slice" },
+            "prompt": {
+              "description": "slice or off for every step, or a mapping of step IDs to slice or off: a named step gets the brief or not, whatever its default (intake, requirements, verification and release leave it out).",
+              "oneOf": [
+                { "enum": ["slice", "off"] },
+                { "type": "object", "additionalProperties": { "enum": ["slice", "off"] } }
+              ],
+              "default": "slice"
+            },
             "maxBytes": { "type": "integer", "minimum": 2048, "maximum": 32768, "default": 8192 }
           },
           "additionalProperties": false
@@ -1318,7 +1325,7 @@
       "type": "object",
       "description": "Story-pinned context strategy. Existing work types inherit repository behavior; explicit benchmark arms may require or disable individual intelligence layers.",
       "properties": {
-        "worldModel": { "enum": ["inherit", "required", "off"], "default": "inherit" },
+        "worldModel": { "enum": ["inherit", "on", "required", "off"], "default": "inherit" },
         "ast": { "enum": ["inherit", "required-context", "off"], "default": "inherit" },
         "agentBriefs": { "enum": ["inherit", "required", "off"], "default": "inherit" }
       },

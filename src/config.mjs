@@ -1178,7 +1178,11 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     for (const key of Object.keys(knowledge)) {
       if (!['prompt', 'maxBytes'].includes(key)) throw new SingularityFlowError(`worldModel.knowledge.${key} is not supported. Use prompt (slice or off) and maxBytes.`);
     }
-    if (knowledge.prompt != null && !['slice', 'off'].includes(knowledge.prompt)) throw new SingularityFlowError("worldModel.knowledge.prompt must be 'slice' or 'off'.");
+    // Or per step [WMR:REQ-011].
+    const perStep = knowledge.prompt && typeof knowledge.prompt === 'object' && !Array.isArray(knowledge.prompt);
+    if (perStep ? Object.values(knowledge.prompt).some((value) => !['slice', 'off'].includes(value)) : knowledge.prompt != null && !['slice', 'off'].includes(knowledge.prompt)) {
+      throw new SingularityFlowError("worldModel.knowledge.prompt must be 'slice' or 'off', or a mapping of step IDs to 'slice' or 'off'.");
+    }
     if (knowledge.maxBytes != null && (!Number.isInteger(knowledge.maxBytes) || knowledge.maxBytes < 2048 || knowledge.maxBytes > 32768)) {
       throw new SingularityFlowError('worldModel.knowledge.maxBytes must be an integer from 2048 through 32768.');
     }

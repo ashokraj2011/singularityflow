@@ -228,17 +228,18 @@ test('wm knowledge works from the command line, read-only for the repository', a
   const summary = JSON.parse(built.stdout);
   assert.equal(summary.metrics.invalidCitations, 0);
   assert.ok(summary.metrics.byKind.rule >= 5);
+  // The old 8 KB slice was retired for `wm brief --phase` [WMR:REQ-027]: refused by name, saying where to look.
   const slice = run('slice', '--phase', 'testing', '--max-bytes', '4000');
-  assert.equal(slice.status, 0, slice.stderr);
-  assert.match(slice.stdout, /knowledge for the tester/u);
-  assert.match(slice.stdout, /Only placed orders can be cancelled/u);
+  assert.notEqual(slice.status, 0);
+  assert.match(slice.stderr, /'wm knowledge slice' was removed/u);
+  assert.match(slice.stderr, /wm brief --phase PHASE/u);
   const scored = run('eval', '--expected', path.join(fixtures, 'orders-spring.expected.yml'), '--json');
   assert.equal(scored.status, 0, scored.stderr);
   assert.equal(JSON.parse(scored.stdout).recall, 1);
   assert.equal(git(repository, 'status', '--porcelain'), '', 'the working tree is untouched');
   const unknown = run('explode');
   assert.notEqual(unknown.status, 0);
-  assert.match(unknown.stderr, /Available: areas, brief, build, calls, confirm, correct, eval, explain, items, reject, show, slice, status/u);
+  assert.match(unknown.stderr, /Available: areas, brief, build, calls, confirm, correct, eval, explain, items, reject, show, status/u);
 });
 
 test('phase prompts receive one repository brief for the phase reader, focused on the Story, unless turned off', async (t) => {
@@ -263,7 +264,10 @@ test('phase prompts receive one repository brief for the phase reader, focused o
   assert.ok(Buffer.byteLength(design.text) <= 2048, 'the configured budget holds');
   const off = await repositoryKnowledgePrompt(repository, { definition: { worldModel: { knowledge: { prompt: 'off' } } }, phase: 'testing', workflow });
   assert.deepEqual([off.text, off.status, off.warnings], ['', 'off', []]);
-  assert.deepEqual(knowledgePromptPolicy({ worldModel: { knowledge: { maxBytes: 999999 } } }), { prompt: 'slice', maxBytes: 32768 });
+  assert.deepEqual(knowledgePromptPolicy({ worldModel: { knowledge: { maxBytes: 999999 } } }), { prompt: 'slice', steps: {}, maxBytes: 32768 });
+  // Per step [WMR:REQ-011]: a mapping names the steps that get the brief, or not; every other step keeps its default.
+  assert.deepEqual(knowledgePromptPolicy({ worldModel: { knowledge: { prompt: { intake: 'slice', design: 'off' } } } }),
+    { prompt: 'slice', steps: { intake: 'slice', design: 'off' }, maxBytes: 8192 });
   const missing = await repositoryKnowledgePrompt(path.join(repository, 'not-a-repository'), { definition: {}, phase: 'testing', workflow });
   assert.equal(missing.text, '');
   assert.match(missing.warnings[0], /Repository knowledge was not added/u, 'a failure never blocks the prompt');
@@ -277,7 +281,7 @@ test('phase prompts receive one repository brief for the phase reader, focused o
   assert.match(compose, /const KNOWLEDGE_PROMPT_MODULE = pathToFileURL\(path\.join\(PACKAGE_ROOT, 'src', 'knowledge', 'prompt\.mjs'\)\)\.href;/u);
 });
 
-test('worldModel.knowledge accepts only its two settings, in the validator and the schema', async () => {
+test('worldModel.knowledge accepts only its two settings, in the validator and the schema (prompt per step too)', async () => {
   const { validateDefinition } = await import('../src/config.mjs');
   const YAML = (await import('yaml')).default;
   const template = YAML.parse(await readFile(path.join(root, 'templates', 'workflow.yml'), 'utf8'));
@@ -287,12 +291,15 @@ test('worldModel.knowledge accepts only its two settings, in the validator and t
     return definition;
   };
   assert.doesNotThrow(() => validateDefinition(withKnowledge({ prompt: 'off', maxBytes: 4096 })));
-  assert.throws(() => validateDefinition(withKnowledge({ prompt: 'always' })), /worldModel\.knowledge\.prompt must be 'slice' or 'off'\./u);
+  assert.throws(() => validateDefinition(withKnowledge({ prompt: 'always' })), /worldModel\.knowledge\.prompt must be 'slice' or 'off', or a mapping of step IDs/u);
+  // Per step [WMR:REQ-011]: a step named here gets the brief, or not, whatever its default placement.
+  assert.doesNotThrow(() => validateDefinition(withKnowledge({ prompt: { intake: 'slice', design: 'off' } })));
+  assert.throws(() => validateDefinition(withKnowledge({ prompt: { intake: 'yes' } })), /a mapping of step IDs to 'slice' or 'off'/u);
   assert.throws(() => validateDefinition(withKnowledge({ maxBytes: 100 })), /maxBytes must be an integer from 2048 through 32768/u);
   assert.throws(() => validateDefinition(withKnowledge({ budget: 1 })), /worldModel\.knowledge\.budget is not supported/u);
   const schema = JSON.parse(await readFile(path.join(root, 'schemas', 'workflow-definition.schema.json'), 'utf8'));
   const knowledge = schema.properties.worldModel.properties.knowledge;
-  assert.deepEqual(knowledge.properties.prompt.enum, ['slice', 'off']);
+  assert.deepEqual(knowledge.properties.prompt.oneOf, [{ enum: ['slice', 'off'] }, { type: 'object', additionalProperties: { enum: ['slice', 'off'] } }]);
   assert.equal(knowledge.additionalProperties, false);
 });
 

@@ -2,8 +2,11 @@
 
 **Specification ID:** `WMR-v1`
 
-**Status:** Proposed, not built. Written on 2026-11-26 from two read-only reviews of that day: one of the code, one of
-the owner's real use. M0 (the text clean-up) is being built on branch `wm-clean`. Checked against `main@cbeb9978d`.
+**Status:** M1 and M2 built on branch `wmr-m1m2` (2026-11-26): REQ-007–015 and REQ-017–019, REQ-024–027. REQ-016 is
+not built: probe P1 showed JSX parsing did not cause the missing file. M0 (the text clean-up) is being built on branch
+`wm-clean`; M3 (REQ-029) and M4 (REQ-020–023) are not built. The probes' answers are in §7.
+Written on 2026-11-26 from two read-only reviews of that day: one of the code, one of the owner's real use. Checked
+against `main@cbeb9978d`; built on `main@30484105e`.
 
 **Owner, 2026-11-26.**
 - "review the current repo world model and see if we need to improve it or not"
@@ -142,29 +145,29 @@ packaging and history entries.
 
 ### 4.2 Focus on the Story
 
-**WMR:REQ-007, the plan's files lead.** Once a plan is approved, planned files are the union of two sources:
+**WMR:REQ-007 (built, M2), the plan's files lead.** Once a plan is approved, planned files are the union of two sources:
 - the planned claims' paths (`workflowPlannedPaths`);
 - every path in the approved plan document's file table.
 
 A planned file the knowledge does not know yet (a new file) is still listed, as "(new, planned)". It is no longer
 dropped by the `known.has(file)` filter (`src/knowledge/records/impact.mjs:99`).
 
-**WMR:REQ-008, area selection reads the plan.** `selectKnowledgeAreas` takes the planned files beside the changed
+**WMR:REQ-008 (built, M2), area selection reads the plan.** `selectKnowledgeAreas` takes the planned files beside the changed
 files and the Story's words. So on a repository above `maximumCodeFiles`, the plan and first code briefs read the
 planned files' areas instead of coming back empty.
 
-**WMR:REQ-009, the Story's scope.** `buildKnowledge` and `readKnowledgeSource` take the source scope compose already
+**WMR:REQ-009 (built, M2), the Story's scope.** `buildKnowledge` and `readKnowledgeSource` take the source scope compose already
 applies (`sourceRoots`, `sharedRoots`, `excludedRoots`, the environment exclusions). The scope is read from the
 Story's pinned configuration, not the live approved one. A capability Story's brief then reads its capability's
 folders only.
 
-**WMR:REQ-010, the Explainer names an area.** When the Code Explainer falls back to `wm knowledge calls`, it passes
+**WMR:REQ-010 (built, M2), the Explainer names an area.** When the Code Explainer falls back to `wm knowledge calls`, it passes
 the area of the files that got no call hierarchy. It no longer asks for the whole repository and gets
 `KNOWLEDGE_SCOPE_TOO_LARGE`.
 
 ### 4.3 Where the brief goes
 
-**WMR:REQ-011, only where it helps.** By default the brief is left out of these steps:
+**WMR:REQ-011 (built, M2), only where it helps.** By default the brief is left out of these steps:
 - **intake and requirements** (the product reader), where no code is known to change yet;
 - **verification and release.**
 
@@ -172,20 +175,20 @@ It stays in design, plan, implementation-spec, reproduction and code steps. A te
 with `intelligence.worldModel: on` and per step with `worldModel.knowledge.prompt`. The receipt says why it was left
 out: `groundingAvailability.reasonCode: 'BRIEF_NOT_FOR_THIS_STEP'`.
 
-**WMR:REQ-012, the step's intent picks the reader.** A step's pinned intent is a declared signal, read after the
+**WMR:REQ-012 (built, M2), the step's intent picks the reader.** A step's pinned intent is a declared signal, read after the
 output kind and before the name:
 - `/sf-task`'s review intent gets a reviewer profile: rules, risks, what the change touches, then contracts.
 - An investigate task's design step gets the developer's profile.
 - A docs task's design step gets the product profile.
 - A marketplace agent's own step ids use their intent the same way, instead of falling to the catch-all.
 
-**WMR:REQ-013, no repeat within a step.** A step's next version reuses the brief when the Story's changed files did
+**WMR:REQ-013 (built, M2), no repeat within a step.** A step's next version reuses the brief when the Story's changed files did
 not change. For example, the 14 verification retries of one Story each carried the same brief. The receipt records
 the reuse; nothing new is composed.
 
 ### 4.4 Claims that are true
 
-**WMR:REQ-014, name-matched calls are not facts.** While a language's calls are name-matched only, the brief does not
+**WMR:REQ-014 (built, M2), name-matched calls are not facts.** While a language's calls are name-matched only, the brief does not
 state any of these:
 - "called from N places";
 - "reached by N entry points";
@@ -196,16 +199,16 @@ state any of these:
 It may say "calls matched by name" once per brief. When resolved calls exist for that language, the claims come back,
 as today. A rule's own "tested" status from a test that names it stays.
 
-**WMR:REQ-015, a question needs a true premise.** "Questions for the product owner" are not drawn from "no test
+**WMR:REQ-015 (built, M2), a question needs a true premise.** "Questions for the product owner" are not drawn from "no test
 reaches this rule" while the reach is name-matched (`src/knowledge/brief.mjs:507-508`).
 
-**WMR:REQ-016, JSX components are functions** (depends on probe P1). A React file's components and handlers count as
+**WMR:REQ-016 (not built: P1 found another cause), JSX components are functions** (depends on probe P1). A React file's components and handlers count as
 functions in the graph: function declarations, `const X = (...) => …`, and `memo` and `forwardRef` wrappers. Then
 "no test reaches it" is not said of code a rendered component reaches.
 
 ### 4.5 The cache
 
-**WMR:REQ-017, rebuild only when source changes.** The knowledge key is built from these, without the commit:
+**WMR:REQ-017 (built, M1), rebuild only when source changes.** The knowledge key is built from these, without the commit:
 - the files' digests;
 - the manifests;
 - the rule files;
@@ -215,12 +218,12 @@ functions in the graph: function declarations, `const X = (...) => …`, and `me
 History (churn, ownership, co-change) is keyed by the newest commit that touched a read path. A bookkeeping commit
 that changes no read path reuses the entry.
 
-**WMR:REQ-018, prune only analysis entries.** `prune` removes only files named `^[0-9a-f]{64}\.json$`. Paid output
+**WMR:REQ-018 (built, M1), prune only analysis entries.** `prune` removes only files named `^[0-9a-f]{64}\.json$`. Paid output
 moves to `knowledge/paid/` and is pruned by its own count, 30 by default and oldest first. `rule-proposals.json`
 moves out of the cache folder to `knowledge/rule-proposals.json` and is never pruned. A rule draft a person has not
 confirmed is never lost to a prune.
 
-**WMR:REQ-019, paid output survives a commit.** A model-written brief, polish or explanation is keyed by the
+**WMR:REQ-019 (built, M1), paid output survives a commit.** A model-written brief, polish or explanation is keyed by the
 analysis it was written from (REQ-017's key) and the selection. A commit that changes no read path keeps it in use.
 
 ### 4.6 Ready for clean PRs (with SSB M2–M4)
@@ -247,20 +250,20 @@ plan.
 
 ### 4.7 Guidance only, everywhere
 
-**WMR:REQ-024, spec research degrades.** When the knowledge build fails, `spec author gaps` lists the gaps and marks
+**WMR:REQ-024 (built, M1), spec research degrades.** When the knowledge build fails, `spec author gaps` lists the gaps and marks
 their impact "not available (why)". It never refuses with `SPEC_RESEARCH_UNAVAILABLE` for that alone.
 
-**WMR:REQ-025, an inventory of refusals.** A test lists every `SingularityFlowError` that `src/knowledge/` and its
+**WMR:REQ-025 (built, M1), an inventory of refusals.** A test lists every `SingularityFlowError` that `src/knowledge/` and its
 callers raise. It fails when a new one is raised on a path a Story step, an approval or a publication takes. Read
 commands a person runs, such as `wm knowledge show` or `wm rules confirm`, may still refuse.
 
 ### 4.8 Surfaces say what happens
 
-**WMR:REQ-026, Studio shows the real brief.** The Studio World Model section calls `phaseBriefProfile` for each step
+**WMR:REQ-026 (built, M1), Studio shows the real brief.** The Studio World Model section calls `phaseBriefProfile` for each step
 and shows the step's real reader, budget and sections, or "no brief here (REQ-011)". `KNOWLEDGE_READER_RULES` and
 the 8 KB default stop being shown.
 
-**WMR:REQ-027, one slice.** `wm knowledge slice` either renders what `phaseBriefProfile` gives, or is retired with
+**WMR:REQ-027 (built, M1), one slice.** `wm knowledge slice` either renders what `phaseBriefProfile` gives, or is retired with
 `COMMAND_REMOVED` pointing to `wm brief --phase`. Default: retired.
 
 **WMR:REQ-028, where it lives in the four places.** In FPL, "What this phase sees" and the Repository Brief panel are
@@ -324,6 +327,33 @@ M0 and M1 can land together. M2 lands with its measure from M3, so the change sh
 
 ## 7. Probes before building
 
+Answered on 2026-11-26 while building M1 and M2 (`wmr-m1m2`):
+- **P1:** `FunctionGrapher.jsx` was parsed as code (its component is a function in the graph) and every graph Story's
+  planned claims named it. Two things kept it out of every brief. The planning step's brief (the architect's) had no
+  "What a change touches" section, and at the step's first version no plan existed yet. Then at the code step its file
+  record had nothing to say and was dropped (`records/impact.mjs`, `if (!parts.length) return`): its only importer,
+  `App.jsx`, was planned too, so "imported by" was empty. So the cause is REQ-007's, not JSX: **REQ-016 is not built.**
+  Seen on the way: a component whose parameters span lines (`export const Display = ({\n … }) => {`) is not read as a
+  function; it did not cause the missing file.
+- **P2:** measured on a scratch clone of SFlow's own repository at `30484105e` (4,195 code files in 48 areas), on this
+  machine, with no semantic pack, for a Story planning `src/knowledge/records/impact.mjs` and
+  `src/phase-prompt-composer.mjs`:
+  - **Before REQ-008 and REQ-009:** the plan brief came back empty ("this Story names no area of it", 0.05 s). The
+    first code brief (one changed file in `src/knowledge/`) built that area only: 0.5 s cold, 0.2 s warm, one 0.8 MB
+    cache entry.
+  - **After:** the plan brief and the first code brief both name the planned files. They build `src/knowledge/` and
+    `src/`'s own 1,081 files: 26–28 s cold, 0.5 s warm, 12.3 MB in two entries (11.5 MB for `src/`). With the Story's
+    source scope set to `src/knowledge` (REQ-009): 0.4 s cold, 0.2 s warm, 0.8 MB.
+  - **So:** the cost is the size of the areas the Story's files fall in. A folder's own files are one area however
+    many there are, so a flat `src/` costs about 27 s cold whenever one of its files changes; a changed file there cost
+    the same before. REQ-017 keeps bookkeeping commits from paying it again. Not changed here: a cap on an area's
+    size, or a planned file's area being built only when small, is a follow-up.
+- **P3:** not run: it needs real VS Code.
+- **P4:** yes: the 16 golden briefs pass on `main@30484105e`.
+- **P5:** no. Recording a step's lessons runs inside the approval's publication unit, in a `try` whose `catch` keeps the
+  approval (`story-publication-service.mjs`); what `approve` and `submit` print afterwards (`lessonsAfterApproval`)
+  catches its own reads. A test pins both (`test/knowledge-refusal-inventory.test.mjs`, P5).
+
 1. **P1, the missing file.** Why no brief named `FunctionGrapher.jsx` in the owner's graph Stories. Was it absent from
    the planned claims' paths? Dropped by the known-file filter? Or not parsed as code, given 21 functions and 13
    edges for 19 files? The answer decides whether REQ-016 is needed.
@@ -344,9 +374,29 @@ M0 and M1 can land together. M2 lands with its measure from M3, so the change sh
 - **SSB order.** REQ-020–023 must land before SSB's state-ref layout is switched on for any Story. Otherwise the brief
   quietly loses requirements and plans.
 
-## 9. Open questions for the owner (defaults apply if unanswered)
+## 9. Decided (owner, 2026-11-26)
 
-1. **Intake brief:** leave it out by default (REQ-011)? **Default: yes, leave it out.**
-2. **Lessons under SSB:** the Story's state ref (REQ-022), or the repository's shared lessons place? **Default: the
-   state ref, read through the resolver.**
-3. **`wm knowledge slice`:** retire it (REQ-027)? **Default: retire.**
+The owner answered "yes for 1, 2, 3":
+1. **Intake brief:** left out by default (REQ-011).
+2. **Lessons under SSB:** on the Story's state ref, read through the resolver (REQ-022, M4).
+3. **`wm knowledge slice`:** retired (REQ-027).
+
+## 10. As built (M1 and M2, 2026-11-26)
+
+Where the build reads the requirements one way among several:
+- **REQ-011's switches.** `intelligence.worldModel: on` is a new value of the work type's setting (`required` acts
+  the same). The per-step switch is `worldModel.knowledge.prompt` written as a mapping of step IDs to `slice` or
+  `off`; a plain `slice` or `off` still covers every step. "Verification and release" covers the conformance step too.
+- **REQ-012's plan steps.** A step whose intent is `plan` gets the implementation-spec profile (developer, 4 KB, the
+  plan's files first), as the feature workflow's plan step already did. So spec-driven-standard's `planning` step
+  moves from the architect's 3 KB brief to it. The reviewer's profile is 3 KB and is never chosen by a step's name.
+- **REQ-013's sameness.** A brief is reused while the Story's base commit, its changed files' bytes, its plan, its
+  words, its source scope and the reviews people wrote (`docs/knowledge/*.yml`) are the same. Only a recorded compose
+  keeps one; `wm brief` reads it.
+- **REQ-014's languages.** A language counts as resolved when a semantic pack resolved a call in a file of it.
+- **REQ-018's rule drafts.** `rule-proposals.json` already lived at `knowledge/rule-proposals.json`; it stays there,
+  and the prune no longer matches it.
+- **The golden briefs.** The 16 goldens are kept unchanged and are checked with calls read as resolved (A7); 16
+  `*.by-name.md` goldens hold what a repository without a semantic pack gets.
+- **Not done here:** retiring the dead `worldModelViews` fields (listed for later), and M0's text (the template
+  comment in `templates/workflow.yml` and the help text still say every step gets a brief).

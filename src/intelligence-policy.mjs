@@ -1,6 +1,7 @@
 import { SingularityFlowError } from './util.mjs';
 
-export const WORK_TYPE_WORLD_MODEL_MODES = Object.freeze(['inherit', 'required', 'off']);
+// `on`: the brief in every step [WMR:REQ-011].
+export const WORK_TYPE_WORLD_MODEL_MODES = Object.freeze(['inherit', 'on', 'required', 'off']);
 export const WORK_TYPE_AST_MODES = Object.freeze(['inherit', 'optional-context', 'required-context', 'off']);
 export const WORK_TYPE_AGENT_BRIEF_MODES = Object.freeze(['inherit', 'required', 'off']);
 

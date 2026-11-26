@@ -1,11 +1,12 @@
 /**
  * `wm brief` for a Story phase (World Model v5, M5): exactly what a phase's prompt carries, with the
  * record IDs its receipt names; a phase whose prompt cannot be composed yet shows the brief it would
- * carry now and says why; `--polish` with model use off keeps the fixed wording and says so.
+ * carry now and says why; `--polish` with model use off keeps the fixed wording and says so. Intake carries no brief
+ * by default, says why, and its receipt records it (WMR:REQ-011).
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -48,21 +49,33 @@ async function storyRepository(t) {
 test('wm brief shows what a phase carries, and the brief a phase not yet composable would carry', async (t) => {
   const repository = await storyRepository(t);
   const brief = (...args) => JSON.parse(run(repository, process.execPath, bin, 'wm', 'brief', '--work-id', 'ORD-1', '--json', ...args));
+  // Intake reads little code: no brief by default, and it says why and how to bring it back [WMR:REQ-011].
   const intake = brief('--phase', 'intake');
-  assert.equal(intake.status, 'ok');
+  assert.equal(intake.status, 'none');
   assert.equal(intake.composed, true);
-  assert.equal(intake.profile, 'intake');
-  assert.ok(intake.bytes <= intake.budget, `${intake.bytes} bytes`);
-  assert.match(intake.text, /^# Repository brief: orders at [0-9a-f]{12} \(for intake, focused on this Story\)$/mu);
-  assert.match(intake.text, /Only placed orders can be cancelled/u, 'the Story\'s rule is in the intake brief');
-  assert.ok(intake.records.some((id) => /^R-[0-9a-f]{12}$/u.test(id)), 'the record IDs the receipt will name');
-  assert.deepEqual(intake.phrasing, { by: 'template' });
+  assert.equal(intake.reasonCode, 'BRIEF_NOT_FOR_THIS_STEP');
+  assert.match(intake.note, /^The intake step gets no Repository brief by default: little code is read there\. Bring it back with worldModel\.knowledge\.prompt: \{ intake: slice \}, or with intelligence\.worldModel: on on the work type\.$/u);
   const later = brief('--phase', 'implement');
+  assert.equal(later.status, 'ok');
   assert.equal(later.composed, false);
+  assert.equal(later.profile, 'implementation');
+  assert.ok(later.bytes <= later.budget, `${later.bytes} bytes`);
   assert.match(later.note, /^This phase's prompt cannot be composed yet \(Phase implement inputs are not ready: implement requires approved input from intake.*\); this is the Repository brief it would carry now\.$/u);
   assert.match(later.text, /^# Repository brief: orders at [0-9a-f]{12} \(for implementation, focused on this Story\)$/mu);
-  const polished = brief('--phase', 'intake', '--polish');
-  assert.equal(polished.text, intake.text, 'without model use the fixed wording stands');
-  assert.equal(polished.note, 'Model use is off, so the brief keeps its fixed wording.');
+  assert.match(later.text, /Only placed orders can be cancelled/u, 'the Story\'s rule is in the code step\'s brief');
+  assert.ok(later.records.some((id) => /^R-[0-9a-f]{12}$/u.test(id)), 'the record IDs the receipt will name');
+  assert.deepEqual(later.phrasing, { by: 'template' });
+  const polished = brief('--phase', 'implement', '--polish');
+  assert.equal(polished.text, later.text, 'without model use the fixed wording stands');
+  assert.match(polished.note, /Model use is off, so the brief keeps its fixed wording\.$/u);
   assert.equal(run(repository, 'git', 'status', '--porcelain', '--', 'singularity'), '', 'reading a brief records nothing');
+  // The intake prompt's receipt records why it carries no brief [WMR:REQ-011].
+  const composed = spawnSync(process.execPath, [bin, 'wm', 'compose', '--work-id', 'ORD-1', '--phase', 'intake', '--out', path.join(repository, '..', 'intake.md')],
+    { cwd: repository, env, encoding: 'utf8' });
+  assert.equal(composed.status, 0, composed.stderr);
+  const recorded = composed.stderr.match(/Grounding composition recorded: (.+)$/mu)?.[1]?.trim();
+  assert.ok(recorded, composed.stderr);
+  const receipt = JSON.parse(await readFile(path.isAbsolute(recorded) ? recorded : path.join(repository, recorded), 'utf8'));
+  assert.deepEqual(receipt.groundingAvailability, { status: 'unavailable', reasonCode: 'BRIEF_NOT_FOR_THIS_STEP' });
+  assert.equal(receipt.repositoryBrief, null);
 });

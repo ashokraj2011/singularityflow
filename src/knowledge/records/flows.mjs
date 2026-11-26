@@ -72,7 +72,8 @@ function helpersText(helpers) {
 // Every endpoint responds and almost everything logs; neither says what a flow does.
 const QUIET_EFFECT = /^(?:responds with|writes logs$)/u;
 
-export function buildFlowRecords(knowledge, { focus = null } = {}) {
+/** `trust(file)`: whether its calls are resolved; a flow whose calls are matched by name is no fact, and is left out [WMR:REQ-014]. */
+export function buildFlowRecords(knowledge, { focus = null, trust = () => true } = {}) {
   const items = knowledge?.items ?? [];
   const entries = new Map(items.filter((item) => item.kind === 'entry-point').map((item) => [item.statement?.label, item]));
   const rulesBySymbol = new Map();
@@ -91,6 +92,7 @@ export function buildFlowRecords(knowledge, { focus = null } = {}) {
     const steps = (statement.steps ?? []).filter(Boolean);
     if (!steps.length) continue;
     const entry = entries.get(statement.trigger) ?? null;
+    if (!trust(entry?.citations?.[0]?.path ?? journey.citations?.[0]?.path ?? journey.subject?.path)) continue;
     // A handler named in the trigger is left out of the steps; its rules and refusals count too.
     const reached = [...new Set([entry?.subject?.symbol, ...steps].filter(Boolean))];
     const rules = reached.flatMap((symbol) => rulesBySymbol.get(symbol) ?? []);

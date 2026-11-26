@@ -15,10 +15,8 @@
  * reuses one without calling a model. Without a model the fixed wording stands, byte for byte.
  */
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 
-import { repositoryGitPath } from '../git-directory.mjs';
+import { readPaid, writePaid } from './paid.mjs';
 import { JUDGEMENT, parseBriefOutput } from './brief.mjs';
 import { groundedTokens } from './explain.mjs';
 
@@ -186,18 +184,11 @@ export function polishKey({ knowledgeKey = null, diffSha256 = null, prompt }) {
   return digest(JSON.stringify([BRIEF_POLISH_VERSION, knowledgeKey, diffSha256, prompt.sha256])).slice(0, 32);
 }
 
-function polishFile(root, key) {
-  return repositoryGitPath(root, 'singularity-flow', 'knowledge', `brief-polish-${key}.json`);
-}
-
+/** A phrasing is paid output, kept apart from the analysis entries a prune removes [WMR:REQ-018]. */
 export async function readPolish(root, key) {
-  return readFile(polishFile(root, key), 'utf8').then(JSON.parse).catch(() => null);
+  return readPaid(root, `brief-polish-${key}.json`);
 }
 
 export async function writePolish(root, key, record) {
-  const file = polishFile(root, key);
-  await mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.tmp`;
-  await writeFile(temporary, JSON.stringify(record));
-  await rename(temporary, file);
+  await writePaid(root, `brief-polish-${key}.json`, record);
 }

@@ -43,12 +43,18 @@ export const KNOWLEDGE_READER_RULES = Object.freeze([
 
 export const KNOWLEDGE_PROMPT_DEFAULT_BYTES = 8192;
 
-/** Whether phase prompts get repository knowledge, and how many bytes of it. */
+/**
+ * Whether phase prompts get repository knowledge, and how many bytes of it. `prompt` is `slice` or `off` for every
+ * step, or a mapping of step IDs to `slice` or `off` [WMR:REQ-011]: a named step gets the brief or not whatever its
+ * default placement, and every other step keeps its default. `steps` is that mapping (empty for a plain value).
+ */
 export function knowledgePromptPolicy(definition) {
   const policy = definition?.worldModel?.knowledge ?? {};
-  const prompt = policy.prompt ?? 'slice';
+  const perStep = policy.prompt && typeof policy.prompt === 'object' && !Array.isArray(policy.prompt);
+  const prompt = perStep ? 'slice' : policy.prompt ?? 'slice';
+  const steps = perStep ? Object.fromEntries(Object.entries(policy.prompt).filter(([, value]) => ['slice', 'off'].includes(value))) : {};
   const maxBytes = Number.isInteger(policy.maxBytes) ? Math.min(32768, Math.max(2048, policy.maxBytes)) : KNOWLEDGE_PROMPT_DEFAULT_BYTES;
-  return { prompt, maxBytes };
+  return { prompt, steps, maxBytes };
 }
 
 /** Lifecycle phases mapped to the reader they need. */

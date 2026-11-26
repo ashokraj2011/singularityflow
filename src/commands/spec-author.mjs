@@ -248,16 +248,26 @@ async function gapsAction(root, positionals, options) {
   const gaps = foldGaps(head.draft.gaps).filter((gap) => !wanted || gap.id === wanted);
   if (wanted && !gaps.length) fail(`${wanted} is not a gap of ${specId}.`, 'SPEC_GAP_UNKNOWN', { gap: wanted, nextAction: `singularity-flow spec author gaps ${specId}` });
   const needsImpact = gaps.some((gap) => gap.evidence.some((id) => head.draft.research.some((item) => item.id === id && item.basis === 'code')));
-  const knowledge = needsImpact ? (await knowledgeAtHead(root)).knowledge : null;
+  // The knowledge is guidance: when it cannot be built the gaps are still listed, their impact "not available" with why [WMR:REQ-024].
+  let knowledge = null;
+  let unavailable = null;
+  if (needsImpact) {
+    try { knowledge = (await knowledgeAtHead(root)).knowledge; }
+    catch (error) { unavailable = String(error?.message ?? error).split('\n')[0].replace(/[.\s]+$/u, ''); }
+  }
   const shown = [];
-  for (const gap of gaps) shown.push({ ...gap, impact: knowledge ? await gapImpact(knowledge, head.draft, gap) : { evidence: [], records: [], options: [] } });
+  for (const gap of gaps) {
+    shown.push({ ...gap, impact: knowledge ? await gapImpact(knowledge, head.draft, gap)
+      : { evidence: [], records: [], options: [], ...(unavailable ? { status: 'not-available', reason: unavailable } : {}) } });
+  }
   const lines = [];
   for (const gap of shown) {
     lines.push(`${gap.id} [${gap.kind}] ${gap.status}: ${gap.question}`);
     for (const option of gap.options) {
       const impact = gap.impact.options.find((entry) => entry.id === option.id);
       lines.push(`  ${option.id} ${option.wording}`);
-      lines.push(`     impact: ${option.changesCode ? (impact?.records.length ? impact.records.map((record) => record.text).join('; ') : 'no cited code') : 'none (keeps the code as it is)'}`);
+      lines.push(`     impact: ${!option.changesCode ? 'none (keeps the code as it is)' : gap.impact.status === 'not-available' ? `not available (${gap.impact.reason})`
+        : impact?.records.length ? impact.records.map((record) => record.text).join('; ') : 'no cited code'}`);
     }
     if (gap.decision) lines.push(`  decided: ${gap.decision.choice} (${gap.decision.by?.name ?? 'someone'}: ${gap.decision.reason})`);
     if (gap.deferral) lines.push(`  deferred to ${gap.deferral.owner}: ${gap.deferral.reason}`);

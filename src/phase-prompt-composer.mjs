@@ -383,12 +383,41 @@ export async function loadPromptConfig(root, {
 
 const load = loadPromptConfig;
 
+/**
+ * The files the Story's plan says it will change [WMR:REQ-007]: the planned claims' paths, and every path in the file
+ * table (`| Surface | Change | Serves |`) of each approved plan document. A plan the brief cannot read gives none.
+ */
 async function workflowPlannedPaths(root, workItemRoot, workflow) {
   if (!workflow?.workItem?.id) return [];
+  const location = storyLocation(root, [workflow, { workItemRoot }], workflow.workItem.id);
+  let claimed = [];
   try {
     const { loadActiveSpecRecords, mergePlannedClaimRecords } = await import('./specifications.mjs');
-    const records = await loadActiveSpecRecords(storyLocation(root, { workItemRoot }, workflow.workItem.id).directory, workflow);
-    return [...new Set(Object.values(mergePlannedClaimRecords(records.planned ?? [])).flatMap((claim) => claim.expectedPaths ?? []).map(posix))].sort();
+    const records = await loadActiveSpecRecords(location.directory, workflow);
+    claimed = Object.values(mergePlannedClaimRecords(records.planned ?? [])).flatMap((claim) => claim.expectedPaths ?? []);
+  } catch {
+    claimed = [];
+  }
+  return [...new Set([...claimed, ...await approvedPlanTablePaths(location, workflow)].map(posix))].sort();
+}
+
+/** The paths an approved plan step's document names in its file table, read with the parser the task map uses. */
+async function approvedPlanTablePaths(location, workflow) {
+  try {
+    const [{ planSurfaces }, { stepResponsibilities }] = await Promise.all([import('./advisory-tasks.mjs'), import('./phase-roles.mjs')]);
+    const owners = new Set(Object.values(workflow.resolution?.plannedClaims?.owners ?? {}));
+    const paths = [];
+    for (const id of workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})) {
+      const phase = workflow.phases?.[id];
+      if (phase?.status !== 'approved' || !phase.requiredArtifact?.path) continue;
+      if (!owners.has(id) && !stepResponsibilities(workflow, id).includes('plan')
+        && !['implementation-spec', 'delivery-plan'].includes(phase.requiredArtifact.kind)) continue;
+      const markdown = await readFile(location.document(phase.requiredArtifact.path).absolute, 'utf8').catch(() => null);
+      if (!markdown) continue;
+      for (const surface of planSurfaces(markdown).values()) paths.push(...surface.paths);
+    }
+    // A row names a path or a module; only an exact repository path is a file.
+    return paths.map((entry) => String(entry).trim()).filter((entry) => /^[\w@.-]+(?:\/[\w@.-]+)*\.[\w-]+$/u.test(entry) && !entry.split('/').includes('..'));
   } catch {
     return [];
   }
@@ -399,11 +428,20 @@ async function workflowPlannedPaths(root, workItemRoot, workflow) {
  * changed files and its plan's files. `wm brief` uses it directly for a phase whose prompt cannot be
  * composed yet. `polish` is the brief's phrasing mode (see knowledge/prompt.mjs).
  */
-export async function phaseRepositoryBrief(root, { definition, workflow, phase, changedPaths = null, polish = 'cached', refresh = false }) {
+export async function phaseRepositoryBrief(root, { definition, workflow, phase, changedPaths = null, polish = 'cached', refresh = false, remember = false }) {
   if (!workflow || worldModelDisabledForWorkflow(workflow)) return { text: '', warnings: [], receipt: null };
-  return (await import(KNOWLEDGE_PROMPT_MODULE)).repositoryBriefPrompt(root, {
+  const knowledge = await import(KNOWLEDGE_PROMPT_MODULE);
+  // Only where it helps [WMR:REQ-011]: no brief, and the receipt says why, in steps that barely read code.
+  const placement = knowledge.phaseBriefPlacement({ definition, workflow, phase });
+  if (!placement.included) {
+    return { text: '', warnings: [], receipt: null, status: 'not-for-this-step', reasonCode: placement.reasonCode, why: placement.why,
+      profile: placement.profile.id, role: placement.profile.reader, budget: placement.profile.budget };
+  }
+  return knowledge.repositoryBriefPrompt(root, {
     definition, phase, workflow, changedPaths: changedPaths ?? workflowChangedPaths(root, definition, workflow),
-    plannedPaths: await workflowPlannedPaths(root, storiesRoot(definition), workflow), polish, refresh
+    plannedPaths: await workflowPlannedPaths(root, storiesRoot(definition), workflow), polish, refresh,
+    // The Story's pinned source scope, not the live approved one [WMR:REQ-009]; a next version reuses its brief [REQ-013].
+    scope: knowledge.storySourceScope(definition), reuse: remember ? 'read-write' : 'read'
   });
 }
 
@@ -965,7 +1003,7 @@ export async function compose(root, options, {
   // what a compose with World-Model grounding off always recorded: no views, no model commit, and
   // the repository brief (read from the source) as the only World-Model context.
   const plan = { phase: signals.phase, depth: 'standard', includeEvidence: false, views: [], selections: [] };
-  const groundingAvailability = { status: 'unavailable', reasonCode: 'WORLD_MODEL_GROUNDING_DISABLED' };
+  let groundingAvailability = { status: 'unavailable', reasonCode: 'WORLD_MODEL_GROUNDING_DISABLED' };
   const promptStudy = workflow
     ? await resolveImpactPromptOverride(root, workflow, signals.phase, {
         agentId: agent,
@@ -1050,8 +1088,11 @@ export async function compose(root, options, {
   // (only) asks a model to phrase it; every other compose reuses a saved phrasing or none.
   let repositoryBrief = await phaseRepositoryBrief(root, {
     definition, workflow, phase: signals.phase, changedPaths: signals.changedPaths ?? [],
-    polish: options['brief-polish'] === 'write' ? 'write' : 'cached', refresh: options['brief-polish-refresh'] === true
+    polish: options['brief-polish'] === 'write' ? 'write' : 'cached', refresh: options['brief-polish-refresh'] === true,
+    remember: !dryRun && !renderOnly
   });
+  // A step the brief is left out of says so in its receipt [WMR:REQ-011].
+  if (repositoryBrief.reasonCode === 'BRIEF_NOT_FOR_THIS_STEP') groundingAvailability = { status: 'unavailable', reasonCode: 'BRIEF_NOT_FOR_THIS_STEP' };
   if (typeof options['brief-observer'] === 'function') options['brief-observer'](repositoryBrief);
   // Lessons from earlier Stories for the files this step names or touches [LRN:REQ-008]. They ride the brief's optional
   // section, so a short budget evicts them with it, whole; with the World Model off they are the section's only text.

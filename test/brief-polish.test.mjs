@@ -118,7 +118,8 @@ async function withModelUse(run, on = true) {
 
 test('composing reuses a phrasing saved for exactly these records while model use is on, and never calls a model', async (t) => {
   const repository = await ordersRepository(t);
-  const options = { definition: null, phase: 'implementation', workflow: { workItem: { title: 'Cancel placed orders' } } };
+  // Calls read as a warmed semantic pack resolves them, so rule statuses say whether a test reaches them [WMR:REQ-014].
+  const options = { definition: null, phase: 'implementation', workflow: { workItem: { title: 'Cancel placed orders' } }, trustCalls: () => true };
   const fixed = await repositoryBriefPrompt(repository, { ...options, polish: 'off' });
   assert.equal(fixed.receipt.phrasing.by, 'template');
   assert.ok(fixed.receipt.records.length > 3);

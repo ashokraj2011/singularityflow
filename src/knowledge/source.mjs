@@ -44,6 +44,13 @@ function isCandidateSource(relative, pathContext) {
   return isCodeLanguage(languageOf(relative));
 }
 
+/** `worldModel.excludedRoots` as exact prefixes, sorted. */
+function excludedRoots(definition) {
+  return (Array.isArray(definition.worldModel?.excludedRoots) ? definition.worldModel.excludedRoots : [])
+    .filter((entry) => typeof entry === 'string' && entry.trim() && !/[*?[\]{}]/u.test(entry))
+    .map((entry) => entry.trim().replace(/\/+$/u, '')).sort();
+}
+
 /**
  * Paths no build reads: `worldModel.excludedRoots` prefixes, and environment-local files (secrets,
  * machine settings) the repository declares. A declaration that cannot be read stops the read
@@ -58,9 +65,7 @@ function excludedSource(root, definition) {
       code: 'KNOWLEDGE_SCOPE_INVALID'
     });
   }
-  const prefixes = (Array.isArray(definition.worldModel?.excludedRoots) ? definition.worldModel.excludedRoots : [])
-    .filter((entry) => typeof entry === 'string' && entry.trim() && !/[*?[\]{}]/u.test(entry))
-    .map((entry) => entry.trim().replace(/\/+$/u, ''));
+  const prefixes = excludedRoots(definition);
   return (relative) => prefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
     || Boolean(matchEnvironmentLocalPath(declaration, relative));
 }
@@ -70,19 +75,26 @@ function excludedSource(root, definition) {
  *
  * Over the file limit nothing is read: the result names the areas a reader can build one at a
  * time instead, because a partial repository presented as the whole one would mislead.
+ *
+ * `scope` is the source scope a Story pinned ({ sourceRoots, sharedRoots, excludedRoots }), which compose already
+ * applies [WMR:REQ-009]: it replaces the live approved configuration's, so a capability Story reads its own folders.
  */
-export async function readKnowledgeSource(root, { area = null, ownOnly = false, limits = KNOWLEDGE_SOURCE_LIMITS, listOnly = false, ref = 'HEAD' } = {}) {
-  const definition = await comprehensionDefinition(root);
+export async function readKnowledgeSource(root, { area = null, ownOnly = false, limits = KNOWLEDGE_SOURCE_LIMITS, listOnly = false, ref = 'HEAD', scope = null } = {}) {
+  const approved = await comprehensionDefinition(root);
+  const definition = scope ? { ...approved, worldModel: { ...(approved.worldModel ?? {}),
+    sourceRoots: scope.sourceRoots ?? [], sharedRoots: scope.sharedRoots ?? [], excludedRoots: scope.excludedRoots ?? [] } } : approved;
   const pathContext = await comprehensionPathContext(root);
   let roots;
+  let scoped;
   try {
-    roots = area
-      ? normalizeSourceRoots([area], '--area')
-      : [...normalizeSourceRoots(definition.worldModel?.sourceRoots, 'worldModel.sourceRoots'),
-        ...normalizeSourceRoots(definition.worldModel?.sharedRoots, 'worldModel.sharedRoots')];
+    scoped = [...normalizeSourceRoots(definition.worldModel?.sourceRoots, 'worldModel.sourceRoots'),
+      ...normalizeSourceRoots(definition.worldModel?.sharedRoots, 'worldModel.sharedRoots')];
+    roots = area ? normalizeSourceRoots([area], '--area') : scoped;
   } catch (error) {
     throw new SingularityFlowError(error.message, { code: 'KNOWLEDGE_SCOPE_INVALID' });
   }
+  // An area of a Story's scope stays inside it: nothing outside its roots is read.
+  const outsideScope = (relative) => Boolean(area && scope && scoped.length) && !scoped.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`));
   const excluded = excludedSource(root, definition);
   // Another branch or commit is read from Git's objects, never checked out.
   const commit = ref === 'HEAD' ? head(root) : ref;
@@ -91,7 +103,7 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
     pathFilter: (relative, entry) => {
       // An area's own files are those directly in its folder; its subfolders are areas of their own.
       if (ownOnly && area && path.posix.dirname(relative) !== roots[0]) return false;
-      if (excluded(relative)) return false;
+      if (excluded(relative) || outsideScope(relative)) return false;
       if (entry.type === 'blob' && (isCandidateSource(relative, pathContext) || MANIFEST.test(relative)
         || (isRuleFile(relative) && isExplainedPath(relative, pathContext) && !BUILD_OUTPUT.test(relative)))) listed.push(relative);
       return false;
@@ -148,7 +160,9 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
   }
   // What the code was asked to do: clauses of approved Story specifications, read at the same commit.
   const requirements = readApprovedRequirements(root, definition, { ref: ref === 'HEAD' ? 'HEAD' : commit });
-  const key = digest(JSON.stringify([commit, roots, ownOnly, files.map((file) => [file.path, file.sha256]),
+  // What was read, never which commit it was read at: a commit that changes none of it (a Story's own records, for
+  // one) keeps the same key, so nothing is analysed again [WMR:REQ-017]. History is keyed apart (store.mjs).
+  const key = digest(JSON.stringify([roots, ownOnly, excludedRoots(definition), scope ? scoped : null, files.map((file) => [file.path, file.sha256]),
     manifests.map((file) => [file.path, file.sha256]), requirements.documents.map((document) => [document.path, document.sha256]),
     ruleFiles.map((file) => [file.path, file.sha256])]));
   return { ...base, status: 'ok', reason: null, key, files, manifests, ruleFiles, skipped, bytes: total, name: path.basename(root),

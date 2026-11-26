@@ -3,7 +3,6 @@
  *
  *   build   [--area PATH] [--refresh] [--json]                       analyse HEAD (cached by content)
  *   show    [VIEW] [--area PATH] [--focus TEXT] [--max-bytes N]       overview, rules, journeys, entities, tests, system, change
- *   slice   [--role ROLE | --phase PHASE] [--focus TEXT] [--max-bytes N]   what a phase prompt receives
  *   status  [--area PATH] [--json]                                    levels and counts
  *   items   [--kind KIND] [--area PATH] [--json]                      the typed items, for tools
  *   eval    --expected FILE [--area PATH] [--json]                    score against expectations
@@ -43,12 +42,13 @@ import { buildImpactRecords, impactSymbols, knowledgePaths, readChange, renderIm
 import { buildRiskRecords, renderRiskRecords } from './records/risks.mjs';
 import { KNOWLEDGE_KINDS } from './items.mjs';
 import { knowledgeModel } from './model.mjs';
-import { KNOWLEDGE_ROLES, KNOWLEDGE_VIEWS, renderKnowledgeSlice, renderKnowledgeView, roleForPhase } from './render.mjs';
+import { KNOWLEDGE_VIEWS, renderKnowledgeView } from './render.mjs';
+import { REMOVED_KNOWLEDGE_SUBCOMMANDS, removedKnowledgeError } from '../removed-features.mjs';
 import { readKnowledgeSource } from './source.mjs';
 import { buildKnowledge } from './store.mjs';
 import { KNOWLEDGE_SOURCE_LIMITS } from './source.mjs';
 
-const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval|explain|brief|calls|areas|confirm|correct|reject> [--area PATH] [--json]';
+const USAGE = 'Usage: singularity-flow wm knowledge <build|show|status|items|eval|explain|brief|calls|areas|confirm|correct|reject> [--area PATH] [--json]';
 
 async function built(root, options, ref = 'HEAD') {
   const result = await buildKnowledge(root, { area: optionString(options, 'area') ?? null, refresh: optionBoolean(options, 'refresh'), ref });
@@ -69,7 +69,9 @@ function levelLine(levels) {
 export async function knowledgeCommand(root, positionals, options) {
   const subcommand = positionals[0];
   const json = optionBoolean(options, 'json');
-  if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'brief', 'calls', 'areas', 'confirm', 'correct', 'reject'].includes(subcommand)) throw new SingularityFlowError(USAGE);
+  // What a step receives is `wm brief --phase` [WMR:REQ-027]; the old 8 KB slice is refused, saying so.
+  if (Object.hasOwn(REMOVED_KNOWLEDGE_SUBCOMMANDS, subcommand ?? '')) throw removedKnowledgeError(subcommand);
+  if (!subcommand || !['build', 'show', 'status', 'items', 'eval', 'explain', 'brief', 'calls', 'areas', 'confirm', 'correct', 'reject'].includes(subcommand)) throw new SingularityFlowError(USAGE);
   if (subcommand === 'areas') return areasCommand(root, options);
   const target = subcommand === 'brief' ? await briefTarget(root, options) : null;
   const result = await built(root, options, target?.commit ?? 'HEAD');
@@ -137,15 +139,6 @@ export async function knowledgeCommand(root, positionals, options) {
     if (json) console.log(JSON.stringify({ view, bytes: Buffer.byteLength(text), markdown: text, ...(records ? { records } : {}) }, null, 2));
     else console.log(text);
     return { view, markdown: text };
-  }
-  if (subcommand === 'slice') {
-    const phase = optionString(options, 'phase') ?? null;
-    const role = optionString(options, 'role') ?? (phase ? roleForPhase(phase) : 'developer');
-    if (!KNOWLEDGE_ROLES.includes(role)) throw new SingularityFlowError(`Unknown role '${role}'. Use one of: ${KNOWLEDGE_ROLES.join(', ')}.`);
-    const text = renderKnowledgeSlice(knowledge, { role, focus, maximumBytes: maximumBytes ?? 8192, explanations });
-    if (json) console.log(JSON.stringify({ role, phase, bytes: Buffer.byteLength(text), markdown: text }, null, 2));
-    else console.log(text);
-    return { role, markdown: text };
   }
   if (subcommand === 'items') {
     const kind = optionString(options, 'kind') ?? null;
@@ -417,7 +410,7 @@ async function briefCommand(root, result, knowledge, options, target) {
     repository: knowledge.repository.name ?? 'repository',
     commit: knowledge.repository.commit,
     branch,
-    source: { ref: target.ref, commit: knowledge.repository.commit, checkedOut: target.checkedOut, chosen: target.chosen, fetched: target.fetched ?? 0, remote: target.remote ?? null },
+    source: { ref: target.ref, commit: result.commit ?? knowledge.repository.commit, checkedOut: target.checkedOut, chosen: target.chosen, fetched: target.fetched ?? 0, remote: target.remote ?? null },
     branches: target.branches.map((entry) => entry.name),
     phase,
     order: briefOrder(phase),

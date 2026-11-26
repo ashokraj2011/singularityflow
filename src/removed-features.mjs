@@ -5,7 +5,7 @@ import { SingularityFlowError } from './util.mjs';
  * publication and the Story history pins), the CALM architecture projection and architecture
  * intent. A configuration that still carries them loads unchanged: they are dropped when it is
  * validated, `doctor` names them, and nothing reads them. Removing them from
- * `singularity/workflow.yml` silences doctor. Their commands are refused by name, saying what
+ * `singularity/workflow.yml` (or an agent's `sflow-world-model-views` header) silences doctor. Their commands are refused by name, saying what
  * replaced them, so a script learns it instead of failing on an unknown command.
  */
 
@@ -56,6 +56,10 @@ export function dropRemovedSettings(definition) {
     }
   }
   if (phaseSettings) record(definition, `World Model views on ${phaseSettings} phase(s)`);
+  // An agent's views header is not read: named here once, never refused [WMR:REQ-005].
+  const headers = (Array.isArray(definition.agentCatalog) ? definition.agentCatalog : [])
+    .filter((agent) => agent?.metadata?.['sflow-world-model-views'] != null).map((agent) => agent.id);
+  if (headers.length) record(definition, `sflow-world-model-views in ${headers.length} agent file(s) (${headers.join(', ')}): no longer read; the Repository brief comes from the step`);
   return removedSettings(definition);
 }
 

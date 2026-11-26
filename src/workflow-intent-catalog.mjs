@@ -212,7 +212,7 @@ export async function workflowIntentExample(catalog) {
 export function workflowIntentAssetView(catalog, kind, id) {
   const { value, ...summary } = selectWorkflowIntentAsset(catalog, kind, id);
   const projected = ['agent', 'skill', 'instruction'].includes(kind) ? {
-    instructions: value.instructions ?? value.prompt, ...(kind === 'agent' ? { tools: value.tools, phases: value.phases, views: value.worldModelViews } : {}),
+    instructions: value.instructions ?? value.prompt, ...(kind === 'agent' ? { tools: value.tools, phases: value.phases } : {}),
     ...(kind === 'skill' ? { loading: value.loading, instructionRefs: value.instructionRefs } : {})
   } : value;
   return { ...summary, value: projected };

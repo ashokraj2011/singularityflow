@@ -16,7 +16,7 @@ harnessImports:
 
 # Rotate Copilot only after a durable lifecycle decision. `new` prints `/clear`
 # followed by `/sflow-next`; the new conversation reconstructs its prompt from
-# approved Git artifacts, governed agent guidance, inputs, and world-model views.
+# approved Git artifacts, governed agent guidance, inputs, and the Repository brief.
 contextPolicy:
   onApproval: new
   onRejection: keep
@@ -207,10 +207,12 @@ planning:
   maxContextBytes: 1048576
 
 worldModel:
-  # Every phase prompt gets a Repository brief read from the source with no build and no model:
-  # the rules that apply, contracts, flows, what the Story's change touches and the risky places.
-  # See what a phase receives with `singularity-flow wm brief --phase PHASE`. A work type leaves it
-  # out with `intelligence.worldModel: off`; `knowledge.prompt: off` leaves it out everywhere.
+  # A design, plan or code step's prompt gets the Repository brief, read from the source with no build
+  # and no model: the rules that apply, contracts, flows, what the Story's change touches and the risky
+  # places. Intake, requirements, verification and release steps get none by default; the prompt receipt
+  # says why. A work type's `intelligence.worldModel: on` gives it to every step and `off` to none.
+  # `knowledge.prompt` may name steps (`{ intake: slice, design: off }`); `off` leaves it out everywhere.
+  # See what a step receives with `singularity-flow wm brief --phase PHASE`.
   knowledge:
     prompt: slice
   # Large monorepos should list only the application directories the brief and AST intelligence
@@ -980,7 +982,7 @@ workTypes:
 
   benchmarking-a:
     label: Benchmark A — governed intelligence
-    description: Measures governed world-model, bounded AST, and approval-bound agent-brief context; unavailable intelligence is a degraded benchmark run, not a lifecycle refusal.
+    description: Measures the Repository brief, bounded AST, and approval-bound agent-brief context; unavailable intelligence is a degraded benchmark run, not a lifecycle refusal.
     # Experimental arm: identical lifecycle, templates, agents, artifacts, and approvals to
     # Benchmark B. Only the pinned intelligence profile and input projection differ.
     phases: [intake, design, implementation, testing, conformance]
@@ -1026,8 +1028,8 @@ workTypes:
 
   benchmarking-b:
     label: Benchmark B — generic context
-    description: Uses full approved artifacts without world-model, AST, or agent-brief enrichment.
-    # Control arm: full approved upstream artifacts, with no world-model, AST, or agent-brief
+    description: Uses full approved artifacts without the Repository brief, AST, or agent-brief enrichment.
+    # Control arm: full approved upstream artifacts, with no Repository brief, AST, or agent-brief
     # enrichment. The lifecycle contract remains byte-for-byte comparable with Benchmark A.
     phases: [intake, design, implementation, testing, conformance]
     plannedClaims:
@@ -1917,7 +1919,7 @@ phases:
 
   # ---------------------------------------------------------------------------------------------
   # Spec-driven phases. Ordinary phases in every respect: they use the same generation, input,
-  # approval, world-model, sequence-gate, evidence and publication machinery as every other phase,
+  # approval, Repository brief, sequence-gate, evidence and publication machinery as every other phase,
   # with no profile-specific engine branch [SPK:CON-020]. The constitution is pinned configuration
   # rather than a phase [SPK:CON-018], and the task map is an advisory planning member rather than a
   # phase [SPK:CON-019].

@@ -145,7 +145,7 @@ export async function simulateWorkflow(root, workType = null) {
       id: phase.id, label: phase.label, template: phase.template,
       inputs: phase.inputs.map((input) => input.phase), authorities: phase.approval.authorities,
       approvalMode: phase.approval.mode, minimumApprovals: phase.approval.minimum,
-      qualityCommands: phase.qualityCommands ?? [], worldModelViews: phase.worldModel?.views ?? [],
+      qualityCommands: phase.qualityCommands ?? [],
       rejectTo: phase.approval.rejectTo, repairBudget: phase.repairBudget }));
     const simulation = { id, label: profile.label, inputsMode: resolved.inputsMode, documents: resolved.documents,
       sequenceGates: resolved.sequenceGates, reworkLoops: resolved.reworkLoops ?? [], phases,
@@ -167,7 +167,7 @@ export function simulationText(simulations) {
       lines.push(`Rework loops: ${simulation.reworkLoops.map((loop) =>
         `${loop.from} → ${loop.to} (maximum ${loop.maxAttempts}${loop.resetOnPhase ? `; reset on new ${loop.resetOnPhase} generation` : ''})`).join('; ')}`, '');
     }
-    for (const phase of simulation.phases) lines.push(`${String(phase.order).padStart(2)}. ${phase.label} [${phase.id}]`, `    template=${phase.template} · inputs=${phase.inputs.join(', ') || 'none'} · approvals=${phase.minimumApprovals} (${phase.authorities.join(', ') || 'none'}) · world-model=${phase.worldModelViews.join(', ') || 'none'}`);
+    for (const phase of simulation.phases) lines.push(`${String(phase.order).padStart(2)}. ${phase.label} [${phase.id}]`, `    template=${phase.template} · inputs=${phase.inputs.join(', ') || 'none'} · approvals=${phase.minimumApprovals} (${phase.authorities.join(', ') || 'none'})`);
     for (const finding of simulation.lifecycle?.findings ?? []) lines.push(`    ${finding.code}: ${finding.message}`);
     lines.push('');
   }

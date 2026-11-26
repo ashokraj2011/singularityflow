@@ -182,7 +182,7 @@ Usage:
   singularity-flow session open-local <WORK-ID> [--workspace WORKSPACE --repository ID] [--json]
   singularity-flow session repair-selection <WORK-ID> --confirm <WORK-ID> [--json]
   singularity-flow session context [--work-id WORK-ID] [--flight-plan CFP-ID]
-    [--slice brief|impact|world-model|ast|evidence|history|observation]
+    [--slice brief|impact|ast|evidence|history|observation]
     [--observation-kind KIND --observation-file REPOSITORY-PATH [--observation-exit-code N]]
     [--max-output-bytes 32768] [--json]
   singularity-flow session context --expand-handle SEALED-HANDLE [--json]

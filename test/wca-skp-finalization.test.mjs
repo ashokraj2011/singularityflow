@@ -110,7 +110,7 @@ function replacementFixture() {
     text: `---\nname: ${phaseId}-owner\ndescription: Exact retained role\ntools: []\nmetadata:\n  sflow-phases: ${phaseId}\n  sflow-default-for: ${phaseId}\n---\nRead exact retained inputs.\n` }))].map((agent) => {
     const source = `.github/agents/${agent.id}.agent.md`; const parsed = parseAgentDependencies(agent.text, { source });
     return { id: agent.id, scope: agent.scope, source, text: agent.text, phases: parsed.phases, defaultFor: parsed.defaultFor,
-      tools: parsed.tools, worldModelViews: parsed.worldModelViews, dependencies: parsed.dependencies };
+      tools: parsed.tools, dependencies: parsed.dependencies };
   });
   for (const agent of agentImpactCatalog) input.dependencyLocks.push({ source: 'approved-catalog', kind: 'agent', id: agent.id,
     definitionSha256: hash({ id: agent.id, scope: agent.scope, textSha256: byteHash(Buffer.from(agent.text)) }), baseRevision: input.approvedSource.baseRevision });
@@ -210,8 +210,9 @@ test('fully resealed replacement impact cannot substitute metadata arrays behind
   const changes = [{ kind: 'phase', id: review.phaseId, operation: 'edit', expectedDefinitionSha256: review.beforeDefinitionSha256,
     replacement: input.retainedInputs.request.definitions.phases[0] }];
   const agentId = input.phases[0].agent.id;
+  // An agent's World Model views are not read from its text any more, so they are not compared with it [WMR].
   for (const [field, replacement] of [['phases', ['threat-model']], ['defaultFor', []], ['tools', ['shell']],
-    ['worldModelViews', ['arch.contracts']], ['dependencies', [{ id: 'unreviewed', type: 'skill', phases: ['conformance'] }]]]) {
+    ['dependencies', [{ id: 'unreviewed', type: 'skill', phases: ['conformance'] }]]]) {
     const agents = structuredClone(review.agentImpactCatalog); agents.find((agent) => agent.id === agentId)[field] = replacement;
     const result = planSharedSkillContractChanges({ approvedDefinition, agents, catalog: review.catalog, changes });
     assert.equal(result.status, 'blocked'); assert.equal(result.findings[0].code, 'WCA_SHARED_CONTENT_SOURCE_INVALID', field);
@@ -227,7 +228,7 @@ test('fully resealed replacement impact cannot substitute metadata arrays behind
   assert.deepEqual(incompleteImpact.impact.affectedWorkflows.map((workflow) => workflow.id), ['threat-notes']);
   const original = review.agentImpactCatalog.find((agent) => agent.id === agentId);
   const untrustedIdentitySha256 = hash({ id: narrowed.id, scope: narrowed.scope, textSha256: byteHash(Buffer.from(original.text)),
-    phases: narrowed.phases, defaultFor: narrowed.defaultFor, tools: narrowed.tools, worldModelViews: narrowed.worldModelViews, dependencies: narrowed.dependencies });
+    phases: narrowed.phases, defaultFor: narrowed.defaultFor, tools: narrowed.tools, worldModelViews: narrowed.worldModelViews ?? [], dependencies: narrowed.dependencies });
   for (const rows of [incompleteImpact.dependencyLocks, incompleteImpact.graph.before.nodes, incompleteImpact.graph.after.nodes]) {
     rows.find((row) => row.kind === 'agent' && row.id === agentId).definitionSha256 = untrustedIdentitySha256;
   }

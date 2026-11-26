@@ -6,7 +6,6 @@ import { noEffects, sflowResult } from '../result.mjs';
 const LABELS = Object.freeze({
   brief: 'Open the approved phase brief',
   impact: 'Open accepted Flight Plan impact',
-  'world-model': 'Expand repository world-model context',
   ast: 'Expand bounded structural context',
   evidence: 'Expand evidence references',
   history: 'Find similar completed work',

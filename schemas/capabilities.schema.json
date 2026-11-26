@@ -106,9 +106,7 @@
                   "fail"
                 ]
               },
-              "requiredWorldModelViews": {
-                "$ref": "#/$defs/stringSet"
-              },
+              "requiredWorldModelViews": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
               "writeScopes": {
                 "$ref": "#/$defs/stringSet"
               },

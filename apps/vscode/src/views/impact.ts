@@ -24,7 +24,6 @@ export interface ImpactReport {
     blockingStoryCount: number;
     stories: string[];
     consumesContracts?: string[];
-    worldModel?: { present: boolean; views: string[] };
     claimed?: boolean;
   }>;
   crossRepository?: Array<{ from: string; to: string; via: Array<{ story: string; dependsOn: string }> }>;
@@ -33,8 +32,6 @@ export interface ImpactReport {
     agreed?: string[];
     unclaimed?: string[];
     unsupported?: string[];
-    unknownViews?: Array<{ repository: string; views: string[] }>;
-    missingWorldModel?: string[];
   };
   invalidates?: string[];
 }
@@ -134,7 +131,7 @@ function workspaceImpactHtml(
       <label for="impact-description"><strong>What are you considering?</strong></label>
       <textarea id="impact-description" name="impact-description" rows="7" placeholder="Describe the proposed change, constraints, expected outcome, and questions Copilot should assess." ${running ? 'disabled' : ''}></textarea>
       <p class="card-foot"><button data-impact-analyze ${running ? 'disabled' : ''}>${running ? 'Copilot is analyzing…' : 'Analyze impact with Copilot'}</button>
-        <span class="muted">Uses all repositories, mapped capabilities, world models, and staged workspace documents.</span></p>
+        <span class="muted">Uses all repositories, mapped capabilities and the workspace's documents.</span></p>
     </div>
   </section>
   <section><h2>${icon('artifact')}Previous analyses</h2>${rows ? `<div class="artifact-cards">${rows}</div>` : '<p class="muted">No workspace impact analyses yet.</p>'}</section>
@@ -155,9 +152,7 @@ function findingsHtml(report: ImpactReport): string {
       return `The map omits <code>${escape(id)}</code>, which ${count} ${count === 1 ? 'Story lands' : 'Stories land'} in.`;
     }),
     ...(reconciliation.unsupported ?? []).map((id) =>
-      `The map names <code>${escape(id)}</code>, which no Story touches.`),
-    ...(reconciliation.unknownViews ?? []).map((entry) =>
-      `<code>${escape(entry.repository)}</code> is claimed to use ${entry.views.map((view) => `<code>${escape(view)}</code>`).join(', ')}, which its world model does not declare.`)
+      `The map names <code>${escape(id)}</code>, which no Story touches.`)
   ];
 
   if (!findings.length) {
@@ -204,16 +199,13 @@ function bodyHtml(report: ImpactReport | null, error: string | null): string {
     <h2>${icon('repository')}What this Epic touches</h2>
     ${repositories.length ? `
     <table>
-      <thead><tr><th>Repository</th><th>Stories</th><th>Gates the Epic</th><th>Contracts</th><th>World model</th><th>In the map</th></tr></thead>
+      <thead><tr><th>Repository</th><th>Stories</th><th>Gates the Epic</th><th>Contracts</th><th>In the map</th></tr></thead>
       <tbody>${repositories.map((repository) => `
         <tr>
           <td>${icon('repository')}<code>${escape(repository.id)}</code>${repository.lead ? ' <span class="muted">lead</span>' : ''}</td>
           <td>${repository.storyCount}</td>
           <td>${repository.blockingStoryCount}</td>
           <td>${repository.consumesContracts?.length ? repository.consumesContracts.map((id) => escape(id)).join(', ') : '<span class="muted">—</span>'}</td>
-          <td>${repository.worldModel?.present
-    ? escape(repository.worldModel.views.join(', ') || 'present')
-    : '<span class="pill bad">none</span>'}</td>
           <td>${repository.claimed ? 'yes' : '<span class="pill wait">no</span>'}</td>
         </tr>`).join('')}</tbody>
     </table>` : '<p class="muted">No Story declares a repository.</p>'}
@@ -232,14 +224,7 @@ function bodyHtml(report: ImpactReport | null, error: string | null): string {
         </tr>`).join('')}</tbody>
     </table>`
     : '<p class="muted">No Story depends on a Story in another repository, so the repositories may land in any order.</p>'}
-  </section>
-
-  ${report.reconciliation?.missingWorldModel?.length ? `
-  <section>
-    <h2>${icon('bad')}No committed world model</h2>
-    <p class="muted">Grounding for these repositories has nothing to draw on:
-      ${report.reconciliation.missingWorldModel.map((id) => `<code>${escape(id)}</code>`).join(' ')}</p>
-  </section>` : ''}`;
+  </section>`;
 }
 
 export class ImpactPanel {

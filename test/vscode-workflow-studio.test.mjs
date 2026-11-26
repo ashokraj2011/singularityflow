@@ -2070,7 +2070,9 @@ test('a step\'s World Model is the Repository brief: the reader it is written fo
   // A stale view list in workflow.yml is dropped at load; it neither offers views nor asks for a migration.
   const root = await repository({ edit: (document) => document.setIn(['worldModel', 'views'], ['business', 'arch.contracts']) });
   const model = await buildStudioModel(root);
-  assert.deepEqual([model.choices.views, model.choices.retiredViews], [[], []], 'there are no views to choose or migrate');
+  assert.equal(Object.hasOwn(model.choices, 'views') || Object.hasOwn(model.choices, 'retiredViews'), false, 'there are no views to choose or migrate');
+  assert.ok(model.choices.roles.every((role) => !Object.hasOwn(role, 'views')), 'an agent role names no views');
+  assert.ok([...model.phases, ...model.agents].every((entry) => !Object.hasOwn(entry, 'views')), 'no step or agent shows views');
   // The real per-step brief, never the old 8 KB default [WMR:REQ-026]: no budget is set for every step here.
   assert.deepEqual({ prompt: model.choices.knowledge.prompt, maxBytes: model.choices.knowledge.maxBytes }, { prompt: 'slice', maxBytes: null });
   assert.equal(model.choices.knowledge.readers, undefined, 'the name-only reader rules are not sent');
@@ -2084,7 +2086,7 @@ test('a step\'s World Model is the Repository brief: the reader it is written fo
   // A requirements step reads little code: its brief is left out by default [WMR:REQ-011].
   assert.equal(page.newStepWorldModelHint('product-owner', 'Requirements check'), 'World Model: a step like this reads little code, so it gets no Repository brief by default.');
   const id = page.createStep('repo-feature', 'Security review', 'document', 'architect', 'intake');
-  assert.deepEqual(state.draft.phases[id].views, [], 'a new step starts with no views');
+  assert.equal(Object.hasOwn(state.draft.phases[id], 'views'), false, 'a new step carries no views');
 
   const fresh = page.worldModelSection('repo-feature', id, state.draft.phases[id]);
   assert.equal(fresh.children[0].children[0].attributes['aria-expanded'], 'true', "a new step's World Model is open");
@@ -2246,7 +2248,7 @@ test('Duplicate agent is available for built-in and custom agents and opens an e
   assert.equal(state.focusKey, 'agent-name', 'the copy editor is revealed even from a scrolled catalog');
   assert.equal(state.agentForm.instructions, model.agents[0].starter, 'shared rules and title are added only once by the engine');
   assert.deepEqual(state.agentForm.tools, model.agents[0].tools);
-  assert.deepEqual(state.agentForm.views, model.agents[0].views);
+  assert.equal(state.agentForm.views, undefined, 'a copy takes no World Model views, even from an agent an older model gave some');
   assert.match(text(page.renderAgentForm()), /Shared skills and instructions stay linked, not duplicated/u);
   assert.match(text(page.renderAgentForm()), /No step assignments or remote resources are copied/u);
   state.agentForm.instructions += '\nCheck one more boundary.';
@@ -2260,13 +2262,13 @@ test('Duplicate agent is available for built-in and custom agents and opens an e
   assert.deepEqual(state.draft.agents.qa, before.agents.qa);
   assert.deepEqual(state.draft.phases, before.phases);
   assert.notEqual(copy.tools, state.draft.agents.qa.tools);
-  assert.notEqual(copy.views, state.draft.agents.qa.views);
+  assert.equal(copy.views, undefined);
   assert.notEqual(copy.skills[0].phases, state.draft.agents.qa.skills[0].phases);
 
   const changes = page.changeSetFrom(model, state.draft).changes;
   assert.deepEqual(changes.map((change) => change.op), ['agent.create'], 'source inheritance does not create duplicate skill or instruction objects');
   assert.equal(changes[0].from, 'qa');
-  assert.deepEqual(changes[0].views, ['testing']);
+  assert.equal(Object.hasOwn(changes[0], 'views'), false, 'agent.create sends no views');
   page.editAgent('qa-copy');
   assert.equal(state.agentForm.mode, 'edit', 'the new copy can be edited');
   state.agentForm.label = 'My QA';
@@ -2338,17 +2340,18 @@ test('Duplicate agent skill edits override inherited attachments, including remo
   assert.deepEqual(state.draft.agents.qa.skills, model.agents[0].skills);
 });
 
-test('Duplicate agent source selector copies views and current instructions and restores the role when cleared', () => {
+test('Duplicate agent source selector copies tools and current instructions and restores the role when cleared', () => {
   const { page, all } = agentDuplicationPage();
   const state = page.state();
   page.duplicateAgent('custom-qa');
   const sourceSelect = () => all(page.renderAgentForm()).find((node) => node.attributes?.id === 'agent-from');
   sourceSelect().listeners.change({ target: { value: 'qa' } });
-  assert.deepEqual(state.agentForm.views, ['testing']);
+  assert.deepEqual(state.agentForm.tools, ['read', 'search']);
+  assert.equal(state.agentForm.views, undefined);
   assert.equal(state.agentForm.instructions, 'Check approved behavior.');
   sourceSelect().listeners.change({ target: { value: '' } });
   assert.equal(state.agentForm.from, '');
-  assert.deepEqual(state.agentForm.views, []);
+  assert.equal(state.agentForm.views, undefined);
   assert.deepEqual(state.agentForm.tools, ['read']);
   assert.equal(state.agentForm.instructions, '');
 });

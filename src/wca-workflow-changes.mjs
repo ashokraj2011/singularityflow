@@ -185,6 +185,9 @@ function dependencyGraph(definition, agents, replacements, { fullCatalog = false
     const id = identifier(agent.id);
     if (agentMap.has(id)) fail('WCA_CHANGE_DEPENDENCY_AMBIGUOUS', 'The captured agent catalog repeats an identity.');
     // Discovery paths may be temporary mounts. Exact source text and metadata are stable identity.
+    // `worldModelViews` stays in the identity, and the view nodes below stay, as retained records pinned
+    // them: a retained impact digest (consumerImpactSha256) is computed again from the retained inputs. A
+    // new capture carries no views, so its agents read as an empty list and no view node is made [WMR].
     const identity = { id, scope: agent.scope ?? 'unknown',
       textSha256: typeof agent.text === 'string' ? `sha256:${createHash('sha256').update(agent.text).digest('hex')}` : null,
       phases: agent.phases ?? [], defaultFor: agent.defaultFor ?? [], tools: agent.tools ?? [],
@@ -660,7 +663,8 @@ function capturedAgent(agent) {
   let parsed;
   try { parsed = parseAgentDependencies(agent.text, { source: agent.source ?? `${agent.id}.agent.md`, agentId: identifier(agent.id) }); }
   catch { fail('WCA_SHARED_CONTENT_SOURCE_INVALID', 'The captured Agent Markdown is invalid under its existing owner.'); }
-  for (const field of ['phases', 'defaultFor', 'tools', 'worldModelViews', 'dependencies']) {
+  // An old `sflow-world-model-views` header is not read any more, so it is not compared either [WMR].
+  for (const field of ['phases', 'defaultFor', 'tools', 'dependencies']) {
     if (digest(parsed[field]) !== digest(agent[field] ?? [])) fail('WCA_SHARED_CONTENT_SOURCE_INVALID', 'Captured agent metadata differs from its exact source text.');
   }
   return { ...agent, ...parsed };
@@ -675,7 +679,7 @@ function agentMetadataReplacement(source, parsed, text, path, id, definition) {
     metadata: Object.fromEntries(Object.entries(value.metadata ?? {}).filter(([key]) => !admittedMetadata.includes(key)))
   });
   if (digest(preserved(source.frontmatter)) !== digest(preserved(parsed.frontmatter))) {
-    fail('WCA_SHARED_AGENT_EFFECT_CHANGE_UNSUPPORTED', 'Only name, description, sflow-label, phase eligibility and default mappings may change; native tools, views and unknown fields remain exact data.');
+    fail('WCA_SHARED_AGENT_EFFECT_CHANGE_UNSUPPORTED', 'Only name, description, sflow-label, phase eligibility and default mappings may change; native tools and unknown fields remain exact data.');
   }
   if (parseAgentDependencies(text, { source: path }).id !== id) {
     fail('WCA_SHARED_AGENT_ID_CHANGE_UNSUPPORTED', 'Display metadata cannot rename the agent identity discovered from its existing file.');
@@ -690,12 +694,13 @@ function agentMetadataReplacement(source, parsed, text, path, id, definition) {
     }
   }
   const changed = ['displayName', 'label', 'description', 'phases', 'defaultFor'].filter((field) => digest(source[field]) !== digest(parsed[field]));
+  // An old `sflow-world-model-views` header is inert metadata [WMR]: it neither blocks nor widens a mapping change.
   if (changed.some((field) => ['phases', 'defaultFor'].includes(field))
-      && (source.tools.length || source.worldModelViews.length || source.dependencies.length
+      && (source.tools.length || source.dependencies.length
         || Object.keys(source.frontmatter).some((field) => !['name', 'description', 'tools', 'metadata'].includes(field))
         || Object.keys(source.metadata).some((field) => !['sflow-label', 'sflow-phases', 'sflow-default-for', 'sflow-world-model-views'].includes(field))
         || Object.values(definition.mcpServers ?? {}).some((server) => !(server.agents ?? []).length || server.agents.includes(id)))) {
-    fail('WCA_SHARED_AGENT_MAPPING_EFFECT_UNSUPPORTED', 'Changing phase eligibility/defaults of an agent with tools, views, remote resources or MCP access requires an exact effective-capability owner; this metadata profile cannot expand those mappings.');
+    fail('WCA_SHARED_AGENT_MAPPING_EFFECT_UNSUPPORTED', 'Changing phase eligibility/defaults of an agent with tools, remote resources or MCP access requires an exact effective-capability owner; this metadata profile cannot expand those mappings.');
   }
   return changed;
 }

@@ -305,8 +305,6 @@ async function textFiles(root, relativeRoot, { extensions = null, excludePaths =
   return output.sort((left, right) => left.name.localeCompare(right.name));
 }
 
-/** Explorer files come from the resolved registered views, never from a checked-out projection. */
-
 function skillFrontmatter(content, fallbackId) {
   const match = String(content).match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   if (!match) return { name: fallbackId, description: '', argumentHint: null };
@@ -546,7 +544,7 @@ async function storyReferenceRepositoryStatus(root, definition, workflow) {
   try {
     const references = await storyReferenceRepositories(root, definition, workflow);
     if (!references.length) return null;
-    return await referenceRepositoryGroundingContext(root, references, { inspectWorldModels: false });
+    return await referenceRepositoryGroundingContext(root, references, { inspectTreeSafety: false });
   } catch (error) {
     return {
       status: 'blocked', repositories: [],

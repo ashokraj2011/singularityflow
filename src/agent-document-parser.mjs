@@ -135,8 +135,8 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
   for (const [key, value] of Object.entries(metadata)) if (typeof value !== 'string') throw new SingularityFlowError(`Agent '${id}' metadata '${key}' must be a string.`);
   const phases = metadataList(metadata, 'sflow-phases');
   const defaultFor = metadataList(metadata, 'sflow-default-for');
-  // Read and kept as recorded; the registered World Model these views named was removed.
-  const worldModelViews = metadataList(metadata, 'sflow-world-model-views');
+  // An old `sflow-world-model-views` header stays in `metadata` as written and is not read: the
+  // registered World Model it named was removed. Doctor names it once [WMR:REQ-005].
   const tools = frontmatter.tools ?? [];
   if (!Array.isArray(tools) || tools.some((tool) => typeof tool !== 'string' || !tool.trim())) throw new SingularityFlowError(`Agent '${id}' tools must be an array of non-empty tool names.`);
   if (new Set(tools).size !== tools.length) throw new SingularityFlowError(`Agent '${id}' tools must not contain duplicates.`);
@@ -178,7 +178,6 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
     metadata,
     phases,
     defaultFor,
-    worldModelViews,
     tools,
     prompt: body.trim(),
     skills,

@@ -1303,7 +1303,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // eager file is ssb-m1's story-paths.mjs.
   // 889,537 (+734, measured 2026-11-26 on wmr-m1m2): `wm knowledge slice` is refused by name as retired, pointing to `wm brief --phase` (removed-features.mjs,
   // command-registry.mjs) [WMR:REQ-027]. No new eager file.
-  assert.ok(root.bytes <= 889_537, `root dispatch loads ${root.bytes} source bytes`);
+  // 890,053 (+516, measured 2026-11-26 on wm-dead over 0aaac1bb4): doctor names an agent file that still carries the
+  // retired sflow-world-model-views header, once (removed-features.mjs) [WMR:REQ-005]. No new eager file.
+  assert.ok(root.bytes <= 890_053, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1751,7 +1753,10 @@ test('the common session projection does not import attach, state stores or publ
   // intelligence.worldModel may be `on` (config.mjs, intelligence-policy.mjs) [WMR:REQ-011]. No new eager file.
   // 4,378,912 (measured on main 4c8b464a6 with wmr-m1m2 merged, 2026-11-26): the +1,091 above on top of wm-clean. No new
   // eager file.
-  assert.ok(current.bytes <= 4_378_912, `session current loads ${current.bytes} source bytes`);
+  // 4,379,377 (+465, measured 2026-11-26 on wm-dead over 0aaac1bb4): doctor names an agent file that still carries the
+  // retired sflow-world-model-views header (removed-features.mjs, +516); the parser and Story snapshot stop carrying it
+  // (agent-document-parser.mjs, config.mjs) [WMR:REQ-005]. No new eager file.
+  assert.ok(current.bytes <= 4_379_377, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

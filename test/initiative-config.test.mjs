@@ -223,9 +223,9 @@ test('Epic identity and repository Jira routing are normalized and pinned', () =
   );
 });
 
-test('initiative world-model view lists are inert: carried through, never validated', async () => {
-  // The registered World Model was removed, so nothing declares views for an Initiative phase to be
-  // checked against: the view lists a portfolio still carries are kept as written and never refused.
+test('an old portfolio\'s World Model view lists load and are left out: never validated, never carried', async () => {
+  // The registered World Model was removed, so an Epic step's `worldModelViews` (on the phase or in a
+  // profile override) is accepted as written and read as nothing [WMR].
   assert.equal(initiativeConfig.validatePortfolioWorldModelViews, undefined);
   assert.equal(initiativeConfig.portfolioWorldModelViews, undefined);
   const root = await repository();
@@ -233,17 +233,18 @@ test('initiative world-model view lists are inert: carried through, never valida
     worldModel: { format: 'registered-v4', views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'] }
   };
   const packaged = await loadPortfolio(root);
-  packaged.initiativePhases.define.worldModelViews.push('undeclared-view');
-  const resolved = resolveInitiativeProfile(packaged, 'initiative-lite', { workflowDefinition: registered });
-  assert.ok(resolved.phases.find((phase) => phase.id === 'define').worldModelViews.includes('undeclared-view'));
-  assert.ok(resolved.phases.some((phase) => phase.worldModelViews.length));
-
-  // Neither a legacy-v3 name nor a misspelling in a profile override is dropped or refused.
+  assert.ok(Object.values(packaged.initiativePhases).every((phase) => !Object.hasOwn(phase, 'worldModelViews')),
+    'the packaged portfolio names no views');
+  // Neither a legacy-v3 name nor a misspelling, on the phase or in a profile override, is refused.
   for (const views of [['business'], ['dev.imapct']]) {
-    const override = structuredClone(packaged);
-    override.initiativeProfiles['initiative-lite'].phaseOverrides.define = { worldModelViews: views };
-    const withOverride = resolveInitiativeProfile(override, 'initiative-lite', { workflowDefinition: registered });
-    assert.deepEqual(withOverride.phases.find((phase) => phase.id === 'define').worldModelViews, views);
+    const old = YAML.parse(await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8'));
+    old.initiativePhases.define.worldModelViews = ['undeclared-view'];
+    const profile = old.initiativeProfiles['initiative-lite'];
+    profile.phaseOverrides = { ...(profile.phaseOverrides ?? {}), define: { worldModelViews: views } };
+    const portfolio = validatePortfolio(old);
+    assert.equal(Object.hasOwn(portfolio.initiativePhases.define, 'worldModelViews'), false);
+    const resolved = resolveInitiativeProfile(portfolio, 'initiative-lite', { workflowDefinition: registered });
+    assert.ok(resolved.phases.every((phase) => !Object.hasOwn(phase, 'worldModelViews')));
   }
 });
 

@@ -790,7 +790,7 @@ export async function recordInjection(root, workflow, phase, injection, {
       previewSha256: section.previewSha256 ?? null,
       previewBytes: section.previewBytes ?? null,
       renderer: section.renderer ?? null,
-      // A registered view read into the repository brief: what was read from its committed bytes.
+      // A projected section (convergence, for one): what was read from its committed bytes.
       ...(section.projectionSha256 ? { projectionSha256: section.projectionSha256, projectionBytes: section.projectionBytes } : {})
     })),
     injectedAt: nowIso()

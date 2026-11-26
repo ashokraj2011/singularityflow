@@ -516,12 +516,7 @@
                 "label": {
                   "type": "string"
                 },
-                "worldModelViews": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
+                "worldModelViews": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
                 "bundleApproval": {
                   "type": "object"
                 },
@@ -595,12 +590,7 @@
               "type": "string"
             }
           },
-          "worldModelViews": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
+          "worldModelViews": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
           "outputs": {
             "type": "array"
           },

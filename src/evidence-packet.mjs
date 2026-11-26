@@ -34,7 +34,7 @@ import { run, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { storyLocation } from './story-paths.mjs';
 
 export const EVIDENCE_PACKET_SLICES = Object.freeze([
-  'brief', 'impact', 'world-model', 'ast', 'evidence', 'history', 'knowledge', 'observation'
+  'brief', 'impact', 'ast', 'evidence', 'history', 'knowledge', 'observation'
 ]);
 export const EVIDENCE_PACKET_COMPILER_VERSION = 3;
 export const EVIDENCE_PACKET_KNOWLEDGE_LIMITS = Object.freeze({

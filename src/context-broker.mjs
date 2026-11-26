@@ -14,10 +14,10 @@ import { recordSha256 } from './records.mjs';
 import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
 import { loadStoryAggregateWithExecution } from './story-aggregate-read.mjs';
 import { loadDefinition } from './config.mjs';
-import { secureRepositoryPath } from './util.mjs';
+import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 export const CONTEXT_BRIEF_RESULT_VERSION = 1; // schema-transient: bounded gateway result, never persisted
-export const LEGACY_CONTEXT_BRIEF_SLICES = Object.freeze(['brief', 'world-model', 'ast', 'evidence']);
+export const LEGACY_CONTEXT_BRIEF_SLICES = Object.freeze(['brief', 'ast', 'evidence']);
 export const CONTEXT_BRIEF_SLICES = EVIDENCE_PACKET_SLICES;
 
 const DEFAULT_MAX_OUTPUT_BYTES = 32 * 1024;
@@ -79,10 +79,14 @@ async function readBriefs(root, workflow, phaseId, budget) {
   return { records: selected, bytes: budget - remaining };
 }
 
-async function worldModelSlice() {
-  // The registered World Model was removed; its views are no longer read. The brief slice and the
-  // phase prompt's Repository brief carry what the code says instead.
-  return { status: 'unavailable', reason: 'The registered World Model was removed.', selections: [], bytes: 0 };
+/**
+ * The `world-model` slice went with the registered World Model [WMR]: it only ever answered
+ * "unavailable". Asked for by name, it says what replaced it.
+ */
+function removedWorldModelSlice() {
+  return new SingularityFlowError("The 'world-model' slice was removed with the registered World Model. "
+    + 'See what a step receives with singularity-flow wm brief --phase PHASE.',
+  { code: 'COMMAND_REMOVED', details: { command: 'session context --slice world-model', nextAction: 'singularity-flow wm brief --phase PHASE' } });
 }
 
 function evidenceSlice(workflow) {
@@ -137,6 +141,7 @@ export async function composeContextBrief(root, {
   observation = null,
   providerTelemetry = null
 } = {}) {
+  if (slice === 'world-model') throw removedWorldModelSlice();
   if (!CONTEXT_BRIEF_SLICES.includes(slice)) throw new Error(`Unsupported context slice '${slice}'.`);
   if (expandHandle) return expandEvidencePacketHandle(root, expandHandle);
   const packetRequest = flightPlanId != null || requestedSlices != null || observation != null
@@ -200,11 +205,6 @@ export async function composeContextBriefFromState(root, config, workflow, {
     };
     if (!briefs.records.length) omissions.push('approved-agent-briefs-unavailable');
     if (briefs.records.some((entry) => entry.truncated || entry.omission === 'budget')) omissions.push('approved-agent-briefs-bounded');
-  } else if (slice === 'world-model') {
-    payload = await worldModelSlice(root, workflow, phaseId, budget);
-    includedBytes = payload.bytes;
-    if (payload.status === 'unavailable') omissions.push('world-model-unavailable');
-    if (payload.selections?.some((entry) => entry.truncated || entry.omission === 'budget')) omissions.push('world-model-bounded');
   } else if (slice === 'ast') {
     try {
       const scopedDefinition = withWorldModelSourceScope(

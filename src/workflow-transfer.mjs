@@ -536,11 +536,6 @@ function collectNamedDependencies(value, result, { governs = 'story', eventTarge
     if (key === 'requiredServers') for (const id of strings(entry)) result.mcpServers.add(id);
     if (key === 'server' && typeof entry === 'string' && parent.tool) result.mcpServers.add(entry);
     if (key === 'agents') for (const id of strings(entry)) result.agents.add(id);
-    if (key === 'worldModelViews') for (const id of strings(entry)) result.worldModelViews.add(id);
-    if (key === 'views' && Array.isArray(entry)
-        && parent !== value && entry.every((item) => typeof item === 'string')) {
-      for (const id of entry) result.worldModelViews.add(id);
-    }
     if (key === 'applicability' && plainObject(entry) && typeof entry.policy === 'string') {
       result.applicabilityPolicies.add(entry.policy);
     }
@@ -612,7 +607,7 @@ function workflowDependencyClosure(configs, workflows, agents, missingCode, {
     artifactSets: new Set(), authorities: { story: new Set(), initiative: new Set() },
     mcpServers: new Set(), agents: new Set(), reviewerAgents: new Set(),
     authorityCandidates: { story: new Set(), initiative: new Set() },
-    applicabilityPolicies: new Set(), templateCatalog: new Set(), worldModelViews: new Set(), integrationTargets: new Set()
+    applicabilityPolicies: new Set(), templateCatalog: new Set(), integrationTargets: new Set()
   };
   const selectedPhases = { story: new Set(), initiative: new Set() };
   const processedPhases = { story: new Set(), initiative: new Set() };
@@ -729,7 +724,6 @@ function workflowDependencyClosure(configs, workflows, agents, missingCode, {
       processedAgents.add(id);
       const agent = agents.get(id);
       if (!agent) fail(`Referenced agent '${id}' is not installed.`, missingCode);
-      for (const view of agent.worldModelViews) dependencies.worldModelViews.add(view);
       if (!legacy && serverScope === 'complete') {
         for (const serverId of serversByAgent.get(id) ?? []) dependencies.mcpServers.add(serverId);
       }
@@ -842,7 +836,6 @@ function dependencyInventory(bundle) {
     mcpServers: objectIds('story', 'mcpServers'),
     integrationTargets: Object.keys(bundle.objects.story.integrations?.targets ?? {}).sort(),
     applicabilityPolicies: objectIds('initiative', 'applicabilityPolicies'),
-    worldModelViews: [...(bundle.requirements?.worldModelViews ?? [])].sort(),
     skillPackages: (bundle.skillPackages ?? []).map((record) => ({
       skillId: record.skillId, packageSha256: record.manifest.packageSha256,
       phases: record.phaseBindings.map((binding) => `${binding.governs}:${binding.phaseId}`)
@@ -1063,20 +1056,9 @@ function validateBundleClosure(bundle, agents, storedVersion, importedHere = nul
         'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
     }
   }
-  for (const agent of agents.values()) {
-    for (const view of agent.worldModelViews) dependencies.worldModelViews.add(view);
-  }
-  const declaredViews = new Set(bundle.requirements?.worldModelViews ?? []);
-  for (const view of dependencies.worldModelViews) {
-    if (!declaredViews.has(view)) fail(`Workflow bundle is missing World Model requirement '${view}'.`,
-      'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
-  }
-  for (const view of declaredViews) {
-    if (!dependencies.worldModelViews.has(view)) {
-      fail(`Workflow bundle contains unreferenced World Model requirement '${view}'.`,
-        'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
-    }
-  }
+  // `requirements.worldModelViews` and an agent's `sflow-world-model-views:` header named views of the
+  // removed registered World Model. A bundle that still carries them imports as it is: they are not read
+  // and never refuse it [WMR].
 }
 
 /**
@@ -1514,7 +1496,6 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
     // Validate the source's lock before materializing external attachments, then bind the
     // exported lock to the exact exported agent bytes. Remote dependency hashes stay unchanged.
     if (lockEntry) agentLocks[agentId] = { ...lockEntry, sourceSha256: digest(content).replace(/^sha256:/, '') };
-    for (const view of agent.worldModelViews) dependencies.worldModelViews.add(view);
   }
 
   for (const { governs, reference, relative, rootRelative } of templateSelections) {
@@ -1627,7 +1608,9 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
       .localeCompare(`${b.kind}:${b.governs ?? ''}:${b.path}`)),
     requirements: {
       templateRoots: canonicalValue(sourceTemplateRoots),
-      worldModelViews: [...dependencies.worldModelViews].sort(),
+      // Always empty since the registered World Model was removed. The bundle format keeps the list, as
+      // every reader of a workflow bundle requires it [WMR].
+      worldModelViews: [],
       externalAgentDependencies: discovered
         .filter((agent) => dependencies.agents.has(agent.id))
         .flatMap((agent) => agent.dependencies.map((entry) => ({
@@ -3459,7 +3442,6 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label, indepe
     },
     sharedDependencies: {
       ...summarizeBundle(closure),
-      worldModelViews: clone(closure.requirements.worldModelViews),
       dependencyMaterialization: closure.requirements.dependencyMaterialization,
       linked: true
     },

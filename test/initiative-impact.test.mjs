@@ -17,8 +17,6 @@ const portfolio = {
   }
 };
 
-const manifest = { views: { business: {}, data: {} } };
-
 /** A breakdown as validateInitiativeBreakdown would have returned it. */
 function breakdown(stories) {
   return {
@@ -36,7 +34,7 @@ test('impact is derived from where Stories land, not from what the map claims', 
     { id: 'S1', repository: 'web' },
     { id: 'S2', repository: 'web', blocking: false },
     { id: 'S3', repository: 'api' }
-  ]), { manifest });
+  ]));
 
   assert.deepEqual(impact.repositories.map((repository) => repository.id), ['api', 'web']);
   const web = impact.repositories.find((repository) => repository.id === 'web');
@@ -53,7 +51,7 @@ test('a map that names the wrong repositories is caught in both directions', () 
   const impact = computeInitiativeImpact(portfolio, breakdown([
     { id: 'S1', repository: 'web' },
     { id: 'S2', repository: 'api' }
-  ]), { manifest, claimed: { repositories: { web: {}, jobs: {} } } });
+  ]), { claimed: { repositories: { web: {}, jobs: {} } } });
 
   assert.equal(impact.reconciliation.compared, true);
   assert.deepEqual(impact.reconciliation.agreed, ['web']);
@@ -68,14 +66,14 @@ test('a map that names the wrong repositories is caught in both directions', () 
 test('an empty map is reported as unreconciled rather than as agreement', () => {
   // verifyInitiativeImpactMap returns clean for an empty map, which reads as "checked and fine".
   const impact = computeInitiativeImpact(portfolio, breakdown([{ id: 'S1', repository: 'web' }]),
-    { manifest, claimed: { repositories: {} } });
+    { claimed: { repositories: {} } });
   assert.equal(impact.reconciliation.compared, false);
   assert.deepEqual(impactFindings(impact), [], 'nothing to reconcile is not the same as a finding');
   assert.match(impactDocument(impact), /No impact map has been published yet/);
 });
 
 test('a Story plan that lands nowhere is a finding on its own', () => {
-  const impact = computeInitiativeImpact(portfolio, breakdown([]), { manifest });
+  const impact = computeInitiativeImpact(portfolio, breakdown([]));
   assert.deepEqual(impactFindings(impact), ['the Story plan lands in no repository at all']);
 });
 
@@ -86,7 +84,7 @@ test('cross-repository edges follow Story dependencies and point the way work fl
     { id: 'S-WEB2', repository: 'web', dependsOn: [{ story: 'S-API', requiredPhase: 'implementation-spec' }] },
     // A dependency inside one repository is real, but says nothing about cross-repository impact.
     { id: 'S-WEB3', repository: 'web', dependsOn: [{ story: 'S-WEB', requiredPhase: 'implementation-spec' }] }
-  ]), { manifest });
+  ]));
 
   assert.equal(impact.crossRepository.length, 1, 'same-repository dependencies must not pad the count');
   const [edge] = impact.crossRepository;
@@ -95,25 +93,23 @@ test('cross-repository edges follow Story dependencies and point the way work fl
   assert.deepEqual(edge.via.map((via) => via.story), ['S-WEB', 'S-WEB2']);
 });
 
-test('a repository with no committed world model is named', () => {
-  const scoped = { repositories: { web: { views: { business: {} } } } };
+test('impact names no World Model: an old map with views per repository reads as the repositories it names', () => {
+  // The registered World Model was removed (WMR REQ-003): no manifest is read, no column is shown, and a
+  // view an old map still claims is neither a finding nor a refusal.
   const impact = computeInitiativeImpact(portfolio, breakdown([
     { id: 'S1', repository: 'web' },
     { id: 'S2', repository: 'api' }
-  ]), { manifest: scoped });
+  ]), { claimed: { repositories: { web: { worldModelViews: ['business', 'telepathy'] }, api: { views: ['data'] } } } });
 
-  const web = impact.repositories.find((repository) => repository.id === 'web');
-  assert.deepEqual(web.worldModel, { present: true, views: ['business'] });
-  assert.deepEqual(impact.reconciliation.missingWorldModel, ['api']);
-});
-
-test('a view claimed for a repository whose model does not declare it is caught', () => {
-  const scoped = { repositories: { web: { views: { business: {} } } } };
-  const impact = computeInitiativeImpact(portfolio, breakdown([{ id: 'S1', repository: 'web' }]),
-    { manifest: scoped, claimed: { repositories: { web: { worldModelViews: ['business', 'telepathy'] } } } });
-
-  assert.deepEqual(impact.reconciliation.unknownViews, [{ repository: 'web', views: ['telepathy'] }]);
-  assert.match(impactFindings(impact).at(-1), /claims world-model view 'telepathy' for 'web'/);
+  assert.deepEqual(impact.reconciliation.agreed, ['api', 'web']);
+  assert.deepEqual(impactFindings(impact), []);
+  for (const repository of impact.repositories) {
+    for (const field of ['worldModel', 'claimedViews', 'unknownClaimedViews']) assert.equal(Object.hasOwn(repository, field), false, field);
+  }
+  for (const field of ['unknownViews', 'missingWorldModel']) assert.equal(Object.hasOwn(impact.reconciliation, field), false, field);
+  const document = impactDocument(impact);
+  assert.doesNotMatch(document, /world model/i);
+  assert.match(document, /\| Repository \| Stories \| Blocking \| Contracts consumed \| In impact map \|/);
 });
 
 test('consumed contracts are reported per repository and never invented into an edge', () => {
@@ -121,7 +117,7 @@ test('consumed contracts are reported per repository and never invented into an 
   const impact = computeInitiativeImpact(portfolio, breakdown([
     { id: 'S1', repository: 'web', consumesContracts: [{ id: 'orders-v2', version: '2', sha256: null }] },
     { id: 'S2', repository: 'web', consumesContracts: [{ id: 'orders-v2', version: '2', sha256: null }] }
-  ]), { manifest });
+  ]));
 
   const web = impact.repositories.find((repository) => repository.id === 'web');
   assert.deepEqual(web.consumesContracts, ['orders-v2'], 'deduplicated across Stories');
@@ -132,7 +128,7 @@ test('the document renders the drift a reviewer has to act on', () => {
   const impact = computeInitiativeImpact(portfolio, breakdown([
     { id: 'S1', repository: 'web' },
     { id: 'S2', repository: 'api', dependsOn: [{ story: 'S1', requiredPhase: 'implementation-spec' }] }
-  ]), { manifest, claimed: { repositories: { web: {} } } });
+  ]), { claimed: { repositories: { web: {} } } });
 
   const document = impactDocument(impact);
   assert.match(document, /# Computed impact — INIT-IMPACT/);

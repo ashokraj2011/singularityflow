@@ -4,15 +4,15 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "353a292123b56542113fe899f5b7dade9013c23e",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-26-SSB-M1.md",
-    "companionIds": ["migration-registry"]
+    "reviewedAtCommit": "0aaac1bb444ee2a0aede7dfd900f4e936d443566",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-26-WMR-DEAD-FIELDS.md",
+    "companionIds": ["workflow-configuration"]
   },
   "companions": [
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:40d23c40284d77f4a5ef2923479d9946617bae1b149034181af665417b7e7387"
+      "sha256": "sha256:7f472d26a9be36ac12922c87a3b4fa034b525bdf8bfc63a98b324c874382513d"
     },
     {
       "id": "sgos-portable-schema",

@@ -313,7 +313,7 @@ export async function doctorSnapshot(root, {
     const removed = removedSettings(definition);
     if (removed.length) checks.push(check('removed-settings', 'warn',
       `${removed.length} setting(s) of removed features are ignored: ${removed.slice(0, 12).join(', ')}${removed.length > 12 ? ', …' : ''}.`,
-      `Remove them from ${WORKFLOW_PATH}; nothing reads them.`));
+      `Remove them from ${WORKFLOW_PATH}, or from the agent files named; nothing reads them.`));
   } catch (error) {
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
     if (performance) performanceReport = await appendPerformanceCheck(checks, root);

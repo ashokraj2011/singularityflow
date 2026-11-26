@@ -66,7 +66,7 @@ test('installed workflow simulation retains the array and phase projection contr
     assert.deepEqual(selected.authorities, phase.approval.authorities);
     assert.equal(selected.minimumApprovals, phase.approval.minimum);
     assert.deepEqual(selected.qualityCommands, phase.qualityCommands ?? []);
-    assert.deepEqual(selected.worldModelViews, phase.worldModel?.views ?? []);
+    assert.equal(Object.hasOwn(selected, 'worldModelViews'), false, 'a simulated step names no World Model views');
     assert.deepEqual(selected.rejectTo, phase.approval.rejectTo);
     assert.deepEqual(selected.repairBudget, phase.repairBudget);
   }

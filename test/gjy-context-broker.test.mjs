@@ -54,7 +54,7 @@ test('the context broker returns a bounded record projection without persisting 
   assert.equal(result.accounting.maximumOutputBytes, 4096);
   assert.ok(result.accounting.includedContentBytes <= 4096);
   assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 4096, 'the complete response honors the model-facing budget');
-  assert.deepEqual(result.expansion, ['world-model', 'ast', 'evidence']);
+  assert.deepEqual(result.expansion, ['ast', 'evidence'], 'the world-model slice was retired with the registered World Model');
   assert.ok(!JSON.stringify(result).includes(root), 'machine paths do not enter model-facing context');
 });
 
@@ -67,12 +67,17 @@ test('each deeper slice is exposed as typed navigation for the kernel to seal', 
     arguments: { workId: 'GJY-CONTEXT-1', slice: 'brief', maxOutputBytes: 4096 }
   });
   assert.deepEqual(result.next.map((entry) => entry.id), [
-    'context:GJY-CONTEXT-1:world-model',
     'context:GJY-CONTEXT-1:ast',
     'context:GJY-CONTEXT-1:evidence'
   ]);
   assert.ok(result.next.every((entry) => entry.executable === false));
   assert.equal(result.effects.gitRefsChanged, false);
+});
+
+test('the retired world-model slice is refused by name and says what replaced it [WMR]', async (t) => {
+  const root = await fixture(t);
+  await assert.rejects(() => composeContextBrief(root, { workId: 'GJY-CONTEXT-1', slice: 'world-model' }),
+    (error) => error.code === 'COMMAND_REMOVED' && /singularity-flow wm brief --phase PHASE/u.test(error.message));
 });
 
 test('AST context is bound to the requested Story rather than the checked-out branch', async (t) => {

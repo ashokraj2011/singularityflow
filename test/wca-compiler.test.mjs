@@ -392,7 +392,7 @@ test('multi-skill group planner refuses stale catalogs, stale parents and effect
     const text = await readFile(path.join(f.root, source), 'utf8');
     const parsed = parseAgentDependencies(text, { source });
     return { id: agentId, source, scope: 'repository', text, phases: parsed.phases, defaultFor: parsed.defaultFor,
-      tools: parsed.tools, worldModelViews: parsed.worldModelViews, dependencies: parsed.dependencies };
+      tools: parsed.tools, dependencies: parsed.dependencies };
   }));
   const input = { approvedDefinition: f.definition, agents,
     changes: f.groupRequest.changes.map((change, index) => {
@@ -436,7 +436,7 @@ test('multi-skill group planner refuses stale catalogs, stale parents and effect
   const parsed = parseAgentDependencies(text, { source: '.github/agents/skill-audit-owner.agent.md' });
   omitted.agents.push({ id: 'skill-audit-owner', source: '.github/agents/skill-audit-owner.agent.md',
     scope: 'repository', text, phases: parsed.phases, defaultFor: parsed.defaultFor, tools: parsed.tools,
-    worldModelViews: parsed.worldModelViews, dependencies: parsed.dependencies });
+    dependencies: parsed.dependencies });
   third.contract.produces[0].minimumBytes = 32;
   omitted.changes = [omitted.changes[0], { kind: 'phase', id: 'skill-audit', operation: 'edit',
     expectedDefinitionSha256: phaseDefinitionSha256(omitted.approvedDefinition.phases['skill-audit']), replacement: third }];

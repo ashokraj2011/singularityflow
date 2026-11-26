@@ -88,6 +88,17 @@ test('capability policy fold only permits equal or stricter child constraints', 
   assert.throws(() => foldCapabilityPolicy({}, { approvalMinimum: 0 }), /positive integer/);
 });
 
+test('an old capability policy that requires World Model views loads; the list is folded to an empty slot', () => {
+  // The registered World Model was removed [WMR]. An old list (or even a malformed one) is accepted and not
+  // read; the slot stays empty so a policy without views keeps the digest Stories and receipts pinned.
+  for (const views of [['dev.impact'], ['arch.contracts', 'biz.rules'], 'not-a-list', [42]]) {
+    const folded = foldCapabilityPolicy({ requiredWorldModelViews: ['biz.rules'] }, { requiredWorldModelViews: views, requiredChecks: ['unit'] });
+    assert.deepEqual(folded.requiredWorldModelViews, []);
+    assert.deepEqual(folded.requiredChecks, ['unit']);
+  }
+  assert.deepEqual(foldCapabilityPolicy({}, {}).requiredWorldModelViews, [], 'the empty slot every policy has carried');
+});
+
 test('capability trees resolve inherited policy within each parent chain', () => {
   const definition = validateCapabilities({
     version: 1,

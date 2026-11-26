@@ -4,8 +4,9 @@
 
 **Status:** M1 and M2 built on branch `wmr-m1m2` (2026-11-26): REQ-007–015 and REQ-017–019, REQ-024–027. REQ-016 is
 not built: probe P1 showed JSX parsing did not cause the missing file. M3 (REQ-029) built on branch `wmr-m3`
-(2026-11-26); its measure of the owner's kept prompts, before and after M1 and M2, is in §11. M0 (the text clean-up) is
-being built on branch `wm-clean`; M4 (REQ-020–023) is not built. The probes' answers are in §7.
+(2026-11-26); its measure of the owner's kept prompts, before and after M1 and M2, is in §11. M0 (the text clean-up)
+is on main (`4c8b464a6`). M1's last part, the dead `worldModelViews` fields and the rest of the removed World Model's
+code, is retired on branch `wm-dead` (§10). M4 (REQ-020–023) is not built. The probes' answers are in §7.
 Written on 2026-11-26 from two read-only reviews of that day: one of the code, one of the owner's real use. Checked
 against `main@cbeb9978d`; built on `main@30484105e`.
 
@@ -129,13 +130,13 @@ knowledge explain` takes no symbol.
 **WMR:REQ-003, Initiative templates name what exists.** The solution architecture, feasibility, requirement impact,
 impact analysis and repository map templates cite the Repository brief, not "the repository world model". They name no
 view: `worldModelViews` is an empty list. The code that still carries `worldModelViews` is listed for retirement in
-M1. It is not removed in M0.
+M1. It is not removed in M0. (Retired in M1 on `wm-dead`: the packaged portfolio names no view list at all; §10.)
 
 **WMR:REQ-004, no output that is always empty.** The per-repository "world model" line of workspace impact and the
 capability doctor's world-model snapshot report are removed. A JSON field a consumer reads stays, documented as
 always null, until that consumer changes.
 
-**WMR:REQ-005, an ignored header is named once.** An agent's `sflow-world-model-views:` header is listed among the
+**WMR:REQ-005 (built, M1), an ignored header is named once.** An agent's `sflow-world-model-views:` header is listed among the
 settings dropped at load (`src/removed-features.mjs`, doctor `removed-settings`), in one plain line. It never refuses
 or warns on every run.
 
@@ -319,7 +320,7 @@ It never sends anything anywhere and calls no model.
 | M | What | Size |
 |---|---|---|
 | M0 | Clean-up of stale text and dead outputs (REQ-001–006), on branch `wm-clean` | building |
-| M1 | Cache (REQ-017–019), guidance only (REQ-024, 025), surfaces (REQ-026, 027), dead `worldModelViews` fields retired | about 1 day |
+| M1 | Cache (REQ-017–019), guidance only (REQ-024, 025), surfaces (REQ-026, 027), dead `worldModelViews` fields retired | built (dead fields on `wm-dead`) |
 | M2 | Focus and placement (REQ-007–013) and true claims (REQ-014–016), with golden briefs updated | about 1.5 days |
 | M3 | The real-use measure (REQ-029), run on the owner's kept prompts before and after | built on `wmr-m3`; §11 |
 | M4 | Ready for clean PRs (REQ-020–023), built inside SSB M2–M4 | with SSB |
@@ -399,8 +400,59 @@ Where the build reads the requirements one way among several:
   and the prune no longer matches it.
 - **The golden briefs.** The 16 goldens are kept unchanged and are checked with calls read as resolved (A7); 16
   `*.by-name.md` goldens hold what a repository without a semantic pack gets.
-- **Not done here:** retiring the dead `worldModelViews` fields (listed for later), and M0's text (the template
-  comment in `templates/workflow.yml` and the help text still say every step gets a brief).
+- **Not done there:** retiring the dead `worldModelViews` fields, and M0's text (the template comment in
+  `templates/workflow.yml` and the help text said every step gets a brief). Both are done since: the help text on
+  main (`0aaac1bb4`), the rest below.
+
+### Dead fields retired (M1, branch `wm-dead`, 2026-11-26)
+
+Owner, 2026-11-26: "retire the dead code". Every old input still loads with no refusal: configurations,
+portfolios, capability files, agent files, workflow bundles, imports and Story snapshots that still carry the fields.
+Retired:
+- **Epic impact** (`epic impact`, `--markdown`, VS Code's Planning and impact page) reads no
+  `singularity/world-model/manifest.json`, shows no WORLD MODEL column, no "No committed world model" line and no
+  "unknown view" finding [REQ-003]. `initiative restart` says "Story branches unchanged".
+- **View lists:** an Epic step's `worldModelViews` (phase and profile override) is accepted and left out; a
+  capability adds none to an Epic step; `requiredWorldModelViews` is accepted and not read; the packaged portfolio's
+  15 empty lists are gone; `workflow simulate` prints no `world-model=` per step. The portfolio and capabilities
+  schemas keep the keys as deprecated, accepted and ignored.
+- **Studio** (engine and VS Code page): no `views` on steps, agents, roles or Epic steps, no "knowledge views"
+  editing, no `views`/`retiredViews` choices. A change from an older Studio that sends `views` writes nothing.
+- **The `sflow-world-model-views` header** [REQ-005]: not parsed, not carried into configuration or a Story
+  snapshot, not written for a new agent, not compared by seeded-workflow protection or WCA, not shown by the intent
+  catalog or agent import. doctor's `removed-settings` names each agent file that still has it, once: "no longer
+  read; the Repository brief comes from the step". A workflow bundle is no longer refused for a "World Model
+  requirement", missing or unreferenced.
+- **Change Flight Plan:** no `worldModel*` baseline fields, no `worldModel` category and no unknown for it. A plan
+  previewed before still starts: its fields are not compared.
+- **`workspace reinitialize --migrate-world-model`:** the unreachable migration summary and capability edit are
+  deleted; the option is still refused by name.
+- **`session context --slice world-model`:** retired (it always answered "unavailable"). Its contract is not
+  frozen: no companion lock or digest names the slice list, and the gateway registry hashes argument schemas by name.
+  Asked for by name, it is refused with `COMMAND_REMOVED` and points to `wm brief`.
+- **Text:** `templates/workflow.yml`'s comments and two benchmark descriptions (GDP lock review
+  `COMPANION-LOCK-REVIEW-2026-11-26-WMR-DEAD-FIELDS.md`; the two work types' earlier digests recorded) and
+  `VERIFICATION.md`.
+- **Found on the way:** reference repositories no longer read a committed World Model manifest or print "Reference
+  World Model: not reusable" in the prompt.
+
+Kept, because a contract is frozen (each says so where it stands):
+- **A Story step's `worldModel.views` slot** (`capability-context.mjs`). A task change and a test-command amendment
+  resolve the step again and compare it with the pinned one, so a Story started before keeps working. New Stories
+  get an empty list: capability policy now folds `requiredWorldModelViews` to an empty slot.
+- **That empty `requiredWorldModelViews` slot** in every folded capability policy: Stories and materialization
+  receipts pin the policy's digest (`policySha256`, `resolutionSha256`).
+- **A workflow bundle's `requirements.worldModelViews`**, always written empty: the bundle format is versioned and
+  every reader requires the list.
+- **WCA's impact graph** still reads views that a captured agent carries: a retained record's
+  `consumerImpactSha256` is computed again from its retained inputs. New captures carry none.
+- **Pinned resolution fields** not changed here: an Epic's `worldModelTiming`, `worldModelGrounding` and
+  `worldModelOutputDir`, and a Story's `worldModelGrounding` and `worldModelStaleness`, are in pinned resolution
+  digests.
+- **Upgrade history:** packaged agents that shipped with the header, and the v1 personas' view lists, stay recorded
+  so an upgrade still recognises them.
+- Seen and left for their own contracts: the GDP proof kernel's `world-model` gap category, the auto contract's
+  `world-model` context section, and an Epic phase context's `worldModelFiles` receipt.
 
 ## 11. Measured (M3, 2026-11-26)
 

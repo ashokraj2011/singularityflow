@@ -1507,7 +1507,9 @@ test('shipped skills, agents and templates name no feature of the removed regist
     ...await files(path.join(pluginRoot, 'agents'), (name) => name.endsWith('.md')),
     ...await files(path.join(root, 'templates', 'agents'), (name) => name.endsWith('.md')),
     ...await files(path.join(root, 'templates', 'artifacts'), () => true),
-    ...await files(path.join(root, 'templates', 'skill-library'), () => true)
+    ...await files(path.join(root, 'templates', 'skill-library'), () => true),
+    // The packaged workflow and portfolio too: no view list, no "world-model views" [WMR].
+    path.join(root, 'templates', 'workflow.yml'), path.join(root, 'templates', 'portfolio.yml')
   ];
   assert.ok(shipped.length > 300, `read ${shipped.length} shipped files`);
   const named = [];

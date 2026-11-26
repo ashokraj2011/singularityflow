@@ -104,7 +104,7 @@ export function assertSeededWorkflowsUnchanged(protectedIds, before, after, { be
   ]) for (const id of ids) if (!same(before[side]?.[catalog]?.[id], after[side]?.[catalog]?.[id])) refuse(`${catalog}:${id}`);
   for (const id of protectedIds.integrationTargets) if (!same(before.story.integrations?.targets?.[id], after.story.integrations?.targets?.[id])) refuse(`integration target '${id}'`);
   const signature = (agent) => agent && ({ name: agent.displayName, label: agent.label, prompt: agent.prompt, tools: agent.tools,
-    views: agent.worldModelViews, dependencies: agent.dependencies, skills: agent.librarySkills,
+    dependencies: agent.dependencies, skills: agent.librarySkills,
     defaults: agent.defaultFor?.filter((id) => protectedIds.phases.includes(id) || protectedIds.epicPhases.includes(id)), phases: agent.phases?.filter((id) => protectedIds.phases.includes(id) || protectedIds.epicPhases.includes(id)) });
   for (const id of protectedIds.agents) if (!same(signature(beforeAgents.find((agent) => agent.id === id)), signature(afterAgents.find((agent) => agent.id === id)))) refuse(`agent '${id}'`);
   const paths = new Set([...protectedIds.templateFiles, ...protectedIds.skills.map(librarySkillPath), ...(protectedIds.instructions ?? []).map(instructionPath)]);

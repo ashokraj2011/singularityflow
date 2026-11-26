@@ -108,7 +108,8 @@ test('capability policy tightens Initiative gates without inventing approval on 
     }],
     repositories: { mobile: { requiredChecks: ['build'] } }
   }, capability);
-  assert.deepEqual(resolved.phases[0].worldModelViews, ['biz.rules', 'dev.impact']);
+  // An Epic step gains no World Model views from a capability (an old phase's list is left as it came).
+  assert.deepEqual(resolved.phases[0].worldModelViews, ['biz.rules']);
   assert.equal(resolved.phases[0].bundleApproval.minimum, 2);
   assert.deepEqual(resolved.phases[0].outputs[0].approval.authorities, ['architecture-reviewers']);
   assert.deepEqual(resolved.phases[0].checklist[0].approval, { mode: 'none', minimum: 0 });

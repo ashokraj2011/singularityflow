@@ -293,6 +293,7 @@ test('workflow export captures a deduplicated multi-workflow dependency closure'
     'story:feature', 'story:spec-driven-standard'
   ]);
   assert.equal(result.summary.workflows, 2);
+  assert.equal(Object.hasOwn(result.summary, 'worldModelViews'), false, 'the summary names no World Model views');
   assert.deepEqual(result.dependencies.workflows, [
     'story:feature', 'story:spec-driven-standard'
   ]);
@@ -383,7 +384,8 @@ test('workflow export reaches a fixed point through cyclic MCP agent and phase r
   }
   assert.deepEqual(bundle.objects.story.artifactSets['portable-extra-set'], f.configuration.artifactSets['portable-extra-set']);
   assert.ok(Object.hasOwn(bundle.objects.story.approvalAuthorities, 'engineering-reviewers'));
-  assert.ok(bundle.requirements.worldModelViews.includes('arch.contracts'));
+  // The agents still carry an old sflow-world-model-views header: it is not read, so no requirement is written [WMR].
+  assert.deepEqual(bundle.requirements.worldModelViews, []);
   assert.equal(Object.hasOwn(bundle.objects.story.mcpServers, 'unrelated-server'), false);
   assert.equal(Object.hasOwn(bundle.objects.story.phases, 'unrelated-note'), false);
   assert.equal(bundle.assets.some((asset) => asset.kind === 'agent' && asset.id === 'unrelated-owner'), false);
@@ -1018,6 +1020,24 @@ test('workflow bundle refuses unrelated governed objects outside its dependency 
       (error) => error.code === 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA'
     );
   }
+});
+
+test('a bundle that still names World Model requirements imports: the list is not read and never refuses it [WMR]', async (t) => {
+  const source = await initializedRepository(t, 'sflow-workflow-views-source-');
+  const target = await initializedRepository(t, 'sflow-workflow-views-target-');
+  await addPortableFeature(source);
+  const bundle = await exportWorkflowBundle(source, ['portable-feature']);
+  assert.deepEqual(bundle.requirements.worldModelViews, [], 'a new bundle keeps the list, empty');
+  // As an older SFlow wrote it, with requirements no carried agent declares any more (once refused as
+  // "unreferenced World Model requirement").
+  const old = structuredClone(bundle);
+  old.requirements.worldModelViews = ['arch.contracts', 'dev.impact'];
+  old.bundleSha256 = bundleDigest(old);
+  const plan = await planWorkflowImport(target, old);
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
+  assert.doesNotMatch(JSON.stringify(plan), /arch\.contracts|dev\.impact/u);
+  const applied = await applyWorkflowImport(target, old, { expectedPlanSha256: plan.planSha256 });
+  assert.equal(applied.status, 'imported');
 });
 
 test('workflow import previews, requires exact confirmation, round-trips, and refuses collisions', async (t) => {

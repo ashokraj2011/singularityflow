@@ -7982,7 +7982,7 @@ async function initiativeCommand(positionals, options) {
   }
   if (subcommand === 'restart') {
     const confirmed = await confirmInitiativeExact(
-      `Restarting ${initiativeId} returns it to its first phase and discards this attempt's artifacts. The branch, Epic identity, and pinned sources are kept; Story-branch world models are not changed.`,
+      `Restarting ${initiativeId} returns it to its first phase and discards this attempt's artifacts. The branch, Epic identity, and pinned sources are kept; Story branches are not changed.`,
       initiativeId,
       options
     );
@@ -8000,7 +8000,7 @@ async function initiativeCommand(positionals, options) {
         agent: session?.agent ?? null
       })
     );
-    console.log(`${initiativeId} restarted at ${initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; Epic branch and sources kept, Story-branch world models unchanged. Committed${publication.pushed ? ' and pushed' : ''}.`);
+    console.log(`${initiativeId} restarted at ${initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; Epic branch and sources kept, Story branches unchanged. Committed${publication.pushed ? ' and pushed' : ''}.`);
     return;
   }
   if (subcommand === 'applicability') {
@@ -9638,7 +9638,6 @@ async function workspaceCommand(positionals, options) {
       dryRun: optionBoolean(options, 'dry-run'),
       acceptBundledConflicts: optionBoolean(options, 'accept-bundled-conflicts'),
       resolutions: optionMap(optionStrings(options, 'resolve'), '--resolve'),
-      migrateWorldModel: optionBoolean(options, 'migrate-world-model'),
       hardCutover: optionBoolean(options, 'hard-cutover'),
       confirmPlan: optionString(options, 'confirm-plan')
     });
@@ -9657,10 +9656,6 @@ async function workspaceCommand(positionals, options) {
         if (item.error) console.log(`    ${item.error}`);
       }
       console.log(`Schema policy: ${result.schemaMigrationPolicy.statement}`);
-      if (result.worldModelMigration) {
-        console.log(`World Model migration: ${result.worldModelMigration.status} → registered-v4`);
-        console.log(`  ${result.worldModelMigration.statement}`);
-      }
       for (const census of result.schemaCensuses) {
         const records = census.records == null ? '' : ` · ${census.records} registered record(s)`;
         const migrations = census.readTimeMigrationRecords
@@ -11342,12 +11337,10 @@ async function epicCommand(positionals, options) {
       repository: `${repository.id}${repository.lead ? ' (lead)' : ''}`,
       stories: String(repository.storyCount),
       blocking: String(repository.blockingStoryCount),
-      model: repository.worldModel.present ? (repository.worldModel.views.join(', ') || 'present') : 'none',
       claimed: repository.claimed ? 'yes' : 'no'
     })), [
       { key: 'repository', label: 'REPOSITORY' }, { key: 'stories', label: 'STORIES' },
-      { key: 'blocking', label: 'BLOCKING' }, { key: 'model', label: 'WORLD MODEL' },
-      { key: 'claimed', label: 'IN MAP' }
+      { key: 'blocking', label: 'BLOCKING' }, { key: 'claimed', label: 'IN MAP' }
     ]));
 
     if (impact.crossRepository.length) {
@@ -11370,9 +11363,6 @@ async function epicCommand(positionals, options) {
       if (impact.invalidates?.length) {
         console.log(`\nCorrecting it would invalidate ${impact.invalidates.length} downstream ${impact.invalidates.length === 1 ? 'node' : 'nodes'}: ${impact.invalidates.join(', ')}`);
       }
-    }
-    if (impact.reconciliation.missingWorldModel.length) {
-      console.log(`\nNo committed world model: ${impact.reconciliation.missingWorldModel.join(', ')}`);
     }
     return;
   }

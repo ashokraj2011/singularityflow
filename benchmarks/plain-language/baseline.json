@@ -13,8 +13,8 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 6,
-  "generic-route": 6207,
-  "jargon": 1348,
+  "generic-route": 6206,
+  "jargon": 1347,
   "length": 647
  },
  "unroutedCodes": [
@@ -2213,8 +2213,7 @@
   },
   "apps/vscode/src/views/impact.ts": {
    "80a14bba309c": "jargon:staging",
-   "eda3bf406573": "jargon:staging",
-   "fee160992cdd": "jargon:staging"
+   "eda3bf406573": "jargon:staging"
   },
   "apps/vscode/src/views/instruction-designer-page.ts": {
    "ae93b69ee7a2": "jargon:deterministic"

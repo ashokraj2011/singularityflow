@@ -293,7 +293,7 @@ export function inspectImportContent(kind, text, { id = null, label = 'The impor
     id: id ?? parsed.id,
     details: {
       label: parsed.label, description: parsed.description, tools: parsed.tools, phases: parsed.phases,
-      defaultFor: parsed.defaultFor, views: parsed.worldModelViews, remoteResources: parsed.dependencies.length
+      defaultFor: parsed.defaultFor, remoteResources: parsed.dependencies.length
     },
     warnings
   };

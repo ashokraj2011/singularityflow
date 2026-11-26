@@ -122,6 +122,10 @@ const FAMILIES = Object.freeze([
     'marketplace-repository.mjs',
     // A marketplace agent offered as the task's plan [ITW:REQ-011], read with the skill chooser.
     'task-agents.mjs',
+    // What the team already has, read before any marketplace [ITW:REQ-020]: its workflows, agents and skills, and an agent
+    // read and converted as `workflow from-agent` does. Imported only dynamically, the conversion only when the repository
+    // has an agent; unclaimed, a plan in a repository with one loaded compatibility and models.
+    'task-local.mjs', 'agent-folder.mjs', 'agent-workflow.mjs',
     // A refactor's behaviour choice, `work behaviour` [ITW:REQ-015], and a done task's checks for its last message.
     'refactor-behaviour-decide.mjs', 'task-checks.mjs']],
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs',

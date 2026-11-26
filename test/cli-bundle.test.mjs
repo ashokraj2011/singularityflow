@@ -463,7 +463,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // Unclaimed they fell into compatibility, which statically loads models (measured 2026-11-25: compatibility -91,184
   // bytes, intake +75,168, reads +16,355; no closure an earlier family owns changed).
   const intakeCode = await readFile(path.join(outdir, 'cold-intake.mjs'), 'utf8');
-  for (const name of ['workCommand', 'walkTaskWorkType', 'composeTask', 'taskSkillChooser', 'loadImportsLedger', 'readMarketplaceRepository']) {
+  // What the team already has, before any marketplace [ITW:REQ-020]: its workflows, agents and skills, claimed by intake too.
+  for (const name of ['workCommand', 'walkTaskWorkType', 'composeTask', 'taskSkillChooser', 'loadImportsLedger', 'readMarketplaceRepository',
+    'localPlanCandidates', 'localSkills', 'readAgentFolder', 'convertAgent']) {
     assert.match(intakeCode, namedFunction(name), `work's ${name} must not fall through to the compatibility/admin bundle`);
   }
   assert.match(await readFile(path.join(outdir, 'cold-reads.mjs'), 'utf8'), namedFunction('readSkillCatalog'),

@@ -3069,16 +3069,20 @@ export function refusalDetails(details) {
     yes: /^--use-skill [a-z0-9-]+$/u.test(entry.yes ?? '') ? entry.yes : null, no: /^--without-skill [a-z0-9-]+$/u.test(entry.no ?? '') ? entry.no : null
   }) : null)).slice(0, 10);
   if (offers.length) projected.offers = offers;
-  // A marketplace agent offered as the plan [ITW:REQ-011]: its question, its review and import commands, and each answer's option.
+  // A marketplace agent offered as the plan [ITW:REQ-011], or the team's own workflow or agent [ITW:REQ-020]: its question,
+  // its review and import commands, and each answer's option.
   const agentName = (value) => (typeof value === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9._-]{0,99}$/u.test(value) ? value : null);
   const offered = details.agentOffer && typeof details.agentOffer === 'object' ? details.agentOffer : null;
-  if (offered && agentName(offered.id)) {
+  const own = offered && ['workflow', 'local-agent'].includes(offered.source) && lowerKebab(offered.id);
+  if (offered && (agentName(offered.id) || own)) {
     const command = (value) => (typeof value === 'string' ? safeCommandGuidance({ command: value })?.command ?? null : null);
-    projected.agentOffer = compact({ id: offered.id, marketplace: lowerKebab(offered.marketplace), agent: lowerKebab(offered.agent), version: text(offered.version),
+    const answer = (value, flag, check) => (typeof value === 'string' && value.startsWith(`${flag} `) && check(value.slice(flag.length + 1)) ? value : null);
+    projected.agentOffer = compact({ id: offered.id, source: own ? offered.source : null, label: own ? text(offered.label) : null,
+      marketplace: lowerKebab(offered.marketplace), agent: own ? text(offered.agent) : lowerKebab(offered.agent), version: text(offered.version),
       imported: offered.imported === true ? true : null, state: text(offered.state), steps: list(offered.steps, text).slice(0, 30), ask: text(offered.ask), why: text(offered.why),
       review: command(offered.review), show: command(offered.show),
-      yes: /^--use-agent \S+$/u.test(offered.yes ?? '') && agentName(offered.yes.slice(12)) ? offered.yes : null,
-      no: /^--without-agent \S+$/u.test(offered.no ?? '') && agentName(offered.no.slice(16)) ? offered.no : null });
+      yes: own ? answer(offered.yes, '--use-workflow', lowerKebab) : answer(offered.yes, '--use-agent', agentName),
+      no: own ? answer(offered.no, '--without-workflow', lowerKebab) : answer(offered.no, '--without-agent', agentName) });
   }
   if (agentName(details.agent)) projected.agent = details.agent;
   const withoutAgent = typeof details.withoutAgent === 'string' ? safeCommandGuidance({ command: details.withoutAgent }) : null;

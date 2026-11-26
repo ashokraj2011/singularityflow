@@ -331,7 +331,9 @@ async function captureAgentExecutionDependencies(root, config, workId, agent, ph
 function composedTaskSkills(workflow) {
   const composition = workflow.resolution?.composition;
   if (!/^task-[a-z]+$/u.test(workflow.workItem.workType ?? '') || composition?.workType !== workflow.workItem.workType || !Array.isArray(composition.skills)) return [];
-  return composition.skills.map((entry) => ({ id: entry.id, phases: [...(entry.steps ?? [])], use: '', planned: entry.sha256 ?? null }));
+  // One of the repository's own skills is read where the plan read it, in the checkout [ITW:REQ-020].
+  return composition.skills.map((entry) => ({ id: entry.id, phases: [...(entry.steps ?? [])], use: '', planned: entry.sha256 ?? null,
+    ...(['.github', '.agents'].some((at) => entry.path === `${at}/skills/${entry.id}/SKILL.md`) ? { path: entry.path } : {}) }));
 }
 
 async function captureWorkflowLibrarySkills(root, config, workflow) {
@@ -341,10 +343,10 @@ async function captureWorkflowLibrarySkills(root, config, workflow) {
   for (const entry of entries) {
     const logicalId = `workflow:${workflowId}:skill:${entry.id}`;
     // installBlob must target the Story repository, not an approved-configuration read checkout.
-    const source = await secureRepositoryPath(configurationReadRoot(root), librarySkillPath(entry.id), { type: 'file' });
+    const source = await secureRepositoryPath(entry.path ? root : configurationReadRoot(root), entry.path ?? librarySkillPath(entry.id), { type: 'file' });
     if (!entry.planned && !source.exists) throw await unusableSkill(root, { workflowId }, entry.id);
     if (entry.planned && !source.exists) {
-      throw new SingularityFlowError(`The task's plan uses skill ${entry.id}, which is not in the skill library the Story starts from (its base branch, or the approved configuration). Push the change that adds it, or start without it.`,
+      throw new SingularityFlowError(`The task's plan uses skill ${entry.id}, which is not in ${entry.path ?? 'the skill library'} the Story starts from (its base branch, or the approved configuration). Push the change that adds it, or start without it.`,
         { code: 'TASK_SKILL_CHANGED', details: { skill: entry.id, nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Show the task\'s plan again.' } } });
     }
     const captured = await stableFile(source.absolute, `Workflow skill '${entry.id}'`);
@@ -353,7 +355,7 @@ async function captureWorkflowLibrarySkills(root, config, workflow) {
       throw new SingularityFlowError(`Skill ${entry.id} in the plan differs from the one the Story starts from (its base branch, or the approved configuration). Push the change, or start without it.`,
         { code: 'TASK_SKILL_CHANGED', details: { skill: entry.id, nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Show the task\'s plan again.' } } });
     }
-    try { parseLibrarySkill(captured.bytes.toString('utf8'), { id: entry.id }); }
+    try { parseLibrarySkill(captured.bytes.toString('utf8'), { id: entry.id, ...(entry.path ? { source: entry.path } : {}) }); }
     catch (error) {
       if (entry.planned) throw error;
       throw await unusableSkill(root, { workflowId }, entry.id, error);

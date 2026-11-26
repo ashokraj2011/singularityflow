@@ -54,7 +54,6 @@ import {
 } from './packaged-asset-history.mjs';
 import { isKnownPackagedWorkflowValue } from './packaged-workflow-history.mjs';
 import { patchYamlDocument, renderPreservingFormatting } from './yaml-formatting.mjs';
-import { CAPABILITIES_PATH } from './capabilities.mjs';
 import { stageStoryHardCutover } from './story-hard-cutover.mjs';
 
 export const PACKAGE_BASELINE_PATH = 'singularity/.product/configuration-baseline.yml';
@@ -1660,11 +1659,7 @@ export async function refreshPackagedConfiguration(root, {
     }
   }
   const { merged, workflowOwnership } = workflowPlan;
-  // The explicit migration is staged in this disposable, plan-bound configuration candidate.
-  // Never flip only `format`, rewrite Story snapshots, or promote old narrative to v4 facts.
-  let worldModelMigration = null;
-  let capabilityEdit = null;
-  // The legacy-v3 → registered-v4 configuration migration was removed with legacy-v3 itself.
+  // The legacy-v3 → registered-v4 configuration migration was removed with legacy-v3 itself; asked for, it is refused by name.
   if (migrateWorldModel) throw removedWorldModelError('workspace reinitialize --migrate-world-model');
   // Exact framework legacy role fields have been migrated above. Repository-created legacy role
   // fields are refused rather than rewritten. Defer only the live Agent Markdown reference lookup;
@@ -1698,8 +1693,7 @@ export async function refreshPackagedConfiguration(root, {
     historicalRuntimeRoots: historicalRuntimePolicy.runtimeRoots
   });
   const managedTargets = [...new Set([
-    WORKFLOW_PATH, PACKAGE_BASELINE_PATH, ...assets.keys(), ...Object.keys(priorAssets),
-    ...(migrateWorldModel ? [CAPABILITIES_PATH] : [])
+    WORKFLOW_PATH, PACKAGE_BASELINE_PATH, ...assets.keys(), ...Object.keys(priorAssets)
   ])];
   // A Git tree can contain two spellings that alias on Windows or default macOS filesystems even
   // when the Linux build host keeps them distinct. Reject the entire candidate before the first
@@ -1734,11 +1728,6 @@ export async function refreshPackagedConfiguration(root, {
       changedFiles.add(move.from); changedFiles.add(move.to); removedFiles.add(move.from);
     }
     if (!dryRun) await applyAgentsHomeMigration(root, agentsHome);
-  }
-  if (capabilityEdit) {
-    changedFiles.add(CAPABILITIES_PATH);
-    if (!dryRun) await writeAtomic(capabilityEdit.target,
-      patchWorkflowDocument(capabilityEdit.text, capabilityEdit.before, capabilityEdit.after));
   }
 
   for (const [relative, bundled] of assets) {
@@ -1977,7 +1966,6 @@ export async function refreshPackagedConfiguration(root, {
     conflicts,
     ...(intentScreen ? { intentScreen } : {}),
     ...(sectionMerges.length ? { sectionMerges } : {}),
-    ...(worldModelMigration ? { worldModelMigration } : {}),
     ...(agentsHome ? { agentsHome } : {}),
     ...(intentsArrival ? { stepIntents: intentsArrival } : {}),
     dryRun
@@ -2982,7 +2970,6 @@ function previewResultForCandidate(candidate, status) {
     packageContentDigest: candidate.refresh.packageContentDigest,
     configurationPaths: candidate.desired.paths,
     configurationAssets: candidate.desired.assets,
-    ...(candidate.refresh.worldModelMigration ? { worldModelMigration: candidate.refresh.worldModelMigration } : {}),
     ...(candidate.refresh.agentsHome ? { agentsHome: candidate.refresh.agentsHome } : {}),
     // Whether workflow.yml moves to version 4 with the packaged steps' intents, or keeps its version (Stage 4).
     ...(candidate.refresh.stepIntents ? { stepIntents: candidate.refresh.stepIntents } : {}),
@@ -3272,7 +3259,6 @@ async function publishCandidate(candidate) {
     configurationChanged,
     files: refresh.files,
     conflicts: refresh.conflicts,
-    ...(refresh.worldModelMigration ? { worldModelMigration: refresh.worldModelMigration } : {}),
     ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}),
     ...(refresh.intentScreen ? { intentScreen: refresh.intentScreen } : {}),
     supersededRefs

@@ -114,7 +114,9 @@ test('an agent that still carries sflow-world-model-views loads: the header is n
 
 test('removed commands refuse by name and point to the Repository brief', async (t) => {
   const repository = await initialized(t);
-  for (const args of [['wm', 'build'], ['wm', 'status', '--json'], ['wm', 'migrate-views', '--dry-run'], ['wm', 'doctor']]) {
+  // The reinitialize option's migration code is gone too; the option is still refused by name [WMR].
+  for (const args of [['wm', 'build'], ['wm', 'status', '--json'], ['wm', 'migrate-views', '--dry-run'], ['wm', 'doctor'],
+    ['workspace', 'reinitialize', '--migrate-world-model', '--dry-run']]) {
     const result = cli(repository, ...args);
     assert.notEqual(result.status, 0, args.join(' '));
     const output = `${result.stdout}${result.stderr}`;

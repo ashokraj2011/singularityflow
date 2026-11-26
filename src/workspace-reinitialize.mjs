@@ -5,8 +5,7 @@
  * upgrade path: configuration refresh owns the reviewed framework-seed merge and configuration
  * state projection, while the schema census owns durable-record compatibility. Capability-specific
  * publication and portable locator repair are deliberately outside this command's boundary;
- * user-owned capability definitions remain unchanged unless the separately confirmed World Model
- * transition migrates their closed legacy view assignments. Routing and ownership never change.
+ * user-owned capability definitions remain unchanged. Routing and ownership never change.
  * Historical records are never rewritten by this command.
  */
 import { createHash } from 'node:crypto';
@@ -76,14 +75,13 @@ function commandAction(argv, { skill = null, cwd = null } = {}) {
   };
 }
 
-function reinitializeArgv({ workspace, repositories, acceptBundledConflicts, resolutions, migrateWorldModel, hardCutover }, tail) {
+function reinitializeArgv({ workspace, repositories, acceptBundledConflicts, resolutions, hardCutover }, tail) {
   const values = ['singularity-flow', 'workspace', 'reinitialize'];
   if (workspace) values.push(commandArgument(workspace, 'WORKSPACE'));
   for (const repository of repositories ?? []) {
     values.push('--repository', commandArgument(repository, 'REPOSITORY'));
   }
   if (acceptBundledConflicts) values.push('--accept-bundled-conflicts');
-  if (migrateWorldModel) values.push('--migrate-world-model');
   if (hardCutover) values.push('--hard-cutover');
   for (const [name, resolution] of Object.entries(resolutions ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
     values.push('--resolve', commandArgument(`${name}=${resolution}`, 'PATH=RESOLUTION'));
@@ -417,37 +415,14 @@ function blockingSchemaCensuses(censuses) {
     || entry.truncated === true);
 }
 
-function unchangedCapabilityPortability(migrateWorldModel = false) {
+function unchangedCapabilityPortability() {
   return {
     status: 'outside-scope-unchanged',
     changed: false,
-    statement: migrateWorldModel
-      ? 'Capability routing and portable locators remain unchanged. Only the explicitly reviewed World Model view assignments can change in the approved configuration mirror; separate capability-state publication is outside this migration.'
-      : 'Capability-specific publication and portable locator repair are outside safe reinitialization. User-owned capability definitions remain unchanged in the approved configuration mirror.',
+    statement: 'Capability-specific publication and portable locator repair are outside safe reinitialization. User-owned capability definitions remain unchanged in the approved configuration mirror.',
     plannedLeads: [],
     results: []
   };
-}
-
-function worldModelMigrationSummary(result, requested) {
-  if (!requested) return {};
-  const repositories = (result.results ?? []).map(entry => ({
-    repository: entry.repository,
-    status: entry.status,
-    ...(entry.worldModelMigration ?? {}),
-    ...(entry.error ? { error: entry.error } : {})
-  }));
-  const verified = repositories.length === result.total && result.total > 0
-    && repositories.every(entry => entry.targetFormat === 'registered-v4');
-  return { worldModelMigration: {
-    requested: true, targetFormat: 'registered-v4',
-    status: verified && ['preview', 'complete'].includes(result.status)
-      ? (result.dryRun ? 'planned' : 'configured') : 'incomplete',
-    historicalArtifacts: 'preserved', storiesRepinned: false,
-    rebuildRequired: repositories.some(entry => entry.rebuildRequired !== false),
-    repositories,
-    statement: 'Approved repository and capability view settings migrate together. Legacy artifacts and Story snapshots remain unchanged; build fresh registered views separately before using them as v4 evidence.'
-  } };
 }
 
 function schemaPolicy(hardCutover) {
@@ -481,7 +456,6 @@ export async function reinitializeWorkspaces({
   dryRun = false,
   acceptBundledConflicts = false,
   resolutions = {},
-  migrateWorldModel = false,
   hardCutover = false,
   confirmPlan = null
 } = {}, serviceOverrides = {}) {
@@ -502,7 +476,7 @@ export async function reinitializeWorkspaces({
     'Workspace reinitialization preview cannot also apply a confirmed plan. Use --dry-run first, then rerun without it using --confirm-plan <PLAN-ID>.',
     { code: 'WORKSPACE_REINITIALIZE_MODE_CONFLICT' }
   );
-  const commandInput = { workspace, repositories, acceptBundledConflicts, resolutions, migrateWorldModel, hardCutover };
+  const commandInput = { workspace, repositories, acceptBundledConflicts, resolutions, hardCutover };
   if (!dryRun && !confirmPlan) throw new SingularityFlowError(
     'Workspace reinitialization is plan-first. Run the dry-run command, review the exact configuration changes, then apply its plan ID.', {
       code: 'WORKSPACE_REINITIALIZE_CONFIRMATION_REQUIRED',
@@ -525,7 +499,7 @@ export async function reinitializeWorkspaces({
     // its conservative three-way behavior, while this plan restores only framework-owned workflow
     // contracts and keeps every repository-only workflow, template and agent intact.
     restorePackagedSeeds: true,
-    migrateWorldModel, hardCutover
+    hardCutover
   };
   let confirmed = null;
   if (!dryRun) confirmed = parseReinitializationPlan(confirmPlan);
@@ -578,8 +552,7 @@ export async function reinitializeWorkspaces({
         + previewTopology.issues.length,
       results: preview.results,
       configurationRefresh: preview,
-      ...worldModelMigrationSummary(preview, migrateWorldModel),
-      capabilityPortability: unchangedCapabilityPortability(migrateWorldModel),
+      capabilityPortability: unchangedCapabilityPortability(),
       schemaMigrationPolicy: schemaPolicy(hardCutover),
       ...cutoverSummary(preview, hardCutover),
       schemaCensuses: previewSchemaCensuses,
@@ -619,8 +592,7 @@ export async function reinitializeWorkspaces({
         error: reason
       })),
       configurationRefresh: preview,
-      ...worldModelMigrationSummary({ ...preview, status: 'blocked', dryRun: false }, migrateWorldModel),
-      capabilityPortability: unchangedCapabilityPortability(migrateWorldModel),
+      capabilityPortability: unchangedCapabilityPortability(),
       schemaMigrationPolicy: schemaPolicy(hardCutover),
       ...cutoverSummary({ ...preview, status: 'blocked' }, hardCutover),
       schemaCensuses: previewSchemaCensuses,
@@ -652,7 +624,7 @@ export async function reinitializeWorkspaces({
   const schemaBlockers = blockingSchemaCensuses(schemaCensuses);
   const topologyChanged = sha256(routingTopologyIdentity(previewTopology))
     !== sha256(routingTopologyIdentity(topology));
-  const capabilityPortability = unchangedCapabilityPortability(migrateWorldModel);
+  const capabilityPortability = unchangedCapabilityPortability();
 
   const schemaBlocked = schemaBlockers.length > 0;
   const topologyBlocked = topologyChanged || topology.issues.length > 0;
@@ -678,7 +650,6 @@ export async function reinitializeWorkspaces({
     results: refresh.results,
     ...(refresh.summary ? { summary: refresh.summary } : {}),
     configurationRefresh: refresh,
-    ...worldModelMigrationSummary({ ...refresh, status }, migrateWorldModel),
     capabilityPortability,
     schemaMigrationPolicy: schemaPolicy(hardCutover),
     ...cutoverSummary({ ...refresh, status }, hardCutover),

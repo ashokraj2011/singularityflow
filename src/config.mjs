@@ -57,7 +57,7 @@ import { normalizeDecisions } from './workflow-decisions.mjs';
 import { compileObligationGraph, pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { assertSourceReviewerAvailable, availableDefaultSourceReview, normalizeSourceReviewPolicy } from './source-review-policy.mjs';
-import { normalizeWorkItemRoot } from './work-item-location.mjs';
+import { normalizeStoryPolicy, normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeTestRecoveryPolicy } from './test-recovery-intake.mjs';
 import { normalizeTestRuntime } from './test-runtime.mjs';
@@ -1080,6 +1080,8 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     }
   }
   definition.workItemRoot = normalizeWorkItemRoot(definition.workItemRoot);
+  // Where new Stories keep SFlow's records [SSB:REQ-010]; absent is today's story-branch.
+  if (definition.story != null) definition.story = normalizeStoryPolicy(definition.story);
   assertRelative(definition.templatesRoot, 'templatesRoot');
   assertStoryBranchNaming(definition.git?.branchNaming);
   if (definition.git?.commitPolicy != null) {
@@ -2416,6 +2418,9 @@ export async function snapshotResolution(root, definition, resolved) {
     // workflow aggregate (visual evidence, reference handles, recovery) cannot safely fall back to
     // the product default when a repository selected a different governed location.
     workItemRoot: definition.workItemRoot ?? 'singularity/work-items',
+    // The layout, copied once: a Story keeps it for life [SSB:REQ-010]. Only a state-ref Story records one, so every
+    // story-branch resolution stays as it was.
+    ...(definition.story?.storage === 'state-ref' ? { story: { storage: 'state-ref' } } : {}),
     initiativeRoot: definition.initiativeRoot ?? 'singularity/initiatives',
     templatesRoot: definition.templatesRoot,
     agentPromptsRoot: agentsRootOf(definition),

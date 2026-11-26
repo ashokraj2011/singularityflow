@@ -1,13 +1,13 @@
 // SSB M1 [SSB:REQ-009]: one resolver joins a Story's paths. Its story-branch arm is today's formulas, byte for byte;
-// its state-ref arm is path arithmetic only, reached by no Story until M2 (docs/plans/SSB-M1-PLAN.md §7).
+// its state-ref arm is reached from M2, when `story.storage: state-ref` starts a Story (docs/plans/SSB-M1-PLAN.md §7).
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import {
   CONFIGURATION_SOURCE_RELATIVE, DEFAULT_WORK_ITEM_ROOT, STATE_CHECKOUT, STATE_REF_PREFIX, STORY_DOCUMENTS, STORY_LAYOUTS,
-  isStoryRecordPath, stateRefName, storiesDirectory, storiesRoot, storyIdOfRecord, storyLocation, storyRecordOf, storyRecordWithin,
-  workDir, workDirRelative, workflowPath
+  forgetStoryLayouts, isStoryRecordPath, rememberStoryLayout, stateRefName, stateTrackingRefName, storiesDirectory, storiesRoot,
+  storyIdOfRecord, storyLocation, storyRecordOf, storyRecordWithin, workDir, workDirRelative, workflowPath
 } from '../src/story-paths.mjs';
 import { DEFAULT_WORK_ITEM_ROOT as LOCATION_DEFAULT, workItemWorkflowRelative } from '../src/work-item-location.mjs';
 import { clarificationRecordRelative, groundingRecordRelative } from '../src/phase-generation.mjs';
@@ -97,14 +97,22 @@ test('the plan\'s table: Story W-1 in /r with the default Stories folder, on bot
   assert.equal(state.fromRecord('x/y.json'), '/r/.sflow-state/x/y.json');
   assert.equal(branch.inside('singularity/work-items/W-1/gdp/x.json'), 'gdp/x.json');
   assert.equal(branch.prefix, 'singularity/work-items/W-1');
-  assert.equal(state.prefix, null);
+  // A state-ref Story has no prefix: a join on it refuses, loudly, instead of writing into the code checkout (M2).
+  assert.throws(() => state.prefix, (error) => error.code === 'STORY_STATE_REF_PATH_UNAVAILABLE'
+    && error.details.nextAction.argv.join(' ') === 'update');
+  assert.equal(branch.branchPrefix, 'singularity/work-items/W-1');
+  assert.equal(state.branchPrefix, null);
+  assert.equal(branch.recordsRoot, '/r');
+  assert.equal(state.recordsRoot, '/r/.sflow-state');
+  assert.equal(path.join(state.recordsRoot, state.record('evidence', 'a.json')), state.file('evidence', 'a.json'));
   assert.equal(state.owns('singularity/work-items/W-1/gdp/x.json'), false);
   assert.deepEqual(state.document('artifacts/design/design.md'),
     { relative: 'docs/stories/W-1/design/design.md', absolute: '/r/docs/stories/W-1/design/design.md' });
   assert.equal(state.isDocument('docs/stories/W-1/design/design.md'), true);
   assert.equal(state.isDocument('docs/stories/W-10/design/design.md'), false);
-  assert.deepEqual(state.configurationSource,
-    { relative: 'configuration-source.json', absolute: '/r/.sflow-state/configuration-source.json' });
+  // The pin stays inside the pinned copy, at its usual path, so every reader of a pinned copy finds it (M2).
+  assert.deepEqual(state.configurationSource, { relative: 'configuration/singularity/configuration-source.json',
+    absolute: '/r/.sflow-state/configuration/singularity/configuration-source.json' });
   assert.equal(state.configurationRoot, '/r/.sflow-state/configuration');
   assert.equal(state.codeTreeExclusion, null);
   assert.deepEqual(state.object('workflow.json'), { revision: 'refs/singularity/state/W-1', path: 'workflow.json' });
@@ -184,7 +192,9 @@ test('both layouts agree with themselves: records, files, membership, documents 
 });
 
 test('a Story keeps its layout: an explicit layout that contradicts the workflow\'s throws', () => {
-  const recorded = { workItem: { id: 'W-1' }, resolution: { workItemRoot: 'singularity/work-items', storage: { layout: 'state-ref' } } };
+  // The layout is recorded in resolution.story.storage; resolution.storage is the Story's document storage providers.
+  const recorded = { workItem: { id: 'W-1' }, resolution: { workItemRoot: 'singularity/work-items', story: { storage: 'state-ref' } } };
+  assert.equal(storyLocation('/r', { workItem: { id: 'W-1' }, resolution: { storage: { layout: 'state-ref' } } }, 'W-1').layout, 'story-branch');
   assert.equal(storyLocation('/r', recorded, 'W-1').layout, 'state-ref');
   assert.equal(storyLocation('/r', recorded, 'W-1', { layout: 'state-ref' }).layout, 'state-ref');
   assert.throws(() => storyLocation('/r', recorded, 'W-1', { layout: 'story-branch' }),
@@ -194,6 +204,30 @@ test('a Story keeps its layout: an explicit layout that contradicts the workflow
   // A resolution without storage is a story-branch Story: every Story in flight keeps today's layout.
   assert.equal(storyLocation('/r', { workItem: { id: 'W-1' }, resolution: {} }, 'W-1').layout, 'story-branch');
   assert.equal(storyLocation('/r', { workItem: { id: 'W-1' }, resolution: {} }, 'W-1', { layout: 'state-ref' }).layout, 'state-ref');
+});
+
+test('a layout seen on disk is remembered by checkout and Story; a workflow\'s own record wins', () => {
+  forgetStoryLayouts();
+  try {
+    assert.equal(storyLocation('/r', {}, 'W-1').layout, 'story-branch');
+    rememberStoryLayout('/r', 'W-1', 'state-ref');
+    assert.equal(storyLocation('/r', {}, 'W-1').layout, 'state-ref');
+    assert.equal(storyLocation('/r/', { workItemRoot: 'team/stories' }, 'W-1').workflowFile, '/r/.sflow-state/workflow.json');
+    // Another checkout, or another Story, is not this one.
+    assert.equal(storyLocation('/other', {}, 'W-1').layout, 'story-branch');
+    assert.equal(storyLocation('/r', {}, 'W-2').layout, 'story-branch');
+    // A record's spelling (no checkout) follows the Story while every checkout agrees.
+    assert.equal(storyLocation(null, {}, 'W-1').record('workflow.json'), 'workflow.json');
+    rememberStoryLayout('/other', 'W-1', 'story-branch');
+    assert.equal(storyLocation(null, {}, 'W-1').layout, 'story-branch');
+    // A workflow's resolution is the Story's own record: without a layout it is story-branch.
+    assert.equal(storyLocation('/r', { workItem: { id: 'W-1' }, resolution: {} }, 'W-1').layout, 'story-branch');
+    assert.equal(storyLocation('/r', { workItem: { id: 'W-1' } }, 'W-1').layout, 'state-ref');
+    rememberStoryLayout('/r', 'W-1', null);
+    assert.equal(storyLocation('/r', {}, 'W-1').layout, 'story-branch');
+    assert.throws(() => rememberStoryLayout('/r', 'W-1', 'elsewhere'), (error) => error.code === 'STORY_LAYOUT_UNKNOWN');
+  } finally { forgetStoryLayouts(); }
+  assert.equal(stateTrackingRefName('origin', 'W-1'), 'refs/singularity/remotes/origin/state/W-1');
 });
 
 test('record-path classifiers find the Story and the path inside it', () => {

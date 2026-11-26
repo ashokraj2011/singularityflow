@@ -2,9 +2,24 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { SingularityFlowError } from './util.mjs';
-import { DEFAULT_WORK_ITEM_ROOT, storyLocation } from './story-paths.mjs';
+import { DEFAULT_WORK_ITEM_ROOT, STORY_LAYOUTS, storyLocation } from './story-paths.mjs';
 
 export { DEFAULT_WORK_ITEM_ROOT };
+
+/**
+ * `story` in workflow.yml [SSB:REQ-010]: `storage` chooses where a NEW Story keeps SFlow's records. `story-branch`
+ * (today's, the default until the release that ships SSB) keeps them on the Story's branch; `state-ref` keeps them on
+ * the Story's own state ref, checked out at `.sflow-state/`. A Story keeps the layout it started with.
+ */
+export function normalizeStoryPolicy(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('story must be a mapping, such as story: { storage: story-branch }.');
+  for (const key of Object.keys(value)) {
+    if (key !== 'storage') throw new SingularityFlowError(`story.${key} is not a setting. Use story.storage (${STORY_LAYOUTS.join(' or ')}).`);
+  }
+  const storage = value.storage ?? 'story-branch';
+  if (!STORY_LAYOUTS.includes(storage)) throw new SingularityFlowError(`story.storage must be ${STORY_LAYOUTS.join(' or ')}.`);
+  return { storage };
+}
 
 /** Normalize the configured durable Story root before it is used in a Git object expression. */
 export function normalizeWorkItemRoot(value = DEFAULT_WORK_ITEM_ROOT) {

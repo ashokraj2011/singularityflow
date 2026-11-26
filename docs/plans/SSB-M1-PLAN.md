@@ -417,7 +417,7 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
   under M6 in the appendix) go through `storiesRoot()`; their Epic paths stay for M6. The last literal joins
   (`commands/work.mjs`, `session-open-local.mjs`, `status-read.mjs`, `start-context.mjs`) and `cli-entry.mjs`'s
   tracked-subjects glob use the resolver too.
-- **Final ratchet.** W, R, P, I, B, X, H, L and S are 0 outside named lines: the three test-pinned `workDir` calls,
+- **Final ratchet.** W, R, P, I, B, X, H, L and S are 0 outside named lines: the three `workDir` calls a test pins or injects,
   the two copies' default folder, and eight lines of help text, agent guidance, comments, an example value and a unit
   word, each with its reason. F stays at 41 (above) and E at 34 (M6).
 - **B12, readers of recorded paths.** On this base the search (`path.join(root, <record>.<path field>)`) finds 81
@@ -436,6 +436,15 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
   - **Documents, code and configuration, unchanged** (the rest): step artifacts (`artifact.path`, documents in M4),
     repository, template, skill, AST and workspace paths, and `story-lineage.mjs`'s governed-context seed, which mixes
     kinds.
+- **Found by the guard tests at the end.** Moving `clarificationRecordRelative` into `phase-generation.mjs` moved its
+  `nextPhaseGeneration` default with it, a second OSA predicate call there; the two twins now share one
+  `contextRecordRelative` that holds the single call, and `story-paths.mjs`'s fall to 0 is locked in
+  `benchmarks/osa/ratchet.json` by hand (no `--ratchet`). The resolver's two refusals name their way out, an SFlow
+  update, as `config.mjs`'s newer-workflow refusal does (plain-language rule: no refusal with only generic help).
+- **Budgets at the end of M1**, against `480c2f936`: eager submit.mjs 9,917,462 (+11,399), session current 4,375,656
+  (+8,381), root dispatch 888,719 bytes (+9,335) and 40 files (one new: `story-paths.mjs`); VS Code gateway 7,891,977
+  bytes (-977, its limit back at 7,893,000), extension 161 modules, help 147, support 115, performance 13 (one module
+  each, `story-paths.mjs`), lazy panels 3,747,716 bytes (+271).
 - **The full suite is not run in M1.** §7 asks for it once at M1's end; the owner's rule for this build runs only the
   touched-area tests and the named guard tests, so the full run is left to integration.
 - **Not converted in M1: a Story prefix passed as a parameter** (`itemRelative`, `itemRoot`, `workRoot` joined by the

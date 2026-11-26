@@ -12,13 +12,17 @@ export function currentPhase(workflow) {
 }
 
 /** Pure context-record location, without grounding, source-review or input readers. */
-export function groundingRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
-  return storyLocation(null, definition, workflow.workItem.id).record('context', `${phase.id}-gen${generation}.json`);
+export function groundingRecordRelative(definition, workflow, phase, generation) {
+  return contextRecordRelative(definition, workflow, phase, phase.id, generation);
 }
 
 /** Its twin: the clarification record of a step's generation. */
-export function clarificationRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
-  return storyLocation(null, definition, workflow.workItem.id).record('context', `clarifications-${phase.id}-gen${generation}.json`);
+export function clarificationRecordRelative(definition, workflow, phase, generation) {
+  return contextRecordRelative(definition, workflow, phase, `clarifications-${phase.id}`, generation);
+}
+
+function contextRecordRelative(definition, workflow, phase, name, generation = nextPhaseGeneration(phase)) {
+  return storyLocation(null, definition, workflow.workItem.id).record('context', `${name}-gen${generation}.json`);
 }
 
 /** max(generation, high-watermark, used reservation) + 1, validated: the kernel's one version arithmetic (§4.3). */

@@ -46,14 +46,16 @@ function recordedLayout(sources) {
 function chosenLayout(sources, layout) {
   const recorded = recordedLayout(sources);
   const chosen = layout ?? recorded ?? 'story-branch';
+  // A layout this build does not know, or a Story read against its own record, is a newer SFlow's Story: update.
+  const update = { executable: 'singularity-flow', argv: ['update'], label: 'Update SFlow, then run the command again.' };
   if (!STORY_LAYOUTS.includes(chosen)) {
-    throw new SingularityFlowError(`'${chosen}' is not a Story storage layout (${STORY_LAYOUTS.join(' or ')}).`, {
-      code: 'STORY_LAYOUT_UNKNOWN'
+    throw new SingularityFlowError(`'${chosen}' is not a Story storage layout this SFlow reads (${STORY_LAYOUTS.join(' or ')}). Nothing was changed.`, {
+      code: 'STORY_LAYOUT_UNKNOWN', details: { layout: chosen, nextAction: update }
     });
   }
   if (layout != null && recorded != null && layout !== recorded) {
-    throw new SingularityFlowError(`This Story keeps its state as ${recorded}; it cannot be read as ${layout}. A Story's layout never changes.`, {
-      code: 'STORY_LAYOUT_CHANGED'
+    throw new SingularityFlowError(`This Story keeps its state as ${recorded}; it cannot be read as ${layout}. A Story's layout never changes. Nothing was changed.`, {
+      code: 'STORY_LAYOUT_CHANGED', details: { recorded, requested: layout, nextAction: update }
     });
   }
   return chosen;

@@ -67,7 +67,7 @@ export function chatLogView(turns, searchId) {
   return turns.map(turn => `<article class="ask-turn">
     <p class="ask-chat-question">${escape(turn.question)}</p>
     <div class="ask-chat-reply"><div class="ask-chat-byline">${icon(turn.answeredBy === 'search' ? 'search' : 'chat')}<strong>${turn.answeredBy === 'copilot' ? 'Copilot' : 'SFlow'}</strong></div>
-      ${turn.id === searchId ? '<div id="ask-search-result"></div>' : turn.answeredBy === 'copilot' ? markdown(turn.answer)
+      ${turn.id === searchId ? '<div id="ask-search-result"></div>' : ['copilot', 'help'].includes(turn.answeredBy) ? markdown(turn.answer)
         : `<p class="ask-record-copy">${escape(turn.answer)}</p>`}
       ${turn.sources?.length ? `<div class="ask-citations" aria-label="Sources">${turn.sources.map(source =>
         resultAction(source, `${source.citation ? `<small>${escape(source.citation)}</small> ` : ''}${escape(storyLinks[source.type]?.[1] ?? source.title)}`, 'ask-citation')).join('')}</div>` : ''}

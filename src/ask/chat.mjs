@@ -1,3 +1,4 @@
+import { ASK_COPILOT_MAX_TOTAL_TOKENS } from '../model-limits.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
@@ -17,6 +18,28 @@ function clipped(value, bytes) {
 
 const invalid = () => new SingularityFlowError('Send one chat question and the recent conversation.', { code: 'ASK_CHAT_INPUT_INVALID', details: { nextAction: { command: 'singularity-flow help ask', label: 'See how Ask SFlow takes a question.' } } });
 const unavailable = (code, message) => ({ kind: 'chat', status: 'unavailable', diagnostic: { code, message } });
+
+function providerFailure(error, withholdForModel) {
+  const code = typeof error?.code === 'string' ? error.code : 'MODEL_PROVIDER_FAILED';
+  const observed = error?.details?.observedTotalTokens;
+  const maximum = error?.details?.maximumTotalTokens;
+  const messages = {
+    MODEL_TOKEN_BUDGET_EXCEEDED: Number.isSafeInteger(observed) && Number.isSafeInteger(maximum)
+      ? `Copilot reported ${observed.toLocaleString('en-US')} tokens, above Ask SFlow’s ${maximum.toLocaleString('en-US')}-token limit.`
+      : 'Copilot reached its token or request limit.',
+    MODEL_PROVIDER_UNAVAILABLE: 'SFlow could not find the configured Copilot CLI executable.',
+    MODEL_PROVIDER_NOT_EXECUTABLE: 'SFlow could not execute the configured Copilot CLI.',
+    MODEL_PROMPT_TRANSPORT_UNSUPPORTED: 'This Copilot CLI does not support the configured private prompt transport.',
+    MODEL_NOT_AVAILABLE: 'Copilot could not use the configured model.',
+    MODEL_OUTPUT_LIMIT: 'Copilot exceeded the response size limit.',
+    MODEL_TURN_LIMIT: 'Copilot exceeded the single-turn limit for this reply.',
+    MODEL_TIMEOUT: 'Copilot did not reply in time.'
+  };
+  const detail = typeof error?.details?.diagnostic === 'string' ? error.details.diagnostic : '';
+  const safe = clipped(withholdForModel(detail).value.trim(), 512);
+  const message = Object.hasOwn(messages, code) ? messages[code] : `Copilot could not answer (${code}).`;
+  return unavailable(code, message + (safe ? ' ' + safe : '') + ' Your question is still here. You can use Search to look up SFlow records.');
+}
 
 function validSource(source) {
   if (!source || typeof source.id !== 'string' || source.id.length > 240 ||
@@ -123,7 +146,7 @@ export async function answerChat(root, input, { signal } = {}) {
       ...provider, cwd: root, allowedRoots: [root], channel: 'workspace-chat',
       subject: { kind: 'workspace-chat', id: 'browser' }, signal: cancelled.signal,
       prompt: { text: prompt }, tools: { mode: 'none', names: [] },
-      limits: { timeoutMs: 40_000, promptBytes: MAX_PROMPT, outputBytes: MAX_ANSWER, maxTurns: 1, maxTotalTokens: 8192 }
+      limits: { timeoutMs: 40_000, promptBytes: MAX_PROMPT, outputBytes: MAX_ANSWER, maxTurns: 1, maxTotalTokens: ASK_COPILOT_MAX_TOTAL_TOKENS }
     });
     const output = withholdForModel(String(response.output ?? '').trim()).value;
     const valid = new Set(sources.map(source => source.citation));
@@ -138,10 +161,7 @@ export async function answerChat(root, input, { signal } = {}) {
       sources: sources.filter(source => cited.has(source.citation)) };
   } catch (error) {
     if (cancelled.signal.aborted) return unavailable('ASK_CHAT_CANCELLED', 'Chat was cancelled. Your question is still in the composer.');
-    const code = error.code ?? 'ASK_CHAT_PROVIDER_UNAVAILABLE';
-    const message = code.includes('TIMEOUT') ? 'Copilot took too long to answer. Try again.'
-      : 'Copilot could not answer. Check your Copilot CLI sign-in and SFlow model settings, then retry.';
-    return unavailable(code, message);
+    return providerFailure(error, withholdForModel);
   } finally {
     process.removeListener('SIGTERM', cancel);
     process.removeListener('SIGINT', cancel);

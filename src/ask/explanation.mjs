@@ -1,3 +1,4 @@
+import { ASK_COPILOT_MAX_TOTAL_TOKENS } from '../model-limits.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { withholdForModel } from '../spec-library/share-check.mjs';
 
@@ -102,7 +103,7 @@ export async function explainSavedResult(scope, record, store, { allowModel, res
       ...selected, cwd: scope.root, allowedRoots: [scope.root], channel: 'ask-explanation',
       subject: { kind: 'ask-conversation', id: record.id }, signal: cancellation.signal, prompt: { text: prompt },
       tools: { mode: 'none', names: [] },
-      limits: { timeoutMs: TIMEOUT_MS, promptBytes: PROMPT_BYTES, outputBytes: OUTPUT_BYTES, maxTurns: 1, maxTotalTokens: 4096 }
+      limits: { timeoutMs: TIMEOUT_MS, promptBytes: PROMPT_BYTES, outputBytes: OUTPUT_BYTES, maxTurns: 1, maxTotalTokens: ASK_COPILOT_MAX_TOTAL_TOKENS }
     });
   } catch {
     await store.read(record.id, record.revision);

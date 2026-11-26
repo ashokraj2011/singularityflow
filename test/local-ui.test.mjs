@@ -1148,6 +1148,17 @@ test('Code Explainer follows the active Story from an engine clone and updates a
   assert.equal(await thread.getByText(new RegExp(second.id)).count(), 0);
   await question.press('Enter');
   await thread.getByText(new RegExp(first.id)).waitFor();
+  const workflowFile = path.join(first.checkout, 'singularity', 'work-items', first.id, 'workflow.json');
+  const closed = JSON.parse(await readFile(workflowFile, 'utf8'));
+  await writeFile(workflowFile, JSON.stringify({ ...closed, status: 'closed', currentPhase: null }));
+  await question.fill('how to start the work');
+  await question.press('Enter');
+  const startHelp = thread.locator('.ask-turn').filter({ hasText: 'how to start the work' });
+  await startHelp.getByText('The selected Story is closed.', { exact: true }).waitFor();
+  await startHelp.getByText('Start new work', { exact: true }).waitFor();
+  await startHelp.getByText('Clone Story', { exact: true }).waitFor();
+  await startHelp.getByRole('link', { name: 'Browse Stories', exact: true }).waitFor();
+  await startHelp.getByRole('button', { name: /Starting work/ }).waitFor();
   await attach(second);
   await page.getByRole('link', { name: 'Code Explainer', exact: true }).click();
   await rows.filter({ hasText: second.name }).waitFor();
@@ -1394,7 +1405,7 @@ test('Ask SFlow resumes private context in a new browser tab and opens the saved
   await assert.rejects(access(path.join(root, '.git/singularity-flow/model-invocations')));
 });
 
-test('browser search finds workspace records and pinned files, and Copilot chat uses explicit context and keeps follow-ups', { timeout: 65_000 }, async t => {
+test('browser search finds pinned files and Copilot chat keeps scoped follow-ups within its ACP token limit', { timeout: 65_000 }, async t => {
   const { base, root, directory, env, mustGit, cleanup } = await fixture(t);
   const [{ initializeDefinition }, { revisionFiles }, { revisionDirectory }, { chromium }, { default: YAML }] = await Promise.all([
     import('../src/config.mjs'), import('../src/spec-library/library.mjs'), import('../src/spec-library/ids.mjs'), import('playwright-core'), import('yaml')
@@ -1404,20 +1415,31 @@ test('browser search finds workspace records and pinned files, and Copilot chat 
   const calls = path.join(base, 'chat-calls.jsonl');
   const secret = inventedValue('gh', 'p_', 'M2sV'.repeat(10));
   await writeFile(standin, [
-    'import { readFileSync, appendFileSync } from "node:fs";',
+    'import { appendFileSync } from "node:fs";',
+    'import { createInterface } from "node:readline";',
     'const args = process.argv.slice(2);',
-    'const prompt = readFileSync(args[args.indexOf("--attachment") + 1], "utf8");',
-    'const input = JSON.parse(prompt.split("\\n").at(-1));',
-    'appendFileSync(' + JSON.stringify(calls) + ', JSON.stringify({ ...input, toolsDisabled: !args.includes("--allow-all-tools"), argvContainsQuestion: args.includes(input.question) }) + "\\n");',
-    'const spec = input.records.find(item => item.type === "spec");',
-    'const answer = spec ? "Read the Harbor invoice spec [" + spec.citation + "]. [S999]"',
-    '  : input.previous.length ? "This follows the earlier question about tidal power." : "Tidal power uses moving water. <img src=x onerror=alert(1)>";',
-    'process.stdout.write(answer);'
+    'const send = message => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\\n");',
+    'for await (const line of createInterface({ input: process.stdin })) {',
+    '  const { id, method, params } = JSON.parse(line);',
+    '  if (method === "initialize") send({ id, result: { protocolVersion: params.protocolVersion, agentCapabilities: {} } });',
+    '  if (method === "session/new") send({ id, result: { sessionId: "ask-chat" } });',
+    '  if (method !== "session/prompt") continue;',
+    '  const prompt = params.prompt.map(item => item.text).join("");',
+    '  const input = JSON.parse(prompt.split("\\n").at(-1));',
+    '  appendFileSync(' + JSON.stringify(calls) + ', JSON.stringify({ ...input, toolsDisabled: !args.includes("--allow-all-tools"), argvContainsQuestion: args.includes(input.question) }) + "\\n");',
+    '  const spec = input.records.find(item => item.type === "spec");',
+    '  const answer = spec ? "Read the Harbor invoice spec [" + spec.citation + "]. [S999]"',
+    '    : input.previous.length ? "This follows the earlier question about tidal power." : "Tidal power uses moving water. <img src=x onerror=alert(1)>";',
+    '  send({ method: "session/update", params: { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk",',
+    '    messageId: "answer", content: { type: "text", text: answer } } } });',
+    '  const inputTokens = input.question === "Explain deep ocean currents." ? 39_900 : 13_065;',
+    '  send({ id, result: { stopReason: "end_turn", usage: { inputTokens, outputTokens: 167, totalTokens: inputTokens + 167 } } });',
+    '}'
   ].join('\n'));
   const workflow = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(workflow, 'utf8'));
   definition.models = { defaultProvider: 'chat-test', providers: { 'chat-test': {
-    type: 'copilot-cli', executable: process.execPath, arguments: [standin], promptTransport: 'attachment'
+    type: 'copilot-cli', executable: process.execPath, arguments: [standin], promptTransport: 'acp-stdio'
   } } };
   await writeFile(workflow, YAML.stringify(definition));
   const code = path.join(root, 'harbor-invoice.mjs');
@@ -1482,6 +1504,9 @@ test('browser search finds workspace records and pinned files, and Copilot chat 
   await results.getByText(/Keep the receipt for each invoice/).waitFor();
 
   const question = page.getByRole('textbox', { name: 'Ask a question' });
+  await question.fill('How do I publish?');
+  await question.press('Enter');
+  await page.getByRole('log', { name: 'Chat conversation' }).getByRole('button', { name: /Artifacts, templates, and publication/ }).waitFor();
   await question.fill('zqxwuvunmatched');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   await page.getByRole('heading', { name: 'No matching results' }).waitFor();
@@ -1515,6 +1540,13 @@ test('browser search finds workspace records and pinned files, and Copilot chat 
   assert.ok(requests[2].records.some(record => record.reference === spec + '@1'));
   assert.ok(!JSON.stringify(requests).includes(secret) && !JSON.stringify(requests).includes('LOCAL_DRAFT_CANARY'));
   assert.ok(requests.every(request => request.toolsDisabled && !request.argvContainsQuestion));
+
+  await question.fill('Explain deep ocean currents.');
+  await question.press('Enter');
+  const budget = page.locator('#ask-status');
+  await budget.getByText(/Copilot reported 40,067 tokens, above Ask SFlow’s 24,576-token limit/).waitFor();
+  assert.equal(await budget.getByText(/sign-in/i).count(), 0);
+  assert.equal(await question.inputValue(), 'Explain deep ocean currents.');
 
   await page.getByRole('button', { name: 'New chat' }).click();
   await chat.getByText('This follows the earlier question about tidal power.').waitFor({ state: 'detached' });

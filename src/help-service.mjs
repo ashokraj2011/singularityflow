@@ -118,7 +118,7 @@ function verifyCatalog(manifest, topics) {
  * content is served; the service never labels edited bytes as stamped documentation.
  */
 export async function resolveHelp(question, {
-  maxBytes, section, topicsDirectory = TOPICS_DIRECTORY, manifest = docsManifest()
+  maxBytes, section, requireFullQuestionMatch = false, topicsDirectory = TOPICS_DIRECTORY, manifest = docsManifest()
 } = {}) {
   const started = Date.now();
   const topics = await loadTopics(topicsDirectory);
@@ -139,7 +139,7 @@ export async function resolveHelp(question, {
     });
   }
 
-  const resolution = resolveTopic(topics, query);
+  const resolution = resolveTopic(topics, query, { requireFullQuestionMatch });
   const helpIntent = classifyHelpIntent(query) ?? 'concept';
   if (resolution.status !== 'resolved') {
     const candidateIds = resolution.status === 'ambiguous'

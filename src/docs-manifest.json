@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "eb8364a6a70b244907c4cc3da2262544be7ab3c3",
+  "sourceCommit": "907eebf1fc9aa9d68645c850fb068f847f864c2b",
   "topicCount": 95,
-  "contentSha256": "57b170dbcf681b8a3d22508e2a9d611f7a68c3b62cd700fa09088ff9adc97b39",
+  "contentSha256": "d8f3341f0477bfe839bc00e4b5ba1cc870d2e1caea909f25f5986b9390dbebc6",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -312,8 +312,8 @@
     {
       "id": "help-and-docs",
       "title": "Getting help",
-      "version": 16,
-      "sha256": "f0a8d19b7464f777f4cf5b03d992d49dfb29476aea7d634476a4b69c4e87ff15",
+      "version": 17,
+      "sha256": "d3a470bcb2cd91cab7c1c6761c1b63199d277b2684fa9ac13de21ddce306e15c",
       "routingSha256": "04185743a3f29ebcea471ec4c6a7ff6b1191b8dfea8c12f8173850ba45b4b20b",
       "file": "help-and-docs.md"
     },
@@ -640,9 +640,9 @@
     {
       "id": "starting-work",
       "title": "Starting work",
-      "version": 38,
-      "sha256": "d2aefed7e81bdb4f6cff50467a69818e8ff7795b895793a31cff7a65b72a8f2e",
-      "routingSha256": "5693a64459940975a49c2840529f78c8668f80c781e37f8b1b33e46042b54d08",
+      "version": 39,
+      "sha256": "df6d56823303e840269756bd24b2efcaa517b6363940842c107d7d5de08d14a0",
+      "routingSha256": "54da7f8876d801c6cda9bcdf0296e3c23f6bbe4918b08a3a28c8942c06f08ee8",
       "file": "starting-work.md"
     },
     {

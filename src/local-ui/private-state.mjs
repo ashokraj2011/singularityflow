@@ -47,6 +47,7 @@ export async function buildIdentity() {
     'src/local-ui/operations.mjs', 'src/local-ui/bridge-client.mjs', 'src/local-ui/public/app.js',
     'src/local-ui/public/app.css', 'src/local-ui/public/index.html', 'src/local-ui/public/views.js',
     'src/local-ui/public/ask.js', 'src/local-ui/public/ask-results.js', 'src/local-ui/ask-story.mjs', 'src/ask/chat.mjs',
+    'src/local-ui/ask-help.mjs', 'src/docs-manifest.json', 'src/help-service.mjs', 'src/docs-topics.mjs', 'src/model-limits.mjs',
     'src/ask/query.mjs', 'src/ask/history-intent.mjs',
     'src/local-ui/public/code-explainer.js', 'src/local-ui/public/code-explainer.css',
     'src/code-intelligence/code-explainer-view.mjs', 'src/code-intelligence/generated/code-explainer-model.mjs',

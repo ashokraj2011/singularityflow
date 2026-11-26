@@ -24,7 +24,7 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 16
+version: 17
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -67,7 +67,7 @@ Open **Ask SFlow** in the browser workspace or VS Code Navigator. Type to find a
 
 Open **Search or ask** from the workspace header with the button or with `⌘K` on Mac and `Ctrl+K` on Windows. Search ranks results from the selected checkout and SFlow Help. Use the filters for Stories, specifications, workflow assets, and tracked files. File previews open the commit found by the search.
 
-Use **Send** to ask a question in the same conversation. Ask SFlow answers supported Story questions from its records, including follow-ups about test results and changed files. Open-ended questions go to Copilot. Choose **Include Story and workspace context** or **Ask about these results** to share relevant recent context and a small set of Story or published workspace records with Copilot. Replies link to their cited sources. Choose **New chat** to clear recent turns in the tab or use **Saved searches** to resume retained search results.
+Use **Send** to ask a question in the same conversation. Ask SFlow answers supported Story questions from its records and recognized product questions from the reviewed help. For example, “How do I start new work?” gives the Story intake steps even when Copilot is unavailable. Open-ended questions go to Copilot. Choose **Include Story and workspace context** or **Ask about these results** to share relevant recent context and a small set of Story or published workspace records with Copilot. Replies link to their cited sources. If Copilot fails, the composer keeps your question and shows the reported reason. Choose **New chat** to clear recent turns in the tab or use **Saved searches** to resume retained search results.
 
 ### Work and source history
 

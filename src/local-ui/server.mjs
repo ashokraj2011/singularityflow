@@ -645,8 +645,9 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             const evidenceRoot = evidenceStory?.lifecycle?.checkoutPath ?? context.root;
             const localSummary = evidenceStory && !input.workspace && asksForStorySummary(question);
             let records = [];
-            let value;
-            if (topic || localSummary || chat && input.workspace && evidenceStory) {
+            let value = chat && !topic && !localSummary
+              ? await (await import('./ask-help.mjs')).readAskHelp(question, evidenceStory) : null;
+            if (!value && (topic || localSummary || chat && input.workspace && evidenceStory)) {
               if (!evidenceStory) {
                 const subject = previous?.subject ?? null;
                 value = { kind: 'chat', status: 'resolved', question, answeredBy: 'sflow', topic, subject, sources: [],
@@ -724,7 +725,7 @@ async function listenService({ directory, idle = 10, execute = executeOperation,
             const turn = chat && value.status === 'resolved' ? { question: value.question, answer: value.answer,
               sources: value.sources, answeredBy: value.answeredBy ?? 'copilot', topic: value.topic,
               subject: value.subject ?? (input.workspace ? evidenceStory?.workId ?? previous?.subject : null),
-              scoped: value.answeredBy === 'sflow' || input.workspace }
+              scoped: Boolean(value.answeredBy || input.workspace) }
               : interaction === 'submit' ? searchTurn(input.query, value) : null;
             if (turn) {
               turn.id = randomUUID();

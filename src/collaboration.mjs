@@ -25,6 +25,7 @@ import { evidenceContractRecoveryActions } from './phase-evidence-amendment.mjs'
 import { inspectDraftEvidenceHold } from './draft-evidence-hold.mjs';
 import { withWorktreeReadScope } from './read-scope.mjs';
 import { operationContext } from './operation-context.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 /** A lock older than this is not a Git command still at work; a crashed one left it. */
 export const STALE_INDEX_LOCK_MS = 5 * 60 * 1000;
@@ -75,7 +76,7 @@ export async function workingTreeAction(root, config, workflow, phase, status, p
   paths = paths.filter((candidate) => !held.has(candidate));
   const relevantPaths = paths.filter((candidate) => !disposableUntrackedPaths.includes(candidate));
   const itemRoot = repositoryRelativePath(
-    `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`
+    storyLocation(null, config, workflow.workItem.id).prefix
   );
   const current = phase?.id === workflow.currentPhase && phase.status === 'in_progress'
     && branch(root) === workflow.workItem.branch && itemRoot;
@@ -317,7 +318,7 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
   // authored bytes: a lock file nothing holds any more, and index entries that lag the published
   // commit. Both are safe to repair. Without these actions the check below sees "changes" that it
   // can only send to manual review, and a Story in its first phase had no way forward.
-  const itemRoot = repositoryRelativePath(`${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`);
+  const itemRoot = repositoryRelativePath(storyLocation(null, config, workflow.workItem.id).prefix);
   const lock = indexLockState(root);
   if (lock) {
     // The plan is confirmed by its hash, so it names when the lock last changed, never a growing age.
@@ -479,7 +480,7 @@ export async function applyRecovery(root, config, workflow, plan, { confirm = nu
   const completed = [];
   // The lock first (everything else needs the index), then the index, then publication.
   const order = (item) => item.id === 'remove-stale-index-lock' ? 0 : ['refresh-index', 'unstage-owned-paths'].includes(item.id) ? 1 : 2;
-  const itemRoot = repositoryRelativePath(`${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`);
+  const itemRoot = repositoryRelativePath(storyLocation(null, config, workflow.workItem.id).prefix);
   for (const action of [...automatic].sort((a, b) => order(a) - order(b))) {
     if (action.id === 'remove-stale-index-lock') {
       const lock = indexLockState(root);

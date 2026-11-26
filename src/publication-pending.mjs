@@ -33,6 +33,7 @@ import {
   MACHINE_LOCAL_PUBLICATION_INTEGRITY_SCHEME,
   machineLocalPublicationIntegrityKey
 } from './publication-machine-integrity.mjs';
+import { storiesDirectory, storyLocation } from './story-paths.mjs';
 export {
   sealMachineLocalPublicationReceipt,
   verifyMachineLocalPublicationReceipt
@@ -175,11 +176,8 @@ async function sharedPendingPublication(root, kind, id, { migrate = true } = {})
  * while every mutation path, which passes its own `legacyPath`, refused to run because of them.
  */
 export function defaultLegacyPendingPublicationPath(root, kind, id, roots = {}) {
-  const directory = kind === 'initiative'
-    ? (roots.initiativeRoot ?? 'singularity/initiatives')
-    : kind === 'story'
-      ? (roots.workItemRoot ?? 'singularity/work-items')
-      : null;
+  if (kind === 'story') return storyLocation(root, roots, String(id)).file('publication-pending.json');
+  const directory = kind === 'initiative' ? (roots.initiativeRoot ?? 'singularity/initiatives') : null;
   // Ad hoc and Goal receipts were Git-local from their first supported release. Treating every
   // non-Initiative subject as a legacy Story would let `adhoc sync`/`goal sync` unlink an unrelated
   // tracked Story marker whose ID happened to match.
@@ -1250,7 +1248,7 @@ export async function findLegacyPendingPublications(root, roots = {}) {
   // it — and it was blind to exactly the repositories that had moved their roots.
   const bases = [...new Set([
     path.join(root, 'singularity'),
-    path.join(root, roots.workItemRoot ?? 'singularity/work-items'),
+    storiesDirectory(root, roots),
     path.join(root, roots.initiativeRoot ?? 'singularity/initiatives')
   ].map((base) => path.resolve(base)))]
     .filter((base, _index, all) => !all.some((other) => other !== base && base.startsWith(`${other}${path.sep}`)));

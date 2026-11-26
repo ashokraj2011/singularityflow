@@ -1070,7 +1070,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,917,391 (measured for submit.mjs, +596, 2026-11-26 on ssb-m1; start.mjs 9,916,515): steps, prompts and phase
     // records join through the resolver, and storyRecordWithin reads a Story from a path below another folder (SSB M1
     // B3). No new eager file.
-    assert.ok(closure.bytes <= 9_917_391, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,917,440 (measured for submit.mjs, +49, 2026-11-26 on ssb-m1; start.mjs 9,916,556): publication, recovery and
+    // Git join a Story's paths through the resolver (SSB M1 B6). No new eager file.
+    assert.ok(closure.bytes <= 9_917_440, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

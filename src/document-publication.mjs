@@ -5,6 +5,7 @@ import { recordSha256 } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, posix, run } from './util.mjs';
 import { validLocalDocumentKey } from './document-storage.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 // Version of the embedded event binding, not a separately persisted schema family.
 const DOCUMENT_SET_FORMAT_VERSION = 1;
@@ -180,7 +181,7 @@ export function validateDocumentPublicationTree(root, config, workflow, event, {
     refusal('Document publication contains invalid or duplicate document IDs.', 'DOCUMENT_SET_BINDING_INVALID');
   }
 
-  const itemRoot = posix(path.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id));
+  const itemRoot = storyLocation(null, config, workflow.workItem.id).prefix;
   const manifestPath = governedTreePath(path.posix.join(itemRoot, 'documents.json'), {
     label: 'Document manifest path'
   });

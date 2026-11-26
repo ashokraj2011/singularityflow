@@ -5,6 +5,7 @@ import path from 'node:path';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure, stripTemplateGuidance } from './markdown-structure.mjs';
 import { qualifiedClauseMatches } from './traceability-ids.mjs';
+import { storyLocation } from './story-paths.mjs';
 export { inspectManagedArtifactMetadata };
 
 // "todo" is also an ordinary word (a to-do list Story could never publish), so TODO counts only in
@@ -335,11 +336,7 @@ async function inspectRawPhaseAuthoredReviewContent(root, config, workflow, phas
   const set = resolvedArtifactSet(config, workflow, phase);
   if (!set) return findings;
   const required = requiredArtifactRepoPath(config, workflow, phase);
-  const phaseArtifactRoot = path.posix.join(
-    config.workItemRoot ?? 'singularity/work-items',
-    workflow.workItem.id,
-    memberRoot(phase)
-  );
+  const phaseArtifactRoot = storyLocation(null, config, workflow.workItem.id).record(memberRoot(phase));
   for (const member of set.members) {
     // Advisory members are context only: their absence, content, or unfinished prose cannot become
     // a lifecycle gate. Only governed review members contribute hard authoring findings.

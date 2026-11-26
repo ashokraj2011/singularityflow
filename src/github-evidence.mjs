@@ -3,13 +3,13 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { branch, identity } from './git.mjs';
 import { run, commandExists, nowIso, SingularityFlowError, writeJson } from './util.mjs';
-import { workDir } from './story-paths.mjs';
 import { commitAndPublish, saveStoryDraft, workflowPublicationBranch } from './state-stores.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { classifyGitHost } from './git-host.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -293,7 +293,7 @@ export async function runAndRecordStoryChecks(root, config, workflow, {
   };
   const evidenceSha256 = hash(base);
   const evidence = { ...base, evidenceSha256, ready: github.ready && base.governance.valid && (base.conformance.phaseStatus == null || base.conformance.fresh) };
-  const file = path.join(workDir(root, config, workflow.workItem.id), 'evidence', 'github', `${evidenceSha256}.json`);
+  const file = storyLocation(root, config, workflow.workItem.id).file('evidence', 'github', `${evidenceSha256}.json`);
   workflow.lineage.reviewEvidence ??= [];
   workflow.lineage.reviewEvidence.push({
     evidenceSha256,

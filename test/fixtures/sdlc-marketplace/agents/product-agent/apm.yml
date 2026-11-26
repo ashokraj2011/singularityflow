@@ -18,6 +18,14 @@ pdlc-tasks:
   - user-story-writing
   - acceptance-criteria-writing
 lifecycle-state: approved
+# Who owns it: its feedback goes to this team (SFlow OMK §4.1). Its lifecycle record is lifecycle.yml beside this file.
+owner:
+  team: product-guild
+  name: Product Guild
+  handle: "@acme/product-guild"
+  contact: product-guild@example.com
+  issues: https://git.example.com/acme/sdlc-marketplace/issues
+  feedback-labels: [sflow-feedback, product-agent]
 # Skills this agent routes to, as same-repository APM local paths.
 dependencies:
   apm:

@@ -21,6 +21,14 @@ pdlc-tasks:
   - ui-test-automation
   - unit-testing
 lifecycle-state: proposed
+# Who owns it: its feedback goes to this team (SFlow OMK §4.1). Its lifecycle record is lifecycle.yml beside this file.
+owner:
+  team: qa-guild
+  name: QA Guild
+  handle: "@acme/qa-guild"
+  contact: qa-guild@example.com
+  issues: https://git.example.com/acme/sdlc-marketplace/issues
+  feedback-labels: [sflow-feedback, qa-test-automation-agent]
 # Skills this agent routes to, as same-repository APM local paths.
 dependencies:
   apm:

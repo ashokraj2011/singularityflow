@@ -1809,6 +1809,25 @@ export function exactTreePathsAtObject(root, objectId, pathspec = []) {
   return result.status === 0 ? nullList(result.stdout) : null;
 }
 
+/**
+ * The day an exact local commit was committed, in its committer's own time zone (YYYY-MM-DD), or null when it cannot be
+ * read: what a marketplace's lifecycle record is checked against (marketplace-repository.mjs) [OMK:REQ-003].
+ */
+export function exactCommitDay(root, objectId) {
+  invariant(EXACT_LOCAL_OBJECT_ID.test(String(objectId ?? '')), 'Exact Git object ID is invalid.');
+  const result = git(['cat-file', 'commit', objectId], { cwd: root, env: immutableLocalGitEnvironment(), allowFailure: true, maxBuffer: 1024 * 1024 });
+  if (ISOLATED_GIT_OBJECT_REPOSITORIES.has(root) && !processResultCompleted(result)) {
+    const error = new SingularityFlowError('The isolated exact-commit read did not prove process cleanup.', { code: 'GIT_OBJECT_READ_UNAVAILABLE' });
+    error.temporaryGitCleanupUnproven = true;
+    throw error;
+  }
+  if (result.status !== 0) return null;
+  const match = /^committer .* (\d{1,12}) ([+-])(\d{2})(\d{2})$/mu.exec(String(result.stdout ?? ''));
+  if (!match) return null;
+  const offset = (match[2] === '-' ? -1 : 1) * (Number(match[3]) * 60 + Number(match[4]));
+  return new Date((Number(match[1]) + offset * 60) * 1000).toISOString().slice(0, 10);
+}
+
 /** Compare exact local object trees without replace refs, caller indexes or lazy remote fetches. */
 export function exactChangedPathsBetweenObjects(root, before, after) {
   invariant(EXACT_LOCAL_OBJECT_ID.test(String(before ?? '')) && EXACT_LOCAL_OBJECT_ID.test(String(after ?? '')),

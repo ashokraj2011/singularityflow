@@ -27,6 +27,7 @@ import {
 import {
   configuredMarketplaces, fetchMarketplaceIndex, requireMarketplace, selectMarketplaceEntry
 } from './marketplace.mjs';
+import { lifecycleStateOf } from './marketplace-lifecycle.mjs';
 import { parseMcpServerDescriptor } from './mcp-descriptor.mjs';
 import { LIBRARY_SKILL_TABLE } from './skill-library.mjs';
 import { fetchMcpContent, parseMcpReference } from './mcp-import.mjs';
@@ -135,15 +136,26 @@ async function repositoryMarketplaceSkill(marketplace, reference) {
     throw fail(`${reference.entry} in marketplace '${marketplace.id}' has no readable SKILL.md in ${entry.source}.`, 'IMPORT_CONTENT_EMPTY',
       { nextAction: { command: `singularity-flow marketplace browse ${marketplace.id} --kind skill`, label: `See the skills marketplace ${marketplace.id} lists.` } });
   }
+  refuseRetired(marketplace, reference.entry, entry.lifecycleRecord?.state ?? entry.lifecycleState);
   return {
     bytes: Buffer.from(entry.text, 'utf8'),
     entry: { id: entry.name, kind: 'skill', version: entry.version ?? null, label: entry.name, description: entry.description ?? null, phases: entry.pdlcPhases ?? [] },
     source: {
       kind: 'marketplace-skill', marketplace: marketplace.id, repository: marketplace.repository, commit: listing.commit, entry: entry.name,
       version: entry.version ?? null, path: entry.document, tasks: [...(entry.pdlcTasks ?? [])], tags: [...(entry.tags ?? [])],
-      lifecycleState: entry.lifecycleState ?? null
+      lifecycleState: entry.lifecycleRecord?.word ?? entry.lifecycleState ?? null, ...ownerField(entry.owner)
     }
   };
+}
+
+/** The owning team an import records, as the marketplace names it now: optional, and ignored by an older build [OMK:REQ-006]. */
+const ownerField = (owner) => (owner?.team || owner?.name ? { owner: { team: owner.team ?? null, name: owner.name ?? null } } : {});
+
+/** A retired item is no longer supported, so it is not installed [OMK §5.1]; the catalog says what is there instead. */
+function refuseRetired(marketplace, name, state) {
+  if (lifecycleStateOf(state) !== 'retired') return;
+  throw fail(`${name} is retired in marketplace '${marketplace.id}': it is no longer supported, so it is not installed.`, 'MARKETPLACE_ITEM_RETIRED',
+    { nextAction: { command: `singularity-flow marketplace catalog --marketplace ${marketplace.id}`, label: `See what marketplace ${marketplace.id} offers now.` } });
 }
 
 async function fetchReference(root, reference, { fetchImpl = globalThis.fetch, maxBytes = DEFAULT_REMOTE_MAX_BYTES, launch = false, arguments: args = {}, sessionOptions = {} } = {}) {
@@ -159,6 +171,7 @@ async function fetchReference(root, reference, { fetchImpl = globalThis.fetch, m
     if (!entry.url) {
       throw fail(`Marketplace entry '${entry.id}' is a ${entry.kind} source, not content; add it with --as ${entry.kind}.`, 'IMPORT_KIND_INVALID');
     }
+    refuseRetired(marketplace, entry.id, entry.lifecycle?.state ?? null);
     const fetched = await fetchRemoteBytes(entry.url, {
       maxBytes: entry.bytes ? Math.min(entry.bytes, HARD_REMOTE_MAX_BYTES) : maxBytes, fetchImpl, label: 'Marketplace content'
     });
@@ -172,7 +185,8 @@ async function fetchReference(root, reference, { fetchImpl = globalThis.fetch, m
         kind: 'marketplace', marketplace: marketplace.id, index: marketplace.index, indexSha256: index.indexSha256,
         entry: entry.id, version: entry.version, url: entry.url, resolvedUrl: fetched.resolvedUrl,
         // What the index says it is for, kept with the import, so a task finds it for the same step the next time [ITW:REQ-010].
-        tags: [...(entry.tags ?? [])], phases: [...(entry.phases ?? [])]
+        tags: [...(entry.tags ?? [])], phases: [...(entry.phases ?? [])],
+        ...(entry.lifecycle?.word ? { lifecycleState: entry.lifecycle.word } : {}), ...ownerField(entry.owner)
       }
     };
   }
@@ -538,7 +552,9 @@ export async function importsStatus(root) {
           : entry.kind === 'skill' ? 'edited (its agent refuses it until it is imported again)'
             : entry.kind === 'agent' || entry.kind === 'workflow' ? 'customized' : 'edited here';
     }
-    rows.push({ key, kind: entry.kind, status, source: sourceLabel(entry.source), sha256: entry.sha256 ?? null, bytes: entry.bytes ?? null, fetchedAt: entry.fetchedAt ?? null, target });
+    rows.push({ key, kind: entry.kind, status, source: sourceLabel(entry.source), sha256: entry.sha256 ?? null, bytes: entry.bytes ?? null, fetchedAt: entry.fetchedAt ?? null, target,
+      // The owning team its import recorded, when the marketplace named one [OMK:REQ-006].
+      ...(entry.source?.owner?.name ? { owner: String(entry.source.owner.name) } : {}) });
   }
   return rows;
 }

@@ -85,12 +85,13 @@ export async function browseRepositoryMarketplace(marketplace, options) {
   if (optionBoolean(options, 'json')) {
     return console.log(JSON.stringify({
       schemaVersion: 1, resultType: 'marketplace-entries',
-      marketplace: { ...marketplace, name: catalog.name, description: catalog.description, owner: catalog.owner, commit: catalog.commit },
+      marketplace: { ...marketplace, name: catalog.name, description: catalog.description, owner: catalog.owner, commit: catalog.commit, channel: catalog.channel ?? null,
+        channels: catalog.channels ?? {} },
       entries, problems: catalog.problems
     }, null, 2));
   }
-  console.log(`${catalog.name ?? marketplace.label}${catalog.owner ? ` by ${catalog.owner}` : ''} (${marketplace.repository} at ${catalog.commit.slice(0, 12)}): `
-    + `${counted(entries.length, 'entry', 'entries')}.`);
+  console.log(`${catalog.name ?? marketplace.label}${catalog.owner ? ` by ${catalog.owner}` : ''} (${marketplace.repository} at ${catalog.commit.slice(0, 12)}`
+    + `${catalog.channel ? `, its ${catalog.channel} channel` : ''}): ${counted(entries.length, 'entry', 'entries')}.`);
   for (const entry of entries) {
     console.log(`  ${entry.kind.padEnd(6)} ${entry.name}${entry.version ? `@${entry.version}` : ''}${entry.lifecycleState ? ` [${entry.lifecycleState}]` : ''}`);
     if (entry.description) console.log(`         ${entry.description}`);
@@ -102,6 +103,10 @@ export async function browseRepositoryMarketplace(marketplace, options) {
       entry.skills.length ? `skills ${entry.skills.join(', ')}` : null
     ].filter(Boolean);
     if (facts.length) console.log(`         ${facts.join(' · ')}`);
+    // Its owner and its lifecycle, with who and when [OMK:REQ-015].
+    const lifecycle = entry.lifecycleRecord;
+    console.log(`         ${[entry.owner?.words, lifecycle ? `Lifecycle: ${lifecycle.words}` : 'No lifecycle recorded', lifecycle?.guardWords].filter(Boolean).join(' · ')}`);
+    for (const finding of (entry.findings ?? []).slice(0, 3)) console.log(`         For the marketplace: ${finding.words}`);
     if (entry.workflowCommand) console.log(`         As a workflow: ${entry.workflowCommand}`);
     if (entry.previewCommand) console.log(`         As a skill on its own: ${entry.previewCommand}`);
   }

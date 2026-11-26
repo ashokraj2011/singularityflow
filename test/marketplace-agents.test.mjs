@@ -188,8 +188,11 @@ test('the conversion review: every stage once, what SFlow changed, the checks, a
     [3, 'approval', 'qa-test-automation-test-case-creation'], [4, 'step', 'qa-test-automation-test-automation'], [5, 'folded', 'qa-test-automation-test-automation'],
     [6, 'step', 'qa-test-automation-execution-and-evidence']]);
   const review = conversionReview(conversion);
+  // Read from its files alone (no CODEOWNERS, no lifecycle.yml): its lifecycle-state in the one vocabulary's words, its guard not known [OMK:REQ-010].
   assert.deepEqual(review.source, { marketplace: 'acme', repository: '/srv/acme-marketplace', commit: COMMIT, folder: null, agent: 'qa-test-automation-agent',
-    version: '1.0.0-pdlc', lifecycle: 'proposed: not yet reviewed by its maintainers', maintainer: 'maintainers@example.com', sourceRepository: 'https://git.example.com/acme/sdlc-marketplace' });
+    version: '1.0.0-pdlc', lifecycle: 'Proposed; not yet approved', maintainer: 'maintainers@example.com', sourceRepository: 'https://git.example.com/acme/sdlc-marketplace',
+    owner: null, lifecycleRecord: { state: 'proposed', word: 'proposed', source: 'lifecycle-state', since: null, by: [], change: null, guarded: null, approvers: [],
+      deprecation: null, words: 'Proposed; not yet approved', guardWords: null, notGuarded: false } });
   // SFlow's own choices are its changes; the marketplace's are its feedback, and never the other way round (MCR:REQ-014).
   assert.deepEqual(review.changes.map((entry) => entry.class), ['sflow-merged-stage']);
   assert.ok(review.feedback.every((entry) => entry.owner === 'marketplace'));

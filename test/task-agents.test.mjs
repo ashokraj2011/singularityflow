@@ -80,7 +80,7 @@ test('ITW REQ-011, A2, A7: one agent is offered with its review and each answer\
   const composition = composeTask(BASE, { kind: 'tests' });
   const { offer } = chooseTaskAgent(composition, { candidates: [qa] });
   assert.deepEqual(offer, {
-    id: QA, marketplace: 'acme', agent: 'qa-test-automation-agent', version: '1.0.0-pdlc', imported: false, state: 'proposed',
+    id: QA, marketplace: 'acme', agent: 'qa-test-automation-agent', version: '1.0.0-pdlc', imported: false, state: 'proposed', owner: null,
     steps: ['Intake', 'Test Case Creation', 'Test Automation', 'Execution and Evidence'],
     ask: 'acme\'s qa-test-automation agent covers this task: add its workflow to this repository and use it as the plan, requirements → write the tests → tests (the marketplace marks it proposed)?',
     why: 'its stages cover every step this task needs (write the tests and tests)',
@@ -201,7 +201,8 @@ test('ITW REQ-011, A7, A9: a trusted marketplace\'s agent is offered; its yes im
   assert.deepEqual(json(story.cli('work', WORDS, '--kind', 'tests', '--json')), shown, 'the same words and repository, the same plan');
   assert.equal(story.git('status', '--porcelain'), '', 'showing the plan writes nothing');
   const printed = story.cli('work', WORDS, '--kind', 'tests');
-  assert.match(printed, /^acme's qa-test-automation agent covers this task: add its workflow to this repository and use it as the plan, requirements → write the tests → tests \(the marketplace marks it proposed\)\? Its stages cover/mu);
+  // The fixture names its owner, read at the trusted commit [OMK:REQ-015].
+  assert.match(printed, /^acme's qa-test-automation agent covers this task: add its workflow to this repository and use it as the plan, requirements → write the tests → tests \(the marketplace marks it proposed; owned by QA Guild\)\? Its stages cover/mu);
   assert.match(printed, new RegExp(`^  See its conversion review: singularity-flow workflow from-agent ${QA} --review$`, 'mu'));
   // Starting asks first, with the conversion review to show and the start each answer completes.
   const asked = refused(story, ['work', WORDS, '--kind', 'tests', '--start']);

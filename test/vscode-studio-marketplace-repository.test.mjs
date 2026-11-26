@@ -158,6 +158,9 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
     Object.assign(page.library(), { market: trusted, entries: json(root, ['marketplace', 'browse', 'acme']) });
     section = page.renderMarketplaces(page.library());
     assert.doesNotMatch(text(section), /As a workflow:|singularity-flow workflow from-agent/u);
+    // Each entry's owner and lifecycle, with who and when (OMK §5.3).
+    assert.match(text(section), /Owner: Product Guild · Approved by @acme\/marketplace-stewards, the code owners of its lifecycle record, on 2 Oct 2026/u);
+    assert.match(text(section), /Owner: Web QA · Generally available since 1 Nov 2026/u);
     click(buttonNamed(section, 'Make a workflow'));
     const asked = last(posted, 'studio.agentWorkflowPreview');
     assert.deepEqual(asked, { type: 'studio.agentWorkflowPreview', target: 'acme/product-agent', answers: {} });
@@ -188,7 +191,8 @@ test('a Git repository marketplace is trusted from Workflow Studio at the commit
     for (const heading of ['Where it came from', 'Agent stage → SFlow step', 'What SFlow changed', 'Checks', 'Feedback for the marketplace']) {
       assert.ok(text(card).includes(heading), heading);
     }
-    assert.match(text(card), /Lifecycle: approved/u);
+    assert.match(text(card), /Owner: Product Guild Lifecycle: Approved by @acme\/marketplace-stewards, the code owners of its lifecycle record, on 2 Oct 2026/u);
+    assert.match(text(card), /The marketplace declares @acme\/marketplace-stewards as the code owners of its lifecycle record\./u);
     assert.doesNotMatch(text(card), /SFlow read stage 1/u, 'a stage that uses no skill is no task the marketplace can add');
     for (const stage of ready.review.stages) assert.ok(text(card).includes(`${stage.number}. ${stage.title}`), `stage ${stage.number} is shown`);
     assert.match(text(card), /Every stage of agent\.md \(\d+\) is accounted for\./u);

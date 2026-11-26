@@ -3,7 +3,8 @@
  * "make sure the import is correct ... what sflow corrects and give the feedback to marketplace stakeholders"): what
  * `workflow from-agent` made of an agent, section by section, for Workflow Studio's screen, Copilot and the terminal.
  *
- * - where it came from: the marketplace, its commit, the agent's version, lifecycle state and maintainer;
+ * - where it came from: the marketplace, its commit, the agent's version, its owner, its lifecycle with who approved it and
+ *   when, and whether code owners guard that record (OMK §5.3), and its maintainer;
  * - agent stage → SFlow step: every stage of agent.md once, as a step, part of one, the first step's questions or a
  *   step's approval, with what the step is for and why, its approval and its skills;
  * - what SFlow changed: its own findings (steps it added, stages it merged, names it changed);
@@ -13,13 +14,19 @@
  *
  * Import is ready only when nothing needs an answer and every check passes. Pure: it reads only the conversion.
  */
+import { itemLifecycle, lifecycleSummary } from './marketplace-lifecycle.mjs';
 
 const STAGE_WORDS = Object.freeze({
   step: 'becomes the step', folded: 'runs inside the step', questions: 'becomes the questions asked at', approval: 'becomes the approval of', open: 'waits for your answer at'
 });
 const APPROVAL_WORDS = Object.freeze({ person: 'a person approves it', none: 'no approval', 'sflow-when-clean': 'SFlow approves it when clean' });
 
-const lifecycleWords = (state) => (!state ? null : state === 'proposed' ? 'proposed: not yet reviewed by its maintainers' : state);
+/** The agent's lifecycle in the one vocabulary's words [OMK:REQ-010]: its record's, else its apm.yml's lifecycle-state's. */
+function lifecycleOf(source) {
+  if (source.lifecycleRecord) return source.lifecycleRecord.history ? lifecycleSummary(source.lifecycleRecord) : source.lifecycleRecord;
+  // Read without the marketplace's CODEOWNERS (an agent folder, or a conversion made from its files): its guard is not known.
+  return source.lifecycleState ? lifecycleSummary(itemLifecycle({ state: source.lifecycleState, owner: source.owner ?? null, guard: null })) : null;
+}
 
 /** The review of `result`, a `workflow from-agent` conversion (with `derived` and `walk` once it compiled). */
 export function conversionReview(result) {
@@ -64,8 +71,10 @@ export function conversionReview(result) {
     schemaVersion: 1, resultType: 'sflow-conversion-review',
     source: {
       marketplace: source.marketplace ?? null, repository: source.repository ?? null, commit: source.commit ?? null, folder: source.folder ?? null,
-      agent: source.agent ?? null, version: source.version ?? null, lifecycle: lifecycleWords(source.lifecycleState),
-      maintainer: source.maintainer ?? null, sourceRepository: source.sourceRepository ?? null
+      agent: source.agent ?? null, version: source.version ?? null, lifecycle: lifecycleOf(source)?.words ?? null,
+      maintainer: source.maintainer ?? null, sourceRepository: source.sourceRepository ?? null,
+      // Who owns it, and its lifecycle record with who and when and its guard (MCR §4.1, OMK §5.3); null when unknown.
+      owner: source.owner ?? null, lifecycleRecord: lifecycleOf(source)
     },
     workflow: { id: result.workflow?.id ?? null, label: result.workflow?.label ?? null },
     rows,
@@ -150,7 +159,9 @@ export function conversionReviewMarkdown(review, { forPerson = false } = {}) {
     `# Conversion review: ${review.workflow.label ?? source.agent}`, '',
     '## Where it came from', '',
     bullet(`${source.agent}${source.version ? ` ${source.version}` : ''}, from ${from}${source.repository && !forPerson ? ` (${source.repository})` : ''}.`),
-    ...(source.lifecycle ? [bullet(`Lifecycle: ${source.lifecycle}.`)] : []),
+    ...(source.owner?.words ? [bullet(`${source.owner.words}.${source.owner.confirmWords ? ` ${source.owner.confirmWords}.` : ''}`)] : []),
+    ...(source.lifecycle ? [bullet(`Lifecycle: ${source.lifecycle}.${source.lifecycleRecord?.guardWords ? ` ${source.lifecycleRecord.guardWords}` : ''}`)] : []),
+    ...(source.lifecycleRecord?.change && !forPerson ? [bullet(`Its lifecycle change: ${source.lifecycleRecord.change}`)] : []),
     ...(source.maintainer ? [bullet(`Maintainer: ${source.maintainer}.`)] : []),
     '', '## Agent stage → SFlow step', '',
     '| Stage | Becomes | Step | What it is for | Approval | Skills |', '|---|---|---|---|---|---|',
@@ -215,10 +226,12 @@ export function repositoryPageUrl(value) {
 export function feedbackIssue(review, markdown, { maximumUrl = 7000 } = {}) {
   const page = repositoryPageUrl(review.source.sourceRepository) ?? repositoryPageUrl(review.source.repository);
   if (!page) return null;
-  const path = /gitlab/iu.test(page) ? '/-/issues/new' : '/issues/new';
+  // GitLab's new-issue form reads issue[title] and issue[description]; GitHub's reads title and body (OMK probe P4).
+  const gitlab = /gitlab/iu.test(page);
+  const [titleKey, bodyKey] = gitlab ? ['issue[title]', 'issue[description]'] : ['title', 'body'];
   const title = `SFlow conversion feedback: ${review.source.agent}${review.source.version ? ` ${review.source.version}` : ''}`;
-  const titled = `${page}${path}?title=${encodeURIComponent(title)}`;
-  const full = `${titled}&body=${encodeURIComponent(markdown)}`;
+  const titled = `${page}${gitlab ? '/-/issues/new' : '/issues/new'}?${encodeURIComponent(titleKey)}=${encodeURIComponent(title)}`;
+  const full = `${titled}&${encodeURIComponent(bodyKey)}=${encodeURIComponent(markdown)}`;
   return full.length <= maximumUrl ? { url: full, title, bodyInUrl: true } : { url: titled, title, bodyInUrl: false };
 }
 

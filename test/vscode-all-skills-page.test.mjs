@@ -167,3 +167,23 @@ test('a marketplace trusted only in the working copy is never shown as trusted: 
   assert.match(html, /<li>Acme: 0 skills <span class="ask-dim">Your working copy of workflow\.yml reads it elsewhere \(another commit or index\), and that is not approved yet/u);
   assert.doesNotMatch(html, /<option value="shared">/u, 'a source not approved is no filter choice');
 });
+
+test('All skills shows each skill\'s owner, its lifecycle with who and when, its channel, Not guarded and in use [OMK:REQ-015]', () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const lifecycle = { state: 'approved', word: 'approved', source: 'lifecycle.yml', since: '2026-10-02', by: ['@acme/marketplace-stewards'], change: null, guarded: false,
+    approvers: [], deprecation: null, history: [], words: 'Approved by @acme/marketplace-stewards on 2 Oct 2026',
+    guardWords: 'Lifecycle not guarded by code owners: anyone who can merge to the marketplace can change it.' };
+  const answer = JSON.parse(JSON.stringify(analyzeSkillCatalog({ library: [], imports: {}, definition: YAML.parse(readFileSync(path.join(root, 'templates/workflow.yml'), 'utf8')), kinds: ['web'],
+    marketplaces: [{ id: 'acme', label: 'Acme', kind: 'repository', channel: 'stable', warning: null, skills: [{ name: 'requirements-writer', version: '1.0.0', description: 'Requirements.',
+      tags: [], pdlcTasks: ['requirements-analysis'], lifecycleState: 'approved', owner: { team: 'product-guild', name: 'Product Guild', words: 'Owner: Product Guild' },
+      lifecycleRecord: lifecycle, findings: [] }] }] })));
+  answer.rows[0].deprecatedInUse = { state: 'deprecated', words: 'Deprecated; still used by 1 workflow.' };
+  const catalog = skillCatalogFrom(answer);
+  assert.deepEqual([catalog.rows[0].owner.name, catalog.rows[0].channel, catalog.rows[0].lifecycleRecord.notGuarded], ['Product Guild', 'stable', true]);
+  const html = allSkillsPageHtml({ catalog, busy: false, error: null, notice: null });
+  assert.match(html, /<th scope="col">Owner<\/th><th scope="col">Version<\/th>/u);
+  assert.match(html, /<td>Acme<\/td>\s*<td>Product Guild<\/td>/u);
+  assert.match(html, /approved <span class="ask-pill">Stable<\/span> <span class="ask-pill ask-alike"[^>]*>Not guarded<\/span> <span class="ask-pill ask-in-use">Deprecated · in use here<\/span>/u);
+  assert.match(html, /<dt>Owner<\/dt><dd>Owner: Product Guild<\/dd><dt>Lifecycle<\/dt><dd>Approved by @acme\/marketplace-stewards on 2 Oct 2026 · Ready <span class="ask-dim">Lifecycle not guarded/u);
+  assert.match(html, /<td colspan="10">/u);
+});

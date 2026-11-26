@@ -1,0 +1,14 @@
+# skills/android-xray-creation/lifecycle.yml
+# Changed only through a reviewed pull request that this file's code owners approve (see .github/CODEOWNERS).
+state: approved
+history:
+  - to: proposed
+    at: 2026-09-11
+    by: "@acme/android-qa"
+    change: https://git.example.com/acme/sdlc-marketplace/pull/30
+  - from: proposed
+    to: approved
+    at: 2026-10-02
+    approved-by: ["@acme/marketplace-stewards"]
+    change: https://git.example.com/acme/sdlc-marketplace/pull/31
+    note: Piloted by two teams on the checkout web app.

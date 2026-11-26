@@ -242,7 +242,8 @@ test('ITW A6, A7: a trusted marketplace\'s skill is offered new here; one yes wi
     configure: (configuration) => { configuration.marketplaces = { acme: { label: 'Acme', repository: acme.repository, commit: acme.commit } }; }
   });
   const shown = json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json'));
-  assert.equal(shown.plan, 'Plan: code (with web-e2e-test-generation from acme, new here: add it?) → tests. You approve the plan in the intake and the code. Say "add a design step" to change it.');
+  // The plan line names its owner, as the marketplace's apm.yml does at the commit trusted [OMK:REQ-015].
+  assert.equal(shown.plan, 'Plan: code (with web-e2e-test-generation from acme (Web QA), new here: add it?) → tests. You approve the plan in the intake and the code. Say "add a design step" to change it.');
   const [offer] = shown.offers;
   assert.deepEqual([offer.id, offer.new, offer.marketplace, offer.steps], ['web-e2e-test-generation', true, 'acme', ['implementation']]);
   assert.equal(offer.show, 'singularity-flow import preview "market:acme/web-e2e-test-generation" --as skill --json');
@@ -277,7 +278,7 @@ test('ITW A6, A7: a trusted marketplace\'s skill is offered new here; one yes wi
   // A proposed or beta marketplace skill is marked so in the plan: a feature's requirements step offers web-xray-creation.
   const feature = json(story.cli('work', 'add a gift card option to checkout', '--kind', 'feature', '--json'));
   assert.deepEqual(feature.offers.map(({ id, state, steps }) => [id, state, steps]), [['web-xray-creation', 'proposed', ['requirements']]]);
-  assert.match(feature.plan, /requirements \(with web-xray-creation from acme, proposed and new here: add it\?\)/u);
+  assert.match(feature.plan, /requirements \(with web-xray-creation from acme \(Web QA\), proposed and new here: add it\?\)/u);
   // No: the task starts without it.
   const declined = json(story.cli('work', 'add a gift card option to checkout', '--kind', 'feature', '--start', '--new', '--without-skill', 'web-xray-creation', '--json'));
   assert.equal(declined.id, 'TASK-2');

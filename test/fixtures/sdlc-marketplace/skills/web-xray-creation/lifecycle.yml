@@ -1,0 +1,8 @@
+# skills/web-xray-creation/lifecycle.yml
+# Changed only through a reviewed pull request that this file's code owners approve (see .github/CODEOWNERS).
+state: proposed
+history:
+  - to: proposed
+    at: 2026-09-08
+    by: "@acme/web-qa"
+    change: https://git.example.com/acme/sdlc-marketplace/pull/27

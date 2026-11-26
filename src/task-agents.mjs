@@ -21,13 +21,12 @@
  * chooseTaskAgent is pure. taskAgentFinder reads the trusted marketplaces (task-skills.mjs trustedMarketplaceAgents, kept
  * per commit) and the import record; an untrusted marketplace is never read, and with none trusted nothing is read.
  */
+import { lifecycleReadiness } from './marketplace-lifecycle.mjs';
 import { agentWords, planSteps } from './task-composition.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /** The pdlc-tasks whose code is tests (agent-task-intents.mjs: tests are code, which a code step writes). */
 export const TEST_WRITING_TASKS = Object.freeze(['unit-testing', 'contract-testing', 'e2e-testing', 'ui-test-automation']);
-const RETIRED = new Set(['deprecated', 'retired', 'withdrawn', 'archived']);
-const UNREVIEWED = new Set(['proposed', 'beta', 'alpha', 'draft', 'experimental', 'preview']);
 const NAME = /^([a-z0-9]+(?:-[a-z0-9]+)*)\/([a-z0-9][a-z0-9._-]{0,99})$/u;
 
 function refusal(code, message, nextAction, details = {}) {
@@ -47,10 +46,13 @@ export async function agentPlanCandidate({ marketplace, entry, skills = [], impo
       answers: imported?.answers ?? {} });
   } catch { return null; }
   const tasksOf = new Map(skills.map((skill) => [skill.name, skill.pdlcTasks ?? []]));
-  const state = entry.lifecycleState ? String(entry.lifecycleState).toLowerCase() : null;
+  // Its lifecycle record's word, else its apm.yml's [OMK:REQ-002]; the one vocabulary decides [OMK:REQ-010]. An agent with
+  // no mark is offered as before: its plan is always a question.
+  const word = entry.lifecycleRecord?.word ?? entry.lifecycleState ?? null;
+  const state = word ? String(word).toLowerCase() : null;
   return {
     id: `${marketplace.id}/${entry.name}`, marketplace: marketplace.id, agent: entry.name, version: entry.version ?? null, state,
-    lifecycle: RETIRED.has(state) ? 'retired' : UNREVIEWED.has(state) ? 'unreviewed' : 'ready',
+    owner: entry.owner?.name ?? null, lifecycle: lifecycleReadiness(state, { unmarked: 'ready' }),
     kinds: kindsOf ? kindsOf(entry) : [],
     ready: conversion.ready,
     steps: conversion.steps.map((step) => ({ id: step.id, intent: step.intent, label: step.label,
@@ -90,11 +92,13 @@ const list = (items) => (items.length <= 2 ? items.join(' and ') : `${items.slic
 function offerOf(candidate, composition, needed) {
   const plan = planSteps({ kind: composition.kind, agent: candidate, steps: candidate.steps }).map((step) => step.word).filter(Boolean);
   const words = agentWords(candidate);
-  const marked = candidate.lifecycle === 'unreviewed' ? ` (the marketplace marks it ${candidate.state})` : '';
+  // Its mark and its owner [OMK:REQ-015]: "(the marketplace marks it proposed; owned by QA Guild)".
+  const facts = [candidate.lifecycle === 'unreviewed' ? `the marketplace marks it ${candidate.state}` : null, candidate.owner ? `owned by ${candidate.owner}` : null].filter(Boolean);
+  const marked = facts.length ? ` (${facts.join('; ')})` : '';
   const neededWords = planSteps({ kind: composition.kind, steps: composition.steps.filter((step) => needed.includes(step.intent)) }).map((step) => step.word).filter(Boolean);
   return {
     id: candidate.id, marketplace: candidate.marketplace, agent: candidate.agent, version: candidate.version, imported: Boolean(candidate.imported),
-    state: candidate.lifecycle === 'unreviewed' ? candidate.state : null, steps: candidate.steps.map((step) => step.label),
+    state: candidate.lifecycle === 'unreviewed' ? candidate.state : null, owner: candidate.owner ?? null, steps: candidate.steps.map((step) => step.label),
     ask: candidate.imported
       ? `${words} covers this task: use its workflow as the plan, ${plan.join(' → ')}${marked}?`
       : `${words} covers this task: add its workflow to this repository and use it as the plan, ${plan.join(' → ')}${marked}?`,

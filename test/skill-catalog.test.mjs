@@ -58,8 +58,9 @@ test('each skill is one row: where it comes from, what it is for, who it is for,
     'market:acme/android-xray-creation', 'market:acme/requirements-writer', 'market:acme/web-e2e-test-generation', 'market:acme/web-xray-creation']);
   const byKey = new Map(catalog.rows.map((row) => [row.key, row]));
   const e2e = byKey.get('market:acme/web-e2e-test-generation');
+  // The fixture's generally available item [OMK §11].
   assert.deepEqual([e2e.source, e2e.marketplace, e2e.marketplaceLabel, e2e.version, e2e.lifecycle, e2e.readiness],
-    ['marketplace', 'acme', 'Acme', '1.0.0-pdlc', 'approved', 'ready']);
+    ['marketplace', 'acme', 'Acme', '1.0.0-pdlc', 'ga', 'ready']);
   assert.deepEqual([e2e.intents, e2e.tasks, e2e.softwareKinds], [['code'], ['e2e-testing', 'ui-test-automation'], ['web']]);
   assert.deepEqual(e2e.tags, ['ga', 'playwright', 'test-automation', 'web']);
   assert.deepEqual([e2e.inLibrary, e2e.libraryVersion, e2e.newerVersion], [false, null, null]);
@@ -81,7 +82,7 @@ test('each skill is one row: where it comes from, what it is for, who it is for,
     agents: [{ id: 'developer', label: 'Developer', steps: ['implementation'] }], workflows: [{ id: 'feature', steps: [] }],
     tasks: [{ workId: 'TASK-4', kind: 'fix', steps: ['implementation'] }] });
   assert.deepEqual(catalog.summary.bySource, { acme: 4, library: 3 });
-  assert.deepEqual(catalog.summary.byLifecycle, { approved: 4, 'not marked': 2, proposed: 1 });
+  assert.deepEqual(catalog.summary.byLifecycle, { approved: 3, ga: 1, 'not marked': 2, proposed: 1 });
   assert.equal(catalog.summary.byIntent.code, 3);
   assert.deepEqual([catalog.summary.skills, catalog.summary.notInLibrary, catalog.summary.newerAvailable], [7, 3, 1]);
   assert.equal(catalog.repository.words, 'This repository is a web app.');
@@ -223,7 +224,7 @@ test('skill catalog reads the library and every trusted marketplace once per com
   // The listing at the trusted commit is kept in the clone's Git folder: the marketplace is not read again.
   const kept = path.join(story.root, '.git', 'singularity-flow', 'task-marketplace-skills');
   const [file] = (await readdir(kept)).filter((name) => !name.startsWith('index-'));
-  assert.equal(JSON.parse(await readFile(path.join(kept, file), 'utf8')).format, 'sflow-task-marketplace-skills/v2');
+  assert.equal(JSON.parse(await readFile(path.join(kept, file), 'utf8')).format, 'sflow-task-marketplace-skills/v3');
   await rm(acme.repository, { recursive: true, force: true });
   const again = JSON.parse(story.cli('skill', 'catalog', '--marketplace', 'acme', '--json'));
   assert.deepEqual(again.sources.map(({ id, read, skills }) => [id, read, skills]), [['library', true, library.length], ['acme', true, 7]], 'one marketplace, read from its kept listing');

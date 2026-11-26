@@ -21,6 +21,10 @@ export interface SkillCatalogRow {
   readiness: string; intents: string[]; tasks: string[]; pickedBy: SkillPick[]; softwareKinds: string[]; tags: string[];
   inLibrary: boolean; libraryVersion: string | null; newerVersion: string | null; usedBy: SkillUses; overlaps: string[];
   actions: { show?: string; preview?: string; reference?: string };
+  /** Who owns it, its lifecycle with who and when, its channel, and whether it is deprecated and used here (OMK §5.3). */
+  owner: { name: string; words: string } | null;
+  lifecycleRecord: { word: string | null; words: string; guardWords: string | null; notGuarded: boolean } | null;
+  channel: 'stable' | 'beta' | null; deprecatedInUse: { state: string; words: string } | null;
 }
 /** A source: read, or not; `approved: false` is trusted only in the working copy of workflow.yml, and `notApproved` says so. */
 export interface SkillCatalogSource { id: string; kind: string; label: string; read: boolean; approved: boolean; skills: number; warning?: string; notApproved?: string }
@@ -37,6 +41,7 @@ export interface SkillCatalog {
 /** The step intents in the order a workflow keeps them. */
 const INTENT_ORDER = ['intake', 'requirements', 'design', 'plan', 'code', 'test', 'review', 'release', 'report', 'document'];
 const READINESS_WORDS: Record<string, string> = { ready: 'Ready', unreviewed: 'Needs a yes', retired: 'Retired' };
+const CHANNEL_WORDS: Record<string, string> = { stable: 'Stable', beta: 'Beta' };
 const KIND_WORDS: Record<string, string> = { web: 'Web app', backend: 'Backend', job: 'Batch job', cli: 'Command-line tool', library: 'Library',
   mobile: 'Mobile app', artifact: 'Infrastructure files', any: 'Any kind' };
 
@@ -75,7 +80,13 @@ export function skillCatalogFrom(value: unknown): SkillCatalog | null {
         },
         overlaps: strings(row.overlaps),
         actions: { ...(typeof actions.show === 'string' ? { show: actions.show } : {}), ...(typeof actions.preview === 'string' ? { preview: actions.preview } : {}),
-          ...(typeof actions.reference === 'string' ? { reference: actions.reference } : {}) }
+          ...(typeof actions.reference === 'string' ? { reference: actions.reference } : {}) },
+        owner: typeof record(row.owner).words === 'string' ? { name: text(record(row.owner).name), words: text(record(row.owner).words) } : null,
+        lifecycleRecord: typeof record(row.lifecycleRecord).words === 'string' ? { word: textOrNull(record(row.lifecycleRecord).word), words: text(record(row.lifecycleRecord).words),
+          guardWords: textOrNull(record(row.lifecycleRecord).guardWords), notGuarded: record(row.lifecycleRecord).notGuarded === true } : null,
+        channel: row.channel === 'stable' || row.channel === 'beta' ? row.channel : null,
+        deprecatedInUse: ['deprecated', 'retired'].includes(String(record(row.deprecatedInUse).state)) ? { state: String(record(row.deprecatedInUse).state),
+          words: text(record(row.deprecatedInUse).words) } : null
       };
     }),
     summary: {
@@ -141,7 +152,10 @@ function detailHtml(catalog: SkillCatalog, row: SkillCatalogRow): string {
   const facts: [string, string][] = [
     ['Comes from', `${escape(row.source === 'library' ? 'This repository\'s skill library' : `Marketplace ${row.marketplaceLabel ?? row.marketplace}`)}${row.source === 'library' && row.marketplace
       ? escape(`, imported from marketplace ${row.marketplace}`) : ''}${row.version ? escape(`, version ${row.version}`) : ''}`],
-    ['Lifecycle', `${escape(row.lifecycle ?? 'Not marked')} · ${escape(READINESS_WORDS[row.readiness] ?? row.readiness)}`],
+    ['Owner', escape(row.owner?.words ?? 'No owner named')],
+    ['Lifecycle', `${escape(row.lifecycleRecord?.words ?? row.lifecycle ?? 'Not marked')} · ${escape(READINESS_WORDS[row.readiness] ?? row.readiness)}${row.lifecycleRecord?.guardWords
+      ? ` <span class="ask-dim">${escape(row.lifecycleRecord.guardWords)}</span>` : ''}${row.channel ? ` <span class="ask-dim">${escape(`Read through its marketplace's ${row.channel} channel.`)}</span>` : ''}${row.deprecatedInUse
+      ? ` <span class="ask-warn">${escape(row.deprecatedInUse.words)}</span>` : ''}`],
     ['For steps', row.intents.length ? `${pills(row.intents)}${row.tasks.length ? ` <span class="ask-dim">${escape(`tasks: ${row.tasks.join(', ')}`)}</span>` : ''}` : 'No step: it names no task or step intent.'],
     ['Picked by /sf-task', row.pickedBy.length ? `<ul>${row.pickedBy.map((pick) => `<li>${escape(pick.words)}</li>`).join('')}</ul>`
       : escape('No kind of task picks it on its own here; a person can still name it.')],
@@ -168,7 +182,7 @@ function detailHtml(catalog: SkillCatalog, row: SkillCatalogRow): string {
 }
 
 function rowHtml(catalog: SkillCatalog, row: SkillCatalogRow, index: number): string {
-  const searchText = [row.id, row.label, row.description, row.marketplace ?? '', row.tags.join(' '), row.tasks.join(' ')].join(' ').toLowerCase();
+  const searchText = [row.id, row.label, row.description, row.marketplace ?? '', row.owner?.name ?? '', row.tags.join(' '), row.tasks.join(' ')].join(' ').toLowerCase();
   const detailId = `ask-detail-${index}`;
   return `<tr class="ask-row" data-key="${escape(row.key)}" data-order="${index}" data-name="${escape(row.id)}" data-source="${escape(row.source === 'library' ? 'library' : row.marketplace ?? '')}"
   data-lifecycle="${escape(row.lifecycle ?? 'not marked')}" data-intents="${escape(row.intents.length ? row.intents.join(' ') : 'none')}" data-intent-rank="${intentRank(row)}"
@@ -176,15 +190,18 @@ function rowHtml(catalog: SkillCatalog, row: SkillCatalogRow, index: number): st
   data-overlap="${row.overlaps.length ? '1' : '0'}" data-used="${users(row)}" data-text="${escape(searchText)}">
   <td><button type="button" class="ask-open" data-detail="${detailId}" aria-expanded="false" aria-controls="${detailId}" title="${escape(row.description)}">${escape(row.id)}</button></td>
   <td>${escape(sourceWords(row))}</td>
+  <td>${escape(row.owner?.name ?? '')}</td>
   <td>${escape(row.version ?? '')}</td>
-  <td>${escape(row.lifecycle ?? '')}${row.readiness === 'unreviewed' ? ' <span class="ask-dim">needs a yes</span>' : row.readiness === 'retired' ? ' <span class="ask-warn">retired</span>' : ''}</td>
+  <td>${escape(row.lifecycle ?? '')}${row.readiness === 'unreviewed' ? ' <span class="ask-dim">needs a yes</span>' : row.readiness === 'retired' ? ' <span class="ask-warn">retired</span>' : ''}${
+    row.channel ? ` <span class="ask-pill">${escape(CHANNEL_WORDS[row.channel])}</span>` : ''}${row.lifecycleRecord?.notGuarded ? ' <span class="ask-pill ask-alike" title="No code owner guards its lifecycle record">Not guarded</span>' : ''}${
+    row.deprecatedInUse ? ` <span class="ask-pill ask-in-use">${escape(row.deprecatedInUse.state === 'retired' ? 'Retired · in use here' : 'Deprecated · in use here')}</span>` : ''}</td>
   <td>${row.intents.length ? pills(row.intents) : '<span class="ask-dim">none</span>'}</td>
   <td>${row.softwareKinds.length ? pills(row.softwareKinds, KIND_WORDS) : '<span class="ask-dim">any</span>'}</td>
   <td>${escape(row.pickedBy.length ? [...new Set(row.pickedBy.map((pick) => pick.kind))].join(', ') : '')}</td>
   <td>${escape(libraryWords(row))}${row.overlaps.length ? ' <span class="ask-pill ask-alike" title="Looks like another skill">alike</span>' : ''}</td>
   <td>${row.source === 'library' ? escape(String(users(row))) : ''}</td>
 </tr>
-<tr class="ask-detail" id="${detailId}" hidden><td colspan="9">${detailHtml(catalog, row)}</td></tr>`;
+<tr class="ask-detail" id="${detailId}" hidden><td colspan="10">${detailHtml(catalog, row)}</td></tr>`;
 }
 
 export function allSkillsPageHtml({ catalog, busy, error, notice }: { catalog: SkillCatalog | null; busy: boolean; error: string | null; notice: string | null }): string {
@@ -218,7 +235,7 @@ export function allSkillsPageHtml({ catalog, busy, error, notice }: { catalog: S
 </section>`;
   const sortable = (key: string, words: string) => `<th scope="col"><button type="button" class="ask-sort" data-sort="${key}">${escape(words)}</button></th>`;
   const table = catalog.rows.length ? `<table class="ask-table">
-  <thead><tr>${sortable('name', 'Skill')}${sortable('source', 'From')}<th scope="col">Version</th>${sortable('lifecycle', 'Lifecycle')}${sortable('intent', 'For steps')}<th scope="col">Software</th><th scope="col">Picked by</th>${sortable('library', 'In the library')}${sortable('used', 'Used by')}</tr></thead>
+  <thead><tr>${sortable('name', 'Skill')}${sortable('source', 'From')}<th scope="col">Owner</th><th scope="col">Version</th>${sortable('lifecycle', 'Lifecycle')}${sortable('intent', 'For steps')}<th scope="col">Software</th><th scope="col">Picked by</th>${sortable('library', 'In the library')}${sortable('used', 'Used by')}</tr></thead>
   <tbody id="ask-rows">${catalog.rows.map((row, index) => rowHtml(catalog, row, index)).join('\n')}</tbody>
 </table>
 <p class="ask-empty ask-dim" id="ask-none" hidden>No skill matches these filters.</p>`
@@ -256,6 +273,7 @@ export const ALL_SKILLS_STYLE = `
 .ask-sort[aria-sort] { font-weight: 600; }
 .ask-pill { border: 1px solid var(--vscode-panel-border); border-radius: 999px; padding: 0 6px; font-size: .85em; white-space: nowrap; }
 .ask-alike { border-color: var(--vscode-editorWarning-foreground, var(--vscode-panel-border)); }
+.ask-in-use { border-color: var(--vscode-errorForeground, var(--vscode-panel-border)); }
 .ask-detail td { background: var(--vscode-editorWidget-background); }
 .ask-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 4px 0; }
 .ask-facts dt { font-weight: 600; }

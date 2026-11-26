@@ -16,6 +16,15 @@ export type MarketplaceKind = 'skill' | 'agent' | 'workflow' | 'template' | 'mcp
 export type MarketplaceAct = 'install' | 'update' | 'remove' | 'open' | 'approve' | 'trust';
 export interface MarketplaceAction { command: string; label: string }
 export interface MarketplaceInstall { as: string; id: string | null; agent: string | null; label: string | null; importKey: string | null; archived: boolean }
+/** Who owns an item, and where that came from (OMK §4.1). */
+export interface MarketplaceOwner { team: string | null; name: string | null; handle: string | null; issues: string | null; from: string | null; words: string; confirmWords: string | null }
+/** An item's lifecycle as the engine reads it (OMK §4.2, §5): its state, who and when, its change and its guard. */
+export interface MarketplaceLifecycle {
+  state: string | null; word: string | null; since: string | null; by: string[]; change: string | null; guarded: boolean | null; notGuarded: boolean;
+  words: string; guardWords: string | null; replacedBy: string | null; recorded: boolean;
+}
+/** A deprecated or retired item still used here (OMK §8), when the engine says so. */
+export interface MarketplaceInUse { state: string; words: string }
 export interface MarketplaceItem {
   key: string; kind: MarketplaceKind; id: string; name: string; description: string; source: 'marketplace' | 'here';
   marketplace: string | null; marketplaceLabel: string | null; marketplaceKind: string | null; version: string | null; installedVersion: string | null;
@@ -25,6 +34,9 @@ export interface MarketplaceItem {
   newer: { version: string | null; gone: boolean; words: string } | null;
   installedAs: MarketplaceInstall | null; fromAgent: { marketplace: string; agent: string } | null; conflict: { replaces: boolean; words: string } | null;
   importable: boolean; actions: Partial<Record<'preview' | 'install' | 'update' | 'remove' | 'open' | 'approve' | 'trust', MarketplaceAction>>;
+  owner: MarketplaceOwner | null; lifecycleRecord: MarketplaceLifecycle | null; channel: 'stable' | 'beta' | null; deprecatedInUse: MarketplaceInUse | null;
+  /** What the marketplace's own records get wrong, for its maintainers. */
+  findings: { class: string; words: string; fix: string | null }[];
 }
 export interface MarketplaceSource { id: string; kind: string; label: string; approved: boolean; read: boolean; items: number; warning?: string; notApproved?: string;
   newest?: { checked: boolean; newer: boolean; words: string } }
@@ -54,6 +66,30 @@ const textOrNull = (value: unknown): string | null => (typeof value === 'string'
 const record = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {});
 const records = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.map(record) : []);
 const counts = (value: unknown): Record<string, number> => Object.fromEntries(Object.entries(record(value)).map(([key, count]) => [key, Number(count) || 0]));
+
+function ownerFrom(value: unknown): MarketplaceOwner | null {
+  const owner = record(value);
+  const words = text(owner.words);
+  if (!words) return null;
+  return { team: textOrNull(owner.team), name: textOrNull(owner.name), handle: textOrNull(owner.handle), from: textOrNull(owner.from), words,
+    // Only an https address is ever opened; the engine drops any other (OMK REQ-001).
+    issues: typeof owner.issues === 'string' && /^https:\/\//.test(owner.issues) ? owner.issues : null, confirmWords: textOrNull(owner.confirmWords) };
+}
+
+function lifecycleFrom(value: unknown): MarketplaceLifecycle | null {
+  const lifecycle = record(value);
+  const words = text(lifecycle.words);
+  if (!words) return null;
+  return { state: textOrNull(lifecycle.state), word: textOrNull(lifecycle.word), since: textOrNull(lifecycle.since), by: strings(lifecycle.by),
+    change: typeof lifecycle.change === 'string' && /^https:\/\//.test(lifecycle.change) ? lifecycle.change : null,
+    guarded: typeof lifecycle.guarded === 'boolean' ? lifecycle.guarded : null, notGuarded: lifecycle.notGuarded === true, words, guardWords: textOrNull(lifecycle.guardWords),
+    replacedBy: textOrNull(record(lifecycle.deprecation).replacedBy), recorded: lifecycle.recorded === true };
+}
+
+function inUseFrom(value: unknown): MarketplaceInUse | null {
+  const used = record(value);
+  return (used.state === 'deprecated' || used.state === 'retired') ? { state: used.state, words: text(used.words) } : null;
+}
 
 /** The engine's answer, checked field by field: anything it does not say is empty, never guessed. */
 export function marketplaceCatalogFrom(value: unknown): MarketplaceCatalog | null {
@@ -88,7 +124,11 @@ export function marketplaceCatalogFrom(value: unknown): MarketplaceCatalog | nul
         conflict: item.conflict ? { replaces: conflict.replaces === true, words: text(conflict.words) } : null,
         importable: item.importable !== false,
         actions: Object.fromEntries(ACTIONS.filter((name) => typeof record(actions[name]).command === 'string')
-          .map((name) => [name, { command: text(record(actions[name]).command), label: text(record(actions[name]).label) }]))
+          .map((name) => [name, { command: text(record(actions[name]).command), label: text(record(actions[name]).label) }])),
+        owner: ownerFrom(item.owner), lifecycleRecord: lifecycleFrom(item.lifecycleRecord),
+        channel: item.channel === 'stable' || item.channel === 'beta' ? item.channel : null, deprecatedInUse: inUseFrom(item.deprecatedInUse),
+        findings: records(item.findings).filter((finding) => typeof finding.words === 'string').map((finding) => ({ class: text(finding.class), words: text(finding.words),
+          fix: textOrNull(finding.fix) }))
       };
     }),
     summary: { items: Number(summary.items) || 0, byKind: counts(summary.byKind), byStatus: counts(summary.byStatus), updates: Number(summary.updates) || 0,
@@ -204,16 +244,48 @@ function versionWords(item: MarketplaceItem): string {
   return item.version ?? '';
 }
 
+/** The owner filter's value for a row: its team, else the name it shows, else none. */
+export const ownerKey = (item: MarketplaceItem): string => item.owner?.team ?? item.owner?.name ?? 'none';
+const CHANNEL_WORDS: Record<string, string> = { stable: 'Stable', beta: 'Beta' };
+const IN_USE_WORDS: Record<string, string> = { deprecated: 'Deprecated · in use here', retired: 'Retired · in use here' };
+
+/**
+ * The lifecycle cell (OMK §5.3): the state, the channel's badge, Not guarded and in-use badges, and a detail that says
+ * who and when, the guard, the owner, its change (opened in the browser by the host, never by the page) and the
+ * marketplace's own findings. No commit and no hash.
+ */
+function lifecycleHtml(item: MarketplaceItem): string {
+  const lifecycle = item.lifecycleRecord;
+  const badges = [
+    item.channel ? `<span class="mkt-badge mkt-channel mkt-channel-${escape(item.channel)}">${escape(CHANNEL_WORDS[item.channel])}</span>` : '',
+    lifecycle?.notGuarded ? '<span class="mkt-badge mkt-unguarded" title="No code owner guards its lifecycle record">Not guarded</span>' : '',
+    item.deprecatedInUse ? `<span class="mkt-badge mkt-in-use">${escape(IN_USE_WORDS[item.deprecatedInUse.state])}</span>` : ''
+  ].filter(Boolean).join(' ');
+  const facts = [
+    lifecycle ? escape(lifecycle.words) : item.marketplace ? 'No lifecycle recorded' : '',
+    lifecycle?.guardWords ? escape(lifecycle.guardWords) : '',
+    item.owner ? escape(`${item.owner.words}${item.owner.confirmWords ? `. ${item.owner.confirmWords}` : ''}`) : '',
+    item.deprecatedInUse?.words ? escape(item.deprecatedInUse.words) : ''
+  ].filter(Boolean).map((line) => `<div>${line}</div>`).join('');
+  const change = lifecycle?.change ? `<button type="button" class="secondary mkt-link" data-change="${escape(item.key)}" title="Opens the reviewed change in your browser">Open its lifecycle change</button>` : '';
+  const findings = item.findings.length ? `<div class="mkt-findings"><span class="mkt-dim">For the marketplace's maintainers:</span><ul>${item.findings
+    .map((finding) => `<li>${escape(finding.words)}${finding.fix ? ` <span class="mkt-dim">${escape(`Fix: ${finding.fix}`)}</span>` : ''}</li>`).join('')}</ul></div>` : '';
+  const detail = facts || change || findings ? `<details class="mkt-more"><summary>${escape(lifecycle?.since ? 'Who and when' : 'Details')}</summary>${facts}${change}${findings}</details>` : '';
+  return `${escape(lifecycle?.word ?? item.lifecycle ?? '')}${badges ? ` ${badges}` : ''}${detail}`;
+}
+
 function rowHtml(item: MarketplaceItem, index: number): string {
-  const search = [item.id, item.name, item.description, item.marketplace ?? '', item.marketplaceLabel ?? '', item.tags.join(' ')].join(' ').toLowerCase();
+  const search = [item.id, item.name, item.description, item.marketplace ?? '', item.marketplaceLabel ?? '', item.owner?.name ?? '', item.tags.join(' ')].join(' ').toLowerCase();
   const sub = item.name !== item.id ? `<span class="mkt-dim">${escape(item.id)}</span>` : '';
   const agent = item.fromAgent ? `<div class="mkt-dim">${escape(`Made from agent ${item.fromAgent.agent}`)}</div>` : '';
   return `<tr class="mkt-row" data-key="${escape(item.key)}" data-order="${index}" data-kind="${escape(item.kind)}" data-status="${escape(item.status)}"
-  data-marketplace="${escape(item.marketplace ?? 'here')}" data-lifecycle="${escape(item.lifecycle ?? 'not marked')}" data-text="${escape(search)}">
+  data-marketplace="${escape(item.marketplace ?? 'here')}" data-lifecycle="${escape(item.lifecycle ?? 'not marked')}" data-owner="${escape(ownerKey(item))}"
+  data-in-use="${item.deprecatedInUse ? '1' : '0'}" data-text="${escape(search)}">
   <th scope="row"><span class="mkt-name">${escape(item.name)}</span> ${sub}${item.description ? `<div class="mkt-desc">${escape(item.description)}</div>` : ''}${agent}</th>
   <td>${escape(whereWords(item))}</td>
+  <td>${escape(item.owner?.name ?? '')}</td>
   <td>${escape(versionWords(item))}</td>
-  <td>${escape(item.lifecycle ?? '')}</td>
+  <td>${lifecycleHtml(item)}</td>
   <td><span class="mkt-badge mkt-${escape(item.status)}">${escape(STATUS_WORDS[item.status])}</span>${item.status === 'installed' && !item.statusWords.includes('could not be read') ? ''
     : `<div class="mkt-words">${escape(item.statusWords)}</div>`}${item.newer ? `<div class="mkt-words mkt-newer">${escape(item.newer.words)}</div>` : ''}</td>
   <td class="mkt-actions">${buttonsHtml(item)}</td>
@@ -264,6 +336,8 @@ export function marketplacePageHtml({ catalog, busy, error, notice }: { catalog:
     .sort((left, right) => (left[1] < right[1] ? -1 : left[1] > right[1] ? 1 : 0));
   if (listed.some((item) => !item.marketplace)) markets.push(['here', 'Only this repository']);
   const lifecycles = [...new Set(listed.map((item) => item.lifecycle ?? 'not marked'))].sort().map((value): [string, string] => [value, value]);
+  const owners: [string, string][] = [...new Map(listed.map((item) => [ownerKey(item), item.owner?.name ?? 'No owner named'])).entries()]
+    .sort((left, right) => (left[1] < right[1] ? -1 : left[1] > right[1] ? 1 : 0));
   const statuses = STATUSES.filter((status) => status !== 'not-approved-yet' && listed.some((item) => item.status === status)).map((status): [string, string] => [status, STATUS_WORDS[status]]);
   const tabList = `<div class="mkt-tabs" role="tablist" aria-label="Kinds of item">${tabs.map((tab, index) => {
     const count = listed.filter((item) => item.kind === tab.kind).length;
@@ -276,6 +350,8 @@ export function marketplacePageHtml({ catalog, busy, error, notice }: { catalog:
   ${filterOptions('mkt-status', 'Status', 'Any status', statuses)}
   ${filterOptions('mkt-marketplace', 'From', 'Everywhere', markets)}
   ${filterOptions('mkt-lifecycle', 'Lifecycle', 'Any lifecycle', lifecycles)}
+  ${filterOptions('mkt-owner', 'Owner', 'Any owner', owners)}
+  ${listed.some((item) => item.deprecatedInUse) ? '<label class="mkt-check"><input type="checkbox" id="mkt-in-use"> Deprecated in use</label>' : ''}
   <button type="button" class="secondary" data-clear>Clear</button>
   <span id="mkt-shown" class="mkt-dim" role="status" aria-live="polite"></span>
 </section>`;
@@ -284,7 +360,7 @@ export function marketplacePageHtml({ catalog, busy, error, notice }: { catalog:
     const empty = tab.kind === 'workflow' ? 'No workflow here was made from a marketplace agent yet: install an agent from the Agents tab.'
       : `No ${tab.words.toLowerCase()} in the trusted marketplaces or installed here.`;
     return `<div role="tabpanel" id="mkt-panel-${tab.kind}" aria-labelledby="mkt-tab-${tab.kind}" data-panel="${tab.kind}"${index === 0 ? '' : ' hidden'}>${rows.length ? `<table class="mkt-table">
-  <thead><tr><th scope="col">Name</th><th scope="col">From</th><th scope="col">Version</th><th scope="col">Lifecycle</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+  <thead><tr><th scope="col">Name</th><th scope="col">From</th><th scope="col">Owner</th><th scope="col">Version</th><th scope="col">Lifecycle</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
   <tbody>${rows.map((item) => rowHtml(item, catalog.items.indexOf(item))).join('\n')}</tbody></table>
   <p class="mkt-dim mkt-none" hidden>No item here matches these filters.</p>` : `<p class="mkt-dim">${escape(empty)}</p>`}</div>`;
   }).join('\n');
@@ -334,6 +410,15 @@ export const MARKETPLACE_STYLE = `
 .mkt-tile-newer { border-color: var(--vscode-textLink-foreground, var(--vscode-panel-border)); }
 .mkt-actions { white-space: nowrap; }
 .mkt-actions button { margin: 0 4px 4px 0; }
+.mkt-check { display: flex; gap: 4px; align-items: center; font-size: .9em; }
+.mkt-channel-beta, .mkt-unguarded { color: var(--vscode-editorWarning-foreground, var(--vscode-foreground)); }
+.mkt-channel-stable { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); }
+.mkt-in-use { color: var(--vscode-errorForeground, var(--vscode-foreground)); font-weight: 600; }
+.mkt-more { margin-top: 4px; font-size: .9em; max-width: 48ch; }
+.mkt-more summary { cursor: pointer; color: var(--vscode-textLink-foreground, var(--vscode-foreground)); }
+.mkt-more div { margin: 2px 0; }
+.mkt-link { margin: 4px 0; }
+.mkt-findings ul { margin: 2px 0; padding-left: 18px; }
 `;
 
 /**
@@ -342,15 +427,17 @@ export const MARKETPLACE_STYLE = `
  */
 export const MARKETPLACE_SCRIPT = String.raw`
 (function () {
-  var FILTERS = ['search', 'status', 'marketplace', 'lifecycle'];
+  var FILTERS = ['search', 'status', 'marketplace', 'lifecycle', 'owner', 'in-use'];
   function factsOf(data) {
     return { key: data.key || '', kind: data.kind || '', status: data.status || '', marketplace: data.marketplace || '', lifecycle: data.lifecycle || '',
-      order: Number(data.order) || 0, text: data.text || '' };
+      owner: data.owner || '', inUse: data.inUse === '1', order: Number(data.order) || 0, text: data.text || '' };
   }
   function matches(row, filters) {
     if (filters.status && row.status !== filters.status) return false;
     if (filters.marketplace && row.marketplace !== filters.marketplace) return false;
     if (filters.lifecycle && row.lifecycle !== filters.lifecycle) return false;
+    if (filters.owner && row.owner !== filters.owner) return false;
+    if (filters['in-use'] && !row.inUse) return false;
     var words = String(filters.search || '').toLowerCase().split(/\s+/).filter(Boolean);
     for (var index = 0; index < words.length; index += 1) if (row.text.indexOf(words[index]) < 0) return false;
     return true;
@@ -366,11 +453,15 @@ export const MARKETPLACE_SCRIPT = String.raw`
   function tabs() { return Array.prototype.slice.call(document.querySelectorAll('[role="tab"]')); }
   function readFilters() {
     var filters = {};
-    FILTERS.forEach(function (name) { var input = control(name); if (input) filters[name] = input.value; });
+    FILTERS.forEach(function (name) { var input = control(name); if (input) filters[name] = input.type === 'checkbox' ? input.checked : input.value; });
     return filters;
   }
   function writeFilters() {
-    FILTERS.forEach(function (name) { var input = control(name); if (input && state.filters[name] !== undefined) input.value = state.filters[name]; });
+    FILTERS.forEach(function (name) {
+      var input = control(name);
+      if (!input || state.filters[name] === undefined) return;
+      if (input.type === 'checkbox') input.checked = Boolean(state.filters[name]); else input.value = state.filters[name];
+    });
   }
   function apply() {
     var all = tabs();
@@ -413,15 +504,20 @@ export const MARKETPLACE_SCRIPT = String.raw`
     if (next) { event.preventDefault(); choose(next, true); }
   });
   document.addEventListener('click', function (event) {
-    var target = event.target.closest('[role="tab"],[data-act],[data-refresh],[data-newest],[data-all-skills],[data-studio],[data-clear]');
+    var target = event.target.closest('[role="tab"],[data-act],[data-change],[data-refresh],[data-newest],[data-all-skills],[data-studio],[data-clear]');
     if (!target || target.disabled) return;
     if (target.getAttribute('role') === 'tab') choose(target, false);
     else if (target.dataset.act) api.postMessage({ type: 'marketplace.' + target.dataset.act, key: target.dataset.key });
+    else if (target.dataset.change) api.postMessage({ type: 'marketplace.openChange', key: target.dataset.change });
     else if (target.hasAttribute('data-refresh')) api.postMessage({ type: 'marketplace.refresh' });
     else if (target.hasAttribute('data-newest')) api.postMessage({ type: 'marketplace.newest' });
     else if (target.hasAttribute('data-all-skills')) api.postMessage({ type: 'marketplace.allSkills' });
     else if (target.hasAttribute('data-studio')) api.postMessage({ type: 'marketplace.studio' });
-    else if (target.hasAttribute('data-clear')) { state.filters = {}; FILTERS.forEach(function (name) { var input = control(name); if (input) input.value = ''; }); apply(); }
+    else if (target.hasAttribute('data-clear')) {
+      state.filters = {};
+      FILTERS.forEach(function (name) { var input = control(name); if (!input) return; if (input.type === 'checkbox') input.checked = false; else input.value = ''; });
+      apply();
+    }
   });
 })();
 `;

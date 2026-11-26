@@ -228,6 +228,9 @@ test('A9: In progress lists this person\'s Stories across the workspace, waits f
   assert.equal(listed.inProgress[0].statusLine, 'Waiting for Release owners: approve Plan');
   assert.equal(listed.inProgress[1].statusLine, 'Waiting for Quality reviewers: approve Plan', 'nothing kept in Needs you yet');
   assert.deepEqual(listed.here, { id: 'app', name: 'app' });
+  // What /sf-task with no words says in the chat [REQ-038]: the same rows and words.
+  assert.deepEqual(listed.say, ['Story API-1 (API-1, api): Waiting for Release owners: approve Plan',
+    'Story APP-1 (APP-1, app): Waiting for Quality reviewers: approve Plan', 'Done this week: Story APP-3 (APP-3), report ready.']);
   assert.equal(listed.inProgress[0].route.here, undefined);
   assert.match(listed.inProgress[0].route.elsewhere.commands[0], /^singularity-flow session open API-1 --workspace readiness-bench --repository api$/u);
 

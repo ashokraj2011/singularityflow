@@ -193,8 +193,18 @@ async function resultOf(scope, repositories, rows, { now, offline, env, cwd, ent
     scope: { repositories: repositories.map(({ id, name, read: state, at, why, identity, stories }) => ({ id, name, read: state, at,
       ...(why ? { why } : {}), ...(identity ? { identity } : {}), ...(stories ? { stories } : {}) })) },
     checked: checked ? { at: checked, words: `Checked ${timeWords(checked, now)} · ${repositories.length === 1 ? '1 repository' : `${repositories.length} repositories`}` } : null,
-    inProgress, doneThisWeek, lines: repositories.map((entry) => repositoryLine(entry, now)).filter(Boolean)
+    inProgress, doneThisWeek, lines: repositories.map((entry) => repositoryLine(entry, now)).filter(Boolean),
+    // What `/sf-task` with no words says in the chat [FPL:REQ-038]: one line per task in flight, then those done this week.
+    say: chatLines(inProgress, doneThisWeek)
   };
+}
+
+/** The chat's lines: the same rows and words as the Work tab, one line each. */
+export function chatLines(inProgress, doneThisWeek) {
+  const lines = inProgress.length ? inProgress.map((row) => `${row.title} (${row.id}, ${row.repository.name}): ${row.statusLine}`)
+    : ['Nothing of yours is in flight.'];
+  if (doneThisWeek.length) lines.push(`Done this week: ${doneThisWeek.map((row) => `${row.title} (${row.id}), ${row.ended.where}`).join('; ')}.`);
+  return lines;
 }
 
 /**

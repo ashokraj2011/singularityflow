@@ -31,6 +31,7 @@ import { parseMcpServerDescriptor } from './mcp-descriptor.mjs';
 import { LIBRARY_SKILL_TABLE } from './skill-library.mjs';
 import { fetchMcpContent, parseMcpReference } from './mcp-import.mjs';
 import { scanText, secretRefusal } from './secrets.mjs';
+import { addressHost, checkImportText, safetyBlocked, safetyGate } from './import-safety.mjs';
 import { SingularityFlowError, nowIso, secureRepositoryPath, snapshot } from './util.mjs';
 import {
   IMPORTS_LOCK_PATH, IMPORTS_VENDOR_ROOT, importLedgerKey, loadImportsLedger, parseImportsLedger, renderImportsLedger
@@ -342,6 +343,48 @@ export async function readStagedImport(root, sha256) {
   return { sha256, size: bytes.length, bytes, source: record.source, fetchedAt: record.fetchedAt };
 }
 
+// ---------------------------------------------------------------------------------------------
+// SFlow's text checks [OMK §7]
+
+/** What goes into an agent's prompt as text, and so is checked: a skill, a template, an agent. An MCP descriptor is not. */
+const SAFETY_KINDS = new Set(['skill', 'template', 'agent']);
+
+/** The hosts a source's own links are on, never noted as links to other sites: its marketplace's, or its link's. */
+export function sourceHosts(source = {}) {
+  return [...new Set([source.repository, source.index, source.url, source.resolvedUrl, ...(source.allowedOrigins ?? [])].map(addressHost).filter(Boolean))];
+}
+
+/** The checks' result for `text` imported as `kind` from `source`, or null for a kind that is not checked. */
+export function importTextSafety(kind, text, source) {
+  // A secret is refused by inspectImportContent first, with its own refusal, as today.
+  return SAFETY_KINDS.has(kind) ? checkImportText(text, { ownHosts: sourceHosts(source), secrets: false }) : null;
+}
+
+/** The way on from a blocked text: what else its marketplace offers, or what is imported here. */
+function blockedNextAction(source = {}) {
+  return source.marketplace
+    ? { command: `singularity-flow marketplace catalog --marketplace ${source.marketplace}`, label: `See what else marketplace ${source.marketplace} offers.` }
+    : { command: 'singularity-flow imports', label: 'See what is imported here.' };
+}
+
+/** A preview's safety: the look and note lines, and the look checks `--looked` names once the person has looked. */
+const previewSafety = (safety) => ({ checker: safety.checker, state: safety.state, findings: [...safety.looks, ...safety.notes],
+  looks: [...new Set(safety.looks.map((entry) => entry.check))].sort() });
+
+/**
+ * The checks' gate for an add of the staged text `sha256` as `as` [OMK:REQ-031]: a block, and the look lines `looked`
+ * does not name and the import's earlier record (its `source.safety`, by `ledgerKey`) did not already look at. Null when
+ * the kind is not checked or the text is not staged here (Workflow Studio's apply checks it again from the bytes it adds).
+ */
+export async function addSafetyGate(root, { sha256, as, looked = [], ledgerKey = null }) {
+  if (!SAFETY_KINDS.has(as)) return null;
+  const staged = await readStagedImport(root, sha256);
+  if (!staged) return null;
+  const result = importTextSafety(as, decodeUtf8(staged.bytes, 'Imported content'), staged.source);
+  const ledger = ledgerKey ? await loadImportsLedger(configurationReadRoot(root)).catch(() => ({ imports: {} })) : { imports: {} };
+  return { result, gate: safetyGate(result, { looked, previous: ledgerKey ? ledger.imports?.[ledgerKey]?.source?.safety ?? null : null }), source: staged.source };
+}
+
 /**
  * Fetch, check and stage something to import. Nothing in the repository changes; the result is what
  * a person reviews, and its `sha256` is what an add names.
@@ -361,6 +404,9 @@ export async function previewImport(root, value, {
   }
   const kind = as ?? suggestedAs;
   const inspection = inspectImportContent(kind, text, { id, label: `The content at ${reference.display}` });
+  // SFlow's text checks, before its first use [OMK:REQ-032]: a block refuses it here, before anything is staged.
+  const safety = importTextSafety(kind, text, fetched.source);
+  if (safety?.blocks.length) throw safetyBlocked(safety, { label: `the ${kind} at ${reference.display}`, nextAction: blockedNextAction(fetched.source) });
   const staged = await stageImport(root, fetched);
   const truncated = text.length > PREVIEW_TEXT_LIMIT;
   return {
@@ -378,6 +424,8 @@ export async function previewImport(root, value, {
     truncated,
     details: inspection.details,
     warnings: inspection.warnings,
+    // What the person looks at before adding it (`looks`, the check IDs `--looked` names) and the links it holds.
+    ...(safety ? { safety: previewSafety(safety) } : {}),
     ...(fetched.entry ? {
       marketplace: {
         id: fetched.source.marketplace, entry: fetched.entry.id, version: fetched.entry.version,
@@ -639,12 +687,12 @@ async function marketplaceSkillCheck(root, key, entry, marketplaces) {
   if (trustedSha256 !== entry.sha256) {
     const staged = await stageImport(root, trusted);
     const version = trusted.entry.version;
-    return {
+    return withUpdateSafety({
       key, status: version && source.version && version !== source.version ? 'newer version available' : 'changed at its source',
       detail: `${versionWords(version)} at the commit this repository trusts (${short(trusted.source.commit)})`,
       words: `${versionWords(version)} at the commit this repository trusts`,
       sha256: staged.sha256, updateCommand: updateCommand(key, entry, staged.sha256, reference.display)
-    };
+    }, entry, trusted.bytes, trusted.source);
   }
   const newest = await read({ ...marketplace, commit: null });
   if (newest.error) {
@@ -668,6 +716,25 @@ async function marketplaceSkillCheck(root, key, entry, marketplaces) {
     commit,
     updateCommand: `singularity-flow marketplace add ${source.marketplace} --repo ${JSON.stringify(marketplace.repository)}${marketplace.ref ? ` --ref ${marketplace.ref}` : ''}`
   };
+}
+
+/**
+ * An update row with SFlow's text checks on its new text [OMK:REQ-032]: `safety` names what they found; a text they refuse
+ * is not offered (its update command is withheld, and the row says why), and lines to look at are shown again by the
+ * update's own add, which asks only for the lines that changed since they were last looked at.
+ */
+function withUpdateSafety(row, entry, bytes, source) {
+  const kind = entry.kind === 'library-skill' ? 'skill' : entry.kind;
+  let text;
+  try { text = decodeUtf8(bytes, 'Imported content'); } catch { return row; }
+  const result = importTextSafety(kind, text, source);
+  if (!result || result.state === 'clean') return row;
+  const gate = safetyGate(result, { previous: entry.source?.safety ?? null });
+  const safety = { state: result.state, checker: result.checker, findings: [...result.blocks, ...gate.unlooked], looks: gate.checks };
+  if (result.state !== 'blocked') return { ...row, safety };
+  const { updateCommand: _withheld, ...rest } = row;
+  const words = `its new text is refused by SFlow's text checks (line ${result.blocks[0].line}: ${result.blocks[0].words}), so it is not offered`;
+  return { ...rest, safety, detail: `${row.detail ? `${row.detail}; ` : ''}${words}`, ...(row.words ? { words: `${row.words}; ${words}` } : {}) };
 }
 
 /** The marketplaces a check reads, by ID: where the check already reads the approved configuration, that one. */
@@ -711,14 +778,15 @@ export async function checkImportSources(root, { fetchImpl = globalThis.fetch } 
       } catch (error) { rows.push({ key, status: 'unavailable', detail: error.message }); continue; }
       if (latest.sha256 === entry.sha256) { rows.push({ key, status: 'up to date', detail: `version ${entry.source.version}` }); continue; }
       const reference = `market:${entry.source.marketplace}/${latest.id}@${latest.version}`;
+      let fetched;
       try {
-        const fetched = await fetchReference(root, parseImportReference(reference), { fetchImpl });
+        fetched = await fetchReference(root, parseImportReference(reference), { fetchImpl });
         await stageImport(root, fetched);
       } catch (error) { rows.push({ key, status: 'unavailable', detail: error.message }); continue; }
-      rows.push({
+      rows.push(withUpdateSafety({
         key, status: 'newer version available', detail: `${latest.version} (imported ${entry.source.version})`,
         sha256: latest.sha256, updateCommand: updateCommand(key, entry, latest.sha256, reference)
-      });
+      }, entry, fetched.bytes, fetched.source));
       continue;
     }
     if (entry.source?.kind === 'marketplace-agent') {
@@ -739,11 +807,11 @@ export async function checkImportSources(root, { fetchImpl = globalThis.fetch } 
     catch (error) { rows.push({ key, status: 'unavailable', detail: error.message }); continue; }
     if (fetched.sha256 === entry.sha256) { rows.push({ key, status: 'up to date', detail: null }); continue; }
     const staged = await stageImport(root, { bytes: fetched.bytes, source: { kind: 'url', url: entry.source.url, resolvedUrl: fetched.resolvedUrl } });
-    rows.push({
+    rows.push(withUpdateSafety({
       key, status: 'changed at its source',
       detail: `now ${staged.sha256.slice(0, 12)} (${staged.size} bytes); imported ${String(entry.sha256).slice(0, 12)}`,
       sha256: staged.sha256, updateCommand: updateCommand(key, entry, staged.sha256)
-    });
+    }, entry, fetched.bytes, staged.source));
   }
   return rows;
 }

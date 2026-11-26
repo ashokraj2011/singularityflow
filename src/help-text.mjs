@@ -442,7 +442,7 @@ Usage:
   singularity-flow workflow intent attachments [--file FILE]... [--folder DIRECTORY]... [--expected-source SHA256] [--id ID] [--json]
   singularity-flow workflow markup compile <FILE|-> [--out BUNDLE.json] [--json]
   singularity-flow workflow markup compile <FILE|-> [--design-review|--inspect-phase PHASE] --json
-  singularity-flow workflow from-agent FOLDER|MARKETPLACE/AGENT [--answer STEP=INTENT]... [--out BUNDLE.json | --propose | --feedback FILE.md] [--update] [--review] [--json]
+  singularity-flow workflow from-agent FOLDER|MARKETPLACE/AGENT [--answer STEP=INTENT]... [--out BUNDLE.json | --propose | --feedback FILE.md] [--update] [--looked CHECKS] [--review] [--json]
                                                         an agent folder's or marketplace agent's stages as a version 4 workflow, every step
                                                         with what it is for; --out writes the bundle, --propose previews
                                                         its import as a configuration proposal
@@ -856,11 +856,13 @@ Usage:
   singularity-flow agents status [PACK]
   singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
   singularity-flow import preview <LINK|market:ID/ENTRY[@VERSION]|mcp:SERVER/prompt|resource|tool/NAME> [--as skill|template|agent|mcp-server] [--id ID] [--max-bytes N] [--launch] [--arg NAME=VALUE]... [--json]
-  singularity-flow import add <LINK> --as skill --agent AGENT [--id ID] [--phases A,B] [--optional] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
-  singularity-flow import add <LINK> --as skill [--id ID] [--description TEXT] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
+  singularity-flow import add <LINK> --as skill --agent AGENT [--id ID] [--phases A,B] [--optional] --sha256 HASH [--looked CHECKS] [--replace] [--dry-run] [--propose] [--json]
+  singularity-flow import add <LINK> --as skill [--id ID] [--description TEXT] --sha256 HASH [--looked CHECKS] [--replace] [--dry-run] [--propose] [--json]
                                                         into the skill master; plain Markdown needs --description
-  singularity-flow import add <LINK> --as template [--id ID] [--label TEXT] [--phases A,B] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
-  singularity-flow import add <LINK> --as agent [--without-defaults] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
+  singularity-flow import add <LINK> --as template [--id ID] [--label TEXT] [--phases A,B] --sha256 HASH [--looked CHECKS] [--replace] [--dry-run] [--propose] [--json]
+  singularity-flow import add <LINK> --as agent [--without-defaults] --sha256 HASH [--looked CHECKS] [--replace] [--dry-run] [--propose] [--json]
+                                                        --looked names the look checks the preview listed (SFlow's text
+                                                        checks), once the person has looked at those lines
   singularity-flow import add <LINK|market:ID/ENTRY> --as mcp-server [--agents A,B] [--phases A,B] --sha256 HASH [--replace] [--dry-run] [--propose] [--json]
   singularity-flow import add --as generated --agent AGENT --id ID --url-template URL --phase PHASE --target artifacts/PHASE/FILE.md [--optional] [--dry-run] [--propose] [--json]
   singularity-flow imports [list] [--json]

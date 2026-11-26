@@ -39,10 +39,11 @@ function instructionCatalogHash(catalog) {
 }
 import { AGENT_CLARIFICATION_GUIDANCE, REPOSITORY_AGENT_BOUNDARY } from './agent-guidance.mjs';
 import {
-  IMPORTS_LOCK_PATH, importLedgerKey, importedTemplateRelative, inspectImportContent, ledgerEntry,
+  IMPORTS_LOCK_PATH, importLedgerKey, importTextSafety, importedTemplateRelative, inspectImportContent, ledgerEntry,
   loadImportsLedger, removeAgentTableRow, renderImportsLedger, requireSha256, resolveChangeSetImports,
   textOf, upsertAgentTableRow, validateGeneratedSource, vendoredAgentResourcePath
 } from './asset-import.mjs';
+import { parseLookedChecks, safetyBlocked, safetyGate, safetyLookNeeded } from './import-safety.mjs';
 import { normalizeMarketplaces } from './marketplace.mjs';
 import { mcpDescriptorPath, parseMcpServerDescriptor } from './mcp-descriptor.mjs';
 import { DEFAULT_REMOTE_MAX_BYTES, HARD_REMOTE_MAX_BYTES } from './remote-fetch.mjs';
@@ -1594,10 +1595,10 @@ class StudioCandidate {
    * A skill from a link, a marketplace or an MCP server, into the skill master. A SKILL.md keeps its
    * exact bytes; plain Markdown becomes the instructions of a SKILL.md with the description given.
    */
-  importLibrarySkill({ id, sha256, description = null, replace = false }) {
+  importLibrarySkill({ id, sha256, description = null, replace = false, looked = [] }) {
     const skillId = requireId(id, 'A skill ID');
-    const staged = this.stagedContent(sha256, 'skill', { id: skillId });
     const key = `library-skill:${skillId}`;
+    const staged = this.stagedContent(sha256, 'skill', { id: skillId, looked, key: replace ? key : null });
     if (this.skills.has(skillId)) {
       if (!replace) throw new SingularityFlowError(`The skill master already has a skill called '${skillId}'. Replace it deliberately, or choose another ID.`, { code: 'STUDIO_SKILL_EXISTS' });
       if (!this.ledger.imports[key]) throw new SingularityFlowError(`Skill '${skillId}' was written in this repository, not imported; import under another ID.`, { code: 'STUDIO_SKILL_EXISTS' });
@@ -1975,13 +1976,29 @@ class StudioCandidate {
   // -------------------------------------------------------------------------------------------
   // Imports
 
-  /** Previewed bytes for an import operation, checked again for the use it is added as. */
-  stagedContent(sha256, kind, { id = null, label } = {}) {
+  /**
+   * Previewed bytes for an import operation, checked again for the use it is added as, and by SFlow's text checks
+   * [OMK:REQ-031]: a block refuses it; a line to look at needs the check named in `looked`, unless the import's earlier
+   * record (`key`, or the agent's own key once its ID is read) already looked at that same line. `safetyRecord` is what
+   * the import record keeps of the lines looked at.
+   */
+  stagedContent(sha256, kind, { id = null, label, looked = [], key = null } = {}) {
     const staged = this.staged.get(requireSha256(sha256));
     if (!staged) throw new SingularityFlowError('This import is no longer staged on this machine. Preview it again, then add it.', { code: 'STUDIO_IMPORT_NOT_STAGED' });
     const text = textOf(staged.bytes);
-    const inspection = inspectImportContent(kind, text, { id, label: label ?? `The ${kind} from ${sourceText(staged.source)}` });
-    return { ...staged, text, inspection };
+    const what = label ?? `The ${kind} from ${sourceText(staged.source)}`;
+    const inspection = inspectImportContent(kind, text, { id, label: what });
+    const result = importTextSafety(kind, text, staged.source);
+    let safetyRecord = null;
+    if (result) {
+      const named = parseLookedChecks(looked ?? []);
+      const recorded = this.ledger.imports[key ?? (kind === 'agent' ? importLedgerKey('agent', { id: inspection.id }) : '')] ?? null;
+      const gate = safetyGate(result, { looked: named, previous: recorded?.source?.safety ?? null });
+      if (gate.blocked.length) throw safetyBlocked(result, { label: what.toLowerCase().startsWith('the ') ? what.toLowerCase() : what });
+      if (gate.unlooked.length) throw safetyLookNeeded(gate, { label: what });
+      safetyRecord = gate.record;
+    }
+    return { ...staged, text, inspection, safetyRecord };
   }
 
   requirePhases(list, label = 'A step') {
@@ -1995,7 +2012,9 @@ class StudioCandidate {
   }
 
   recordImport(kind, key, staged, target, extra = {}) {
-    this.ledger.imports[importLedgerKey(kind, key)] = ledgerEntry(kind, staged, target, extra);
+    // The lines a person looked at, kept under source so an older build reads the record as before [OMK:REQ-006].
+    const kept = staged.safetyRecord ? { ...staged, source: { ...staged.source, safety: staged.safetyRecord } } : staged;
+    this.ledger.imports[importLedgerKey(kind, key)] = ledgerEntry(kind, kept, target, extra);
     this.ledgerChanged = true;
   }
 
@@ -2016,14 +2035,14 @@ class StudioCandidate {
     this.trusted.get(agentId)?.delete(`${type}:${id}`);
   }
 
-  importSkill({ agent: agentId, id, sha256, phases = [], optional = false, replace = false }) {
+  importSkill({ agent: agentId, id, sha256, phases = [], optional = false, replace = false, looked = [] }) {
     const target = this.requireAgent(requireId(agentId, 'An agent ID'));
     if (this.protectedAgents.has(target.id)) {
       throw new SingularityFlowError(`${target.label} belongs to a seeded workflow, so its own skill tables are read-only. Add the skill to the skill master instead (an import without an agent) and attach it to ${target.label}; the attachment is kept in ${SKILL_ATTACHMENTS_PATH}.`, { code: 'SEEDED_WORKFLOW_READ_ONLY' });
     }
     const agent = this.touch(target);
     const skillId = requireId(id, 'A skill ID');
-    const staged = this.stagedContent(sha256, 'skill', { id: skillId });
+    const staged = this.stagedContent(sha256, 'skill', { id: skillId, looked, key: replace ? importLedgerKey('skill', { agent: agent.id, id: skillId }) : null });
     const url = sourceUrl(staged.source);
     const steps = this.requirePhases(phases);
     const maxBytes = Math.max(DEFAULT_REMOTE_MAX_BYTES, staged.size);
@@ -2039,10 +2058,10 @@ class StudioCandidate {
     this.summary.push(`${agent.label} uses skill ${skillId} from ${sourceText(staged.source)}${steps.length ? ` in ${steps.map((step) => this.phaseLabel(step)).join(', ')}` : ' in every step it drafts'}.`);
   }
 
-  importTemplate({ id, label, description, sha256, phases = [], replace = false }) {
+  importTemplate({ id, label, description, sha256, phases = [], replace = false, looked = [] }) {
     const templateId = requireId(id, 'A template ID');
-    const staged = this.stagedContent(sha256, 'template', { id: templateId });
     const key = importLedgerKey('template', { id: templateId });
+    const staged = this.stagedContent(sha256, 'template', { id: templateId, looked, key: replace ? key : null });
     if (this.content.templates?.[templateId]) {
       if (!replace) throw new SingularityFlowError(`A template called '${templateId}' already exists. Replace it deliberately, or choose another ID.`, { code: 'STUDIO_TEMPLATE_EXISTS' });
       if (!this.ledger.imports[key]) throw new SingularityFlowError(`Template '${templateId}' was written in this repository, not imported; import under another ID.`, { code: 'STUDIO_TEMPLATE_EXISTS' });
@@ -2061,8 +2080,8 @@ class StudioCandidate {
     this.summary.push(`Template ${name} from ${sourceText(staged.source)}${steps.length ? `, used by ${steps.map((step) => this.phaseLabel(step)).join(', ')}` : ''}.`);
   }
 
-  importAgent({ sha256, id = null, withoutDefaults = false, replace = false }) {
-    const staged = this.stagedContent(sha256, 'agent', { id: id == null ? null : requireId(id, 'An agent ID') });
+  importAgent({ sha256, id = null, withoutDefaults = false, replace = false, looked = [] }) {
+    const staged = this.stagedContent(sha256, 'agent', { id: id == null ? null : requireId(id, 'An agent ID'), looked });
     const agentId = staged.inspection.id;
     const key = importLedgerKey('agent', { id: agentId });
     const existing = this.agents.get(agentId);

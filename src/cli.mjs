@@ -3911,13 +3911,15 @@ function printImportResult(result, { dryRun }) {
   if (result.nextAction) printCommandRoutes(result.nextAction, { indent: '  ', label: 'Next' });
 }
 
-function importAddCommandLine(reference, { as, agent, id, phases, sha256 }) {
+function importAddCommandLine(reference, { as, agent, id, phases, sha256, looked = [] }) {
   return ['singularity-flow import add', JSON.stringify(reference), `--as ${as}`,
     // A skill with no agent goes to the skill master, where any agent or task can use it.
     as === 'skill' && agent ? `--agent ${agent}` : null,
     id ? `--id ${id}` : null,
     phases?.length ? `--phases ${phases.join(',')}` : null,
-    `--sha256 ${sha256}`].filter(Boolean).join(' ');
+    `--sha256 ${sha256}`,
+    // The look checks the preview listed: running this command is the person's yes that they looked [OMK:REQ-031].
+    looked.length ? `--looked ${looked.join(',')}` : null].filter(Boolean).join(' ');
 }
 
 function printImportPreview(preview, command) {
@@ -3934,13 +3936,53 @@ function printImportPreview(preview, command) {
   if (details.host) console.log(details.host.type === 'stdio' ? `  Starting it runs: ${[details.host.command, ...(details.host.args ?? [])].join(' ')}` : `  It connects to: ${details.host.url}`);
   if (preview.source?.kind === 'mcp') console.log(`  Read from MCP server ${preview.source.server}${preview.source.serverInfo?.name ? ` (${preview.source.serverInfo.name} ${preview.source.serverInfo.version})` : ''}${Object.entries(preview.source.arguments ?? {}).map(([name, value]) => ` · ${name}=${value}`).join('')}`);
   for (const warning of preview.warnings ?? []) console.log(`  Warning: ${warning}`);
+  // SFlow's text checks: the lines to look at before adding it, and the links to other sites [OMK:REQ-031].
+  const looks = (preview.safety?.findings ?? []).filter((entry) => entry.severity === 'look');
+  const notes = (preview.safety?.findings ?? []).filter((entry) => entry.severity === 'note');
+  if (looks.length) {
+    console.log("  Look at these lines (SFlow's text checks):");
+    for (const entry of looks) console.log(`    Line ${entry.line} (${entry.words}): ${entry.text}`);
+  }
+  if (notes.length) console.log(`  Links to other sites: ${[...new Set(notes.map((entry) => entry.words.replace(/^[^:]*: /u, '')))].join(', ')}.`);
   const lines = preview.text.split(/\r?\n/);
   console.log('  --- content ---');
   for (const line of lines.slice(0, 40)) console.log(`  ${line}`);
   if (lines.length > 40 || preview.truncated) console.log(`  … ${preview.truncated ? 'more' : lines.length - 40} more line(s); the full text is what will be imported.`);
   console.log('  ---------------');
-  console.log('Add exactly this content:');
+  console.log(preview.safety?.looks?.length ? 'Once you have looked at the lines above, add exactly this content:' : 'Add exactly this content:');
   console.log(`  ${command}`);
+}
+
+/**
+ * SFlow's text checks before an add [OMK:REQ-031]: a block refuses it; a line to look at that `--looked` does not name, and
+ * that the import's earlier record did not already look at, refuses it with this same command and `--looked`, which the
+ * person's yes runs. Returns the look checks the person named. Workflow Studio checks the bytes again when it adds them.
+ */
+async function importLooked(root, { reference, as, id, sha256, options, phases }) {
+  const [{ addSafetyGate, importLedgerKey }, { parseLookedChecks, safetyBlocked, safetyLookNeeded }] = await Promise.all([
+    import('./asset-import.mjs'), import('./import-safety.mjs')]);
+  const looked = parseLookedChecks(optionString(options, 'looked') ?? []);
+  const agent = optionString(options, 'agent');
+  const ledgerKey = !optionBoolean(options, 'replace') ? null
+    : as === 'skill' ? importLedgerKey(agent ? 'skill' : 'library-skill', { agent, id }) : id ? importLedgerKey(as, { id }) : null;
+  const checked = await withApprovedConfigurationRead(root, () => addSafetyGate(root, { sha256, as, looked, ledgerKey }), { preferAuthority: true });
+  if (!checked) return looked;
+  const label = `the ${as} at ${reference}`;
+  if (checked.gate.blocked.length) {
+    throw safetyBlocked(checked.result, { label, nextAction: checked.source?.marketplace
+      ? { command: `singularity-flow marketplace catalog --marketplace ${checked.source.marketplace}`, label: `See what else marketplace ${checked.source.marketplace} offers.` }
+      : { command: 'singularity-flow imports', label: 'See what is imported here.' } });
+  }
+  if (checked.gate.unlooked.length) {
+    const command = [importAddCommandLine(reference, { as, agent, id, phases, sha256, looked: [...new Set([...looked, ...checked.gate.checks])].sort() }),
+      as === 'skill' && !agent && optionString(options, 'description') ? `--description ${JSON.stringify(optionString(options, 'description'))}` : null,
+      as === 'template' && optionString(options, 'label') ? `--label ${JSON.stringify(optionString(options, 'label'))}` : null,
+      optionBoolean(options, 'optional') ? '--optional' : null, optionBoolean(options, 'without-defaults') ? '--without-defaults' : null,
+      optionBoolean(options, 'replace') ? '--replace' : null, optionBoolean(options, 'dry-run') ? '--dry-run' : null,
+      optionBoolean(options, 'propose') ? '--propose' : null, optionBoolean(options, 'json') ? '--json' : null].filter(Boolean).join(' ');
+    throw safetyLookNeeded(checked.gate, { label: `${label[0].toUpperCase()}${label.slice(1)}`, command });
+  }
+  return looked;
 }
 
 async function importCommand(positionals, options) {
@@ -3958,7 +4000,7 @@ async function importCommand(positionals, options) {
       launch: optionBoolean(options, 'launch'), arguments: importArguments(options)
     }), { preferAuthority: true });
     const command = importAddCommandLine(reference, {
-      as: preview.as, agent: optionString(options, 'agent'), id: preview.id ?? importIdFromLink(reference), sha256: preview.sha256
+      as: preview.as, agent: optionString(options, 'agent'), id: preview.id ?? importIdFromLink(reference), sha256: preview.sha256, looked: preview.safety?.looks ?? []
     });
     if (json) return console.log(JSON.stringify({ ...preview, addCommand: command }, null, 2));
     return printImportPreview(preview, command);
@@ -3998,7 +4040,8 @@ async function importCommand(positionals, options) {
       // Nothing is added unseen: fetch and stage it, show it, and name the exact bytes to add.
       const preview = await previewImport(root, reference, { as, id: optionString(options, 'id'), launch: optionBoolean(options, 'launch'), arguments: importArguments(options) });
       const command = importAddCommandLine(reference, {
-        as, agent: optionString(options, 'agent'), id: optionString(options, 'id') ?? preview.id ?? importIdFromLink(reference), phases, sha256: preview.sha256
+        as, agent: optionString(options, 'agent'), id: optionString(options, 'id') ?? preview.id ?? importIdFromLink(reference), phases, sha256: preview.sha256,
+        looked: preview.safety?.looks ?? []
       });
       if (!json) printImportPreview(preview, command);
       throw new SingularityFlowError(`Review the content first. To add exactly what was previewed, run: ${command}`, {
@@ -4007,6 +4050,7 @@ async function importCommand(positionals, options) {
     }
     const id = optionString(options, 'id') ?? (['agent', 'mcp-server'].includes(as) ? null : importIdFromLink(reference));
     if (!['agent', 'mcp-server'].includes(as) && !id) throw new SingularityFlowError('Name the import with --id <kebab-case-id>.', { code: 'IMPORT_ID_INVALID' });
+    const looked = await importLooked(root, { reference, as, id, sha256, options, phases });
     // A skill without --agent goes to the skill master, where any agent can attach it.
     change = as === 'skill' && !optionString(options, 'agent')
       ? { op: 'import.librarySkill', id, source: reference, sha256, description: optionString(options, 'description') ?? undefined, replace: optionBoolean(options, 'replace') }
@@ -4017,6 +4061,7 @@ async function importCommand(positionals, options) {
         : as === 'mcp-server'
           ? { op: 'import.mcpServer', id: id ?? undefined, source: reference, sha256, agents: listOption(options, 'agents'), phases, replace: optionBoolean(options, 'replace') }
           : { op: 'import.agent', id: id ?? undefined, source: reference, sha256, withoutDefaults: optionBoolean(options, 'without-defaults'), replace: optionBoolean(options, 'replace') };
+    if (looked.length) change.looked = looked;
   }
   const changeSet = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [change] };
   const subject = String(change.id ?? change.agent ?? 'import');

@@ -445,6 +445,12 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
   (+8,381), root dispatch 888,719 bytes (+9,335) and 40 files (one new: `story-paths.mjs`); VS Code gateway 7,891,977
   bytes (-977, its limit back at 7,893,000), extension 161 modules, help 147, support 115, performance 13 (one module
   each, `story-paths.mjs`), lazy panels 3,747,716 bytes (+271).
+- **Found by the touched-area run.** The edit guard's static closure gains `story-paths.mjs` (56 to 57 modules: its
+  mutation contract, record-family read and own `workflow.json` path use the resolver), raised in
+  `test/lazy-startup-reads.test.mjs` and `benchmarks/performance-v2/import-budgets.json` with the measurement. The two
+  layout refusals are cleared by whoever works in the checkout (`APPROVAL_HOLD_OWNERS`, `this-checkout`), as a stage's
+  every code must say (`test/oap-m1-approval-check.test.mjs`). B12's `amended-drafts.mjs` variable shadowed the
+  module's `recorded()`; renamed.
 - **The full suite is not run in M1.** §7 asks for it once at M1's end; the owner's rule for this build runs only the
   touched-area tests and the named guard tests, so the full run is left to integration.
 - **Not converted in M1: a Story prefix passed as a parameter** (`itemRelative`, `itemRoot`, `workRoot` joined by the

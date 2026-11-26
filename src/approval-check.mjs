@@ -684,6 +684,9 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   READ_ONLY_AGENT_CANNOT_MUTATE: 'this-checkout',
   // Whoever works here sets their Git name and email (SCF:REQ-018).
   GIT_COMMIT_IDENTITY_REQUIRED: 'this-checkout',
+  // A Story kept in a layout this SFlow does not read: whoever works here updates SFlow [SSB:REQ-009, REQ-010].
+  STORY_LAYOUT_UNKNOWN: 'this-checkout',
+  STORY_LAYOUT_CHANGED: 'this-checkout',
   SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE: 'this-checkout',
   INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'someone-decides',
   SOURCE_REVIEW_AUTHOR_COLLISION: 'author-repairs',

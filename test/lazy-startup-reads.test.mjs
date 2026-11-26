@@ -200,7 +200,10 @@ test('the Copilot edit guard, run on every tool call, stays clear of the configu
   // workflow-decisions.mjs, evidence/applicability.mjs and presence/counted.mjs under the map: 76). manual-authorship.mjs
   // now imports the artifact checks (publication-preflight.mjs and the Git graph under it, 20 modules) only where an
   // artifact is checked, which the guard never does: 56.
-  assert.ok(closure.size <= 56, `the edit guard loads ${closure.size} static modules; ceiling is 56`);
+  // 57 (measured 2026-11-26 on ssb-m1): story-paths.mjs, the Story path resolver [SSB:REQ-009], on node:path and util.mjs
+  // (already here). The guard's mutation contract (phase-mutation-contract.mjs), its record-family read
+  // (schema-migrations.mjs) and its own workflow.json path join a Story's paths through it (SSB M1 B3, B9, B10).
+  assert.ok(closure.size <= 57, `the edit guard loads ${closure.size} static modules; ceiling is 57`);
 });
 
 test('commands that load the legacy CLI leave the SQLite build and the ACP SDK to first use', () => {

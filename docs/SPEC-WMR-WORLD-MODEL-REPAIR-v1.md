@@ -400,7 +400,7 @@ Where the build reads the requirements one way among several:
   plan's files first), as the feature workflow's plan step already did. The reviewer's profile is 3 KB and is never
   chosen by a step's name. Corrected on `wmr-words`: spec-driven-standard's `planning` step does not move. It declares
   `design` as its document's kind, and the kind comes before the intent, so it keeps the architect's 3 KB brief. Since
-  then that brief says what a change touches (§11).
+  then that brief says what a change touches (§11). Owner, 2026-11-27: agreed; the kind keeps deciding first.
 - **REQ-013's sameness.** A brief is reused while the Story's base commit, its changed files' bytes, its plan, its
   words, its source scope and the reviews people wrote (`docs/knowledge/*.yml`) are the same. Only a recorded compose
   keeps one; `wm brief` reads it.

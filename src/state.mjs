@@ -13,7 +13,7 @@ export { commitAndPublish };
 export { validatePhase, refreshPhaseSpecificationIndex, refreshSkillLifecycleArtifactIdentities, registerApprovedSnapshot, settleRetainedPhases, updateArtifactMetadata, writeDecision };
 import { assertStoryNotArchived } from './governance-archive.mjs';
 import { normalizeCurrentWorkflow } from './story-state-normalization.mjs';
-import { workflowBranchNames, workflowBranchAllowed, storyLocation, storiesRoot } from './story-paths.mjs';
+import { workDir, workflowBranchNames, workflowBranchAllowed, storyLocation, storiesRoot } from './story-paths.mjs';
 export { workDir, workDirRelative, workflowPath, workflowBranchNames, workflowBranchAllowed } from './story-paths.mjs';
 import { loadWorkflow, attachLegacyGovernedRoots } from './story-workflow-read.mjs';
 export { loadWorkflow } from './story-workflow-read.mjs';
@@ -7529,7 +7529,7 @@ export async function evaluateApproval(root, config, workflow, {
       submittedWitnessMappings = submittedReview.witnessReview?.clauseMappings ?? [];
       if (submittedWitnessMappings.length) {
         // The same read the approval review shows each test's criterion from [owner's Story arshy, 2026-11-20].
-        const currentClauses = await activeWitnessClauses(storyLocation(root, config, workflow.workItem.id).directory, workflow);
+        const currentClauses = await activeWitnessClauses(workDir(root, config, workflow.workItem.id), workflow);
         const stale = submittedWitnessMappings.find((mapping) => witnessClauseStatus(mapping, currentClauses) !== 'current');
         if (stale) {
           throw new SingularityFlowError(

@@ -38,7 +38,10 @@ const ALLOWED = [
   { file: 'src/config.mjs', line: /initiativeRoot/u, keys: ['E'] },
   { file: 'src/configuration-assets.mjs', line: /^\s*'singularity\/(?:work-items|initiatives)',$/u },
   { file: 'src/configuration-assets.mjs', line: /^\s*: 'singularity\/(?:work-items|initiatives)'$/u },
-  { file: 'src/configuration-assets.mjs', line: /^export const CONFIGURATION_SOURCE_PATH = /u, keys: ['F'] }
+  { file: 'src/configuration-assets.mjs', line: /^export const CONFIGURATION_SOURCE_PATH = /u, keys: ['F'] },
+  // Spellings a test reads from the source. Each wrapper asks the resolver; the test keeps its words unchanged.
+  // test/approval-witness-criteria.test.mjs: the approval's witness check reads the same clauses as the review page.
+  { file: 'src/state.mjs', line: /activeWitnessClauses\(workDir\(root, config, workflow\.workItem\.id\), workflow\)/u, keys: ['W'] }
 ];
 
 // Ceilings: lowered by each batch of M1, never raised. At M1's end W, R, P, I, B, X and H are 0; L keeps only help

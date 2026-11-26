@@ -12,8 +12,8 @@ The current packaged diagnostic tutorials are `sflow explain diagnostics-and-reg
 - Workflow schema version 2 rejects incompatible role-bearing configuration and
   runtime state with a recreate instruction.
 - Every configured phase has exactly one default governed agent.
-- Agent IDs, phase references, world-model views, template references, allowed
-  tools, and protected paths validate deterministically.
+- Agent IDs, phase references, template references, allowed tools, and protected
+  paths validate deterministically.
 
 ## Sessions and intake
 
@@ -27,18 +27,17 @@ The current packaged diagnostic tutorials are `sflow explain diagnostics-and-reg
   governed agent remain distinct fields.
 - Work-item selection remains explicit and synchronizes the exact remote branch.
 
-## Prompt composition and world model
+## Prompt composition and the Repository brief
 
-- `wm compose` combines the phase contract, Agent Markdown body, required phase
-  views, agent-added views, rule-selected repository files, approved inputs,
-  locked remote dependencies, and applicable evidence.
+- `wm compose` combines the phase contract, Agent Markdown body, rule-selected
+  repository files, approved inputs, locked remote dependencies, applicable
+  evidence and, for a design, plan or code step, the Repository brief.
 - `/sflow-show-prompt` displays the exact skill plus rendered phase prompt without
   mutating state.
-- Generation records the agent ID, Agent Markdown hash, world-model manifest and
-  source hashes, included files, byte limits, and rendered-prompt hash.
-- `off` omits World-Model handling and `warn` reports grounding findings as warnings; `enforce`
-  is accepted and acts as `warn`, so no grounding finding blocks a lifecycle step.
-- Agent-added views never remove phase-required views.
+- Generation records the agent ID, Agent Markdown hash, the Repository brief's
+  sources, included files, byte limits, and rendered-prompt hash.
+- The Repository brief is guidance: a missing, stale or broken brief means no
+  brief, with a warning, and no lifecycle step is blocked.
 
 ## Lifecycle and approval
 

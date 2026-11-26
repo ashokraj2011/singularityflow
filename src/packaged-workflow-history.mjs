@@ -78,10 +78,16 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'benchmarking-b': Object.freeze([
       'aa433bacbaead95204b96700360598b5e2e1c682ac1a5846d6fa415adf1b5548',
       // Before broader return routes (2026-10-12).
-      '22b76b63947822eff26a76c5b360c132cfb24e81ee4f6975201511ea19669363'
+      '22b76b63947822eff26a76c5b360c132cfb24e81ee4f6975201511ea19669363',
+      // Before its description named the Repository brief instead of "world-model" enrichment (2026-11-26, WMR).
+      'a6446501c81f3fcd4bba484b95652652153ddcea34cf6f01d74e1c93cd99873a'
     ]),
-    // Before broader return routes (2026-10-12).
-    'benchmarking-a': Object.freeze(['0a18e2ce95010eee32b209c98e1e9ab9d3a9993e78ca10f23938b2d3fe3d13cd']),
+    'benchmarking-a': Object.freeze([
+      // Before broader return routes (2026-10-12).
+      '0a18e2ce95010eee32b209c98e1e9ab9d3a9993e78ca10f23938b2d3fe3d13cd',
+      // Before its description named the Repository brief instead of a "governed world-model" (2026-11-26, WMR).
+      '903eda0c8b99351b6993c06498bdcc1683237d864e6c55319f806a91b9fee89d'
+    ]),
     // Before its description said its validation gates run TypeScript Playwright through npm.
     'poc-workflow': Object.freeze(['dc72ed2683f76ed9c561ffe0135b442e8eb88202a661ea39031545d29a965d75']),
     // Before approve twice (2026-11-19).
@@ -429,8 +435,8 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'careful-change': 'a6ea3be48cf4ece09dee0adf5f9088ad99cc02826fd2fe54bbdc29feb6baaeda',
     'test-run': '17a4c04485f1515b786e3d06595f36f05d6f707bad3c167274bfb084e53f000d',
     'demo-instruction-test-loop': '37355eeff7baba479e08f925b068343f6b53f277906cf7f0d8a0627ba6fbbb1a',
-    'benchmarking-a': '903eda0c8b99351b6993c06498bdcc1683237d864e6c55319f806a91b9fee89d',
-    'benchmarking-b': 'a6446501c81f3fcd4bba484b95652652153ddcea34cf6f01d74e1c93cd99873a',
+    'benchmarking-a': '3f304e4cf08655de3f1e2b4b001b4501a8be434f2bf02c7f9a1744b2423d8eab',
+    'benchmarking-b': 'c61d363fa8cb0cdc5e9e735dbe9dea9da4f38c81ff5e8a66a9952671d43421c7',
     bugfix: '8012b5293b1fe6c9792ddf64d8267ef1fa70ed76042e53b2e3498504411e4c90',
     chore: '9196bada9e0449df3c00f57e923ad4b04d9d04015850a1bfeec1888881f14e03',
     'classic-delivery': '9991f59f3ba6df48d9e5603edb78e7d33b303b6944f8fffa0e5e01f28fda9574',

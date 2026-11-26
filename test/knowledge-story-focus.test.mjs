@@ -2,7 +2,8 @@
  * The Repository brief, focused on the Story and placed where it helps [WMR:REQ-007–015], on fixtures:
  * the plan's files lead (A2), a large repository reads the Story's scope and planned areas (A3), the brief is left
  * out of intake, verification and release unless a team turns it back on (A4), a step's intent picks its reader (A5),
- * a step's next version reuses its brief (A6), and calls matched by name are never stated as facts (A7).
+ * a step's next version reuses its brief (A6), calls matched by name are never stated as facts (A7), and the Story's
+ * words are read split at case changes, as the code's names are (A8, §11).
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -192,4 +193,21 @@ test('A7: with calls matched by name only, no brief states reach, callers or tes
   // With resolved calls the claims come back, as they were.
   const resolved = await repositoryBriefPrompt(repository, { definition: null, phase: 'design', workflow: story, changedPaths: ['src/utils/audio.js'], polish: 'off', trustCalls: () => true });
   assert.match(resolved.text, /called from \d+ places|reached by \d+ entry point/u);
+});
+
+test('A8: Story words and code names are read alike, split at case changes and with "-er" folded, on both sides [WMR:§11]', async () => {
+  const { splitCase, subjectWords } = await import('../src/knowledge/records/anchors.mjs');
+  assert.deepEqual([...subjectWords('src/components/FunctionGrapher.jsx')], ['src', 'component', 'function', 'graph', 'jsx']);
+  assert.deepEqual([...subjectWords('plotter plots plotting')], ['plot'], 'the one who plots meets the plot');
+  assert.deepEqual([...subjectWords('renderer renders rendered')], ['rend'], 'folded again until it stops');
+  assert.equal(splitCase('parseHTTPRequest'), 'parse HTTP Request', 'an acronym is a word of its own');
+  // Short words keep their "-er": "order" and "user" are not cut.
+  assert.deepEqual([...subjectWords('order orders user')], ['order', 'user']);
+});
+
+test('A8: a large repository\'s areas are chosen by folder names split at case changes too [WMR:§11, REQ-008]', async () => {
+  const { selectKnowledgeAreas } = await import('../src/knowledge/store.mjs');
+  const areas = [{ path: 'src/featureFlags', files: 9 }, { path: 'src/billing', files: 9 }];
+  assert.deepEqual(selectKnowledgeAreas(areas, { focus: 'Turn the new flags on' }).map((area) => area.path), ['src/featureFlags']);
+  assert.deepEqual(selectKnowledgeAreas(areas, { focus: 'Change the FeatureFlags default' }).map((area) => area.path), ['src/featureFlags']);
 });

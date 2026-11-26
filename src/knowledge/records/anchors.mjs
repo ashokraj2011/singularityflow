@@ -59,7 +59,9 @@ export function normalizeEndpoint(method, route) {
 
 /**
  * A crude stem, the same on both sides of a comparison: "cancelling", "cancelled" and "cancel" all
- * become "cancel"; "orders" becomes "order"; "entries" becomes "entry".
+ * become "cancel"; "orders" becomes "order"; "entries" becomes "entry". A long word's "-er" is folded too, so the
+ * one who does a thing meets the thing: "grapher" is "graph", "plotter" is "plot", "handler" meets "handling"
+ * [WMR:REQ-007, §11].
  */
 const SYNONYMS = Object.freeze({ old: 'age', aged: 'age', ages: 'age' });
 
@@ -68,12 +70,24 @@ function stem(word) {
   let value = word.replace(/ies$/u, 'y');
   if (value.length > 5) value = value.replace(/(?:ing|ed)$/u, '');
   value = value.replace(/(?<=[a-z]{3})(?:es|s)$/u, '');
+  while (value.length > 5 && value.endsWith('er')) value = value.slice(0, -2);
   return value.replace(/([b-df-hj-np-tv-z])\1$/u, '$1');
 }
 
-/** The nouns a statement is about: words of three letters or more, camelCase split, simple plurals folded. */
+/**
+ * Identifiers and file names split into their words at case changes: "FunctionGrapher" is "Function Grapher",
+ * "parseHTTPRequest" is "parse HTTP Request". Every place a Story's words are matched to code reads both through it.
+ */
+export function splitCase(text) {
+  return String(text ?? '').replace(/([a-z0-9])([A-Z])/gu, '$1 $2').replace(/([A-Z])([A-Z][a-z])/gu, '$1 $2');
+}
+
+/**
+ * The nouns a statement is about: words of three letters or more, split at case changes, simple plurals folded. A
+ * Story's words are matched to code through it, on both sides.
+ */
 export function subjectWords(text) {
-  const split = String(text ?? '').replace(/([a-z])([A-Z])/gu, '$1 $2').replace(/[_.]/gu, ' ').toLowerCase();
+  const split = splitCase(text).replace(/[_.]/gu, ' ').toLowerCase();
   return new Set((split.match(/[a-z][a-z0-9]{2,}/gu) ?? [])
     .filter((word) => !STOPWORDS.has(word))
     .map(stem)

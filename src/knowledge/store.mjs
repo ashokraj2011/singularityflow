@@ -26,6 +26,7 @@ import { sha256 } from './items.mjs';
 import { readKnowledgeSource } from './source.mjs';
 import { readResolvedCalls } from './resolved-calls.mjs';
 import { inArea } from '../code-intelligence/generated/code-explainer-model.mjs';
+import { splitCase } from './records/anchors.mjs';
 import { focusStems, stemOf } from './render.mjs';
 
 const KEEP_ENTRIES = 12;
@@ -117,15 +118,16 @@ export async function buildKnowledge(root, { area = null, ownOnly = false, histo
 
 /**
  * The areas worth building for one piece of work in a repository too large to build whole: those
- * holding the files it changed or plans to change [WMR:REQ-008], then those whose folder names match its words. Pure,
- * so a prompt and a test choose the same areas.
+ * holding the files it changed or plans to change [WMR:REQ-008], then those whose folder names match its words. Both
+ * are split at case changes first, as everywhere a Story's words are matched to code: "flags" names `featureFlags/`
+ * [WMR:§11]. Pure, so a prompt and a test choose the same areas.
  */
 export function selectKnowledgeAreas(areas, { changedPaths = [], plannedPaths = [], focus = null, limit = 3 } = {}) {
-  const stems = focusStems(focus);
+  const stems = focusStems(splitCase(focus));
   const story = [...new Set([...changedPaths, ...plannedPaths])];
   const scored = areas.map((area) => {
     const changed = story.filter((file) => inArea(file, { path: area.path === '.' ? '' : area.path, own: area.own })).length;
-    const words = String(area.path).toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean);
+    const words = splitCase(area.path).toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean);
     const named = stems.filter((stem) => words.some((word) => stemOf(word) === stem || (word.length >= 4 && (word.startsWith(stem) || stem.startsWith(word))))).length;
     return { area, score: changed * 10 + named * 3 };
   });

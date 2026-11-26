@@ -19,6 +19,7 @@ import { scanText } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { readPaid, writePaid } from './paid.mjs';
 import { EXPLANATION_SHAPE, groundedTokens } from './explain.mjs';
+import { subjectWords } from './records/anchors.mjs';
 import { roleForPhase } from './render.mjs';
 
 export const BRIEF_PROMPT_VERSION = 1;
@@ -86,9 +87,8 @@ function plainText(text) {
     .trim();
 }
 
-function stems(text) {
-  return new Set(String(text ?? '').toLowerCase().match(/[a-z][a-z0-9]{2,}/gu)?.map((word) => word.replace(/(?:ing|ed|es|s)$/u, '')) ?? []);
-}
+/** A Story's words and a statement's are read alike, split at case changes, as every record reads them [WMR:§11]. */
+const stems = subjectWords;
 
 /**
  * Rule-like statements from one Markdown document: list items, table rows and sentences that use

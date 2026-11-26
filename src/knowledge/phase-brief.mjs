@@ -10,9 +10,12 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { subjectWords } from './records/anchors.mjs';
 import { meaningText, ruleStatusWords } from './records/rules.mjs';
 
-export const PHASE_BRIEF_RENDERER = Object.freeze({ id: 'repository-brief', version: 1 });
+// Version 2: Story words are read split at case changes [WMR:§11]. A brief kept by version 1 is composed again
+// (REQ-013's key names the renderer).
+export const PHASE_BRIEF_RENDERER = Object.freeze({ id: 'repository-brief', version: 2 });
 
 /**
  * Per-phase reader, budget and section order. A step is profiled by what it declares first (its
@@ -131,10 +134,6 @@ export function phaseBriefRules() {
   };
 }
 
-function words(text) {
-  return new Set(String(text ?? '').toLowerCase().match(/[a-z][a-z0-9]{2,}/gu) ?? []);
-}
-
 /** `(OrderService.java:22)`, or the full path when two cited files share a name. */
 function sourceLabeler(sources) {
   const byName = new Map();
@@ -243,7 +242,7 @@ export function renderPhaseBrief({
   explanations = [], notKnown = [], phase = null, rules = null, questions = null, contracts = null,
   flows = null, impact = null, risks = null, phrasing = null
 }) {
-  const focusWords = words(focus);
+  const focusWords = subjectWords(focus);
   const sections = new Map(Object.keys(SECTION_TITLES).map((id) => [id, []]));
   const shown = new Set();
   // `facts` is what a model phrasing this line may draw on; `status` is a rule's, which stays the brief's own words.

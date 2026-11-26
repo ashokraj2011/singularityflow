@@ -17,6 +17,9 @@
   open repository.
 - **Rules first:** the Rules place edits team rules that only add steps. Full workflows stay in Workflow Studio, under
   Advanced.
+- **Workflows run as they are (owner, 2026-11-26):** built-in workflows and the custom workflows teams create run step
+  for step as defined. The four places, `/sf-task` and team rules only add; they never rewrite, reorder or drop a
+  workflow's steps. A Story started with a chosen workflow follows it unchanged, and Workflow Studio stays one click away.
 
 **The concept:** the design canvas "SFlow UI Reimagined" (2026-11-24): the boards Main, Home, Task, NeedsYou, Rules and
 Library. This spec builds what those boards show, with the differences listed in §6.3.
@@ -567,7 +570,9 @@ Studio's 11 views and the Configuration Center's 8 tabs open as today.
 
 - Every approval, decision and review is recorded by today's commands, with their checks, SF Guard signatures and
   answer binding. Needs you adds a list and a card, never a way to record.
-- Workflows, Workflow Studio, `/sf-start`, `/sf-auto` and the Configuration Center stay, under Advanced.
+- Workflows, Workflow Studio, `/sf-start`, `/sf-auto` and the Configuration Center stay, under Advanced. A built-in or
+  custom workflow runs exactly as defined; nothing in this spec changes how a chosen workflow's steps run (owner,
+  2026-11-26).
 - `inbox`, `home` and their pages stay, under Advanced.
 - No step ID, hash or "resume" is typed anywhere (ITW REQ-008).
 
@@ -742,6 +747,9 @@ A probe that fails changes this spec before the rest of M1 starts.
 - **The same name for two things.** LRN's "Team rule" button and the Rules place both say "rules" (§11, question 4).
 
 ## 11. Open questions for the owner
+
+**Decided 2026-11-26, each on its default:** 1 the active workspace; 2 today's approver path; 3 yes, `by:` that only
+adds a group; 4 rename to "Team guidance".
 
 1. **Other workspaces.** Default: Needs you reads the active workspace's repositories and says how many other workspaces
    it did not read. The alternative is to read every workspace on this computer, at a fetch per repository.

@@ -459,7 +459,7 @@ test('Epic intake is non-authoring and Requirements consumes the pinned source m
   assert.equal(catalog.template, null);
   assert.equal(catalog.required, false);
   assert.deepEqual(intake.checklist.map((check) => check.requirement), ['optional', 'optional']);
-  assert.deepEqual(intake.worldModelViews, []);
+  assert.equal(Object.hasOwn(intake, 'worldModelViews'), false);
 
   const requirements = portfolio.initiativePhases['epic-requirements'];
   assert.deepEqual(

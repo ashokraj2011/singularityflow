@@ -289,7 +289,8 @@ test('new Story workflow has one coherent list, validate, simulate, and diff exp
   const readable = run('create', 'hotfix-readable', '--phases', 'requirements,implementation-spec,implementation');
   assert.equal(readable.status, 0, readable.stderr);
   assert.match(readable.stdout, /Hotfix-readable \(hotfix-readable\)/i);
-  assert.match(readable.stdout, /template=.*inputs=.*approvals=.*world-model=/);
+  assert.match(readable.stdout, /template=.*inputs=.*approvals=/);
+  assert.doesNotMatch(readable.stdout, /world-model=/, 'a simulated step names no World Model views');
 });
 
 test('workflow CLI authors and simulates bounded Story loops, then clears them explicitly', async () => {

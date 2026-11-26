@@ -696,6 +696,10 @@ export function applyCapabilityPolicyToWorkResolution(resolution, capability) {
     }
     return {
       ...phase,
+      // Kept as pinned [WMR]: nothing reads a step's World Model views any more, but a Story compares a
+      // step resolved again (a task change, a test-command amendment) with the one it pinned, so the slot
+      // keeps its shape. Capability policy folds `requiredWorldModelViews` to an empty list since the
+      // registered World Model was removed; a Story pinned before then keeps the list it pinned.
       worldModel: {
         ...(phase.worldModel ?? {}),
         // An explicit generic benchmark arm is an experimental isolation boundary. Capability
@@ -782,7 +786,6 @@ export function applyCapabilityPolicyToInitiativeResolution(resolution, capabili
       }
       return {
         ...phase,
-        worldModelViews: unique([...(phase.worldModelViews ?? []), ...(policy.requiredWorldModelViews ?? [])]),
         bundleApproval: approval(phase.bundleApproval),
         outputs: phase.outputs.map((output) => ({ ...output, approval: approval(output.approval) })),
         checklist: phase.checklist.map((check) => ({

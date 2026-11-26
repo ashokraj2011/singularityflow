@@ -412,7 +412,10 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     protectedPaths: union(parentArray('protectedPaths'), array('protectedPaths')),
     worldModelGrounding: stricterEnum(parent.worldModelGrounding, child.worldModelGrounding, GROUNDING_ORDER, 'worldModelGrounding'),
     worldModelStaleness: stricterEnum(parent.worldModelStaleness, child.worldModelStaleness, STALENESS_ORDER, 'worldModelStaleness'),
-    requiredWorldModelViews: union(parentArray('requiredWorldModelViews'), array('requiredWorldModelViews')),
+    // Retired [WMR]: an old policy's list is accepted and not read. The empty slot stays because every
+    // capability policy's digest (policySha256, resolutionSha256) has carried it, and Stories and
+    // materialization receipts pin those digests.
+    requiredWorldModelViews: [],
     writeScopes: intersect(parentArray('writeScopes'), array('writeScopes')),
     qualityCommands: union(parentArray('qualityCommands'), array('qualityCommands')),
     storageProviders: intersect(parentArray('storageProviders'), array('storageProviders')),

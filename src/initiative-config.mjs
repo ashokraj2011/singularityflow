@@ -422,8 +422,7 @@ function normalizePhase(phase, id) {
     id,
     label: phase.label ?? id.replaceAll('-', ' '),
     lanes: [...(phase.lanes ?? [])],
-    // Inert since the registered World Model was removed: carried through, never read.
-    worldModelViews: [...(phase.worldModelViews ?? [])],
+    // An old phase's `worldModelViews` is accepted and left out: the registered World Model was removed.
     agents,
     outputs,
     checklist,
@@ -682,7 +681,8 @@ export async function loadPortfolio(root, { required = true } = {}) {
 // replace, so narrowing one output's `required` does not silently drop the rest of its definition.
 function resolveProfilePhase(portfolio, profileId, profile, phaseId, order, workflowDefinition = null) {
   const phase = structuredClone(portfolio.initiativePhases[phaseId]);
-  const override = structuredClone(profile.phaseOverrides?.[phaseId] ?? {});
+  // An old override's `worldModelViews` is accepted and left out, as on the phase itself.
+  const { worldModelViews: _retiredViews, ...override } = structuredClone(profile.phaseOverrides?.[phaseId] ?? {});
   const templateOverrides = profile.templateOverrides ?? {};
   const outputs = phase.outputs.map((output) => {
     const outputOverride = override.outputs?.[output.id] ?? {};
@@ -699,7 +699,6 @@ function resolveProfilePhase(portfolio, profileId, profile, phaseId, order, work
     ...override,
     id: phaseId,
     label: override.label ?? phase.label,
-    worldModelViews: [...(override.worldModelViews ?? phase.worldModelViews ?? [])],
     agents: override.agents ?? phase.agents,
     bundleApproval: override.bundleApproval ?? phase.bundleApproval,
     outputs,

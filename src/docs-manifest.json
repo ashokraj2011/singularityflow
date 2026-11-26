@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "480c2f9363a52757bef152b3358facc712d74639",
+  "sourceCommit": "29ab793c024866338099bc7c6896dd06618ceeea",
   "topicCount": 96,
-  "contentSha256": "280bfcb2ab4062c95beec630cd4dee613ebafd368a37b3951dfa64ac09dcf7b4",
+  "contentSha256": "14e63a3b8f82ed11e8c63decfbf9c00707d9e76166c37ac4f2ba07288590ea7e",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -400,8 +400,8 @@
     {
       "id": "marketplace-maintainers",
       "title": "Setting up a marketplace repository for your organisation",
-      "version": 1,
-      "sha256": "06237b0a8f953a0003bbcf09c723ff97a1ba01a01ce36f0584aeb4ace9f03677",
+      "version": 2,
+      "sha256": "03c94ace6908bbc24ac60b730674344f2a6522b81891346a755f759e319e55cf",
       "routingSha256": "1a071aa66a0c20746f3d7b5c54a68902519fb860ae759de5bddd84490a3f0777",
       "file": "marketplace-maintainers.md"
     },

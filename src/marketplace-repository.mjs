@@ -24,8 +24,10 @@ const LIMITS = Object.freeze({ packages: 500, manifestBytes: 256 * 1024, documen
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 // A branch or tag name, as a trust's `ref` takes it (marketplace.mjs, which this module does not load).
 const REF = /^(?![./-])(?!.*(?:\.\.|@\{|[~^:?*\\[]))(?!.*\/\.)(?!.*[/.]$)[^\s\u0000-\u001f\u007f]{1,200}$/u;
-/** The channels a marketplace may publish, in v1 [OMK:REQ-004]. */
+/** The channels a marketplace may publish, in v1, and the file beside its root apm.yml that declares them [OMK:REQ-004]. */
 export const MARKETPLACE_CHANNELS = Object.freeze(['stable', 'beta']);
+export const MARKETPLACE_CHANNELS_FILE = 'channels.yml';
+const CHANNELS_FILE_BYTES = 64 * 1024;
 
 function fail(message, code = 'MARKETPLACE_REPOSITORY_INVALID', details = undefined) {
   return new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -57,14 +59,15 @@ function inside(base, relative, label) {
 }
 
 /**
- * `marketplace.channels` [OMK:REQ-004]: each channel v1 knows (stable, beta) as `{ ref, description, after }`, with the
- * problems of what is left out. Never a refusal: an older build ignores the block, and so does this one where it is wrong.
+ * The `channels:` mapping of channels.yml [OMK:REQ-004]: each channel v1 knows (stable, beta) as `{ ref, description,
+ * after }`, with the problems of what is left out. Never a refusal: an older build never reads the file, and this one
+ * leaves out what is wrong in it.
  */
-export function parseMarketplaceChannels(value, { label = MARKETPLACE_MANIFEST } = {}) {
+export function parseMarketplaceChannels(value, { label = MARKETPLACE_CHANNELS_FILE } = {}) {
   const channels = {};
   const problems = [];
   if (value == null) return { channels, problems };
-  if (typeof value !== 'object' || Array.isArray(value)) return { channels, problems: [`${label} marketplace.channels is not a mapping, so no channel is read.`] };
+  if (typeof value !== 'object' || Array.isArray(value)) return { channels, problems: [`${label} channels is not a mapping, so no channel is read.`] };
   for (const [name, entry] of Object.entries(value)) {
     if (!MARKETPLACE_CHANNELS.includes(name)) { problems.push(`${label} names a channel '${String(name).slice(0, 40)}'; SFlow knows only stable and beta, so it is left out.`); continue; }
     const ref = typeof entry?.ref === 'string' ? entry.ref.trim() : '';
@@ -80,6 +83,27 @@ export function parseMarketplaceChannels(value, { label = MARKETPLACE_MANIFEST }
   return { channels, problems };
 }
 
+/**
+ * A marketplace's channels.yml, beside its root apm.yml [OMK:REQ-004]: its top-level `channels:` mapping, read as
+ * parseMarketplaceChannels reads it. They live in a file of their own because APM 0.35's `apm pack` refuses any key it
+ * does not know in apm.yml's marketplace block (probe P1, 2026-11-26). YAML that cannot be read is one problem.
+ */
+export function parseChannelsFile(text, { label = MARKETPLACE_CHANNELS_FILE } = {}) {
+  let value;
+  try { value = YAML.parse(String(text ?? ''), { maxAliasCount: 50 }); } catch (error) {
+    return { channels: {}, problems: [`${label} is not valid YAML, so no channel is read: ${String(error?.message ?? error).split('\n')[0].slice(0, 160)}`] };
+  }
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return { channels: {}, problems: [`${label} is not a mapping with a channels key, so no channel is read.`] };
+  return parseMarketplaceChannels(value.channels, { label });
+}
+
+/** The finding for channels left in apm.yml's marketplace block, which is no longer read there [OMK:REQ-004]. */
+export function misplacedChannelsFinding(label = MARKETPLACE_MANIFEST) {
+  return { class: 'marketplace-channels-misplaced', owner: 'marketplace',
+    words: `${label} declares marketplace.channels, which SFlow does not read there: APM 0.35's apm pack refuses that key, so the channels belong in ${MARKETPLACE_CHANNELS_FILE} beside ${label}.`,
+    fix: `Move the channels from ${label}'s marketplace block into ${MARKETPLACE_CHANNELS_FILE} beside it, under a top-level channels key.` };
+}
+
 /** The channel a trust reads: the one whose ref is the trust's own `ref` at the commit it is pinned to [OMK:REQ-021]. */
 export function trustChannel(channels = {}, ref = null) {
   if (!ref) return null;
@@ -87,9 +111,10 @@ export function trustChannel(channels = {}, ref = null) {
 }
 
 /**
- * The root apm.yml of a marketplace: its name and description, the owner, its channels, and each listed package
+ * The root apm.yml of a marketplace: its name and description, the owner, and each listed package
  * `{ name, description, source, includePrerelease }`. A package without a local `source` is listed as it is, with a
- * problem: this reads only what the repository itself holds.
+ * problem: this reads only what the repository itself holds. Channels are channels.yml's (parseChannelsFile); a
+ * `marketplace.channels` key here is not read, and `misplacedChannels` says it is there.
  */
 export function parseMarketplaceManifest(text, { label = MARKETPLACE_MANIFEST } = {}) {
   const manifest = parseYaml(text, label);
@@ -110,11 +135,10 @@ export function parseMarketplaceManifest(text, { label = MARKETPLACE_MANIFEST } 
     return { name, description: oneLine(entry.description), source, includePrerelease: entry.include_prerelease === true,
       ...(source ? {} : { problem: `${name} has no source folder in this repository, so it is not read.` }) };
   });
-  const channels = parseMarketplaceChannels(block.channels, { label });
   return {
     name: oneLine(manifest.name, 120), description: oneLine(manifest.description), version: oneLine(manifest.version, 64),
-    owner: oneLine(block.owner?.name ?? block.owner, 200), ownerEmail: oneLine(block.owner?.email, 200), channels: channels.channels,
-    channelProblems: channels.problems, packages
+    owner: oneLine(block.owner?.name ?? block.owner, 200), ownerEmail: oneLine(block.owner?.email, 200),
+    misplacedChannels: Object.hasOwn(block, 'channels'), packages
   };
 }
 
@@ -204,7 +228,8 @@ function documentOf(kind, folder, files) {
 
 /**
  * Read a repository marketplace `{ id, repository, ref, commit }` at its commit (or, with no commit, at `ref`'s tip):
- * `{ repository, ref, commit, name, description, owner, packages, problems }`. Each package is
+ * `{ repository, ref, commit, name, description, owner, channels, channel, codeowners, packages, problems, findings }`,
+ * `channels` from its channels.yml and `findings` the marketplace's own on its root files. Each package is
  * `{ name, kind, type, version, description, lifecycleState, pdlcPhases, pdlcTasks, tags, categories, source,
  * includePrerelease, skills, dependencies, document }`, where `skills` are the listed skill packages it depends on.
  * `documents` names the packages whose agent.md or SKILL.md text is returned (`text`), or is a function of the
@@ -256,7 +281,17 @@ export async function readMarketplaceRepository(marketplace, { documents = [] } 
       }
       const manifest = parseMarketplaceManifest(rootText);
       const files = exactTreePathsAtObject(root, commit, []) ?? [];
-      const problems = [...manifest.packages.filter((entry) => entry.problem).map((entry) => entry.problem), ...manifest.channelProblems];
+      const problems = manifest.packages.filter((entry) => entry.problem).map((entry) => entry.problem);
+      // The channels, from channels.yml beside apm.yml [OMK:REQ-004]; one left in apm.yml is a finding, and the read goes on.
+      const findings = manifest.misplacedChannels ? [misplacedChannelsFinding()] : [];
+      for (const finding of findings) problems.push(finding.words);
+      let channels = {};
+      if (files.includes(MARKETPLACE_CHANNELS_FILE)) {
+        const channelsText = read(MARKETPLACE_CHANNELS_FILE, CHANNELS_FILE_BYTES);
+        const parsed = channelsText == null ? { channels: {}, problems: [`${MARKETPLACE_CHANNELS_FILE} is larger than 64 KiB, so no channel is read.`] } : parseChannelsFile(channelsText);
+        channels = parsed.channels;
+        problems.push(...parsed.problems);
+      }
       // Who the marketplace declares as code owners, from the first CODEOWNERS that exists [OMK:REQ-013].
       const ownersFile = CODEOWNERS_PATHS.find((file) => files.includes(file)) ?? null;
       let codeowners = null;
@@ -304,7 +339,7 @@ export async function readMarketplaceRepository(marketplace, { documents = [] } 
       }
       const wanted = new Set(typeof documents === 'function' ? documents(packages) : documents);
       for (const entry of packages) if (entry.document && wanted.has(entry.name)) entry.text = read(entry.document, LIMITS.documentBytes);
-      return { commit, manifest, packages, problems, codeowners: ownersFile ? { path: ownersFile, rules: codeowners.rules.length } : null };
+      return { commit, manifest, packages, problems, findings, channels, codeowners: ownersFile ? { path: ownersFile, rules: codeowners.rules.length } : null };
     });
   } catch (error) {
     if (error?.code === 'GIT_OBJECT_REPOSITORY_UNAVAILABLE') throw unreachable(`commit ${pinned.slice(0, 12)} could not be fetched.`, { stage: 'fetch' });
@@ -319,8 +354,8 @@ export async function readMarketplaceRepository(marketplace, { documents = [] } 
     schemaVersion: 1, resultType: MARKETPLACE_REPOSITORY_RESULT,
     repository: marketplace.repository, ref: marketplace.ref ?? null, commit: snapshot.commit,
     name: snapshot.manifest.name, description: snapshot.manifest.description, owner: snapshot.manifest.owner, ownerEmail: snapshot.manifest.ownerEmail ?? null,
-    channels: snapshot.manifest.channels ?? {}, channel: trustChannel(snapshot.manifest.channels, marketplace.ref ?? null), codeowners: snapshot.codeowners,
-    packages: snapshot.packages, problems: snapshot.problems
+    channels: snapshot.channels, channel: trustChannel(snapshot.channels, marketplace.ref ?? null), codeowners: snapshot.codeowners,
+    packages: snapshot.packages, problems: snapshot.problems, findings: snapshot.findings
   };
 }
 

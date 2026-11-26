@@ -12,7 +12,7 @@ related:
   - importing-assets
   - apm-packages
   - skill-master
-version: 1
+version: 2
 ---
 A marketplace repository shares agents and skills across an organisation. This guide is for the people who keep one: how to name an owner for each item, record who approved each change of its lifecycle, declare who guards those records, and publish stable and beta channels. SFlow reads all of it at the commit a team trusts, and shows it everywhere the item is.
 
@@ -33,7 +33,7 @@ Use this topic when you maintain a marketplace repository: an `apm.yml` at its r
 3. **Declare the code owners.** In `.github/CODEOWNERS` (GitHub) or `CODEOWNERS` (GitLab), give the governance group every lifecycle record and each team its own items. GitHub and GitLab use the last rule that matches, so the lifecycle rule comes last: `**/lifecycle.yml @acme/marketplace-stewards`. GitLab's sections are joined.
 4. **Make the host enforce it.** SFlow cannot see branch protection, so it says the marketplace *declares* code owners, never that the host enforced them. On GitHub, protect the default branch and both channel branches and require review from code owners; on GitLab, protect the branches and turn on code-owner approval; on Azure DevOps, set required reviewers by path in the branch policy and keep a `CODEOWNERS` file as the declaration SFlow reads.
 5. **Change a lifecycle** with a pull request that changes only the item's `lifecycle.yml`: set `state`, add one `history` entry with this pull request's address as its `change`, and, for a deprecation, the `deprecation:` block. Its code owners approve it. A team sees the new state when its pin next moves.
-6. **Publish channels.** Declare `marketplace.channels` in the root `apm.yml`: `beta: { ref: channels/beta }` and `stable: { ref: channels/stable, after: beta }`. Create both branches, protected and fast-forward only, move beta first, and move stable only to a commit already on beta. Never rewrite a channel. A team that trusts a channel's ref sees **Stable** or **Beta** on each item.
+6. **Publish channels.** Declare them in `channels.yml` beside the root `apm.yml`, under a top-level `channels:` key: `beta: { ref: channels/beta }` and `stable: { ref: channels/stable, after: beta }`. Keep them out of `apm.yml`: APM 0.35's `apm pack` refuses a `channels` key in its `marketplace:` block, and SFlow no longer reads it there. Create both branches, protected and fast-forward only, move beta first, and move stable only to a commit already on beta. Never rewrite a channel. A team that trusts a channel's ref sees **Stable** or **Beta** on each item.
 
 ## State and safety
 
@@ -47,6 +47,7 @@ Use this topic when you maintain a marketplace repository: an `apm.yml` at its r
 - **An item shows "Lifecycle not guarded by code owners".** No CODEOWNERS rule with an owner covers its `lifecycle.yml` (or, with no record, its `apm.yml`). Add the lifecycle rule last in CODEOWNERS.
 - **"Owner named in apm.yml; CODEOWNERS names someone else for its folder".** The `owner.handle` is not among the code owners of the item's folder. Make the two agree.
 - **The owner says "(from maintainer-email)".** The item has no `owner:` block and no code owner of its folder: add the block.
+- **"apm.yml declares marketplace.channels, which SFlow does not read there".** Move the channels from `apm.yml`'s `marketplace:` block into `channels.yml` beside it; until then the marketplace publishes no channel SFlow can read.
 - **A history entry is called a jump.** It moves between states the lifecycle does not connect, such as proposed straight to ga. Record each move in its own reviewed change.
 
 ## Related topics

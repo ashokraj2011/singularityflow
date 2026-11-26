@@ -76,7 +76,7 @@ addition. Nothing in OMK needs a server.
 
 | Piece | Where | What it does today | What OMK adds |
 |---|---|---|---|
-| Package metadata | `parsePackageManifest` in `marketplace-repository.mjs` | Reads `lifecycle-state`, `maintainer-email`, `source-repository`, the tags, `pdlc-*` and the dependencies. | The owner, the lifecycle record and the channels (§4) |
+| Package metadata | `parsePackageManifest` in `marketplace-repository.mjs` | Reads `lifecycle-state`, `maintainer-email`, `source-repository`, the tags, `pdlc-*` and the dependencies. | The owner and the lifecycle record (§4.1, §4.2); the channels, from `channels.yml` beside the root `apm.yml` (§4.3) |
 | Index entries | `parseMarketplaceIndex` in `marketplace.mjs` | Reads id, kind, version, label, description, tags, phases, url and sha256. Unknown fields are ignored. | Owner, lifecycle and channel fields (§4.4) |
 | Lifecycle words | `READY`, `UNREVIEWED` and `RETIRED` in `task-skills.mjs`; `lifecycleWords` in `conversion-review.mjs`; `marketplace-lifecycle` in `agent-workflow.mjs` | Three sets. `deprecated` and `retired` are treated alike. `agent-workflow.mjs` flags every state that is not `approved`, so `ga` gets flagged too. | One vocabulary, which separates deprecated from retired (§5.1) |
 | Trust | `normalizeMarketplaces` | `{ label, repository, ref, commit }` or `{ label, index, allowedOrigins }`. Any unknown field is refused. | Nothing new. A channel is the marketplace's own `ref` (§6) |
@@ -199,28 +199,34 @@ item for its record. Each problem is a marketplace-owned finding, raised in MCR'
 
 At most 50 entries are read, each at most 1,000 characters.
 
-### 4.3 Channels: in the marketplace's root `apm.yml`
+### 4.3 Channels: `channels.yml` beside the marketplace's root `apm.yml`
 
 ```yaml
-marketplace:
-  owner: { name: Acme Retail Engineering Enablement, email: maintainers@example.test }
-  channels:
-    beta:
-      ref: channels/beta
-      description: New and changed items, about two weeks before stable.
-    stable:
-      ref: channels/stable
-      after: beta              # stable may only move to a commit that is already on beta
-  packages:
-    # ... unchanged ...
+# channels.yml, at the repository's root beside apm.yml
+channels:
+  beta:
+    ref: channels/beta
+    description: New and changed items, about two weeks before stable.
+  stable:
+    ref: channels/stable
+    after: beta              # stable may only move to a commit that is already on beta
 ```
 
-**OMK:REQ-004, channels.** `marketplace.channels` maps a channel name to `{ ref, description?, after? }`:
+The channels are a file of their own, as the lifecycle record is, because APM 0.35's `apm pack` refuses any key it does
+not know in `apm.yml`'s `marketplace:` block (probe P1, §15). A file of its own also holds up whatever APM tightens later.
+
+**OMK:REQ-004, channels.** The top-level `channels:` of `channels.yml` maps a channel name to
+`{ ref, description?, after? }`:
 - the names v1 knows are `stable` and `beta`;
 - `ref` is a branch or tag name, as the trust's `ref` accepts;
 - `after` names another channel of the same marketplace.
 
-SFlow reads the channels at the commit a trust is pinned to. On a first trust it reads them at the ref being trusted.
+The file is at most 64 KiB. A wrong entry is left out with a problem that names `channels.yml`; nothing is refused. A
+`marketplace.channels` key in `apm.yml` is not read as channels: it raises one marketplace-owned finding,
+`marketplace-channels-misplaced`, which says to move it to `channels.yml` because `apm pack` refuses it, and the read goes
+on with no channel.
+
+SFlow reads `channels.yml` at the commit a trust is pinned to. On a first trust it reads it at the ref being trusted.
 The new commit's channels must name the same ref for the channel being moved. When they do not, the move review says
 so first (§6).
 
@@ -267,7 +273,7 @@ called guarded.
   - there are no channels, and `ref` is a plain ref.
 - **An SFlow build from before OMK.** It reads a marketplace that has every addition, and a channel trust, without a
   refusal. Its parsers read only the keys they know (checked in `parsePackageManifest`, `parseMarketplaceManifest` and
-  `parseMarketplaceIndex` at `5ac41f37e`), and a channel trust is an ordinary `ref` (§6).
+  `parseMarketplaceIndex` at `5ac41f37e`), it never reads `channels.yml`, and a channel trust is an ordinary `ref` (§6).
 - **`workflow.yml` gains no key.** Today's `normalizeMarketplaces` refuses unknown fields, so a new key would stop every
   teammate who has not yet upgraded.
 - **Import records only gain optional fields under `source`.** These are owner, channel and the safety look (§7).
@@ -362,13 +368,13 @@ marketplaces:
   acme:
     label: Acme SDLC marketplace
     repository: https://git.example.test/acme/sdlc-marketplace
-    ref: channels/stable          # the marketplace's stable channel (its apm.yml says so)
+    ref: channels/stable          # the marketplace's stable channel (its channels.yml says so)
     commit: <the full commit ID>   # what Stories read; it moves only through a reviewed change
 ```
 
 **OMK:REQ-020, trusting a channel.** `marketplace add <ID> --repo <URL> --channel stable|beta` does the following:
-1. It reads the root `apm.yml` at the repository's default branch to find the channel's ref.
-2. It reads that ref's tip, and checks that the `apm.yml` there names the same ref for the channel.
+1. It reads `channels.yml` at the repository's default branch to find the channel's ref.
+2. It reads that ref's tip, and checks that the `channels.yml` there names the same ref for the channel.
 3. It proposes `{ repository, ref, commit }` through the same reviewed change `--ref` makes today.
 
 `--channel` and `--ref` together are refused. So is a channel the marketplace does not publish; that refusal names the
@@ -376,7 +382,7 @@ channels it does publish. Workflow Studio's **Trust a marketplace** form shows a
 publishes channels, with stable chosen first.
 
 **OMK:REQ-021, knowing a trust is a channel.** A trust is a channel trust when its `ref` is a channel's `ref` in the
-`apm.yml` at its pinned commit. There is nothing else to keep in step. An older build sees a plain ref, and moving it
+`channels.yml` at its pinned commit. There is nothing else to keep in step. An older build sees a plain ref, and moving it
 reads the same tip.
 
 **OMK:REQ-022, stable moves only after beta.** When a move would take a channel with `after: beta` to commit B, SFlow
@@ -709,8 +715,9 @@ and GitLab use the last rule that matches, so the lifecycle rule comes last:
 Title it `lifecycle: web-e2e-test-generation ga → deprecated`. The code owners approve it, and it merges. SFlow shows
 the new state to a team when the team's pin next moves.
 
-**6. Publish channels.** Declare `marketplace.channels` (§4.3). Create the `channels/beta` and `channels/stable`
-branches, protected and fast-forward only.
+**6. Publish channels.** Declare them in `channels.yml` beside the root `apm.yml` (§4.3), never as a `channels` key in
+`apm.yml`'s `marketplace:` block, which `apm pack` refuses. Create the `channels/beta` and `channels/stable` branches,
+protected and fast-forward only.
 - Move beta to a commit on the default branch. Use a pull request into `channels/beta`, or a protected fast-forward.
 - After the soak time, move stable to a commit that is already on beta.
 - Never rewrite a channel. SFlow asks every team for a yes when a channel is rewritten (REQ-023).
@@ -728,7 +735,8 @@ a governance plane collects the export of §9.4.
 **OMK:REQ-080, a check for maintainers.** `singularity-flow marketplace check-repository <FOLDER|URL> [--json]` reads a
 marketplace exactly as a trust reads it: a folder as it is, or a URL at its default branch. It reports every
 marketplace-owned finding, each with a fix. It needs no SFlow repository and writes nothing. The sample marketplace
-fixture gains owners, lifecycle records, a `CODEOWNERS` and channels. It also gains one seeded bad item for the tests:
+fixture gains owners, lifecycle records, a `CODEOWNERS` and channels (in `channels.yml`). It also gains one seeded bad
+item for the tests:
 an unguarded record, a jump from proposed to ga, and a hidden character. Updating the public simulation repository is
 its own reviewed push. That repository is public, so its content needs a de-identification review first.
 
@@ -817,9 +825,14 @@ skill-body budget (risk R6).
 
 ## 15. Probes before building (M0)
 
-1. **P1, APM 0.35.** `apm pack` runs on the sample marketplace with `owner:`, `lifecycle.yml` and `marketplace.channels`
-   in place. It warns and does not fail. `lifecycle.yml` either stays out of what it writes for each agent host, or
+1. **P1, APM 0.35.** `apm pack` runs on the sample marketplace with `owner:`, `lifecycle.yml` and the channels in
+   place. It warns and does not fail. `lifecycle.yml` either stays out of what it writes for each agent host, or
    is harmless there.
+   **Result, 2026-11-26 (APM 0.35.0).** APM refuses `marketplace.channels`: `apm pack --offline` stops with "Unknown
+   key(s) in marketplace: channels", so the channels moved to `channels.yml` beside the root `apm.yml` (§4.3). With
+   `owner:` blocks, `lifecycle.yml` files and `channels.yml` in place, `apm pack --offline` passes with only its warning
+   about a missing `license:`; it writes `.github/plugin/marketplace.json` for Copilot, and neither `lifecycle.yml` nor
+   `channels.yml` appears in it.
 2. **P2, the office host (needs a person).** Which host serves the office marketplace: GitHub Enterprise, GitLab or
    Azure DevOps. Whether it reads `CODEOWNERS`, and from where. Whether code-owner review can be required. Whether the
    maintainers can create protected channel branches.

@@ -22,7 +22,8 @@ import { amongOwners, codeOwnersOf, codeownersPatternRegExp, parseCodeowners } f
 import { dayWords, guardWords, indexMetadata, isLifecycleWord, itemLifecycle, LIFECYCLE_STATES, lifecycleFindings, lifecycleInstallable, lifecycleMoveAllowed,
   lifecycleReadiness, lifecycleStateOf, lifecycleSummary, lifecycleWords, parseLifecycleRecord } from '../src/marketplace-lifecycle.mjs';
 import { parseOwnerBlock, resolveOwner } from '../src/marketplace-owner.mjs';
-import { packageMetadata, parseMarketplaceChannels, parseMarketplaceManifest, parsePackageManifest, trustChannel } from '../src/marketplace-repository.mjs';
+import { misplacedChannelsFinding, packageMetadata, parseChannelsFile, parseMarketplaceChannels, parseMarketplaceManifest, parsePackageManifest, readMarketplaceRepository,
+  trustChannel } from '../src/marketplace-repository.mjs';
 import { parseMarketplaceIndex } from '../src/marketplace.mjs';
 import { analyzeMarketplaceCatalog, indexItems, marketplaceCatalogLines, repositoryItems } from '../src/marketplace-catalog.mjs';
 import { analyzeSkillCatalog } from '../src/skill-catalog.mjs';
@@ -205,6 +206,7 @@ test('the owner: its apm.yml block, else the code owners of its folder, else mai
 
 const CODEOWNERS = parseCodeowners(fixture('.github/CODEOWNERS'), { path: '.github/CODEOWNERS' });
 const MANIFEST = parseMarketplaceManifest(fixture('apm.yml'));
+const CHANNELS = parseChannelsFile(fixture('channels.yml'));
 function fixtureMetadata(source, { root = SAMPLE_MARKETPLACE, codeowners = CODEOWNERS } = {}) {
   const read = (relative) => readFileSync(path.join(root, relative), 'utf8');
   const own = parsePackageManifest(read(`${source}/apm.yml`), { source });
@@ -214,8 +216,10 @@ function fixtureMetadata(source, { root = SAMPLE_MARKETPLACE, codeowners = CODEO
 
 test('the sample marketplace: every item owned, its lifecycle recorded and guarded, its channels, and no finding [OMK §11]', () => {
   assert.deepEqual(CODEOWNERS.problems, []);
-  assert.deepEqual(MANIFEST.channels, { beta: { ref: 'channels/beta', description: 'New and changed items, about two weeks before stable.', after: null },
-    stable: { ref: 'channels/stable', description: null, after: 'beta' } });
+  // Its channels are channels.yml's, beside apm.yml, which keeps no marketplace.channels for apm pack to refuse (probe P1).
+  assert.deepEqual(CHANNELS, { channels: { beta: { ref: 'channels/beta', description: 'New and changed items, about two weeks before stable.', after: null },
+    stable: { ref: 'channels/stable', description: null, after: 'beta' } }, problems: [] });
+  assert.equal(MANIFEST.misplacedChannels, false);
   assert.equal(MANIFEST.ownerEmail, 'maintainers@example.com');
   for (const entry of MANIFEST.packages) {
     const meta = fixtureMetadata(entry.source);
@@ -236,14 +240,19 @@ test('the sample marketplace: every item owned, its lifecycle recorded and guard
   const channels = parseMarketplaceChannels({ stable: { ref: 'channels/stable', after: 'nightly' }, nightly: { ref: 'x' }, beta: { ref: '../escape' } });
   assert.deepEqual(channels.channels, { stable: { ref: 'channels/stable', description: null, after: null } });
   assert.equal(channels.problems.length, 3);
-  assert.deepEqual([trustChannel(MANIFEST.channels, 'channels/stable'), trustChannel(MANIFEST.channels, 'channels/beta'), trustChannel(MANIFEST.channels, 'main'),
-    trustChannel(MANIFEST.channels, null)], ['stable', 'beta', null, null]);
+  assert.ok(channels.problems.every((problem) => problem.startsWith('channels.yml ')), 'each problem names channels.yml');
+  assert.deepEqual([trustChannel(CHANNELS.channels, 'channels/stable'), trustChannel(CHANNELS.channels, 'channels/beta'), trustChannel(CHANNELS.channels, 'main'),
+    trustChannel(CHANNELS.channels, null)], ['stable', 'beta', null, null]);
+  assert.deepEqual(parseChannelsFile('channels: [stable]\n'), { channels: {}, problems: ['channels.yml channels is not a mapping, so no channel is read.'] });
+  assert.deepEqual(parseChannelsFile('- stable\n').problems, ['channels.yml is not a mapping with a channels key, so no channel is read.']);
+  assert.match(parseChannelsFile('channels: {stable: [\n').problems[0], /^channels\.yml is not valid YAML, so no channel is read: /u);
   // An older marketplace with none of the additions: the owner from maintainer-email, the lifecycle from lifecycle-state, no channel [REQ-006].
   const plain = packageMetadata({ name: 'web-e2e', source: 'skills/web-e2e', own: parsePackageManifest('name: web-e2e\ntype: skill\nlifecycle-state: approved\nmaintainer-email: m@example.com\n',
     { source: 'skills/web-e2e' }) });
   assert.deepEqual([plain.owner.words, plain.lifecycleRecord.source, plain.lifecycleRecord.words, plain.lifecycleRecord.guarded, plain.findings],
     ['Owner: m@example.com (from maintainer-email)', 'lifecycle-state', 'Approved', false, []]);
-  assert.deepEqual(parseMarketplaceManifest('marketplace:\n  packages: []\n').channels, {});
+  assert.equal(parseMarketplaceManifest('marketplace:\n  packages: []\n').misplacedChannels, false);
+  assert.equal(parseMarketplaceManifest('marketplace:\n  channels: {stable: {ref: main}}\n  packages: []\n').misplacedChannels, true);
 });
 
 test('the seeded bad item: a jump, a mismatch, an unguarded record, an owner CODEOWNERS does not name, an issues address that is not https [OMK §11, A3]', async (t) => {
@@ -261,6 +270,38 @@ test('the seeded bad item: a jump, a mismatch, an unguarded record, an owner COD
   assert.deepEqual(fixtureMetadata('skills/web-e2e-test-generation', { root: market, codeowners }).findings, []);
   assert.doesNotMatch(readFileSync(path.join(ROOT, 'test/fixtures/sdlc-marketplace-seeded/skills', SEEDED_ITEM, 'SKILL.md'), 'utf8'), /[‪-‮⁦-⁩​-‏]/u,
     'no file in the repository holds a hidden character');
+});
+
+test('channels left in apm.yml\'s marketplace block are one finding, not read and not a stop; channels.yml is read at the commit [OMK:REQ-004]', async (t) => {
+  const directory = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'sflow-omk-channels-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const repository = path.join(directory, 'market');
+  await mkdir(path.join(repository, 'skills', 'house-style'), { recursive: true });
+  await writeFile(path.join(repository, 'apm.yml'), ['name: tiny-market', 'marketplace:', '  owner: { name: Tiny }', '  channels:', '    stable: { ref: channels/stable }',
+    '  packages:', '    - name: house-style', '      source: ./skills/house-style', ''].join('\n'));
+  await writeFile(path.join(repository, 'skills', 'house-style', 'apm.yml'), 'name: house-style\ntype: skill\nversion: 1.0.0\nlifecycle-state: approved\n');
+  await writeFile(path.join(repository, 'skills', 'house-style', 'SKILL.md'), '---\nname: house-style\ndescription: Follow the house style.\n---\n\n1. Do it.\n');
+  const git = (...args) => {
+    const result = spawnSync('git', ['-c', 'user.name=Market Maintainer', '-c', 'user.email=maintainers@example.com', ...args], { cwd: repository, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git('init', '-q', '-b', 'main');
+  git('add', '-A');
+  git('commit', '-qm', 'A marketplace with its channels in apm.yml');
+  const misplaced = await readMarketplaceRepository({ id: 'tiny', repository, ref: 'channels/stable', commit: git('rev-parse', 'HEAD') });
+  assert.deepEqual([misplaced.packages.map((entry) => entry.name), misplaced.channels, misplaced.channel], [['house-style'], {}, null], 'read on, with no channel');
+  assert.deepEqual(misplaced.findings, [misplacedChannelsFinding()]);
+  assert.ok(misplaced.problems.includes(misplacedChannelsFinding().words));
+  assert.match(misplacedChannelsFinding().words, /APM 0\.35's apm pack refuses that key, so the channels belong in channels\.yml beside apm\.yml\./u);
+  // Moved into channels.yml: read, and the trust on its ref is that channel.
+  await writeFile(path.join(repository, 'apm.yml'), ['name: tiny-market', 'marketplace:', '  owner: { name: Tiny }', '  packages:', '    - name: house-style',
+    '      source: ./skills/house-style', ''].join('\n'));
+  await writeFile(path.join(repository, 'channels.yml'), 'channels:\n  stable:\n    ref: channels/stable\n');
+  git('add', '-A');
+  git('commit', '-qm', 'Channels in channels.yml');
+  const moved = await readMarketplaceRepository({ id: 'tiny', repository, ref: 'channels/stable', commit: git('rev-parse', 'HEAD') });
+  assert.deepEqual([moved.channels, moved.channel, moved.findings, moved.problems], [{ stable: { ref: 'channels/stable', description: null, after: null } }, 'stable', [], []]);
 });
 
 // ------------------------------------------------------------------------------------------------ an index

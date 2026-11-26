@@ -8,11 +8,14 @@
  *   and the task touches it: it names a kind of software the repository is (web, backend, mobile …, from
  *   software-kinds.mjs and any kind a person recorded) or the person's words name one of its tags. A skill naming only
  *   kinds the repository is not is never chosen.
- * - Sources, in order: the repository's skill library, then the marketplaces the repository trusts (only for a step no
- *   library skill fits): a Git repository read at the commit it trusts, and an HTTPS index read through its own pinned
+ * - Sources, in order: the repository's skill library, then the repository's own skills beside it (a SKILL.md in
+ *   .github/skills or .agents/skills, written here or installed by APM, read by task-local.mjs) for a step no library
+ *   skill fits [ITW:REQ-020], then the marketplaces the repository trusts (only for a step no library or own skill
+ *   fits): a Git repository read at the commit it trusts, and an HTTPS index read through its own pinned
  *   entries, its listing kept for an hour so a plan read does not fetch it each time. An untrusted marketplace is never
  *   read: only `marketplaces:` in workflow.yml names what is read. An index entry names the steps it is for by their IDs
- *   here (`phases`); each counts as the intent that step has.
+ *   here (`phases`); each counts as the intent that step has. A skill in the library and in another place is the
+ *   library's; one the repository has is never offered from a marketplace.
  * - A library skill is used as it is, unless it is marked proposed or beta (its `lifecycle:` tag, or the marketplace's
  *   lifecycle): that one needs the person's yes (`--use-skill <ID>`). A marketplace skill not yet in the library is
  *   offered, new here: the yes imports it through `import`, its exact text shown, and the next task finds it in the
@@ -117,6 +120,18 @@ export function librarySkillCandidate(skill, imported = null, { stepIntent = nul
 }
 
 /**
+ * A skill of the repository's own beside the library, as a task reads it [ITW:REQ-020]: `skill` as parseLibrarySkill
+ * reads its SKILL.md, `path` where it is (the Story's snapshot reads it there), `apm` the APM package that installed it,
+ * and `own`, what that package's apm.yml says of it (its tasks, tags and lifecycle) when APM's copy of the package is
+ * on this computer. Its tags say what it is for, as a library skill's do; one with no mark is used as it is.
+ */
+export function localSkillCandidate(skill, { path: where, apm = null, own = null } = {}) {
+  const read = facts({ tags: [...(skill.tags ?? []), ...(own?.tags ?? [])], tasks: own?.pdlcTasks ?? [], lifecycleState: own?.lifecycleState ?? null });
+  return { id: skill.id, label: skill.label ?? skill.id, source: 'local', path: where, apm, marketplace: null, sha256: skill.sha256, owner: null, ...read,
+    lifecycle: lifecycleReadiness(read.state, { unmarked: 'ready' }) };
+}
+
+/**
  * A marketplace's skill as a task reads it: a Git repository's package (marketplace-repository.mjs) or an index's entry
  * (indexMarketplaceSkillEntries), whose `phases` `stepIntent` reads. One with no lifecycle mark needs a yes.
  */
@@ -132,31 +147,37 @@ function why(candidate, step, { kinds, words }) {
   return [
     task ? `its task ${task} is a ${step.intent} step's work` : `it is for ${step.intent} steps`,
     ...kinds.map((kind) => `this repository is ${KIND_WORDS[kind] ?? kind}`),
-    ...(words.length ? [`your words say ${words.join(', ')}`] : [])
+    ...(words.length ? [`your words say ${words.join(', ')}`] : []),
+    // Where a skill of the repository's own is [ITW:REQ-020].
+    ...(candidate.source === 'local' ? [candidate.apm ? `APM installed it (${candidate.apm})` : `it is this repository's own (${candidate.path})`] : [])
   ].join('; ');
 }
 
 /**
  * The skills for each step of `composition`: `{ skills, offers, byStep }`. `skills` are those the Story uses, each
- * `{ id, steps, sha256, why }`, recorded on its composition and frozen into its snapshot; `offers` are those that need
- * the person's yes first, each `{ id, steps, source, marketplace, state, why }`; `byStep` maps a step to both, for the plan
- * line. `candidates` come from librarySkillCandidate and marketplaceSkillCandidate; `kinds` are the kinds of software the
+ * `{ id, steps, sha256, why }` (and, for one of the repository's own, its `path` and `from`), recorded on its composition
+ * and frozen into its snapshot; `offers` are those that need the person's yes first, each
+ * `{ id, steps, source, marketplace, state, why }`; `byStep` maps a step to both, for the plan line. `candidates` come
+ * from librarySkillCandidate, localSkillCandidate and marketplaceSkillCandidate; `kinds` are the kinds of software the
  * task touches; `use` and `without` are the IDs the person said yes and no to.
  */
 export function chooseTaskSkills(composition, { candidates = [], kinds = [], words = '', use = [], without = [] } = {}) {
-  // A team's workflow (`use`) or a marketplace agent's (REQ-011) carries its own skills: a task chooses none for it.
+  // A team's workflow (`use`, or the one the person chose, REQ-020) or a marketplace agent's (REQ-011) carries its own
+  // skills: a task chooses none for it.
   if (composition.uses || composition.agent) return { skills: [], offers: [], byStep: {} };
   const touched = new Set(kinds);
   const said = tokens(words);
   const wanted = new Set(use);
   const declined = new Set(without);
   const libraryIds = new Set(candidates.filter((candidate) => candidate.source === 'library').map((candidate) => candidate.id));
+  const localIds = new Set(candidates.filter((candidate) => candidate.source === 'local').map((candidate) => candidate.id));
   const picked = new Map();
   const byStep = {};
   for (const step of composition.steps) {
     const fits = candidates
       .filter((candidate) => !declined.has(candidate.id) && candidate.lifecycle !== 'retired' && candidate.intents.includes(step.intent))
-      .filter((candidate) => candidate.source === 'library' || !libraryIds.has(candidate.id))
+      // One ID, one skill: the library's copy, else the repository's own, else a marketplace's [ITW:REQ-020].
+      .filter((candidate) => candidate.source === 'library' || (!libraryIds.has(candidate.id) && (candidate.source === 'local' || !localIds.has(candidate.id))))
       .map((candidate) => {
         const kindHits = candidate.kinds.filter((kind) => touched.has(kind));
         const wordHits = candidate.words.filter((word) => said.some((token) => sameWord(token, word)));
@@ -167,9 +188,10 @@ export function chooseTaskSkills(composition, { candidates = [], kinds = [], wor
       .sort((left, right) => Number(right.named) - Number(left.named)
         || (right.kindHits.length ? 2 : 0) + right.wordHits.length - ((left.kindHits.length ? 2 : 0) + left.wordHits.length)
         || (left.candidate.id < right.candidate.id ? -1 : left.candidate.id > right.candidate.id ? 1 : 0));
-    // The library first: a marketplace is offered only for a step the library has nothing for.
+    // The library first, then the repository's own skills: a marketplace is offered only for a step neither has anything for.
     const fromLibrary = fits.filter((entry) => entry.candidate.source === 'library');
-    const chosen = (fromLibrary.length ? fromLibrary : fits).filter((entry, index) => entry.named || index < TASK_SKILL_LIMIT);
+    const fromHere = fits.filter((entry) => entry.candidate.source === 'local');
+    const chosen = (fromLibrary.length ? fromLibrary : fromHere.length ? fromHere : fits).filter((entry, index) => entry.named || index < TASK_SKILL_LIMIT);
     for (const entry of chosen) {
       const { candidate } = entry;
       const status = candidate.source === 'marketplace' ? 'new' : candidate.lifecycle === 'unreviewed' && !entry.named ? 'yes' : 'used';
@@ -185,7 +207,7 @@ export function chooseTaskSkills(composition, { candidates = [], kinds = [], wor
     const id = named[0];
     const there = candidates.find((candidate) => candidate.id === id);
     if (!there) {
-      throw refusal('TASK_SKILL_UNKNOWN', `There is no skill '${id}' in this repository's skill library or its trusted marketplaces.`,
+      throw refusal('TASK_SKILL_UNKNOWN', `There is no skill '${id}' in this repository's skill library, its own skills or its trusted marketplaces.`,
         { command: 'singularity-flow skill list', label: 'See the skills in this repository\'s library.' }, { skill: id });
     }
     throw refusal('TASK_SKILL_NO_STEP', `${id} is for ${there.intents.join(' or ') || 'no kind of'} step, and this ${composition.kind} task has none.`,
@@ -194,8 +216,11 @@ export function chooseTaskSkills(composition, { candidates = [], kinds = [], wor
   }
   const entries = [...picked.values()];
   return {
+    // A skill of the repository's own records where it is and who put it there, for the snapshot [ITW:REQ-020].
     skills: entries.filter((entry) => entry.status === 'used')
-      .map((entry) => ({ id: entry.candidate.id, steps: entry.steps, sha256: entry.candidate.sha256, why: entry.why })),
+      .map((entry) => ({ id: entry.candidate.id, steps: entry.steps, sha256: entry.candidate.sha256, why: entry.why,
+        ...(entry.candidate.source === 'local' ? { path: entry.candidate.path, from: entry.candidate.apm ? 'apm' : 'repository',
+          ...(entry.candidate.apm ? { package: entry.candidate.apm } : {}) } : {}) })),
     offers: entries.filter((entry) => entry.status !== 'used').map((entry) => ({
       id: entry.candidate.id, steps: entry.steps, source: entry.candidate.source, marketplace: entry.candidate.marketplace ?? null,
       new: entry.status === 'new', state: entry.candidate.lifecycle === 'unreviewed' ? entry.candidate.state ?? 'not yet approved' : null,
@@ -447,15 +472,16 @@ export async function trustedMarketplaceAgents(root, marketplace) {
 }
 
 /**
- * The chooser `taskPlan` calls with the composed steps: it reads the repository's library and import record, the kinds of
- * software the task touches, and, for a step the library has nothing for, the marketplaces `definition` trusts. With no
- * library skill naming a task and no trusted marketplace, it reads nothing more and chooses nothing. `fetchImpl` reads an
- * index marketplace.
+ * The chooser `taskPlan` calls with the composed steps: it reads the repository's library and import record, its own
+ * skills beside the library (task-local.mjs), the kinds of software the task touches, and, for a step neither has
+ * anything for, the marketplaces `definition` trusts. With no skill naming a task and no trusted marketplace, it reads
+ * nothing more and chooses nothing. A skill of the repository's own that cannot be read is a note, never a refusal: the
+ * task goes on without it. `fetchImpl` reads an index marketplace.
  */
 export function taskSkillChooser(root, definition, { words = '', touchedPaths = [], use = [], without = [], fetchImpl = globalThis.fetch } = {}) {
   return async (composition) => {
     const notes = [];
-    if (composition.agent) return { skills: [], offers: [], byStep: {}, notes };
+    if (composition.agent || composition.local) return { skills: [], offers: [], byStep: {}, notes };
     const [{ configurationReadRoot }, { loadSkillLibrary }, { loadImportsLedger }] = await Promise.all([
       import('./configuration-read-scope.mjs'), import('./skill-library.mjs'), import('./imports-ledger.mjs')]);
     const configRoot = configurationReadRoot(root);
@@ -486,6 +512,10 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
     }
     const candidates = [...library.skills.values()].map((skill) => librarySkillCandidate(skill, imported(skill), { stepIntent,
       trusted: trustedNow.get(fromMarketplace(skill))?.get(imported(skill)?.source?.entry ?? skill.id) ?? null }));
+    // The repository's own skills come after the library and before any marketplace [ITW:REQ-020].
+    const here = await (await import('./task-local.mjs')).localSkills(root, { libraryIds: new Set(library.skills.keys()) });
+    candidates.push(...here.skills.map((entry) => localSkillCandidate(entry.skill, entry)));
+    notes.push(...here.notes);
     if (!candidates.some((candidate) => candidate.intents.length) && !marketplaces.length && !use.length) return { skills: [], offers: [], byStep: {}, notes };
     const kinds = await taskSoftwareKinds(root, touchedPaths);
     const fromLibrary = chooseTaskSkills(composition, { candidates, kinds, words, use: use.filter((id) => candidates.some((entry) => entry.id === id)), without });
@@ -507,7 +537,7 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
         }
       }
     }
-    const named = use.find((id) => !candidates.some((entry) => entry.source === 'library' && entry.id === id) && candidates.some((entry) => entry.id === id));
+    const named = use.find((id) => !candidates.some((entry) => entry.source !== 'marketplace' && entry.id === id) && candidates.some((entry) => entry.id === id));
     if (named) {
       const offered = candidates.find((entry) => entry.id === named);
       throw refusal('TASK_SKILL_NOT_IN_LIBRARY', `${named} is in marketplace ${offered.marketplace} but not yet in this repository's skill library: its import is added, and reviewed, before a task uses it.`,

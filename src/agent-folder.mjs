@@ -6,7 +6,9 @@
  * The folder holds `agent.md` (or one `*.agent.md`), and may hold `apm.yml` with the agent's name, version, pdlc-phases,
  * pdlc-tasks and `dependencies.apm` (the skill folders it uses, as `../../skills/x`). Each skill folder holds SKILL.md
  * and may hold its own apm.yml. With no apm.yml, the folder's name is the agent's, and each `skills/<name>/SKILL.md`
- * inside it is one of its skills. A path to the agent.md itself names its folder.
+ * inside it is one of its skills. A path to the agent.md itself names its folder; a path to a `<name>.agent.md` in a
+ * folder with no apm.yml (Copilot's `.github/agents`, where APM puts an agent it installs) names the agent `<name>`
+ * [ITW:REQ-020].
  *
  * Read only, and only plain files: a symbolic link, or a file larger than its limit, is refused. What the files say
  * is data. Nothing in the result names where on this computer the folder is, only the folder's own name.
@@ -92,6 +94,7 @@ export async function readAgentFolder(target, cwd = process.cwd()) {
     throw fail(`${target} is ${kind === 'link' ? 'a symbolic link' : 'not a folder on this computer'}. Name the agent's folder, the one that holds its agent.md.`, 'AGENT_FOLDER_NOT_FOUND');
   }
   const shown = path.basename(folder);
+  const named = documentName?.endsWith('.agent.md') ? documentName.slice(0, -'.agent.md'.length) || null : null;
   documentName ??= await agentDocument(folder);
   if (!documentName) {
     throw fail(`${shown} holds no agent.md (or one *.agent.md), so there are no stages to turn into steps.`, 'AGENT_FOLDER_NO_DOCUMENT');
@@ -124,7 +127,7 @@ export async function readAgentFolder(target, cwd = process.cwd()) {
     if (skills.some((item) => item.name === skill.name)) { problems.push(`Two skills are called ${skill.name}; the first is used.`); continue; }
     skills.push(skill);
   }
-  const name = own?.name || shown;
+  const name = own?.name || named || shown;
   const agent = {
     name, kind: 'agent', type: own?.type || 'agent', version: own?.version ?? null, description: own?.description ?? null,
     lifecycleState: own?.lifecycleState ?? null, pdlcPhases: own?.pdlcPhases ?? [], pdlcTasks: own?.pdlcTasks ?? [],

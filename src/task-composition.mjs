@@ -14,6 +14,9 @@
  * A marketplace agent's workflow can be the plan [ITW:REQ-011]: once its workflow is in the repository (imported through
  * the conversion review) and the person said yes, its steps replace the kind's, in its order and with its own settings,
  * the team's rules still adding to them. The composition records where the steps came from (`agent`).
+ *
+ * A workflow of the team's own can be the plan too [ITW:REQ-020]: the person's yes to it (`workflow`) runs it exactly as a
+ * `use` rule does, its steps in its order with nothing composed into it, and the composition records it (`local`).
  */
 import { SingularityFlowError } from './util.mjs';
 
@@ -184,7 +187,7 @@ export const ADDABLE = Object.freeze(['requirements', 'design', 'plan', 'review'
  * The composed task: its kind, its steps in order (each with the repository step it uses), the rules that added to it,
  * and the work type the Story pins. Deterministic: the same kind, definition and touched paths give the same result.
  */
-export function composeTask(definition, { kind, touchedPaths = [], add = [], skip = [], agent = null } = {}) {
+export function composeTask(definition, { kind, touchedPaths = [], add = [], skip = [], agent = null, workflow = null } = {}) {
   if (!TASK_KINDS.includes(kind)) {
     throw taskRefusal('TASK_KIND_UNKNOWN', `'${kind}' is not a kind of task. A task is one of: ${TASK_KINDS.join(', ')}.`,
       { command: 'singularity-flow work "<what you want done>" --kind change', label: 'Name one of the kinds of task.' }, { kinds: [...TASK_KINDS] });
@@ -197,6 +200,13 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
         { command: `singularity-flow work "<what you want done>" --kind ${kind}`, label: 'Plan the task as the team\'s workflow.' }, { agent: agentId(agent) });
     }
     return composeAgentTask(definition, rules, { kind, agent, touchedPaths, add, skip });
+  }
+  if (workflow) {
+    if (used) {
+      throw taskRefusal('TASK_AGENT_NOT_COVERING', `This team runs every ${kind} task as the ${definition.workTypes[used].label ?? used} workflow, so another workflow is not its plan.`,
+        { command: `singularity-flow work "<what you want done>" --kind ${kind}`, label: 'Plan the task as the team\'s workflow.' }, { workflow: workflow.workflow });
+    }
+    return composeLocalTask(definition, { kind, workflow, skip });
   }
   if (used) {
     return { schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: used, uses: used, steps: (definition.workTypes[used].phases ?? []).map((id) => ({
@@ -275,6 +285,30 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
     ...(changes.length ? { changes } : {}),
     ...(touched.length ? { touchedPaths: touched } : {})
   };
+}
+
+/**
+ * A task whose plan is a workflow of the team's own, which the person said yes to [ITW:REQ-020]: that workflow exactly
+ * as it is, as a `use` rule runs it (its steps, in its order, nothing composed into it, none taken out). Its offer
+ * covered the steps the team's rules add, so none is lost; a step the person asks to skip that it has stays.
+ */
+function composeLocalTask(definition, { kind, workflow, skip }) {
+  const own = definition.workTypes?.[workflow.workflow];
+  if (!own || !Array.isArray(own.phases) || !own.phases.length) {
+    throw taskRefusal('TASK_WORKFLOW_UNKNOWN', `There is no workflow '${workflow.workflow}' of your team's in the configuration this task reads.`,
+      { command: 'singularity-flow workflow list', label: 'See the workflows in this repository.' }, { workflow: workflow.workflow });
+  }
+  const label = own.label ?? workflow.workflow;
+  const steps = own.phases.map((id) => ({ id, intent: definition.phases?.[id]?.intent ?? null, label: definition.phases?.[id]?.label ?? id }));
+  for (const intent of new Set(skip)) {
+    if (!steps.some((step) => step.intent === intent)) continue;
+    throw taskRefusal('TASK_CHANGE_REFUSED', `The ${intent} step stays: your team's workflow ${label} is followed as it is.`,
+      { command: `singularity-flow work "<what you want done>" --kind ${kind} --without-workflow ${workflow.workflow}`, label: 'Plan the task with its own steps, which a step can be taken out of.' },
+      { skip: intent, workflow: workflow.workflow });
+  }
+  return { schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: workflow.workflow, uses: workflow.workflow, steps, added: [], personApproves: [],
+    rules: [{ rule: 'plan', because: `You chose your team's workflow ${label} as the plan.` }],
+    local: { workflow: workflow.workflow, label, ...(workflow.from ? { from: { agent: workflow.from.agent, path: workflow.from.path } } : {}) } };
 }
 
 /** A marketplace agent as `MARKETPLACE/AGENT`, as `workflow from-agent` names it. */
@@ -521,18 +555,18 @@ export function planLine(composition, { approvals = {}, pullRequest = false, ski
   if (pullRequest) words.push('pull request');
   const approved = composition.steps.filter((step) => approvals[step.id] === 'person').map((step) => approvedWord(composition.kind, step, composition));
   const who = approved.length ? ` You approve ${approved.length > 1 ? `${approved.slice(0, -1).join(', ')} and ${approved.at(-1)}` : approved[0]}.` : '';
-  // A marketplace agent's workflow as the plan says whose it is [ITW:REQ-011].
-  const whose = composition.agent ? `, from ${agentWords(composition.agent)}` : '';
+  // A marketplace agent's workflow, or the team's own, as the plan says whose it is [ITW:REQ-011, REQ-020].
+  const whose = composition.agent ? `, from ${agentWords(composition.agent)}` : composition.local ? `, from your team's workflow ${composition.local.label}` : '';
   return `Plan${whose}: ${words.join(' → ')}.${who} Say "add a design step" to change it.`;
 }
 
 /**
- * The steps the plan line names, each with its word: a step of an intent the plan has no word for (an agent's document,
- * release or report step) is named by its label.
+ * The steps the plan line names, each with its word: a step of an intent the plan has no word for (an agent's or the
+ * team's own workflow's document, release or report step) is named by its label.
  */
 export function planSteps(composition) {
   return composition.steps.map((step) => ({ ...step,
-    word: planWord(composition.kind, step) ?? (composition.agent && step.intent !== 'intake' ? String(step.label ?? step.id).toLowerCase() : null) }));
+    word: planWord(composition.kind, step) ?? ((composition.agent || composition.local) && step.intent !== 'intake' ? String(step.label ?? step.id).toLowerCase() : null) }));
 }
 
 /** A first guess at the kind from the words, for the terminal when no agent named it: the first kind they name, by priority. */

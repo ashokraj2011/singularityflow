@@ -1069,7 +1069,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // No new eager file.
     // 9,906,698 (measured for submit.mjs on m1-int with fpl-m1 and omk-m1 merged, 2026-11-26; start.mjs 9,906,108): the two
     // branches' rises together. No new eager file.
-    assert.ok(closure.bytes <= 9_906_698, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,907,027 (+329, measured 2026-11-26 on itw-local over 9,906,698 at 8a386d941; start.mjs 9,906,437, +329): a task's
+    // skill of the repository's own (.github/skills or .agents/skills) is frozen into its snapshot from where the plan read
+    // it (workflow-snapshots.mjs) [ITW:REQ-020]; the reading and choosing stay lazy (task-local.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_907_027, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1678,7 +1681,9 @@ test('the common session projection does not import attach, state stores or publ
   // lifecycles, read through a reader fetchMarketplaceIndex loads only when it fetches (marketplace.mjs) [OMK:REQ-005].
   // No new eager file.
   // 4,367,910 (measured on m1-int with fpl-m1 and omk-m1 merged, 2026-11-26): the two branches' rises together. No new eager file.
-  assert.ok(current.bytes <= 4_367_910, `session current loads ${current.bytes} source bytes`);
+  // 4,368,239 (+329 over 4,367,910 at 8a386d941, measured 2026-11-26 on itw-local): a task's skill of the repository's own is
+  // frozen into its snapshot from where the plan read it (workflow-snapshots.mjs) [ITW:REQ-020]. No new eager file.
+  assert.ok(current.bytes <= 4_368_239, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

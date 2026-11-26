@@ -1,5 +1,5 @@
 /**
- * `singularity-flow work "<words>" [--kind KIND] [--start] [--work-id ID] [--path FILE ...] [--use-agent MARKETPLACE/AGENT] [--json]` [ITW:REQ-001–007, 011];
+ * `singularity-flow work "<words>" [--kind KIND] [--start] [--work-id ID] [--path FILE ...] [--use-agent MARKETPLACE/AGENT] [--use-workflow ID] [--json]` [ITW:REQ-001–007, 011, 020];
  * `singularity-flow work add <STEP> [--work-id ID] [--json]` [ITW:REQ-009].
  *
  * Shows the plan a task's words get, composed from its kind (src/task-composition.mjs), and writes nothing. With
@@ -7,7 +7,9 @@
  * (`tasks.idPrefix`, default TASK); its base is the repository's default branch; its intake is the words. The composed
  * workflow is laid over the definition in memory and recorded on the Story, never written to workflow.yml. `/sf-task`
  * in Copilot runs this with the kind the agent named. When an agent of a trusted marketplace covers the task, the plan
- * offers its workflow (src/task-agents.mjs): `--use-agent` is the yes, `--without-agent` the no.
+ * offers its workflow (src/task-agents.mjs): `--use-agent` is the yes, `--without-agent` the no. The team's own workflow,
+ * or an agent this repository has, comes before any marketplace's (src/task-local.mjs) [ITW:REQ-020]: `--use-workflow`
+ * is the yes, `--without-workflow` the no.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -16,7 +18,7 @@ import { assertWorkTypeStartable, resolveWorkType, validateDefinition, WORKFLOW_
 import { loadConfig } from '../state-stores.mjs';
 import { branch, commitOfRef, committedFileText, localBranches, remoteBranches, remoteDefaultBranchName } from '../git.mjs';
 import { repoRoot } from '../git-execution.mjs';
-import { composeTask, kindFromWords, planLine, TASK_KINDS, taskDefinition, taskRules } from '../task-composition.mjs';
+import { agentWords, composeTask, kindFromWords, planLine, TASK_KINDS, taskDefinition, taskRules } from '../task-composition.mjs';
 import { walkTaskWorkType } from '../task-walk.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
@@ -74,6 +76,8 @@ export async function taskPlan(definition, { kind, touchedPaths = [], pullReques
   // A marketplace agent whose stages cover the task is offered; once the person said yes, its steps are the plan [ITW:REQ-011].
   const found = chooseAgent ? await chooseAgent(composed) : null;
   if (found?.chosen) composed = composeTask(definition, { kind, touchedPaths, add, skip, agent: found.chosen });
+  // The team's own workflow the person said yes to runs exactly as it is [ITW:REQ-020].
+  if (found?.chosenWorkflow) composed = composeTask(definition, { kind, touchedPaths, add, skip, workflow: found.chosenWorkflow });
   const chosen = chooseSkills ? await chooseSkills(composed) : null;
   // The skills a Story uses are part of its composition, so its snapshot freezes their exact text with its steps.
   const composition = { ...composed, ...(chosen?.skills.length ? { skills: chosen.skills } : {}), ...(pullRequest ? { pullRequest: true } : {}) };
@@ -246,6 +250,9 @@ export function taskStatus(root, id, { remote = 'origin', checksOf = null } = {}
     schemaVersion: 1, resultType: 'sflow-task-status', id, kind: composition?.kind ?? null, title: workflow.workItem?.title ?? null,
     status: workflow.status, done, branch: workflow.workItem?.branch ?? id, base: workflow.workItem?.baseBranch ?? null,
     pullRequest: composition?.pullRequest === true, steps,
+    // Whose steps they are, when they are not the kind's own [ITW:REQ-011, REQ-020].
+    ...(composition?.local ? { planFrom: `your team's workflow ${composition.local.label ?? composition.local.workflow}` }
+      : composition?.agent?.marketplace ? { planFrom: agentWords(composition.agent) } : {}),
     ...(workflow.executionOrigin?.mode === 'itw-handoff' ? { handoff: workflow.executionOrigin } : {}),
     personApproved: steps.filter((step) => step.approvedBy === 'person').map((step) => step.label),
     ...(checks ? { checks } : {}),
@@ -261,7 +268,8 @@ function startCommand(words, kind, options, extra = []) {
   const single = (name) => { const value = optionString(options, name); return value ? [`--${name} ${/^[\w./@:-]+$/u.test(value) ? value : quoted(value)}`] : []; };
   return ['singularity-flow work', quoted(words), `--kind ${kind}`, '--start', ...single('work-id'), ...single('base'), ...single('from'),
     ...repeated('path'), ...repeated('document'), ...repeated('add'), ...repeated('skip'), ...(optionBoolean(options, 'new') ? ['--new'] : []),
-    ...repeated('use-skill'), ...repeated('without-skill'), ...repeated('use-agent'), ...repeated('without-agent'), ...extra].join(' ');
+    ...repeated('use-skill'), ...repeated('without-skill'), ...repeated('use-agent'), ...repeated('without-agent'),
+    ...repeated('use-workflow'), ...repeated('without-workflow'), ...extra].join(' ');
 }
 
 /** What the person is asked about a skill offered for a step, and the option each answer adds to the start. */
@@ -368,24 +376,30 @@ export async function workCommand(positionals = [], options = {}) {
   const touchedPaths = optionStrings(options, 'path');
   const use = optionStrings(options, 'use-skill');
   const without = optionStrings(options, 'without-skill');
-  const [{ taskSkillChooser }, { namedAgents, taskAgentFinder }] = await Promise.all([import('../task-skills.mjs'), import('../task-agents.mjs')]);
+  const [{ taskSkillChooser }, { namedAgents, namedWorkflows, taskAgentFinder }] = await Promise.all([import('../task-skills.mjs'), import('../task-agents.mjs')]);
   const useAgent = namedAgents(optionStrings(options, 'use-agent'));
   const withoutAgent = namedAgents(optionStrings(options, 'without-agent'));
-  if (useAgent.length > 1) {
-    throw new SingularityFlowError('One agent\'s workflow is a task\'s plan: say yes to one.', {
-      code: 'TASK_AGENT_UNKNOWN',
-      details: { agents: useAgent, nextAction: { command: startCommand(words, kind, { ...options, 'use-agent': [useAgent[0]] }), label: `Start the task with ${useAgent[0]}'s workflow.` } }
+  const useWorkflow = namedWorkflows(optionStrings(options, 'use-workflow'));
+  const withoutWorkflow = namedWorkflows(optionStrings(options, 'without-workflow'));
+  if (useAgent.length + useWorkflow.length > 1) {
+    const [first, flag] = useAgent.length ? [useAgent[0], 'use-agent'] : [useWorkflow[0], 'use-workflow'];
+    throw new SingularityFlowError('One workflow is a task\'s plan: say yes to one.', {
+      code: useAgent.length ? 'TASK_AGENT_UNKNOWN' : 'TASK_WORKFLOW_UNKNOWN',
+      details: { agents: useAgent, workflows: useWorkflow, nextAction: { command: startCommand(words, kind, { ...options, 'use-agent': [], 'use-workflow': [], [flag]: [first] }), label: `Start the task with ${first}'s workflow.` } }
     });
   }
+  // The start without the plan named: with the task's own steps, the named one's no added [ITW:REQ-011, REQ-020].
+  const withoutPlan = () => startCommand(words, kind, { ...options, 'use-agent': [], 'without-agent': [...withoutAgent, ...useAgent],
+    'use-workflow': [], 'without-workflow': [...withoutWorkflow, ...useWorkflow] });
   const preview = await taskPlanForWords(definition, words, { kind, touchedPaths,
     add: optionStrings(options, 'add'), skip: optionStrings(options, 'skip'),
-    chooseAgent: taskAgentFinder(root, definition, { touchedPaths, use: useAgent, without: withoutAgent }),
+    chooseAgent: taskAgentFinder(root, definition, { touchedPaths, use: useAgent, without: withoutAgent, useWorkflow, withoutWorkflow }),
     chooseSkills: taskSkillChooser(root, definition, { words, touchedPaths, use, without }) }).catch((error) => {
     // A yes to an agent whose workflow is not in the repository yet: its import is the next thing, through the conversion
-    // review, and the task can also start with its own steps now [ITW:REQ-011].
-    if (['TASK_AGENT_IMPORT_NEEDED', 'TASK_AGENT_NOT_COVERING', 'TASK_AGENT_UNKNOWN'].includes(error?.code) && useAgent.length) {
+    // review, and the task can also start with its own steps now [ITW:REQ-011, REQ-020].
+    if (['TASK_AGENT_IMPORT_NEEDED', 'TASK_AGENT_NOT_COVERING', 'TASK_AGENT_UNKNOWN', 'TASK_WORKFLOW_UNKNOWN'].includes(error?.code) && (useAgent.length || useWorkflow.length)) {
       error.details.start = startCommand(words, kind, options);
-      error.details.withoutAgent = startCommand(words, kind, { ...options, 'use-agent': [], 'without-agent': [...withoutAgent, ...useAgent] });
+      error.details.withoutAgent = withoutPlan();
       if (error.code === 'TASK_AGENT_NOT_COVERING') error.details.nextAction = { command: error.details.withoutAgent, label: 'Start the task with its own steps.' };
     }
     // A yes to a marketplace skill whose import is not in the library yet (it waits for its review): this task starts
@@ -406,10 +420,11 @@ export async function workCommand(positionals = [], options = {}) {
       schemaVersion: 1, resultType: 'sflow-task-plan', kind, words, plan: preview.plan, steps: preview.steps,
       rules: preview.composition.rules, added: preview.composition.added,
       ...(agent ? { agent: { id: `${agent.marketplace}/${agent.agent}`, marketplace: agent.marketplace, agent: agent.agent, version: agent.version, workflow: agent.workflow } } : {}),
+      ...(preview.composition.local ? { workflow: { id: preview.composition.local.workflow, label: preview.composition.local.label } } : {}),
       ...(agentOffer ? { agentOffer } : {}),
       ...(preview.skills.length ? { skills: preview.skills } : {}), ...(offers.length ? { offers } : {}),
       ...(preview.notes?.length ? { notes: preview.notes } : {}),
-      next: { command: start, label: agentOffer ? 'Start the task after a yes or no to the agent offered.'
+      next: { command: start, label: agentOffer ? `Start the task after a yes or no to the ${agentOffer.source === 'workflow' ? 'workflow' : 'agent'} offered.`
         : offers.length ? 'Start the task after a yes or no to each skill offered.' : 'Start the task.' }
     };
   }
@@ -461,9 +476,9 @@ export async function workCommand(positionals = [], options = {}) {
         'without-skill': [...without, error.details.skill] }), label: `Start the task without ${error.details.skill}.` };
     }
     // The agent's workflow is in this checkout but not in the configuration the Story starts from: started without it.
-    if (error?.code === 'TASK_AGENT_IMPORT_NEEDED' && useAgent.length) {
+    if (['TASK_AGENT_IMPORT_NEEDED', 'TASK_WORKFLOW_UNKNOWN'].includes(error?.code) && (useAgent.length || useWorkflow.length)) {
       error.details.start = startCommand(words, kind, options);
-      error.details.withoutAgent = startCommand(words, kind, { ...options, 'use-agent': [], 'without-agent': [...withoutAgent, ...useAgent] });
+      error.details.withoutAgent = withoutPlan();
       error.details.nextAction = { command: error.details.withoutAgent, label: 'Start the task with its own steps for now.' };
     }
     throw error;
@@ -479,7 +494,7 @@ function printPlan(result) {
   if (result.agentOffer) {
     const offer = result.agentOffer;
     console.log(`${offer.ask} ${offer.why[0].toUpperCase()}${offer.why.slice(1)}.`);
-    console.log(`  See its conversion review: ${offer.review}`);
+    if (offer.review) console.log(`  See its conversion review: ${offer.review}`);
     console.log(`  Yes: add ${offer.yes} to the start${offer.imported ? '' : ', once its workflow is in this repository'}. No: add ${offer.no}.`);
   }
   for (const skill of result.skills ?? []) console.log(`Skill ${skill.id}: ${skill.why}.`);
@@ -522,6 +537,7 @@ export async function run(_argv, { positionals = ['work'], options = {} } = {}) 
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else {
       console.log(result.words);
+      if (result.planFrom) console.log(`Its steps are from ${result.planFrom}.`);
       for (const step of result.steps) console.log(`  ${step.label}: ${step.status.replace(/_/gu, ' ')}${step.approvedBy === 'person' ? ', approved by a person' : step.approvedBy === 'sflow' ? ', approved by SFlow' : ''}`);
     }
     return result;

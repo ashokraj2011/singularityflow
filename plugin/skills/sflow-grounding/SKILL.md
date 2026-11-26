@@ -21,10 +21,10 @@ objective. Use the canonical skill's composed prompt and stay within the phase w
 
 For repository questions after attachment, first request `context.brief` (or
 `singularity-flow session context --work-id <ID> --slice brief --json`); expand only the one
-`world-model`, `ast` or `evidence` slice needed, keeping source revision and byte/token accounting.
+`ast` or `evidence` slice needed, keeping source revision and byte/token accounting.
 Label facts, approved decisions, assumptions, proposals and open questions.
 
-If a required view is missing, stale or unreachable, keep Flow's unavailable context and use ordinary
+If a slice is missing, stale or unreachable, keep Flow's unavailable context and use ordinary
 repository access. Context-integrity errors block. Never infer `--task` from a Story objective.
 
 An approved agent brief serves ordinary reasoning; expand a source section by its `sfref:v1:` handle only

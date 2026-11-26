@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "85c15c603d99a08d11af0f6de45e46ad1345850c",
+  "sourceCommit": "cbeb9978d76123a3301b5617ec9b0036796ec5af",
   "topicCount": 96,
-  "contentSha256": "80b343d81f4f317384ce2a123d67b224d7ee9ec17374f06aa850484392ec2a86",
+  "contentSha256": "ade7450c36b0851557626e87531258c3c27aa4193f61fe489c5b2481e53f155a",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -32,8 +32,8 @@
     {
       "id": "agents-and-routing",
       "title": "Agents, assignments, and model routing",
-      "version": 10,
-      "sha256": "e788ddbe3a0b2c470237eda93bef56a776ba38774167aa9e84e282691c137e0d",
+      "version": 11,
+      "sha256": "1ee5aad68e819df7ebc2e193c637b77e455ef558f6d397f2044cd423e8622015",
       "routingSha256": "001a52719941c2f9910ffacf2306d9ded4e45e3a3d202f73a843fc33649dd603",
       "file": "agents-and-routing.md"
     },
@@ -768,8 +768,8 @@
     {
       "id": "world-model",
       "title": "World Model and the Repository brief",
-      "version": 42,
-      "sha256": "6f4de19754e4ae8765922593dd7a30a5cf2017ea18fb9956a886a9df77dd70bc",
+      "version": 43,
+      "sha256": "f9036b141d3902fc9b884ca015719a495b099cfeec2d26b9d62a38e93867dcdc",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

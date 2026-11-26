@@ -4,7 +4,7 @@
 
 # {{initiative.id}} — {{output.label}}
 
-<!-- sflow:guidance One document: what this Epic requires, and what changing it touches. Every statement below cites a pinned source or the repository world model. Anything the evidence does not settle belongs in **Open questions**, not in a requirement. -->
+<!-- sflow:guidance One document: what this Epic requires, and what changing it touches. Every statement below cites a pinned source or a repository file you read. Anything the evidence does not settle belongs in **Open questions**, not in a requirement. -->
 
 ## Context
 
@@ -34,7 +34,7 @@
 
 ## Impact analysis
 
-<!-- sflow:guidance What this change reaches, grounded in the repository world model rather than assumed. Name the real components; if the world model does not describe a component, say so instead of guessing. -->
+<!-- sflow:guidance What this change reaches, grounded in the repository's code rather than assumed. Name the real components by path; if you could not read a component, say so instead of guessing. -->
 
 ### Components and behaviour
 

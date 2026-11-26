@@ -1089,7 +1089,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // No new eager file.
     // 9,918,097 (measured for submit.mjs on m1-int with fpl-m1, omk-m1 and ssb-m1 merged, 2026-11-26; start.mjs 9,917,349):
     // the three branches' rises together. No new eager file.
-    assert.ok(closure.bytes <= 9_918_097, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,919,298 (measured for submit.mjs, +1,201, 2026-11-26 on wm-clean; start.mjs 9,918,550): packaged-asset-history.mjs
+    // keeps the earlier digests of the two agents and five Initiative templates that stopped naming the removed World
+    // Model, so a refresh replaces them. No new eager file.
+    assert.ok(closure.bytes <= 9_919_298, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1719,7 +1722,9 @@ test('the common session projection does not import attach, state stores or publ
   // M1, most of it story-paths.mjs, the Story path resolver [SSB:REQ-009]. No new eager file.
   // 4,376,291 (measured on m1-int with fpl-m1, omk-m1 and ssb-m1 merged, 2026-11-26): the three branches' rises together.
   // No new eager file.
-  assert.ok(current.bytes <= 4_376_291, `session current loads ${current.bytes} source bytes`);
+  // 4,377,492 (+1,201, measured 2026-11-26 on wm-clean): packaged-asset-history.mjs keeps the earlier digests of the
+  // templates that stopped naming the removed World Model. No new eager file.
+  assert.ok(current.bytes <= 4_377_492, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -19,7 +19,7 @@
 
 ## Technical feasibility
 
-<!-- sflow:guidance Assessed against the repository world model rather than from memory. Where the world model does not describe a component, say so — an unassessed area is a finding, not a blank. -->
+<!-- sflow:guidance Assessed against the repository's code rather than from memory. Where you could not read a component, say so — an unassessed area is a finding, not a blank. -->
 
 | Area | Assessment | Confidence | Basis |
 |---|---|---|---|

@@ -396,7 +396,7 @@
   "sflow-show-prompt": [
     "`--record-audit` may create the immutable local generation-prompt receipt and prompt-audit entry used for a real Copilot handoff.",
     "If the command reports a missing session, work item, phase, or governed agent, report that exact prerequisite and stop.",
-    "If it reports unavailable World-Model context, preserve that status and continue the handoff;"
+    "If it reports no Repository brief, preserve that warning and continue the handoff;"
   ],
   "sflow-skill": [
     "If unsupported, stop with the compatibility error, never retry blindly.",

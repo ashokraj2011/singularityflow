@@ -26,6 +26,6 @@ Read-only utility: run the requested read once with `--utility-entry --for-agent
 
 First trust and updates require exact agent-name confirmation. Never edit `singularity/agents.lock.yml` manually, bypass a changed hash, send credentials, or overwrite local output unless the user explicitly requests `--replace`.
 
-An agent combines its own instructions and world-model view declarations with optional remote Markdown dependencies. It cannot act as a human or approve/reject lifecycle state.
+An agent combines its own instructions with optional remote Markdown dependencies. It cannot act as a human or approve/reject lifecycle state.
 
 Copilot custom-agent IDs may map to different governed-agent IDs in `singularity/agent-mappings.yml`. Explicit mappings win; omitted agents use same-name fallback.

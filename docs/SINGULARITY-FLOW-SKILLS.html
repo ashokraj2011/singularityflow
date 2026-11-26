@@ -1175,7 +1175,7 @@ Use this when the developer is confused, stuck, or does not know which SFlow rou
           <span class="pill">interactive</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1093 body tokens</span>
+          <span class="pill">~1088 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-agent</code></dd></div>
@@ -1210,7 +1210,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 2. The phase default is automatic. A `SELECTION_REQUIRED` refusal lists `details.choices`: present every label, ID and description, then rerun with `--agent &lt;ID&gt;`.
 3. Never pick for the contributor. Never infer human identity or approval authority from the agent.
 4. Run `singularity-flow session status --json`, then report the agent and its source, phase compatibility, work-item scope, and Copilot-session binding.
-5. Agent Markdown controls prompt instructions and world-model views. Git/Jira identity and configured approval groups control human decisions.
+5. Agent Markdown controls prompt instructions. Git/Jira identity and configured approval groups control human decisions.
 </code></pre>
       </div>
     </details>
@@ -1233,7 +1233,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1004 body tokens</span>
+          <span class="pill">~996 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-agents</code></dd></div>
@@ -1273,7 +1273,7 @@ Read-only utility: run the requested read once with `--utility-entry --for-agent
 
 First trust and updates require exact agent-name confirmation. Never edit `singularity/agents.lock.yml` manually, bypass a changed hash, send credentials, or overwrite local output unless the user explicitly requests `--replace`.
 
-An agent combines its own instructions and world-model view declarations with optional remote Markdown dependencies. It cannot act as a human or approve/reject lifecycle state.
+An agent combines its own instructions with optional remote Markdown dependencies. It cannot act as a human or approve/reject lifecycle state.
 
 Copilot custom-agent IDs may map to different governed-agent IDs in `singularity/agent-mappings.yml`. Explicit mappings win; omitted agents use same-name fallback.
 </code></pre>
@@ -2192,7 +2192,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     <details>
       <summary>
         <span class="skill-number">022</span>
-        <span class="skill-title"><strong>sflow-capability-doctor</strong><span>Diagnose workspace capability bindings, approved capability authority, stale proposal history, inherited policy, orphan state branch, ledger chain, and pinned cross-repository world-model context.</span></span>
+        <span class="skill-title"><strong>sflow-capability-doctor</strong><span>Diagnose workspace capability bindings, approved capability authority, stale proposal history, inherited policy, orphan state branch and ledger chain.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -2201,7 +2201,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">echo</span>
           <span class="pill">organisation boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1049 body tokens</span>
+          <span class="pill">~1032 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capability-doctor</code></dd></div>
@@ -2215,7 +2215,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
         </div>
         <pre data-source="sflow-capability-doctor"><code>---
 name: sflow-capability-doctor
-description: Diagnose workspace capability bindings, approved capability authority, stale proposal history, inherited policy, orphan state branch, ledger chain, and pinned cross-repository world-model context.
+description: Diagnose workspace capability bindings, approved capability authority, stale proposal history, inherited policy, orphan state branch and ledger chain.
 disable-model-invocation: true
 agent: agent
 
@@ -2250,9 +2250,9 @@ folder or branch names, and do not repair governed state by hand.
    policy, active break-glass leases, and lifecycle pin.
 6. Report the configured orphan state branch and its publication mode. A warning
    is not a pass when publication is `required`.
-7. Report ledger verification and every sibling-repository world-model snapshot.
+7. Report ledger verification.
 8. For a failure, provide the deterministic repair command. Do not create a lease,
-   initialize a state branch, rebuild a model, or change policy unless asked.
+   initialize a state branch, or change policy unless asked.
 
 For an unrelated-history proposal, offer the two fsck-reported choices: recreate the
 capability from current `sflow/config`, or run the guarded `singularity-flow capability discard-proposal`
@@ -3757,7 +3757,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">generative</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1407 body tokens</span>
+          <span class="pill">~1387 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-requirements</code></dd></div>
@@ -3787,7 +3787,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Run `singularity-flow epic requirements status --json`. Epic Intake accepts the Jira identity and pinned sources automatically; do not build or request a repository world model on `main` or the Epic branch.
+1. Run `singularity-flow epic requirements status --json`. Epic Intake accepts the Jira identity and pinned sources automatically.
 2. List pinned inputs with `singularity-flow epic sources list --epic &lt;EPIC-KEY&gt;`.
 3. Record every business note with `singularity-flow epic sources note --text-file &lt;FILE&gt;` and every accepted Copilot answer with `singularity-flow epic sources answer --text-file &lt;FILE&gt;`, writing FILE only at the source-text draft this turn&#39;s rules name, one at a time. Never leave accepted answers only in chat history.
 4. Run `singularity-flow epic requirements prepare`. Read the complete governed context that it prints: phase contract, governed agent, Jira snapshot, pinned sources, question ledger, and workspace repository registry. Repository grounding is added later, after each Story has its canonical branch.
@@ -4235,7 +4235,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">generative</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1388 body tokens</span>
+          <span class="pill">~1376 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-story-draft</code></dd></div>
@@ -4266,7 +4266,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Run `singularity-flow epic next &lt;EPIC-ID&gt; --for-agent --json`; continue only when it routes to Planning preparation, otherwise relay its action and stop.
-2. Run `singularity-flow epic planning prepare` and read the complete governed prompt, approved requirements, impact analysis, pinned source evidence, and workspace repository registry. Do not request a world model on the Epic branch.
+2. Run `singularity-flow epic planning prepare` and read the complete governed prompt, approved requirements, impact analysis, pinned source evidence, and workspace repository registry.
 3. Before drafting, ask one concise batch about any material allocation, repository ownership, dependency, boundary, or acceptance ambiguity. Wait for the human and persist each accepted response with `singularity-flow epic sources answer --epic &lt;EPIC-ID&gt; --text-file &lt;FILE&gt;`, writing FILE only at the source-text draft this turn&#39;s rules name; then rerun `singularity-flow epic planning prepare` so the answers become pinned governed context. If questions cannot be asked or persisted, stop rather than infer Story boundaries.
 4. Author `story-plan.yml` and `parent-spec.md` at the exact paths step 2&#39;s prepare returned, with one complete Story `specification` per `STORY-nnn` in `story-plan.yml`; publication writes each `stories/&lt;PLAN-ID&gt;/story-spec.md` from it.
 5. Give every Story a configured repository, workflow type, REQ/AC allocation, dependencies, test expectations, and implementation boundaries. Group Stories by owning repository. Do not invent Jira keys or assignees.
@@ -5256,7 +5256,7 @@ refuses, relay its code and repair and stop.
           <span class="pill">conversational</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1200 body tokens</span>
+          <span class="pill">~1195 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-grounding</code></dd></div>
@@ -5291,10 +5291,10 @@ objective. Use the canonical skill&#39;s composed prompt and stay within the pha
 
 For repository questions after attachment, first request `context.brief` (or
 `singularity-flow session context --work-id &lt;ID&gt; --slice brief --json`); expand only the one
-`world-model`, `ast` or `evidence` slice needed, keeping source revision and byte/token accounting.
+`ast` or `evidence` slice needed, keeping source revision and byte/token accounting.
 Label facts, approved decisions, assumptions, proposals and open questions.
 
-If a required view is missing, stale or unreachable, keep Flow&#39;s unavailable context and use ordinary
+If a slice is missing, stale or unreachable, keep Flow&#39;s unavailable context and use ordinary
 repository access. Context-integrity errors block. Never infer `--task` from a Story objective.
 
 An approved agent brief serves ordinary reasoning; expand a source section by its `sfref:v1:` handle only
@@ -6413,7 +6413,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">generative</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1407 body tokens</span>
+          <span class="pill">~1393 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-phase</code></dd></div>
@@ -6444,8 +6444,8 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Run `singularity-flow initiative status [INIT-ID] --json` and use only its current phase.
-2. Run `singularity-flow initiative phase [PHASE] [--initiative INIT-ID]`. This prepares every configured output and records one governed Copilot prompt containing the exact phase contract, selected governed-agent prompt, required repository world-model views, active agent Markdown, and approved upstream initiative artifacts.
-3. The Repository brief is guidance: never run a World Model check or rebuild, and never block the Initiative phase on it. Never substitute a Story phase for an Initiative phase.
+2. Run `singularity-flow initiative phase [PHASE] [--initiative INIT-ID]`. This prepares every configured output and records one governed Copilot prompt containing the exact phase contract, selected governed-agent prompt, active agent Markdown, pinned Epic sources, and approved upstream initiative artifacts.
+3. An Initiative phase prompt carries no Repository brief and never waits for one. Never substitute a Story phase for an Initiative phase.
 4. Run `singularity-flow initiative context [PHASE] [--initiative INIT-ID]` and use the complete returned prompt. Do not generate from a summary or from filenames alone.
 5. Run `singularity-flow initiative documents [PHASE] [--initiative INIT-ID]`. Preparation is not authoring: use the native file-edit tool to complete every existing required output at the exact path step 2 or `draft-check` returned, resolve TODOs, preserve managed metadata and satisfy the checklist. Never invent evidence.
 6. Run `singularity-flow initiative phase draft-check [PHASE] [--initiative INIT-ID] --json`. If unready, act only on its `findings` and `correction`, rerun its `commands.recheck`, and keep repair in this phase. Correct every agent finding now from governed evidence only when ownership permits; otherwise route to its producer or human. Follow the self-healing contract; recheck up to three changed `draftFingerprint`s, never retry an unchanged one (an unedited draft; same findings after an edit: correct differently). Exhaustion ends automation: preserve work and return the manual/owner actions of `singularity-flow initiative recover &lt;INIT-ID&gt; --json`. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer.
@@ -9920,7 +9920,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~850 body tokens</span>
+          <span class="pill">~843 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-resume</code></dd></div>
@@ -9953,7 +9953,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 1. Run `singularity-flow resume &lt;arguments&gt; --json`; work in its returned `repositoryPath` (it may switch to the Story&#39;s own worktree).
 2. The CLI activates the current phase&#39;s default governed agent automatically. Do not ask the contributor to select a role. Use `/sf-agent` only when they explicitly request an override.
 3. Use only the returned result and, for phase states, one `singularity-flow status --for-agent --json` in that `repositoryPath`; never read `workflow.json`, `STATUS.md` or earlier artifacts. A returned `data.contextBoundary`: relay its `commands` in order (such as `/clear`, then `/sf-phase`) and stop before any authoring in this chat.
-4. The Repository brief is guidance: never run a World Model check or rebuild, and never wait for one; phase prompts include it, and `singularity-flow wm brief --phase &lt;ACTIVE-PHASE&gt;` shows it when asked.
+4. The Repository brief is guidance; it is built for you and never blocks. Phase prompts include it, and `singularity-flow wm brief --phase &lt;ACTIVE-PHASE&gt;` shows it when asked.
 5. Verify the returned branch is the Story&#39;s own (`workItem.branch`; it need not be the work ID); never judge it from the launch checkout.
 6. Summarize the active governed agent, completed phases, active phase, rejection reason if present and required output. Keep the contributor&#39;s Git identity and approval authority separate.
 7. Continue only in the active phase with the drafting route resume returned; do not skip ahead.
@@ -10986,7 +10986,7 @@ Only `sfref:v1:` handles registered in committed Story or Initiative context are
           <span class="pill">echo</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1274 body tokens</span>
+          <span class="pill">~1266 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-show-prompt</code></dd></div>
@@ -11017,10 +11017,10 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`, or as is from a non-Git (chat) folder: SFlow finds the bound checkout; never refuse or wrap for it; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Run `singularity-flow wm show-prompt`, forwarding `$ARGUMENTS` unchanged when present.
-2. The default command is read-only. `--record-audit` may create the immutable local generation-prompt receipt and prompt-audit entry used for a real Copilot handoff. Do not build the world model, prepare or publish an artifact, create a Git commit, or change workflow state.
+2. The default command is read-only. `--record-audit` may create the immutable local generation-prompt receipt and prompt-audit entry used for a real Copilot handoff. Do not prepare or publish an artifact, create a Git commit, or change workflow state.
 3. Read the complete skill and `GOVERNED PHASE PROMPT` sections privately for the audit; never copy their artifact/code bodies into chat. Summarize the selected skill, phase, agent, input sources, grounding availability and limitations from that exact output.
 4. Preserve exact prompt bytes in command output. Link only verified prompt/skill paths when supplied; otherwise offer the exact read-only command for full inspection outside chat. Do not invent a preview path or claim a summary is the complete prompt.
-5. If the command reports a missing session, work item, phase, or governed agent, report that exact prerequisite and stop. If it reports unavailable World-Model context, preserve that status and continue the handoff; do not silently select or generate anything.
+5. If the command reports a missing session, work item, phase, or governed agent, report that exact prerequisite and stop. If it reports no Repository brief, preserve that warning and continue the handoff; do not silently select or generate anything.
 6. Explain that the first section is Copilot&#39;s skill contract and the second is the effective governed prompt. Report no Git commit or workflow transition. With `--record-audit`, report the returned immutable prompt receipt and audit write without reproducing their bodies.
 </code></pre>
       </div>
@@ -11296,7 +11296,7 @@ Complete by staging valid proposals and summarizing their IDs and purpose. Readi
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1989 body tokens</span>
+          <span class="pill">~1987 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-specify</code></dd></div>
@@ -11330,7 +11330,7 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 2. Relay `checkpoint.reason` and the ordered `next[]` actions exactly; at `model-generation` the `NOW` prepare is your step 5, never a route to end on. Never invent an action the router did not return.
 3. If the checkpoint is `recovery`, route it first. Nothing else may proceed while a retained commit has not reached its remote.
 4. If the checkpoint is `approval`, stop: only an authorized human Git identity approves.
-5. At `model-generation`, require the first `NOW` action in the returned `next[]` to be `singularity-flow prepare &lt;PHASE&gt;`; run that exact returned command once and use its artifact path. If the action differs, stop and relay the returned route; never author a seeded or stale draft. With the resolved agent, approved inputs, pinned template/constitution, and required world-model views, author the specification scenario-first: prioritized Given/When/Then scenarios, actors, empty/failure states, permissions, boundaries, and non-functional requirements. Fill `Agent brief` with approved intent only; the kernel preserves exact sections for review. Run `singularity-flow wm compose --phase &lt;PHASE&gt;` once for its `Active supporting evidence`; under `## Sources` cite each document used as `DOC-nnn — &lt;name&gt;` and list unreadable or unavailable ones as gaps. Where evidence is missing, write `[NEEDS CLARIFICATION: &lt;one question grounded in the current Story evidence&gt;]`, not an invented answer. A blocking marker: ask the person, run `singularity-flow clarification record &lt;PHASE&gt; --marker &quot;&lt;question&gt;&quot; --answer &quot;&lt;reply&gt;&quot;`, write the answer in its place, recheck.
+5. At `model-generation`, require the first `NOW` action in the returned `next[]` to be `singularity-flow prepare &lt;PHASE&gt;`; run that exact returned command once and use its artifact path. If the action differs, stop and relay the returned route; never author a seeded or stale draft. With the resolved agent, approved inputs, pinned template/constitution, and the Repository brief, author the specification scenario-first: prioritized Given/When/Then scenarios, actors, empty/failure states, permissions, boundaries, and non-functional requirements. Fill `Agent brief` with approved intent only; the kernel preserves exact sections for review. Run `singularity-flow wm compose --phase &lt;PHASE&gt;` once for its `Active supporting evidence`; under `## Sources` cite each document used as `DOC-nnn — &lt;name&gt;` and list unreadable or unavailable ones as gaps. Where evidence is missing, write `[NEEDS CLARIFICATION: &lt;one question grounded in the current Story evidence&gt;]`, not an invented answer. A blocking marker: ask the person, run `singularity-flow clarification record &lt;PHASE&gt; --marker &quot;&lt;question&gt;&quot; --answer &quot;&lt;reply&gt;&quot;`, write the answer in its place, recheck.
 6. Before publication run `singularity-flow phase prepublish &lt;PHASE&gt; --for-agent --json --publish-if-ready` (includes draft-check). Unready: reuse findings/resolution; stay here. Repair from approved inputs when `correction.sameTurn`; else route to its owner via `correction.guidance`/`correction.skill`. Never invent, pad, blindly delete markers, nest models or overwrite producers. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. A race-time `ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and at most one publication retry if ready, never a loop. Never submit or approve. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets; same findings after a change: correct differently. Exhausted `correction.maximumChangedFingerprints`: preserve work, return manual/owner routes.
 7. Claim a milestone only when the router returns it.
 8. State the underlying operations you ran.
@@ -11882,7 +11882,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1309 body tokens</span>
+          <span class="pill">~1299 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-story-start</code></dd></div>
@@ -11925,7 +11925,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    - Record answers with `singularity-flow choices answer`.
    - When ready, run `singularity-flow story start &lt;STORY-KEY&gt; --fetch --selection-receipt &lt;TOKEN&gt;` plus the step 5 policy flags; add step 5&#39;s `--target-url` when given.
 7. Show the Epic → Jira Story → canonical branch lineage, base, workflow, agent, phase, outputs, commit, and push status of the Story ref. Verify the base ref did not move.
-8. The Repository brief is guidance: never run a World Model check or rebuild, and never wait for one; Story context comes from the governed workflow and never becomes a world-model task guide; `/sf-phase` composes the brief.
+8. The Repository brief is guidance; it is built for you and never blocks. Story context comes from the governed workflow and is never passed as `--task`; `/sf-phase` composes the brief.
 9. Continue only when asked; offer `/sf-phase` and read-only `/sf-nextsteps`.
 
 The canonical branch is the returned `workItem.branch`; `--ref` or `git.branchNaming.pattern` may differ from the Jira key. Intake pins the issue snapshot in Git without updating Jira or approving. Main/workspace/Epic intake never requires or warns about a world model.
@@ -12737,7 +12737,7 @@ Use the CLI as the authority. Never stage, commit, push, or copy unfinished sour
           <span class="pill">conversational</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~1202 body tokens</span>
+          <span class="pill">~1200 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workflow-rules</code></dd></div>
@@ -12766,7 +12766,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-`/sf-session` is setup only; stop after its report. `workflow.json` is state, `singularity/workflow.yml` defines policy, and agent files own prompts/views.
+`/sf-session` is setup only; stop after its report. `workflow.json` is state, `singularity/workflow.yml` defines policy, and agent files own prompts.
 
 1. Before Story work run `singularity-flow session current --json`; require `ready`, use its `repositoryPath` as cwd, then run `singularity-flow status &lt;WORK-ID&gt; --for-agent --json`. Repository-only configuration uses its own guarded skill.
 2. Use only the returned branch, immutable `workflow.resolution.workItemRoot`, and CLI-returned artifact/input paths. Never assume a default root, skip phases, or hand-edit lifecycle state, `STATUS.md`, `documents.json`, or approvals.
@@ -13048,7 +13048,7 @@ directory automatically, or claims that a failed push was completed.
           <span class="pill">advisory</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~1006 body tokens</span>
+          <span class="pill">~1000 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workspace-impact</code></dd></div>
@@ -13080,7 +13080,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. Run `singularity-flow workspace current --json`. If no workspace is active, stop and use `/sf-workspace` to let the contributor select one; do not infer a workspace from the current repository.
 2. Ask for a concise change description and optional title. Let the contributor narrow the analysis to repository, capability, or staged-document IDs; otherwise explain that all workspace repositories and staged documents are used.
-3. Before spending Copilot tokens, run `singularity-flow workspace impact analyze &lt;WORKSPACE-PATH&gt; --description &lt;TEXT&gt; [--title &lt;TITLE&gt;] [--repository &lt;ID&gt;]... [--capability &lt;ID&gt;]... [--document &lt;PATH&gt;]... --dry-run --json`. Show the exact revisions, missing world models, dirty-working-tree warnings, and selected documents.
+3. Before spending Copilot tokens, run `singularity-flow workspace impact analyze &lt;WORKSPACE-PATH&gt; --description &lt;TEXT&gt; [--title &lt;TITLE&gt;] [--repository &lt;ID&gt;]... [--capability &lt;ID&gt;]... [--document &lt;PATH&gt;]... --dry-run --json`. Show the exact revisions, dirty-working-tree warnings, and selected documents.
 4. Ask the contributor to confirm that the advisory analysis should run. Then execute the same command without `--dry-run`. This intentionally starts a separate non-interactive Copilot analysis process over disposable detached clones; never inspect or edit the contributor&#39;s live checkout yourself.
 5. Give a concise summary and verified Markdown-preview link, analysis ID, captured repository commits, freshness, model/token status and warnings; never reproduce the report body. Never claim that the result is approved, governed, or implementation-ready.
 6. Offer `singularity-flow workspace impact promote &lt;WORKSPACE-PATH&gt; &lt;ANALYSIS-ID&gt; --json` to copy a current report into the workspace document inbox. Do not promote automatically. Promotion still does not create a Work ID or branch; governed intake happens only when the contributor starts a Story or Initiative.
@@ -13223,7 +13223,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~1096 body tokens</span>
+          <span class="pill">~1093 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-worldmodel</code></dd></div>
@@ -13258,7 +13258,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 - The World Model is the Repository brief: the rules that apply, contracts, flows, what the Story change touches and the risky places, read from the source with no build. It is guidance; nothing about it blocks.
 - The registered World Model (published views, CALM, architecture intent) was removed; its old commands refuse with `WMB_REMOVED` or `COMMAND_REMOVED`. Relay that, point to the brief, never offer a build or migration.
 - Explicit arguments select the exact `wm` operation: `/sf-worldmodel compose --phase &lt;PHASE&gt;` → `singularity-flow wm compose --phase &lt;PHASE&gt;`. `--dry-run`/`--render-only` are read-only. Validate argv; reject shell chains/substitutions; unknown forms stop with help.
-- Knowledge (read-only, no model): `singularity-flow wm knowledge show [overview|business|rules|journeys|tests|change]`, `singularity-flow wm knowledge items`. `singularity-flow wm knowledge brief` and `singularity-flow wm knowledge explain &lt;SYMBOL&gt;` may call a model when model use is on: say so and confirm first.
+- Knowledge (read-only, no model): `singularity-flow wm knowledge show [overview|business|rules|journeys|tests|change]`, `singularity-flow wm knowledge items`. `singularity-flow wm knowledge brief` and `singularity-flow wm knowledge explain` may call a model when model use is on: say so and confirm first.
 - Knowledge reviews (`confirm|correct|reject`) write `docs/knowledge/confirmations.yml` in the working tree; show the change and confirm.
 - Compose writes the phase prompt/receipt unless previewed, never approves. Relay its handoff; absent after compose, read `singularity-flow nextsteps --for-agent --json`.
 - AST: `singularity-flow wm ast doctor|status --json`, bounded `singularity-flow wm ast context --paths &lt;ROOT&gt; --max-facts 50 --max-output-bytes 32768 --json`, or `singularity-flow wm ast query`. Symbol gates require explicit syntax policy.

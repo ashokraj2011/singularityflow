@@ -1,6 +1,6 @@
 ---
 name: sflow-capability-doctor
-description: Diagnose workspace capability bindings, approved capability authority, stale proposal history, inherited policy, orphan state branch, ledger chain, and pinned cross-repository world-model context.
+description: Diagnose workspace capability bindings, approved capability authority, stale proposal history, inherited policy, orphan state branch and ledger chain.
 disable-model-invocation: true
 agent: agent
 
@@ -35,9 +35,9 @@ folder or branch names, and do not repair governed state by hand.
    policy, active break-glass leases, and lifecycle pin.
 6. Report the configured orphan state branch and its publication mode. A warning
    is not a pass when publication is `required`.
-7. Report ledger verification and every sibling-repository world-model snapshot.
+7. Report ledger verification.
 8. For a failure, provide the deterministic repair command. Do not create a lease,
-   initialize a state branch, rebuild a model, or change policy unless asked.
+   initialize a state branch, or change policy unless asked.
 
 For an unrelated-history proposal, offer the two fsck-reported choices: recreate the
 capability from current `sflow/config`, or run the guarded `singularity-flow capability discard-proposal`

@@ -14,7 +14,7 @@ related:
   - model-independence
   - assignments-and-watchlists
   - skill-master
-version: 10
+version: 11
 ---
 Phase activation selects an agent from pinned policy. Human approval authority remains separate from agent selection, and explicit overrides are local and audited.
 
@@ -85,7 +85,7 @@ The copy keeps the source's instructions, tools and skill attachments, including
 and usage conditions. Referenced skills and reusable instructions stay
 linked to the same catalog objects; they are not independent copies. Remote-resource bindings and
 trust are not copied: add and review any remote resources separately for the new agent.
-World Model context is selected by the phase policy; retired view bindings are not re-enabled.
+The Repository brief comes from the step the copy drafts, not from the agent.
 
 No step is reassigned automatically. Select the copy as the drafting agent in an editable workflow,
 or explicitly select default steps in the creation form. To customize a seeded workflow, duplicate

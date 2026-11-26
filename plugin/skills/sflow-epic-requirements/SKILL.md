@@ -16,7 +16,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Run `singularity-flow epic requirements status --json`. Epic Intake accepts the Jira identity and pinned sources automatically; do not build or request a repository world model on `main` or the Epic branch.
+1. Run `singularity-flow epic requirements status --json`. Epic Intake accepts the Jira identity and pinned sources automatically.
 2. List pinned inputs with `singularity-flow epic sources list --epic <EPIC-KEY>`.
 3. Record every business note with `singularity-flow epic sources note --text-file <FILE>` and every accepted Copilot answer with `singularity-flow epic sources answer --text-file <FILE>`, writing FILE only at the source-text draft this turn's rules name, one at a time. Never leave accepted answers only in chat history.
 4. Run `singularity-flow epic requirements prepare`. Read the complete governed context that it prints: phase contract, governed agent, Jira snapshot, pinned sources, question ledger, and workspace repository registry. Repository grounding is added later, after each Story has its canonical branch.

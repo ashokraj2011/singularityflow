@@ -1492,9 +1492,8 @@ Usage:
      into sflow/config, then records its audit;
      protection is unknown until the real exact-CAS update; a direct attempt requires explicit acknowledgement;
      application main is never written)
-    (a capability that ships has its lead's model; one that groups others composes theirs)
   singularity-flow capability organisation [LEAD-URL] [--readiness] [--refresh] [--json]
-    (--readiness asks each remote whether its state branch and world model exist;
+    (--readiness asks each remote whether its state branch exists;
      --refresh bypasses the commit-validated organisation cache)
   singularity-flow capability leads [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID]

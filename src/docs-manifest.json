@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "2809f6edc1230b03abcd469fb87dc11bf0007973",
+  "sourceCommit": "f3ba64a6cbe1b4af9d5270f9160981e5a90495d8",
   "topicCount": 96,
-  "contentSha256": "5debe44e0e1181387f9f01b7ae5aaba55bdc35e93b51b4bb7078bdc017a43b36",
+  "contentSha256": "ddaf6fa10813475c73227c9c45072ddcf716bbdb0e45883f32ea64f2ce59b51e",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -328,8 +328,8 @@
     {
       "id": "importing-assets",
       "title": "Importing skills, templates, and agents",
-      "version": 22,
-      "sha256": "c15e9547e2feecb51784f8b1d3dafcb12b4ab66896a7e77fa29c4db600475553",
+      "version": 23,
+      "sha256": "709b343f662c785e22f1c53ceb5483a8a9a1c1ff6127bcbc06ce37a3515718f1",
       "routingSha256": "857d324c3b8aa75602d4f249769e8e1116dc9750c27eac840c4fc1867461bbe3",
       "file": "importing-assets.md"
     },

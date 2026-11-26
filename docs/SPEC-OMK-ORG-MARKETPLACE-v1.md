@@ -444,7 +444,7 @@ a check ID, a line, a severity and words. The checks:
 | Check | What it finds | Severity |
 |---|---|---|
 | `hidden-characters` | Bidirectional controls (U+202A–202E, U+2066–2069), zero-width characters (U+200B–200F, U+2060–2064, and U+FEFF anywhere but the first character), Unicode tag characters (U+E0000–E007F), and other invisible format characters | block |
-| `rule-bypass` | Text telling an agent to skip, approve, publish or merge on its own; to turn off or get around hooks, checks or SF Guard; to edit `singularity/`, `sflow/config`, `.github/hooks` or SFlow's records; to run SFlow's approve, decision, override, pause or guard commands; or to ignore earlier or system instructions | block |
+| `rule-bypass` | Text telling an agent to skip or get around an approval; to approve, publish or merge on its own or without asking; to turn off or get around hooks, checks or SF Guard; to edit `singularity/`, `sflow/config`, `.github/hooks` or SFlow's records; or to ignore earlier or system instructions | block |
 | `credential-access` | Text telling an agent to read or print credentials: `~/.ssh`, `~/.aws`, `.env`, keychains, `gh auth token`, `printenv`, tokens | block |
 | `pipe-to-shell` | Downloaded content run straight away (`curl … \| sh`, `wget -O- … \| bash`, `iwr … \| iex`) | block |
 | `secret` | Today's secret scan (`scanText`) | block, as today |
@@ -452,6 +452,7 @@ a check ID, a line, a severity and words. The checks:
 | `encoded-payload` | Base64 or hex runs of 200 characters or more, and `data:` URIs | look |
 | `data-upload` | Commands that send data out (`curl -d`, `--data`, `-F`, `POST` to a URL) | look |
 | `destructive-command` | `git push --force`, `git reset --hard` against a remote branch, `rm -rf` on `/` or `~`, `--no-verify` | look |
+| `sflow-command` | A line naming one of SFlow's approve, decision, override, pause, guard or confirmation commands (`singularity-flow approve`, `/sf-decide` …): the person checks that it asks the person and does not run it for them. The read-only forms are not flagged: `pause status`, `pause off`, `guard status`, `guard report`, `guard remote-check`, `approvals`, `decision show`, `decisions` with no answer, `appeal show`, `appeal list`, `appeal preflight`, `appeal evidence-prepare` | look |
 | `outside-link` | Every URL whose host is not the marketplace's own, listed once per host | note |
 
 **OMK:REQ-031, what each severity does.**
@@ -482,10 +483,22 @@ security review. They catch hidden text and plain attempts to get around SFlow's
 prompt. SFlow's hooks, approvals and frozen snapshots stay the safety boundary.
 
 **Built in M2 (2026-11-26, branch `omk-m2`).**
-- `src/import-safety.mjs` holds the checks of REQ-030 (checker `sflow-text-checks/1`), the gate that names what still
+- `src/import-safety.mjs` holds the checks of REQ-030 (checker `sflow-text-checks/2`), the gate that names what still
   needs a yes, the refusals `IMPORT_SAFETY_BLOCKED` and `IMPORT_SAFETY_LOOK_NEEDED` (each with a whole command or the
-  review card's tick), and the words. A warning against a thing ("never skip the approval") is no finding.
-  `hidden-characters` also counts the control characters other than tab and line ends, and the Hangul fillers.
+  review card's tick), and the words. A warning against a thing is no finding: a negation just before it ("never skip
+  the approval"), or a clause that opens with one, also across a wrapped line ("Do not …, approve your own artifacts,
+  disable checks/hooks"). A negation inside a condition is not one ("If the tests do not pass, skip the approval" is
+  refused). `hidden-characters` also counts the control characters other than tab and line ends, and the Hangul fillers.
+- Checker 2 (2026-11-26), from running the checks over SFlow's own skills and templates: naming SFlow's approve,
+  decision, override, pause, guard or confirmation commands left `rule-bypass` for the look `sflow-command`, its
+  read-only forms unflagged, because an SFlow-aware skill names them to tell the person what to run; and an HTML comment
+  that is SFlow's own marker (`<!-- sflow:guidance … -->`, as well as `sflow-`) is no hidden markup. Every check still
+  reads every line, a comment's included. Over the 389 tracked texts of `plugin/skills/` and `templates/`: 195 refused and
+  87 with a look under checker 1; none refused and 26 with a look (46 `sflow-command` lines, in the approval, decision,
+  confirmation, appeal and pause skills) under checker 2, held by `test/omk-safety-self-check.test.mjs`. A look recorded
+  under checker 1 for an unchanged line is still honoured: the record matches a line by its check and digest, not by the
+  checker. A line newly found by `sflow-command` is asked about once. The sweep's kept results are checked again, and a
+  look its import record already holds is no flag there either.
 - `import preview` refuses a block before anything is staged; its JSON carries `safety { state, findings, looks }`, and
   its add command carries `--looked` for the looks it listed. `import add` checks the staged bytes again before it builds
   the change, and Workflow Studio's apply checks them a third time from the bytes it adds. An import's `source.safety`

@@ -417,7 +417,7 @@ test('the host reads a repository marketplace and makes an agent workflow only t
   // The person's "I looked at these lines" is the engine's --looked, built from the look checks alone (OMK section 7).
   assert.match(host, /\['workflow', 'from-agent', target, \.\.\.agentStageAnswers\(answers\), \.\.\.\(update \? \['--update'\] : \[\]\), \.\.\.lookedFlags\(looked\), '--json'\]/u);
   assert.match(host, /\['workflow', 'from-agent', target, \.\.\.agentStageAnswers\(answers\), \.\.\.\(update \? \['--update'\] : \[\]\), \.\.\.lookedFlags\(looked\), '--propose', '--json'\][\s\S]{0,400}this\.requestImport\(result\.bundlePath\)/u);
-  assert.match(host, /const LOOK_CHECKS = new Set\(\['hidden-markup', 'encoded-payload', 'data-upload', 'destructive-command'\]\);/u);
+  assert.match(host, /const LOOK_CHECKS = new Set\(\['hidden-markup', 'encoded-payload', 'data-upload', 'destructive-command', 'sflow-command'\]\);/u);
   // Nothing the page sends becomes an option: an ID, a repository that does not start with '-', a Git ref, STEP=INTENT.
   assert.match(host, /repositoryText\.startsWith\('-'\)/u);
   assert.match(host, /const MARKETPLACE_REF = \/\^\[A-Za-z0-9_\]/u);

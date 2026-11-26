@@ -624,7 +624,7 @@ export async function withExplicitRepositoryMutationLeases(roots, operationId, c
   return enter(0);
 }
 
-/** Whether this clone keeps a Story on a state ref: its checkout has `.sflow-state/`, or its exclude names it. */
+/** Whether this clone keeps a state-ref Story: `.sflow-state/` is here, or its exclude names it. */
 function stateRefClone(root) {
   if (existsSync(path.join(root, STATE_CHECKOUT))) return true;
   try {
@@ -1082,9 +1082,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
       modelMode
     }));
     timer.stage('module-load');
-    // A Story kept on its state ref: its state checkout is made right (made again, repaired or moved) for the checkout's
-    // Story branch, and its records and pinned configuration are read there for this command [SSB:REQ-006, M2]. Only in a
-    // clone that has one: the folder, or the exclude line SFlow writes before the first. Others pay two small reads.
+    // A state-ref Story's state checkout is made right for this checkout's Story branch [SSB:REQ-006].
     if (root && stateRefClone(root)) await withCommandTiming(timer, async () => (await import('./story-state-ref.mjs')).adoptStateCheckout(root));
     // SF Guard (SPEC-PSS-v1 §10.6): a repository-level person step takes its presence signature first.
     if (root && repositoryStepCandidate(positionals)) await (await import('./presence/repository-steps.mjs')).gateRepositoryPersonStep(root, positionals, options);

@@ -17,7 +17,7 @@
  * Publication of the ref (one atomic push with the Story branch, the ledger and its pin) is M3. Loaded only for a
  * state-ref Story, so today's layout never loads it.
  */
-import { constants as fsConstants, existsSync, readFileSync, realpathSync } from 'node:fs';
+import { constants as fsConstants, existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { appendFile, lstat, mkdir, readFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { SingularityFlowError, run } from './util.mjs';
@@ -442,6 +442,23 @@ export async function moveConfigurationIntoState(root, id, snapshot) {
 }
 
 /**
+ * Whether this clone keeps a state-ref Story, from files only (no Git process): the checkout has `.sflow-state/`, or the
+ * clone's exclude names it (SFlow writes that line before the first state checkout). cli-entry.mjs keeps a copy.
+ */
+export function keepsStateRefStories(root) {
+  if (existsSync(stateCheckoutPath(root))) return true;
+  try {
+    let gitDirectory = path.join(root, '.git');
+    if (lstatSync(gitDirectory).isFile()) {
+      gitDirectory = path.resolve(root, readFileSync(gitDirectory, 'utf8').replace(/^gitdir:\s*/u, '').trim());
+      const common = path.join(gitDirectory, 'commondir');
+      if (existsSync(common)) gitDirectory = path.resolve(gitDirectory, readFileSync(common, 'utf8').trim());
+    }
+    return readFileSync(path.join(gitDirectory, 'info', 'exclude'), 'utf8').split(/\r?\n/u).includes(STATE_CHECKOUT_EXCLUDE);
+  } catch { return false; }
+}
+
+/**
  * At a command's start, in a checkout that has a state checkout [REQ-006]: when the checkout is on a Story branch whose
  * records are on a local state ref, the state checkout is made right for that Story (repaired, made again, or moved
  * to its ref when clean), and the Story's layout and pinned configuration are remembered for the command. A checkout
@@ -449,6 +466,7 @@ export async function moveConfigurationIntoState(root, id, snapshot) {
  * the records says so itself.
  */
 export async function adoptStateCheckout(root, { required = false } = {}) {
+  if (!required && !keepsStateRefStories(root)) return null;
   const current = git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
   const id = current.status === 0 ? String(current.stdout).trim() : '';
   const branches = { ledger: { pinTransport: 'branches' } };
@@ -514,6 +532,22 @@ export function discardUnstartedStoryState(root, { ref, commit }) {
   const id = ref.split('/').at(-1);
   rememberStoryLayout(root, id, null);
   return null;
+}
+
+/**
+ * The code never carries a Story's state checkout [SSB:REQ-006, spec §11.2 item 3]: staged or committed, `.sflow-state`
+ * would put a pointer to SFlow's records (a gitlink) into the code branch and its pull request. Only a checkout that
+ * has the folder is asked.
+ */
+export function assertNoStateCheckoutGitlink(root) {
+  if (!existsSync(path.join(root, STATE_CHECKOUT))) return;
+  const listed = git(root, ['ls-files', '--stage', '--', STATE_CHECKOUT]);
+  if (listed.status === 0 && !String(listed.stdout).trim()) return;
+  const command = `git rm -r --cached --quiet -- ${STATE_CHECKOUT}`;
+  throw new SingularityFlowError(`The code step's changes include ${STATE_CHECKOUT}, SFlow's records for this Story. They never go in the code branch. Nothing was changed.`, {
+    code: 'CODE_DELIVERY_STATE_CHECKOUT_STAGED', details: { path: STATE_CHECKOUT,
+      owner: 'person', nextAction: { command, label: `Take ${STATE_CHECKOUT} out of the code (its records stay on the Story's state ref), then run the same command again` } }
+  });
 }
 
 /**

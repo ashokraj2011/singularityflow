@@ -3,9 +3,8 @@
  * It stays a leaf: node:path and util.mjs only. Pure: no file or Git read.
  *
  * Two layouts. 'story-branch' is today's: a Story's records live in the code checkout under
- * `<Stories folder>/<ID>/`. 'state-ref' (SSB-v1, from M2) keeps them on `refs/singularity/state/<ID>`, checked out
- * at `.sflow-state/`, with each step's documents in `docs/stories/<ID>/`. A Story reaches 'state-ref' only when
- * `story.storage: state-ref` chose it at its start (SSB M2); the layout is recorded in `resolution.story.storage`.
+ * `<Stories folder>/<ID>/`. 'state-ref' (SSB-v1) keeps them on `refs/singularity/state/<ID>`, checked out at
+ * `.sflow-state/`, with each step's documents in `docs/stories/<ID>/`; `story.storage` chooses it at Story start.
  */
 import path from 'node:path';
 import { SingularityFlowError } from './util.mjs';
@@ -19,9 +18,10 @@ export const STORY_DOCUMENTS = 'docs/stories';
 export const STATE_REF_PREFIX = 'refs/singularity/state/';
 /** The repository's configuration pin, beside the Stories folder (story-branch). */
 export const CONFIGURATION_SOURCE_RELATIVE = 'singularity/configuration-source.json';
-/** Where a state-ref Story's pinned configuration copy lives in its state, at its usual paths (REQ-003). */
+/** A state-ref Story's pinned configuration copy, in its state (REQ-003). */
 export const STATE_CONFIGURATION = 'configuration';
 
+const UPDATE = Object.freeze({ executable: 'singularity-flow', argv: ['update'], label: 'Update SFlow, then run the command again.' });
 const isWorkflow = (source) => source.workItem !== undefined || source.resolution !== undefined;
 
 /**
@@ -38,10 +38,7 @@ export function storiesRoot(...sources) {
   return DEFAULT_WORK_ITEM_ROOT;
 }
 
-/**
- * The layout a workflow records: `resolution.story.storage`, copied once at Story start [SSB:REQ-010]. Not
- * `resolution.storage`: that already holds the Story's document storage providers (SharePoint, S3 and so on).
- */
+// The layout a workflow records [SSB:REQ-010] (`resolution.storage` holds document storage providers).
 function recordedLayout(sources) {
   for (const source of sources) {
     const layout = source != null && isWorkflow(source) ? source.resolution?.story?.storage : undefined;
@@ -50,28 +47,21 @@ function recordedLayout(sources) {
   return null;
 }
 
-/**
- * The layouts this process has seen on disk, by checkout and Story [SSB M2, the plan's §4 step 3]. Story start and the
- * Story listing remember a state-ref Story when they create or find its state checkout, so a call that passes only the
- * definition still resolves the Story's records where they are. A Map lookup: the resolver reads no file.
- */
+// Layouts seen on disk, by checkout and Story (the M1 plan's §4 step 3): a Map, no file read.
 const knownLayouts = new Map();
 const layoutKey = (root, id) => `${root}\0${id}`;
 
-/** Remember a Story's layout in a checkout (root), as Story start or the listing found it; null forgets it. */
+/** Remember a Story's layout in a checkout; null forgets it. */
 export function rememberStoryLayout(root, id, layout) {
   if (layout === null) { knownLayouts.delete(layoutKey(path.resolve(root), id)); return; }
   if (!STORY_LAYOUTS.includes(layout)) throw new SingularityFlowError(`'${layout}' is not a Story storage layout.`, { code: 'STORY_LAYOUT_UNKNOWN' });
   knownLayouts.set(layoutKey(path.resolve(root), id), layout);
 }
 
-/** Forget every remembered layout: for tests, and for a process that serves another repository next. */
+/** Forget every remembered layout (tests). */
 export function forgetStoryLayouts() { knownLayouts.clear(); }
 
-/**
- * A remembered layout: by checkout and Story; with no checkout (a record's spelling only), by Story when every
- * checkout that remembered it agrees. null when nothing was remembered.
- */
+// By checkout and Story; with no checkout, by Story when every checkout agrees.
 function rememberedLayout(root, id) {
   if (!knownLayouts.size || id == null) return null;
   if (root != null) return knownLayouts.get(layoutKey(path.resolve(String(root)), id)) ?? null;
@@ -86,12 +76,11 @@ function rememberedLayout(root, id) {
 
 function chosenLayout(sources, layout, remembered = null) {
   const recorded = recordedLayout(sources);
-  // A workflow's resolution is the Story's own record: one without a layout is a story-branch Story (every Story in
-  // flight), whatever was seen on disk. A bare `{ workItem }` names a Story without recording anything.
+  // A workflow's resolution is the Story's record: without a layout it is story-branch, whatever is on disk.
   const resolved = sources.some((source) => source != null && isWorkflow(source) && source.resolution != null);
   const chosen = layout ?? recorded ?? (resolved ? null : remembered) ?? 'story-branch';
   // A layout this build does not know, or a Story read against its own record, is a newer SFlow's Story: update.
-  const update = { executable: 'singularity-flow', argv: ['update'], label: 'Update SFlow, then run the command again.' };
+  const update = UPDATE;
   if (!STORY_LAYOUTS.includes(chosen)) {
     throw new SingularityFlowError(`'${chosen}' is not a Story storage layout this SFlow reads (${STORY_LAYOUTS.join(' or ')}). Nothing was changed.`, {
       code: 'STORY_LAYOUT_UNKNOWN', details: { layout: chosen, nextAction: update }
@@ -140,27 +129,18 @@ class StoryLocation {
     return this.branch ? this.path.join(this.root, recorded) : this.path.join(this.root, STATE_CHECKOUT, recorded);
   }
 
-  /**
-   * story-branch: '<Stories folder>/<ID>', the prefix of every record path. A state-ref Story has none: its records are
-   * named relative to its state, so a join on the prefix is a place not yet moved to `record()` and `recordsRoot`. It
-   * refuses there, loudly, rather than write a record into the code checkout (SSB M2; the M1 plan's §8).
-   */
+  /** story-branch: '<Stories folder>/<ID>'. A state-ref Story has none: a join on it refuses, loudly (M1 plan §8). */
   get prefix() {
     if (this.branch) return slash(this.path, this.path.join(this.storiesRoot, this.id));
     throw new SingularityFlowError(`Story '${this.id}' keeps its records on its state ref, and this step does not read them there yet. Nothing was changed.`, {
-      code: 'STORY_STATE_REF_PATH_UNAVAILABLE',
-      details: { id: this.id, nextAction: { executable: 'singularity-flow', argv: ['update'], label: 'Update SFlow, then run the command again.' } }
+      code: 'STORY_STATE_REF_PATH_UNAVAILABLE', details: { id: this.id, nextAction: UPDATE }
     });
   }
 
-  /** The prefix, or null for a state-ref Story: for a caller that asks which layout it has before it joins. */
+  /** The prefix, or null for a state-ref Story. */
   get branchPrefix() { return this.branch ? this.prefix : null; }
 
-  /**
-   * Where the Story's records are, on disk and in Git, and what every `record()` spelling is relative to: the checkout
-   * (story-branch, `record()` names `<Stories folder>/<ID>/…`) or its state checkout (state-ref, `record()` names
-   * paths inside it). A Git read of a record's history runs here; its HEAD is the Story branch or the state ref.
-   */
+  /** What `record()` spellings are relative to, on disk and for Git history: the checkout or the state checkout. */
   get recordsRoot() { return this.branch ? this.root : this.path.join(this.root, STATE_CHECKOUT); }
 
   /**
@@ -191,11 +171,7 @@ class StoryLocation {
 
   get workflowFile() { return this.file('workflow.json'); }
 
-  /**
-   * The Story's configuration pin. story-branch: the repository's own, `singularity/configuration-source.json`.
-   * state-ref: the same file inside the pinned copy (`configuration/singularity/…`, SSB M2), so every reader of a
-   * pinned copy finds it at its usual path through the configuration overlay.
-   */
+  /** The Story's configuration pin: the repository's own, or inside the state's pinned copy at its usual path. */
   get configurationSource() {
     const relative = this.branch ? CONFIGURATION_SOURCE_RELATIVE : `${STATE_CONFIGURATION}/${CONFIGURATION_SOURCE_RELATIVE}`;
     return { relative, absolute: this.branch ? this.path.join(this.root, relative) : this.path.join(this.root, STATE_CHECKOUT, relative) };
@@ -236,10 +212,7 @@ export function stateRefName(id, { pinTransport = 'refs' } = {}) {
   return pinTransport === 'branches' ? `refs/heads/sflow/state/${id}` : `${STATE_REF_PREFIX}${id}`;
 }
 
-/**
- * Where a fetch of a Story's state ref from `remote` lands [SSB:REQ-007; probe 1]: a tracking ref of its own, so a
- * fetch never overwrites local state commits that are not published yet.
- */
+/** Where a fetched state ref lands, so a fetch never overwrites unpublished state commits [REQ-007]. */
 export function stateTrackingRefName(remote, id) { return `refs/singularity/remotes/${remote}/state/${id}`; }
 
 /** The folder of every story-branch Story in a checkout. */

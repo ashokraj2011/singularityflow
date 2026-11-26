@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
-  commitStoryState, createStateRef, detectStateCheckout, ensureStateCheckout, excludeStateCheckout, fetchStoryState,
+  assertNoStateCheckoutGitlink, commitStoryState, createStateRef, detectStateCheckout, ensureStateCheckout, excludeStateCheckout, fetchStoryState,
   listStoryStates, openStoryState, refTip, removeStateCheckout, restoreStateCheckout, stateCheckoutChanges,
   stateCheckoutExcluded, storyStateRef
 } from '../src/story-state-ref.mjs';
@@ -16,7 +16,6 @@ import { forgetStoryLayouts, storyLocation } from '../src/story-paths.mjs';
 import { STATE_CHECKOUT_FOLDER, withoutAgentOutputStatus } from '../src/agent-output-folder.mjs';
 import { STATE_CHECKOUT } from '../src/story-paths.mjs';
 import { releaseStateCheckout, storyWorktreeChanges } from '../src/story-worktree.mjs';
-import { assertNoStateCheckoutGitlink } from '../src/delivery-evidence.mjs';
 
 function git(cwd, ...args) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });

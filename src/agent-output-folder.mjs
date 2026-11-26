@@ -63,11 +63,7 @@ export function isAgentOutputEntry(root, relative) {
   try { return readdirSync(path.join(root, parent)).every((name) => name === folder); } catch { return false; }
 }
 
-/**
- * A state-ref Story's state checkout (`.sflow-state/`, story-paths.mjs STATE_CHECKOUT): its own worktree, excluded like
- * the output folder [SSB:REQ-006]. The checks that list ignored files skip it; its records are guarded by its own
- * removal check (story-state-ref.mjs removeStateCheckout), never by being listed here.
- */
+/** A state-ref Story's state checkout (story-paths.mjs STATE_CHECKOUT); its removal guards its records [SSB M2]. */
 export const STATE_CHECKOUT_FOLDER = '.sflow-state';
 export function isStateCheckoutEntry(relative) {
   return String(relative ?? '').replace(/\/$/u, '') === STATE_CHECKOUT_FOLDER;

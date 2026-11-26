@@ -431,7 +431,7 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
       });
     }
   } else {
-    // A state-ref Story's start is complete once its state ref holds the Story's workflow [SSB M2].
+    // A state-ref Story's start is complete once its state ref holds its workflow [SSB M2].
     if (record.stateRef) {
       const { stateStartCompleted } = await import('./story-state-ref.mjs');
       const commit = stateStartCompleted(root, record.stateRef);
@@ -484,7 +484,7 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
     );
   }
 
-  // A state-ref Story that never finished starting: its state checkout and ref go, as its branch does below.
+  // An unfinished state-ref start: its state checkout and ref go, as its branch does below.
   if (record.stateRef) {
     const { discardUnstartedStoryState } = await import('./story-state-ref.mjs');
     const failure = discardUnstartedStoryState(root, record.stateRef);

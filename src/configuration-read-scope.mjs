@@ -12,11 +12,7 @@ import {
 } from './configuration-assets.mjs';
 
 const scopes = new AsyncLocalStorage();
-/**
- * A state-ref Story's checkout reads its pinned configuration from its state checkout (`.sflow-state/configuration`),
- * since its code branch carries none [SSB M2, the M1 plan's §3]. Story start and command entry remember it for the
- * checkout; a request scope above still wins.
- */
+// A state-ref Story's pinned configuration, in its state checkout, by checkout [SSB M2]; a request scope still wins.
 const pinnedStateRoots = new Map();
 
 /** Remember (or, with null, forget) where a checkout's pinned configuration is read from. */

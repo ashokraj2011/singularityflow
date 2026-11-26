@@ -25,6 +25,7 @@ import { readPrivateSidecar, writeMutablePrivateSidecar } from '../../private-si
 import { run, SingularityFlowError } from '../../util.mjs';
 import { repositoryKey } from './format.mjs';
 import { emptyRegister, mergeRegisters, registerFile, REGISTER_PATHS } from './model.mjs';
+import { storiesRoot } from '../../story-paths.mjs';
 
 const MAXIMUM_FILE_BYTES = 16 * 1024 * 1024;
 const PUBLISH_ATTEMPTS = 3;
@@ -50,7 +51,7 @@ export async function repositorySettings(root) {
   const config = existsSync(path.join(root, 'singularity', 'workflow.yml'))
     ? await (await import('../../state-stores.mjs')).loadConfig(root).catch(() => ({})) : {};
   return { defaultBranch: config.defaultBaseBranch ?? 'main', remote: config.git?.remote ?? 'origin',
-    workItemRoot: config.workItemRoot ?? 'singularity/work-items' };
+    workItemRoot: storiesRoot(config) };
 }
 
 /** This repository as the register names repositories: `owner/name` from its remote, and its name. */

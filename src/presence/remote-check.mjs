@@ -34,6 +34,7 @@ import {
 import { firstPushTime, githubRepository, hostReview } from './host.mjs';
 import { loadPresenceContext, personRecordVerdict } from './person-records.mjs';
 import { personRecordRoute, presenceHistoryProblems, storyPersonRecords, storyPresenceReport, storyRecordFile } from './story-verify.mjs';
+import { storiesDirectory, storiesRoot, storyLocation } from '../story-paths.mjs';
 
 const KEY_EVENTS = new Set(['register', 'rotate', 'recover']);
 const NO_BASE = /^0+$/u;
@@ -57,11 +58,11 @@ function defaultDependencies(root, { token, repository }) {
     readHeadFile: (relative) => readFile(path.join(root, relative), 'utf8').catch((error) => (error?.code === 'ENOENT' ? null : Promise.reject(error))),
     readBaseFile: committed,
     listStories: async (workItemRoot) => {
-      const directory = path.join(root, workItemRoot);
+      const directory = storiesDirectory(root, { workItemRoot });
       const names = await readdir(directory, { withFileTypes: true }).catch(() => []);
       const stories = [];
       for (const entry of names.filter((item) => item.isDirectory()).sort((left, right) => left.name.localeCompare(right.name))) {
-        const relative = path.posix.join(workItemRoot.replaceAll('\\', '/'), entry.name, 'workflow.json');
+        const relative = storyLocation(null, { workItemRoot: workItemRoot.replaceAll('\\', '/') }, entry.name).record('workflow.json');
         const text = await readFile(path.join(root, relative), 'utf8').catch(() => null);
         if (text == null) continue;
         try { stories.push({ id: entry.name, relative, workflow: JSON.parse(text) }); }
@@ -130,7 +131,7 @@ export async function remotePresenceCheck(root, { base = null, pullRequest = nul
 
   const policy = await deps.readPolicy(verify);
   const definition = await deps.loadDefinition();
-  const workItemRoot = definition?.workItemRoot ?? 'singularity/work-items';
+  const workItemRoot = storiesRoot(definition);
   const headChain = parsePresenceChain(await deps.readHeadFile(PRESENCE_CHAIN_PATH)).chain;
   const baseChain = baseRef ? parsePresenceChain(await deps.readBaseFile(baseRef, PRESENCE_CHAIN_PATH)).chain : null;
   const stories = await deps.listStories(workItemRoot);

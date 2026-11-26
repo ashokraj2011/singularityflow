@@ -25,6 +25,7 @@ import { FEEDS, repositoryMatches } from './format.mjs';
 import { compareItems, setItemStates } from './model.mjs';
 import { quoted } from './pick.mjs';
 import { PIN_FILES, pinnedIn, upgradeKind, versionAtLeast } from './remediation.mjs';
+import { storyLocation } from '../../story-paths.mjs';
 
 // The files that make a folder a module, and the lockfiles beside them.
 const MANIFESTS = Object.freeze(['package.json', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'pyproject.toml', 'requirements.txt', 'go.mod']);
@@ -124,19 +125,19 @@ export function itemPlace(item, { changed, planned, modules, read }) {
 
 /** The paths this Story touches: what it changed since its base, and what this step's plan names. */
 async function storyPaths(root, config, workflow, phase) {
-  const [{ committedChangedPaths, changedFiles }, { storyChangeBase }, { plannedStepPaths }, { applicationPathContext, isApplicationPath }, { workDir }] = await Promise.all([
+  const [{ committedChangedPaths, changedFiles }, { storyChangeBase }, { plannedStepPaths }, { applicationPathContext, isApplicationPath }, { storyLocation }] = await Promise.all([
     import('../../git.mjs'), import('../changed-lines.mjs'), import('../../candidate-scope.mjs'), import('../../application-paths.mjs'), import('../../story-paths.mjs')]);
   const context = applicationPathContext(config, workflow);
   const application = (file) => { try { return isApplicationPath(file, context); } catch { return false; } };
   const base = storyChangeBase(workflow, null);
   const changed = new Set([...(base ? committedChangedPaths(root, base) : []), ...changedFiles(root)].filter(application).slice(0, MAXIMUM_PATHS));
-  const plan = await plannedStepPaths(workDir(root, config, workflow.workItem.id), workflow, phase);
+  const plan = await plannedStepPaths(storyLocation(root, config, workflow.workItem.id).directory, workflow, phase);
   return { changed, planned: new Set([...plan.sourcePaths, ...plan.testPaths]) };
 }
 
 /** The register items this Story picked as clauses at its start (REQ-065): its own work, never on the way. */
 function pickedIds(root, config, workflow) {
-  const text = readText(root, path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'source.json'));
+  const text = readText(root, storyLocation(null, config, workflow.workItem.id).record('source.json'));
   try { return new Set((JSON.parse(text ?? '{}').findings ?? []).map((entry) => entry.id)); } catch { return new Set(); }
 }
 

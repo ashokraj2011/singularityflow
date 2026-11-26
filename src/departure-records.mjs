@@ -26,6 +26,7 @@ import { readOnlyAgent } from './phase-actor-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { allPlanRows, clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, rowTakesPaths } from './plan-row-fit.mjs';
 import { posix, SingularityFlowError, nowIso } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
 // Read only when a wording departure is recorded or accepted: loaded from the CLI source, so the long-lived
@@ -107,8 +108,8 @@ async function otherStepPlannedPaths(itemDirectory, workflow, phase) {
 /** The boundary every departure file is held to, read once for a step. */
 async function limitContext(root, config, workflow, phase) {
   await loadLimits();
-  const [{ applicationPathContext }, { workDir }, { classificationContext }] = await Promise.all([import('./application-paths.mjs'), import('./story-paths.mjs'), import('./plan-amendments.mjs')]);
-  const others = await otherStepPlannedPaths(workDir(root, config, workflow.workItem.id), workflow, phase).catch(() => new Set());
+  const [{ applicationPathContext }, { storyLocation }, { classificationContext }] = await Promise.all([import('./application-paths.mjs'), import('./story-paths.mjs'), import('./plan-amendments.mjs')]);
+  const others = await otherStepPlannedPaths(storyLocation(root, config, workflow.workItem.id).directory, workflow, phase).catch(() => new Set());
   return { pathContext: applicationPathContext(config, workflow), otherStep: (file) => others.has(file), classification: classificationContext(workflow),
     protectedPaths: [...new Set([...(config.governance?.protectedPaths ?? []), ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])])] };
 }
@@ -148,20 +149,20 @@ function planTarget(config, workflow, phase) {
     ?? (workflow.phaseOrder ?? []).find((id) => workflow.phases?.[id]?.claimMaps?.planned) ?? null;
   const step = owner ? workflow.phases?.[owner] : null;
   if (!step || step.status !== 'approved' || !step.requiredArtifact?.path) return null;
-  const relative = posix(path.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, step.requiredArtifact.path));
+  const relative = storyLocation(null, config, workflow.workItem.id).record(step.requiredArtifact.path);
   return { phase: owner, generation: Number(step.generation ?? 0), sha256: (step.artifacts ?? []).find((artifact) => artifact.path === relative)?.sha256 ?? null, path: relative };
 }
 
 /** The earlier document a wording or clause departure departs from, with its approved bytes. */
 async function targetDocument(root, config, workflow, phaseId) {
-  const [{ workDirRelative }, { exactFileAtObject, head }] = await Promise.all([import('./story-paths.mjs'), import('./git.mjs')]);
+  const [{ storyLocation }, { exactFileAtObject, head }] = await Promise.all([import('./story-paths.mjs'), import('./git.mjs')]);
   const order = workflow.phaseOrder ?? [];
   const phase = workflow.phases?.[phaseId];
   if (!phase || order.indexOf(phaseId) < 0 || order.indexOf(phaseId) >= order.indexOf(workflow.currentPhase)) {
     departureRefusal(`${phaseId ?? 'That step'} is not an earlier step of this Story; --target names the approved document the change departs from.`);
   }
   if (phase.status !== 'approved' || !phase.requiredArtifact?.path) departureRefusal(`${phaseId} has no approved document to depart from.`);
-  const relative = posix(path.join(workDirRelative(config, workflow.workItem.id), phase.requiredArtifact.path));
+  const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact.path);
   const approved = (phase.artifacts ?? []).find((artifact) => artifact.path === relative)?.sha256 ?? null;
   const committed = exactFileAtObject(root, head(root), relative, { maximumBytes: 4 * 1024 * 1024 });
   if (!approved || !committed || sha(committed) !== approved) departureRefusal(`${relative} at HEAD is not ${phaseId}'s approved bytes; sync first.`, 'DEPARTURE_TARGET_STALE');
@@ -255,9 +256,9 @@ export async function recordDepartureRequest(root, config, workflow, request, { 
     }
     const { unifiedDiff } = await fromSource('workflow-studio.mjs');
     diff = unifiedDiff(document.bytes.toString('utf8'), bytes.toString('utf8'), document.relative);
-    const { workDirRelative } = await import('./story-paths.mjs');
+    const { storyLocation } = await import('./story-paths.mjs');
     const id = nextDepartureId(workflow);
-    proposal = { path: `${workDirRelative(config, workflow.workItem.id)}/context/departures/${id}-${document.relative.split('/').at(-1)}`, sha256: sha(bytes) };
+    proposal = { path: storyLocation(null, config, workflow.workItem.id).record(`context/departures/${id}-${document.relative.split('/').at(-1)}`), sha256: sha(bytes) };
     saved.push({ path: proposal.path, bytes });
     target = { phase: request.target, generation: Number(document.phase.generation), sha256: document.approved, path: document.relative };
     if (kind === 'clause' && !(request.clauses ?? []).length) departureRefusal('A clause departure names the clauses it changes with --clause.');
@@ -315,7 +316,7 @@ export async function recordDepartureOrSettle(root, config, workflow, request, {
 export async function recordPathDepartures(root, config, workflow, phase, { actor, agent = null } = {}) {
   // A read-only agent records no departure: the step's own command refuses it for its role before any commit [OSA Stage 5b].
   if (readOnlyAgent(config, workflow, { agent }) || !await openCodeGeneration(workflow, phase)) return [];
-  const [{ unreconciledCandidatePaths }, { rejectedDeparturePaths }, { classifySupportingChange }, { loadActiveSpecRecords, mergePlannedClaimRecords }, { workDir }] = await Promise.all([
+  const [{ unreconciledCandidatePaths }, { rejectedDeparturePaths }, { classifySupportingChange }, { loadActiveSpecRecords, mergePlannedClaimRecords }, { storyLocation }] = await Promise.all([
     import('./candidate-scope.mjs'), import('./departures.mjs'), import('./supporting-changes.mjs'), import('./specifications.mjs'), import('./story-paths.mjs')]);
   const unresolved = await unreconciledCandidatePaths(root, config, workflow, phase);
   if (!unresolved.length) return [];
@@ -324,7 +325,7 @@ export async function recordPathDepartures(root, config, workflow, phase, { acto
   const files = unresolved.filter((file) => !rejected.has(file) && !departureLimit(file, context));
   if (!files.length) return [];
   // The one row this step delivers, when it has only one: what the file most plainly serves.
-  const plan = mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []);
+  const plan = mergePlannedClaimRecords((await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow)).planned ?? []);
   const rows = Object.entries(plan).filter(([, claim]) => !(claim.steps ?? []).length || claim.steps.includes(phase.id)).filter(([, claim]) => claim.fulfillment !== 'test-only');
   const [contentHashes, baseHashes] = await Promise.all([fileHashes(root, files), baseHashesAt(root, generationBase(workflow, phase), files)]);
   const target = planTarget(config, workflow, phase);
@@ -374,7 +375,7 @@ async function planNamedPaths(root, workflow, phaseId) {
   if (workflow?.resolution?.plannedClaims?.mode !== 'required') return new Set();
   const [{ loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles }, { classificationContext }] = await Promise.all([
     import('./specifications.mjs'), import('./plan-amendments.mjs')]);
-  const records = await loadActiveSpecRecords(path.join(root, workflow.resolution.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow)
+  const records = await loadActiveSpecRecords(storyLocation(root, workflow, workflow.workItem.id).directory, workflow)
     .catch(() => null);
   const named = new Set();
   for (const claim of Object.values(mergePlannedClaimRecords(records?.planned ?? []))) {
@@ -453,8 +454,8 @@ export function departureAmendmentChanges(departure, { clause = null, reason, ro
 
 /** The plan's rows, every one, as accepting a file departure chooses among them. */
 async function planRows(root, config, workflow) {
-  const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { workDir }] = await Promise.all([import('./specifications.mjs'), import('./story-paths.mjs')]);
-  return allPlanRows(mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []));
+  const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { storyLocation }] = await Promise.all([import('./specifications.mjs'), import('./story-paths.mjs')]);
+  return allPlanRows(mergePlannedClaimRecords((await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow)).planned ?? []));
 }
 
 /** A departure that may be decided now, by its ID, or a refusal that says why not. */

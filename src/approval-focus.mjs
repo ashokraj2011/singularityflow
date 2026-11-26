@@ -324,12 +324,12 @@ function requirementAt(clauses, clauseId) {
 async function clauseLocations(root, config, workflow) {
   const located = new Map();
   try {
-    const [{ loadActiveSpecRecords }, { workDir, workDirRelative }] = await Promise.all([import('./specifications.mjs'), import('./story-paths.mjs')]);
-    const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+    const [{ loadActiveSpecRecords }, { storyLocation }] = await Promise.all([import('./specifications.mjs'), import('./story-paths.mjs')]);
+    const records = await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow);
     for (const index of records?.indexes ?? []) for (const clause of index.clauses ?? []) {
       const file = clause.source?.path ?? clause.source?.file ?? null;
-      located.set(clause.id, { path: file ? (file.includes('/work-items/') || file.startsWith(workDirRelative(config, workflow.workItem.id)) ? file
-        : `${workDirRelative(config, workflow.workItem.id)}/${file}`) : null, line: Number.isInteger(clause.source?.line) ? clause.source.line : null });
+      located.set(clause.id, { path: file ? (file.includes('/work-items/') || file.startsWith(storyLocation(null, config, workflow.workItem.id).prefix) ? file
+        : storyLocation(null, config, workflow.workItem.id).record(`${file}`)) : null, line: Number.isInteger(clause.source?.line) ? clause.source.line : null });
     }
     return { located, records };
   } catch { return { located, records: null }; }

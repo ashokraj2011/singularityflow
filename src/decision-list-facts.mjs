@@ -18,8 +18,8 @@ import path from 'node:path';
 import { conformancePhasesOf, isConformancePhase } from './phase-roles.mjs';
 import { DIFFERENCE_VERDICTS, OPEN_UPSTREAM_ISSUE_STATUSES, conformanceGapDecisions, decisionHeadline, decisionListRoute, decisionListRouteLine,
   upstreamIssueStates } from './upstream-routes.mjs';
-import { workDir } from './story-paths.mjs';
 import { SingularityFlowError, unknownStepDetails } from './util.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const sha256 = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 
@@ -74,7 +74,7 @@ export function decisionsMayBePending(workflow, phase) {
 async function reportGaps(root, config, workflow, step, at) {
   const [{ conformanceVerdictGaps }, { conformanceEvidenceReuse }] = await Promise.all([
     import('./conformance-verdicts.mjs'), import('./conformance-readiness.mjs')]);
-  const file = path.join(workDir(root, config, workflow.workItem.id), step.requiredArtifact.path);
+  const file = storyLocation(root, config, workflow.workItem.id).file(step.requiredArtifact.path);
   const report = await readFile(file, 'utf8');
   const reused = await conformanceEvidenceReuse(root, config, workflow, step.id, at);
   const verdicts = conformanceVerdictGaps(report, { workflow, phaseId: step.id });

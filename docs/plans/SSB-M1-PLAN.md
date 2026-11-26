@@ -370,6 +370,10 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
   segment name. A local `workItemRoot` variable joined by hand (`phase-prompt-composer.mjs`) goes through
   `storyLocation(root, { workItemRoot }, id)`. `phase-mutation-contract.mjs` names `<Stories folder>/null` for a
   contract without a Story, as before, through `String(workId)`.
+- **B4.** `departure-records.mjs` and `findings/register/on-the-way.mjs` imported `story-paths.mjs` only lazily; their
+  inline joins outside those functions now import it statically, so their own closures gain `story-paths.mjs` (they
+  already held `util.mjs`, its only import). `presence/attribution.mjs` keeps its root normalization (backslashes,
+  trailing slashes) and asks the location whether a path is the Story's record and not its document.
 - **Not converted in M1: a Story prefix passed as a parameter** (`itemRelative`, `itemRoot`, `workRoot` joined by the
   callee, as in `recovery-preparation-context.mjs`). The prefix comes from the resolver; the callee's join stays until
   M2 passes the location instead. The ratchet does not count these.

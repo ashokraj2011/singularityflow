@@ -19,6 +19,7 @@ import { readStoryReviewPacket } from './story-lineage.mjs';
 import { exactFileAtObject, head } from './git.mjs';
 import { AUTOMATIC_APPROVAL_RULE, approvesAutomatically } from './approval-authority.mjs';
 import { editsSource, isConvergencePhase } from './phase-roles.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 const digest = (value) => `sha256:${createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex')}`;
 const committedJson = (root, commit, relative) => {
@@ -77,7 +78,7 @@ export async function verifyAutomaticApproval(root, config, workflow, phase, { p
         throw new Error('the reviewer\'s committed report is not the one it names');
       }
     }
-    const relative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'workflow.json');
+    const relative = storyLocation(null, config, workflow.workItem.id).record('workflow.json');
     const retained = committedJson(root, commit, relative);
     const historical = retained?.phases?.[phase.id];
     if (historical?.approvalDisposition === 'approved_automatically' && canonicalJson(historical.automaticApproval) === canonicalJson(record)) {

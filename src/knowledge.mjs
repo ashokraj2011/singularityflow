@@ -15,6 +15,7 @@ import { loadDefinition } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { initiativeRelative } from './state-stores.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
+import { storyLocation } from './story-paths.mjs';
 
 export const KNOWLEDGE_ROOT = 'singularity/knowledge';
 export const KNOWLEDGE_TYPES = new Set(['insight', 'decision', 'gotcha', 'constraint', 'uncertainty']);
@@ -95,7 +96,7 @@ async function approvedProvenance(root, provenance) {
   for (const item of provenance) {
     // Only SFlow's own lessons write a Story record as their source, having read it at that digest; an import never may.
     if (item.kind === 'story-record') throw lessonRefusal(`'${item.workId} step ${item.phase}' is a Story record: only SFlow's own lessons may name one as their source.`);
-    const storyBase = path.posix.join(normalizeWorkItemRoot(definition?.workItemRoot), item.workId);
+    const storyBase = storyLocation(null, { workItemRoot: normalizeWorkItemRoot(definition?.workItemRoot) }, item.workId).prefix;
     const initiativeBase = portfolio
       ? initiativeRelative(portfolio, item.workId)
       : path.posix.join('singularity/initiatives', item.workId);

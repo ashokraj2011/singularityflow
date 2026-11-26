@@ -11,6 +11,7 @@ import { normalizeWorkItemRoot } from './work-item-location.mjs';
 
 import { HARNESS_IMPORTS_HARD_MAXIMUM_BYTES, HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES,
   HARNESS_IMPORTS_DEFAULT_ENVELOPE_BYTES, HARNESS_IMPORTS_MODES, normalizeHarnessImports } from './harness-import-policy.mjs';
+import { storiesRoot } from './story-paths.mjs';
 export { HARNESS_IMPORTS_HARD_MAXIMUM_BYTES, HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES,
   HARNESS_IMPORTS_DEFAULT_ENVELOPE_BYTES, HARNESS_IMPORTS_MODES, normalizeHarnessImports };
 const HANDLE_PATTERN = /^sfref:v1:(story|initiative):([A-Za-z0-9][A-Za-z0-9._-]{0,127}):([a-f0-9]{12,64})$/;
@@ -267,7 +268,7 @@ async function subjectRootCandidates(root, subject) {
     const portfolio = await loadPortfolio(root, { required: false }).catch(() => null);
     configured = portfolio?.initiativeRoot ?? 'singularity/initiatives';
   }
-  const fallback = subject.kind === 'story' ? 'singularity/work-items' : 'singularity/initiatives';
+  const fallback = subject.kind === 'story' ? storiesRoot() : 'singularity/initiatives';
   return [...new Set([configured, fallback])].map((base) => path.posix.join(base, subject.id));
 }
 

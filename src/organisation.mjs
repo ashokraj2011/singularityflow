@@ -104,7 +104,7 @@ import {
   publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink,
   retireCapabilityAuthorityLink
 } from './capability-authority-link.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { storyLocation, CONFIGURATION_SOURCE_RELATIVE } from './story-paths.mjs';
 
 const OK = 'pass';
 
@@ -5459,7 +5459,7 @@ export async function capabilityFsck(url, {
       ));
       continue;
     }
-    const sourceFile = path.join(canonicalRoot, 'singularity/configuration-source.json');
+    const sourceFile = path.join(canonicalRoot, CONFIGURATION_SOURCE_RELATIVE);
     if (existsSync(sourceFile)) {
       try {
         const pinned = await readConfigurationSource(canonicalRoot, { verify: true });

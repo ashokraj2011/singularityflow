@@ -26,6 +26,7 @@ import { agentViewRequested, interpretsForAgent, withCliJsonOutput, withoutAgent
 import { scopedUtilityRead, validateUtilityEntry, withoutUtilityEntry } from './utility-entry.mjs';
 import { withCommandReadScope } from './read-scope.mjs';
 import { executionContextArguments, surfaceContext, withExecutionContextScope } from './execution-context-scope.mjs';
+import { storiesRoot } from './story-paths.mjs';
 // copilot-mode.mjs (the pause check, with personalization and the skill catalog) and
 // creation-context.mjs (Story creation only) load where they are read, not in root dispatch.
 // The bundled CLI keeps both in cold-core (build-cold-cli-bundle.mjs), so no chunk is added.
@@ -293,7 +294,7 @@ export function hasLocalGovernanceAuthority(root) {
   // arbitrary untracked directory that merely happens to use a Singularity-looking name.
   const governedSubjects = routingGitRead(root, [
     'ls-files', '--',
-    'singularity/work-items/*/workflow.json',
+    `${storiesRoot()}/*/workflow.json`,
     'singularity/initiatives/*/state.json'
   ], 'Tracked subjects');
   if (governedSubjects.trim()) return true;

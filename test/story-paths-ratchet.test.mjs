@@ -37,7 +37,7 @@ const ALLOWED = [
   { file: 'src/config.mjs', line: /^\s*workItemRoot: definition\.workItemRoot \?\? 'singularity\/work-items',$/u },
   { file: 'src/config.mjs', line: /initiativeRoot/u, keys: ['E'] },
   { file: 'src/configuration-assets.mjs', line: /^\s*'singularity\/(?:work-items|initiatives)',$/u },
-  { file: 'src/configuration-assets.mjs', line: /^\s*: 'singularity\/(?:work-items|initiatives)'$/u },
+  { file: 'src/configuration-assets.mjs', line: /^\s*: 'singularity\/(?:work-items|initiatives)',?$/u },
   { file: 'src/configuration-assets.mjs', line: /^export const CONFIGURATION_SOURCE_PATH = /u, keys: ['F'] },
   // Spellings a test reads from the source. Each wrapper asks the resolver; the test keeps its words unchanged.
   // test/approval-witness-criteria.test.mjs: the approval's witness check reads the same clauses as the review page.
@@ -46,15 +46,25 @@ const ALLOWED = [
   // storyRecordWithin (test/vscode-story-record-path.test.mjs holds them to the engine's answers).
   { file: 'apps/vscode/src/story-attach.ts', line: /^export const DEFAULT_STORIES_FOLDER = 'singularity\/work-items';$/u, keys: ['L'] },
   { file: 'plugin/extensions/documents/documents.mjs', line: /^const STORIES_FOLDER = 'singularity\/work-items';$/u, keys: ['L'] },
+  // Help text, guidance and comments that name the default folder as words, each by name (L), and a unit word (S).
+  { file: 'src/clarifications.mjs', line: /never write response input to the CLI-owned `singularity\/work-items\/\*\*\/context\/clarifications-\*\.json`|singularity\/work-items\/\*\*\/context\/clarifications-\*\.json/u, keys: ['L'] },
+  { file: 'src/comprehension/code-scope.mjs', line: /^\/\*\* The first two path segments name a group: /u, keys: ['L'] },
+  { file: 'src/documents.mjs', line: /'Allow singularity\/work-items document inputs in the repository ignore policy, then retry\.'/u, keys: ['L'] },
+  { file: 'src/help-pages.mjs', line: /wm ast evidence reproduce --receipt singularity\/work-items\/WRK-1\//u, keys: ['L'] },
+  { file: 'src/secrets.mjs', line: /^\s*\* \(`singularity\/work-items\/REF-1\/context\/session\.json`\)/u, keys: ['L'] },
+  { file: 'apps/vscode/src/views/schema-form-model.ts', line: /return 'singularity\/work-items\/PAY-1187\/intake\.md';/u, keys: ['L'] },
+  { file: 'plugin/skills/sflow-report/SKILL.md', line: /never assume `singularity\/work-items`/u, keys: ['L'] },
+  { file: 'src/ask/retained-history.mjs', line: /const unit = eventList \? 'events' : 'work-items';/u, keys: ['S'] },
   // A test seam: the command's tests inject their own workDir; the runtime's is the resolver-backed wrapper.
   { file: 'src/commands/story-test-attestation.mjs', line: /dependencies\.workDir\(/u, keys: ['W'] },
   { file: 'src/commands/story-test-repair.mjs', line: /dependencies\.workDir\(/u, keys: ['W'] }
 ];
 
-// Ceilings: lowered by each batch of M1, never raised. At M1's end W, R, P, I, B, X and H are 0; L keeps only help
-// text and comments; E stays for M6.
+// Ceilings: lowered by each batch of M1, never raised. After M1 every Story spelling is 0 outside the named lines
+// above. F is the checks that ask whether a checkout holds a Story's configuration pin without naming the Story
+// (repository level: M2 answers them with the Story's layout); E is the Epic paths (M6).
 const CEILINGS = {
-  W: 0, R: 0, P: 1, I: 0, B: 1, X: 0, H: 2, L: 17, S: 1, F: 45, E: 34
+  W: 0, R: 0, P: 0, I: 0, B: 0, X: 0, H: 0, L: 0, S: 0, F: 41, E: 34
 };
 
 async function* sourceFiles(directory) {

@@ -134,7 +134,7 @@ async function resumePinnedLocalStory(root, { id, agent = null } = {}) {
     try {
       const source = await readConfigurationSource(root, { verify: true });
       if (!source) {
-        throw new SingularityFlowError('singularity/configuration-source.json is missing.');
+        throw new SingularityFlowError(`${storyLocation(root, null, id).configurationSource.relative} is missing.`);
       }
       definition = await loadDefinition(root);
       validateId(definition, id);

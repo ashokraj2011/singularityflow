@@ -405,6 +405,21 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
   dispatch (one new eager file, +8,885 bytes, raised with its measurement) and into the VS Code extension and
   performance runtimes (one module each, raised). `ask/retained-history.mjs`'s `'work-items'` is a unit word in a
   message, not a path, so S stays at 1.
+- **B11.** The Story-pin readers that know their Story ask the location: `story-start.mjs`'s refusal names
+  `configurationSource.relative`, and `session-read-service.mjs` stamps `configurationSource.absolute`. Those that read
+  a checkout's or a branch's pin without a Story ID (`organisation.mjs`, `configuration-restore.mjs`) use the
+  resolver's `CONFIGURATION_SOURCE_RELATIVE`, which a test holds equal to `configuration-assets.mjs`'s
+  `CONFIGURATION_SOURCE_PATH`. The 41 remaining F uses are `existsSync(path.join(root, CONFIGURATION_SOURCE_PATH))`
+  checks of whether a checkout is pinned, `readConfigurationSource` and `materializeConfigurationSnapshot` in
+  `configuration-branch.mjs`, and their messages: none names a Story, so M2 gives them the Story's layout rather than M1
+  a guess. `configuration-assets.mjs` is a leaf with no imports and keeps the constant. The Story-root defaults in
+  `knowledge.mjs`, `knowledge/requirements.mjs`, `harness-imports.mjs` and `initiative-repositories.mjs` (grouped
+  under M6 in the appendix) go through `storiesRoot()`; their Epic paths stay for M6. The last literal joins
+  (`commands/work.mjs`, `session-open-local.mjs`, `status-read.mjs`, `start-context.mjs`) and `cli-entry.mjs`'s
+  tracked-subjects glob use the resolver too.
+- **Final ratchet.** W, R, P, I, B, X, H, L and S are 0 outside named lines: the three test-pinned `workDir` calls,
+  the two copies' default folder, and eight lines of help text, agent guidance, comments, an example value and a unit
+  word, each with its reason. F stays at 41 (above) and E at 34 (M6).
 - **Not converted in M1: a Story prefix passed as a parameter** (`itemRelative`, `itemRoot`, `workRoot` joined by the
   callee, as in `recovery-preparation-context.mjs`). The prefix comes from the resolver; the callee's join stays until
   M2 passes the location instead. The ratchet does not count these.

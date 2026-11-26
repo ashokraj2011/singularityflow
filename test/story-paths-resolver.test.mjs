@@ -11,6 +11,7 @@ import {
 } from '../src/story-paths.mjs';
 import { DEFAULT_WORK_ITEM_ROOT as LOCATION_DEFAULT, workItemWorkflowRelative } from '../src/work-item-location.mjs';
 import { clarificationRecordRelative, groundingRecordRelative } from '../src/phase-generation.mjs';
+import { CONFIGURATION_SOURCE_PATH } from '../src/configuration-assets.mjs';
 
 // Every Stories folder the test fixtures use, plus the default (undefined).
 const ROOTS = [undefined, 'singularity/work-items', 'team/stories', 'governed/story-state', 'governed/items',
@@ -121,6 +122,7 @@ test('the constants name the state-ref layout the owner chose (2026-11-26)', () 
   assert.equal(DEFAULT_WORK_ITEM_ROOT, 'singularity/work-items');
   assert.equal(LOCATION_DEFAULT, DEFAULT_WORK_ITEM_ROOT);
   assert.equal(CONFIGURATION_SOURCE_RELATIVE, 'singularity/configuration-source.json');
+  assert.equal(CONFIGURATION_SOURCE_RELATIVE, CONFIGURATION_SOURCE_PATH);
   assert.equal(stateRefName('W-1'), 'refs/singularity/state/W-1');
   assert.equal(stateRefName('W-1', { pinTransport: 'refs' }), 'refs/singularity/state/W-1');
   assert.equal(stateRefName('W-1', { pinTransport: 'branches' }), 'refs/heads/sflow/state/W-1');

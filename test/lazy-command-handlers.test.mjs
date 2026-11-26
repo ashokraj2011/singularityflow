@@ -1263,7 +1263,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // inside the Story, which the resolver reads (storyRecordOf), so story-paths.mjs joins root dispatch [SSB:REQ-009,
   // SSB M1 B10]. One new eager file, story-paths.mjs (40 files, the budget above); util.mjs, its only import, was
   // already here.
-  assert.ok(root.bytes <= 888_269, `root dispatch loads ${root.bytes} source bytes`);
+  // 888,312 (measured, +43, 2026-11-26 on ssb-m1): cli-entry.mjs's tracked-subjects glob names the Stories folder
+  // through storiesRoot() (SSB M1 B11). No new eager file.
+  assert.ok(root.bytes <= 888_312, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

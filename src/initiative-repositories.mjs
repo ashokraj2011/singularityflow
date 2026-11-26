@@ -26,13 +26,14 @@ import {
   safeGitDiagnosticReference
 } from './git-remote-diagnostics.mjs';
 import {
-  DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
+  workItemRootFromDefinitionText, workItemWorkflowRelative
 } from './work-item-location.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import {
   readPendingPublication, syncPendingLifecyclePublication
 } from './publication-pending.mjs';
+import { storiesRoot } from './story-paths.mjs';
 
 function safeId(value, label) {
   if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) throw new SingularityFlowError(`${label} must be a safe identifier.`);
@@ -65,7 +66,7 @@ function childWorkflowAtCommit(root, commit, workId) {
   const definition = run('git', ['show', `${commit}:singularity/workflow.yml`], {
     cwd: root, allowFailure: true
   });
-  let workItemRoot = DEFAULT_WORK_ITEM_ROOT;
+  let workItemRoot = storiesRoot();
   if (definition.status === 0) {
     try { workItemRoot = workItemRootFromDefinitionText(definition.stdout); }
     catch (error) {

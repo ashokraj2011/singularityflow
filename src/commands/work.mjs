@@ -19,6 +19,7 @@ import { repoRoot } from '../git-execution.mjs';
 import { composeTask, kindFromWords, planLine, TASK_KINDS, taskDefinition, taskRules } from '../task-composition.mjs';
 import { walkTaskWorkType } from '../task-walk.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
+import { storiesDirectory, storiesRoot, storyLocation } from '../story-paths.mjs';
 
 const JIRA_KEY = /\b([A-Z][A-Z0-9_]{1,31}-[1-9][0-9]{0,9})\b/u;
 
@@ -104,8 +105,8 @@ export function nextTaskWorkId(root, prefix, { remote = 'origin', reserved = [] 
   try { localBranches(root).forEach(add); } catch { /* no local branches */ }
   try { add(branch(root)); } catch { /* detached */ }
   try { remoteBranches(root, remote).forEach(add); } catch { /* no remote */ }
-  for (const folder of ['singularity/work-items', '.sdlc/work-items']) {
-    const directory = path.join(root, folder);
+  for (const folder of WORK_ITEMS) {
+    const directory = storiesDirectory(root, { workItemRoot: folder });
     if (existsSync(directory)) readdirSync(directory).forEach(add);
   }
   reserved.forEach(add);
@@ -150,8 +151,8 @@ function openStoryHere(root) {
   let current = null;
   try { current = branch(root); } catch { return null; }
   if (!current) return null;
-  for (const folder of ['singularity/work-items', '.sdlc/work-items']) {
-    const file = path.join(root, folder, current, 'workflow.json');
+  for (const folder of WORK_ITEMS) {
+    const file = storyLocation(root, { workItemRoot: folder }, current).workflowFile;
     if (!existsSync(file)) continue;
     try {
       const workflow = JSON.parse(readFileSync(file, 'utf8'));
@@ -161,7 +162,8 @@ function openStoryHere(root) {
   return null;
 }
 
-const WORK_ITEMS = ['singularity/work-items', '.sdlc/work-items'];
+// SFlow's Stories folder, and the office SDLC marketplace's work items, read the same way.
+const WORK_ITEMS = [storiesRoot(), '.sdlc/work-items'];
 // "… and open a pull request" in the task's own words: the plan ends with it [ITW:REQ-018].
 const ASKS_FOR_PULL_REQUEST = /\b(?:and|then)\s+(?:open|create|raise)\s+(?:a|the)\s+(?:pull request|PR)\b/iu;
 const REPORT_LIMIT = 16 * 1024;
@@ -173,7 +175,7 @@ export const taskPlanForWords = (definition, words, options) => taskPlan(definit
 /** A Story's record as its own branch holds it (this checkout's copy when it is on that branch). */
 function storyRecordOf(root, id, remote = 'origin') {
   for (const folder of WORK_ITEMS) {
-    const file = path.join(root, folder, id, 'workflow.json');
+    const file = storyLocation(root, { workItemRoot: folder }, id).workflowFile;
     if (existsSync(file) && branchName(root) === id) {
       try { return { workflow: JSON.parse(readFileSync(file, 'utf8')), folder, ref: null }; } catch { return null; }
     }
@@ -181,7 +183,7 @@ function storyRecordOf(root, id, remote = 'origin') {
   for (const ref of [id, `${remote}/${id}`]) {
     if (!commitOfRef(root, ref)) continue;
     for (const folder of WORK_ITEMS) {
-      const text = committedFileText(root, ref, `${folder}/${id}/workflow.json`);
+      const text = committedFileText(root, ref, storyLocation(null, { workItemRoot: folder }, id).object('workflow.json').path);
       if (text) { try { return { workflow: JSON.parse(text), folder, ref }; } catch { return null; } }
     }
   }

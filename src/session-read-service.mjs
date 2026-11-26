@@ -50,7 +50,7 @@ export async function readOpenedSession(root, { workId, signal = null } = {}) {
   let observedHead = null, observedBranch = null;
   const files = [...new Set([
     path.join(root, 'singularity/workflow.yml'), path.join(root, 'singularity/portfolio.yml'),
-    path.join(root, 'singularity/configuration-source.json'), path.join(privateRoot, 'index'),
+    storyLocation(root, null, workId).configurationSource.absolute, path.join(privateRoot, 'index'),
     path.join(common, 'config'), path.join(privateRoot, 'config.worktree'),
     path.join(privateRoot, 'singularity-flow/session.json'), path.join(privateRoot, 'singularity-flow/copilot-session.json'),
     activeWorkspaceFile(), workspaceRegistryFile(), copilotModeFile()

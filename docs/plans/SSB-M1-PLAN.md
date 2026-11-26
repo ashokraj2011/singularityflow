@@ -397,6 +397,14 @@ Found while building M1, on `480c2f936`. Each batch's commit adds its own.
   `ls-files` glob of every Story's `workflow.json`: root dispatch does not load `story-paths.mjs` (L, named).
   `repository-subject-index.mjs` brings `storiesRoot` into the VS Code help and support runtimes: one module each
   (+75 and +71 bytes), raised with their measurements.
+- **B10.** `schema-migrations.mjs` wraps each of its 95 Story patterns (93 literals and two `new RegExp`) as
+  `insideStory(/^<rest>$/)`, an object whose `test` asks `storyRecordOf` for the path inside the Story; the families'
+  `paths` arrays keep their order, so `familyForStoredPath` is unchanged. Compared before and after on paths generated
+  from each old pattern, under the default and a configured folder: 520 lookups, no difference. The lock review is
+  `docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-26-SSB-M1.md`. The import brings `story-paths.mjs` into root
+  dispatch (one new eager file, +8,885 bytes, raised with its measurement) and into the VS Code extension and
+  performance runtimes (one module each, raised). `ask/retained-history.mjs`'s `'work-items'` is a unit word in a
+  message, not a path, so S stays at 1.
 - **Not converted in M1: a Story prefix passed as a parameter** (`itemRelative`, `itemRoot`, `workRoot` joined by the
   callee, as in `recovery-preparation-context.mjs`). The prefix comes from the resolver; the callee's join stays until
   M2 passes the location instead. The ratchet does not count these.

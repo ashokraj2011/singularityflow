@@ -1259,7 +1259,11 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 879,170 (measured, +28, 2026-11-26 on itw-walks): `work behaviour` registered as a mutation (command-registry.mjs)
   // [ITW:REQ-015]. No new eager file.
   // 879,384 (measured on itw-all2 with itw-walks merged, 2026-11-26): `work behaviour` and the marketplace's new options registered. No new eager file.
-  assert.ok(root.bytes <= 879_384, `root dispatch loads ${root.bytes} source bytes`);
+  // 888,269 (measured, +8,885, 2026-11-26 on ssb-m1): schema-migrations.mjs tests a Story record's family on the path
+  // inside the Story, which the resolver reads (storyRecordOf), so story-paths.mjs joins root dispatch [SSB:REQ-009,
+  // SSB M1 B10]. One new eager file, story-paths.mjs (40 files, the budget above); util.mjs, its only import, was
+  // already here.
+  assert.ok(root.bytes <= 888_269, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

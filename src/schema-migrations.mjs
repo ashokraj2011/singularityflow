@@ -7,6 +7,7 @@
  */
 import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { storiesRoot, storyRecordOf } from './story-paths.mjs';
 import { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from './world-model/view-contract-schema-version.mjs';
 
 function plainObject(value) {
@@ -2072,6 +2073,17 @@ function sgosRecordReservationPath(familyId) {
   );
 }
 
+/**
+ * A record family's path inside a Story's folder [SSB:REQ-009]: the pattern is tested on what follows the default
+ * Stories folder and the Story's ID (storyRecordOf), the paths the patterns that spelled that folder matched.
+ */
+function insideStory(pattern) {
+  return Object.freeze({ test: (candidate) => {
+    const inside = storyRecordOf(candidate)?.inside;
+    return Boolean(inside) && pattern.test(inside);
+  } });
+}
+
 function family({
   id, currentVersion, minimumReadableVersion = 1, steps = [], paths = [], immutable = false,
   unversionedAs = null, migrationPolicy = 'migrate-on-read'
@@ -2094,9 +2106,9 @@ function revisionRecordPaths(kind, { shared = true } = {}) {
   const escaped = kind.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return [
     new RegExp(`^\\$git/revisions/[^/]+/[^/]+/[0-9]+/records/${escaped}/[a-f0-9]{64}\\.json$`),
-    ...(shared ? [new RegExp(
-      `^singularity/work-items/[^/]+/evidence/revisions/[^/]+/[a-f0-9]{64}/records/${escaped}/[a-f0-9]{64}\\.json$`
-    )] : [])
+    ...(shared ? [insideStory(new RegExp(
+      `^evidence/revisions/[^/]+/[a-f0-9]{64}/records/${escaped}/[a-f0-9]{64}\\.json$`
+    ))] : [])
   ];
 }
 
@@ -2107,26 +2119,26 @@ const families = [
   // Version 1 is the explicit no-predecessor boundary required for frozen semantic identities.
   family({
     id: 'proof-subject', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/proof-subject\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/subjects\/proof-subject\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'change-passport', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/change-passport\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/subjects\/change-passport\/[a-f0-9]{64}\.json$/)]
   }),
   // GDP-M3 observe-mode proof records. All are immutable v1 identities with an explicit
   // no-predecessor boundary. Registration authorizes only the bounded proof store; lifecycle,
   // approval, gates, and publication do not consume these families.
   family({
     id: 'proof-profile-selection', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/proof-profile-selection\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/decisions\/proof-profile-selection\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'proof-predicate-specification', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/proof-predicate-specification\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/subjects\/proof-predicate-specification\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'proof-predicate-result', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/proof-predicate-result\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/proof-predicate-result\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'proof-evaluation-receipt', currentVersion: 1, immutable: true,
@@ -2134,88 +2146,88 @@ const families = [
   }),
   family({
     id: 'proof-signal-observation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/proof-signal-observation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/proof-signal-observation\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'proof-summary', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/proof-summary\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/proof-summary\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'proof-evidence-invalidation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/proof-evidence-invalidation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/proof-evidence-invalidation\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'proof-gap-item', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/proof-gap-item\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/subjects\/proof-gap-item\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'proof-gap-register', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/proof-gap-register\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/subjects\/proof-gap-register\/[a-f0-9]{64}\.json$/)]
   }),
   // GDP-M4 observe-mode inputs. These immutable records describe bounded observations only.
   // Lifecycle, approvals, gates and publication deliberately do not consume them.
   family({
     id: 'impact-should-set', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/impact-should-set\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/impact-should-set\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'impact-disposition', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/impact-disposition\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/decisions\/impact-disposition\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'environment-profile', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/environment-profile\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/subjects\/environment-profile\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'environment-attestation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/environment-attestation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/environment-attestation\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'nondeterminism-profile', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/nondeterminism-profile\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/nondeterminism-profile\/[a-f0-9]{64}\.json$/)]
   }),
   // GDP-M5 bounded Outcome records. Recommendations and compiled policy are disposable
   // projections; decisions and semantic contracts are written only by the existing Ad Hoc
   // publication unit when an exact landing packet is confirmed.
   family({
     id: 'delivery-recommendation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/projections\/delivery-recommendation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/projections\/delivery-recommendation\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'delivery-selection', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/delivery-selection\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/decisions\/delivery-selection\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'completion-contract', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/completion-contract\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/subjects\/completion-contract\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'effect-policy', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/effect-policy\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/subjects\/effect-policy\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'effect-policy-compilation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/projections\/effect-policy-compilation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/projections\/effect-policy-compilation\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'change-risk-assessment', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/change-risk-assessment\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/subjects\/change-risk-assessment\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'autonomy-decision', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/autonomy-decision\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/decisions\/autonomy-decision\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'workflow-checkpoint-satisfaction', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/workflow-checkpoint-satisfaction\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/decisions\/workflow-checkpoint-satisfaction\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'agent-execution-binding', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/agent-execution-binding\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/subjects\/agent-execution-binding\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'agent-steering-decision', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/agent-steering-decision\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/decisions\/agent-steering-decision\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'agent-execution-checkpoint', currentVersion: 1, immutable: true,
@@ -2230,52 +2242,52 @@ const families = [
   // approval, or publisher consumes them as authority.
   family({
     id: 'executable-change-map', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/executable-change-map\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/executable-change-map\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'changed-region-coverage', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/changed-region-coverage\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/changed-region-coverage\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'witness-independence', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/witness-independence\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/witness-independence\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'mutation-observation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/mutation-observation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/mutation-observation\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'proof-gap-acceptance', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/proof-gap-acceptance\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/decisions\/proof-gap-acceptance\/[a-f0-9]{64}\.json$/)]
   }),
   // A developer-local signed runner makes one configured command result tamper-evident. It is
   // intentionally not enterprise/provider authority and is never consumed by lifecycle gates.
   family({
     id: 'local-runner-attestation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/local-runner-attestation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/local-runner-attestation\/[a-f0-9]{64}\.json$/)]
   }),
   // GDP-M10 provider-neutral attestation envelopes. Registration reserves exact immutable
   // identities only. The product contains no built-in trust root or signature verifier, so these
   // records remain unavailable to lifecycle authority until an approved provider is configured.
   family({
     id: 'build-attestation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/build-attestation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/build-attestation\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'provider-environment-attestation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/provider-environment-attestation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/provider-environment-attestation\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'deployment-attestation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/deployment-attestation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/deployment-attestation\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'runtime-identity-attestation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/runtime-identity-attestation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/runtime-identity-attestation\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'production-observation', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/production-observation\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^gdp\/evidence\/production-observation\/[a-f0-9]{64}\.json$/)]
   }),
   // Zero-manual-config initialization records. Proposals and activation receipts are immutable:
   // changed detection or a changed decision is a new content-addressed record, never an in-place
@@ -2297,10 +2309,10 @@ const families = [
   // host creates a distinct receipt instead of mutating prior evidence.
   family({ id: 'repository-readiness-receipt', currentVersion: 1, immutable: true,
     paths: [/^\$git\/singularity-flow\/repository-readiness\/[a-f0-9]{40,64}-[a-z0-9-]+-[a-z0-9-]+\.json$/,
-      /^singularity\/work-items\/[^/]+\/context\/test-recovery\/repair-evidence\/[a-f0-9]{64}\.json$/] }),
+      insideStory(/^context\/test-recovery\/repair-evidence\/[a-f0-9]{64}\.json$/)] }),
   family({ id: 'repository-test-baseline', currentVersion: 1, immutable: true,
     paths: [/^\$git\/singularity-flow\/repository-readiness\/[a-f0-9]{40,64}-[a-z0-9-]+-[a-z0-9-]+(?:-dependency-test)?\.test-baseline\.json$/,
-      /^singularity\/work-items\/[^/]+\/context\/test-recovery\/original-baselines\/[a-f0-9]{64}\.json$/] }),
+      insideStory(/^context\/test-recovery\/original-baselines\/[a-f0-9]{64}\.json$/)] }),
   family({ id: 'preexisting-test-risk-acceptance', currentVersion: 1, immutable: true,
     paths: [/^\$git\/singularity-flow\/repository-readiness\/test-risk-acceptances\/[a-f0-9]{64}\/[a-f0-9]{64}\.json$/] }),
   ...[
@@ -2310,7 +2322,7 @@ const families = [
     ['story-test-policy-amendment', 'amendments'], ['phase-repair-receipt', 'repairs'],
     ['trp-authority-receipt', 'authorizations'], ['trp-readiness-checkpoint', 'readiness-checkpoints']
   ].map(([id, directory]) => family({ id, currentVersion: 1, immutable: true,
-    paths: [new RegExp(`^singularity/work-items/[^/]+/context/test-recovery/${directory}/[^/]+\\.json$`)] })),
+    paths: [insideStory(new RegExp(`^context/test-recovery/${directory}/[^/]+\\.json$`))] })),
   family({
     id: 'session-registry', currentVersion: 2,
     steps: [migration(1, 2, identity(2))],
@@ -2870,37 +2882,37 @@ const families = [
   }),
   family({ id: 'selection-receipt', currentVersion: 1, paths: [/^\$git\/choices\/[^/]+\.json$/] }),
   family({ id: 'artifact-set', currentVersion: 1 }),
-  family({ id: 'artifact-sidecar', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/sidecars\/[^/]+\.json$/], immutable: true }),
-  family({ id: 'assisted-quality', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/spec-quality\/[^/]+\.json$/], immutable: true }),
+  family({ id: 'artifact-sidecar', currentVersion: 1, paths: [insideStory(/^context\/sidecars\/[^/]+\.json$/)], immutable: true }),
+  family({ id: 'assisted-quality', currentVersion: 1, paths: [insideStory(/^context\/spec-quality\/[^/]+\.json$/)], immutable: true }),
   family({
     id: 'assisted-convergence', currentVersion: 2,
     steps: [migration(1, 2, assistedConvergenceV1ToV2)],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/convergence\/candidates-[^/]+\.json$/], immutable: true
+    paths: [insideStory(/^context\/convergence\/candidates-[^/]+\.json$/)], immutable: true
   }),
-  family({ id: 'clarification-record', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/clarifications-[^/]+-gen\d+\.json$/] }),
+  family({ id: 'clarification-record', currentVersion: 1, paths: [insideStory(/^context\/clarifications-[^/]+-gen\d+\.json$/)] }),
   family({
     id: 'phase-input-record', currentVersion: 2,
     steps: [migration(1, 2, identity(2))],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/inputs-[^/]+-gen\d+\.json$/]
+    paths: [insideStory(/^context\/inputs-[^/]+-gen\d+\.json$/)]
   }),
-  family({ id: 'agent-brief-record', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/briefs\/[^/]+-gen\d+-for-[^/]+\.json$/], immutable: true }),
-  family({ id: 'design-source-set', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/design-sources\/[^/]+-gen\d+\.json$/], immutable: true }),
-  family({ id: 'design-source-provenance', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/design-sources-[^/]+-gen\d+\.json$/], immutable: true }),
-  family({ id: 'work-interval-baseline', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/work-intervals\/[^/]+-gen\d+-baseline\.json$/] }),
+  family({ id: 'agent-brief-record', currentVersion: 1, paths: [insideStory(/^context\/briefs\/[^/]+-gen\d+-for-[^/]+\.json$/)], immutable: true }),
+  family({ id: 'design-source-set', currentVersion: 1, paths: [insideStory(/^context\/design-sources\/[^/]+-gen\d+\.json$/)], immutable: true }),
+  family({ id: 'design-source-provenance', currentVersion: 1, paths: [insideStory(/^context\/design-sources-[^/]+-gen\d+\.json$/)], immutable: true }),
+  family({ id: 'work-interval-baseline', currentVersion: 1, paths: [insideStory(/^context\/work-intervals\/[^/]+-gen\d+-baseline\.json$/)] }),
   family({ id: 'work-interval-state', currentVersion: 1 }),
   family({
     id: 'generation-publication', currentVersion: 2,
     steps: [migration(1, 2, generationPublicationV1ToV2)],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/generation-publications\/[^/]+-gen\d+\.json$/],
+    paths: [insideStory(/^context\/generation-publications\/[^/]+-gen\d+\.json$/)],
     immutable: true
   }),
   family({
     id: 'generation-start', currentVersion: 1,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/generation-start\/[^/]+-gen\d+\.json$/]
+    paths: [insideStory(/^context\/generation-start\/[^/]+-gen\d+\.json$/)]
   }),
   family({
     id: 'repository-change-set', currentVersion: 1,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/[^/]+-gen\d+-changes\.json$/], immutable: true
+    paths: [insideStory(/^context\/code-delivery\/[^/]+-gen\d+-changes\.json$/)], immutable: true
   }),
   // Experimental CMP record-mode transport. It has no durable path and no writer; registration
   // exists only to exercise the central migration boundary before storage authority is approved.
@@ -2912,26 +2924,26 @@ const families = [
   // archived pilot Stories and are not read by this engine.
   family({
     id: 'test-execution', currentVersion: 5, minimumReadableVersion: 5,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/tests\/attempts\/[^/]+\/TA-[a-f0-9]{20}\.json$/], immutable: true
+    paths: [insideStory(/^context\/code-delivery\/tests\/attempts\/[^/]+\/TA-[a-f0-9]{20}\.json$/)], immutable: true
   }),
   family({
     id: 'code-delivery', currentVersion: 2, minimumReadableVersion: 1,
     steps: [migration(1, 2, codeDeliveryV1ToV2)],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/[^/]+-gen\d+(?:-epoch\d+-[a-f0-9-]{36})?\.json$/]
+    paths: [insideStory(/^context\/code-delivery\/[^/]+-gen\d+(?:-epoch\d+-[a-f0-9-]{36})?\.json$/)]
   }),
   family({
     id: 'work-reconciliation', currentVersion: 1,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/work-intervals\/reconciliations\/[^/]+\.json$/, /^\$git\/reconciliations\/[^/]+\/[^/]+\.json$/]
+    paths: [insideStory(/^context\/work-intervals\/reconciliations\/[^/]+\.json$/), /^\$git\/reconciliations\/[^/]+\/[^/]+\.json$/]
   }),
   family({ id: 'work-checkpoint', currentVersion: 1, paths: [/^\$git\/checkpoints\/[^/]+\/[^/]+\.json$/], immutable: true }),
   family({ id: 'work-rail-escalation-plan', currentVersion: 1 }),
-  family({ id: 'intent-amendment-proposal', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/intent-amendments\/[^/]+\.json$/], immutable: true }),
+  family({ id: 'intent-amendment-proposal', currentVersion: 1, paths: [insideStory(/^context\/intent-amendments\/[^/]+\.json$/)], immutable: true }),
   family({ id: 'composition-cache-entry', currentVersion: 1, paths: [/^\$git\/composition-cache\/[^/]+\/metadata\.json$/] }),
-  family({ id: 'design-inventory-digest', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/design-inventory\/[^/]+\/digest\.json$/], immutable: true }),
+  family({ id: 'design-inventory-digest', currentVersion: 1, paths: [insideStory(/^context\/design-inventory\/[^/]+\/digest\.json$/)], immutable: true }),
   family({ id: 'evidence-detachment-decision', currentVersion: 1, paths: [/^singularity\/(?:work-items|initiatives)\/[^/]+\/(?:evidence|sources)\/detachments\/[^/]+\.json$/], immutable: true }),
-  family({ id: 'document-package-manifest', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/inputs\/packages\/[^/]+\/manifest\.json$/], immutable: true }),
+  family({ id: 'document-package-manifest', currentVersion: 1, paths: [insideStory(/^inputs\/packages\/[^/]+\/manifest\.json$/)], immutable: true }),
   // A recorded change of the phases a Story document is offered to, bound into its lifecycle event.
-  family({ id: 'document-scope-decision', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/evidence\/document-scope\/[a-f0-9]{64}\.json$/], immutable: true }),
+  family({ id: 'document-scope-decision', currentVersion: 1, paths: [insideStory(/^evidence\/document-scope\/[a-f0-9]{64}\.json$/)], immutable: true }),
   family({ id: 'epic-completion-decision', currentVersion: 1, paths: [/^singularity\/initiatives\/[^/]+\/delivery\/records\/[^/]+\.json$/], immutable: true }),
   family({ id: 'github-review-evidence', currentVersion: 1, immutable: true }),
   family({ id: 'governed-reference', currentVersion: 1, paths: [/^singularity\/(?:work-items|initiatives)\/[^/]+\/context\/references\/[a-f0-9]{64}\.json$/], immutable: true }),
@@ -2971,29 +2983,29 @@ const families = [
     paths: [/^\$git\/model-invocations\/[^/]+\.json$/]
   }),
   family({ id: 'planning-session', currentVersion: 1, paths: [/^\$git\/planning\/[^/]+\/manifest\.json$/] }),
-  family({ id: 'specification-index', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/spec-indexes\/[^/]+\.json$/], immutable: true }),
+  family({ id: 'specification-index', currentVersion: 1, paths: [insideStory(/^context\/spec-indexes\/[^/]+\.json$/)], immutable: true }),
   family({
     id: 'specification-claim-map', currentVersion: 2,
     steps: [migration(1, 2, specificationClaimMapV1ToV2)],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/claims\/[^/]+\.json$/], immutable: true
+    paths: [insideStory(/^context\/claims\/[^/]+\.json$/)], immutable: true
   }),
-  family({ id: 'specification-acceptance', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/acceptance\/[^/]+\.json$/], immutable: true }),
+  family({ id: 'specification-acceptance', currentVersion: 1, paths: [insideStory(/^context\/acceptance\/[^/]+\.json$/)], immutable: true }),
   // The test policy and repository test capability sealed with a Story at creation [E2G-019].
-  family({ id: 'story-test-policy', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/test-policy\.json$/], immutable: true }),
+  family({ id: 'story-test-policy', currentVersion: 1, paths: [insideStory(/^context\/test-policy\.json$/)], immutable: true }),
   family({
     id: 'story-submission-packet', currentVersion: 3,
     steps: [migration(1, 2, storySubmissionPacketV1ToV2), migration(2, 3, identity(3))],
-    paths: [/^singularity\/work-items\/[^/]+\/submissions\/[^/]+\/[^/]+\.json$/], immutable: true
+    paths: [insideStory(/^submissions\/[^/]+\/[^/]+\.json$/)], immutable: true
   }),
   // Embedded in the versioned Story submission packet; no independent path or authority.
   family({ id: 'skp-phase-evidence', currentVersion: 1, immutable: true }),
   family({
     id: 'return-locator', currentVersion: 1,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/return-locator\.json$/], immutable: true
+    paths: [insideStory(/^context\/return-locator\.json$/)], immutable: true
   }),
-  family({ id: 'story-finalization-packet', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/finalizations\/[^/]+\.json$/], immutable: true }),
+  family({ id: 'story-finalization-packet', currentVersion: 1, paths: [insideStory(/^finalizations\/[^/]+\.json$/)], immutable: true }),
   family({ id: 'subject-lock-owner', currentVersion: 1, paths: [/^\$git\/locks\/[^/]+\/owner\.json$/] }),
-  family({ id: 'visual-comparison', currentVersion: 1, unversionedAs: 1, paths: [/^singularity\/work-items\/[^/]+\/artifacts\/visual-verification\/evidence\/.+\.json$/], immutable: true }),
+  family({ id: 'visual-comparison', currentVersion: 1, unversionedAs: 1, paths: [insideStory(/^artifacts\/visual-verification\/evidence\/.+\.json$/)], immutable: true }),
   family({ id: 'workspace-bootstrap-owner', currentVersion: 1 }),
   family({ id: 'workspace-clone-completion', currentVersion: 1 }),
   family({ id: 'worldmodel-worktree-owner', currentVersion: 1 }),
@@ -3059,12 +3071,12 @@ const families = [
   family({
     id: 'world-model-grounding-reference', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity',
-    paths: [/^singularity\/work-items\/[^/]+\/context\/grounding\/wmp\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^context\/grounding\/wmp\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'world-model-grounding-packet', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity',
-    paths: [/^singularity\/work-items\/[^/]+\/context\/grounding\/wmp\/[a-f0-9]{64}\.packet\.json$/]
+    paths: [insideStory(/^context\/grounding\/wmp\/[a-f0-9]{64}\.packet\.json$/)]
   }),
   // Embedded in the immutable Story resolution and independently schema-versioned so every
   // lifecycle reader agrees on the exact accepted history cut. It has no standalone path.
@@ -3101,9 +3113,9 @@ const families = [
   family({ id: 'world-model-projection-receipt', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/receipts\/projections\/[^/]+\.json$/] }),
   family({ id: 'world-model-projection-refusal', currentVersion: 1, immutable: true, paths: [/^singularity\/world-model\/refusals\/projections\/[^/]+\.json$/] }),
   family({ id: 'architecture-fact-set', currentVersion: 1, immutable: true }),
-  family({ id: 'architecture-intent', currentVersion: 1, immutable: true, paths: [/^singularity\/work-items\/[^/]+\/context\/architecture\/architecture-intent\.json$/] }),
-  family({ id: 'architecture-planned-projection-receipt', currentVersion: 1, immutable: true, paths: [/^singularity\/work-items\/[^/]+\/context\/architecture\/planned-projection-receipt\.json$/] }),
-  family({ id: 'architecture-intent-fulfilment', currentVersion: 1, immutable: true, paths: [/^singularity\/work-items\/[^/]+\/context\/architecture\/intent-fulfilment\.json$/] }),
+  family({ id: 'architecture-intent', currentVersion: 1, immutable: true, paths: [insideStory(/^context\/architecture\/architecture-intent\.json$/)] }),
+  family({ id: 'architecture-planned-projection-receipt', currentVersion: 1, immutable: true, paths: [insideStory(/^context\/architecture\/planned-projection-receipt\.json$/)] }),
+  family({ id: 'architecture-intent-fulfilment', currentVersion: 1, immutable: true, paths: [insideStory(/^context\/architecture\/intent-fulfilment\.json$/)] }),
   family({ id: 'calm-toolchain-lock', currentVersion: 1, immutable: true }),
   family({
     id: 'world-model-extractor-manifest', currentVersion: 1, immutable: true,
@@ -3219,21 +3231,21 @@ const families = [
       migration(5, 6, promptInjectionV5ToV6),
       migration(6, 7, promptInjectionV6ToV7)
     ],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/(?!(?:agents-|remote-output-))[^/]+-gen\d+\.json$/]
+    paths: [insideStory(/^context\/(?!(?:agents-|remote-output-))[^/]+-gen\d+\.json$/)]
   }),
   family({
     id: 'agent-context-audit', currentVersion: 2,
     steps: [migration(1, 2, agentContextAuditV1ToV2)],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/agents-[^/]+-gen\d+\.json$/], immutable: true
+    paths: [insideStory(/^context\/agents-[^/]+-gen\d+\.json$/)], immutable: true
   }),
   family({
     id: 'remote-agent-output', currentVersion: 1,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/remote-output-[^/]+\.json$/]
+    paths: [insideStory(/^context\/remote-output-[^/]+\.json$/)]
   }),
   family({
     id: 'mcp-evidence', currentVersion: 3,
     steps: [migration(1, 2, mcpEvidenceV1ToV2), migration(2, 3, mcpEvidenceV2ToV3)],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/mcp\/(?:records\/)?[^/]+\.json$/]
+    paths: [insideStory(/^context\/mcp\/(?:records\/)?[^/]+\.json$/)]
   }),
   family({
     id: 'pending-publication', currentVersion: 3, minimumReadableVersion: 2,
@@ -3258,7 +3270,7 @@ const families = [
   family({ id: 'telemetry-launch', currentVersion: 1, paths: [/^\$git\/telemetry\/launches\/tel_[^/]+\.json$/] }),
   family({
     id: 'phase-telemetry', currentVersion: 1,
-    paths: [/^singularity\/work-items\/[^/]+\/telemetry\/[^/]+-gen\d+\.json$/], immutable: true
+    paths: [insideStory(/^telemetry\/[^/]+-gen\d+\.json$/)], immutable: true
   }),
   family({
     id: 'knowledge-record', currentVersion: 2,
@@ -3295,40 +3307,40 @@ const families = [
     paths: [/^\$git\/repository-commit-policy\/operations\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'application-review-policy', currentVersion: 1, unversionedAs: 1, immutable: true }),
   family({ id: 'application-review-event', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/application-reviews\/[a-f0-9]{64}\.json$/] }),
+    paths: [insideStory(/^context\/application-reviews\/[a-f0-9]{64}\.json$/)] }),
   family({ id: 'application-review-session', currentVersion: 1 }),
   family({ id: 'application-review-snapshot', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/application-reviews\/snapshots\/[a-f0-9]{64}\.json$/] }),
+    paths: [insideStory(/^context\/application-reviews\/snapshots\/[a-f0-9]{64}\.json$/)] }),
   family({ id: 'application-review-capture', currentVersion: 1, immutable: true }),
   family({ id: 'application-review-acceptance', currentVersion: 1, immutable: true }),
   family({ id: 'source-grounded-review', currentVersion: 1, immutable: true }),
   family({
     id: 'source-review-record', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'source-review-pointer', currentVersion: 1,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/current\.json$/]
+    paths: [insideStory(/^context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/current\.json$/)]
   }),
   // v2 (SF Guard, SPEC-PSS-v1 §10.7): a decision on a Story with an SF Guard pin, which may keep its
   // approver's presence block. Written only there, so a repository that never opted in writes v1.
   family({
     id: 'source-review-decision', currentVersion: 2, immutable: true, steps: [migration(1, 2, identity(2))],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/decisions\/[a-f0-9]{64}\/[a-f0-9]{64}\.json$/]
+    paths: [insideStory(/^context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/decisions\/[a-f0-9]{64}\/[a-f0-9]{64}\.json$/)]
   }),
   family({
     id: 'configuration-source', currentVersion: 2,
     steps: [migration(1, 2, configurationSourceV1ToV2)],
     paths: [/^singularity\/configuration-source\.json$/], immutable: true
   }),
-  family({ id: 'impact-evidence', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/impact\/evidence\/[^/]+\.json$/], immutable: true }),
+  family({ id: 'impact-evidence', currentVersion: 1, paths: [insideStory(/^impact\/evidence\/[^/]+\.json$/)], immutable: true }),
   family({ id: 'jira-write-receipt', currentVersion: 1, immutable: true }),
   // After-step action receipts: what one delivery delivered, committed to its Story by
   // integrations record in an external-synchronized commit. One immutable file per delivery key;
   // the outbox that sent it stays on the delivering machine and is never evidence.
   family({
     id: 'step-action-receipt', currentVersion: 1, immutable: true,
-    paths: [/^singularity\/work-items\/[^/]+\/evidence\/step-actions\/sad_[0-9a-f]{40}\.json$/]
+    paths: [insideStory(/^evidence\/step-actions\/sad_[0-9a-f]{40}\.json$/)]
   }),
   family({
     id: 'mcp-observation-receipt', currentVersion: 2, immutable: true,
@@ -3339,12 +3351,12 @@ const families = [
   family({
     id: 'phase-approval', currentVersion: 3,
     steps: [migration(1, 2, phaseApprovalV1ToV2), migration(2, 3, phaseApprovalV2ToV3)],
-    paths: [/^singularity\/work-items\/[^/]+\/approvals\/[^/]+\.json$/], immutable: true
+    paths: [insideStory(/^approvals\/[^/]+\.json$/)], immutable: true
   }),
   family({
     id: 'document-manifest', currentVersion: 3,
     steps: [migration(1, 2, documentManifestV1ToV2), migration(2, 3, documentManifestV2ToV3)],
-    paths: [/^singularity\/work-items\/[^/]+\/documents\.json$/]
+    paths: [insideStory(/^documents\.json$/)]
   }),
   family({ id: 'goal-state', currentVersion: 1, paths: [/^\$workspace\/\.singularity-flow\/goals\.json$/] }),
   family({
@@ -3444,11 +3456,11 @@ const families = [
       migration(4, 5, convergenceRecordV4ToV5),
       migration(5, 6, convergenceRecordV5ToV6)
     ],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/convergence\/iteration-\d+\.json$/]
+    paths: [insideStory(/^context\/convergence\/iteration-\d+\.json$/)]
   }),
   family({
     id: 'convergence-legacy-archive', currentVersion: 1,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/convergence\/legacy\/iteration-\d+-[0-9a-f]{64}\.json$/],
+    paths: [insideStory(/^context\/convergence\/legacy\/iteration-\d+-[0-9a-f]{64}\.json$/)],
     immutable: true
   }),
   family({ id: 'fault-envelope', currentVersion: 1, paths: [/^\$git\/fault-repair\/faults\/[^/]+\.json$/], immutable: true }),
@@ -3541,7 +3553,7 @@ const families = [
     steps: [migration(2, 3, autoPlanV2ToV3)],
     paths: [
       /^\$git\/auto-plans\/APL-[A-F0-9]{26}\.json$/,
-      /^singularity\/work-items\/[^/]+\/context\/auto\/accepted-plan\.json$/
+      insideStory(/^context\/auto\/accepted-plan\.json$/)
     ],
     immutable: true
   }),
@@ -3556,7 +3568,7 @@ const families = [
     // read-safe compatibility projection; they never become authority for a new packet-v2 start.
     id: 'auto-plan-ratification', currentVersion: 3, minimumReadableVersion: 2,
     steps: [migration(2, 3, autoPlanRatificationV2ToV3)],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/auto\/ratification\.json$/],
+    paths: [insideStory(/^context\/auto\/ratification\.json$/)],
     immutable: true
   }),
   family({
@@ -3663,7 +3675,7 @@ const families = [
   family({
     id: 'auto-boundary-checkpoint', currentVersion: 1,
     paths: [
-      /^singularity\/work-items\/[^/]+\/context\/auto\/checkpoints\/[0-9]{6}-(?:phase-boundary|human-boundary|publication-boundary|recovery|completion)-[a-f0-9]{12}\.json$/
+      insideStory(/^context\/auto\/checkpoints\/[0-9]{6}-(?:phase-boundary|human-boundary|publication-boundary|recovery|completion)-[a-f0-9]{12}\.json$/)
     ],
     immutable: true
   }),
@@ -3680,7 +3692,7 @@ const families = [
     id: 'change-flight-plan', currentVersion: 1,
     paths: [
       /^\$git\/change-flight-plans\/plans\/cfp-[a-f0-9]+\.json$/,
-      /^singularity\/work-items\/[^/]+\/context\/change-flight-plan\/accepted-plan\.json$/
+      insideStory(/^context\/change-flight-plan\/accepted-plan\.json$/)
     ],
     immutable: true
   }),
@@ -3695,7 +3707,7 @@ const families = [
   family({
     id: 'evidence-packet', currentVersion: 3,
     steps: [migration(1, 2, evidencePacketV1ToV2), migration(2, 3, evidencePacketV2ToV3)],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/evidence-packets\/ctx-[a-f0-9]{20}\.json$/],
+    paths: [insideStory(/^context\/evidence-packets\/ctx-[a-f0-9]{20}\.json$/)],
     immutable: true
   }),
   family({
@@ -3750,13 +3762,13 @@ const families = [
   family({ id: 'ast-story-start-warm', currentVersion: 1, paths: [/^\$git\/ast\/v2\/story-start\/[a-f0-9]{64}\.json$/] }),
   family({
     id: 'ast-derivation-manifest', currentVersion: 1,
-    paths: [/^singularity\/work-items\/[^/]+\/context\/ast\/derivations\/[a-f0-9]{64}\.json$/],
+    paths: [insideStory(/^context\/ast\/derivations\/[a-f0-9]{64}\.json$/)],
     immutable: true
   }),
   family({
     id: 'ast-gate-receipt', currentVersion: 3,
     steps: [migration(1, 2, astGateReceiptV1ToV2), migration(2, 3, astGateReceiptV2ToV3)],
-    paths: [/^singularity\/work-items\/[^/]+\/context\/ast\/[^/]+\.json$/], immutable: true
+    paths: [insideStory(/^context\/ast\/[^/]+\.json$/)], immutable: true
   }),
   family({ id: 'organisation-cache', currentVersion: 1, paths: [/^\$local\/organisation-cache\/[^/]+\.json$/] }),
   family({ id: 'capability-lead-registry', currentVersion: 1, paths: [/^\$local\/leads\.json$/] }),
@@ -4176,7 +4188,7 @@ export function familyForStoredPath(relativePath, {
       aliases.push(`${canonicalRoot}${normalized.slice(prefix.length)}`);
     }
   };
-  appendAlias(workItemRoot, 'singularity/work-items');
+  appendAlias(workItemRoot, storiesRoot());
   appendAlias(initiativeRoot, 'singularity/initiatives');
   appendAlias(worldModelHistoryDir, 'singularity/world-model-history');
   return families.find((entry) => aliases.some((candidate) => entry.paths.some((pattern) => pattern.test(candidate)))) ?? null;

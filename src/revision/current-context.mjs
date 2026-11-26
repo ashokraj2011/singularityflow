@@ -16,10 +16,10 @@ import { gitCommonDir, repoRoot } from '../git.mjs';
 import { recordSha256 } from '../records.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { loadWorkflow } from '../story-workflow-read.mjs';
-import { workDirRelative, workflowPath } from '../story-paths.mjs';
 import { sourceTreeHash } from '../state-stores.mjs';
 import { run, secureRepositoryPath, SingularityFlowError } from '../util.mjs';
 import { withoutConfiguredFilters } from '../worktree-fingerprint.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const OID = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/;
@@ -116,7 +116,7 @@ async function configurationAndWorkflowDigest(root, config, workflow, workId) {
     bytesRead += bytes.length;
     assets.push({ path: relative, sha256: bytesDigest(bytes) });
   }
-  const stateFile = workflowPath(root, config, workId);
+  const stateFile = storyLocation(root, config, workId).workflowFile;
   const stateRelative = path.relative(root, stateFile).split(path.sep).join('/');
   const state = await secureRepositoryPath(root, stateRelative, {
     label: 'REV Story state', mustExist: true, type: 'file'
@@ -164,7 +164,7 @@ export async function probeRevisionSavedState(root, { config, workflow } = {}) {
   }
   const sourceTreeSha256 = await sourceTreeHash(canonicalRoot, config, workflow);
   const context = applicationPathContext(config, workflow);
-  const prefix = `${workDirRelative(config, workflow.workItem.id).replace(/\/$/, '')}/`;
+  const prefix = `${storyLocation(null, config, workflow.workItem.id).prefix.replace(/\/$/, '')}/`;
   const applicationChangedPaths = changedPaths.filter((relative) => isApplicationChangePath(relative, {
     ...context, untracked: untracked.has(relative)
   }));

@@ -20,6 +20,7 @@ import {
 import {
   PROOF_KERNEL_LIMITS, PROOF_RECORD_FAMILIES, validateProofRecord
 } from './proof-kernel.mjs';
+import { storyLocation } from '../story-paths.mjs';
 
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
 const SAFE_WORK_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
@@ -81,8 +82,7 @@ function proofSubject(record) {
 }
 
 function relativeRecordPath(workId, family, plane, sha256) {
-  return path.posix.join(
-    'singularity', 'work-items', workId, 'gdp',
+  return storyLocation(null, null, workId).record('gdp',
     plane === 'decision' ? 'decisions' : plane === 'evidence' ? 'evidence' : 'subjects',
     family, `${rawDigest(sha256, `${family} identity`)}.json`
   );
@@ -354,8 +354,7 @@ export async function listProofRecords(root, workId, family) {
     ? { plane: 'subject', hashField: 'proofSubjectSha256' }
     : PROOF_RECORD_FAMILIES[family];
   if (!descriptor || descriptor.plane === 'operational') fail(`Unsupported repository proof family '${family}'.`, 'PFC_SCHEMA_UNAVAILABLE');
-  const relative = path.posix.join(
-    'singularity', 'work-items', workId, 'gdp',
+  const relative = storyLocation(null, null, workId).record('gdp',
     descriptor.plane === 'decision' ? 'decisions' : descriptor.plane === 'evidence' ? 'evidence' : 'subjects',
     family
   );

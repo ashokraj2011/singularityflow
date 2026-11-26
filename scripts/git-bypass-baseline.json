@@ -1965,6 +1965,14 @@
         "process-launch": 1
       },
       "digest": "071446c532b652e67d4cdd9ccf6315271e572759d24732060e6af098959cbc1b"
+    },
+    "scripts/world-model-v5-benchmark.mjs": {
+      "counts": {
+        "command-git": 17,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "a168504be7970ab5b670f2f5d121392c06472f8181da7db733a5096b2e057f77"
     }
   }
 }

@@ -3,8 +3,9 @@
 **Specification ID:** `WMR-v1`
 
 **Status:** M1 and M2 built on branch `wmr-m1m2` (2026-11-26): REQ-007–015 and REQ-017–019, REQ-024–027. REQ-016 is
-not built: probe P1 showed JSX parsing did not cause the missing file. M0 (the text clean-up) is being built on branch
-`wm-clean`; M3 (REQ-029) and M4 (REQ-020–023) are not built. The probes' answers are in §7.
+not built: probe P1 showed JSX parsing did not cause the missing file. M3 (REQ-029) built on branch `wmr-m3`
+(2026-11-26); its measure of the owner's kept prompts, before and after M1 and M2, is in §11. M0 (the text clean-up) is
+being built on branch `wm-clean`; M4 (REQ-020–023) is not built. The probes' answers are in §7.
 Written on 2026-11-26 from two read-only reviews of that day: one of the code, one of the owner's real use. Checked
 against `main@cbeb9978d`; built on `main@30484105e`.
 
@@ -271,7 +272,7 @@ reachable from a Story's card in Work, not only from Advanced. FPL M2 places the
 
 ### 4.9 Measured
 
-**WMR:REQ-029, a real-use measure.** `scripts/world-model-v5-benchmark.mjs` gains a real-use mode. Its input is a
+**WMR:REQ-029 (built, M3), a real-use measure.** `scripts/world-model-v5-benchmark.mjs` gains a real-use mode. Its input is a
 folder of kept prompts and receipts (the prompt audit) plus the Stories' diffs. It reports:
 - **hit rate:** the share of plan and code briefs that name at least one file the Story changed;
 - **wrong-claim count:** claims of reach, callers or tests that the diff's tests contradict;
@@ -320,7 +321,7 @@ It never sends anything anywhere and calls no model.
 | M0 | Clean-up of stale text and dead outputs (REQ-001–006), on branch `wm-clean` | building |
 | M1 | Cache (REQ-017–019), guidance only (REQ-024, 025), surfaces (REQ-026, 027), dead `worldModelViews` fields retired | about 1 day |
 | M2 | Focus and placement (REQ-007–013) and true claims (REQ-014–016), with golden briefs updated | about 1.5 days |
-| M3 | The real-use measure (REQ-029), run on the owner's kept prompts before and after | about 0.5 day |
+| M3 | The real-use measure (REQ-029), run on the owner's kept prompts before and after | built on `wmr-m3`; §11 |
 | M4 | Ready for clean PRs (REQ-020–023), built inside SSB M2–M4 | with SSB |
 
 M0 and M1 can land together. M2 lands with its measure from M3, so the change shows its effect.
@@ -400,3 +401,84 @@ Where the build reads the requirements one way among several:
   `*.by-name.md` goldens hold what a repository without a semantic pack gets.
 - **Not done here:** retiring the dead `worldModelViews` fields (listed for later), and M0's text (the template
   comment in `templates/workflow.yml` and the help text still say every step gets a brief).
+
+## 11. Measured (M3, 2026-11-26)
+
+**How it was run.** The real-use mode of REQ-029 reads three inputs and nothing else: the prompt audit's
+`prompts.jsonl` (never the key beside it), the Story worktrees' records and receipts, and a complete local clone of the
+repository with the Stories' branches. It never fetches, sends or calls a model:
+
+```text
+node scripts/world-model-v5-benchmark.mjs --real-use --prompts <workspace>/.singularity-flow/prompt-audit \
+  --worktrees <workspace>/.singularity-flow/story-worktrees --repository <scratch clone> \
+  [--replay <scratch clone>] [--json]
+```
+
+- **Before** is the briefs the kept prompts carried.
+- **After** (`--replay`) re-composes each step's brief with today's code (main with M1 and M2) on a scratch clone. It
+  uses the step's own commit, so the Story's pinned configuration, its plan and its changed files are the ones that step
+  had. It calls `phaseRepositoryBrief` directly. A step that cannot be re-composed exactly is counted "not replayable",
+  with why.
+
+`test/world-model-real-use.test.mjs` checks it on synthetic Stories of the graph-calc fixture, and runs it under Node's
+permission model to show it reads nothing outside its input.
+
+**How it counts.**
+- **Hit:** a plan or code step whose brief names a code file the Story's final diff changed, by its path or by a file
+  name no other file has. A step with no brief counts as a miss. Steps of a Story that changed no code file are left
+  out.
+- **Most-changed file:** stricter. The brief names the code file, not a test, with the most lines changed.
+- **Wrong claim:** counted conservatively.
+  - "No test reaches it" is wrong only when a test file names the symbol: at the brief's commit, or one the Story's
+    diff adds.
+  - "Called from N places" is wrong only when its call sites are none, or at least 3×N and N+10.
+  - A named caller, or a flow's next step, is wrong only when the file that defines the caller never calls it.
+  - "Tested by" is wrong only when no such file exists.
+  - Reach through entry points is counted, never judged.
+
+**The owner's calculator app, 16 Stories:** 107 step prompts, 2026-11-06 to 11-23. All 107 steps were replayable.
+
+| What | A13 target | Before (kept) | After (replayed) |
+|---|---|---|---|
+| Plan and code steps whose brief names a changed file | at least 80% | 93% (40 of 43) | **93%** (40 of 43) |
+| … the file the Story changed most | — | 67% (29 of 43): plan 6 of 12, code 23 of 31 | 84% (36 of 43): plan 5 of 12, code 31 of 31 |
+| Wrong claims | 0 | 97 of 1,164 judged (1,469 made); 3 distinct claims | **0** (none made) |
+| Steps with no brief | intake, verification, release | 0 of 107 | **61 of 107**, all `BRIEF_NOT_FOR_THIS_STEP`: intake 24, verification 23, release 14 |
+| Brief bytes per step, median | — | 2,589 (107 briefs) | 2,169 (46 briefs: plan 2,266, code 2,010) |
+| Brief bytes, all steps | — | 239,404 | 99,456 (−58%) |
+| Brief share of its step's prompt, median | — | 5.8% | 6.4% |
+| Briefs identical across Stories, header removed | — | 26: 23 intake briefs of 14 Stories, 3 code briefs of 2 | 2: two plan briefs of 2 Stories |
+
+**§1.1 reproduced (before):**
+- 107 of 107 prompts carry a brief, and none is empty: as §1.1.
+- Median 2,589 bytes: §1.1's 2,590 counted each brief's closing newline.
+- 5.8% of a step's prompt: as §1.1.
+- 23 intake briefs are byte-identical once the header is removed, as §1.1 says. They span 14 Stories, not 11: §1.1
+  miscounted. The measure also finds 3 code briefs identical across 2 Stories.
+- 0 of the 6 graph Stories' planning briefs name the grapher file: as §1.1.
+- Call claims: the conservative count confirms §1.1's wrong caller count (45 call sites, "called from 8 places") and
+  its wrong caller. It finds one more: a helper "called from 2 places" has 12 call sites. It does not confirm "a test
+  reaches it". No test file in any Story's tree or diff names the sound helper, so none of the 794 "no test reaches it"
+  claims is counted wrong.
+
+**A13 passes on the replay:** the hit rate is 93%, there are 0 wrong claims, and intake, verification and release carry
+no brief.
+
+**What is left, plainly:**
+- **The hit rate as A13 defines it does not tell before from after.** The app's shell file is named in almost every
+  brief (it is the entry point), and most Stories change it. The most-changed-file rate does tell them apart: 67%
+  became 84%, and every code brief now names the file its Story changed most (REQ-007). In the 6 graph Stories, the
+  code briefs that name the grapher file went from 11 of 20 to 20 of 20.
+- **Planning briefs still miss the graph Stories' main file: 0 of 6, before and after.**
+  - Cause (P1): a planning step's first version is composed before its plan exists, so only the Story's words can
+    point at a file. Those words ("graph", "plot") never match the grapher's component name, which is read as one word.
+    The same cause makes two Stories' planning briefs identical after the change.
+  - Smallest fix: split identifiers and file names at case changes when matching the Story's words
+    (`src/knowledge/phase-brief.mjs`, and the word weighting in `records/impact.mjs`).
+  - Not built here: it re-ranks every brief and so changes the 32 golden briefs, which is over this milestone's hour.
+- **New Stories.** A13 asks for new Stories of the same app after the change. The replay re-composes the same Stories'
+  steps instead. Once the owner has run new Stories, the same command without `--replay` measures them.
+
+**Follow-ups already known:**
+- An area-size cap for one huge folder (P2: a flat `src/` of 1,081 files is one area and takes about 27 s cold).
+- A component whose parameters span lines (`export const X = ({\n … }) => …`) is not read as a function (P1).

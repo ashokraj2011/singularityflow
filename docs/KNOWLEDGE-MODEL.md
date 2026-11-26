@@ -386,6 +386,14 @@ change's functions were not ranked by the Story's words. The rule engine's remai
 recall, not precision: docs statements about comparison, unknown operators and `isNull` have no
 linked code rule.
 
+Real use is measured from a team's own kept prompts, not labels: `--real-use --prompts <prompt audit>
+--worktrees <Story worktrees> --repository <clone> [--replay <scratch clone>]` reports, per step kind,
+how often a plan or code brief names a file its Story changed, the call and test claims the repository
+contradicts, brief bytes, the steps with no brief and why, and briefs identical across Stories.
+`--replay` re-composes each step's brief with today's code from that step's own commit. It reads
+only its inputs and calls no model (WMR REQ-029; the owner's measure is in
+[SPEC-WMR §11](SPEC-WMR-WORLD-MODEL-REPAIR-v1.md)).
+
 ## Boundaries
 
 - Calls are resolved by a compiler only where a semantic AST pack has been warmed: the bundled

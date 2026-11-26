@@ -95,15 +95,40 @@ test('preview is model-free, reproducible, locally disposable, and performs zero
   assert.equal(excluded.dispositionReason, 'Handled by a separate change.');
 });
 
-test('preview leaves the World Model unevaluated: the flight plan reads the repository source', async () => {
+test('preview reads the repository source and names no World Model: no baseline field, no category, no unknown [WMR]', async () => {
   const root = await repository();
   const plan = await previewChangeFlightPlan(root, {
     file: 'src/payment/notifier.mjs', ast: false, persist: false
   });
-  assert.equal(plan.provenance.categories.worldModel.status, 'not-evaluated');
-  assert.match(plan.provenance.categories.worldModel.reason, /reads the repository source; it does not read World Model views/);
+  assert.equal(Object.hasOwn(plan.provenance.categories, 'worldModel'), false);
+  assert.ok(!Object.keys(plan.baseline).some((field) => field.startsWith('worldModel')), Object.keys(plan.baseline).join(', '));
+  assert.ok(!plan.unknowns.some((finding) => finding.subject === 'worldModel'));
   assert.ok(!plan.findings.some((finding) => finding.relationship === 'indexed-by-world-model'));
+  assert.ok(!plan.pendingCategories.includes('worldModel'));
 });
+
+test('a plan previewed before the World Model fields were retired still starts: they are not compared [WMR]', async () => {
+  const root = await repository();
+  const plan = await previewChangeFlightPlan(root, { symbol: 'PaymentNotifier.send', ast: false });
+  // As an older SFlow wrote it: worldModel* baseline fields, a worldModel category and its unknown.
+  const file = path.join(root, '.git', 'singularity-flow', 'change-flight-plans', 'plans', `${plan.planId}.json`);
+  const stored = JSON.parse(await readFile(file, 'utf8'));
+  Object.assign(stored.baseline, {
+    worldModelDigest: null, worldModelSource: null, worldModelSnapshotRef: stored.baseline.revision,
+    worldModelTreeSha: null, worldModelSourceTreeSha256: null, worldModelOutputDir: 'singularity/world-model'
+  });
+  stored.provenance.categories.worldModel = { status: 'not-evaluated', source: null, snapshotRef: stored.baseline.revision,
+    outputDir: 'singularity/world-model', reason: 'The flight plan reads the repository source; it does not read World Model views.' };
+  stored.pendingCategories = [...stored.pendingCategories, 'worldModel'];
+  await writeFile(file, `${JSON.stringify(stored, null, 2)}\n`);
+  const target = path.join(root, '..', `${path.basename(root)}-old-plan-worktree`);
+  const started = await startChangeFlightPlan(root, plan.planId, {
+    confirm: plan.planId, workId: 'PAY-OLD-PLAN', workType: 'feature', worktree: target
+  });
+  assert.equal(started.idempotent, false);
+  assert.equal(run('git', ['branch', '--show-current'], target).stdout.trim(), 'PAY-OLD-PLAN');
+});
+
 test('outside paths and symlink targets are refused before analysis', async () => {
   const root = await repository();
   await assert.rejects(() => previewChangeFlightPlan(root, { file: '../outside.mjs', ast: false }), /outside the repository/);

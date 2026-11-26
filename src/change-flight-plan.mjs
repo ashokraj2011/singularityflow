@@ -6,7 +6,7 @@
  * work-item, commit, approval, or lifecycle record is created until start is explicitly confirmed.
  */
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, realpath } from 'node:fs/promises';
+import { lstat, mkdir, readdir, realpath } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -148,47 +148,11 @@ function approvedSpecificationSnapshot(root, revision, entries) {
   return { generations: active, indexes: fullIndexes, claims: plannedClaims, digest: active.length ? sha256(active) : null };
 }
 
-async function resolvedFlightWorldModel(root, revision) {
-  const definition = await loadDefinition(root);
-  const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
-  const projectionManifestPath = `${outputDir}/manifest.json`;
-  const projectedText = gitTextAt(root, revision, projectionManifestPath);
-  const dirty = flightGit(root, ['status', '--porcelain'], 'The working tree status').trim().length > 0;
-  if (dirty) {
-    return {
-      valid: false,
-      manifest: null,
-      directory: null,
-      outputDir,
-      manifestDigest: projectedText == null ? null : sha256(projectedText),
-      source: 'application-projection',
-      snapshotRef: revision,
-      reason: projectedText == null
-        ? 'The committed application projection contains no world model. Lifecycle state was not selected against dirty working-tree bytes.'
-        : 'The committed application projection contains a world-model manifest, but full exact-source validation was not performed against dirty working-tree bytes.'
-    };
-  }
-  // Registered World Model views are not part of the flight-plan baseline; only the committed
-  // projection's manifest digest is recorded.
-  return {
-    valid: false,
-    manifest: null,
-    directory: null,
-    outputDir,
-    manifestDigest: projectedText == null ? null : sha256(projectedText),
-    source: projectedText == null ? null : 'application-projection',
-    snapshotRef: revision,
-    treeSha: null,
-    reason: 'The flight plan reads the repository source; it does not read World Model views.'
-  };
-}
-
 async function baselineAt(root) {
   const revision = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root }).stdout.trim();
   const branch = flightGit(root, ['branch', '--show-current'], 'The checked-out branch').trim() || null;
   const entries = treeEntries(root, revision);
   const specifications = approvedSpecificationSnapshot(root, revision, entries);
-  const worldModel = await resolvedFlightWorldModel(root, revision);
   const finalRevision = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root }).stdout.trim();
   if (finalRevision !== revision) {
     throw new SingularityFlowError('Repository HEAD changed while the Change Flight Plan baseline was being prepared; retry the preview.');
@@ -197,18 +161,13 @@ async function baselineAt(root) {
     baseline: {
       repository: repositoryIdentity(root), revision, branch,
       configurationDigest: committedDigest(root, revision, 'singularity/workflow.yml'),
-      worldModelDigest: worldModel.manifestDigest,
-      worldModelSource: worldModel.source,
-      worldModelSnapshotRef: worldModel.snapshotRef,
-      worldModelTreeSha: worldModel.treeSha,
-      worldModelSourceTreeSha256: worldModel.sourceTreeSha256 ?? null,
-      worldModelOutputDir: worldModel.outputDir,
+      // The flight plan reads the repository source. A plan written before the registered World Model
+      // was removed also has worldModel* fields here; they are not compared [WMR].
       specificationGenerations: specifications.generations,
       specificationDigest: specifications.digest
     },
     entries,
-    specifications,
-    worldModel
+    specifications
   };
 }
 
@@ -342,33 +301,6 @@ function specificationFindings(specifications, affectedPaths, revision) {
     }
   }
   return findings;
-}
-
-async function worldModelFindings(root, revision, model, affectedPaths) {
-  const manifest = model?.manifest;
-  if (!manifest?.path_index?.path) return [];
-  const relative = posix(path.join(model.outputDir, manifest.path_index.path));
-  const outputPrefix = `${posix(model.outputDir).replace(/\/$/, '')}/`;
-  if (relative.includes('../') || !relative.startsWith(outputPrefix)) return [];
-  let index = null;
-  let digest = null;
-  if (model.directory) {
-    try {
-      const text = await readFile(path.join(model.directory, manifest.path_index.path), 'utf8');
-      index = JSON.parse(text);
-      digest = sha256(text);
-    } catch { return []; }
-  } else {
-    index = gitJsonAt(root, revision, relative);
-    digest = committedDigest(root, revision, relative);
-  }
-  const indexed = new Set([...(index?.representativePaths ?? []), ...(index?.paths ?? []), ...(index?.entries ?? []).flatMap((entry) => typeof entry === 'string' ? [entry] : [entry?.path].filter(Boolean))]);
-  return affectedPaths.filter((candidate) => indexed.has(candidate)).map((candidate) => makeFinding({
-    classification: 'proven', kind: 'architecture-context', subject: candidate,
-    relationship: 'indexed-by-world-model',
-    source: { type: 'world-model-index', reference: relative, revision: model.snapshotRef ?? revision, sha256: digest },
-    explanation: `The pinned world-model path index contains ${candidate}.`
-  }));
 }
 
 async function structuralFindings(root, target, paths, budgets) {
@@ -776,7 +708,7 @@ async function previewChangeFlightPlanInScope(root, input = {}) {
   }
   const intentText = String(input.intent ?? '').trim();
   const target = normalizeTarget({ ...input, intent: intentText });
-  const { baseline, entries, specifications, worldModel } = await baselineAt(root);
+  const { baseline, entries, specifications } = await baselineAt(root);
   await validateFileTarget(root, target, entries);
   const tracked = entries.filter((entry) => entry.type === 'blob' && entry.mode !== '120000');
   const selected = tracked.slice(0, budgets.maxFiles);
@@ -816,22 +748,11 @@ async function previewChangeFlightPlanInScope(root, input = {}) {
   const affectedPaths = [...new Set(findings.filter((finding) => /-file$|configuration|migration/.test(finding.kind)).map((finding) => finding.subject))].sort();
   findings.push(...ownershipFindings(root, baseline.revision, affectedPaths));
   findings.push(...specificationFindings(specifications, affectedPaths, baseline.revision));
-  findings.push(...await worldModelFindings(root, baseline.revision, worldModel, affectedPaths));
 
   const categories = {
     pathsAndText: { status: truncatedFiles ? 'partial' : 'evaluated' },
     ownership: { status: committedDigest(root, baseline.revision, '.github/CODEOWNERS') || committedDigest(root, baseline.revision, 'CODEOWNERS') ? 'evaluated' : 'not-evaluated', reason: 'No committed CODEOWNERS file was available.' },
     specifications: { status: specifications.generations.length ? 'evaluated' : 'not-evaluated', reason: 'No approved specification generation with deterministic claims was available.' },
-    worldModel: worldModel.valid
-      ? {
-          status: 'evaluated', source: worldModel.source,
-          snapshotRef: worldModel.snapshotRef, outputDir: worldModel.outputDir
-        }
-      : {
-          status: 'not-evaluated', source: worldModel.source,
-          snapshotRef: worldModel.snapshotRef, outputDir: worldModel.outputDir,
-          reason: worldModel.reason
-        },
     ast: { status: input.ast === false ? 'not-evaluated' : 'pending', reason: input.ast === false ? 'AST analysis was disabled for this preview.' : null },
     runtimeEvidence: { status: 'not-evaluated', reason: 'No build, test-run, or production evidence provider was selected.' }
   };
@@ -969,9 +890,7 @@ export async function recordChangeFlightPlanDisposition(root, planId, findingId,
 
 function baselineDifference(expected, actual) {
   const fields = [
-    'repository', 'revision', 'configurationDigest', 'worldModelDigest', 'worldModelSource',
-    'worldModelSnapshotRef', 'worldModelTreeSha', 'worldModelOutputDir',
-    'worldModelSourceTreeSha256', 'specificationDigest'
+    'repository', 'revision', 'configurationDigest', 'specificationDigest'
   ];
   return fields.filter((field) => expected[field] !== actual[field]);
 }

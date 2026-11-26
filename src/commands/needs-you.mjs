@@ -10,7 +10,7 @@ const SHOW_OPTIONS = new Set(['offline', 'json', 'help', 'timings', 'no-model'])
 
 export const NEEDS_YOU_USAGE = [
   'Usage: singularity-flow needs-you [--offline] [--refresh] [--all] [--json]',
-  '       singularity-flow needs-you show <KEY> [--offline] [--json]',
+  'Usage: singularity-flow needs-you show <KEY> [--offline] [--json]',
   'Everything waiting on you in the active workspace\'s repositories: approvals, decisions, a step\'s next version, a',
   'task\'s intake answers, configuration changes to review and Initiative approvals, oldest first. Each repository is',
   'judged with the identity SFlow records with there. --offline shows what was kept from the last read and fetches',

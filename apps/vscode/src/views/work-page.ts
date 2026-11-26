@@ -182,8 +182,8 @@ export function workPanelHtml(list: WorkList | null, { draft = '', likely = null
   const box = workBoxHtml(list, { draft, likely });
   if (!list) return `${box}<p class="work-empty" role="status">${escape(error ?? (reading ? 'Reading your tasks…' : 'Nothing read yet.'))}</p>`;
   const inProgress = list.inProgress.map((row) => withLiveWaiting(row, waiting));
-  const progress = inProgress.length ? `<ul class="work-items">${inProgress.map(rowHtml).join('')}</ul>` : '<p class="work-empty">Nothing of yours is in flight.</p>';
-  const done = list.doneThisWeek.length ? `<h2 class="work-group">Done this week</h2><ul class="work-items">${list.doneThisWeek.map((row) => `<li class="work-item"><button type="button" class="work-open" data-task="${escape(row.key)}"><span class="work-title">${escape(row.title)}</span>
+  const progress = inProgress.length ? `<ul class="work-rows">${inProgress.map(rowHtml).join('')}</ul>` : '<p class="work-empty">Nothing of yours is in flight.</p>';
+  const done = list.doneThisWeek.length ? `<h2 class="work-group">Done this week</h2><ul class="work-rows">${list.doneThisWeek.map((row) => `<li class="work-item"><button type="button" class="work-open" data-task="${escape(row.key)}"><span class="work-title">${escape(row.title)}</span>
     <span class="work-meta">${escape([row.id, row.repository.name, row.ended ? `${row.ended.where}${row.ended.when ? `, ${row.ended.when}` : ''}` : null].filter(Boolean).join(' · '))}</span></button></li>`).join('')}</ul>` : '';
   const head = `<p class="work-checked">${escape(list.checked ?? (reading ? 'Reading…' : 'Not read yet'))}${reading ? ' · reading' : ''}</p>`;
   return `${box}<h2 class="work-group">In progress</h2>${head}${error ? `<p class="work-line" role="status">${escape(error)}</p>` : ''}${progress}${done}
@@ -201,7 +201,7 @@ export const WORK_STYLE = `
 .work-likely, .work-where, .work-meta, .work-status, .work-checked, .work-line, .work-empty { color: var(--vscode-descriptionForeground); font-size: 12px; margin: 2px 0; overflow-wrap: anywhere; }
 .link { background: none; border: 0; color: var(--vscode-textLink-foreground); padding: 2px 0; cursor: pointer; font: inherit; text-align: left; }
 .work-group { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 4px; color: var(--vscode-descriptionForeground); }
-.work-items { list-style: none; margin: 0; padding: 0; }
+.work-rows { list-style: none; margin: 0; padding: 0; }
 .work-item { padding: 6px 0; border-bottom: 1px solid var(--vscode-panel-border); }
 .work-open { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; background: none; border: 0; border-radius: 3px;
   padding: 2px 4px; color: var(--vscode-foreground); cursor: pointer; font: inherit; overflow-wrap: anywhere; }

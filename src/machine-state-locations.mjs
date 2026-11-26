@@ -42,6 +42,8 @@ export const MACHINE_STATE_LOCATIONS = Object.freeze({
   SINGULARITY_FLOW_MACHINE_ID_FILE: 'machine-id',
   // When a person last used this laptop, and the automatic work waiting for an idle one beside it (src/machine-activity.mjs).
   SINGULARITY_FLOW_ACTIVITY_FILE: 'activity.json',
+  // VS Code's own user data, read for the folders its windows opened through a link (src/copilot-chat-hooks.mjs).
+  SINGULARITY_FLOW_VSCODE_USER_DATA: 'vscode-user-data',
   SINGULARITY_FLOW_HOME: 'home'
 });
 
@@ -54,6 +56,9 @@ export const ISOLATED_RUN_SWITCHES = Object.freeze({
   SINGULARITY_FLOW_INDEX_REFRESH: 'off',
   // The person's own keyboard and pointer idle time never decides anything in an isolated run (src/automatic-work.mjs).
   SINGULARITY_FLOW_OS_IDLE: 'off',
+  // macOS's temporary folder is a link (/var is /private/var), so every fixture a VS Code test opens from it would get the
+  // window's warning about a folder opened through a link (apps/vscode/src/extension.ts); its own test turns it back on.
+  SINGULARITY_FLOW_LINKED_FOLDER_WARNING: 'off',
   // A development checkout never proposes packaged configuration to a real repository (SCF:REQ-015); an isolated
   // run's throwaway repositories are where it is tested (src/workspace-configuration-refresh.mjs).
   SINGULARITY_FLOW_DEVELOPMENT_PROPOSALS: 'allow'

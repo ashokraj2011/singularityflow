@@ -1321,7 +1321,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // Story makes its state checkout right at entry, known from files only (cli-entry.mjs +1,004); the resolver's layout
   // memory and records root (story-paths.mjs) and the pinned-copy read root (configuration-read-scope.mjs) [SSB M2].
   // No new eager file.
-  assert.ok(root.bytes <= 894_302, `root dispatch loads ${root.bytes} source bytes`);
+  // 879,344 (+258, measured 2026-11-25 on vsc-agenthost-hooks): a command a Copilot chat runs says when SFlow's hooks never saw
+  // the chat (cli-entry.mjs loads copilot-chat-hooks.mjs only then). No new eager file.
+  // 894,560 (+258, measured 2026-11-27 on the merge of vsc-agenthost-hooks onto 5c682d8c1): the hooks note above. No new eager file.
+  assert.ok(root.bytes <= 894_560, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

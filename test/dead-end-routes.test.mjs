@@ -324,6 +324,43 @@ test('every known refusal builds a recovery plan whose every command is one the 
   assert.ok(marked.steps.every((entry) => !entry.command || !entry.command.includes('<ID,...>')), 'an unsafe command is never shown');
 });
 
+// No dead-ends in what a person reads (owner, 2026-11-26): every step of a refusal's plan carries its command, or is explicitly
+// the person's own words (`wordsOnly`: a change only they can make, said in full). `workflow import` waiting for its yes once
+// showed "Import it as previewed" with no command: its route was a shell-quoted line the route filter refuses, and the
+// builder kept the label alone. A producer's command is now never cut to its label: SFlow's own, refused, stays marked.
+test('every refusal plan step a person sees carries its command, or is explicitly the person\'s own words', async () => {
+  const [{ KNOWN_REFUSAL_CODES }, { LIMIT_ROUTE_CODES }, { renderPlatformCommand }] = await Promise.all([import('../src/refusal-remediation.mjs'),
+    import('../src/limit-remediation.mjs'), import('../src/safe-command-guidance.mjs')]);
+  const confirming = ['singularity-flow', 'workflow', 'import', '/tmp/a folder/team.workflow.json', '--confirm', `sha256:${'a'.repeat(64)}`, '--propose'];
+  const details = { workId: 'W-1', phase: 'build', phaseId: 'build', currentPhase: 'build', storyId: 'W-1', capabilityId: 'web-app', authorities: ['product'] };
+  // The forms a producer names its way on in: none, a command as argv, a command line, words, and another tool's command.
+  const forms = [{}, { nextAction: { argv: confirming, label: 'Import it as previewed' } }, { nextAction: 'singularity-flow workflow list' },
+    { nextAction: 'Ask the marketplace\'s maintainers for a smaller bundle.' }, { nextAction: { command: 'git config --global user.email you@example.com', label: 'Set your Git email' } },
+    { remediation: { label: 'Ask a configuration approver to remove what is no longer used.' } }];
+  const unmarked = [];
+  for (const code of [...new Set([...KNOWN_REFUSAL_CODES, ...LIMIT_ROUTE_CODES])]) {
+    for (const argv of [['phase', 'prepublish', 'build', '--work-id', 'W-1'], ['workflow', 'import', 'team.workflow.json']]) {
+      for (const extra of forms) {
+        const plan = refusalRemediationPlan(Object.assign(new Error('refused'), { code, details: { ...details, ...extra } }), argv);
+        for (const entry of plan.steps) {
+          if (entry.commandRejected || (!entry.command && entry.wordsOnly !== true)) unmarked.push(`${code} (${argv[0]}, ${JSON.stringify(extra).slice(0, 40)}): ${entry.id}`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(unmarked, []);
+  const plan = (extra) => refusalRemediationPlan(Object.assign(new Error('refused'), { code: 'WORKFLOW_IMPORT_CONFIRMATION_REQUIRED', details: extra }), ['workflow', 'import', 'team.workflow.json']);
+  // The confirmation itself: its command, and the short code a person types for it, never only its label.
+  const [confirm] = plan({ nextAction: { argv: confirming, label: 'Import it as previewed' } }).steps;
+  assert.deepEqual([confirm.label, confirm.argv], ['Import it as previewed', confirming.slice(1)]);
+  assert.match(confirm.copilotCommand, /^\/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}$/u);
+  // SFlow's own command the filter refuses is marked, never shown as bare words; another tool's is said whole.
+  const quoted = plan({ nextAction: { command: renderPlatformCommand(confirming), label: 'Import it as previewed' } }).steps.find((entry) => entry.id === 'producer-next-action');
+  assert.deepEqual([quoted.commandRejected, quoted.command, quoted.wordsOnly], [true, null, undefined]);
+  const foreign = plan({ nextAction: { command: 'git config --global user.email you@example.com', label: 'Set your Git email' } }).steps.find((entry) => entry.id === 'producer-next-action');
+  assert.deepEqual([foreign.label, foreign.wordsOnly], ['Set your Git email: git config --global user.email you@example.com', true]);
+});
+
 // No Node installed here can run the tests (landing-6, 2026-11-20): the failed run's plan leads with the person's install,
 // filled for the version manager found, then the same check once it is installed (`changes`). Never a repair, another
 // Node's probe or a base run, which looped on an unchanged machine. test/no-dead-end.test.mjs walks it (no-installed-node).

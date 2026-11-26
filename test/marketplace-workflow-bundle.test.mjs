@@ -125,15 +125,27 @@ test('real CLI: an index workflow is installed through its review, and a generat
   assert.ok(plan.operations.add.some((entry) => entry.id === 'portable-feature'));
   assert.match(story.cli('workflow', 'import', 'market:shared/portable-feature', '--dry-run'), /^Workflow Portable feature 1\.0\.0 from marketplace Shared, checked against the bundle its index pins\.$/mu);
   assert.equal(await story.read('singularity/workflow.yml'), before, 'a review writes no configuration');
-  // Never applied without the person's yes: the import says what it does and names the command that confirms it, with
-  // the reference again (fetched and checked again), and only that command imports it.
-  const asked = refusal(['workflow', 'import', 'market:shared/portable-feature', '--resolve-all', 'suggested', '--json']);
-  assert.deepEqual([asked.error.code, asked.remediationPlan.steps[0].label], ['WORKFLOW_IMPORT_CONFIRMATION_REQUIRED', 'Import it as previewed']);
-  // The person's yes is the review's own confirmation route (`confirm <CODE>`, /sf-confirm), bound to this exact plan.
+  // Never applied without the person's yes: the import says what it does, and its plan's first step is the whole command
+  // that confirms it, with the short code a person types for it (/sf-confirm, `confirm <CODE>`), for a marketplace
+  // reference (fetched and checked again) and for the bundle file alike; only that command imports it.
+  const confirmStep = (named) => {
+    const asked = refusal(['workflow', 'import', named, '--resolve-all', 'suggested', '--json']);
+    const [first] = asked.remediationPlan.steps;
+    assert.deepEqual([asked.error.code, first.label, first.argv], ['WORKFLOW_IMPORT_CONFIRMATION_REQUIRED', 'Import it as previewed',
+      ['workflow', 'import', named, '--resolve-all', 'suggested', '--confirm', plan.planSha256]]);
+    assert.match(first.copilotCommand, /^\/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}$/u);
+    return first.copilotCommand.slice('/sf-confirm '.length);
+  };
+  confirmStep(plan.bundlePath);
+  const code = confirmStep('market:shared/portable-feature');
   const told = story.cli('workflow', 'import', 'market:shared/portable-feature', '--resolve-all', 'suggested', '--dry-run');
-  const [, code] = /^\s+- Shell: singularity-flow confirm (\S+)$/mu.exec(told) ?? [];
-  assert.ok(code, told);
+  assert.match(told, /^\s+- Shell: singularity-flow confirm [0-9A-Z]{4}-[0-9A-Z]{4}$/mu, 'the review names the same yes');
   assert.equal(await story.read('singularity/workflow.yml'), before);
+  // So does a workflow copy waiting for its yes.
+  const copy = refusal(['workflow', 'copy', 'feature', 'feature-team', '--label', 'Feature team', '--json']);
+  assert.equal(copy.error.code, 'WORKFLOW_COPY_CONFIRMATION_REQUIRED');
+  assert.match(copy.remediationPlan.steps[0].copilotCommand, /^\/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}$/u);
+  assert.deepEqual(copy.remediationPlan.steps[0].argv.slice(0, 6), ['workflow', 'copy', 'feature', 'feature-team', '--label', 'Feature team']);
   story.cli('confirm', code);
   assert.ok(YAML.parse(await story.read('singularity/workflow.yml')).workTypes['portable-feature'], 'imported once confirmed');
   const again = JSON.parse(story.cli('marketplace', 'catalog', '--kind', 'workflow', '--json')).items.find((item) => item.key === row.key);

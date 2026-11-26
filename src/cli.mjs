@@ -5569,7 +5569,8 @@ async function workflowCommand(positionals, options) {
       throw new SingularityFlowError(plan.status === 'ready'
         ? `Nothing was imported yet. This import: ${summary}. If that is right, confirm it with the command below.`
         : `Nothing was imported: ${plan.unresolved?.length ? `first choose what happens to ${plan.unresolved.map((item) => item.id).join(', ')}` : 'the bundle is not ready to import'}. Its preview gives each choice as a whole command.`,
-      { code: 'WORKFLOW_IMPORT_CONFIRMATION_REQUIRED', details: { nextAction: { command: renderPlatformCommand(again),
+      // Its route as argv: a shell-quoted line is refused by the route filter, and the plan showed the label alone.
+      { code: 'WORKFLOW_IMPORT_CONFIRMATION_REQUIRED', details: { nextAction: { argv: again,
         label: plan.status === 'ready' ? 'Import it as previewed' : 'Preview the import and its choices' } } });
     }
     const ids = bundle.workflows?.map((entry) => entry.id).filter(Boolean) ?? [];
@@ -5640,7 +5641,7 @@ async function workflowCommand(positionals, options) {
       throw new SingularityFlowError(plan.problems?.length
         ? `Nothing was copied: approval would refuse ${plan.problems.length === 1 ? 'a problem' : `${plan.problems.length} problems`} in ${sourceId}. Its preview names each one.`
         : `Nothing was copied yet. This copies workflow ${sourceId} to ${targetId}${plan.changedPaths?.length ? `, changing ${plan.changedPaths.join(', ')}` : ''}. If that is right, confirm it with the command below.`,
-      { code: 'WORKFLOW_COPY_CONFIRMATION_REQUIRED', details: { nextAction: { command: renderPlatformCommand(again),
+      { code: 'WORKFLOW_COPY_CONFIRMATION_REQUIRED', details: { nextAction: { argv: again,
         label: plan.problems?.length ? 'Preview the copy and its problems' : 'Copy it as previewed' } } });
     }
     const proposal = await withApprovedConfigurationRead(root, async () =>

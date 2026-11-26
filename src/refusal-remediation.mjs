@@ -75,12 +75,26 @@ function agentMappingSteps() {
     'singularity-flow workflow validate', 'diagnostic', '/sf-fix-workflow')];
 }
 
+/** A command line SFlow itself runs, plain or quoted for a shell (`'singularity-flow' …`, `& 'sflow' …`). */
+const SFLOW_COMMAND = /^(?:&\s*)?['"]?(?:singularity-flow|sflow)['"]?(?:\s|$)/u;
+
+/**
+ * One step of a plan. `command` is its way on, as a command line or `{ argv }`; a step built with none is the person's
+ * own words (`wordsOnly`: a change only they can make, said in full), never a command left out. Another tool's command
+ * (git, a package manager), which SFlow does not route, is said in those words, whole.
+ */
 function step(id, label, command = null, kind = 'diagnostic', skill = null) {
-  const guidance = command == null ? null : safeCommandGuidance({ command, ...(skill ? { skill } : {}) });
+  const route = command == null ? null : typeof command === 'string' ? { command } : command;
+  const guidance = route == null ? null : safeCommandGuidance({ ...route, ...(skill ? { skill } : {}) });
+  const line = route && !guidance ? (typeof route.command === 'string' ? route.command : Array.isArray(route.argv) ? route.argv.join(' ') : '').trim() : '';
+  if (line && !SFLOW_COMMAND.test(line)) {
+    const words = String(label ?? '').trim();
+    return step(id, redactDiagnosticText(words.includes(line) ? words : `${words ? `${words.replace(/[.:]?$/u, ':')} ` : 'In your own terminal: '}${line}`).slice(0, 2000), null, kind);
+  }
   // A command the route filter refuses is never shown, but its step stays, marked: dropping the step
   // whole hid the include route for a source statement from every plan (2026-10-27). A test builds
   // every known code's plan and fails on any mark, so a broken route is caught, not lost.
-  if (command != null && !guidance) return Object.freeze({
+  if (route != null && !guidance) return Object.freeze({
     id, label, command: null, executable: null, skill: null, copilotCommand: null, argv: null,
     copyable: false, platformCommands: null, kind, execution: 'user-reviewed', commandRejected: true
   });
@@ -92,7 +106,8 @@ function step(id, label, command = null, kind = 'diagnostic', skill = null) {
     argv: guidance?.argv ?? null,
     copyable: guidance?.copyable ?? false,
     platformCommands: guidance?.platformCommands ?? null,
-    kind, execution: 'user-reviewed'
+    kind, execution: 'user-reviewed',
+    ...(route == null ? { wordsOnly: true } : {})
   });
 }
 
@@ -136,16 +151,26 @@ function explicitInstructions(error) {
  * A refusal's own words for its way on, given as `nextAction` or `remediation` text that is not a command SFlow can route
  * ("Split the review", "Select a larger profile", "brew install apm"): kept as the person's step, never dropped. The route
  * filter dropped them, so the plan was help, doctor and next steps only [limit audit, item 4].
+ * A way on given as an object with a command is never cut to its label: SFlow's own command the filter refuses (a
+ * shell-quoted line, a broken route) keeps its step marked as refused, so a test finds the producer that gave it, and a
+ * command of another tool (git, a package manager) is said in the step's words, whole.
  */
 function proseInstructions(error) {
   const details = error?.details ?? {};
   return [['nextAction', details.nextAction], ['remediation', details.remediation]].map(([name, value]) => {
+    const id = `producer-${name === 'nextAction' ? 'next-action' : 'remediation'}`;
+    const object = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    const given = object && (typeof object.command === 'string' || Array.isArray(object.argv));
     const text = typeof value === 'string' ? value
-      : value && typeof value === 'object' && !Array.isArray(value) && typeof (value.label ?? value.instruction) === 'string' && !value.skill ? value.label ?? value.instruction : null;
+      : object && typeof (object.label ?? object.instruction) === 'string' && (!object.skill || given) ? object.label ?? object.instruction : null;
+    if (given) {
+      // A command the route filter accepts is a route already (explicitCommands); one it refuses keeps its step (step()).
+      if (safeCommandGuidance(object)) return null;
+      return step(id, redactDiagnosticText((text ?? 'Run the command the refusal names.').trim()).slice(0, 2000), object, 'remediation');
+    }
     if (!text?.trim()) return null;
-    // A command the route filter accepts is a route already (explicitCommands); only words that are not one are kept here.
-    if (typeof value === 'string' ? safeCommandGuidance({ command: value }) : (value.command || Array.isArray(value.argv)) && safeCommandGuidance(value)) return null;
-    return step(`producer-${name === 'nextAction' ? 'next-action' : 'remediation'}`, redactDiagnosticText(text.trim()).slice(0, 2000), null, 'remediation');
+    if (typeof value === 'string' && safeCommandGuidance({ command: value })) return null;
+    return step(id, redactDiagnosticText(text.trim()).slice(0, 2000), null, 'remediation');
   }).filter(Boolean);
 }
 

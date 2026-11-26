@@ -733,8 +733,8 @@ test('lifecycle, review and repair skills name the route each stop leaves the pe
   const pr = await skill('sflow-pr');
   assert.match(pr, /singularity-flow pr <WORK-ID> --create --yes/);
   assert.match(pr, /without it, or on another Git host, give `singularity-flow pr describe <WORK-ID> --clipboard`/);
-  // The inbox reads one repository; an empty result there is not an empty workspace.
-  assert.match(await skill('sflow-inbox'), /is clear, not the whole workspace: it reads one repository[\s\S]*singularity-flow inbox --workspace <WORKSPACE-ID> --repository <ID> --json/);
+  // /sf-inbox reads Needs you: every repository of the workspace, one read, and an empty one names what it read [FPL:REQ-038].
+  assert.match(await skill('sflow-inbox'), /singularity-flow needs-you --json`\. It reads every repository of the active workspace[\s\S]*nothing waits on you in the repositories of `scope\.repositories`, by name/);
   const approve = await skill('sflow-approve');
   // With nobody listed in the group, the refusal's own route (an approver refresh) is relayed (2026-10-29).
   assert.match(approve, /Unauthorized: show approval groups \(`\/sf-approvals`\) for an approver's `\/sf-inbox`, or `act\.do` when nobody is listed; stop/);
@@ -986,13 +986,17 @@ test('session setup fences partial selectors, and one command checks the binding
   }
 });
 
-test('inbox skill presents remote pending approvals before an explicit reviewer decision', async () => {
+test('inbox skill lists what needs you, opens one card and leaves every choice to the person [FPL:REQ-038, REQ-039, A24]', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-inbox', 'SKILL.md'), 'utf8');
-  assert.match(content, /singularity-flow inbox --json/);
+  assert.match(content, /singularity-flow needs-you --json/);
   assert.match(content, /ask_user/);
-  assert.match(content, /session attach <WORK-ID>/);
-  assert.match(content, /phase show <PHASE> --for-agent --json/);
-  assert.match(content, /never decide or approve automatically/i);
+  assert.match(content, /offer the first item/);
+  assert.match(content, /singularity-flow needs-you show <KEY> --json/);
+  // An item here goes on in this chat; one in another repository gives its route; the Shell route is the person's own.
+  assert.match(content, /`item\.route\.here` is true, its choices go on in this chat[\s\S]*`item\.route\.elsewhere\.commands`/);
+  assert.match(content, /Shell route is the person's own terminal command with every value filled in/);
+  assert.match(content, /Never approve, decide or record anything automatically/);
+  assert.doesNotMatch(content, /singularity-flow inbox\b/, 'the person\'s read is needs-you; inbox stays for scripts');
   assert.match(content, /disable-model-invocation:\s*true/);
 });
 

@@ -571,13 +571,13 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         skills: clone(workflow.skills || []), plannedClaims: workflow.plannedClaims && workflow.plannedClaims.declared ? clone(workflow.plannedClaims.declared) : null };
       draft.steps[workflow.id] = {};
       (workflow.steps || []).forEach(function (step) {
-        draft.steps[workflow.id][step.id] = { approval: Object.assign(approvalDraft(step.approval), step.automaticApproval && step.automaticApproval.on ? { automatic: true } : {}), inputs: (step.inputs || []).slice(), output: step.output, views: (step.views || []).slice(), clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), convergence: Boolean(step.convergence), compiledSkill: Boolean(step.compiledSkill), afterStep: clone(step.afterStep || []), afterStepSetByWorkflow: Boolean(step.afterStepSetByWorkflow),
+        draft.steps[workflow.id][step.id] = { approval: Object.assign(approvalDraft(step.approval), step.automaticApproval && step.automaticApproval.on ? { automatic: true } : {}), inputs: (step.inputs || []).slice(), output: step.output, clarification: step.clarification || 'off', overridden: Boolean(step.overridden), authoringSkill: step.authoringSkill || null, authoringSkillSetByWorkflow: Boolean(step.authoringSkillSetByWorkflow), generatedByEngine: Boolean(step.generatedByEngine), convergence: Boolean(step.convergence), compiledSkill: Boolean(step.compiledSkill), afterStep: clone(step.afterStep || []), afterStepSetByWorkflow: Boolean(step.afterStepSetByWorkflow),
           template: step.template || null, optionalInputs: (step.optionalInputs || []).slice(), definesClauses: Boolean(step.definesClauses),
           automaticApproval: step.automaticApproval || null };
       });
     });
     (model.phases || []).forEach(function (phase) {
-      draft.phases[phase.id] = { id: phase.id, label: phase.label, description: phase.description || '', output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: approvalDraft(phase.approval), inputs: (phase.inputs || []).slice(), afterStep: clone(phase.afterStep || []),
+      draft.phases[phase.id] = { id: phase.id, label: phase.label, description: phase.description || '', output: phase.output, baseOutput: phase.output, clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: approvalDraft(phase.approval), inputs: (phase.inputs || []).slice(), afterStep: clone(phase.afterStep || []),
         template: phase.template || null, artifactSet: phase.artifactSet || null, optionalInputs: (phase.optionalInputs || []).slice(),
         artifactFile: phase.artifact ? String(phase.artifact).split('/').pop() : null };
     });
@@ -590,7 +590,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       draft.artifactSets[set.id] = { id: set.id, primary: set.primary, members: clone(set.members || []), usedBy: (set.usedBy || []).slice(), isNew: false };
     });
     (model.agents || []).forEach(function (agent) {
-      draft.agents[agent.id] = { id: agent.id, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions || '', scope: agent.scope, isNew: false, role: null, skills: clone(agent.skills || []) };
+      draft.agents[agent.id] = { id: agent.id, label: agent.label, description: agent.description, tools: agent.tools.slice(), instructions: agent.instructions || '', scope: agent.scope, isNew: false, role: null, skills: clone(agent.skills || []) };
     });
     // The skill master: named instructions attached at workflow or agent scope.
     (model.skills || []).forEach(function (skill) {
@@ -612,7 +612,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function epicsDraftFrom(epics) {
     if (!epics) return null;
     var draft = { templatesRoot: epics.templatesRoot, order: [], workflows: {}, steps: {} };
-    function stepDraft(step) { return { id: step.id, label: step.label, agents: step.agents.slice(), lanes: step.lanes.slice(), views: step.views.slice(),
+    function stepDraft(step) { return { id: step.id, label: step.label, agents: step.agents.slice(), lanes: step.lanes.slice(),
       approval: { on: step.approval.mode !== 'none', groups: step.approval.authorities.slice(), minimum: step.approval.minimum || 1, chain: Boolean(step.approval.chain) },
       outputs: clone(step.outputs), checklist: step.checklist || 0, isNew: false, local: true }; }
     (epics.workflows || []).forEach(function (workflow) {
@@ -621,7 +621,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         localSteps: Object.fromEntries(Object.entries(workflow.localSteps || {}).map(function (entry) { return [entry[0], stepDraft(entry[1])]; })) };
     });
     (epics.steps || []).forEach(function (step) {
-      draft.steps[step.id] = { id: step.id, label: step.label, agents: step.agents.slice(), lanes: step.lanes.slice(), views: step.views.slice(),
+      draft.steps[step.id] = { id: step.id, label: step.label, agents: step.agents.slice(), lanes: step.lanes.slice(),
         approval: { on: step.approval.mode !== 'none', groups: step.approval.authorities.slice(), minimum: step.approval.minimum || 1, chain: Boolean(step.approval.chain) },
         outputs: step.outputs.map(function (output) { return clone(output); }), checklist: step.checklist || 0, isNew: false };
     });
@@ -719,7 +719,6 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     // Whether the engine generates the step, or a compiled binding drafts it, is as this workflow
     // runs it; the copy is created from that, so it keeps the same fixed route.
     var copy = Object.assign(clone(source), { id: id, label: source.label + ' (' + workflow.label + ')', isNew: true, copyOf: phaseId, copyFromWorkflow: copyFromWorkflow, usedBy: [workflowId], output: output, baseOutput: output,
-      views: baseline && same(source.views, baseline.views) && settings.views ? settings.views.slice() : (source.views || []).slice(),
       clarification: baseline && source.clarification === baseline.clarification ? settings.clarification || 'off' : source.clarification,
       authoringSkill: settings.authoringSkill || null,
       // The engine copies the step as its workflow runs it, actions included; that is the copy's start.
@@ -768,10 +767,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     Object.keys(base.integrations).sort().forEach(function (id) { if (!targetsNow[id]) changes.push({ op: 'integration.target.remove', id: id }); });
     Object.keys(draft.agents).forEach(function (id) {
       var agent = draft.agents[id]; var before = base.agents[id];
-      if (!before) { changes.push(Object.assign({ op: 'agent.create', id: id, label: agent.label, description: agent.description, role: agent.role || 'blank', tools: agent.tools, views: agent.views, instructions: agent.instructions }, agent.from ? { from: agent.from } : {})); return; }
+      if (!before) { changes.push(Object.assign({ op: 'agent.create', id: id, label: agent.label, description: agent.description, role: agent.role || 'blank', tools: agent.tools, instructions: agent.instructions }, agent.from ? { from: agent.from } : {})); return; }
       var patch = { op: 'agent.update', id: id };
       ['label', 'description', 'instructions'].forEach(function (key) { if (before[key] !== agent[key]) patch[key] = agent[key]; });
-      ['tools', 'views'].forEach(function (key) { if (!same(before[key], agent[key])) patch[key] = agent[key]; });
+      if (!same(before.tools, agent.tools)) patch.tools = agent.tools;
       if (Object.keys(patch).length > 2) changes.push(patch);
     });
     var instructionsNow = draft.instructions || {};
@@ -839,7 +838,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       if (phase.isNew) {
         var home = homeWorkflow(draft, id);
         var step = home && draft.steps[home] && draft.steps[home][id] ? draft.steps[home][id] : { approval: phase.approval, inputs: phase.inputs, authoringSkill: phase.authoringSkill, afterStep: phase.afterStep };
-        var create = { op: 'phase.create', id: id, label: phase.label, output: phase.output, inputs: step.inputs, approval: approvalChange(step), views: phase.views, agent: phase.agent, clarification: phase.clarification || 'off', authoringSkill: step.authoringSkill || null };
+        var create = { op: 'phase.create', id: id, label: phase.label, output: phase.output, inputs: step.inputs, approval: approvalChange(step), agent: phase.agent, clarification: phase.clarification || 'off', authoringSkill: step.authoringSkill || null };
         // What it produces follows from what it does; the intent says it.
         if (phase.intent) { create.intent = phase.intent; delete create.output; }
         if (phase.copyOf) create.copyOf = phase.copyOf;
@@ -865,7 +864,6 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       if (baseline.label !== phase.label) patch.label = phase.label;
       if ((baseline.description || '') !== (phase.description || '')) patch.description = phase.description || null;
       if (baseline.output !== phase.output) patch.output = phase.output;
-      if (!same(baseline.views, phase.views)) patch.views = phase.views;
       if ((baseline.clarification || 'off') !== phase.clarification) patch.clarification = phase.clarification;
       if ((baseline.template || null) !== (phase.template || null)) patch.template = phase.template || null;
       if ((baseline.artifactSet || null) !== (phase.artifactSet || null)) patch.artifactSet = phase.artifactSet || null;
@@ -943,13 +941,13 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       Object.keys(epicsNow.steps).forEach(function (id) {
         var step = epicsNow.steps[id]; var before = epicsBefore.steps[id];
         if (!before) {
-          changes.push({ op: 'epicStep.create', id: id, label: step.label, agents: step.agents.slice(), lanes: step.lanes.slice(), views: step.views.slice(), approval: epicApprovalChange(step.approval) });
+          changes.push({ op: 'epicStep.create', id: id, label: step.label, agents: step.agents.slice(), lanes: step.lanes.slice(), approval: epicApprovalChange(step.approval) });
           step.outputs.forEach(function (output) { changes.push(epicOutputChange(id, output)); });
           return;
         }
         var patch = { op: 'epicStep.update', id: id };
         if (before.label !== step.label) patch.label = step.label;
-        ['agents', 'lanes', 'views'].forEach(function (key) { if (!same(before[key], step[key])) patch[key] = step[key].slice(); });
+        ['agents', 'lanes'].forEach(function (key) { if (!same(before[key], step[key])) patch[key] = step[key].slice(); });
         if (!step.approval.chain && !same(before.approval, step.approval)) patch.approval = epicApprovalChange(step.approval);
         if (Object.keys(patch).length > 2) changes.push(patch);
         step.outputs.forEach(function (output) {
@@ -976,7 +974,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
           if (!was) return;
           var update = { op: 'epicStep.update', id: stepId, workflow: id };
           if (step.label !== was.label) update.label = step.label;
-          ['agents', 'lanes', 'views'].forEach(function (key) { if (!same(step[key], was[key])) update[key] = clone(step[key]); });
+          ['agents', 'lanes'].forEach(function (key) { if (!same(step[key], was[key])) update[key] = clone(step[key]); });
           if (!step.approval.chain && !same(step.approval, was.approval)) update.approval = epicApprovalChange(step.approval);
           if (Object.keys(update).length > 3) changes.push(update);
           step.outputs.forEach(function (output) {
@@ -1030,12 +1028,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       case 'workflow.install': return 'Add the packaged ' + (((state.model && state.model.blueprints) || []).find(function (bp) { return bp.id === change.id; }) || { label: change.id }).label + ' workflow';
       case 'workflow.update': return (change.label || (draft.workflows[change.id] || {}).label || change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', phases: 'steps', reworkLoops: 'send-back rules', decisions: 'decisions', plannedClaims: 'planned claims' }[key] || key; }).join(', ') + ' changed';
       case 'phase.create': return 'New step ' + change.label + ', drafted by ' + agentName(change.agent) + (change.authoringSkill ? ' with /' + change.authoringSkill : '') + (change.afterStep && change.afterStep.length ? ', sending ' + change.afterStep.length + (change.afterStep.length === 1 ? ' action' : ' actions') + ' after it' : '');
-      case 'phase.update': return phaseName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id', 'workflow'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', output: 'output', views: 'knowledge', clarification: 'questions', approval: 'sign-off', inputs: 'what it reads', authoringSkill: 'drafting skill', afterStep: 'actions after it', template: 'template', artifactSet: 'artifact set', artifactFile: 'file it writes' }[key] || key; }).join(', ') + ' changed' + (change.workflow && (change.approval !== undefined || change.inputs !== undefined || change.authoringSkill !== undefined || change.afterStep !== undefined) ? ' in ' + ((draft.workflows[change.workflow] || {}).label || change.workflow) : '');
+      case 'phase.update': return phaseName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id', 'workflow'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', output: 'output', clarification: 'questions', approval: 'sign-off', inputs: 'what it reads', authoringSkill: 'drafting skill', afterStep: 'actions after it', template: 'template', artifactSet: 'artifact set', artifactFile: 'file it writes' }[key] || key; }).join(', ') + ' changed' + (change.workflow && (change.approval !== undefined || change.inputs !== undefined || change.authoringSkill !== undefined || change.afterStep !== undefined) ? ' in ' + ((draft.workflows[change.workflow] || {}).label || change.workflow) : '');
       case 'phase.agent': return phaseName(change.phase) + ' is now drafted by ' + agentName(change.agent);
       case 'epicWorkflow.create': return 'New Epic workflow ' + change.label + (change.copyOf ? ', a linked copy of ' + epicWorkflowName(change.copyOf) : '');
       case 'epicWorkflow.update': return 'Epic workflow ' + (change.label || epicWorkflowName(change.id)) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', phases: 'steps' }[key] || key; }).join(', ') + ' changed';
       case 'epicStep.create': return 'New Epic step ' + change.label;
-      case 'epicStep.update': return 'Epic step ' + (change.label || epicStepName(change.id)) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', agents: 'agents', lanes: 'lanes', views: 'knowledge', approval: 'sign-off' }[key] || key; }).join(', ') + ' changed';
+      case 'epicStep.update': return 'Epic step ' + (change.label || epicStepName(change.id)) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', agents: 'agents', lanes: 'lanes', approval: 'sign-off' }[key] || key; }).join(', ') + ' changed';
       case 'epicOutput.set': return epicStepName(change.step) + ': output ' + (change.label || change.id) + ' set';
       case 'epicOutput.remove': return epicStepName(change.step) + ': output ' + change.id + ' removed';
       case 'agent.create': return 'New agent ' + change.label;
@@ -1492,7 +1490,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var firstGroup = Object.keys(state.draft.groups)[0] || null;
     var phases = workflowSteps(workflowId);
     var previous = afterId && phases.indexOf(afterId) >= 0 ? [afterId] : phases.slice(-1);
-    state.draft.phases[id] = { id: id, label: label, output: output, views: [], clarification: 'off', agent: agent, usedBy: [workflowId], isNew: true, fromBlueprint: null, approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [], artifactFile: id + '.md' };
+    state.draft.phases[id] = { id: id, label: label, output: output, clarification: 'off', agent: agent, usedBy: [workflowId], isNew: true, fromBlueprint: null, approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [], artifactFile: id + '.md' };
     // A step that says what it does starts from that intent (step intents): the engine writes its template and settings.
     if (intent) state.draft.phases[id].intent = intent;
     insertStep(workflowId, id, afterId);
@@ -2023,7 +2021,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         button('Create step', function () {
           var stepId = kebab(adding.label);
           if (!stepId || epics.steps[stepId]) { setStatus(stepId ? 'An Epic step called ' + stepId + ' already exists; add it instead.' : 'Name the new step.'); return; }
-          epics.steps[stepId] = { id: stepId, label: adding.label.trim(), agents: [], lanes: [], views: [], approval: { on: false, groups: [], minimum: 1, chain: false }, outputs: [], checklist: 0, isNew: true };
+          epics.steps[stepId] = { id: stepId, label: adding.label.trim(), agents: [], lanes: [], approval: { on: false, groups: [], minimum: 1, chain: false }, outputs: [], checklist: 0, isNew: true };
           workflow.phases.push(stepId); adding.label = ''; state.epicStep = stepId; changed();
         }, { class: 'secondary' }))));
     main.appendChild(steps);
@@ -2229,7 +2227,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       choice.blueprint.phases.forEach(function (phaseId) {
         if (state.draft.phases[phaseId]) return;
         var packaged = (state.model.blueprintPhases || {})[phaseId] || { label: phaseId, output: 'document', agent: null };
-        state.draft.phases[phaseId] = { id: phaseId, label: packaged.label, output: packaged.output, views: [], clarification: 'off', agent: packaged.agent, usedBy: [], isNew: false, fromBlueprint: choice.blueprint.id, blueprintBase: { label: packaged.label, output: packaged.output, views: [], clarification: 'off', agent: packaged.agent, approval: packaged.approval, inputs: [] }, approval: packaged.approval, inputs: [] };
+        state.draft.phases[phaseId] = { id: phaseId, label: packaged.label, output: packaged.output, clarification: 'off', agent: packaged.agent, usedBy: [], isNew: false, fromBlueprint: choice.blueprint.id, blueprintBase: { label: packaged.label, output: packaged.output, clarification: 'off', agent: packaged.agent, approval: packaged.approval, inputs: [] }, approval: packaged.approval, inputs: [] };
       });
       if (id === choice.blueprint.id) { workflow.isNew = false; workflow.blueprintLabel = choice.blueprint.label; workflow.blueprintPhases = choice.blueprint.phases.slice(); }
     } else if (choice.key.indexOf('workflow:') === 0) {
@@ -4518,7 +4516,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   function openAgentForm(context) {
     var role = (state.model.choices.roles || [])[0];
-    state.agentForm = { mode: 'create', role: role ? role.id : 'blank', from: '', label: '', description: '', tools: role ? role.tools.slice() : ['read', 'search', 'edit'], views: role ? role.views.slice() : [], instructions: role ? role.instructions : '', defaults: context && context.phase ? [context.phase] : [], context: context || null };
+    state.agentForm = { mode: 'create', role: role ? role.id : 'blank', from: '', label: '', description: '', tools: role ? role.tools.slice() : ['read', 'search', 'edit'], instructions: role ? role.instructions : '', defaults: context && context.phase ? [context.phase] : [], context: context || null };
     state.view = 'agents';
     render();
   }
@@ -4530,7 +4528,6 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (!source) return;
     var saved = (state.model.agents || []).find(function (entry) { return entry.id === id; });
     form.tools = source.tools.slice();
-    form.views = source.views.slice();
     form.instructions = saved && saved.instructions === source.instructions && saved.starter != null ? saved.starter : source.instructions;
   }
 
@@ -4567,7 +4564,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function editAgent(id, context) {
     if (protectedObject('agents', id)) { setStatus('This agent is used by a seeded workflow. Duplicate the agent to customize it. To change a seeded workflow, duplicate that workflow first.'); return; }
     var agent = state.draft.agents[id];
-    state.agentForm = { mode: 'edit', id: id, role: null, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions, defaults: [], context: context || null };
+    state.agentForm = { mode: 'edit', id: id, role: null, label: agent.label, description: agent.description, tools: agent.tools.slice(), instructions: agent.instructions, defaults: [], context: context || null };
     state.view = 'agents';
     render();
   }
@@ -4626,7 +4623,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (form.mode === 'create') {
       card.appendChild(field('agent-role', 'Start from a role', select('agent-role', roles.map(function (role) { return { value: role.id, label: role.label + ': ' + role.hint }; }), form.role, function (value) {
         var role = roles.find(function (entry) { return entry.id === value; });
-        form.role = value; form.from = ''; if (role) { form.tools = role.tools.slice(); form.views = role.views.slice(); form.instructions = role.instructions; }
+        form.role = value; form.from = ''; if (role) { form.tools = role.tools.slice(); form.instructions = role.instructions; }
         render();
       })));
       // Or copy an existing agent, including a new draft: never the steps it drafts.
@@ -4640,7 +4637,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         else {
           form.from = '';
           var role = roles.find(function (entry) { return entry.id === form.role; });
-          if (role) { form.tools = role.tools.slice(); form.views = role.views.slice(); form.instructions = role.instructions; }
+          if (role) { form.tools = role.tools.slice(); form.instructions = role.instructions; }
         }
         render();
       }), form.from ? 'Copies its instructions, tools and skill attachments, including their conditions. Shared skills and instructions stay linked, not duplicated. No step assignments or remote resources are copied; assign it only to editable workflows.' : null));
@@ -4680,7 +4677,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       if (!id || state.draft.agents[id]) { setStatus('Choose a different name; that agent ID is taken.'); return; }
       var source = form.from ? state.draft.agents[form.from] : null;
       // Unsaved sources are snapshots: no backend dependency on an agent that may be removed.
-      state.draft.agents[id] = { id: id, label: label, description: description, tools: form.tools.slice(), views: form.views.slice(), instructions: form.instructions, scope: 'repository', isNew: true, role: form.role, from: source && !source.isNew ? form.from : null, skills: source ? clone(source.skills || []) : [] };
+      state.draft.agents[id] = { id: id, label: label, description: description, tools: form.tools.slice(), instructions: form.instructions, scope: 'repository', isNew: true, role: form.role, from: source && !source.isNew ? form.from : null, skills: source ? clone(source.skills || []) : [] };
       form.defaults.forEach(function (phaseId) { if (state.draft.phases[phaseId]) state.draft.phases[phaseId].agent = id; });
       if (form.context && form.context.returnTo === 'board-add' && state.adding) state.adding.agent = id;
       var context = form.context;
@@ -4689,7 +4686,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       setStatus('Agent ' + label + ' added to your changes.');
     } else {
       var agent = state.draft.agents[form.id];
-      agent.label = label; agent.description = description; agent.tools = form.tools.slice(); agent.views = form.views.slice(); agent.instructions = form.instructions;
+      agent.label = label; agent.description = description; agent.tools = form.tools.slice(); agent.instructions = form.instructions;
       var editContext = form.context;
       state.agentForm = null;
       if (editContext) state.view = 'board';

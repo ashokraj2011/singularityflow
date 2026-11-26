@@ -194,7 +194,7 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
     const body = parent ? withoutAttachedSkills(parent.prompt).trim() : null;
     newAgents.push({ id: name, description: text(node.attrs.description ?? parent?.description, node, 'Agent description'),
       instructions: text(parent ? [body, extra ? `## Workflow-specific guidance\n\n${extra}` : ''].filter(Boolean).join('\n\n') : extra, node, 'Agent prompt'),
-      tools: node.attrs.tools !== undefined ? list(node.attrs.tools) : parent?.tools ?? [], ...(parent ? { parentId: parent.id, views: parent.worldModelViews } : {}) });
+      tools: node.attrs.tools !== undefined ? list(node.attrs.tools) : parent?.tools ?? [], ...(parent ? { parentId: parent.id } : {}) });
     if (parent) for (const use of effectiveLibrarySkills(parent)) {
       const steps = (use.phases ?? []).map(id => phaseMap.get(id)).filter(Boolean);
       if (use.phases?.length && !steps.length) continue;
@@ -455,7 +455,7 @@ async function reviewDesign(root, resolved, definition, phaseAgents, { inspectPh
     const text = [withoutAttachedSkills(agent.prompt).trim(), guidance.text].filter(Boolean).join('\n\n');
     const instructions = [...new Map(guidance.skills.flatMap(skill => skill.referencedInstructions ?? []).map(item => [item.id, { id: item.id, label: item.label, sha256: item.sha256 }])).values()];
     const estimateNote = 'Approximate characters / 4, not measured provider tokens; excludes runtime context.';
-    result.inspection = { phase: phase.id, agent: { id: agent.id, description: agent.description, tools: agent.tools, sha256: agent.sha256, worldModelViews: agent.worldModelViews },
+    result.inspection = { phase: phase.id, agent: { id: agent.id, description: agent.description, tools: agent.tools, sha256: agent.sha256 },
       skills: guidance.skills.map(skill => ({ id: skill.id, label: skill.label, sha256: skill.sha256, loading: skill.loading, use: skill.use, scopes: skill.scopes, instructionRefs: skill.instructionRefs })),
       instructions, representation: 'static-expanded-guidance', runtimeContextIncluded: false,
       bytes: Buffer.byteLength(text), estimatedTokens: Math.ceil(text.length / 4), tokenEstimate: estimateNote,
@@ -519,7 +519,7 @@ async function compileCapturedMarkup(source, { out, catalog, designReview, inspe
     for (const agent of lowered.agents) {
       const selected = Object.entries(lowered.phaseAgents).filter(([, id]) => id === agent.id).map(([phase]) => phase);
       await put(agentFileIn(agent.id, AGENTS_HOME), front({ name: agent.id, description: agent.description, tools: agent.tools,
-        metadata: { 'sflow-phases': selected.join(', '), 'sflow-default-for': selected.join(', '), ...(agent.views?.length ? { 'sflow-world-model-views': agent.views.join(', ') } : {}) } }) + agent.instructions + '\n');
+        metadata: { 'sflow-phases': selected.join(', '), 'sflow-default-for': selected.join(', ') } }) + agent.instructions + '\n');
     }
     for (const skill of lowered.skills) await put(`singularity/skill-library/${skill.id}/SKILL.md`, librarySkillText(skill));
     for (const instruction of lowered.instructions) await put(`singularity/instruction-library/${instruction.id}/INSTRUCTIONS.md`, instructionText(instruction));

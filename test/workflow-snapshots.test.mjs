@@ -358,7 +358,9 @@ test('Story execution resolves saved agent metadata and omissions without live f
     );
     assert.equal(before.identity.mode, 'workflow-snapshot');
     assert.equal(before.identity.composerProfile, 'story-snapshot-agent-v1');
-    assert.deepEqual(before.agent.worldModelViews, ['dev.impact']);
+    // The saved agent still carries an old sflow-world-model-views header: the Story runs, and it is not read [WMR].
+    assert.equal(before.agent.worldModelViews, undefined);
+    assert.equal(before.agent.metadata['sflow-world-model-views'], 'dev.impact');
     assert.equal(before.dependencies[0].inclusion, 'omitted');
     assert.doesNotMatch(JSON.stringify(before.identity), /secret|private\.md/);
 

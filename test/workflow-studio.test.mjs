@@ -1011,6 +1011,7 @@ test('Epic workflows are edited in the Studio: steps with outputs and sign-off, 
   assert.ok(model.epics.workflows.some((workflow) => workflow.id === 'repo-initiative-lite'));
   const define = model.epics.steps.find((step) => step.id === 'define');
   assert.ok(define.outputs.some((output) => output.id === 'business-case'));
+  assert.equal(Object.hasOwn(define, 'views'), false, 'an Epic step shows no World Model views');
   assert.match(model.base.portfolioSha256, /^[a-f0-9]{64}$/);
 
   const file = await changeSet(root, [
@@ -1029,6 +1030,8 @@ test('Epic workflows are edited in the Studio: steps with outputs and sign-off, 
   assert.deepEqual(portfolio.initiativeProfiles['lite-copy'].phases, portfolio.initiativeProfiles['repo-initiative-lite'].phases, 'a linked copy shares its source\'s steps');
   assert.deepEqual(portfolio.initiativePhases['vendor-review'].outputs, [{ id: 'vendor-brief', label: 'Vendor brief', kind: 'markdown', path: 'vendor-brief.md', template: 'initiatives/generic-output.md', consumes: ['define/business-case'] }]);
   assert.deepEqual(portfolio.initiativePhases['vendor-review'].bundleApproval, { mode: 'bundle', authorities: ['product-approvers'], minimum: 1, allowSelfApproval: true });
+  // A change from an older Studio may still carry `views`: it is not refused, and nothing is written [WMR].
+  assert.equal(Object.hasOwn(portfolio.initiativePhases['vendor-review'], 'worldModelViews'), false);
 
   const after = json(root, ['workflow', 'studio']);
   const edit = await changeSet(root, [
@@ -1043,7 +1046,7 @@ test('Epic workflows are edited in the Studio: steps with outputs and sign-off, 
     'moving a step before the step whose output it reads is refused by the engine\'s own portfolio rules');
   const fixed = await changeSet(root, [
     { op: 'epicWorkflow.update', id: 'vendor-epic', label: 'Vendor selection', phases: ['define', 'vendor-review'] },
-    { op: 'epicStep.update', id: 'vendor-review', agents: ['architect', 'product-owner'], approval: 'none' },
+    { op: 'epicStep.update', id: 'vendor-review', agents: ['architect', 'product-owner'], approval: 'none', views: ['dev.impact'] },
     { op: 'epicOutput.set', step: 'vendor-review', id: 'vendor-brief', required: false },
     { op: 'epicOutput.remove', step: 'vendor-review', id: 'vendor-brief' }
   ], after.base);
@@ -1053,6 +1056,7 @@ test('Epic workflows are edited in the Studio: steps with outputs and sign-off, 
   assert.deepEqual(portfolio.initiativePhases['vendor-review'].agents, ['architect', 'product-owner']);
   assert.equal(portfolio.initiativePhases['vendor-review'].bundleApproval.mode, 'none');
   assert.deepEqual(portfolio.initiativePhases['vendor-review'].outputs, []);
+  assert.equal(Object.hasOwn(portfolio.initiativePhases['vendor-review'], 'worldModelViews'), false);
 
   const latest = json(root, ['workflow', 'studio']);
   const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [

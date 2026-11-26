@@ -93,10 +93,9 @@ test('agent frontmatter, native unknown fields and remote resource identities ca
   blocked(planSharedAgentChanges, rowBytes, 'WCA_SHARED_AGENT_EFFECT_CHANGE_UNSUPPORTED');
 });
 
-test('metadata applicability edits cannot expand existing tools, view context, remote resources or unknown native extensions', () => {
+test('metadata applicability edits cannot expand existing tools, remote resources or unknown native extensions', () => {
   for (const specialize of [
     (text) => text.replace('tools: []', 'tools: [read]'),
-    (text) => text.replace('sflow-phases: intake', 'sflow-world-model-views: arch.contracts\n  sflow-phases: intake'),
     (text) => text + '\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n| --- | --- | --- | --- | --- |\n| guide | https://example.test/guide.md | intake | true | 1024 |\n',
     (text) => text.replace('tools: []', 'tools: []\ncustom-native-effect: preserved')
   ]) {
@@ -109,6 +108,22 @@ test('metadata applicability edits cannot expand existing tools, view context, r
     input.changes[0].replacement.text = source.text.replace('description: Exact role', 'description: Reviewed display prose');
     assert.equal(planSharedAgentMetadataChanges(input).status, 'ready-for-review');
   }
+});
+
+test('an agent that still carries an sflow-world-model-views header can have its steps changed: the header is inert [WMR]', () => {
+  const f = fixture(); const source = f.agents[0];
+  source.text = source.text.replace('custom-native-field:\n  preserved: true\n', '')
+    .replace('sflow-phases: intake', 'sflow-world-model-views: arch.contracts\n  sflow-phases: intake');
+  Object.assign(source, parseAgentDependencies(source.text, { source: source.source }));
+  assert.equal(Object.hasOwn(source, 'worldModelViews'), false, 'the parser no longer reads the header');
+  assert.equal(source.metadata['sflow-world-model-views'], 'arch.contracts', 'the header stays as written');
+  const input = { ...f, changes: [{ kind: 'agent', id: source.id, operation: 'edit', expectedTextSha256: agentTextSha256(source.text),
+    replacement: { text: source.text.replace('sflow-phases: intake', 'sflow-phases: intake,review') } }] };
+  const planned = planSharedAgentMetadataChanges(input);
+  assert.equal(planned.status, 'ready-for-review', JSON.stringify(planned.findings));
+  // A captured agent from before the retirement may still carry the list it was given: it loads as it was.
+  const retained = { ...f, agents: f.agents.map((agent, index) => index ? agent : { ...agent, worldModelViews: ['arch.contracts'] }), changes: input.changes };
+  assert.equal(planSharedAgentMetadataChanges(retained).status, 'ready-for-review');
 });
 
 test('agent parent is exact text including whitespace, source must be repository-owned and output is source-bound', () => {

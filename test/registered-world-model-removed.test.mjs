@@ -89,6 +89,29 @@ test('an old configuration still loads: removed settings are dropped and doctor 
   assert.match(`${doctor.stdout}${doctor.stderr}`, /removed-settings/u);
 });
 
+test('an agent that still carries sflow-world-model-views loads: the header is not read, and doctor names it once [WMR:REQ-005]', async (t) => {
+  const repository = await initialized(t);
+  const definition = await loadDefinition(repository);
+  const developer = definition.agentCatalog.find((agent) => agent.id === 'developer');
+  const file = path.join(repository, developer.source);
+  const text = await readFile(file, 'utf8');
+  await writeFile(file, text.replace(/^metadata:\n/mu, 'metadata:\n  sflow-world-model-views: "dev.impact, biz.rules"\n'));
+  git(repository, 'add', '-A');
+  git(repository, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'an agent with the old views header');
+  const loaded = await loadDefinition(repository);
+  const agent = loaded.agentCatalog.find((entry) => entry.id === 'developer');
+  assert.equal(Object.hasOwn(agent, 'worldModelViews'), false, 'the parser does not carry it into configuration');
+  assert.equal(agent.metadata['sflow-world-model-views'], 'dev.impact, biz.rules', 'the file is left as written');
+  assert.deepEqual(removedSettings(loaded), [
+    'sflow-world-model-views in 1 agent file(s) (developer): no longer read; the Repository brief comes from the step'
+  ]);
+  const doctor = cli(repository, 'doctor', '--json');
+  const output = `${doctor.stdout}${doctor.stderr}`;
+  assert.match(output, /removed-settings/u);
+  assert.match(output, /sflow-world-model-views in 1 agent file\(s\) \(developer\): no longer read; the Repository brief comes from the step/u);
+  assert.match(output, /or from the agent files named/u);
+});
+
 test('removed commands refuse by name and point to the Repository brief', async (t) => {
   const repository = await initialized(t);
   for (const args of [['wm', 'build'], ['wm', 'status', '--json'], ['wm', 'migrate-views', '--dry-run'], ['wm', 'doctor']]) {

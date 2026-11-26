@@ -2391,8 +2391,7 @@ export async function snapshotResolution(root, definition, resolved) {
       source: agent.source,
       sha256: agent.sha256,
       phases: agent.phases,
-      defaultFor: agent.defaultFor,
-      worldModelViews: agent.worldModelViews
+      defaultFor: agent.defaultFor
     };
   }
   const templates = {};

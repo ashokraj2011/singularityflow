@@ -45,6 +45,12 @@ const domainDigest = (domain, value) => `sha256:${createHash('sha256').update(`$
 const effects = () => ({ configurationWritten: false, proposalCreated: false, approvalGranted: false, activated: false, executed: false });
 function fail(message, code = 'WCA_SKP_FINALIZATION_INVALID') { throw new SingularityFlowError(message, { code }); }
 function plain(value) { return value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype; }
+/**
+ * A captured impact agent. `worldModelViews` named views of the removed registered World Model: a record
+ * retained before then still carries it and verifies as it was, and a new capture leaves it out [WMR].
+ */
+const IMPACT_AGENT_REQUIRED = Object.freeze(['id', 'scope', 'source', 'text', 'phases', 'defaultFor', 'tools', 'dependencies']);
+const IMPACT_AGENT_FIELDS = Object.freeze([...IMPACT_AGENT_REQUIRED, 'worldModelViews']);
 function closed(value, fields, required = fields) {
   if (!plain(value) || Object.keys(value).some((key) => !fields.includes(key)) || required.some((key) => !Object.hasOwn(value, key))) fail('The SKP finalization input has an unsupported closed shape.');
 }
@@ -153,7 +159,7 @@ function replacementReview(data, rows) {
   }
   if (!Array.isArray(replacement.agentImpactCatalog) || !replacement.agentImpactCatalog.length || replacement.agentImpactCatalog.length > 256) fail('Complete bounded captured agent inputs are required for replacement impact.');
   for (const capturedAgent of replacement.agentImpactCatalog) {
-    closed(capturedAgent, ['id', 'scope', 'source', 'text', 'phases', 'defaultFor', 'tools', 'worldModelViews', 'dependencies']);
+    closed(capturedAgent, IMPACT_AGENT_FIELDS, IMPACT_AGENT_REQUIRED);
     id(capturedAgent.id); body(capturedAgent.text, 256 * 1024);
     if (!['repository', 'plugin', 'bundled'].includes(capturedAgent.scope)
         || (capturedAgent.scope === 'repository' ? !isAgentFilePath(capturedAgent.source)
@@ -254,7 +260,7 @@ function groupReplacementReview(data, rows) {
     fail('Complete bounded captured agent inputs are required for grouped impact.');
   }
   for (const agent of group.agentImpactCatalog) {
-    closed(agent, ['id', 'scope', 'source', 'text', 'phases', 'defaultFor', 'tools', 'worldModelViews', 'dependencies']);
+    closed(agent, IMPACT_AGENT_FIELDS, IMPACT_AGENT_REQUIRED);
     id(agent.id); body(agent.text, 256 * 1024);
     if (!['repository', 'plugin', 'bundled'].includes(agent.scope)
         || (agent.scope === 'repository' ? !isAgentFilePath(agent.source)

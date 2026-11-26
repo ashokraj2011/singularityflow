@@ -457,9 +457,9 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
         const { profile, ...row } = change;
         return { ...row, replacement: declarations.get(change.id) };
       });
-      const agentImpactCatalog = captured.agents.map(({ id, scope, source, text, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
+      const agentImpactCatalog = captured.agents.map(({ id, scope, source, text, phases, defaultFor, tools, dependencies }) => ({
         id, scope, source: scope === 'repository' ? source : `${scope}/${id}.agent.md`, text,
-        phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [], worldModelViews: worldModelViews ?? [],
+        phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [],
         dependencies: dependencies ?? [] }));
       sharedObjectChanges = planSharedSkillContractGroupChanges({ approvedDefinition: captured.rawDefinition,
         agents: agentImpactCatalog, changes: selections, catalogs });
@@ -494,9 +494,9 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
       });
       if (changes.length !== byId.size) fail('Every shared phase replacement needs one explicit matching change.');
       sharedObjectChanges = planSharedPhaseChanges({ approvedDefinition: captured.rawDefinition,
-        agents: captured.agents.map(({ id: key, scope, text: body, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
+        agents: captured.agents.map(({ id: key, scope, text: body, phases, defaultFor, tools, dependencies }) => ({
           id: key, scope, text: body, phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [],
-          worldModelViews: worldModelViews ?? [], dependencies: dependencies ?? [] })), changes });
+          dependencies: dependencies ?? [] })), changes });
     });
     for (const finding of sharedObjectChanges?.findings ?? []) add(finding.code, finding.fieldPath ?? 'changes', finding.message);
     if (findings.length || sharedObjectChanges?.status !== 'ready-for-review') return output();
@@ -535,8 +535,8 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
         const content = bytes.toString('utf8'); if (!Buffer.from(content).equals(bytes)) fail('Exact text replacement cannot reinterpret binary captured content.', 'WCA_CONTENT_UNRESOLVED');
         return { path, content };
       });
-      const input = { approvedDefinition: captured.rawDefinition, agents: captured.agents.map(({ id, scope, source, text, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
-        id, scope, source, text, phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [], worldModelViews: worldModelViews ?? [], dependencies: dependencies ?? [] })), templateContents, changes };
+      const input = { approvedDefinition: captured.rawDefinition, agents: captured.agents.map(({ id, scope, source, text, phases, defaultFor, tools, dependencies }) => ({
+        id, scope, source, text, phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [], dependencies: dependencies ?? [] })), templateContents, changes };
       sharedObjectChanges = group === 'agents' ? contentProfile === WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE
         ? planSharedAgentMetadataChanges(input) : planSharedAgentChanges(input) : planSharedTemplateChanges(input);
     });
@@ -600,9 +600,9 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
         const { profile, ...row } = change;
         return { ...row, replacement: byId.get(change.id) };
       });
-      const agentImpactCatalog = captured.agents.map(({ id, scope, source, text, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
+      const agentImpactCatalog = captured.agents.map(({ id, scope, source, text, phases, defaultFor, tools, dependencies }) => ({
         id, scope, source: scope === 'repository' ? source : `${scope}/${id}.agent.md`, text,
-        phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [], worldModelViews: worldModelViews ?? [],
+        phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [],
         dependencies: dependencies ?? [] }));
       sharedObjectChanges = planSharedSkillContractGroupChanges({ approvedDefinition: captured.rawDefinition,
         agents: agentImpactCatalog, changes: selections, catalogs });
@@ -665,9 +665,9 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
       }
       const catalog = sharedSkillContractCatalog(captured.rawDefinition, change.id);
       const { profile, ...row } = change;
-      const agentImpactCatalog = captured.agents.map(({ id, scope, source, text, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
+      const agentImpactCatalog = captured.agents.map(({ id, scope, source, text, phases, defaultFor, tools, dependencies }) => ({
         id, scope, source: scope === 'repository' ? source : `${scope}/${id}.agent.md`, text, phases: phases ?? [], defaultFor: defaultFor ?? [],
-        tools: tools ?? [], worldModelViews: worldModelViews ?? [], dependencies: dependencies ?? [] }));
+        tools: tools ?? [], dependencies: dependencies ?? [] }));
       sharedObjectChanges = planSharedSkillContractChanges({ approvedDefinition: captured.rawDefinition,
         agents: agentImpactCatalog,
         changes: [{ ...row, replacement: request.definitions.phases[0] }], catalog });
@@ -700,9 +700,9 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
     for (const workflow of affected) symbols.workflows.set(workflow.id, { id: workflow.id });
   } else if (request.intent !== 'create') {
     workflowChanges = planWorkflowOnlyChanges({ request, approvedDefinition: captured.rawDefinition,
-      agents: captured.agents.map(({ id, scope, text, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
+      agents: captured.agents.map(({ id, scope, text, phases, defaultFor, tools, dependencies }) => ({
         id, scope, text, phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [],
-        worldModelViews: worldModelViews ?? [], dependencies: dependencies ?? [] })) });
+        dependencies: dependencies ?? [] })) });
     for (const finding of workflowChanges.findings) add(finding.code, finding.fieldPath ?? 'changes', finding.message);
     if (workflowChanges.status !== 'ready') return output();
     // The pure planner has no persistence capability. Its exact raw parent/dependency impact is

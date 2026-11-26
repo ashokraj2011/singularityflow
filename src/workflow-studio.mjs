@@ -110,8 +110,7 @@ const TOOL_LABELS = Object.freeze({
 
 /** Presets are authoring suggestions, never aliases or permission to add undeclared contracts. */
 export function agentRolePresets() {
-  // The registered World Model these views named was removed; presets carry none.
-  return AGENT_ROLES.map((role) => ({ ...role, views: [] }));
+  return AGENT_ROLES.map((role) => ({ ...role, tools: [...role.tools] }));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -171,7 +170,7 @@ async function authoringSkillChoices() {
 }
 
 /**
- * A list a change carries, such as a step's inputs or knowledge views. Absent or null leaves the list
+ * A list a change carries, such as a step's inputs. Absent or null leaves the list
  * as it is, as for every other field of a change; anything else must be a list.
  */
 function changeList(value, label, code) {
@@ -325,7 +324,7 @@ function archiveView(archive, governs, id) {
 
 /**
  * Epic (Initiative) workflows as the Studio edits them, from portfolio.yml: each workflow's steps,
- * and each step's agents, lanes, knowledge views, sign-off and outputs. Review chains, packs and
+ * and each step's agents, lanes, sign-off and outputs. Review chains, packs and
  * checklists are shown as counts; they stay in the file.
  */
 function epicModel(portfolio, templatesRoot, archive = null) {
@@ -338,7 +337,6 @@ function epicModel(portfolio, templatesRoot, archive = null) {
       const approval = phase?.bundleApproval ?? {};
       return {
         id, label: phase?.label ?? id, agents: [...(phase?.agents ?? [])], lanes: [...(phase?.lanes ?? [])],
-        views: [...(phase?.worldModelViews ?? [])],
         approval: {
           mode: approval.mode ?? 'bundle', authorities: [...(approval.authorities ?? [])],
           minimum: Number.isSafeInteger(approval.minimum) ? approval.minimum : (approval.mode === 'none' ? 0 : 1), chain: Array.isArray(approval.chain)
@@ -481,7 +479,7 @@ function agentView(agent) {
   return {
     id: agent.id, label: agent.label ?? agent.id, description: agent.description ?? '',
     scope: agent.scope, phases: [...(agent.phases ?? [])], defaultFor: [...(agent.defaultFor ?? [])],
-    tools: [...(agent.tools ?? [])], views: [...(agent.worldModelViews ?? [])],
+    tools: [...(agent.tools ?? [])],
     path: agent.scope === 'repository' ? agent.source : null,
     // The skill master edits the Attached skills table, so the instructions shown leave it out.
     instructions: withoutAttachedSkills(agent.prompt ?? '').trim(),
@@ -604,7 +602,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           optionalInputs: optionalInputIds(phase.inputs),
           // This workflow's own template for the step, when it sets one over the step's.
           template: typeof type.templateOverrides?.[phase.id] === 'string' ? type.templateOverrides[phase.id] : null,
-          views: [...(phase.worldModel?.views ?? [])], clarification: phase.clarification?.mode ?? 'off',
+          clarification: phase.clarification?.mode ?? 'off',
           // The Repository brief this step gets: its reader, budget and sections, as a Story would compose it [WMR:REQ-026].
           brief: stepBrief(definition ?? raw, phase, type),
           overridden: Boolean(type.phaseOverrides?.[phase.id]),
@@ -682,7 +680,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
       convergence: isConvergencePhase(phase),
       compiledSkill: compiledSkillStep(phase),
-      views: [...(phase.worldModel?.views ?? [])], clarification: phase.clarification?.mode ?? 'off',
+      clarification: phase.clarification?.mode ?? 'off',
       brief: stepBrief(definition ?? raw, { id, ...phase }),
       template: phase.defaultTemplate ?? null, artifact: phase.artifact?.path ?? null,
       artifactSet: typeof phase.artifactSet === 'string' ? phase.artifactSet : null,
@@ -738,9 +736,6 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       intents: STEP_INTENT_CHOICES,
       authoringSkills: await authoringSkillChoices(),
       clarification: CLARIFICATION_MODES,
-      // The registered World Model was removed: there are no views to choose.
-      views: [],
-      retiredViews: [],
       // The brief each step gets is the engine's own profile (phaseBriefProfile) [WMR:REQ-026]: `maxBytes` is null unless
       // the repository sets one for every step, and the rules let the page profile a step it has not saved yet.
       knowledge: { prompt: knowledgePromptPolicy(definition ?? current).prompt, steps: knowledgePromptPolicy(definition ?? current).steps,
@@ -867,11 +862,11 @@ class StudioCandidate {
       id: agent.id, scope: agent.scope, text: agent.text, relative: agent.scope === 'repository' ? agent.source : null,
       fileName: path.basename(agent.file ?? `${agent.id}.agent.md`),
       label: agent.label ?? agent.id, description: agent.description ?? '', tools: [...(agent.tools ?? [])],
-      views: [...(agent.worldModelViews ?? [])], phases: [...(agent.phases ?? [])], defaultFor: [...(agent.defaultFor ?? [])],
+      phases: [...(agent.phases ?? [])], defaultFor: [...(agent.defaultFor ?? [])],
       body: null, touched: false, created: false,
       // An agent APM deployed keeps its file; only the steps it drafts change, in workflow.yml `apm`.
       apm: agent.apm ?? null, yielded: [...(agent.apmYielded ?? [])],
-      ...(agent.apm ? { authored: JSON.stringify([agent.label ?? agent.id, agent.description ?? '', agent.tools ?? [], agent.worldModelViews ?? []]) } : {})
+      ...(agent.apm ? { authored: JSON.stringify([agent.label ?? agent.id, agent.description ?? '', agent.tools ?? []]) } : {})
     }]));
     this.templates = new Map();
     this.summary = [];
@@ -974,7 +969,7 @@ class StudioCandidate {
     for (const agent of this.agents.values()) {
       // Only an APM agent changed here is written: a binding waiting for its agent is kept as it is.
       if (!agent.apm || !agent.apmChanged) continue;
-      if (agent.body != null || agent.authored !== JSON.stringify([agent.label, agent.description, agent.tools, agent.views])) {
+      if (agent.body != null || agent.authored !== JSON.stringify([agent.label, agent.description, agent.tools])) {
         problems.push({ code: 'STUDIO_AGENT_APM_OWNED', subject: { kind: 'agent', id: agent.id },
           message: `${agent.label} was installed by APM (${agent.apm.package}); change it in its package and install it again. Here you choose only which steps it drafts.` });
         continue;
@@ -1782,10 +1777,8 @@ class StudioCandidate {
     return [...new Set(agents.map((agent) => { const agentId = requireId(agent, 'An agent ID'); this.requireAgent(agentId); return agentId; }))];
   }
   epicList(values, name, what) {
-    const views = what === 'knowledge views';
-    const pattern = views ? /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u : /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-    if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !pattern.test(value))) {
-      throw new SingularityFlowError(`The ${what} of ${name} are a list of lower-case ${views ? 'logical view IDs (for example dev.impact)' : 'kebab-case names'}.`, { code: 'STUDIO_EPIC_STEP_INVALID' });
+    if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value))) {
+      throw new SingularityFlowError(`The ${what} of ${name} are a list of lower-case kebab-case names.`, { code: 'STUDIO_EPIC_STEP_INVALID' });
     }
     return [...new Set(values)];
   }
@@ -1865,7 +1858,8 @@ class StudioCandidate {
     document.setIn(keys, document.createNode(value, { flow: Boolean(document.getIn(keys, true)?.flow) }));
   }
 
-  createEpicStep({ id, label, agents = [], lanes = [], views = [], approval = 'none' }) {
+  // A change from an older Studio may still carry `views`: Epic step World Model views were removed, so it is not read.
+  createEpicStep({ id, label, agents = [], lanes = [], approval = 'none' }) {
     const document = this.requirePortfolio();
     const stepId = requireId(id, 'An Epic step ID');
     if (this.epicStep(stepId)) throw new SingularityFlowError(`An Epic step called '${stepId}' already exists.`, { code: 'STUDIO_EPIC_STEP_EXISTS' });
@@ -1874,7 +1868,6 @@ class StudioCandidate {
       label: name,
       ...(lanes.length ? { lanes: this.epicList(lanes, name, 'lanes') } : {}),
       ...(agents.length ? { agents: this.epicAgents(agents, name) } : {}),
-      worldModelViews: this.epicList(views, name, 'knowledge views'),
       outputs: [], checklist: [],
       bundleApproval: this.epicApprovalNode(approval, null, name)
     };
@@ -1884,7 +1877,7 @@ class StudioCandidate {
     this.summary.push(`New Epic step ${name}.`);
   }
 
-  updateEpicStep({ id, workflow = null, label, agents, lanes, views, approval }) {
+  updateEpicStep({ id, workflow = null, label, agents, lanes, approval }) {
     const document = this.requirePortfolio();
     const stepId = requireId(id, 'An Epic step ID');
     const base = this.epicStep(stepId);
@@ -1906,7 +1899,6 @@ class StudioCandidate {
       if (list.length || workflow) this.setPortfolioKeepingStyle(keys('lanes'), list); else if (document.hasIn(keys('lanes'))) document.deleteIn(keys('lanes'));
       changed.push('lanes');
     }
-    if (views != null) { this.setPortfolioKeepingStyle(keys('worldModelViews'), this.epicList(views, name, 'knowledge views')); changed.push('knowledge views'); }
     if (approval != null) { document.setIn(keys('bundleApproval'), document.createNode(this.epicApprovalNode(approval, current.bundleApproval, name), { flow: Boolean(document.getIn(keys('bundleApproval'), true)?.flow) })); changed.push('sign-off'); }
     if (changed.length) { this.portfolioChanged = true; this.summary.push(`${name}: ${changed.join(', ')} changed.`); }
   }
@@ -2098,7 +2090,7 @@ class StudioCandidate {
     const parsed = parseAgentDependencies(text, { source: relative });
     this.agents.set(agentId, {
       id: agentId, scope: 'repository', text, relative, fileName: path.basename(relative),
-      label: parsed.label, description: parsed.description, tools: [...parsed.tools], views: [...parsed.worldModelViews],
+      label: parsed.label, description: parsed.description, tools: [...parsed.tools],
       phases: [...parsed.phases], defaultFor: [...parsed.defaultFor], body: null, touched: false,
       created: !existing, imported: true, previousText: existing?.text ?? null
     });
@@ -2405,7 +2397,7 @@ class StudioCandidate {
     } else this.summary.push(`Approval group renamed to ${name}.`);
   }
 
-  createAgent({ id, label, description, role = 'blank', from = null, tools, views, instructions }) {
+  createAgent({ id, label, description, role = 'blank', from = null, tools, instructions }) {
     const agentId = requireId(id, 'An agent ID');
     if (this.agents.has(agentId)) throw new SingularityFlowError(`An agent called '${agentId}' already exists.`, { code: 'STUDIO_AGENT_EXISTS' });
     const presets = agentRolePresets(this.content);
@@ -2422,8 +2414,7 @@ class StudioCandidate {
       : source ? starterInstructions(this.agentBody(source)) : preset.instructions;
     this.agents.set(agentId, {
       id: agentId, scope: 'repository', text: null, relative: posix(path.join(this.agentsRoot, `${agentId}.agent.md`)),
-      fileName: `${agentId}.agent.md`, label: name, description: what, tools: toolList,
-      views: [...new Set((views ?? preset.views).map(String))], phases: [], defaultFor: [],
+      fileName: `${agentId}.agent.md`, label: name, description: what, tools: toolList, phases: [], defaultFor: [],
       body: newAgentBody(name, starter), touched: true, created: true
     });
     const skills = source ? [...this.attachedSkills(source), ...this.attachments.filter((entry) => entry.agent === source.id)]
@@ -2459,7 +2450,7 @@ class StudioCandidate {
       id: name, scope: 'repository', relative: posix(path.join(this.agentsRoot, `${name}.agent.md`)), fileName: `${name}.agent.md`,
       text: userDefinedAgentHeader({ name, label, description, manifestSha256: change.manifestSha256 }),
       // The repository boundary every agent carries, then the main file's own instructions unchanged.
-      label, description, tools, views: [], phases: [], defaultFor: [], touched: true, created: true,
+      label, description, tools, phases: [], defaultFor: [], touched: true, created: true,
       body: [REPOSITORY_AGENT_BOUNDARY, '', String(change.instructions ?? '').trim(), '', AGENT_CLARIFICATION_GUIDANCE].join('\n')
     });
     this.summary.push(`User-defined agent ${label}: its folder (${files.length} file${files.length === 1 ? '' : 's'}) copied unchanged to singularity/user-defined/${name}/; its main file's instructions are the agent's.`);
@@ -2502,7 +2493,7 @@ class StudioCandidate {
     this.summary.push(`User-defined agent ${label}: its folder replaced (${files.length} file${files.length === 1 ? '' : 's'}${removed ? `, ${removed} removed` : ''}); its step and workflow are unchanged, and running Stories keep the folder they started with.`);
   }
 
-  updateAgent({ id, label, description, tools, views, instructions, phases }) {
+  updateAgent({ id, label, description, tools, instructions, phases }) {
     const agent = this.touch(this.requireAgent(requireId(id, 'An agent ID')));
     if (label != null) agent.label = requireLabel(label, 'The agent');
     if (phases != null) {
@@ -2513,7 +2504,6 @@ class StudioCandidate {
     }
     if (description != null) agent.description = String(description).replace(/\s+/g, ' ').trim() || agent.description;
     if (tools != null) agent.tools = [...new Set(tools.map(String).filter(Boolean))];
-    if (views != null) agent.views = [...new Set(views.map(String).filter(Boolean))];
     if (instructions != null) {
       const body = String(instructions).trim();
       if (!body) throw new SingularityFlowError(`${agent.label} needs instructions.`, { code: 'STUDIO_AGENT_INVALID' });
@@ -2591,7 +2581,7 @@ class StudioCandidate {
           this.agents.set(packagedDefault.id, {
             id: packagedDefault.id, scope: 'bundled', text: packagedDefault.text, relative: null,
             fileName: path.basename(packagedDefault.file), label: packagedDefault.label, description: packagedDefault.description,
-            tools: [...packagedDefault.tools], views: [...packagedDefault.worldModelViews], phases: [...packagedDefault.phases],
+            tools: [...packagedDefault.tools], phases: [...packagedDefault.phases],
             defaultFor: [...packagedDefault.defaultFor], body: null, touched: false, created: false
           });
         }
@@ -2640,7 +2630,7 @@ class StudioCandidate {
     this.summary.push(`Installed blueprint ${profile.label ?? workflowId}: ${profile.phases.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
-  createPhase({ id, label, description, output, changesCode, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification, afterStep, template, artifactSet, artifactFile, intent, because }) {
+  createPhase({ id, label, description, output, changesCode, inputs, approval, agent, copyOf, copyFromWorkflow, authoringSkill, clarification, afterStep, template, artifactSet, artifactFile, intent, because }) {
     const phaseId = requireId(id, 'A step ID');
     if (this.phase(phaseId)) throw new SingularityFlowError(`A step called '${phaseId}' already exists.`, { code: 'STUDIO_PHASE_EXISTS' });
     const name = requireLabel(label, 'The step');
@@ -2711,7 +2701,7 @@ class StudioCandidate {
     // Absent or null leaves a list as it is, as in phase.update: a new step has none, a copy keeps its source's.
     const inputList = changeList(inputs, `The inputs of ${name}`, 'STUDIO_PHASE_UNKNOWN');
     if (inputList) this.document.setIn(['phases', phaseId, 'inputs'], this.document.createNode(this.inputEntries(inputList, node.inputs ?? [])));
-    // Step World Model views belonged to the removed registered World Model; nothing is written.
+    // A change from an older Studio may still carry `views`: step World Model views were removed, so it is not read.
     if (copyOf && approval != null) {
       const current = approvalSummary(node.approval);
       const unchanged = approval === 'none' ? current.mode === 'none'
@@ -2781,7 +2771,7 @@ class StudioCandidate {
     });
   }
 
-  updatePhase({ id, workflow, label, description, output, changesCode, inputs, approval, views, clarification, clarificationPolicy, authoringSkill, afterStep, qualityCommands, template, artifactSet, artifactFile, intent, because, reset }) {
+  updatePhase({ id, workflow, label, description, output, changesCode, inputs, approval, clarification, clarificationPolicy, authoringSkill, afterStep, qualityCommands, template, artifactSet, artifactFile, intent, because, reset }) {
     const phaseId = this.requirePhase(requireId(id, 'A step ID'));
     const name = this.phaseLabel(phaseId);
     // Shared once the change set is applied: a step this change set also adds to another workflow
@@ -2858,7 +2848,7 @@ class StudioCandidate {
       this.automaticOffReason(scope, signOff);
       changed.push(approval !== 'none' && approval.rejectTo != null ? 'sign-off and send-back targets' : 'sign-off');
     }
-    // Step World Model views belonged to the removed registered World Model; nothing is written.
+    // A change from an older Studio may still carry `views`: step World Model views were removed, so it is not read.
     if (authoringSkill !== undefined) {
       // The drafting skill is per workflow on a shared step, like sign-off and inputs.
       const scope = scopeFor('authoringSkill');

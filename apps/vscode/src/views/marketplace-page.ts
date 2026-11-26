@@ -134,6 +134,11 @@ export function studioTargetFor(act: MarketplaceAct, item: MarketplaceItem): Stu
       return { studio: { view: 'library', agentWorkflow: { target: `${item.marketplace}/${item.id}`, update: false } },
         notice: `Workflow Studio shows the workflow ${item.name} becomes. Make it there, then review its import.` };
     }
+    // An index's workflow: Studio fetches its bundle (checked against the digest the index pins) and opens its Import… review.
+    if (item.kind === 'workflow' && item.marketplaceKind === 'index') {
+      return { studio: { view: 'library', marketWorkflow: reference },
+        notice: `Workflow Studio fetches ${item.name}'s bundle, checks it and opens its import review. Confirm it there, then publish.` };
+    }
     if (item.kind === 'skill') {
       return { studio: { view: 'library', preview: { reference, replace: item.conflict?.replaces === true } }, notice: `Workflow Studio shows ${item.name}'s exact text. Add it there, then publish.` };
     }

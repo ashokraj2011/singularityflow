@@ -43,7 +43,9 @@ function engineAnswer({ templates = true, newest = false } = {}) {
         { id: 'nightly', kind: 'workflow', version: '1.0.0', label: 'Nightly checks' },
         { id: 'docs-server', kind: 'mcp-server', version: '1.1.0', label: 'Docs server', sha256: '9'.repeat(64) },
         { id: 'jira-server', kind: 'mcp-server', version: '1.0.0', label: 'Jira server', sha256: 'a'.repeat(64) },
-        { id: 'lint-source', kind: 'generated', version: '1.0.0', label: 'Lint report', urlTemplate: 'https://catalog.example.org/{workId}.md', phase: 'design', target: 'artifacts/design/lint.md' }] }) }
+        { id: 'lint-source', kind: 'generated', version: '1.0.0', label: 'Lint report', urlTemplate: 'https://catalog.example.org/{workId}.md', phase: 'design', target: 'artifacts/design/lint.md' },
+        { id: 'review-notes', kind: 'generated', version: '1.0.0', label: 'Review notes', urlTemplate: 'https://catalog.example.org/r/{workId}.md', phase: 'review', target: 'artifacts/review/notes.md' },
+        { id: 'portable-feature', kind: 'workflow', version: '1.0.0', label: 'Portable feature', url: 'https://catalog.example.org/portable.json', sha256: 'b'.repeat(64) }] }) }
     ],
     library: [{ id: 'requirements-writer', label: 'Requirements writer', tags: [] }, { id: 'web-e2e-test-generation', label: 'Web tests', tags: [] },
       { id: 'house-style', label: 'House style', description: 'Our naming rules.', tags: [] }],
@@ -61,7 +63,8 @@ function engineAnswer({ templates = true, newest = false } = {}) {
         source: { kind: 'marketplace', marketplace: 'shared', entry: 'docs-server', version: '1.0.0' } }
     },
     workflows: { 'qa-flow': { label: 'QA flow', archived: false }, 'docs-flow': { label: 'Docs flow', archived: true } },
-    steps: { design: { label: 'Design', agent: 'architect' } },
+    steps: { design: { label: 'Design', agent: 'architect' },
+      review: { label: 'Review', agent: 'reviewer', readOnly: { workflow: 'feature', label: 'Feature', copy: 'feature-copy', copyLabel: 'Feature copy' } } },
     unapproved: [{ id: 'pending', label: 'Pending catalog', kind: 'index', change: 'added', words: 'Trusted only in your working copy.' }]
   })));
 }
@@ -107,6 +110,11 @@ test('each status has its buttons, and each button is one of Workflow Studio\'s 
   assert.deepEqual(routes('market:shared/mcp-server/docs-server'), { update: { view: 'library', preview: { reference: 'market:shared/docs-server', replace: true, as: 'mcp-server' } },
     open: { view: 'library' }, remove: { view: 'library', removeImport: 'mcp-server:docs-server' } });
   assert.deepEqual(routes('market:shared/generated/lint-source'), { install: { view: 'library', browse: 'shared' } });
+  // A generated source whose agent is read-only: the engine would refuse it, so no Install (its row says what to do).
+  assert.deepEqual(routes('market:shared/generated/review-notes'), {});
+  // An index's workflow with its pinned bundle: Studio fetches and checks it, then opens Import… for its review.
+  assert.deepEqual(routes('market:shared/workflow/portable-feature'), { install: { view: 'library', marketWorkflow: 'market:shared/portable-feature' } });
+  assert.match(studioTargetFor('install', item('market:shared/workflow/portable-feature')).notice, /fetches Portable feature's bundle, checks it and opens its import review\./u);
   assert.match(studioTargetFor('install', item('market:shared/generated/lint-source')).notice, /choose Set up on Lint report, then publish\.$/u);
   assert.deepEqual(routes('marketplace:pending'), { approve: { view: 'changes' } });
   // Checked for newer versions: an item newer in its marketplace's newest commit is offered Studio's Read its newest commit.
@@ -136,7 +144,7 @@ test('the page shows tabs, filters and one row per item with its status, and no 
   assert.doesNotMatch(marketplacePageHtml({ catalog: marketplaceCatalogFrom(engineAnswer({ templates: false })), busy: false, error: null, notice: null }), /mkt-tab-template/u);
   // An MCP server and a generated source each have a tab while one is listed.
   assert.match(html, /data-tab="mcp-server"[^>]*>MCP servers <span class="mkt-count">2<\/span>/u);
-  assert.match(html, /data-tab="generated"[^>]*>Generated <span class="mkt-count">1<\/span>/u);
+  assert.match(html, /data-tab="generated"[^>]*>Generated <span class="mkt-count">2<\/span>/u);
   assert.match(html, /aria-selected="true"\s+tabindex="0">Skills <span class="mkt-count">4<\/span> <span class="mkt-badge mkt-update-available" title="1 update available">1<\/span>/u);
   // Filters by what the engine says.
   for (const id of ['mkt-search', 'mkt-status', 'mkt-marketplace', 'mkt-lifecycle']) assert.match(html, new RegExp(`id="${id}"`, 'u'), id);
@@ -155,6 +163,9 @@ test('the page shows tabs, filters and one row per item with its status, and no 
   assert.deepEqual(buttons('here:library-skill:house-style'), ['open', 'remove']);
   assert.match(rowOf('here:library-skill:house-style'), /<span class="mkt-badge mkt-local-only">Only here<\/span>/u);
   assert.deepEqual(buttons('market:shared/workflow/nightly'), []);
+  assert.deepEqual(buttons('market:shared/workflow/portable-feature'), ['install']);
+  assert.deepEqual(buttons('market:shared/generated/review-notes'), []);
+  assert.match(rowOf('market:shared/generated/review-notes'), /which is read-only, so it cannot fetch this\. Duplicate Feature first/u);
   assert.match(rowOf('market:acme/skill/web-xray-creation'), /aria-label="Install web-xray-creation" title="Propose adding it to the skill library, reviewed like any change\.">Install…<\/button>/u);
   assert.match(rowOf('here:workflow:qa-flow'), /Made from agent qa-agent/u);
   // The marketplace not approved yet: above the tabs, with its way to the waiting change; never a tab row.
@@ -224,6 +235,9 @@ test('the host takes a row\'s key, never a reference or a command, and opens Wor
   assert.match(studio, /MARKETPLACE_AGENT\.test\(flow\.target\)/u);
   assert.match(studio, /IMPORT_KEY\.test\(requested\.removeImport\)/u);
   assert.match(studio, /STUDIO_AGENT_ID\.test\(requested\.browse\) \? \{ view: 'library', browse: requested\.browse \}/u);
+  assert.match(studio, /MARKET_SKILL_REFERENCE\.test\(requested\.marketWorkflow\)\s*\? \{ view: 'library', marketWorkflow: requested\.marketWorkflow \}/u);
+  assert.match(studio, /this\.client\.run<\{ bundlePath\?: string \}>\(\['workflow', 'import', reference, '--dry-run', '--json'\]\)/u);
+  assert.match(studio, /this\.requestImport\(result\.bundlePath\);\s*\} catch/u);
   assert.match(studio, /STUDIO_AGENT_ID\.test\(requested\.marketplaceRead\)\s*\? \{ view: 'library', marketplaceRead: requested\.marketplaceRead \}/u);
   assert.match(studio, /preview\.as === 'mcp-server' \? \{ as: preview\.as \}/u);
   assert.match(studio, /WORKFLOW_SELECTOR\.test\(retire\.selector\)/u);

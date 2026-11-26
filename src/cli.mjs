@@ -5527,14 +5527,25 @@ async function workflowCommand(positionals, options) {
     const {
       importPlanText, importResolutionOptions, planWorkflowImport, readWorkflowBundle, workflowTransferProposal
     } = await import('./workflow-transfer.mjs');
-    const inputPath = commandLineFile(root, requirePositional(positionals, 2, 'workflow bundle file'), { reads: true });
+    // A workflow an index marketplace lists: fetched, checked against its pinned digest and saved where this import reads
+    // a bundle (marketplace-workflow-bundle.mjs), then the same review. --confirm fetches it again, so it is the same bytes.
+    const named = requirePositional(positionals, 2, 'workflow bundle file');
+    const { isMarketplaceReference } = await import('./marketplace-workflow-bundle.mjs');
+    const fetchedBundle = isMarketplaceReference(named) ? await withApprovedConfigurationRead(root, async () =>
+      (await import('./marketplace-workflow-bundle.mjs')).fetchMarketplaceWorkflowBundle(root, named), { preferAuthority: true }) : null;
+    const inputPath = fetchedBundle?.file ?? commandLineFile(root, named, { reads: true });
+    const fetchedFields = fetchedBundle ? { bundlePath: fetchedBundle.file, marketplaceSource: { reference: fetchedBundle.reference,
+      marketplace: fetchedBundle.marketplace, entry: fetchedBundle.entry } } : {};
     const bundle = await readWorkflowBundle(inputPath);
     // Each same-name conflict needs a choice: --resolve <kind>:<id>=keep|replace|rename[:<name>].
     const choices = importResolutionOptions(optionStrings(options, 'resolve'), options['resolve-all']);
     if (optionBoolean(options, 'dry-run')) {
       const plan = await withApprovedConfigurationRead(root, () =>
         planWorkflowImport(root, bundle, choices), { preferAuthority: true });
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...plan, ...fetchedFields }, null, 2));
+      if (fetchedBundle) {
+        console.log(`Workflow ${fetchedBundle.entry.label} ${fetchedBundle.entry.version} from marketplace ${fetchedBundle.marketplace.label}, checked against the bundle its index pins.`);
+      }
       // Who an imported approval group puts in or takes out is named, "you" included (git's identity here).
       let me = null;
       try { me = identity(root, { offline: true }); } catch { me = null; }

@@ -23,8 +23,11 @@
  * - An index also lists MCP servers, generated sources and workflows. An MCP server is added for the agents that may use
  *   its tools, which its preview shows, so its row has the preview and the person names the agents (an update keeps those
  *   it was added for). A generated source is fetched by the agent that drafts its step, so its install names that agent,
- *   and a step no workflow here has, or no agent drafts, says so instead. `workflow import` reads a bundle from a file
- *   only, so an index's workflow has no install: its row says why and what to do instead.
+ *   and a step no workflow here has, or no agent drafts, says so instead; so does an agent of SFlow's own workflows,
+ *   which is read-only, with the duplicate of that workflow that gives the source an agent of its own. An index's
+ *   workflow is installed by `workflow import "market:<ID>/<ENTRY>"`, which fetches its bundle, checks the digest the
+ *   index pins and shows the import's review (marketplace-workflow-bundle.mjs); nothing is imported until the person
+ *   confirms it there.
  *
  * analyzeMarketplaceCatalog is pure; readMarketplaceCatalog reads, and writes nothing but the per-commit listing a task
  * already keeps.
@@ -184,8 +187,9 @@ function cameFromWords(record, { trusted, listed, labels }) {
 /**
  * The page from what was read: `marketplaces` each `{ id, label, kind, commit, items, warning }` with its items from
  * repositoryItems or indexItems, `library` the skill library's skills, `imports` the import record's entries,
- * `workflows` each workflow ID here with `{ label, archived }`, `steps` each step ID here with `{ label, agent }` (the
- * agent that drafts it, which fetches a generated source for it), `unapproved` what the working copy trusts that is
+ * `workflows` each workflow ID here with `{ label, archived }`, `steps` each step ID here with `{ label, agent, readOnly }` (the
+ * agent that drafts it, which fetches a generated source for it; `readOnly` when that agent is one of SFlow's own workflows',
+ * with the workflow to duplicate), `unapproved` what the working copy trusts that is
  * not approved (task-skills.mjs unapprovedMarketplaces). `only`, `kind` and `search` narrow the rows. A Git repository
  * marketplace read at its newest commit too (`newest`) carries `newest`: `{ items }` there (repositoryItems), `{ same:
  * true }` when that is the commit trusted, or `{ error }` in words; each of its items then says what changed there
@@ -376,7 +380,14 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       status = 'not-installed';
       if (!step) statusWords = `It is fetched for ${stepWords}, which no workflow here has, so nothing would fetch it.`;
       else if (!step.agent) statusWords = `No agent drafts ${stepWords} here, so nothing would fetch it.`;
-      else {
+      else if (step.readOnly) {
+        // The engine refuses a change to an agent of SFlow's own workflows (SEEDED_WORKFLOW_READ_ONLY): say so, with the way on.
+        const copy = step.readOnly;
+        statusWords = `Agent ${step.agent} drafts ${stepWords} in SFlow's own workflow ${copy.label}, which is read-only, so it cannot fetch this. `
+          + `Duplicate ${copy.label} first, then add this source for the copy's own agent and step.`;
+        actions.duplicate = action(`singularity-flow workflow duplicate ${copy.workflow} ${copy.copy} --label ${JSON.stringify(copy.copyLabel)} --dry-run`,
+          'Preview a copy of that workflow with agents of its own.');
+      } else {
         statusWords = `Not installed here: agent ${step.agent} would fetch it into ${source.target} for each Story, when ${stepWords} starts.`;
         actions.install = action(addCommand('generated', market.id, entry.name, { agent: step.agent }), `Propose that agent ${step.agent} fetches it, reviewed.`);
       }
@@ -388,6 +399,25 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       importable: Boolean(actions.install || actions.update || install), actions });
   };
 
+  /**
+   * An index marketplace's workflow: its bundle is fetched, checked against the digest the index pins and reviewed as any
+   * workflow import (`workflow import "market:<ID>/<ENTRY>"`); confirming that review is the person's own step.
+   */
+  const bundleRow = (market, entry) => {
+    const named = JSON.stringify(reference(market.id, entry.name));
+    const here = workflows[entry.name] ?? null;
+    const actions = entry.sha256 ? {
+      preview: action(`singularity-flow workflow import ${named} --dry-run`, 'Fetch its bundle, check its digest, and show what its import adds.'),
+      install: action(`singularity-flow workflow import ${named} --dry-run --propose`, 'Show its import as a proposal, with the command that confirms it.')
+    } : {};
+    return row({ key: `market:${market.id}/workflow/${entry.name}`, kind: 'workflow', id: entry.name, name: entry.label, description: entry.description,
+      source: 'marketplace', marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version,
+      facts: marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [] }, market.id), tags: entry.tags, status: 'not-installed',
+      statusWords: here ? `A workflow called ${entry.name} is here already: its import review asks whether to keep yours, replace it or import this one under another name.`
+        : 'Not installed here: its bundle is fetched and checked against the digest its marketplace pins, and you confirm its import after its review.',
+      importable: Boolean(entry.sha256), actions });
+  };
+
   for (const market of markets) {
     if (market.warning || market.skipped) continue;
     for (const entry of [...(market.items ?? [])].sort((left, right) => byText(`${left.kind}:${left.name}`, `${right.kind}:${right.name}`))) {
@@ -395,15 +425,7 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       else if (entry.kind === 'agent' && market.kind === 'repository') rows.push(agentRow(market, entry));
       else if (['agent', 'template', 'mcp-server'].includes(entry.kind)) rows.push(importRow(market, entry));
       else if (entry.kind === 'generated') rows.push(generatedRow(market, entry));
-      else if (entry.kind === 'workflow') {
-        // `workflow import` reads a bundle from a file only, so an index's workflow has no install here: the row says why
-        // and what to do instead, and has no button.
-        rows.push(row({ key: `market:${market.id}/workflow/${entry.name}`, kind: 'workflow', id: entry.name, name: entry.label, description: entry.description,
-          source: 'marketplace', marketplace: market.id, labels, marketplaceKind: market.kind, version: entry.version,
-          facts: marketplaceSkillCandidate({ name: entry.name, tags: entry.tags, pdlcTasks: [] }, market.id), tags: entry.tags, status: 'not-installed',
-          statusWords: `Not installed here: SFlow imports a workflow from a bundle file, not from a marketplace's link. Save the bundle${entry.url ? ` from ${entry.url}` : ''},`
-            + ' then preview its import with singularity-flow workflow import, that file, --dry-run and --propose.', importable: false }));
-      }
+      else if (entry.kind === 'workflow') rows.push(bundleRow(market, entry));
     }
   }
 
@@ -621,8 +643,40 @@ async function readApprovedCatalog(root, { only, kind, search, newest, fetchImpl
     }
     marketplaces.push(read);
   }
+  // A generated source's agent may be one of SFlow's own workflows', which the engine keeps read-only: known only when needed.
+  if (marketplaces.some((market) => (market.items ?? []).some((item) => item.kind === 'generated'))) {
+    await markReadOnlySteps(configRoot, definition, steps, agents).catch(() => null);
+  }
   return analyzeMarketplaceCatalog({ marketplaces, library: [...library.skills.values()], imports: ledger.imports ?? {}, workflows, steps, unapproved, warnings,
     only, kind, search, newest });
+}
+
+/**
+ * Mark each step whose drafting agent belongs to SFlow's own (seeded) workflows, as the engine's own check finds them
+ * (seeded-workflow-protection.mjs, what refuses a generated source added to it), with the workflow to duplicate first:
+ * one that has the step (else one the agent drafts in), and a copy ID no workflow here uses.
+ */
+async function markReadOnlySteps(configRoot, definition, steps, agents) {
+  const [{ readFile }, path, YAML, { seededWorkflowProtection }] = await Promise.all([import('node:fs/promises'), import('node:path'), import('yaml'),
+    import('./seeded-workflow-protection.mjs')]);
+  const parsed = async (relative) => YAML.default.parse(await readFile(path.join(configRoot, relative), 'utf8').catch(() => '')) ?? {};
+  const story = await parsed('singularity/workflow.yml');
+  const protection = await seededWorkflowProtection(story, await parsed('singularity/portfolio.yml'), agents);
+  const protectedAgents = new Set(protection.agents);
+  const used = new Set(Object.keys(story.workTypes ?? {}));
+  const copyId = (id) => {
+    for (let index = 1; ; index += 1) { const candidate = index === 1 ? `${id}-copy` : `${id}-copy-${index}`; if (!used.has(candidate)) return candidate; }
+  };
+  for (const [id, step] of Object.entries(steps)) {
+    if (!step.agent || !protectedAgents.has(step.agent)) continue;
+    const drafted = new Set(agents.find((agent) => agent.id === step.agent)?.defaultFor ?? []);
+    const workflows = [...protection.workflows].sort(byText);
+    const workflow = workflows.find((name) => (story.workTypes[name]?.phases ?? []).includes(id))
+      ?? workflows.find((name) => (story.workTypes[name]?.phases ?? []).some((phase) => drafted.has(phase)));
+    if (!workflow) continue;
+    const label = story.workTypes[workflow]?.label ?? workflow;
+    step.readOnly = { workflow, label, copy: copyId(workflow), copyLabel: `${label} copy` };
+  }
 }
 
 // ---------------------------------------------------------------------------------------------- a terminal

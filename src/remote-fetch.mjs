@@ -18,6 +18,9 @@ import { SingularityFlowError } from './util.mjs';
 import { measurePerformance } from './dx-timing-context.mjs';
 
 export const DEFAULT_REMOTE_MAX_BYTES = 1024 * 1024;
+/** A body over the caller's byte limit, and a redirect off the origins a caller allows: codes a caller can answer. */
+export const REMOTE_TOO_LARGE = 'REMOTE_CONTENT_TOO_LARGE';
+export const REMOTE_ORIGIN_REFUSED = 'REMOTE_REDIRECT_ORIGIN_REFUSED';
 export const HARD_REMOTE_MAX_BYTES = 10 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 const TOKEN_PATTERN = /\{([^}]+)\}/g;
@@ -104,7 +107,7 @@ function pinnedHttpsFetch(url, { signal, headers }, resolved, maxBytes) {
       response.on('data', (chunk) => {
         size += chunk.length;
         if (size > maxBytes) {
-          response.destroy(new SingularityFlowError(`Remote content ${url} exceeds its ${maxBytes} byte limit.`));
+          response.destroy(new SingularityFlowError(`Remote content ${url} exceeds its ${maxBytes} byte limit.`, { code: REMOTE_TOO_LARGE, details: { maxBytes } }));
           return;
         }
         chunks.push(chunk);
@@ -175,6 +178,8 @@ export function remoteValidator(value) {
  * `label` names the thing being read in every refusal. `conditional: { etag, lastModified }` asks whether it changed
  * (If-None-Match, If-Modified-Since): a 304 then returns `{ notModified: true, url, resolvedUrl, etag, lastModified }`
  * and no bytes, so the caller keeps what it read before. Every other check is the same for a conditional request.
+ * `allowedOrigins` keeps every request, the first and each redirect, on those origins (REMOTE_ORIGIN_REFUSED otherwise),
+ * for content a trust names by its origins; a body over `maxBytes` is REMOTE_TOO_LARGE.
  */
 export async function fetchRemoteBytes(url, options = {}) {
   return measurePerformance('network', 'http.download', () => fetchRemoteBytesImpl(url, options));
@@ -188,13 +193,23 @@ async function fetchRemoteBytesImpl(url, {
   accept = '*/*',
   label = 'Remote content',
   noun = 'content',
-  conditional = null
+  conditional = null,
+  allowedOrigins = null
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new SingularityFlowError('This Node runtime does not provide HTTPS fetch support.');
   if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > HARD_REMOTE_MAX_BYTES) {
     throw new SingularityFlowError(`${label} byte limit must be between 1 and ${HARD_REMOTE_MAX_BYTES}.`);
   }
   let current = validatePublicHttpsUrl(url, `${label} URL`);
+  const origins = allowedOrigins ? new Set([...allowedOrigins].map(String)) : null;
+  const onAllowedOrigin = (target) => {
+    const origin = new URL(target).origin;
+    if (origins && !origins.has(origin)) {
+      throw new SingularityFlowError(`${label} would be read from ${origin}, which is not one of the origins it may come from.`, { code: REMOTE_ORIGIN_REFUSED, details: { origin } });
+    }
+    return target;
+  };
+  onAllowedOrigin(current);
   const useFixtures = fetchImpl === globalThis.fetch && Boolean(process.env[REMOTE_FIXTURES_ENV]);
   const etag = remoteValidator(conditional?.etag);
   const lastModified = remoteValidator(conditional?.lastModified);
@@ -212,7 +227,10 @@ async function fetchRemoteBytesImpl(url, {
           ? await pinnedHttpsFetch(current, requestOptions, resolved, maxBytes)
           : await fetchImpl(current, requestOptions);
       }
-      catch (error) { throw new SingularityFlowError(`Unable to fetch ${current}: ${error.name === 'AbortError' ? 'request timed out' : error.message}`); }
+      catch (error) {
+        if (error?.code === REMOTE_TOO_LARGE) throw error;
+        throw new SingularityFlowError(`Unable to fetch ${current}: ${error.name === 'AbortError' ? 'request timed out' : error.message}`);
+      }
       finally { clearTimeout(timeout); }
     }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
@@ -220,7 +238,7 @@ async function fetchRemoteBytesImpl(url, {
       const rawLocation = response.headers.get('location');
       const location = Array.isArray(rawLocation) ? rawLocation[0] : rawLocation;
       if (!location) throw new SingularityFlowError(`${label} redirect has no location: ${current}`);
-      current = validatePublicHttpsUrl(new URL(location, current).toString(), `${label} redirect`);
+      current = onAllowedOrigin(validatePublicHttpsUrl(new URL(location, current).toString(), `${label} redirect`));
       continue;
     }
     // Not changed since the validators it was asked with: only an answer to a conditional request.
@@ -230,7 +248,7 @@ async function fetchRemoteBytesImpl(url, {
     if (!response.ok) throw new SingularityFlowError(`${label} ${current} returned HTTP ${response.status}.`);
     const bytes = Buffer.from(await response.arrayBuffer());
     if (!bytes.length) throw new SingularityFlowError(`${label} ${current} returned empty ${noun}.`);
-    if (bytes.length > maxBytes) throw new SingularityFlowError(`${label} ${current} exceeds its ${maxBytes} byte limit.`);
+    if (bytes.length > maxBytes) throw new SingularityFlowError(`${label} ${current} exceeds its ${maxBytes} byte limit.`, { code: REMOTE_TOO_LARGE, details: { maxBytes } });
     // A validator is returned only when the server gave one, for a caller that asks next time whether it changed.
     const validators = { etag: header(response, 'etag'), lastModified: header(response, 'last-modified') };
     return { bytes, size: bytes.length, sha256: sha256Hex(bytes), url, resolvedUrl: current,

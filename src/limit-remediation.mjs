@@ -52,6 +52,9 @@ const PERSON_CHANGES = Object.freeze({
   USER_AGENT_MAIN_TOO_LARGE: 'Shorten the agent\'s main instructions, moving detail into files beside it, then run the same command again.',
   APPROVED_CONFIGURATION_TOO_LARGE: 'The approved configuration is over its size limit: a configuration approver removes what is no longer used, then run the same command again.',
   WORKFLOW_BUNDLE_LIMIT_EXCEEDED: 'Export fewer workflows in one bundle, then run the same command again.',
+  // A file at a link or a marketplace is over the size SFlow reads: only its publisher makes it smaller.
+  REMOTE_CONTENT_TOO_LARGE: 'The file at that link is over the size SFlow reads: ask its publisher for a smaller one, then run the same command again.',
+  MARKETPLACE_WORKFLOW_TOO_LARGE: 'The marketplace\'s workflow bundle is over the size SFlow reads: ask its maintainers to publish it with fewer workflows, then install it again.',
   WORKFLOW_INTENT_LIMIT: 'Name fewer intents for this workflow, then run the same command again.',
   WORKFLOW_BUILD_SOURCE_TOO_LARGE: 'Build from a smaller source, or split it, then run the same command again.',
   WORKFLOW_BUILD_TRANSFER_TOO_LARGE: 'Build fewer steps in one transfer, then run the same command again.',

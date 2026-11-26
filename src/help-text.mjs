@@ -461,10 +461,11 @@ Usage:
   singularity-flow workflow edit <ID> [--phases a,b,c] [--label TEXT] [--description TEXT] [--propose]
   singularity-flow workflow export --workflow ID [--workflow ID...] --out FILE [--json]
                                                         export selected workflows and their complete dependency closure
-  singularity-flow workflow import <FILE> [--dry-run] [--confirm PLAN-SHA256] [--propose] [--json]
+  singularity-flow workflow import <FILE|market:ID/ENTRY[@VERSION]> [--dry-run] [--confirm PLAN-SHA256] [--propose] [--json]
     [--resolve KIND:ID=keep|replace|rename[:NAME]]... [--resolve-all suggested|keep|replace|rename]
                                                         preview, then import an exact workflow bundle through configuration review;
-                                                        each same-name conflict needs a choice
+                                                        each same-name conflict needs a choice; market: fetches the bundle a trusted
+                                                        index lists, checked against the digest it pins, and reviews it the same way
   singularity-flow workflow import-team inspect <DIRECTORY> [--entry AGENT]... [--root DIRECTORY]...
     [--max-files N] [--max-total-bytes N] [--json]
                                                         capture a team's agents, skills and instructions (screened, never executed)

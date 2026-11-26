@@ -155,11 +155,12 @@ test('each item says whether it is installed here, has an update, is not install
   assert.equal(template.actions.update.command, `singularity-flow import add "market:shared/release-notes" --as template --id release-notes --sha256 ${'6'.repeat(64)} --replace --propose`);
   assert.equal(template.actions.remove.command, 'singularity-flow imports remove template:release-notes --propose');
   assert.equal(byKey.get('market:shared/agent/reviewer').actions.install.command, `singularity-flow import add "market:shared/reviewer" --as agent --sha256 ${'7'.repeat(64)} --propose`);
-  // An index's workflow: `workflow import` reads a bundle from a file only, so no button, and the row says what to do.
+  // An index's workflow: its bundle fetched, checked against the digest the index pins, and its import reviewed.
   const nightly = byKey.get('market:shared/workflow/nightly');
-  assert.deepEqual([nightly.status, nightly.importable, nightly.actions], ['not-installed', false, {}]);
-  assert.equal(nightly.statusWords, 'Not installed here: SFlow imports a workflow from a bundle file, not from a marketplace\'s link. Save the bundle from '
-    + 'https://catalog.example.org/nightly.json, then preview its import with singularity-flow workflow import, that file, --dry-run and --propose.');
+  assert.deepEqual([nightly.status, nightly.importable], ['not-installed', true]);
+  assert.deepEqual(Object.fromEntries(Object.entries(nightly.actions).map(([name, step]) => [name, step.command])), {
+    preview: 'singularity-flow workflow import "market:shared/nightly" --dry-run', install: 'singularity-flow workflow import "market:shared/nightly" --dry-run --propose' });
+  assert.equal(nightly.statusWords, 'Not installed here: its bundle is fetched and checked against the digest its marketplace pins, and you confirm its import after its review.');
   // An index's MCP server: added for the agents that may use its tools, which its preview shows; an update keeps them.
   const docs = byKey.get('market:shared/mcp-server/docs-server');
   assert.deepEqual([docs.kind, docs.status, docs.installedAs.agents, docs.update.words],
@@ -183,6 +184,14 @@ test('each item says whether it is installed here, has an update, is not install
   assert.deepEqual([coverage.status, coverage.statusWords, coverage.actions.remove.command], ['installed',
     'Installed here: agent architect fetches it for each Story, the same as in marketplace Shared.', 'singularity-flow imports remove generated:architect/coverage --propose']);
   assert.deepEqual([byKey.get('here:generated:developer/build-notes').kind, byKey.get('here:generated:developer/build-notes').status], ['generated', 'local-only']);
+  // The agent that drafts the step is one of SFlow's own workflows': the engine refuses to change it, so the row says so and
+  // offers the duplicate that gives the source an agent of its own, never an install the engine would refuse.
+  const readOnly = analyzeMarketplaceCatalog({ ...sample(), steps: { design: { label: 'Design', agent: 'architect',
+    readOnly: { workflow: 'feature', label: 'Feature', copy: 'feature-copy', copyLabel: 'Feature copy' } } } }).items.find((item) => item.key === 'market:shared/generated/lint-source');
+  assert.deepEqual([readOnly.status, readOnly.importable, Object.keys(readOnly.actions)], ['not-installed', false, ['duplicate']]);
+  assert.equal(readOnly.statusWords, 'Agent architect drafts step Design in SFlow\'s own workflow Feature, which is read-only, so it cannot fetch this. '
+    + 'Duplicate Feature first, then add this source for the copy\'s own agent and step.');
+  assert.equal(readOnly.actions.duplicate.command, 'singularity-flow workflow duplicate feature feature-copy --label "Feature copy" --dry-run');
   // Only here: written here, dropped by its marketplace, from a link, and from a marketplace that could not be read.
   assert.deepEqual([status('here:library-skill:house-style'), byKey.get('here:library-skill:house-style').statusWords],
     ['local-only', 'Written in this repository, or set up with SFlow: no marketplace has it.']);

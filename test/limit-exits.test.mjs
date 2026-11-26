@@ -91,7 +91,7 @@ const CODELESS_REVIEWED = Object.freeze({
   'src/assisted-convergence.mjs': 2, 'src/assisted-quality.mjs': 2, 'src/ast-adapter-contract.mjs': 1, 'src/ast-policy.mjs': 2,
   'src/clarification-markers.mjs': 1, 'src/cli.mjs': 2, 'src/commands/start.mjs': 1, 'src/config.mjs': 3, 'src/constitution.mjs': 1,
   'src/documents.mjs': 3, 'src/editor.mjs': 1, 'src/epic-sources.mjs': 5, 'src/fault-repair.mjs': 2, 'src/jira.mjs': 2,
-  'src/knowledge-projection.mjs': 5, 'src/ledger.mjs': 1, 'src/reinstall.mjs': 1, 'src/remote-fetch.mjs': 4, 'src/repair-budget.mjs': 5,
+  'src/knowledge-projection.mjs': 5, 'src/ledger.mjs': 1, 'src/reinstall.mjs': 1, 'src/remote-fetch.mjs': 2, 'src/repair-budget.mjs': 5,
   'src/repository-metadata.mjs': 1, 'src/source-grounded-review.mjs': 2, 'src/source-path-policy.mjs': 1, 'src/specification-quality.mjs': 3,
   'src/specifications.mjs': 6, 'src/story-start-documents.mjs': 4
 });

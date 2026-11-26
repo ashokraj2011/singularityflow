@@ -85,6 +85,9 @@ const OVERRIDES = {
   // A trusted marketplace's skill list kept in the clone's Git folder: per pinned commit for a Git repository, for an hour
   // for an HTTPS index, so a plan read does not read it again [ITW:REQ-010].
   'task-skills.mjs': 'projection',
+  // A trusted index's workflow bundle, kept exactly as fetched (and checked against the digest the index pins) in SFlow's
+  // private folder beside a marketplace agent's bundles, for `workflow import` to read; fetched again when it is gone.
+  'marketplace-workflow-bundle.mjs': 'projection',
   // Ask SFlow (codex/spec-ask-r1): a saved conversation is this person's own data on this machine, and the copy shared
   // to resume elsewhere is theirs too; neither is a Story's record. Its reads cite the Git history they read.
   'ask/conversation-store.mjs': 'local-authored',

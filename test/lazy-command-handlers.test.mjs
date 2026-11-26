@@ -1044,7 +1044,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // `work behaviour` is a person's own step and a registered mutation (person-step-catalog.mjs, command-registry.mjs)
     // [ITW:REQ-015]; the check, the choice and the last message's checks load only for a task. No new eager file.
     // 9,899,677 (measured for submit.mjs on itw-all2 with itw-walks merged, 2026-11-26): the rises above together. No new eager file.
-    assert.ok(closure.bytes <= 9_899_677, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,900,807 (measured for submit.mjs, +1,130 from 9,899,677 on its base c3b777ab1, 2026-11-26 on itw-market2): the hardened
+    // reader keeps a request and its redirects on the origins a trust allows and codes a body over its limit
+    // (remote-fetch.mjs), and that size refusal's way on for a link and an index's workflow bundle (limit-remediation.mjs);
+    // the bundle's fetch loads only for `workflow import market:…`. No new eager file.
+    assert.ok(closure.bytes <= 9_900_807, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1635,7 +1639,9 @@ test('the common session projection does not import attach, state stores or publ
   // hour asks whether it changed (remote-fetch.mjs, marketplace.mjs), the new flags (util.mjs) and `skill restore` and
   // /sf-marketplace in the tables the guard reads (command-registry.mjs, command-skills.mjs). No new eager file.
   // 4,361,681 (measured on itw-all2 with itw-walks merged, 2026-11-26): the rises above together. No new eager file.
-  assert.ok(current.bytes <= 4_361_681, `session current loads ${current.bytes} source bytes`);
+  // 4,362,811 (+1,130 from 4,361,681 on its base c3b777ab1, measured 2026-11-26 on itw-market2): the hardened reader's
+  // origin-pinned redirects and coded size refusal (remote-fetch.mjs) and its way on (limit-remediation.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_362_811, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

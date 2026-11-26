@@ -179,14 +179,15 @@ const STUDIO_AGENT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * What All skills and the Marketplace open Studio at: the Library's import preview of one marketplace skill, into the
  * skill master (an update when the library has it), or of an index marketplace's agent, template or MCP server; the
  * Library's entries of one trusted marketplace (Browse, where a generated source is set up), or its Read its newest
- * commit (to trust a newer commit, reviewed); the Skill master searched
+ * commit (to trust a newer commit, reviewed); an index's workflow, its bundle fetched and checked by the engine and
+ * opened in Import… (marketWorkflowImport); the Skill master searched
  * for one skill, or asking to delete it; a marketplace agent's conversion review (to make its workflow, or its update);
  * the Library's Remove of one import; or a workflow's Archive or Restore. Each is Studio's own route, checked here; the
  * change is published from Studio as a reviewed proposal.
  */
 export type StudioSkillFocus = { preview: { reference?: unknown; replace?: unknown; as?: unknown } } | { skill: string; remove?: boolean }
   | { agentWorkflow: { target?: unknown; update?: unknown } } | { removeImport: unknown } | { retire: { action?: unknown; selector?: unknown } }
-  | { browse: unknown } | { marketplaceRead: unknown };
+  | { browse: unknown } | { marketplaceRead: unknown } | { marketWorkflow: unknown };
 const MARKET_SKILL_REFERENCE = /^market:[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*(?:@[0-9A-Za-z][0-9A-Za-z.+-]{0,63})?$/;
 /** An import's key, as `imports` lists it: kind, then the agent's and the item's IDs. */
 const IMPORT_KEY = /^(?:skill|library-skill|template|agent|mcp-server|generated):[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)?$/;
@@ -205,6 +206,10 @@ function skillFocus(raw: unknown): Record<string, unknown> | null {
   if ('agentWorkflow' in requested) {
     const flow = record(requested.agentWorkflow);
     return typeof flow.target === 'string' && MARKETPLACE_AGENT.test(flow.target) ? { view: 'library', agentWorkflow: { target: flow.target, update: flow.update === true } } : null;
+  }
+  if ('marketWorkflow' in requested) {
+    return typeof requested.marketWorkflow === 'string' && requested.marketWorkflow.length <= MAX_REFERENCE_LENGTH && MARKET_SKILL_REFERENCE.test(requested.marketWorkflow)
+      ? { view: 'library', marketWorkflow: requested.marketWorkflow } : null;
   }
   if ('marketplaceRead' in requested) {
     return typeof requested.marketplaceRead === 'string' && requested.marketplaceRead.length <= 64 && STUDIO_AGENT_ID.test(requested.marketplaceRead)
@@ -274,6 +279,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     const canvasWorkflow = workflowId && /^(?:initiative:)?[a-z0-9]+(?:-[a-z0-9]+)*$/.test(workflowId) && workflowId.length <= 139 ? workflowId : null;
     const agentToOpen = agentFocus(agent);
     const skillToOpen = skillFocus(skill);
+    // An index's workflow is fetched by the engine and opened in Import…, the same review as any bundle.
+    const marketWorkflow = typeof skillToOpen?.marketWorkflow === 'string' ? skillToOpen.marketWorkflow : null;
+    if (WorkflowStudioPanel.current && marketWorkflow) void WorkflowStudioPanel.current.marketWorkflowImport(marketWorkflow);
     if (WorkflowStudioPanel.current) {
       WorkflowStudioPanel.current.panel.reveal(vscode.ViewColumn.Active);
       if (skillToOpen) {
@@ -299,7 +307,23 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     WorkflowStudioPanel.current.agentToOpen = agentToOpen;
     WorkflowStudioPanel.current.skillToOpen = skillToOpen;
     WorkflowStudioPanel.current.bundleToImport = importBundle;
+    if (marketWorkflow) void WorkflowStudioPanel.current.marketWorkflowImport(marketWorkflow);
     return WorkflowStudioPanel.current;
+  }
+
+  /**
+   * An index marketplace's workflow: `workflow import "market:…" --dry-run --json` fetches its bundle, checks it against the
+   * digest the index pins and keeps it in SFlow's private folder; Import… then reviews that bundle as any other, and
+   * nothing changes until the person confirms and publishes it.
+   */
+  private async marketWorkflowImport(reference: string): Promise<void> {
+    try {
+      const result = await this.client.run<{ bundlePath?: string }>(['workflow', 'import', reference, '--dry-run', '--json']);
+      if (!result.bundlePath || !path.isAbsolute(result.bundlePath)) { this.post({ type: 'studio.importFailed', message: 'The workflow bundle was not fetched.' }); return; }
+      this.requestImport(result.bundlePath);
+    } catch (error) {
+      this.post({ type: 'studio.importFailed', message: (error as Error).message });
+    }
   }
 
   /**

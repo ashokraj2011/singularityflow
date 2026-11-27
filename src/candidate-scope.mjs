@@ -16,7 +16,7 @@ import path from 'node:path';
 import { isAllowedTestAutomationPath } from './code-delivery-tests.mjs';
 import { accountedAmendmentPaths, classificationContext, departureCandidatePaths } from './plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from './specifications.mjs';
-import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationChangePath, isEditorConfigurationPath } from './application-paths.mjs';
 import { storyLocation } from './story-paths.mjs';
 
 /** Dirty files excluded from this delivery must be accounted for before it is published. */
@@ -28,7 +28,9 @@ export async function unreconciledCandidatePaths(root, config, workflow, phase, 
   const { inspectLifecycleWorktree } = await import('./lifecycle-worktree.mjs');
   return [...new Set(inspectLifecycleWorktree(root, config, workflow).entries.flatMap(entry =>
     [entry.path, entry.originalPath].filter(item => item?.kind === 'utf8').map(item => ({ path: item.value, untracked: entry.type === 'untracked' })))
-    .filter(item => isApplicationChangePath(item.path, { ...context, untracked: item.untracked }) && !scope.allows(item.path))
+    // An editor's own settings stay out of the code, as any file no plan names, but are never asked about (office, 2026-11-27).
+    .filter(item => isApplicationChangePath(item.path, { ...context, untracked: item.untracked }) && !scope.allows(item.path)
+      && !isEditorConfigurationPath(item.path))
     .map(item => item.path))].sort();
 }
 

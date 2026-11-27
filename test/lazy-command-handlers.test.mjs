@@ -1144,6 +1144,16 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,934,141 (measured for start.mjs, +78 over 9,934,063 on the merge of fpl-m3 with main 4b925b87d, 2026-11-27;
     // submit.mjs 9,930,393, +78): `rules` registered as a read with /sf-explain as its skill (command-registry.mjs +53,
     // command-skills.mjs +25) [FPL:REQ-019, REQ-038]. No new eager file.
+    // 9,938,035 (measured for start.mjs, +3,894 over 9,934,141 on the merge of fix-source-loop with main f6353df44,
+    // 2026-11-27; submit.mjs 9,934,287): an editor's or IDE's own files (.vscode/, .idea/, Eclipse metadata) never stop
+    // a step: not a document step's submission, as its publication already said, nor a code step's start, plan question
+    // or approval (application-paths.mjs isEditorConfigurationPath +588, state.mjs +1,012, generation-boundary.mjs
+    // +302, candidate-scope.mjs +203, lifecycle-worktree.mjs +423, recovery-preparation-context.mjs +66,
+    // finding-escalation.mjs); with no return a refusal's route is the set-aside, never a plan decision, and it waits
+    // on the person, never escalated (cross-phase-change.mjs +760) [office loop, 2026-11-27]. No new eager file.
+    // 9,938,047 (measured for start.mjs, +12 over 9,938,035, 2026-11-27 on fix-source-loop; submit.mjs 9,934,299): the
+    // set-aside command is the map's own setAsideCommand (action-command-map.mjs +118), so state.mjs routes no command
+    // itself [OSA:AC-020]. No new eager file.
     // 9,947,754 (measured for start.mjs on ssb-m3 merged with main f6353df44, 2026-11-27; submit.mjs 9,944,488): the
     // rises above together. No new eager file.
     // 9,951,377 (measured for start.mjs, +3,623 over 9,947,754, 2026-11-27 on ssb-m3 stage e; submit.mjs 9,948,941): a
@@ -1152,7 +1162,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (generation-publication-store.mjs lifecycleCodeCommit, delivery-evidence.mjs, specifications.mjs), its delivery
     // and submission records in the state checkout (state.mjs, code-submission-evidence.mjs, work-intervals.mjs,
     // governance.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_951_377, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,955,283 (measured for start.mjs on ssb-m3 merged with main 29c9c43b9, 2026-11-27; submit.mjs 9,952,847): stage
+    // e and fix-source-loop's editor-configuration and set-aside rules (+3,906 on main's side) together. No new eager file.
+    assert.ok(closure.bytes <= 9_955_283, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1832,12 +1844,17 @@ test('the common session projection does not import attach, state stores or publ
   // eager file.
   // 4,391,547 (+78, measured 2026-11-27 on fpl-m3 over 70131c215): `rules` registered as a read with /sf-explain as its skill
   // (command-registry.mjs, command-skills.mjs) [FPL:REQ-019, REQ-038]. No new eager file.
+  // 4,393,163 (+1,616 over 4,391,547, measured 2026-11-27 on the merge of fix-source-loop with main f6353df44): the
+  // editor-configuration rule and the set-aside route of a document step's refusal (application-paths.mjs +588,
+  // candidate-scope.mjs +203, cross-phase-change.mjs +760) [office loop]. No new eager file.
   // 4,397,758 (measured on ssb-m3 merged with main f6353df44, 2026-11-27): the two rises above together. No new eager
   // file.
   // 4,399,911 (+2,153, measured 2026-11-27 on ssb-m3 stage e): the resolver's recordPlace, the code commit a state commit
   // names, and a code step's records read in the state checkout (story-paths.mjs, generation-publication-store.mjs,
   // specifications.mjs, delivery-evidence.mjs, work-intervals.mjs) [SSB M3]. No new eager file.
-  assert.ok(current.bytes <= 4_399_911, `session current loads ${current.bytes} source bytes`);
+  // 4,401,527 (measured on ssb-m3 merged with main 29c9c43b9, 2026-11-27): stage e and fix-source-loop's rules
+  // (+1,616 on main's side) together. No new eager file.
+  assert.ok(current.bytes <= 4_401_527, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -129,6 +129,7 @@ const fixed = (skill, operation, form, workflow, phase, to) => ({ skill, command
 export const approveRoute = (workflow, phase) => fixed(ACTION_SKILLS.approve, 'approve-step', 'approve', workflow, phase);
 export const returnRoute = (workflow, phase, to = phase.id) => fixed(ACTION_SKILLS.reject, 'approve-step', 'reject', workflow, phase, to);
 /** The Story's decisions card, where a person decides what is theirs (an accepted risk among them). */
+export const setAsideCommand = (workId, step) => actionCommandLine('recover-operation', 'recover', { workId, step });
 export const decideRoute = (workflow) => ({ skill: ACTION_SKILLS.decide, command: actionCommandLine('decide', 'card', { workId: workflow.workItem.id }) });
 export const inTurnSubmitCommand = (workId) => actionCommandLine('submit-version', 'in-turn', { workId });
 /** "Dispute this finding": the person's own reason goes where `<REASON>` stands (review-finding-dispute.mjs). */

@@ -17,6 +17,11 @@ if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
 else
   PROJECT_DIR="$(pwd -P)"
 fi
+if [[ "${1:-}" == '--build-only' ]]; then
+  shift
+  command -v node >/dev/null 2>&1 || { printf '%s\n' 'Error: required command not found: node' >&2; exit 1; }
+  exec node "$PROJECT_DIR/scripts/build-source-artifacts.mjs" "$@"
+fi
 INSTALL_RECEIPT_CHECKOUT="$PROJECT_DIR"
 INSTALL_RECEIPT_SOURCE_COMMIT=""
 INSTALL_RECEIPT_SOURCE_TREE=""
@@ -110,6 +115,7 @@ usage() {
   printf '%s\n' \
     'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only | --vscode-only | --skip-vscode | --skip-copilot] [--no-update] [--skip-tests] [--refresh-vsce-toolchain] [--no-workspace-configuration-refresh]' \
     '       ./install.sh --managed-runtime [--skip-tests] [--cli-only] [--rollback | --recover]' \
+    '       ./install.sh --build-only [--registry URL] [--out-dir DIRECTORY] [--skip-tests]' \
     '       ./install.sh --from-staged-artifacts' \
     '       ./install.sh --clean-reinstall [--dry-run | --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"] [--registry URL] [--cli-only] [--skip-tests]' \
     '       singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only]' \
@@ -126,6 +132,7 @@ usage() {
     '--clean-reinstall validates and packages this checkout first, then replaces' \
     'only the installed CLI, VS Code extension, Copilot plugin/direct skills, and' \
     'managed telemetry wrapper. It never reads or changes Git repositories or workspaces.' \
+    '--build-only builds the CLI tarball and VSIX in dist/ without using Git or installing the product.' \
     '' \
     '--skip-tests keeps build and artifact checks, but skips the selected test suite, including test:reinstall.' \
     'A full normal install also repairs a missing installation receipt in this mode; workspaces are preserved.' \

@@ -27,6 +27,8 @@ import {
 } from '../scripts/install-staged-artifacts.mjs';
 import { readRecord } from '../src/schema-migrations.mjs';
 import { inventedValue } from './helpers/invented-secrets.mjs';
+import { pair } from './helpers/package-updater-artifacts.mjs';
+import { buildSourceArtifacts } from '../scripts/build-source-artifacts.mjs';
 
 const VERSION = '9.8.7';
 const BUILD = `${VERSION} (fixture-build-01234567)`;
@@ -665,6 +667,54 @@ test('full reinstall carries sealed source authority into Git-less VSIX packagin
     'reinstall copied Git authority into the isolated source');
 });
 
+test('Git-less source builds publish the matching pair and preserve prior outputs on failure', async t => {
+  const { checkout, temp } = await fixture(t);
+  await fs.promises.rm(path.join(checkout, '.git'), { recursive: true, force: true });
+  const registry = 'https://artifacts.example.test/api/npm/npm-virtual/';
+  const dist = path.join(checkout, 'dist');
+  const testRuns = [];
+  let mismatched = false;
+  let failPackaging = false;
+  const execute = (command, args, options) => {
+    assert.equal(command, 'npm');
+    assert.equal(options.env.NPM_CONFIG_REGISTRY, registry);
+    assert.ok(!fs.existsSync(path.join(options.cwd, 'dist')), 'previous outputs are outside the source snapshot');
+    const packages = pair({ version: VERSION, differentBuild: mismatched });
+    if (args[0] === 'pack') {
+      fs.writeFileSync(path.join(args[args.indexOf('--pack-destination') + 1], `singularity-flow-${VERSION}.tgz`), packages.cli);
+    } else if (args.join(' ') === 'run vscode:package') {
+      if (failPackaging) return { status: 1, stderr: 'VSIX build failed' };
+      fs.writeFileSync(path.join(options.cwd, 'apps', 'vscode', `singularity-flow-vscode-${VERSION}.vsix`), packages.vsix);
+    } else if (args.join(' ') === 'run test:source-build') {
+      testRuns.push(args[1]);
+    } else {
+      assert.ok(args[0] === 'ci' || args.join(' ') === 'run vscode:typecheck', args.join(' '));
+    }
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  const options = { checkout, tempRoot: temp, registry, skipTests: true, execute, log: () => {} };
+  const first = await buildSourceArtifacts({ ...options, skipTests: false });
+  assert.deepEqual((await readdir(dist)).sort(), [path.basename(first.tarball), path.basename(first.vsix)].sort());
+  const original = await readFile(first.vsix);
+  assert.deepEqual(await buildSourceArtifacts(options), first);
+  failPackaging = true;
+  await assert.rejects(buildSourceArtifacts(options), /VSIX build failed/u);
+  failPackaging = false;
+  mismatched = true;
+  await assert.rejects(buildSourceArtifacts(options), /do not contain the same SFlow build/u);
+  assert.deepEqual(await readFile(first.vsix), original);
+  const receipt = path.join(dist, 'ARTIFACT-RECEIPT.json');
+  await writeFile(receipt, 'existing release receipt');
+  await assert.rejects(buildSourceArtifacts(options), /Choose a different --out-dir/u);
+  assert.equal(await readFile(receipt, 'utf8'), 'existing release receipt');
+  mismatched = false;
+  const alternate = path.join(checkout, 'local-packages');
+  const second = await buildSourceArtifacts({ ...options, outputDirectory: alternate });
+  assert.equal(path.dirname(second.tarball), await fs.promises.realpath(alternate));
+  assert.deepEqual(await readdir(temp), [], 'the package pair is the retained build output');
+  assert.deepEqual(testRuns, ['test:source-build']);
+});
+
 test('reinstall refuses stale confirmation, applies exact bytes, and upgrades a legacy installation receipt', async () => {
   const context = await fixture();
   const legacyTarball = path.join(context.checkout, 'singularity-flow-legacy.tgz');
@@ -1101,13 +1151,15 @@ test('all validation and packaging finishes before removal and failures print a 
 test('registry validation rejects credentials and reinstall source contains no Git execution or broad home deletion', async () => {
   assert.throws(() => normalizeReinstallRegistry(inventedValue('https://user:', 'token@example.test/npm/')), /credentials/);
   assert.throws(() => normalizeReinstallRegistry('file:///tmp/registry'), /http/);
-  const source = await readFile(new URL('../src/reinstall.mjs', import.meta.url), 'utf8');
+  const source = (await Promise.all(['reinstall.mjs', 'install-source-build.mjs'].map(file =>
+    readFile(new URL('../src/' + file, import.meta.url), 'utf8')))).join('\n');
   assert.doesNotMatch(source, /execute(?:OrThrow)?\([^\n]*['"]git['"]/);
   assert.doesNotMatch(source, /run\([^\n]*['"]git['"]/);
   assert.doesNotMatch(source, /rm(?:Sync)?\([^\n]*(?:homedir|homeDirectory)/);
   assert.doesNotMatch(source, /readdir(?:Sync)?\([^\n]*(?:homedir|homeDirectory)/);
   assert.match(source, /NPM_CONFIG_CACHE: npmCache/);
-  assert.match(source, /'npm', \['run', 'test:reinstall'\]/);
+  assert.match(source, /testScript = 'test:reinstall'/);
+  assert.match(source, /'npm', \['run', testScript\]/);
   assert.doesNotMatch(source, /'npm', \['test'\]/);
   assert.doesNotMatch(source, /'npm', \['run', 'check'\]/);
 });

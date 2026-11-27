@@ -228,8 +228,10 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
             { details: { clauseId } });
         }
         const claimPath = storyLocation(null, config, workflow.workItem.id).record('context', 'claims', `${phase.id}-gen${draft.generation}-planned.json`);
-        if (await exists(path.join(root, claimPath))) {
-          const bound = await secureRepositoryPath(root, claimPath, {
+        // A record, read from the Story's records: the state checkout for a state-ref Story [SSB M3].
+        const claimRecords = storyLocation(root, [config, workflow], workflow.workItem.id).recordsRoot;
+        if (await exists(path.join(claimRecords, claimPath))) {
+          const bound = await secureRepositoryPath(claimRecords, claimPath, {
             label: 'Existing planned claim map', mustExist: true, type: 'file'
           });
           const raw = JSON.parse(await readFile(bound.absolute, 'utf8'));

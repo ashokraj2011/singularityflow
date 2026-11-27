@@ -4362,6 +4362,8 @@ export function governedCommitIdentity(root, sha) {
     transactionId: trailer('Singularity-Flow-Transaction'),
     eventSha256: trailer('Singularity-Flow-Event-SHA256'),
     stateSha256: trailer('Singularity-Flow-State-SHA256'),
+    // A state commit names the code commit it is about [SSB:REQ-004].
+    storyCodeCommit: trailer('Story-Code-Commit'),
     publicationMode: trailer('Singularity-Flow-Publication-Mode'),
     revisionSelectionSha256: trailer('Singularity-Flow-REV-Selection-SHA256'),
     candidate: candidateValues.length === 0 ? null

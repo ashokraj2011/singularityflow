@@ -15,7 +15,7 @@ import { beginTelemetryCapture } from './telemetry.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { recordedStateFile, storyLocation } from './story-paths.mjs';
 
 function receiptRelative(config, workflow, phase, generation) {
   return storyLocation(null, config, workflow.workItem.id).record('context', 'generation-start', `${phase.id}-gen${generation}.json`);
@@ -322,7 +322,7 @@ export async function consumeGenerationIntent(root, phase, publication) {
   if (phase.generationIntent.path) {
     const receipt = readRecord(
       'generation-start',
-      await readJson(path.join(root, phase.generationIntent.path))
+      await readJson(recordedStateFile(root, phase.generationIntent.path))
     ).record;
     const receiptSha256 = generationStartSha256(receipt);
     if (receipt.status !== 'open'

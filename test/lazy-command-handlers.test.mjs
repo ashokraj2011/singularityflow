@@ -1125,7 +1125,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // a state-ref Story's state ref is its lifecycle authority behind the same adapter, which loads its unit of work and
     // observes a state ref (sda/story-branch-authority.mjs +506), and sync's state-ref arm (state.mjs +218); the
     // publication itself (story-state-publication.mjs) loads lazily [SSB M3]. No new eager file.
-    assert.ok(closure.bytes <= 9_934_309, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,946,839 (measured for start.mjs, +12,530 over 9,934,309, 2026-11-27 on ssb-m3 stage b; submit.mjs 9,943,973): a
+    // state-ref Story's approvals, decisions and clarifications read its records on its state ref [SSB:REQ-004,
+    // REQ-009; M3]: documents named from the checkout and records from the state checkout (story-paths.mjs +3,536:
+    // recordIn, recordFileIn, recordsRootFor, gitPlaceOf, stateRelative, checkoutPath), a generation's publication, the
+    // review and its evidence found in the state ref's history with the code commit a state commit names (state.mjs
+    // +5,106, story-lineage.mjs, generation-publication-store.mjs, specifications.mjs, clarifications.mjs, inject.mjs).
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_946_839, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1332,7 +1339,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 879,344 (+258, measured 2026-11-25 on vsc-agenthost-hooks): a command a Copilot chat runs says when SFlow's hooks never saw
   // the chat (cli-entry.mjs loads copilot-chat-hooks.mjs only then). No new eager file.
   // 894,560 (+258, measured 2026-11-27 on the merge of vsc-agenthost-hooks onto 5c682d8c1): the hooks note above. No new eager file.
-  assert.ok(root.bytes <= 894_560, `root dispatch loads ${root.bytes} source bytes`);
+  // 898,096 (+3,536, measured 2026-11-27 on ssb-m3 stage b over 6c7b0ecbf): the resolver names a state-ref Story's
+  // documents from the checkout and its records from the state checkout, and a path in the state checkout as the state
+  // checkout and its commits have it (story-paths.mjs) [SSB:REQ-009; M3]. No new eager file.
+  assert.ok(root.bytes <= 898_096, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1791,7 +1801,11 @@ test('the common session projection does not import attach, state stores or publ
   // 4,391,469 (+2,131, measured 2026-11-27 on fix-suite-1127 over d99e2d11d): the source inspection facade's checkout
   // reads, which the state checkout now uses instead of starting Git itself (source-inspection.mjs) [SDA-AC-001]. No
   // new eager file.
-  assert.ok(current.bytes <= 4_391_469, `session current loads ${current.bytes} source bytes`);
+  // 4,397,680 (+6,211, measured 2026-11-27 on ssb-m3 stage b over 6c7b0ecbf): the resolver's state-ref spellings
+  // (story-paths.mjs +3,536) and the clarification, prompt and publication records read from a state-ref Story's state
+  // checkout (clarifications.mjs, specifications.mjs, inject.mjs, generation-publication-store.mjs) [SSB M3]. No new
+  // eager file.
+  assert.ok(current.bytes <= 4_397_680, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

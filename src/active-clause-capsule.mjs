@@ -6,6 +6,7 @@ import { canonicalJson, recordSha256 } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
+import { recordsRootFor } from './story-paths.mjs';
 
 function strings(value) {
   if (Array.isArray(value)) return value.map((entry) => String(entry).trim()).filter(Boolean);
@@ -122,7 +123,7 @@ function predecessorIds(workflow, phaseId) {
   return new Set(position < 0 ? [] : order.slice(0, position));
 }
 
-async function verifyIndex(root, candidate, workflow, consumer = null) {
+async function verifyIndex(root, candidate, workflow, consumer = null, records = root) {
   const producer = workflow.phases?.[candidate.phase];
   const anchor = producer?.specIndex;
   const problems = [];
@@ -134,7 +135,8 @@ async function verifyIndex(root, candidate, workflow, consumer = null) {
 
   let anchored = null;
   if (anchor?.path) {
-    const target = await secureRepositoryPath(root, anchor.path, {
+    // A record, named relative to the Story's records: the state checkout for a state-ref Story [SSB M3].
+    const target = await secureRepositoryPath(records, anchor.path, {
       label: `Specification index for ${candidate.phase}`, mustExist: true, type: 'file'
     });
     anchored = readRecord('specification-index', await readFile(target.absolute)).record;
@@ -190,7 +192,7 @@ export async function activeClauseCapsule(itemDirectory, workflow, phase, source
   const allowed = predecessorIds(workflow, phase.id);
   const indexes = [];
   for (const candidate of records.indexes.filter((index) => allowed.has(index.phase))) {
-    indexes.push(await verifyIndex(root, candidate, workflow, phase.id));
+    indexes.push(await verifyIndex(root, candidate, workflow, phase.id, recordsRootFor(root, itemDirectory)));
   }
   return buildActiveClauseCapsule({ ...records, indexes }, workflow, phase, source);
 }

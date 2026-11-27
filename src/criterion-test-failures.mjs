@@ -12,7 +12,7 @@ import { exactFileAtObject } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { recordedStateFile, storyLocation } from './story-paths.mjs';
 
 /** Each witness whose own test failed in its attempt, exactly attributed. */
 export function exactCriterionFailures(witnesses, attemptFor) {
@@ -43,7 +43,7 @@ const RECTIFY = (phase) => `Fix the code or the test so each criterion's own tes
 export async function withCriterionTestFailures(root, phase, refusal, recordedRuns, witnesses = null) {
   if (refusal?.code !== 'CODE_TEST_FAILED') return;
   const published = witnesses ? null : phase.deliveryEvidence?.receiptPath
-    ? await readFile(path.join(root, phase.deliveryEvidence.receiptPath), 'utf8').then(JSON.parse, () => null) : null;
+    ? await readFile(recordedStateFile(root, phase.deliveryEvidence.receiptPath), 'utf8').then(JSON.parse, () => null) : null;
   const commands = [...recordedRuns.keys()];
   const failing = exactCriterionFailures(witnesses ?? published?.traceability?.witnesses ?? [], (witness) =>
     recordedRuns.get(witness.commandId ?? (commands.length === 1 ? commands[0] : null))?.attempt ?? null);
@@ -133,7 +133,7 @@ export async function withTestedCriteria(root, phase, coverage) {
  * its runs are of its submitted candidate (submission refuses a run the source moved past).
  */
 export async function phaseCriterionTests(root, phase, current = null) {
-  const read = (relative, sha256) => readFile(path.join(root, relative), 'utf8').then(JSON.parse).then((value) =>
+  const read = (relative, sha256) => readFile(recordedStateFile(root, relative), 'utf8').then(JSON.parse).then((value) =>
     !sha256 || String(sha256).replace(/^sha256:/u, '') === createHash('sha256').update(canonicalJson(value)).digest('hex') ? value : null, () => null);
   const evidence = phase?.deliveryEvidence;
   const delivery = evidence?.receiptPath ? await read(evidence.receiptPath, evidence.receiptSha256) : null;

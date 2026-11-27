@@ -239,19 +239,36 @@ Recorded here as each stage lands.
   pin; a transition stopped before its push finished by the next transition and by `sync`; a second clone; the branches
   transport). `test/sda-lifecycle-boundary.test.mjs`: `OTHER_PUBLICATIONS` is empty.
 
-### Stage (b), started 2026-11-27 (not committed)
+### Stage (b), built 2026-11-27
 
-The walk of §3 (b) found the first sites, in order: the step's document path (`requiredArtifactRepoPath`, the artifact
-set's member root), the artifact set's catalog and its Git eligibility check, then `inspectPhasePublicationReadiness`
-(`phase-publication-readiness.mjs`). What they showed:
-- **Two spellings, as REQ-009 says.** A step's document is named relative to the code checkout. In M3 a state-ref
-  Story's document is in its state checkout, so its name is `.sflow-state/artifacts/<step>/…` (a new
-  `checkoutPath()` beside `record()`), and the readers that join it to the checkout read it unchanged; M4 changes the
-  folder to `docs/stories/<ID>/`. A state record keeps its state-relative spelling, read with `recordsRoot` or
-  `fromRecord`. So each `prefix` use is sorted first: a document (or a document set) takes `checkoutPath()`, a record
-  takes `record()` with `recordsRoot`. Most of `state.mjs`'s 52 pass `prefix` as `itemRelative` to a callee that both
-  writes records and names documents, so they are sorted callee by callee.
-- **Git's view of a document** (`unpublishableRequiredArtifactSetMembers`) is the state checkout's for a path inside
-  it: the code checkout's exclude line hides it.
-- **The five readers** read a recorded state path through `recordedStateFile(root, path)`, which joins the state
-  checkout when the process knows the checkout's Story keeps its records on its state ref.
+The walk of §3 (b) (`test/story-state-ref-approvals.test.mjs`) takes a state-ref Story through the specification's
+publication, submission, a scope decision and its approval, then the plan's clarification answer, publication and
+submission, and a second clone that resumes it with `--fetch` and approves the plan; each transition is checked to have
+moved the state ref on the remote and nothing else (A2). It moved 20 of the 121 `prefix` uses (54 files, as counted by
+`storyLocation(…).prefix`, `location.prefix` and `located.prefix`); the 101 left (52 files) are on paths the walk does not
+reach (code steps and their test runs, amendments, upstream issues, Epics) and still refuse loudly. What it showed:
+- **Two spellings, as REQ-009 says.** A step's document is named relative to the code checkout: in M3 a state-ref
+  Story's document is in its state checkout, so its name is `.sflow-state/artifacts/<step>/…` (`checkoutPath()` beside
+  `record()`); M4 changes the folder to `docs/stories/<ID>/`. A record keeps its state-relative spelling. A callee
+  handed the Story's folder (`itemRelative`) is handed `checkoutPath()` and spells its records with `recordIn` and
+  reads them with `recordFileIn`; one handed the folder on disk (`itemDirectory`) finds what records are relative to
+  with `recordsRootFor`. Each gives today's strings for `story-branch`.
+- **Git's view of a path in the state checkout** is the state checkout's (`gitPlaceOf`), and a document or record is
+  read at a state commit by its name there (`stateRelative`). `artifact scan` lists the state checkout's changed
+  documents beside the code checkout's.
+- **A state commit is a governed commit.** It carries the transaction trailers (transaction, event SHA-256,
+  publication mode) beside `Story-Code-Commit` and `Story-Event`, and the transition's `expectedHead` is its parent
+  state commit, with `codeHead` beside it, so a generation's publication record verifies against its containing commit
+  as on the branch. The publication is found in the state ref's history; it is published when the remote's state ref
+  holds it.
+- **REQ-004 at approval.** The artifact-only check compares the code checkout with the code commit the state commit
+  names. The commits after a submission are the state ref's after its evidence commit and the Story branch's after the
+  code commit that commit names, so a code commit after a submission refuses the approval as today
+  (`STORY_REVIEW_SOURCE_CHANGED`, A4). The recorded-history check asks both refs. A state commit's records are read at
+  its root (`governedStateChange`'s `itemFile`), so a scope decision between a submission and its approval is
+  review-safe as today. The code tree digest leaves nothing out: the code checkout holds no records.
+- **The five readers** with no Story in scope read a recorded state path through `recordedStateFile(root, path)`,
+  which joins the state checkout when the process knows the checkout's Story keeps its records on its state ref.
+- **Left for (d):** a lesson noticed at approval is still written in the code checkout's knowledge store.
+- **Tests:** `test/story-state-ref-approvals.test.mjs` (2): the walk, and a code commit after a submission (A4). The
+  helper `test/helpers/submitted-planning-story.mjs` takes the Story's description.

@@ -23,8 +23,10 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   generation = phase.status === 'in_progress' ? nextPhaseGeneration(phase) : Number(phase.generation ?? 0),
   agent = null
 } = {}) {
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
-  const itemDirectory = path.join(root, itemRelative);
+  // Documents are named from the checkout; a state-ref Story keeps them, and its records, in its state checkout [SSB M3].
+  const location = storyLocation(root, [config, workflow], workflow.workItem.id);
+  const itemRelative = location.checkoutPath();
+  const itemDirectory = location.directory;
   const blockers = [];
   const actions = [];
   const warnings = [];

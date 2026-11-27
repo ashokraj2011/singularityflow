@@ -16,8 +16,10 @@
  *
  * Loaded only for a state-ref Story.
  */
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { SingularityFlowError, nowIso } from './util.mjs';
+import { recordSha256 } from './records.mjs';
 import { STATE_CHECKOUT } from './story-paths.mjs';
 import { sourceFileAt, sourceRevision } from './source-inspection.mjs';
 import {
@@ -249,9 +251,11 @@ export class StoryStateUnitOfWork {
 
   async execute({
     subject, event, commit: commitSpec, publication = {}, ledger = null, state = null, beforeCommit = null,
-    afterOwnedWrites = null, fault = null, transactionId = null, storage = {}, signal = null
+    afterOwnedWrites = null, fault = null, transactionId: givenTransaction = null, storage = {}, signal = null
   } = {}) {
     const root = this.root;
+    // A transition names its transaction as the branch's journal does, so its records and its commit carry one ID.
+    const transactionId = givenTransaction ?? randomUUID();
     let envelope = assertLifecycleEvent(event, subject);
     if (!commitSpec?.message || !publication.branch) {
       throw new SingularityFlowError('This change to the Story names no commit message or branch, so nothing was changed.', {
@@ -305,7 +309,8 @@ export class StoryStateUnitOfWork {
       try {
         if (intent) intent.payload = { ...(intent.payload ?? {}), lifecycleEvent: envelope, storyState: { ref, parent } };
         if (state?.write) {
-          const written = await state.write(envelope, { transactionId, expectedHead: code, branch: publication.branch });
+          // The commit this transition extends is the state ref's; the code commit it is about is named beside it.
+          const written = await state.write(envelope, { transactionId, expectedHead: parent, codeHead: code, branch: publication.branch });
           if (written?.event) envelope = assertLifecycleEvent(written.event, subject);
         }
         if (fault) await fault('after-state-write', { envelope });
@@ -319,9 +324,11 @@ export class StoryStateUnitOfWork {
         if (afterOwnedWrites) await afterOwnedWrites(envelope, { ledgerIntentPath });
         if (fault) await fault('before-state-commit', { envelope });
         assertNotCancelled(signal, 'transition');
-        // REQ-004: the state commit names the code commit it is about, and its event.
-        prepared = prepareStoryStateCommit(root, id, `${commitSpec.message}\n\nStory-Code-Commit: ${code}\nStory-Event: ${envelope.eventId}`,
-          { definition, expected: parent });
+        // REQ-004: the state commit names the code commit it is about, and its event; its transaction trailers are a
+        // governed commit's, so a record's commit is verified as on the branch.
+        prepared = prepareStoryStateCommit(root, id, `${commitSpec.message}\n\nStory-Code-Commit: ${code}\nStory-Event: ${envelope.eventId}`
+          + `\nSingularity-Flow-Transaction: ${transactionId}\nSingularity-Flow-Event-SHA256: sha256:${recordSha256(envelope)}`
+          + `\nSingularity-Flow-Publication-Mode: ${mode}`, { definition, expected: parent });
       } catch (error) { await undo(error); }
       const commit = prepared.commit;
       const record = mode === 'off' ? null : {

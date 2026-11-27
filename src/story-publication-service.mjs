@@ -393,8 +393,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
             if (requestedPhase.status === 'approved') {
               await ensureWorkIntervalBaseline(root, config, workflow, {
                 phaseId: workflow.currentPhase,
-                itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-                itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+                itemDirectory: storyLocation(root, [config, workflow], workflow.workItem.id).directory,
+                // The records' own spelling: '.' in a state-ref Story's state checkout [SSB M3].
+                itemRelative: storyLocation(null, [config, workflow], workflow.workItem.id).record()
               });
               // The step's lessons, noticed from its own records and kept with no stop [LRN:REQ-001, REQ-003]. Guidance
               // only: a lesson that cannot be kept never costs the approval [LRN:REQ-009].

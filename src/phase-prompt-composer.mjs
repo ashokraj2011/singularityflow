@@ -652,7 +652,7 @@ export function renderFinalClarificationGuard(phaseId, clarificationPolicy, { de
 async function workflowPromptContext(root, definition, workflow, phase, workItemRoot, executionContext = null, requestedOutcome = null) {
   if (!workflow || !phase) return { contract: '', inputResult: { mode: 'off', records: [] }, inputRecords: [], evidence: '', evidenceFiles: [], evidenceEntries: [], warnings: [] };
   const itemDirectory = storyLocation(root, [workflow, { workItemRoot }], workflow.workItem.id).directory;
-  const itemRelative = storyLocation(null, [workflow, { workItemRoot }], workflow.workItem.id).record();
+  const itemRelative = storyLocation(null, [workflow, { workItemRoot }], workflow.workItem.id).checkoutPath();
   const requiredArtifact = phase.requiredArtifact?.path
     ? posix(path.join(itemRelative, phase.requiredArtifact.path))
     : 'not configured';
@@ -932,7 +932,7 @@ export async function compose(root, options, {
       ? await pendingEvidenceDrift(root, definition, workflow, phase, existing.record) : null;
     const inputDrift = existing
       ? await pendingInputDrift(root, definition, workflow, phase, existing.record, {
-        itemDirectory: expectedPrompt.workDir, itemRelative: storyLocation(null, [workflow, { workItemRoot }], workflow.workItem.id).record()
+        itemDirectory: expectedPrompt.workDir, itemRelative: storyLocation(null, [workflow, { workItemRoot }], workflow.workItem.id).checkoutPath()
       }) : null;
     // A change request a stakeholder opened (or closed) after composition is part of what to author.
     const requestDrift = existing ? stakeholderRequestDrift(existing.record.promptBudget?.stakeholderProjection,

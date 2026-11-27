@@ -8,7 +8,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { normalizeApprovalSecurity } from './approval-authority.mjs';
+import { normalizeApprovalSecurity, ruleApprovalGroupIds } from './approval-authority.mjs';
 import {
   CONFIGURATION_BRANCH, configurationBranchHead, resolveConfigurationRemote,
   takeStoryConfigurationCheckout, captureEnrolledConfigurationSnapshot, withRetainedConfigurationSnapshot
@@ -60,9 +60,7 @@ function authorityRows(document, scope) {
 /** Automatic enrollment never joins a group a team rule names in `by:` (FPL §11, question 3): that is a change to People. */
 function automaticallyJoined(selected, workflow, automatic) {
   if (!automatic) return selected;
-  const tasks = workflow.toJS()?.tasks;
-  const named = new Set(['always', 'paths'].flatMap((section) => (Array.isArray(tasks?.[section]) ? tasks[section] : []))
-    .map((rule) => rule?.by).filter((by) => typeof by === 'string'));
+  const named = ruleApprovalGroupIds(workflow.toJS()?.tasks);
   return named.size ? selected.filter((entry) => !(entry.scope === 'story' && named.has(entry.id))) : selected;
 }
 

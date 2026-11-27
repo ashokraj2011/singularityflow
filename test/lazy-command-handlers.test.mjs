@@ -1128,12 +1128,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,934,141 (measured for start.mjs, +78 over 9,934,063 on the merge of fpl-m3 with main 4b925b87d, 2026-11-27;
     // submit.mjs 9,930,393, +78): `rules` registered as a read with /sf-explain as its skill (command-registry.mjs +53,
     // command-skills.mjs +25) [FPL:REQ-019, REQ-038]. No new eager file.
-    // 9,936,742 (measured for start.mjs, +2,601 over 9,934,141 at f6353df44, 2026-11-27 on fpl-rules-followups; submit.mjs
-    // 9,932,339, +1,946): a team rule's `by:` group made a composed step's required approver (approval-authority.mjs
-    // withRuleApprovalGroups +1,634, config.mjs +287), Story start's automatic enrollment never joining that group
-    // (configuration-people.mjs +655), and `lessons guidance` registered (command-registry.mjs +24) [FPL §11 questions 3
-    // and 4]. No new eager file.
-    assert.ok(closure.bytes <= 9_936_742, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,937,179 (measured for start.mjs, +3,038 over 9,934,141 at f6353df44, 2026-11-27 on fpl-rules-followups; submit.mjs
+    // 9,932,924, +2,531): a team rule's `by:` group made a composed step's required approver (approval-authority.mjs
+    // withRuleApprovalGroups and ruleApprovalGroupIds +1,984, config.mjs +287), Story start's automatic enrollment and the
+    // Story's pinned groups never joining that group (configuration-people.mjs +507, state.mjs +235), and `lessons guidance`
+    // registered (command-registry.mjs +24) [FPL §11 questions 3 and 4]. No new eager file.
+    assert.ok(closure.bytes <= 9_937_179, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1805,10 +1805,10 @@ test('the common session projection does not import attach, state stores or publ
   // new eager file.
   // 4,391,547 (+78, measured 2026-11-27 on fpl-m3 over 70131c215): `rules` registered as a read with /sf-explain as its skill
   // (command-registry.mjs, command-skills.mjs) [FPL:REQ-019, REQ-038]. No new eager file.
-  // 4,393,492 (+1,945, measured 2026-11-27 on fpl-rules-followups over f6353df44): a team rule's `by:` group made a composed
+  // 4,393,842 (+2,295, measured 2026-11-27 on fpl-rules-followups over f6353df44): a team rule's `by:` group made a composed
   // step's required approver (approval-authority.mjs, config.mjs) and `lessons guidance` registered (command-registry.mjs)
   // [FPL §11 questions 3 and 4]. No new eager file.
-  assert.ok(current.bytes <= 4_393_492, `session current loads ${current.bytes} source bytes`);
+  assert.ok(current.bytes <= 4_393_842, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

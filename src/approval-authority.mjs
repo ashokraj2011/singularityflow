@@ -208,6 +208,10 @@ export function withRuleApprovalGroups(policy, groups, authorities, phaseId) {
     requiredAuthorities: required, minimum: Math.max(policy.minimum + fresh.length, required.length) };
 }
 
+/** The groups the team's task rules name in `by:`: automatic enrollment never joins one, or its approval would be anyone's. */
+export const ruleApprovalGroupIds = (tasks) => new Set(['always', 'paths'].flatMap((section) => (Array.isArray(tasks?.[section]) ? tasks[section] : []))
+  .map((rule) => rule?.by).filter((by) => typeof by === 'string'));
+
 function assertAutomaticApproval(value, phaseId) {
   if (value.automatic === AUTOMATIC_APPROVAL) return;
   throw new SingularityFlowError(`Phase '${phaseId}' cannot be approved automatically: approval.automatic must be ${AUTOMATIC_APPROVAL}.`, { code: 'AUTOMATIC_APPROVAL_NOT_ALLOWED', details: { phase: phaseId,

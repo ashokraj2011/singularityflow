@@ -103,7 +103,7 @@ import { stepChatCommand, stepDecisionOf } from './step-decision.mjs';
 import {
   approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
   eligibleApprovers, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority,
-  sameApprover
+  ruleApprovalGroupIds, sameApprover
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
@@ -1135,7 +1135,10 @@ export async function createWorkflow(root, config, {
   if (normalizeApprovalSecurity(config.approvalSecurity ?? {}).autoEnrollNewIdentities) {
     const email = String(creator.email ?? '').trim().toLowerCase();
     const githubLogin = String(creator.login ?? creator.githubLogin ?? '').trim();
-    for (const authority of Object.values(pinnedApprovalAuthorities)) {
+    // Never a group a team rule names in `by:` (FPL §11, question 3), as Story start's enrollment never joins one.
+    const ruled = ruleApprovalGroupIds(config.tasks);
+    for (const [id, authority] of Object.entries(pinnedApprovalAuthorities)) {
+      if (ruled.has(id)) continue;
       authority.members ??= [];
       const enrolled = authority.members.some((member) =>
         (email && String(member.email ?? '').trim().toLowerCase() === email)

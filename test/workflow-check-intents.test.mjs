@@ -86,8 +86,10 @@ test('each step\'s intent and how sure SFlow is, and the repository\'s kind of s
   const partial = after.workflows[0].findings.find((entry) => entry.code === 'CHECK_INTENTS_PARTIAL');
   assert.deepEqual([partial?.severity, partial?.title], ['note', 'Only 3 of 4 steps have an intent (what the step is for)']);
   assert.match(partial.detail, /This step has none: Build the change\./u);
-  // Lines move when workflow.yml is written again, so findings compare by what they say, not where.
+  // Lines move when workflow.yml is written again, so findings compare by what they say, not where; the quick walk's
+  // `seconds` is how long it took, which a loaded machine changes.
   const strip = (result) => result.workflows.map((entry) => ({ ...entry, intents: undefined, counts: undefined,
+    walk: entry.walk && { ...entry.walk, seconds: undefined },
     findings: entry.findings.filter((finding) => finding.code !== 'CHECK_INTENTS_PARTIAL').map(({ code, severity, title, subject }) => ({ code, severity, title, subject })) }));
   assert.deepEqual(strip(after), strip(before), 'declaring an intent changes no explanation and no other finding');
   assert.deepEqual(after.counts, before.counts, 'the note was there before: the shipped steps already say what they are for');

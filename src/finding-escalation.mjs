@@ -171,7 +171,9 @@ export function escalateRefusalEnvelope(envelope, error, root = process.cwd(), {
   const context = plan?.context;
   const code = envelope?.error?.code ?? error?.code ?? null;
   // A refusal that waits (a test run that may still be going, a person's or the environment's step) is no repair that keeps failing.
-  if (context?.scope !== 'phase' || !context.phaseId || !code || waits || error?.details?.waits === true) return envelope;
+  // Nor is an unchanged retry, answered from memory: nothing was repaired, and it already says to change something first. Counted,
+  // a person's own changes between retries escalated a refusal only they could clear to "hand it to a maintainer" (office, 2026-11-27).
+  if (context?.scope !== 'phase' || !context.phaseId || !code || code === 'REFUSAL_UNCHANGED' || waits || error?.details?.waits === true) return envelope;
   const count = observeFindingStreak(root, { workId: context.workId ?? root, phaseId: context.phaseId,
     generation: error?.details?.generation ?? null, attempt: worktreeAttempt(root),
     fingerprint: findingFingerprint([{ code, details: error?.details, message: error?.message }]) });

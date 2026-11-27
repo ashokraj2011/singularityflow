@@ -14,6 +14,7 @@ import {
 import { beginTelemetryCapture } from './telemetry.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
+import { isEditorConfigurationPath } from './application-paths.mjs';
 import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
 import { storyLocation } from './story-paths.mjs';
 
@@ -112,7 +113,8 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
   const applicationChangeSet = applicationChangeSetProjection(
     changeSet, applicationPathContext(config, workflow)
   );
-  const existing = applicationChangeSet.entries;
+  // An editor's own settings are not code changed before the step began (office, 2026-11-27): they go with the code.
+  const existing = applicationChangeSet.entries.filter((entry) => [entry.oldPath, entry.newPath].filter(Boolean).some((file) => !isEditorConfigurationPath(file)));
   const dirtyPolicy = workflow.resolution?.codeDelivery?.generationBoundary?.dirtyStart ?? 'block';
   const changedPaths = changeSetPaths(applicationChangeSet, { bothEndpoints: true });
   const protectedGuards = [

@@ -1125,7 +1125,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // what its marketplace deprecated or retired of what its workflow was made from or attaches (commands/start.mjs
     // +400; the reading is marketplace-in-use.mjs, loaded lazily and only with a marketplace trusted) [OMK:REQ-041]. No
     // new eager file.
-    assert.ok(closure.bytes <= 9_934_063, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,937,894 (measured for start.mjs, +3,831 over 9,934,063 at 4b925b87d, 2026-11-27 on fix-source-loop; submit.mjs
+    // 9,934,146): an editor's or IDE's own files (.vscode/, .idea/, Eclipse metadata) never stop a step: not a document step's submission, as its
+    // publication already said, nor a code step's start, plan question or approval (application-paths.mjs
+    // isEditorConfigurationPath +588, state.mjs +1,012, generation-boundary.mjs +302, candidate-scope.mjs +203,
+    // lifecycle-worktree.mjs +423, recovery-preparation-context.mjs +66, finding-escalation.mjs); with no return a refusal's
+    // route is the set-aside, never a plan decision, and it waits on the person, never escalated (cross-phase-change.mjs +760)
+    // [office loop, 2026-11-27]. No new eager file.
+    assert.ok(closure.bytes <= 9_937_894, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1791,7 +1798,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,391,469 (+2,131, measured 2026-11-27 on fix-suite-1127 over d99e2d11d): the source inspection facade's checkout
   // reads, which the state checkout now uses instead of starting Git itself (source-inspection.mjs) [SDA-AC-001]. No
   // new eager file.
-  assert.ok(current.bytes <= 4_391_469, `session current loads ${current.bytes} source bytes`);
+  // 4,393,085 (+1,616, measured 2026-11-27 on fix-source-loop over 4b925b87d): the editor-configuration rule and the
+  // set-aside route of a document step's refusal (application-paths.mjs +588, candidate-scope.mjs +203,
+  // cross-phase-change.mjs +760) [office loop]. No new eager file.
+  assert.ok(current.bytes <= 4_393_085, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

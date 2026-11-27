@@ -230,6 +230,7 @@ import {
   recordFinalReconciliation, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 import { operationContext } from './operation-context.mjs';
+import { isEditorConfigurationPath } from './application-paths.mjs';
 import { normalizeQualityGateMode, qualityRiskStatus } from './phase-quality-risk.mjs';
 import {
   evaluateExternalCommandForModelMode, externalCommandText, FINDING_COMMAND_KINDS, findingCommand, findingReportFromStdout, normalizeExternalCommand,
@@ -2985,7 +2986,7 @@ function ignored(config, workflow, relativePath, { untracked = false } = {}) {
   if (untracked && isGeneratedOutputPath(relativePath)) return true;
   if ([WORKFLOW_PATH, 'singularity/config.json', 'singularity/worldmodel.json'].includes(relativePath)) return true;
   if (relativePath.startsWith('singularity/world-model/')) return true;
-  if (['.git/', '.idea/', '.vscode/'].some((prefix) => relativePath.startsWith(prefix))) return true;
+  if (relativePath.startsWith('.git/') || isEditorConfigurationPath(relativePath)) return true;
   const itemRoot = storyLocation(null, config, workflow.workItem.id).prefix;
   if (relativePath.startsWith(`${itemRoot}/artifacts/`)) return false;
   if (relativePath.startsWith(`${itemRoot}/`)) return true;
@@ -3717,10 +3718,13 @@ export async function assertPhaseChangeScope(root, config, workflow, phase) {
     if (held) outside = held.paths;
     if (outside.length) {
       const change = await crossPhaseChange(root, config, workflow, phase, outside);
-      const described = describeCrossPhaseChange(change, { code: 'PHASE_ARTIFACT_ONLY_CHANGES', gate: 'submission', workflow, phase });
+      const described = describeCrossPhaseChange(change, { code: 'PHASE_ARTIFACT_ONLY_CHANGES', gate: 'submission', workflow, phase,
+        setAside: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` });
       throw new SingularityFlowError(`Phase ${phase.id} is artifact-only, but files outside its artifacts changed: ${outside.join(', ')}. ${described.text}`
         + drafts.heldCodeChangedWords(held.changed),
+        // With no return its way out is the person's set-aside: it waits on them, so it is never escalated as a repair (office, 2026-11-27).
         { code: 'PHASE_ARTIFACT_ONLY_CHANGES', details: { phase: phase.id, changedPaths: outside, crossPhase: change, gate: described.gate,
+          ...(change.returns.some((entry) => entry.permitted) ? {} : { waits: true }),
           ...(held.changed.length ? { changedSinceClosure: held.changed.map((entry) => entry.path) } : {}) } });
     }
   } else {
@@ -5922,7 +5926,9 @@ async function submitPhaseTransition(root, config, workflow, {
     });
     const applicationChanges = applicationChangeSetProjection(
       postPublication, applicationPathContext(config, workflow)
-    ).entries;
+    ).entries
+      // Editor configuration is not the step's: publication never counts it (ignored), so neither does its submission.
+      .filter((entry) => [entry.oldPath, entry.newPath].filter(Boolean).some((file) => !isEditorConfigurationPath(file)));
     // A later code step's code, kept for it by an amendment's closure or a return, is not this step's (SPEC-CIC switch 2).
     const drafts = applicationChanges.length ? await import('./amended-drafts.mjs') : null;
     const kept = drafts ? await drafts.withoutHeldCode(root, config, workflow, phase, [...new Set(applicationChanges.flatMap((entry) => [
@@ -5931,16 +5937,20 @@ async function submitPhaseTransition(root, config, workflow, {
     if (kept?.paths.length) {
       const changedPaths = kept.paths;
       const change = await crossPhaseChange(root, config, workflow, phase, changedPaths);
-      const described = describeCrossPhaseChange(change, { code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', gate: 'submission', workflow, phase });
+      // No return takes them: which are committed and which are only in this checkout, since recovery sets aside only the latter.
+      const permitted = change.returns.some((entry) => entry.permitted);
+      const held = permitted ? null : commitsTouchingSince(root, exactGenerationCommit, changedPaths);
+      const setAside = held?.uncommitted.length ? `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` : null;
+      const described = describeCrossPhaseChange(change, { code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', gate: 'submission', workflow, phase, setAside });
       // No earlier code step owns them, so "move them to the code step" named nothing a person could
       // run (2026-10-28): take them out of this step now and bring them back in the code step ahead.
       const ahead = change.returns.length ? null : (workflow.phaseOrder ?? []).slice((workflow.phaseOrder ?? []).indexOf(phase.id) + 1)
         .find((id) => phaseRequiresCodeDelivery(workflow.phases?.[id]));
-      const held = ahead ? commitsTouchingSince(root, exactGenerationCommit, changedPaths) : null;
       const shortList = (commits) => commits.map((commit) => commit.slice(0, 12)).join(' ');
-      const takeOut = held ? [
+      const takeOut = ahead && held ? [
         ...(held.commits.length ? [`git revert --no-edit ${shortList([...held.commits].reverse())} now, and git cherry-pick ${shortList(held.commits)} once ${ahead} is prepared`] : []),
-        ...(held.uncommitted.length ? [`git stash push --include-untracked -- ${held.uncommitted.join(' ')} now, and git stash pop once ${ahead} is prepared`] : [])
+        // The set-aside keeps a private copy; the stash is the way to bring them back in the code step.
+        ...(held.uncommitted.length ? [`set ${held.uncommitted.join(', ')} aside (${setAside} shows the person's command; a private copy is kept), or to bring them back in ${ahead}: git stash push --include-untracked -- ${held.uncommitted.join(' ')} now, and git stash pop once ${ahead} is prepared`] : [])
       ] : [];
       throw new SingularityFlowError(
         `Phase '${phase.id}' is artifact-only, but application source or tests changed after generation ${phase.generation} was published: `
@@ -5957,6 +5967,8 @@ async function submitPhaseTransition(root, config, workflow, {
             changedPaths,
             crossPhase: change,
             gate: described.gate,
+            // Only a person sets the files aside or takes the commits out: no repair by the author passes it (office, 2026-11-27).
+            ...(permitted ? {} : { waits: true }),
             ...(takeOut.length ? { codeStepAhead: ahead, heldCommits: held.commits, heldUncommitted: held.uncommitted, recoveryCommands: takeOut } : {}),
             ...(kept.changed.length ? { changedSinceClosure: kept.changed.map((entry) => entry.path) } : {})
           }

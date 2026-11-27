@@ -1,6 +1,6 @@
 import { lstatSync } from 'node:fs';
 import path from 'node:path';
-import { applicationPathContext, isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
+import { applicationPathContext, isEditorConfigurationPath, isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
 import { worktreeStatusDetail } from './git.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -43,8 +43,12 @@ export function inspectLifecycleWorktree(root, config = null, workflow = null, {
     && regularWorktreeFile(root, entry.path.value));
   // `held`: what is kept in place for a later code step (heldForLaterCode), not this decision's.
   const kept = (entry) => Boolean(held?.size) && [entry.path, entry.sourcePath].filter(Boolean).every(item => item.kind === 'utf8' && held.has(item.value));
+  // An editor's own settings, unstaged, are nobody's decision (office, 2026-11-27): no SFlow commit takes them. A staged one
+  // could be, so it is still held.
+  const editor = (entry) => ['untracked', 'ordinary'].includes(entry.type) && (entry.type === 'untracked' || entry.xy?.index === '.')
+    && entry.path.kind === 'utf8' && isEditorConfigurationPath(entry.path.value);
   return {
-    entries: entries.filter(entry => !reports.includes(entry) && !kept(entry)),
+    entries: entries.filter(entry => !reports.includes(entry) && !kept(entry) && !editor(entry)),
     disposableUntrackedPaths: reports.map(entry => entry.path.value).sort(),
     ...(held?.size ? { heldPaths: entries.filter(kept).flatMap(entry => [entry.path, entry.sourcePath].filter(Boolean).map(item => item.value)).sort() } : {})
   };

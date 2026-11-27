@@ -301,13 +301,17 @@ async function rolloverFacts(root, config, workflow, phase) {
     const [changed, requested, { phaseRequiresCodeDelivery }] = await Promise.all([source('changes-after-publication.mjs'), source('requested-successor.mjs'),
       import('./code-delivery-policy.mjs')]);
     if (!requested.requestedSuccessorEligible(workflow, phase)) return null;
-    const after = await changed.changesAfterPublication(root, config, workflow, phase).catch(() => null);
+    // A document step never holds application files: no version of it takes them, so its row only sets them aside
+    // (office, 2026-11-27: its submission was refused for them, and this list had nothing).
+    const documents = !phaseRequiresCodeDelivery(phase);
+    const after = await (documents ? changed.documentStepChanges : changed.changesAfterPublication)(root, config, workflow, phase).catch(() => null);
     const requests = await requested.requestedChanges(root, workflow, phase).catch(() => []);
+    if (documents && !after?.uncommitted?.length && !requests.length) return null;
     // Never the author's own correction: that is of a published generation whose bytes are unchanged and that nobody
     // asked to change, which this item never covers (neither files nor a request); `phase rollover --correction` previews
     // it and the person answers its own "Start version N …?" question (owner, 2026-11-17; own-correction-rollover.mjs).
     if (!after && !requests.length) return null;
-    const action = requested.requestedSuccessorAction(workflow, phase, { requested: requests.length > 0, changedPaths: after?.paths ?? [] });
+    const action = requested.requestedSuccessorAction(workflow, phase, { requested: requests.length > 0, changedPaths: documents ? [] : after?.paths ?? [] });
     const chatRoute = phaseRequiresCodeDelivery(phase) ? `/sf-code ${phase.id}` : action?.copilotCommand?.replace(/ <what to change>$/u, '') ?? null;
     const next = Math.max(Number(phase.generation), Number(phase.generationHighWatermark ?? 0)) + 1;
     const keepOut = after?.uncommitted?.length ? `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` : null;
@@ -316,8 +320,11 @@ async function rolloverFacts(root, config, workflow, phase) {
     const asked = await requested.successorAsked(root, workflow, phase, next).catch(() => false);
     if (asked && !keepOut) return null;
     return { phase: phase.id, generation: Number(phase.generation), next,
-      paths: after?.paths ?? [], uncommitted: after?.uncommitted ?? [], requests: requests.map((text) => String(text).replace(/\s+/gu, ' ').trim().slice(0, 200)),
-      command: `singularity-flow phase rollover ${phase.id}`, keepOut, ...(asked ? { asked: true } : {}), chatRoute, code: phaseRequiresCodeDelivery(phase) };
+      paths: (documents ? after?.uncommitted : after?.paths) ?? [], uncommitted: after?.uncommitted ?? [], requests: requests.map((text) => String(text).replace(/\s+/gu, ' ').trim().slice(0, 200)),
+      command: `singularity-flow phase rollover ${phase.id}`, keepOut, ...(asked ? { asked: true } : {}), chatRoute, code: !documents,
+      // The code step ahead, which writes the code the person set aside.
+      ...(documents ? { documents: true, codeStep: (workflow.phaseOrder ?? []).slice((workflow.phaseOrder ?? []).indexOf(phase.id) + 1)
+        .find((id) => phaseRequiresCodeDelivery(workflow.phases?.[id])) ?? null } : {}) };
   } catch { return null; }
 }
 

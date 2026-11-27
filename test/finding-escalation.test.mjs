@@ -120,6 +120,26 @@ test('a refusal escalates only when it returns after repairs; a retry, a passing
   for (const words of ['four', 'five', 'six']) { await repair(words); assert.equal(refused({ waits: true }), null, words); }
 });
 
+// Office, 2026-11-27: a document step's files only a person could set aside, and the person's own attempts between retries,
+// escalated to "hand it to the workflow maintainer" with no command. Neither is a repair that cannot pass.
+test('a refusal only a person clears, and an unchanged retry answered from memory, are never escalated', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-escalation-person-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  spawnSync('git', ['-c', 'user.name=Streak Tester', '-c', 'user.email=streak@example.test', 'commit', '-q', '--allow-empty', '-m', 'initial'], { cwd: root });
+  const argv = ['submit', 'planning', '--work-id', 'ESC-5'];
+  let attempts = 0;
+  const attempt = async () => writeFile(path.join(root, 'settings.json'), `{ "attempt": ${++attempts} }\n`);
+  const refused = (code, details) => {
+    const error = Object.assign(new Error(`${code} refused.`), { code, details: { workId: 'ESC-5', phase: 'planning', ...details } });
+    return escalateRefusalEnvelope(refusalEnvelope(error, argv), error, root).remediationPlan.escalation ?? null;
+  };
+  for (const code of ['PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', 'PHASE_ARTIFACT_ONLY_CHANGES']) {
+    for (let count = 0; count < ESCALATION_THRESHOLD + 1; count += 1) { await attempt(); assert.equal(refused(code, { waits: true }), null, `${code} ${count + 1}`); }
+  }
+  for (let count = 0; count < ESCALATION_THRESHOLD + 1; count += 1) { await attempt(); assert.equal(refused('REFUSAL_UNCHANGED', {}), null, `unchanged ${count + 1}`); }
+});
+
 test('only a test failure can wait on a person or the environment, so the CLI loads the phase outcomes for it alone (cli-failure.mjs)', async () => {
   const { refusalOutcome } = await import('../src/workflow-task-outcome.mjs');
   const waiting = (outcome) => ['waiting-person', 'waiting-environment'].includes(outcome);

@@ -108,6 +108,8 @@ export class RulesPagePanel {
   private result: string | null = null;
   private asked = 0;
   private busy = false;
+  /** Whether the page has shown a list: after that a read in the background never repaints it under the person's typing. */
+  private painted = false;
 
   private constructor(private readonly panel: vscode.WebviewPanel, private host: RulesHost, private place: RulesPlace) {
     const router = registerMessageRouter('rules', {
@@ -140,10 +142,10 @@ export class RulesPagePanel {
     shown.open(ruleId);
   }
 
-  /** The place read the rules again: the page shows them, keeping the form only while nothing was just proposed. */
+  /** The place read the rules: a page still waiting for its first list shows them; one being filled in is left as it is. */
   static listChanged(place: RulesPlace): void {
     const shown = RulesPagePanel.current;
-    if (shown && shown.place === place && !shown.busy) shown.render();
+    if (shown && shown.place === place && !shown.busy && !shown.painted) shown.render();
   }
 
   /** Opening the page changes nothing; only its buttons do [FPL:REQ-003]. */
@@ -156,6 +158,7 @@ export class RulesPagePanel {
 
   private render(): void {
     const list = this.place.current;
+    this.painted = Boolean(list);
     const token = nonce();
     this.panel.title = 'Rules';
     this.panel.webview.html = page('Rules', list ? rulesPageHtml(list, { editing: this.editing, preview: this.preview, result: this.result })

@@ -135,7 +135,8 @@ export function ruleInputFrom(value: unknown, list: RulesList | null): RuleInput
   const paths = when === 'paths' ? String(raw.paths ?? '').split(/\r?\n|,/u).map((entry) => entry.trim()).filter(Boolean).slice(0, 20) : [];
   const workflow = then === 'workflow' && list.form.workflows.some((entry) => entry.id === raw.workflow) ? String(raw.workflow) : null;
   return {
-    kinds: kinds.length ? kinds : ['all'], paths,
+    // "These kinds" with none ticked stays empty, so the preview names the field; files alone are about every kind.
+    kinds: kinds.length || when === 'kinds' ? kinds : ['all'], paths,
     steps: then === 'step' ? known([raw.step], list.form.steps) : [],
     personApproves: then === 'approves' ? known([raw.approves], list.form.approves) : [],
     workflow, because: String(raw.because ?? '').replace(/\s+/gu, ' ').trim().slice(0, 400)

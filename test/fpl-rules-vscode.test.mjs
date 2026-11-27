@@ -70,6 +70,8 @@ test('REQ-020, REQ-037: the form offers only what taskRules accepts, labels ever
   assert.deepEqual(ruleInputFrom({ when: 'kinds', kinds: ['change'], then: 'workflow', workflow: 'classic-delivery', because: 'Changes ship the classic way.' }, list),
     { kinds: ['change'], paths: [], steps: [], personApproves: [], workflow: 'classic-delivery', because: 'Changes ship the classic way.' });
   assert.deepEqual(ruleInputFrom({ when: 'any', then: 'step', step: 'review', because: 'x' }, list).kinds, ['all']);
+  assert.deepEqual(ruleInputFrom({ when: 'kinds', kinds: [], then: 'step', step: 'review', because: 'x' }, list).kinds, [],
+    '"these kinds" with none ticked is said by the preview, never taken for any code changes');
   // One change set for the reviewed path, on the configuration the page read.
   assert.deepEqual(JSON.parse(ruleChangeSet(list, { op: 'add', rule: { kinds: ['fix'], paths: [], steps: ['review'], personApproves: [], workflow: null, because: 'b' } })),
     { schema: 'sflow-studio-change-set@1', base: { workflowSha256: 'b'.repeat(64) }, changes: [{ op: 'tasks.rule.add', rule: { kinds: ['fix'], paths: [], steps: ['review'], personApproves: [], workflow: null, because: 'b' } }] });

@@ -128,6 +128,7 @@ export function checkTaskRules(definition) {
       else ids.add(entry.id);
     }
     const kinds = listOf(entry.kinds, ['all']);
+    if (!kinds.length) fail('kinds', `${label} kinds names no kind, so it applies to no task; name at least one kind, or all.`);
     for (const kind of kinds) if (kind !== 'all' && !TASK_KINDS.includes(kind)) fail('kinds', `${label} kinds names the kind '${kind}'; a kind is one of ${TASK_KINDS.join(', ')}, or all.`);
     const intents = (key) => {
       const list = listOf(entry[key], []);

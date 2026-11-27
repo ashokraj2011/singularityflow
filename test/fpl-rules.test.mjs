@@ -63,6 +63,9 @@ test('REQ-023: taskRules collects every problem with its field, not only the fir
   assert.throws(() => taskRules(withTasks({ always: [{ steps: ['deploy'] }] })), (error) => error.code === 'TASK_RULES_INVALID'
     && /names 'deploy'.*and 1 more: tasks\.always\[0\]\.because/su.test(error.message) && error.details.problems.length === 2
     && error.details.nextAction.command === 'singularity-flow rules');
+  // A rule whose kinds name none applies to no task: named at its field.
+  assert.deepEqual(checkTaskRules(withTasks({ always: [{ kinds: [], steps: ['review'], because: 'Reviewed.' }] })).problems.map((problem) => problem.field),
+    ['tasks.always[0].kinds']);
   // Two rules with one ID: the second is named.
   assert.deepEqual(checkTaskRules(withTasks({ always: [{ id: 'same', because: 'a' }], paths: [{ id: 'same', paths: ['x/**'], because: 'b' }] })).problems
     .map((problem) => problem.field), ['tasks.paths[0].id']);

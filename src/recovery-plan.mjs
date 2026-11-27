@@ -425,7 +425,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   }
 
   if (!artifactFindings.length && !blockers.some((finding) => finding.category === 'convergence')) {
-    const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+    const itemRelative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath();
     try {
       await planAgentBriefs(root, workflow, phase, {
         itemDirectory: path.join(root, itemRelative), itemRelative,

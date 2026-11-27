@@ -240,7 +240,8 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     ...(receipt.scopeRevision ? { scopeRevision: receipt.scopeRevision } : {}),
     publication: null
   };
-  if (persist) await writeJson(path.join(root, receiptPath), receipt);
+  // Written where its spelling is read: the Story's records, the state checkout for a state-ref Story [SSB M3].
+  if (persist) await writeJson(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(receiptPath), receipt);
   return phase.generationIntent;
 }
 

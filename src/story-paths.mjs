@@ -85,6 +85,15 @@ export function recordIn(itemRelative, ...parts) {
   return itemRelative === STATE_CHECKOUT ? slash(path, path.join(...parts)) : slash(path, path.join(itemRelative, ...parts));
 }
 
+/**
+ * Where a caller's Story folder (`itemRelative`, as recordIn) keeps its records: `root` to resolve a record spelling
+ * against and `prefix` to spell it with [SSB M3]. The checkout and '<Stories folder>/<ID>' for story-branch; the state
+ * checkout and '.' (a spelling relative to it) for state-ref.
+ */
+export function recordPlace(root, itemRelative) {
+  return itemRelative === STATE_CHECKOUT || itemRelative === '.' ? { root: path.join(root, STATE_CHECKOUT), prefix: '.' } : { root, prefix: itemRelative };
+}
+
 export function recordFileIn(root, itemRelative, recorded) {
   // '.' is a state-ref Story's own `record()`, as Story start passes it (M2).
   return itemRelative === STATE_CHECKOUT || itemRelative === '.' ? path.join(root, STATE_CHECKOUT, recorded) : path.join(root, recorded);

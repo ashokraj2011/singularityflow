@@ -16,7 +16,7 @@ import path from 'node:path';
 
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { commitOfRef, committedFileText, committedTreePaths, identity, remoteDefaultBranchName } from './git.mjs';
-import { gitCommonDir } from './git-execution.mjs';
+import { branch, gitCommonDir } from './git-execution.mjs';
 import { STEP_INTENTS, isTestEvidencePhase } from './phase-roles.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { scanText } from './secrets.mjs';
@@ -400,13 +400,28 @@ function lessonPart(record, changes = {}) {
   return { ...lesson, ...changes };
 }
 
+/**
+ * Where a person's change to a lesson is kept [WMR:REQ-022, SSB M3]: in the state checkout of the state-ref Story checked
+ * out here, committed on its state ref, so its branch never carries it; else the checkout's store, as before.
+ */
+export async function lessonStore(root) {
+  let recorded = null;
+  try { recorded = JSON.parse(readFileSync(path.join(root, STATE_CHECKOUT, 'workflow.json'), 'utf8')); } catch { return { root, stateRef: null }; }
+  let current = null;
+  try { current = branch(root); } catch { current = null; }
+  const names = [recorded?.workItem?.branch, recorded?.lineage?.canonicalBranch, recorded?.workItem?.id].filter(Boolean);
+  return recorded?.workItem?.id && current && names.includes(current)
+    ? { root: path.join(root, STATE_CHECKOUT), stateRef: recorded.workItem.id } : { root, stateRef: null };
+}
+
 async function supersede(root, entry, { text = entry.record.text, status = entry.record.status, lesson }) {
-  const result = await recordKnowledge(root, {
+  const store = await lessonStore(root);
+  const result = await recordKnowledge(store.root, {
     type: entry.record.type, text, status, provenance: entry.record.provenance, scope: entry.record.scope,
     supersedes: entry.sha256, approvedSourceVerified: true, lesson
   });
   await mirrorLesson(root, result);
-  return result;
+  return { ...result, store };
 }
 
 /** A copy on this machine, so this person's other Stories and an abandoned Story's lessons are recalled too. */

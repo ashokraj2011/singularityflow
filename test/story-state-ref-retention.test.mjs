@@ -121,6 +121,45 @@ test('state commits the remote has not got keep the checkout and stop the drop; 
   assert.equal(removeStateCheckout(root, { id }).removed, true);
 });
 
+/** A transition in a process of its own that exits at `stage`, with no undo and no cleanup. */
+function dieDuringTransition(root, id, stage, { leave = null } = {}) {
+  const module = (name) => JSON.stringify(pathToFileURL(path.join(ROOT, 'src', name)).href);
+  const script = `
+    import { writeFileSync } from 'node:fs';
+    const { loadDefinition } = await import(${module('config.mjs')});
+    const { loadWorkflow } = await import(${module('story-workflow-read.mjs')});
+    const { commitAndPublish } = await import(${module('story-publication-service.mjs')});
+    const { LIFECYCLE_EVENT } = await import(${module('lifecycle-event.mjs')});
+    const root = process.cwd();
+    const definition = await loadDefinition(root);
+    const workflow = await loadWorkflow(root, definition, ${JSON.stringify(id)});
+    await commitAndPublish(root, definition, workflow, { type: LIFECYCLE_EVENT.BINDING }, '[${id}][state] dies', [], {
+      fault: async (stage) => { if (stage === ${JSON.stringify(stage)}) { ${leave ? `writeFileSync(${JSON.stringify(leave)}, '{}\\n'); ` : ''}process.exit(9); } }
+    });`;
+  return spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: root, encoding: 'utf8', env: env() });
+}
+
+test('a process stopped between its state ref\'s move and its checkout\'s is finished at the next command, and published by sync', async (t) => {
+  const id = 'SSB-R4';
+  const { root, remote, ref, state } = await startedStory(t, id);
+  const before = git(root, ['rev-parse', ref]);
+  const died = dieDuringTransition(root, id, 'between-state-ref-and-checkout');
+  assert.equal(died.status, 9, `${died.stdout}\n${died.stderr}`);
+  const moved = git(root, ['rev-parse', ref]);
+  assert.notEqual(moved, before, 'the ref moved');
+  assert.equal(git(state, ['rev-parse', 'HEAD']), before, 'and the checkout\'s HEAD did not follow');
+  assert.notEqual(git(state, ['status', '--porcelain']), '', 'so its files read as changes');
+  assert.equal(git(remote, ['rev-parse', ref]), before, 'nothing was pushed');
+
+  cli(root, 'sync', id);
+  assert.equal(git(state, ['rev-parse', 'HEAD']), moved, 'the checkout follows its ref');
+  assert.equal(git(state, ['status', '--porcelain', '--untracked-files=all']), '');
+  assert.equal(git(remote, ['rev-parse', ref]), moved, 'and the waiting records are published');
+  const next = await note(root, id, 'next');
+  assert.equal(next.pushed, true);
+  assert.equal(git(root, ['rev-list', '--count', `${moved}..${ref}`]), '1');
+});
+
 test('a process that dies during its state write is undone from its saved copy; the next transition commits none of it', async (t) => {
   const id = 'SSB-R3';
   const { root, remote, ref, state } = await startedStory(t, id);

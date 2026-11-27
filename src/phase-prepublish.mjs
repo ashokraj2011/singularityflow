@@ -442,7 +442,7 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
   }
   const artifactSet = resolvedArtifactSet(config, workflow, phase);
   if (artifactSet) {
-    const itemRelative = storyLocation(null, config, id).prefix;
+    const itemRelative = storyLocation(null, [config, workflow], id).checkoutPath();
     const catalog = await catalogArtifactSet(root, itemRelative, phase, artifactSet);
     const unpublishable = (await unpublishableRequiredArtifactSetMembers(root, catalog))
       .filter((member) => !catalog.missingRequired.includes(member));

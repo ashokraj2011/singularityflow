@@ -141,7 +141,7 @@ export async function stageStoryLocalTests(root, config, workflow, {
   const checks = await kernel.qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance])),
     localRun: { ranBy, requestedEnvironment },
-    onMutation: (ran) => recordRunsBeforeRefusal(root, storyLocation(null, config, workflow.workItem.id).prefix, commands, ran, {
+    onMutation: (ran) => recordRunsBeforeRefusal(root, storyLocation(null, config, workflow.workItem.id).checkoutPath(), commands, ran, {
       purpose: 'local', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase), localRunId, uncommittedChanges })
   });
   const attempts = [];
@@ -149,7 +149,7 @@ export async function stageStoryLocalTests(root, config, workflow, {
     for (const command of commands) {
       const check = checks.find((entry) => entry.id === command.id);
       if (!check) continue;
-      const recorded = await recordTestAttempt(root, storyLocation(null, config, workflow.workItem.id).prefix, {
+      const recorded = await recordTestAttempt(root, storyLocation(null, config, workflow.workItem.id).checkoutPath(), {
         command, check, purpose: 'local', workId: workflow.workItem.id, phaseId: phase.id,
         generation: nextPhaseGeneration(phase), localRunId, uncommittedChanges
       });
@@ -223,7 +223,7 @@ export async function candidateGateTests(root, config, workflow, phase) {
         if (block || run) return null;
         const [check] = await kernel.qualityChecks(root, phase, config, workflow, [command], { candidateRoot: await realpath(workspace) });
         try {
-          const { parsed } = await recordTestAttempt(root, storyLocation(null, config, workflow.workItem.id).prefix, {
+          const { parsed } = await recordTestAttempt(root, storyLocation(null, config, workflow.workItem.id).checkoutPath(), {
             command, check, purpose: 'candidate', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase)
           });
           return { check, parsed };

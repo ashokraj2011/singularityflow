@@ -47,7 +47,7 @@ export function trpSelectionPublicPreview(preview) {
   return result;
 }
 function relativeWorkDirectory(config, workflow) {
-  return normalizeTestSelectionPath(storyLocation(null, config, workflow.workItem.id).prefix);
+  return normalizeTestSelectionPath(storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath());
 }
 async function contentBinding(root, relative) {
   const safe = await secureRepositoryPath(root, normalizeTestSelectionPath(relative), { label: 'TRP selection input', type: 'file' });

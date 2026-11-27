@@ -94,8 +94,23 @@ function commitIdentity(root, commit) {
     tree,
     parents,
     transactionId: trailer('Singularity-Flow-Transaction'),
-    eventSha256: trailer('Singularity-Flow-Event-SHA256')
+    eventSha256: trailer('Singularity-Flow-Event-SHA256'),
+    storyCodeCommit: trailer('Story-Code-Commit')
   };
+}
+
+/**
+ * The code commit a Story's lifecycle commit is about [SSB:REQ-004, M3]: the commit itself on today's layout; for a
+ * state-ref Story, the Story branch commit its state commit names.
+ */
+/** The code commit a lifecycle commit names, read from the commit alone: itself unless a state commit names one. */
+export function codeCommitNamedBy(root, commit) {
+  return commit ? commitIdentity(root, commit)?.storyCodeCommit ?? commit : commit;
+}
+
+export function lifecycleCodeCommit(root, workflow, commit) {
+  if (!commit || storyLocation(root, workflow, workflow.workItem.id).branch) return commit;
+  return commitIdentity(root, commit)?.storyCodeCommit ?? commit;
 }
 
 function authenticateStoredPublication(root, commit, record, {

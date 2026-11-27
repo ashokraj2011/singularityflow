@@ -310,7 +310,7 @@ async function briefCandidates(root, definition, workflow) {
       if (brief.consumerPhase !== phaseId || brief.status !== 'ready' || !brief.renderedPath) continue;
       try {
         const verified = await readAgentBrief(root, workflow, producer, consumer, declaration, {
-          itemRelative: storyLocation(null, definition, workflow.workItem.id).prefix
+          itemRelative: storyLocation(null, [definition, workflow], workflow.workItem.id).checkoutPath()
         });
         if (verified.status !== 'ready') continue;
         const content = boundedText(verified.content, 4096);

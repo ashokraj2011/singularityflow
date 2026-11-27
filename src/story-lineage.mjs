@@ -665,7 +665,13 @@ async function verifiedStoryReviewPacket(root, config, workflow, packetSha256) {
     let artifactCheckoutRepresentations = [];
     if (packet.artifacts?.length) {
       const { reviewArtifactBindings } = await import(REVIEW_ARTIFACT_READ_MODULE);
-      const checked = reviewArtifactBindings(root, evidenceCommit, packet.artifacts, gitBlobAtCommit);
+      // A state-ref Story's evidence commit holds its records and documents; its code is in the Story branch commit the
+      // state commit names [SSB:REQ-004, M3].
+      const { lifecycleCodeCommit } = await import('./generation-publication-store.mjs');
+      const codeCommit = lifecycleCodeCommit(root, workflow, evidenceCommit);
+      const readBlob = codeCommit === evidenceCommit ? gitBlobAtCommit
+        : (where, commit, relative) => gitBlobAtCommit(where, stateRelative(relative) === relative ? codeCommit : commit, relative);
+      const checked = reviewArtifactBindings(root, evidenceCommit, packet.artifacts, readBlob);
       if (!checked.valid) {
         failures.push(`${evidenceCommit.slice(0, 12)} ${checked.reason}`);
         continue;

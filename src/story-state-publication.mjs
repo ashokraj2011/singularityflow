@@ -24,10 +24,10 @@ import { STATE_CHECKOUT } from './story-paths.mjs';
 import { sourceFileAt, sourceRevision } from './source-inspection.mjs';
 import {
   advanceStoryState, clearStateWrite, ensureStateCheckout, fetchStoryState, prepareStoryStateCommit, publishedStateTip,
-  recordStatePublished, recoverInterruptedStateWrite, refTip, saveStateWrite, setStoryStateAside, setUnfinishedRecordsAside,
+  recordStatePublished, recoverInterruptedStateWrite, refTip, saveStateWrite, setStoryStateAside, setUnfinishedRecordsAside, undoCodeCommit,
   stateCheckoutChanges, stateContains, storyStateRef
 } from './story-state-ref.mjs';
-import { headAndBranch, publicationPushOutcome, recordBranchPublication } from './git.mjs';
+import { commitIsolated, headAndBranch, publicationPushOutcome, recordBranchPublication } from './git.mjs';
 import { configuredRemoteAuthority, frozenRemoteTransport, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { assertLifecycleEvent, bindLifecycleEvent } from './lifecycle-event.mjs';
@@ -139,7 +139,7 @@ function planLeases(root, { id, ref, branchRef, code, expected, local, observed,
       });
     }
   }
-  return { state, branch, ledgerTip: ledgerRef ? observed.refs.get(ledgerRef) ?? null : undefined, remoteState };
+  return { state, branch, remoteBranch, ledgerTip: ledgerRef ? observed.refs.get(ledgerRef) ?? null : undefined, remoteState };
 }
 
 const statePath = (relative) => path.posix.relative(STATE_CHECKOUT, relative.split(path.sep).join('/'));
@@ -239,6 +239,19 @@ async function publishRecord(root, record, { authority, intent, ledgerConfig, le
   return { pushed: true, ledger };
 }
 
+/** A code step's code on the Story branch, its own paths only; null when they hold no change [SSB M3]. */
+async function commitStoryCode(root, commitSpec, paths, { expectedHead, branch }) {
+  try {
+    return await commitIsolated(root, commitSpec.message, paths, {
+      expectedHead, expectedRef: `refs/heads/${branch}`, sign: commitSpec.sign === true, signingKey: commitSpec.signingKey ?? null
+    });
+  } catch (error) {
+    // Nothing of the code to commit: no change, or none of its paths is there.
+    if (/No changes are ready to commit|requires at least one allowed path/u.test(String(error?.message ?? ''))) return null;
+    throw error;
+  }
+}
+
 /** The ledger intent a retained state commit carries, or null. */
 function retainedIntent(root, record) {
   if (!record.ledgerIntentPath) return null;
@@ -252,7 +265,7 @@ export class StoryStateUnitOfWork {
 
   async execute({
     subject, event, commit: commitSpec, publication = {}, ledger = null, state = null, beforeCommit = null,
-    afterOwnedWrites = null, fault = null, transactionId: givenTransaction = null, storage = {}, signal = null
+    afterOwnedWrites = null, fault = null, transactionId: givenTransaction = null, storage = {}, signal = null, allowedPaths = []
   } = {}) {
     const root = this.root;
     // A transition names its transaction as the branch's journal does, so its records and its commit carry one ID.
@@ -278,7 +291,8 @@ export class StoryStateUnitOfWork {
     const ledgerConfig = ledger?.config?.enabled ? normalizeLedgerConfig(ledger.config) : null;
     const intent = ledgerConfig && ledger.intent ? ledger.intent : null;
     return withSubjectLock(root, subject, async () => {
-      const { branch: current, head: code } = headAndBranch(root);
+      const { branch: current, head: startHead } = headAndBranch(root);
+      let code = startHead;
       if (current !== publication.branch) {
         throw new SingularityFlowError(`Current branch ${current} must match story branch ${publication.branch}.`, {
           code: 'PUBLICATION_BRANCH_MISMATCH', details: { nextAction: { owner: 'person', command: `git switch ${publication.branch}`, label: 'Go back to the Story\'s branch, then run the command again' } }
@@ -305,6 +319,8 @@ export class StoryStateUnitOfWork {
       // Saved where the next command finds it: a process that dies before the records are committed is undone from it.
       await saveStateWrite(root, id, { transactionId, parent, preimage });
       const undo = async (error) => {
+        // A code commit this transition made goes too: the branch, its index and its working files as before it.
+        if (code !== startHead) undoCodeCommit(root, publication.branch, code, startHead);
         if (state?.rollback) await state.rollback(preimage);
         else await restorePublicationPreimage(root, preimage, { subject });
         await clearStateWrite(root, id);
@@ -330,6 +346,17 @@ export class StoryStateUnitOfWork {
         if (afterOwnedWrites) await afterOwnedWrites(envelope, { ledgerIntentPath });
         if (fault) await fault('before-state-commit', { envelope });
         assertNotCancelled(signal, 'transition');
+        // A code step's code is the Story branch's: committed there first, with only the code's paths, so the state
+        // commit names it and the push moves the branch with the state ref [SSB:REQ-004, REQ-005].
+        const codePaths = (allowedPaths ?? []).filter((relative) => typeof relative === 'string' && relative
+          && relative !== STATE_CHECKOUT && !relative.startsWith(`${STATE_CHECKOUT}/`));
+        if (codePaths.length) {
+          const committedCode = await commitStoryCode(root, commitSpec, codePaths, { expectedHead: code, branch: publication.branch });
+          if (committedCode) {
+            code = committedCode;
+            if (leases) leases = { ...leases, branch: { ref: branchRef, value: code, expected: leases.remoteBranch ?? null } };
+          }
+        }
         // REQ-004: the state commit names the code commit it is about, and its event; its transaction trailers are a
         // governed commit's, so a record's commit is verified as on the branch.
         prepared = prepareStoryStateCommit(root, id, `${commitSpec.message}\n\nStory-Code-Commit: ${code}\nStory-Event: ${envelope.eventId}`
@@ -348,7 +375,10 @@ export class StoryStateUnitOfWork {
       // Recorded before the ref moves, so a process that stops between the two leaves a record recovery can read.
       try {
         if (record) await writePendingPublication(root, { kind: subject.kind, id, record });
-        if (prepared.committed) advanceStoryState(root, id, prepared, commitSpec.message);
+        if (prepared.committed) {
+          advanceStoryState(root, id, prepared, commitSpec.message,
+            { afterRef: fault ? () => { Promise.resolve(fault('between-state-ref-and-checkout', { envelope })).catch(() => {}); } : null });
+        }
       } catch (error) {
         if (record) await clearPendingPublication(root, { kind: subject.kind, id }).catch(() => {});
         await undo(error);
@@ -405,7 +435,9 @@ export async function syncStoryStatePublication(root, config, workflow) {
   return withSubjectLock(root, subject, async () => {
     await recoverInterruptedStateWrite(root, id, { definition: config, locked: true });
     const pending = await readPendingPublication(root, subject);
-    if (!pending || pending.record?.layout !== 'state-ref') return none;
+    // State commits made with no transition of their own (a person's lesson change) wait for none: sent here.
+    if (!pending) return (await publishLocalStateCommits(root, config, id)) ?? none;
+    if (pending.record?.layout !== 'state-ref') return none;
     const record = pending.record;
     const local = refTip(root, record.stateRef);
     // Stopped between the commit object and the ref move: the commit never became the records', so nothing is owed.
@@ -445,6 +477,45 @@ export async function syncStoryStatePublication(root, config, workflow) {
     const published = await publishRecord(root, { ...record, publicationMode: 'required' }, { authority, intent, ledgerConfig: ledgerConfig.enabled ? ledgerConfig : null, leases, fromSync: true });
     return { pending: false, pushed: record.commit, remote: record.remote, branch: record.stateRef, capabilityPublished: [], ledger: published.ledger };
   });
+}
+
+/**
+ * Send state commits this clone made on top of what the remote holds, with no pending publication naming them (a
+ * person's lesson change, committed on the state ref) [SSB M3]: the state ref alone, leased at the remote's last known
+ * value. Null when there are none.
+ */
+async function publishLocalStateCommits(root, config, id) {
+  const remote = config.git?.remote ?? 'origin';
+  const ref = storyStateRef(id, config);
+  const local = refTip(root, ref);
+  const published = publishedStateTip(root, id, remote);
+  if (!local || !published || local === published || !stateContains(root, published, local)) return null;
+  const authority = configuredRemoteAuthority(root, remote);
+  if (!authority?.url) throw missingRemote(remote);
+  const observed = await observeRemoteRefs(root, authority.url, [ref]);
+  if (!observed.ok) {
+    throw new SingularityFlowError(`'${remote}' did not answer, so Story '${id}' records are still waiting to be published. Nothing was changed.`, {
+      code: 'STORY_STATE_REMOTE_UNREACHABLE', details: { remote, nextAction: reachRemote(remote) }
+    });
+  }
+  const remoteState = observed.refs.get(ref) ?? null;
+  const result = { pending: false, pushed: local, remote, branch: ref, capabilityPublished: [], ledger: null };
+  if (remoteState === local) { recordStatePublished(root, id, remote, local); return result; }
+  if (remoteState !== published) {
+    throw new SingularityFlowError(`Story '${id}' has records on the remote that this clone does not have: another clone published them first. Nothing was changed.`, {
+      code: 'STORY_STATE_REMOTE_MOVED', outcomeClass: 'REVISION_CONFLICT', details: { ref, expected: published, observed: remoteState, nextAction: setAside(id) }
+    });
+  }
+  const frozen = frozenRemoteTransport(authority.url, { push: true });
+  const pushed = await runRemoteGitAsync(['push', '--porcelain', `--force-with-lease=${ref}:${published}`, frozen.remote, `${local}:${ref}`],
+    { cwd: root, operation: 'remote-push', env: frozen.env, allowFailure: true });
+  if (pushed.status !== 0 || !LANDED.has(porcelainFlags(pushed.stdout).get(ref))) {
+    throw new SingularityFlowError(`Story '${id}' records were not published: ${diagnostic(pushed.stderr, pushed.stdout) || 'the remote refused the push'}. Nothing moved there.`, {
+      code: 'STORY_STATE_PUBLICATION_RETAINED', details: { ref, commit: local, nextAction: reachRemote(remote) }
+    });
+  }
+  recordStatePublished(root, id, remote, local);
+  return result;
 }
 
 /**

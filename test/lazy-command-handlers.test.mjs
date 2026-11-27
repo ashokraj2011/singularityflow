@@ -1146,7 +1146,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // command-skills.mjs +25) [FPL:REQ-019, REQ-038]. No new eager file.
     // 9,947,754 (measured for start.mjs on ssb-m3 merged with main f6353df44, 2026-11-27; submit.mjs 9,944,488): the
     // rises above together. No new eager file.
-    assert.ok(closure.bytes <= 9_947_754, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,951,377 (measured for start.mjs, +3,623 over 9,947,754, 2026-11-27 on ssb-m3 stage e; submit.mjs 9,948,941): a
+    // state-ref Story's code step on its state ref [SSB:REQ-004, REQ-005; M3]: its test runs' records through recordPlace
+    // (verification/attempts.mjs, story-paths.mjs), the code read at the commit a state commit names
+    // (generation-publication-store.mjs lifecycleCodeCommit, delivery-evidence.mjs, specifications.mjs), its delivery
+    // and submission records in the state checkout (state.mjs, code-submission-evidence.mjs, work-intervals.mjs,
+    // governance.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_951_377, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1359,7 +1365,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 894,613 (+53, measured 2026-11-27 on fpl-m3 over 70131c215): `rules` registered as a read (command-registry.mjs)
   // [FPL:REQ-019]. No new eager file.
   // 898,149 (measured on ssb-m3 merged with main f6353df44, 2026-11-27): the two rises above together. No new eager file.
-  assert.ok(root.bytes <= 898_149, `root dispatch loads ${root.bytes} source bytes`);
+  // 898,667 (+518, measured 2026-11-27 on ssb-m3 stage e): recordPlace, where a caller's Story folder keeps its records
+  // (story-paths.mjs) [SSB M3]. No new eager file.
+  assert.ok(root.bytes <= 898_667, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1826,7 +1834,10 @@ test('the common session projection does not import attach, state stores or publ
   // (command-registry.mjs, command-skills.mjs) [FPL:REQ-019, REQ-038]. No new eager file.
   // 4,397,758 (measured on ssb-m3 merged with main f6353df44, 2026-11-27): the two rises above together. No new eager
   // file.
-  assert.ok(current.bytes <= 4_397_758, `session current loads ${current.bytes} source bytes`);
+  // 4,399,911 (+2,153, measured 2026-11-27 on ssb-m3 stage e): the resolver's recordPlace, the code commit a state commit
+  // names, and a code step's records read in the state checkout (story-paths.mjs, generation-publication-store.mjs,
+  // specifications.mjs, delivery-evidence.mjs, work-intervals.mjs) [SSB M3]. No new eager file.
+  assert.ok(current.bytes <= 4_399_911, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

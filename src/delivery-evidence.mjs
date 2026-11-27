@@ -8,6 +8,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { renderPlatformCommand } from './safe-command-guidance.mjs';
 import { STATE_CHECKOUT, storyLocation } from './story-paths.mjs';
+import { codeCommitNamedBy } from './generation-publication-store.mjs';
 
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 
@@ -1185,12 +1186,10 @@ async function validatedReusablePaths(root, candidates, priorEvidence, { role, s
 
 function assertPublishedDocumentationBaseline(root, config, workflow, phase, priorCommit) {
   const priorGeneration = Number(phase.generation ?? 0);
-  const itemPath = storyLocation(null, config, workflow.workItem.id).prefix;
-  const receiptPath = posix(path.join(
-    itemPath,
-    'context', 'code-delivery', `${phase.id}-gen${priorGeneration}.json`
-  ));
-  const workflowPath = `${itemPath}/workflow.json`;
+  // Records, named relative to the Story's records: at the state commit's root for a state-ref Story [SSB M3].
+  const location = storyLocation(null, [config, workflow], workflow.workItem.id);
+  const receiptPath = location.record('context', 'code-delivery', `${phase.id}-gen${priorGeneration}.json`);
+  const workflowPath = location.record('workflow.json');
   if (phase.deliveryEvidence?.receiptPath !== receiptPath
       || Number(phase.deliveryEvidence?.generation) !== priorGeneration) {
     throw new SingularityFlowError(
@@ -1956,7 +1955,7 @@ function prefetchTestReplay(root, evidenceCommit, executions) {
       for (const report of testReceipt.rawReports ?? []) {
         if (safeEvidencePath(report.path) && /^[0-9a-f]{64}$/u.test(report.sha256 ?? '')
             && Number.isInteger(report.bytes) && report.bytes >= 0 && report.bytes <= maximumObjectBytes
-            && report.path.includes('/context/code-delivery/tests/raw/')
+            && `/${report.path}`.includes('/context/code-delivery/tests/raw/')
             && report.path.endsWith(`/${report.sha256}${extension}`)) paths.add(report.path);
       }
     } catch { /* malformed/unavailable records take their ordinary diagnostic route below */ }
@@ -2076,7 +2075,9 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   // source/test bytes; current worktree, authority, regular-file and final verdict checks remain
   // at their original boundaries. Missing/oversized/unsupported batch answers take the old read.
   const array = value => Array.isArray(value) ? value : [];
-  const generationFiles = prefetchExactObjectFiles(root, generationCommit, [
+  // Code is read at the code commit a state-ref Story's state commit names; its records stay at the state commit [SSB M3].
+  const codeCommit = generationCommit ? codeCommitNamedBy(root, generationCommit) : generationCommit;
+  const generationFiles = prefetchExactObjectFiles(root, codeCommit, [
     ...array(receipt.implementationBindings?.bindings).map(binding => binding?.explanation?.path),
     ...array(receipt.fulfillment?.obligations).filter(item => item?.fulfillment !== 'evidence')
       .flatMap(item => array(item?.paths).map(entry => entry?.path)),
@@ -2086,7 +2087,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   const readGenerationFile = (file, options = {}) => {
     const bytes = generationFiles.get(file);
     return !options.regularOnly && bytes && bytes.length <= (options.maximumBytes ?? 1024 * 1024)
-      ? bytes : exactFileAtObject(root, generationCommit, file, options);
+      ? bytes : exactFileAtObject(root, codeCommit, file, options);
   };
   const explanationLines = new Map();
   const declarationIndexes = new Map();
@@ -2323,7 +2324,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     for (const report of testReceipt.rawReports ?? []) {
       const expectedExtension = ['junit-xml', 'dotnet-trx'].includes(testReceipt.adapter) ? '.xml' : '.bin';
       const contentAddressedPath = typeof report.path === 'string'
-        && report.path.includes('/context/code-delivery/tests/raw/')
+        && `/${report.path}`.includes('/context/code-delivery/tests/raw/')
         && report.path.endsWith(`/${report.sha256}${expectedExtension}`);
       if (!safeEvidencePath(report.path) || !contentAddressedPath
           || !/^[0-9a-f]{64}$/.test(report.sha256 ?? '')

@@ -158,8 +158,9 @@ test('a lesson noticed at approval is committed on the state ref, not the branch
   const cli = (...args) => cliIn(root, args);
   const base = git('rev-parse', 'HEAD');
   const lesson = 'Keep the value module free of side effects.';
+  const dropping = 'Name the value in one place only.';
   await writeFile(path.join(item, 'artifacts/specification/spec.md'),
-    `${specification(work, 1)}\n\n## Learnings to carry forward\n\n- ${lesson}\n`);
+    `${specification(work, 1)}\n\n## Learnings to carry forward\n\n- ${lesson}\n- ${dropping}\n`);
   cli('artifact', 'scan', '--phase', 'specification');
   cli('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'specification', '--skip-checks');
@@ -169,12 +170,31 @@ test('a lesson noticed at approval is committed on the state ref, not the branch
   // On the state ref with the approval; nothing on the Story branch or in the code checkout.
   assertPublishedOnStateRef(story, work, base, 'approve with a lesson');
   const kept = git('ls-tree', '-r', '--name-only', REF(work)).split('\n').filter((file) => file.startsWith('singularity/knowledge/records/'));
-  assert.equal(kept.length, 1, 'the lesson is a record on the state ref');
-  assert.match(git('show', `${REF(work)}:${kept[0]}`), /free of side effects/u);
+  assert.equal(kept.length, 2, 'the lessons are records on the state ref');
+  assert.ok(kept.some((file) => /free of side effects/u.test(git('show', `${REF(work)}:${file}`))));
   assert.equal(git('ls-tree', '-r', '--name-only', 'HEAD', '--', 'singularity/knowledge'), '', 'the branch holds no lesson');
   assert.equal(remoteGit('rev-parse', `refs/heads/${work}`), base);
   forgetStoryLayouts();
   assert.ok((await readAllLessons(root)).entries.some((entry) => entry.record.text === lesson), 'recalled from the state checkout');
+
+  // A person's change to it is kept in the state checkout and committed on the state ref, never on the branch; sync
+  // publishes it.
+  const listed = JSON.parse(cli('lessons', '--json').stdout).lessons.find((entry) => entry.text === dropping);
+  assert.ok(listed, 'the lesson is listed');
+  const beforeRule = git('rev-parse', REF(work));
+  const ruled = JSON.parse(cli('lessons', 'rule', listed.id, '--json').stdout);
+  assert.equal(ruled.committed, true);
+  assert.notEqual(git('rev-parse', REF(work)), beforeRule, 'the team rule is a state commit');
+  const dropped = JSON.parse(cli('lessons', 'drop', ruled.now, '--json').stdout);
+  assert.equal(dropped.committed, true);
+  assert.equal(git('rev-parse', 'HEAD'), base, 'the branch holds neither');
+  assert.equal(git('ls-tree', '-r', '--name-only', 'HEAD', '--', 'singularity/knowledge'), '');
+  assert.equal(git('-C', item, 'status', '--porcelain', '--untracked-files=all'), '');
+  const now = JSON.parse(cli('lessons', '--json').stdout).lessons;
+  assert.equal(now.filter((entry) => entry.text === dropping).length, 0, 'dropped for good');
+  assert.equal(now.filter((entry) => entry.text === lesson).length, 1, 'the other is still given');
+  cli('sync', work);
+  assert.equal(remoteGit('rev-parse', REF(work)), git('rev-parse', REF(work)), 'sync publishes the lesson changes');
 
   // Another Story in the same clone recalls it from the first Story's state ref.
   cli('start', 'SSB-L2', '--from-branch', 'main', '--work-type', 'spec-driven-standard', '--title', 'Another value',

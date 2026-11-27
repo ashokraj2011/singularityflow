@@ -24,7 +24,8 @@ import { verifyPlanEvidenceAmendments } from './plan-evidence-amendments.mjs';
 import { applyPlanCorrections } from './plan-row-corrections.mjs';
 import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue, pathDefect, shown } from './draft-diagnostics.mjs';
 import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
-import { gitPlaceOf, recordsRootFor } from './story-paths.mjs';
+import { STATE_CHECKOUT, gitPlaceOf, recordsRootFor } from './story-paths.mjs';
+import { codeCommitNamedBy } from './generation-publication-store.mjs';
 
 const OK = 'pass';
 
@@ -2076,7 +2077,9 @@ function gitCommit(root) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-export function changedRepositoryPaths(root, { base = null, target = 'HEAD', pathContext = null } = {}) {
+export function changedRepositoryPaths(root, { base = null, target: given = 'HEAD', pathContext = null } = {}) {
+  // A state commit's code is the Story branch commit it names [SSB:REQ-004, M3]; only a checkout with a state checkout asks.
+  const target = given !== 'HEAD' && existsSync(path.join(root, STATE_CHECKOUT)) ? codeCommitNamedBy(root, given) : given;
   const args = base
     ? ['diff', '--name-only', '--diff-filter=ACDMRTUXB', base, target, '--']
     : ['diff', '--name-only', '--diff-filter=ACDMRTUXB', `${target}^`, target, '--'];

@@ -203,7 +203,7 @@ export async function supersedePromptGeneration(root, workflow, phase, { workDir
   }, null, 2)}\n`);
   await rename(location.promptFile, path.join(directory, path.basename(location.promptFile)));
   await rename(location.recordFile, path.join(directory, path.basename(location.recordFile)));
-  return { directory: posix(path.relative(root, directory)) };
+  return { directory: posix(path.relative(recordsRootFor(root, workDir), directory)) };
 }
 
 function promptGenerationFailure(message, code, details = {}) {

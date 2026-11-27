@@ -247,8 +247,8 @@ export async function ensureStateCheckout(root, id, { definition = null } = {}) 
  * Nothing to commit returns the ref's commit unchanged. The checkout's own HEAD moves last, so a refused move leaves
  * the ref and the checkout where they were, with the changes still in the checkout.
  */
-export function commitStoryState(root, id, message, { definition = null, expected = undefined } = {}) {
-  const prepared = prepareStoryStateCommit(root, id, message, { definition, expected });
+export function commitStoryState(root, id, message, { definition = null, expected = undefined, paths = null } = {}) {
+  const prepared = prepareStoryStateCommit(root, id, message, { definition, expected, paths });
   return prepared.committed ? advanceStoryState(root, id, prepared, message) : prepared;
 }
 
@@ -256,7 +256,7 @@ export function commitStoryState(root, id, message, { definition = null, expecte
  * The first half of a state commit [SSB M3]: the records staged and their commit object made, on the ref's commit, with
  * no ref moved. So a publication can record the commit it is about to make the ref's before it does.
  */
-export function prepareStoryStateCommit(root, id, message, { definition = null, expected = undefined } = {}) {
+export function prepareStoryStateCommit(root, id, message, { definition = null, expected = undefined, paths = null } = {}) {
   const folder = stateCheckoutPath(root);
   const ref = storyStateRef(id, definition);
   const parent = gitOut(folder, ['rev-parse', 'HEAD'], 'Reading the state checkout');
@@ -268,7 +268,8 @@ export function prepareStoryStateCommit(root, id, message, { definition = null, 
         nextAction: { executable: 'singularity-flow', argv: ['resume', id], label: 'Open the Story again from its records' } }
     });
   }
-  gitOut(folder, ['add', '--all', '--', '.'], 'Staging the Story\'s records');
+  // `paths`: only these records (a person's lesson change), leaving any other unfinished record where it is.
+  gitOut(folder, ['add', '--all', '--', ...(paths ?? ['.'])], 'Staging the Story\'s records');
   const tree = gitOut(folder, ['write-tree'], 'Writing the state tree');
   // The staged records are the ref's own when their tree is the parent's: nothing to commit.
   if (sourceTree(folder, parent, reading()).value === tree) return { committed: false, ref, commit: parent };
@@ -277,7 +278,7 @@ export function prepareStoryStateCommit(root, id, message, { definition = null, 
 }
 
 /** The second half: the ref moves to the prepared commit under its parent, then the checkout's HEAD follows. */
-export function advanceStoryState(root, id, prepared, message) {
+export function advanceStoryState(root, id, prepared, message, { afterRef = null } = {}) {
   const { ref, commit, parent } = prepared;
   const moved = git(root, ['update-ref', '-m', message, ref, commit, parent]);
   if (moved.status !== 0) {
@@ -285,8 +286,20 @@ export function advanceStoryState(root, id, prepared, message) {
       code: 'STORY_STATE_REF_MOVED', details: { ref, expected: parent, found: refTip(root, ref), nextAction: setAsideUnfinished(id) }
     });
   }
+  // Between the two moves: what a process stopped here leaves (the ref moved, its checkout's HEAD behind) is finished by
+  // recoverInterruptedStateWrite at the next command (tests stop a process here).
+  afterRef?.();
   gitOut(stateCheckoutPath(root), ['update-ref', '--no-deref', '-m', message, 'HEAD', commit, parent], 'Moving the state checkout');
   return { ...prepared, committed: true };
+}
+
+/**
+ * Take back a code commit a transition made on the Story branch before its state commit, when the transition does not go
+ * on [SSB M3]: the branch and its index go back to `previous`, the working files stay as they are.
+ */
+export function undoCodeCommit(root, branch, commit, previous) {
+  gitOut(root, ['update-ref', '-m', 'take back an unfinished transition', `refs/heads/${branch}`, previous, commit], 'Putting the Story branch back');
+  gitOut(root, ['reset', '--quiet', '--mixed', previous], 'Putting the Story branch back');
 }
 
 /** Whether `older` is `newer` or one of its ancestors, in this clone; false when either is not here. */

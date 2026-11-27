@@ -315,10 +315,42 @@ reach (code steps and their test runs, amendments, upstream issues, Epics) and s
   section) leaves the branch and the code checkout unchanged and the lesson on the state ref; it is recalled from the
   state checkout, and another Story started in the same clone is given it from the first Story's state ref.
 
+### Stage (e), built 2026-11-27 (owner's go)
+
+The walk `test/story-state-ref-code-step.test.mjs` takes a state-ref Story through its specification and plan, then the
+code step: `prepare`, the code and its test written in the code checkout, `phase publish`, `submit` (its tests run) and
+`approve`. What it showed:
+- **A code step's code is the branch's.** The state ref's unit of work commits the transition's code paths on the Story
+  branch first (`commitIsolated`, the code's paths only, never `.sflow-state/`), names that commit in the state commit
+  (`Story-Code-Commit`) and pushes the branch with the state ref in the one atomic push. A transition that fails after
+  its code commit takes it back (`undoCodeCommit`). A document step commits no code.
+- **The code is read where it is.** A state commit holds records and documents; its code is the commit it names. The
+  code commit is used wherever a lifecycle commit stood for the code: the change since publication, the coverage of the
+  plan's clauses, the delivery receipt's witnesses and source bindings, the review's code artifacts, the change sets of
+  a generation result and of a testing repair (`lifecycleCodeCommit`, `codeCommitNamedBy`). `changedRepositoryPaths`
+  resolves a state commit itself, asked only in a checkout with a state checkout.
+- **Records in the state checkout.** A test run's attempts and reports, the delivery receipt and its change set, the
+  work interval's baseline and reconciliation, the version opening, the generation-start receipt, dependency records,
+  an amendment's set-aside drafts are spelled from the Story's records and written there (`recordPlace`, `recordIn`,
+  `recordFileIn`). A content check that expected a folder before `context/` accepts a record at the state root.
+- **Prefix sites moved** with the walk and with the families it reaches: test runs (`verification/attempts.mjs`, the
+  run marker, flaky runs, repository tests, `tests` and the test decisions, node pin, refactor behaviour), delivery and
+  submission evidence, work intervals, version opening, input restore, upstream issues and forward amendments (their
+  proposals as documents in the state checkout, read at its head), the mutation contract, retention and the other
+  document readers. 101 uses (52 files) before; 23 (18 files) after, of which 4 are in arms only today's layout takes.
+  The 19 left are on paths the walk does not reach: source review, test recovery (TRP), test-command epochs and
+  amendments, evidence amendments, skill steps, task amendments, collaboration, application reviews, the approver
+  refresh, projectors, the approval focus's earlier text, clause sources and the workflow walk's fixed ID.
+- **Lessons.** `lessons drop`, `keep`, `edit` and `rule` on a state-ref Story write the change in its state checkout and
+  commit it on its state ref (only the lesson records), never on the branch; `sync <ID>` now sends state commits made
+  with no transition of their own, leased at the remote's last known value.
+- **A stop between the state ref's move and its checkout's HEAD** (a fault point there) is finished at the next command's
+  checkout repair, and `sync` publishes the waiting records (`test/story-state-ref-retention.test.mjs`).
+
 ### What is left of M3
 
-- The 101 `prefix` uses the walk does not reach (code steps and their test runs, delivery evidence, amendments, upstream
-  issues, input restore, Epics) still refuse loudly. A walk through a code step is the next driver.
-- A state write stopped between the state ref's move and its checkout's HEAD is finished at the next command; no test
-  stops a process exactly there.
+- The Story's steps after its code step: `prepare convergence` refuses first (`WORK_RECONCILIATION_BINDING_MISMATCH`):
+  the convergence context and its records (`convergence-context.mjs`, the convergence handlers in `commands/story.mjs`,
+  adjudications, record documents) spell their records from the checkout. The test step and the release follow.
+- The 19 `prefix` sites listed under stage (e).
 

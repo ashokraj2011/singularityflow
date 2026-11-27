@@ -108,7 +108,7 @@ async function testRisks(root, config, workflow, phase, at) {
   if (phase?.status !== 'in_progress') return { risks: [], narrowings: [] };
   const [{ latestStepAttempts }, { testRunCause, testRunRiskIneligibility, testRunRiskStateFor }, { storyLocation }, { pendingTestNarrowings }] = await Promise.all([
     import('./verification/attempts.mjs'), import('./test-run-risk.mjs'), import('./story-paths.mjs'), import('./test-narrowing.mjs')]);
-  const latest = await latestStepAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, phase.id);
+  const latest = await latestStepAttempts(root, storyLocation(null, config, workflow.workItem.id).checkoutPath(), workflow.workItem.id, phase.id);
   return { narrowings: pendingTestNarrowings(workflow, phase.id, latest.values(), { at }), risks: [...latest.values()].map((attempt) => ({ attempt,
     state: testRunRiskStateFor(workflow, { phaseId: phase.id, attempt }, { at })?.state ?? null }))
     .filter(({ attempt, state }) => !testRunRiskIneligibility(attempt) && state !== 'active')

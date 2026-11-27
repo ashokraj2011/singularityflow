@@ -225,7 +225,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   // blamed the operator) and a complete approved decision on disk for an approval that was undone —
   // which the next successful governed commit would then sweep into signed, pushed, attested history.
   const workDirectory = storyLocation(null, [workflow, config], workflow.workItem.id).branchPrefix;
-  const lessonPaths = event?.type === 'phase-approved' ? ['singularity/knowledge/records'] : [];
+  // A state-ref Story keeps its lessons on its state ref, never on the branch [WMR:REQ-022, SSB M3].
+  const lessonPaths = event?.type === 'phase-approved' && !stateRef ? ['singularity/knowledge/records'] : [];
   // Narrow evidence/appeal transactions must not sweep an unfinished phase draft into a commit.
   // The subject state and status projection remain mandatory owned paths; callers cannot use this
   // internal option to commit application code or another Story's files.
@@ -342,7 +343,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
           // refresh that registration inside the same publication transaction so
           // submit does not mistake Flow's own metadata update for user tampering.
           await registerArtifact(root, workflow, path.join(
-            storyLocation(null, config, workflow.workItem.id).prefix,
+            storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(),
             requestedPhase.requiredArtifact.path
           ), { phaseId: requestedPhase.id, kind: requestedPhase.requiredArtifact.kind, config });
           const designValidation = await validatePhase(root, config, workflow, requestedPhase,

@@ -97,7 +97,7 @@ async function assertApprovalBriefsReviewable(root, definition, workflow) {
   const phase = workflow?.currentPhase ? workflow.phases?.[workflow.currentPhase] : null;
   if (!phase || phase.status !== 'awaiting_approval') return;
   const review = await verifyAgentBriefsForReview(root, workflow, phase, {
-    itemRelative: storyLocation(null, definition, workflow.workItem.id).prefix
+    itemRelative: storyLocation(null, [definition, workflow], workflow.workItem.id).checkoutPath()
   });
   if (!review.valid) {
     throw new SingularityFlowError(

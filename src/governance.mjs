@@ -516,10 +516,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       if (phaseRequiresCodeDelivery(phase)) {
         const reachedReview = generationReachedReview(workflow, phase, generation);
         const receiptPath = storyLocation(null, config, workflow.workItem.id).record('context', 'code-delivery', `${phase.id}-gen${generation}.json`);
-        if (!(await exists(path.join(root, receiptPath)))) {
+        if (!(await exists(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(receiptPath)))) {
           const generationStartPath = storyLocation(null, config, workflow.workItem.id).record('context', 'generation-start', `${phase.id}-gen${generation}.json`);
           const v2Generation = phase.generationIntent?.generation === generation
-            || await exists(path.join(root, generationStartPath))
+            || await exists(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(generationStartPath))
             || Boolean(found && run('git', ['cat-file', '-e', `${found[0]}:${generationStartPath}`], {
               cwd: root, allowFailure: true
             }).status === 0);
@@ -533,7 +533,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         } else if (!reachedReview) {
           passes.push(`superseded publication retained: ${phaseId} generation ${generation} did not enter review`);
         } else {
-          const receipt = readRecord('code-delivery', await readFile(path.join(root, receiptPath))).record;
+          const receipt = readRecord('code-delivery', await readFile(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(receiptPath))).record;
           if (receipt.legacyV1) {
             warnings.push(`${phaseId} generation ${generation} code-delivery receipt is readable legacy v1 evidence`);
           } else {
@@ -606,19 +606,19 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         if (found && telemetryPath && run('git', ['cat-file', '-e', `${found[0]}:${telemetryPath}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.telemetry.uncommitted', `telemetry audit was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
       }
       const agentContextRelative = storyLocation(null, config, workflow.workItem.id).record('context', `agents-${phase.id}-gen${generation}.json`);
-      if (await exists(path.join(root, agentContextRelative))) {
+      if (await exists(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(agentContextRelative))) {
         if (found && run('git', ['cat-file', '-e', `${found[0]}:${agentContextRelative}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.agents.context-uncommitted', `remote agent context was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
         else if (found) passes.push(`remote agent audit: ${phaseId} generation ${generation}`);
       }
       for (const output of (phase.remoteOutputs ?? []).filter((entry) => entry.generation === generation)) {
         const outputRecord = storyLocation(null, config, workflow.workItem.id).record('context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${generation}.json`);
-        if (!(await exists(path.join(root, outputRecord)))) refuse('gate.agents.remote-output-missing', `remote output provenance is missing: ${outputRecord}`, { phase: phaseId, path: outputRecord });
+        if (!(await exists(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(outputRecord)))) refuse('gate.agents.remote-output-missing', `remote output provenance is missing: ${outputRecord}`, { phase: phaseId, path: outputRecord });
         else if (found && run('git', ['cat-file', '-e', `${found[0]}:${outputRecord}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.agents.remote-output-uncommitted', `remote output provenance was not committed with ${phaseId} generation ${generation}`, { phase: phaseId, path: outputRecord });
       }
     }
     const inputIntegrity = await verifyInputsIntegrity(root, workflow, phase, {
-      itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-      itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+      itemDirectory: storyLocation(root, [config, workflow], workflow.workItem.id).directory,
+      itemRelative: storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath()
     });
     refuseEach('gate.inputs.integrity', inputIntegrity.errors, { phase: phaseId }); warnings.push(...inputIntegrity.warnings); passes.push(...inputIntegrity.passes);
     const agentIntegrity = await verifyAgentIntegrity(root, workflow, phase, { itemDirectory: storyLocation(root, config, workflow.workItem.id).directory });

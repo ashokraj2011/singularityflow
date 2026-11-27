@@ -17,7 +17,7 @@ import { SingularityFlowError } from './util.mjs';
 export const TASK_CHANGE_DIALECT = 'task-step-added/v1';
 export const TASK_CHANGE_ID = /^TSC-[0-9]{3,6}$/u;
 /** The resolution keys a task change re-derives from its new steps; every other key stays exactly as it was. */
-export const TASK_CHANGE_DERIVED_KEYS = Object.freeze(['policySha256', 'composition', 'phases', 'templates', 'agents', 'plannedClaims', 'obligationGraph']);
+export const TASK_CHANGE_DERIVED_KEYS = Object.freeze(['policySha256', 'composition', 'phases', 'templates', 'agents', 'plannedClaims', 'obligationGraph', 'sourceReview']);
 /** What a later step may change when a step goes in before it: its place, what it reads and what it returns to. */
 const LATER_STEP_CHANGES = Object.freeze(['order', 'inputs']);
 const QUALIFIED_SHA256 = /^sha256:[a-f0-9]{64}$/u;
@@ -225,6 +225,24 @@ function assertCompositionScope(before, after, decision) {
 }
 
 /**
+ * The review policy a task change may change [ITW:REQ-105, docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md]: none at all, or the
+ * step it adds reviewed as the Story's other authored steps are (a document or a code review), so SFlow can approve it when
+ * its reviewer says ready. Every other part of the policy stays exactly as it was.
+ */
+function assertReviewScope(previous, next, decision) {
+  const before = previous?.sourceReview ?? null;
+  const after = next?.sourceReview ?? null;
+  if (same(before, after)) return;
+  const id = decision.step.id;
+  const rest = (policy) => { const copy = structuredClone(policy ?? {}); delete copy.phases; delete copy.kinds; return copy; };
+  const others = (policy) => Object.fromEntries(Object.entries(policy?.kinds ?? {}).filter(([phase]) => phase !== id));
+  const grown = addsStep(decision) && before?.mode === 'enforce' && after?.mode === 'enforce' && !(before.phases ?? []).includes(id)
+    && (after.phases ?? []).includes(id) && same((after.phases ?? []).filter((phase) => phase !== id), before.phases ?? [])
+    && same(others(after), before.kinds ?? {}) && ['document', 'code'].includes(after.kinds?.[id]) && same(rest(before), rest(after));
+  if (!grown) fail('A task change changed the Story\'s review policy beyond reviewing the step it added.');
+}
+
+/**
  * Throws unless `next` is `previous` with exactly `decision`'s step added: the composition gains it at its place, done
  * steps and the current step are unchanged, later steps change only their place, inputs and returns, the step brings
  * its own template (and any agent it needs), and nothing else in the policy changes. Replayed for every accepted change.
@@ -237,6 +255,7 @@ export function assertTaskChangeScope(previous, next, decision) {
     return copy;
   };
   if (!same(strip(previous), strip(next))) fail('A task change changed the Story\'s policy beyond its steps.');
+  assertReviewScope(previous, next, decision);
   if (previous?.policySha256 !== decision.from.policySha256 || next?.policySha256 !== decision.to.policySha256
       || next.policySha256 !== taskChangePolicyDigest(next) || previous.policySha256 !== taskChangePolicyDigest(previous)) {
     fail('A task change does not bind the exact policies on either side of it.');

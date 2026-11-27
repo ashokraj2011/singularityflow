@@ -1128,7 +1128,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,934,141 (measured for start.mjs, +78 over 9,934,063 on the merge of fpl-m3 with main 4b925b87d, 2026-11-27;
     // submit.mjs 9,930,393, +78): `rules` registered as a read with /sf-explain as its skill (command-registry.mjs +53,
     // command-skills.mjs +25) [FPL:REQ-019, REQ-038]. No new eager file.
-    assert.ok(closure.bytes <= 9_934_141, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,934,394 (measured for start.mjs, +253 over 9,934,141, 2026-11-27 on sf-task-v12; submit.mjs 9,931,439, +1,046): a
+    // sized task's requirement asks its approval with its shape (choices.mjs +235, task-shape.mjs loaded only for such a
+    // Story), its shape decided after its submission (submit.mjs +1,028, task-shape.mjs loaded only then) and `work shape`
+    // registered as a mutation (command-registry.mjs +18) [ITW v1.2 REQ-103]. No new eager file.
+    assert.ok(closure.bytes <= 9_934_394, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1337,7 +1341,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 894,560 (+258, measured 2026-11-27 on the merge of vsc-agenthost-hooks onto 5c682d8c1): the hooks note above. No new eager file.
   // 894,613 (+53, measured 2026-11-27 on fpl-m3 over 70131c215): `rules` registered as a read (command-registry.mjs)
   // [FPL:REQ-019]. No new eager file.
-  assert.ok(root.bytes <= 894_613, `root dispatch loads ${root.bytes} source bytes`);
+  // 894,631 (+18, measured 2026-11-27 on sf-task-v12): `work shape` registered as a mutation (command-registry.mjs) [ITW v1.2
+  // REQ-103]. No new eager file.
+  assert.ok(root.bytes <= 894_631, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1798,7 +1804,9 @@ test('the common session projection does not import attach, state stores or publ
   // new eager file.
   // 4,391,547 (+78, measured 2026-11-27 on fpl-m3 over 70131c215): `rules` registered as a read with /sf-explain as its skill
   // (command-registry.mjs, command-skills.mjs) [FPL:REQ-019, REQ-038]. No new eager file.
-  assert.ok(current.bytes <= 4_391_547, `session current loads ${current.bytes} source bytes`);
+  // 4,391,565 (+18, measured 2026-11-27 on sf-task-v12): `work shape` registered as a mutation (command-registry.mjs)
+  // [ITW v1.2 REQ-103]. No new eager file.
+  assert.ok(current.bytes <= 4_391_565, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

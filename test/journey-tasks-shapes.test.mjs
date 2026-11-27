@@ -1,7 +1,7 @@
 /**
  * Journeys ITW v1.2 (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md REQ-101–112): a task walked from its words to its end by its
  * routes, as Copilot CLI drives it, with the workflow's own checks deciding each step; each counts what the person did.
- * - a small change: the requirement, then one step that implements and tests, SFlow running the tests: 3 actions;
+ * - a small change: the requirement, then one step that implements and tests, then SFlow's run of the tests: 3 actions;
  * - a big change, whose requirement proposes it: spec, plan, code and tests after it: 4 actions;
  * - a small change whose code turns out bigger: it grows, with a plan before the code and tests after: 4 actions.
  * The scripted agent writes each step from its own template (test/helpers/generated-journey.mjs).
@@ -71,19 +71,41 @@ export function sizingAgent({ size = null, extra = [] } = {}) {
           ? line.replace('`src/value.mjs`', ['`src/value.mjs`', ...extra.map((relative) => `\`${relative}\``)].join(', ')) : line)).join('\n'));
       }
       return wrote;
+    },
+    // A spec written after the requirement names its own clauses: one it defined again (as the requirement's) is given the
+    // next free number, as the check asks ("give the new clause its own number").
+    async correct(context) {
+      const findings = context.result?.findings ?? [];
+      const again = findings.filter((entry) => entry?.details?.sourceCode === 'SPEC_CLAUSE_REDEFINED' && entry.path);
+      if (!again.length) return agent.correct(context);
+      for (const file of new Set(again.map((entry) => entry.path))) {
+        const text = await context.story.read(file);
+        const taken = new Set([...text.matchAll(/TASK-1:([A-Z]+)-(\d{3})/gu)].map((match) => `${match[1]}-${match[2]}`));
+        for (const entry of again) for (const match of String(entry.message).matchAll(/TASK-1:([A-Z]+-\d{3})/gu)) taken.add(match[1]);
+        const next = (prefix) => { let n = 1; while (taken.has(`${prefix}-${String(n).padStart(3, '0')}`)) n += 1; const id = `${prefix}-${String(n).padStart(3, '0')}`; taken.add(id); return id; };
+        let changed = text;
+        for (const entry of again) {
+          const [, clause] = /Clause TASK-1:([A-Z]+-\d{3})/u.exec(entry.message) ?? [];
+          if (clause) changed = changed.replaceAll(`[TASK-1:${clause}]`, `[TASK-1:${next(clause.split('-')[0])}]`);
+        }
+        await context.story.write(file, changed);
+      }
+      return true;
     } };
   };
 }
 
-test('journey ITW v1.2, B1: a small change is its requirement, then one step that implements and tests; the person takes 3 actions', slowLane({ timeout: 2_400_000 }), async (t) => {
+test('journey ITW v1.2, B1: a small change is its requirement, one step that implements and tests, and SFlow\'s run of the tests; the person takes 3 actions', slowLane({ timeout: 2_400_000 }), async (t) => {
   const { story, walk } = await walkTask(t, 'make the value module return 2', 'change');
+  assert.deepEqual(walk.findings, [], `${JSON.stringify(walk.findings)}\n${formatTrail(walk.trail)}`);
   assert.equal(walk.reached, true, formatTrail(walk.trail));
-  assert.deepEqual(walk.findings, [], JSON.stringify(walk.findings));
   const record = storyRecord(story);
   assert.equal(record.resolution.composition.sizing, 'requirement');
-  assert.deepEqual(record.phaseOrder, ['intake', 'implementation']);
-  assert.deepEqual(record.phaseOrder.map((id) => record.phases[id].label), ['Requirement', 'Implement and test']);
+  assert.deepEqual(record.phaseOrder, ['intake', 'implementation', 'verification']);
+  assert.deepEqual(record.phaseOrder.map((id) => record.phases[id].label), ['Requirement', 'Implement and test', 'Tests']);
   assert.deepEqual(record.phaseOrder.filter((id) => record.phases[id].approvedBy), ['intake', 'implementation']);
+  // The tests step is SFlow's own: it ran the repository's tests and approved itself when they passed.
+  assert.equal(record.phases.verification.approvalDisposition, 'approved_automatically');
   // The requirement asked nothing: the words left nothing open, so its approval came next.
   assert.ok(!walk.trail.some((entry) => /the agent asked \d+ question/u.test(entry.did ?? '')), formatTrail(walk.trail));
   assert.deepEqual(answeredYes(walk.trail), ['Approve the requirement v1 · Small change: implement and test next?', 'Approve Implement and test v1?']);
@@ -93,19 +115,19 @@ test('journey ITW v1.2, B1: a small change is its requirement, then one step tha
   const status = JSON.parse(story.cli('work', 'status', 'TASK-1', '--json'));
   assert.equal(status.done, true);
   assert.equal(status.shape, 'small');
-  assert.match(status.words, /^TASK-1 is done: Requirement, Implement and test, on branch TASK-1\. Checks that ran: npm test/u);
+  assert.match(status.words, /^TASK-1 is done: Requirement, Implement and test, Tests, on branch TASK-1\. Checks that ran: npm test/u);
   assert.deepEqual(personActions(walk.trail), { words: 1, typed: 0, answers: 2, own: 0, total: 3 }, formatTrail(walk.trail));
 });
 
 test('journey ITW v1.2, B2: a requirement that proposes a big change gains spec, plan, code and tests; the person takes 4 actions', slowLane({ timeout: 2_400_000 }), async (t) => {
   const { story, walk } = await walkTask(t, 'make the value module return 2 for every caller', 'change', { agent: sizingAgent({ size: 'big' }) });
+  assert.deepEqual(walk.findings, [], `${JSON.stringify(walk.findings)}\n${formatTrail(walk.trail)}`);
   assert.equal(walk.reached, true, formatTrail(walk.trail));
-  assert.deepEqual(walk.findings, [], JSON.stringify(walk.findings));
   const record = storyRecord(story);
   assert.deepEqual(record.phaseOrder, ['intake', 'requirements', 'implementation-spec', 'implementation', 'verification']);
   assert.deepEqual(record.phaseOrder.map((id) => record.phases[id].label), ['Requirement', 'Spec', 'Plan', 'Code', 'Tests']);
   const shaped = record.resolution.composition.changes.filter((entry) => entry.shape === 'big');
-  assert.deepEqual(shaped.map((entry) => entry.intent), ['plan', 'requirements', 'test'], 'the plan first, so the requirement stays the person\'s and the spec SFlow\'s');
+  assert.deepEqual(shaped.map((entry) => entry.intent), ['plan', 'requirements'], 'the plan first, so the requirement stays the person\'s and the spec SFlow\'s');
   assert.match(shaped[0].because, /^Copilot proposes a big change\.$/u);
   // A person approves the requirement, the plan and the code; SFlow the spec and the tests.
   assert.deepEqual(record.phaseOrder.filter((id) => record.phases[id].approvalDisposition !== 'approved_automatically'), ['intake', 'implementation-spec', 'implementation']);
@@ -118,15 +140,14 @@ const SIX_FILES = ['src/reads/a.mjs', 'src/reads/b.mjs', 'lib/c.mjs', 'lib/d.mjs
 
 test('journey ITW v1.2, B4: a small change whose code turns out bigger grows: a plan before the code, tests after it; the person takes 4 actions', slowLane({ timeout: 2_400_000 }), async (t) => {
   const { story, walk } = await walkTask(t, 'make the value module return 2', 'change', { agent: sizingAgent({ extra: SIX_FILES }), maxSteps: 220 });
+  assert.deepEqual(walk.findings, [], `${JSON.stringify(walk.findings)}\n${formatTrail(walk.trail)}`);
   assert.equal(walk.reached, true, formatTrail(walk.trail));
-  assert.deepEqual(walk.findings, [], JSON.stringify(walk.findings));
   const record = storyRecord(story);
   assert.deepEqual(record.phaseOrder, ['intake', 'implementation-spec', 'implementation', 'verification']);
   const composition = record.resolution.composition;
   const grow = composition.changes.find((entry) => entry.change === 'grow');
   assert.deepEqual({ from: grow.from, to: grow.to, intent: grow.intent }, { from: 'change', to: 'change', intent: 'plan' });
   assert.match(grow.because, /^The code changes 7 application files in 4 areas/u);
-  assert.equal(composition.changes.find((entry) => entry.intent === 'test')?.shape, 'big');
   assert.ok(walk.trail.some((entry) => /is a big change now/u.test(`${entry.did ?? ''} ${entry.said ?? ''} ${entry.stdout ?? ''}`)) || record.changeRequests.some((entry) => entry.automatic?.kind === 'task-grown'),
     formatTrail(walk.trail));
   assert.equal(record.phases.implementation.generation, 2, 'the code step was kept, with its next version after the plan');
@@ -156,8 +177,8 @@ const reportingAgent = (story) => {
 
 test('journey ITW v1.2, B7: an investigation is done with no approval and offers its follow-ups; one Yes starts a fix from that finding: 2 actions', slowLane({ timeout: 2_400_000 }), async (t) => {
   const { story, walk } = await walkTask(t, 'why does the value module return 1', 'investigate', { agent: reportingAgent });
+  assert.deepEqual(walk.findings, [], `${JSON.stringify(walk.findings)}\n${formatTrail(walk.trail)}`);
   assert.equal(walk.reached, true, formatTrail(walk.trail));
-  assert.deepEqual(walk.findings, [], JSON.stringify(walk.findings));
   const record = storyRecord(story);
   assert.deepEqual(record.phaseOrder, ['intake', 'design']);
   assert.deepEqual(record.phaseOrder.map((id) => record.phases[id].approvalDisposition), ['approved_automatically', 'approved_automatically']);
@@ -181,10 +202,10 @@ test('journey ITW v1.2, B7: an investigation is done with no approval and offers
 
 test('journey ITW v1.2, B9: with no hooks the /sf-task skill carries its own turn on; a small change still takes 3 actions', slowLane({ timeout: 2_400_000 }), async (t) => {
   const { story, walk } = await walkTask(t, 'make the value module return 2', 'change', { follow: { hooks: false } });
+  assert.deepEqual(walk.findings, [], `${JSON.stringify(walk.findings)}\n${formatTrail(walk.trail)}`);
   assert.equal(walk.reached, true, formatTrail(walk.trail));
-  assert.deepEqual(walk.findings, [], JSON.stringify(walk.findings));
   const record = storyRecord(story);
-  assert.deepEqual(record.phaseOrder, ['intake', 'implementation']);
+  assert.deepEqual(record.phaseOrder, ['intake', 'implementation', 'verification']);
   assert.ok(walk.trail.some((entry) => /the \/sf-task skill carries its own turn on, no hook ran/u.test(entry.did ?? '')), formatTrail(walk.trail));
   assert.ok(!walk.trail.some((entry) => /SFlow carries the \/sf-task turn on/u.test(entry.did ?? '')), 'no hook carried anything');
   assert.deepEqual(personActions(walk.trail), { words: 1, typed: 0, answers: 2, own: 0, total: 3 }, formatTrail(walk.trail));

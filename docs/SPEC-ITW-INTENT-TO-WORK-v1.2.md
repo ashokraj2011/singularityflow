@@ -2,7 +2,9 @@
 
 **Specification ID:** `ITW-v1.2`
 
-**Status:** Specified 2026-11-27. Builds on [ITW v1.1](SPEC-ITW-INTENT-TO-WORK-v1.1.md) and replaces its composition
+**Status:** Built 2026-11-27 on branch sf-task-v12 (M1 to M5 in one pass: src/task-shape.mjs, src/task-followups.mjs,
+src/task-history.mjs, with src/task-composition.mjs, src/task-amendment.mjs, src/task-change-contracts.mjs,
+src/task-agents.mjs, src/task-turn.mjs and `work`), walked by test/journey-tasks-shapes.test.mjs. Builds on [ITW v1.1](SPEC-ITW-INTENT-TO-WORK-v1.1.md) and replaces its composition
 (REQ-003, the default approvals of REQ-004 and REQ-005, and the offer of the team's own workflow in REQ-020). Everything
 else in v1.1 stays as it is: the front door, the Story, carrying the turn on, adding a step, skills, a marketplace agent
 as the plan, investigating, refactoring, documents and the last message.
@@ -38,12 +40,12 @@ person each taking part.
 
 ```text
 /sf-task make the value module return 2
-Plan: requirement → implement and test. You approve the requirement and the code.
+Plan: requirement → implement and test → SFlow runs the tests. You approve the requirement and the code.
 ...
 Approve the requirement v1 · Small change: implement and test next?            → Yes
 ...
 Approve Implement and test v1?                                                  → Yes
-Done: TASK-12 is done: Requirement, Implement and test, on branch TASK-12. Checks that ran: npm test (2 tests, all passed).
+Done: TASK-12 is done: Requirement, Implement and test, Tests, on branch TASK-12. Checks that ran: npm test (2 tests, all passed).
 ```
 
 Three person actions: the words, the requirement's Yes, the code's Yes. A big change adds the plan's Yes:
@@ -70,7 +72,7 @@ Two person actions: the words and the one follow-up.
 | Shape | Kinds | Steps | A person approves |
 |---|---|---|---|
 | Analysis | investigate, review, docs | requirement → the report or document | nothing; the follow-up they choose |
-| Small change | fix, chore, change, feature, tests, once its requirement says small | requirement → implement and test | the requirement and the code |
+| Small change | fix, chore, change, feature, tests, once its requirement says small | requirement → implement and test → SFlow runs the tests | the requirement and the code |
 | Big change | the same kinds, once its requirement says big; a refactor always | requirement → spec [→ design] → plan → code → tests | the requirement, the plan and the code |
 
 - A refactor is always big and keeps v1.1's steps (requirement → plan: what must not change → code → tests, REQ-015): its
@@ -82,7 +84,8 @@ Two person actions: the words and the one follow-up.
   still recorded (`composition.kind`) and still chosen from the words as in v1.1.
 
 **ITW:REQ-102, the requirement first.** Every code task starts with one requirement step (the intake, labelled
-"Requirement") followed by one code step (labelled "Implement and test"). The composition says so: `sizing: 'requirement'`.
+"Requirement") followed by one code step (labelled "Implement and test") and SFlow's run of the tests (the tests step,
+REQ-104). The composition says so: `sizing: 'requirement'`.
 - The requirement says what is wanted as numbered clauses, each with how it will be tested; then an analysis: the files
   and areas it likely touches (the World Model's likely files reach this step's prompt in its brief), any data or schema
   change, any public interface change, and the risk; then the size Copilot proposes ("Size: small change" or "Size: big
@@ -91,6 +94,8 @@ Two person actions: the words and the one follow-up.
 - The requirement step asks only what the words leave open (`clarification.mode: when-needed`): with nothing open it
   asks nothing, and the person's next action is its approval. v1.1's "the intake always asks" is replaced.
 - The team's rules (`always`, `paths`) apply to this composition as to any: they only add.
+- A team that wants the kind's own steps for every task, as v1.1 composed them, says `tasks: { sizing: kind }` (default
+  `requirement`). The Rules place's preview and the skill catalogue show the kind's own steps, what a big change gets.
 
 **ITW:REQ-103, the shape is decided at the requirement's approval.**
 - When the requirement is submitted, SFlow reads Copilot's proposal from it and checks it against facts SFlow computes
@@ -118,8 +123,11 @@ Two person actions: the words and the one follow-up.
   tests pass counts for nothing. Zero tests found, a skipped required test or a timeout is never a pass (v1.1 §4).
 - Every clause of the requirement needs a test: the requirement plans the code (it is its plan), its planned-claims table
   names a planned test for each clause, and the code step's check holds the publication until each one is covered.
-- The person approves the delivered code. There is no separate test step; a team that wants one says so in an `always`
-  rule (`steps: [test]`), which adds it.
+- The person approves the delivered code. Then SFlow runs the tests once more in the tests step, which nobody is asked
+  about: SFlow approves it when the repository's tests pass at its submission (`testsAtSubmit: repository`). It is SFlow's
+  own run, and the record the Story's final check reads for each clause (built 2026-11-27: with the code step last, the
+  final evaluation found the clauses' test evidence open and routed the code's approval to the evidence matrix, so the
+  run that records it stays a step of its own; open question 8).
 
 **ITW:REQ-105, a big change: spec, plan, code and tests.**
 - Steps: the requirement → spec (the repository's requirements step, labelled "Spec") → plan → code (labelled "Code") →
@@ -215,7 +223,7 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
 | v1.1 | v1.2 |
 |---|---|
 | REQ-003: steps from the kind (fix: intake → code → test, …) | REQ-101–106: requirement → implement and test, or the big steps, decided at the requirement's approval; analysis as before |
-| REQ-004 defaults: every code change gets a test step | Every code change gets tests SFlow runs: at the code step for a small change, at the tests step for a big one |
+| REQ-004 defaults: every code change gets a test step | Unchanged, and the tests step of a small change is SFlow's alone: it runs the tests and approves itself when they pass |
 | REQ-004 defaults: a person approves a plan where there is one | Unchanged; the requirement of a sized task is always a person's |
 | REQ-005: a person approves what the rules give a person | Unchanged; an analysis gives a person nothing |
 | REQ-020: the team's own workflow is offered with a question | REQ-108: used without asking |
@@ -223,9 +231,10 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
 
 ## 6. Acceptance
 
-- **B1:** `/sf-task make the value module return 2` composes requirement → implement and test; the requirement asks
-  nothing; the approval asks "Approve the requirement v1 · Small change: implement and test next?"; the Story ends after
-  the code's approval with its tests run by SFlow at the code step; 3 person actions.
+- **B1:** `/sf-task make the value module return 2` composes requirement → implement and test → SFlow runs the tests;
+  the requirement asks nothing; the approval asks "Approve the requirement v1 · Small change: implement and test next?";
+  the Story ends after the code's approval with its tests run by SFlow at the code step and again at the tests step,
+  which SFlow approves; 3 person actions.
 - **B2:** A requirement that proposes a big change, or names more than 5 files or more than 2 areas, a migration or a
   contract file, gains spec, plan and tests steps at its submission; its question says "Big change" and why; the Story ends
   with the requirement, the plan and the code approved by a person; 4 person actions.
@@ -263,6 +272,9 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
    there as today; the skill carries the turn on where no hook is installed for the host (IntelliJ's local agent) and
    wherever SFlow's commands still run. Turning the stop into a carry-on means running without the guard; the owner
    decides.
+8. **One step for implement and test, with nothing after it.** Default: the tests step stays as SFlow's own (no person,
+   no question), because the final evaluation reads each clause's test evidence from it. Folding it into the code step
+   needs the evidence model to count a code step's own test runs as a clause's final evidence; not built.
 
 ## 8. Milestones
 

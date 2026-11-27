@@ -102,8 +102,11 @@ const list = (items) => (items.length <= 2 ? items.join(' and ') : `${items.slic
 
 /** What comes after a sized task's requirement, in plan words: "implement and test", "spec, plan, code and tests". */
 export function nextWords(composition) {
-  const words = { requirements: 'spec', design: 'design', plan: 'plan', code: isBigShape(composition) ? 'code' : 'implement and test', test: 'tests', review: 'review' };
-  return list(composition.steps.filter((step) => step.intent !== 'intake').map((step) => words[step.intent] ?? String(step.label ?? step.id).toLowerCase()));
+  const big = isBigShape(composition);
+  const words = { requirements: 'spec', design: 'design', plan: 'plan', code: big ? 'code' : 'implement and test', test: 'tests', review: 'review' };
+  // A small change's tests step is SFlow's own run of what the code step wrote: the person reads "implement and test".
+  return list(composition.steps.filter((step) => step.intent !== 'intake' && (big || step.intent !== 'test'))
+    .map((step) => words[step.intent] ?? String(step.label ?? step.id).toLowerCase()));
 }
 
 /**

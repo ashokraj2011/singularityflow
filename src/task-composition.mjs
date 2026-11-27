@@ -303,13 +303,14 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
     return { schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: used, uses: used, steps: (definition.workTypes[used].phases ?? []).map((id) => ({
       id, intent: definition.phases?.[id]?.intent ?? null, label: definition.phases?.[id]?.label ?? id })), added: [], personApproves: [], rules: [rule] };
   }
-  // v1.2 [ITW:REQ-102, REQ-105, REQ-109]: a code task starts with its requirement and one step that implements and tests;
-  // a big one (`shape: 'big'`, as a started task's composition is rebuilt) has the spec, design when asked, plan and tests
-  // too. An analysis keeps its steps. A refactor, and a team that sizes by kind, keep the kind's own steps.
+  // v1.2 [ITW:REQ-102, REQ-104, REQ-105, REQ-109]: a code task starts with its requirement and one step that implements and
+  // tests, then SFlow's own run of the tests (the tests step, which SFlow approves when they pass: the evidence the Story's
+  // final check reads); a big one (`shape: 'big'`, as a started task's composition is rebuilt) has the spec, design when
+  // asked, and plan too. An analysis keeps its steps. A refactor, and a team that sizes by kind, keep the kind's own steps.
   const sized = (sizing ?? rules.sizing ?? 'requirement') === 'requirement' && (SIZED_KINDS.includes(kind) || ANALYSIS_KINDS.includes(kind));
   const big = sized && SIZED_KINDS.includes(kind) && shape === 'big';
   const intents = sized && SIZED_KINDS.includes(kind)
-    ? ['intake', ...(big ? BIG_INTENTS.filter((intent) => intent !== 'design' || design) : []), 'code']
+    ? ['intake', ...(big ? BIG_INTENTS.filter((intent) => intent !== 'design' && intent !== 'test' || (intent === 'design' && design)) : []), 'code', 'test']
     : [...KIND_STEPS[kind]];
   const changes = [];
   // The person's own changes come first; the team's rules are applied after them, so no rule's step is taken out.
@@ -661,6 +662,8 @@ function planWord(kind, step, composition = null) {
     if (step.intent === 'intake') return 'requirement';
     if (step.intent === 'requirements') return 'spec';
     if (step.intent === 'code' && SIZED_KINDS.includes(kind) && !isBigShape(composition)) return kind === 'tests' ? 'write and run the tests' : 'implement and test';
+    // The tests step of a small change is SFlow's own run of what the code step wrote.
+    if (step.intent === 'test' && SIZED_KINDS.includes(kind) && !isBigShape(composition)) return 'SFlow runs the tests';
   }
   if (step.intent === 'design') return kind === 'investigate' ? 'investigate' : kind === 'review' ? 'review' : kind === 'docs' ? 'write the document' : 'design';
   if (step.intent === 'code') return kind === 'tests' ? 'write the tests' : 'code';

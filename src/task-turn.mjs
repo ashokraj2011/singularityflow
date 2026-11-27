@@ -114,14 +114,18 @@ export async function taskTurnContinuation(payload, { turn, ran, resolveRoot = d
   const waiting = reason === 'submission' && step?.status === 'awaiting_approval' && workflow.currentPhase === step.id && since(step.submittedAt, turn);
   const completed = reason === 'submission' && step?.status === 'approved' && AUTOMATIC.has(step.approvalDisposition) && workflow.currentPhase !== step.id
     && [step.approvedAt, step.automaticApproval?.at].some((at) => since(at, turn));
-  if (reason === 'submission' && !waiting && !completed) return null;
+  // Or the task grew at that submission (ITW v1.2 REQ-106): SFlow returned the code to the plan it added before it, and the
+  // turn goes on with the plan, as after a step SFlow approves itself.
+  const grown = reason === 'submission' && !waiting && !completed && workflow.currentPhase !== step?.id
+    && (workflow.changeRequests ?? []).some((entry) => entry?.automatic?.kind === 'task-grown' && entry.sourcePhase === step?.id && since(entry.requestedAt, turn));
+  if (reason === 'submission' && !waiting && !completed && !grown) return null;
   if (reason === 'approval' && (step?.status !== 'approved'
       || !(step.approvals ?? []).some((entry) => entry && !entry.invalidatedAt && since(entry.at, turn)))) return null;
   const { workflowGuide } = await import('./guide.mjs');
   const skill = taskTurnSkillFor(workflow, workflowGuide(workflow));
   // A submission that waits goes on only into the person's approval of that same step.
   if (!CARRIED.has(skill) || (waiting && skill !== 'sf-approve')) return null;
-  return { skill, workId: workflow.workItem.id, reason: completed ? 'completion' : reason };
+  return { skill, workId: workflow.workItem.id, reason: completed ? 'completion' : grown ? 'grown' : reason };
 }
 
 /**

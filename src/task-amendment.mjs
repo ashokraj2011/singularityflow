@@ -324,6 +324,15 @@ async function taskStepChange(root, definition, workflow, { intent, rule = null,
   proposed.templates = { ...proposed.templates, [added.id]: structuredClone(capturedTemplate) };
   proposed.agents = { ...proposed.agents, ...Object.fromEntries(newAgentIds.map((agentId) => [agentId, structuredClone(fresh.agents[agentId])])) };
   if (fresh.plannedClaims === undefined) delete proposed.plannedClaims; else proposed.plannedClaims = structuredClone(fresh.plannedClaims);
+  // A sized task's added step is reviewed as its other steps are [ITW:REQ-105]: its reviewer joins the Story's review
+  // policy, so SFlow approves it when its reviewer says ready (a step added to a Story composed before v1.2 is not).
+  const review = tightened.sourceReview;
+  if (sized && review?.mode === 'enforce' && proposed.sourceReview?.mode === 'enforce' && review.phases?.includes(added.id)
+      && !(proposed.sourceReview.phases ?? []).includes(added.id) && review.kinds?.[added.id]) {
+    proposed.sourceReview = { ...proposed.sourceReview,
+      phases: nextComposition.steps.map((entry) => entry.id).filter((phase) => phase === added.id || proposed.sourceReview.phases.includes(phase)),
+      kinds: { ...(proposed.sourceReview.kinds ?? {}), [added.id]: review.kinds[added.id] } };
+  }
   if (fresh.obligationGraph) proposed.obligationGraph = structuredClone(fresh.obligationGraph); else delete proposed.obligationGraph;
   if (proposed.wel && !same(wel.buildWelEnrollment({ phases, codeDelivery: proposed.codeDelivery, configurationSource: proposed.configurationSource,
     claimMapContractVersion: proposed.wel.claimMapContractVersion }), proposed.wel)) {

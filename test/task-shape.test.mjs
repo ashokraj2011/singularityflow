@@ -22,10 +22,10 @@ const BASE = YAML.parse(readFileSync(path.join(ROOT, 'templates/workflow.yml'), 
 const base = (tasks) => Object.assign(structuredClone(BASE), tasks ? { tasks } : {});
 const intents = (composition) => composition.steps.map((step) => step.intent);
 
-test('ITW REQ-101, REQ-102: a code task starts with its requirement and one step that implements and tests; a refactor and an analysis keep their steps', async () => {
+test('ITW REQ-101, REQ-102, REQ-104: a code task starts with its requirement, one step that implements and tests, and SFlow\'s run of the tests; a refactor and an analysis keep their steps', async () => {
   for (const kind of SIZED_KINDS) {
     const composition = composeTask(base(), { kind });
-    assert.deepEqual(intents(composition), ['intake', 'code'], kind);
+    assert.deepEqual(intents(composition), ['intake', 'code', 'test'], kind);
     assert.equal(composition.sizing, 'requirement', kind);
     assert.equal(taskShape(composition), 'small', kind);
     assert.equal(composition.steps[0].label, 'Requirement');
@@ -44,9 +44,9 @@ test('ITW REQ-101, REQ-102: a code task starts with its requirement and one step
   assert.throws(() => taskRules(base({ sizing: 'medium' })), /sizing is requirement/u);
   // The plan a person reads, the same every time, and the walk passes.
   const plan = await taskPlan(base(), { kind: 'fix' });
-  assert.equal(plan.plan, 'Plan: requirement → implement and test. You approve the requirement and the code. Small or big is decided with the requirement. Say "add a design step" to change it.');
+  assert.equal(plan.plan, 'Plan: requirement → implement and test → SFlow runs the tests. You approve the requirement and the code. Small or big is decided with the requirement. Say "add a design step" to change it.');
   assert.equal(plan.walk, 'completed');
-  assert.deepEqual(plan.steps.map((step) => [step.id, step.approvedBy]), [['intake', 'person'], ['implementation', 'person']]);
+  assert.deepEqual(plan.steps.map((step) => [step.id, step.approvedBy]), [['intake', 'person'], ['implementation', 'person'], ['verification', 'sflow']]);
   assert.deepEqual(await taskPlan(base(), { kind: 'fix' }), plan);
 });
 

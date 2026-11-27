@@ -501,7 +501,9 @@ prompt. SFlow's hooks, approvals and frozen snapshots stay the safety boundary.
   look its import record already holds is no flag there either.
 - `import preview` refuses a block before anything is staged; its JSON carries `safety { state, findings, looks }`, and
   its add command carries `--looked` for the looks it listed. `import add` checks the staged bytes again before it builds
-  the change, and Workflow Studio's apply checks them a third time from the bytes it adds. An import's `source.safety`
+  the change, and Workflow Studio's apply checks them a third time from the bytes it adds. An agent replaced with
+  `--replace` and no `--id` is found, for its record's looked lines, by the name its own file gives, as the replace finds
+  it (2026-11-27). An import's `source.safety`
   is written only when there were lines to look at.
 - `secret` stays today's refusal at import (`IMPORT_SECRET_DETECTED`, run first); it is a `secret` block in the sweep and
   the conversion review, which never scanned secrets before.
@@ -513,7 +515,10 @@ prompt. SFlow's hooks, approvals and frozen snapshots stay the safety boundary.
 - The sweep is `src/installed-text-safety.mjs`: every library skill (written here or imported), each import whose file is
   text (an agent's skill, a template, an agent, a workflow's agent file), kept in `.git/singularity-flow/` by text SHA-256
   and checker. `singularity-flow check`, `skill catalog`, `marketplace catalog` and a task's plan read it. The Copilot
-  session-start hook does not run it yet; it costs one read of each text the first time.
+  session-start hook never runs it (it costs one read of each text the first time): each run keeps the list of what it
+  flagged beside its results, and the session's start says that list in one line with `/sf-marketplace` (or
+  `singularity-flow marketplace catalog`) to see the lines. With nothing kept, or a list kept by another checker, it says
+  nothing (2026-11-27).
 - A task never offers or uses a refused library skill; the plan line says `not <ID>: SFlow's text checks refuse its
   text` at the step it would have fitted, and at each step of the team's own workflow that attaches it. Naming it with
   `--use-skill` is refused (`TASK_SKILL_TEXT_REFUSED`).

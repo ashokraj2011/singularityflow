@@ -16,7 +16,7 @@ import { isTestAutomationPath } from './source-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { isEditorConfigurationPath } from './application-paths.mjs';
 import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { recordedStateFile, storyLocation } from './story-paths.mjs';
 
 function receiptRelative(config, workflow, phase, generation) {
   return storyLocation(null, config, workflow.workItem.id).record('context', 'generation-start', `${phase.id}-gen${generation}.json`);
@@ -242,7 +242,8 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     ...(receipt.scopeRevision ? { scopeRevision: receipt.scopeRevision } : {}),
     publication: null
   };
-  if (persist) await writeJson(path.join(root, receiptPath), receipt);
+  // Written where its spelling is read: the Story's records, the state checkout for a state-ref Story [SSB M3].
+  if (persist) await writeJson(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(receiptPath), receipt);
   return phase.generationIntent;
 }
 
@@ -324,7 +325,7 @@ export async function consumeGenerationIntent(root, phase, publication) {
   if (phase.generationIntent.path) {
     const receipt = readRecord(
       'generation-start',
-      await readJson(path.join(root, phase.generationIntent.path))
+      await readJson(recordedStateFile(root, phase.generationIntent.path))
     ).record;
     const receiptSha256 = generationStartSha256(receipt);
     if (receipt.status !== 'open'

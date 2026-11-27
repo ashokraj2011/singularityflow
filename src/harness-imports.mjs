@@ -11,7 +11,7 @@ import { normalizeWorkItemRoot } from './work-item-location.mjs';
 
 import { HARNESS_IMPORTS_HARD_MAXIMUM_BYTES, HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES,
   HARNESS_IMPORTS_DEFAULT_ENVELOPE_BYTES, HARNESS_IMPORTS_MODES, normalizeHarnessImports } from './harness-import-policy.mjs';
-import { storiesRoot } from './story-paths.mjs';
+import { stateRelative, storiesRoot, storyLocation } from './story-paths.mjs';
 export { HARNESS_IMPORTS_HARD_MAXIMUM_BYTES, HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES,
   HARNESS_IMPORTS_DEFAULT_ENVELOPE_BYTES, HARNESS_IMPORTS_MODES, normalizeHarnessImports };
 const HANDLE_PATTERN = /^sfref:v1:(story|initiative):([A-Za-z0-9][A-Za-z0-9._-]{0,127}):([a-f0-9]{12,64})$/;
@@ -262,6 +262,9 @@ async function subjectRootCandidates(root, subject) {
     // without making configuration validation depend on this runtime surface.
     const { loadDefinition } = await import('./config.mjs');
     const definition = await loadDefinition(root).catch(() => null);
+    // A state-ref Story's documents and records are in its state checkout [SSB M3].
+    const located = storyLocation(null, definition, subject.id);
+    if (!located.branch) return [located.checkoutPath()];
     configured = normalizeWorkItemRoot(definition?.workItemRoot);
   } else {
     const { loadPortfolio } = await import('./initiative-config.mjs');
@@ -290,7 +293,8 @@ function assertModelSafeArtifact(subjectRoot, artifact) {
 }
 
 function readObjectAtCommit(root, commitSha, artifactPath) {
-  const result = run('git', ['show', `${commitSha}:${artifactPath}`], {
+  // A state-ref Story's document is at its state commit's root [SSB M3].
+  const result = run('git', ['show', `${commitSha}:${stateRelative(artifactPath)}`], {
     cwd: root,
     encoding: 'buffer',
     maxBuffer: 128 * 1024 * 1024,

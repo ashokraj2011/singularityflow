@@ -327,7 +327,7 @@ export async function recordCarriedRows(root, config, workflow, proposal, decisi
 export async function carriedPlanBinding(root, config, workflow, phase, producer) {
   const { collectInputs } = await import('./inputs.mjs');
   const inputs = await collectInputs(root, workflow, phase, { definition: config, itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-    itemRelative: storyLocation(null, config, workflow.workItem.id).prefix, generation: phase.generation });
+    itemRelative: storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(), generation: phase.generation });
   const amended = inputs.records.find((entry) => entry.phase === producer);
   if (!amended || amended.status !== 'captured' || !phase.inputContext?.sha256) return null;
   return { phase: phase.id, generation: Number(phase.generation), binding: { producer, producerGeneration: Number(amended.producerGeneration),

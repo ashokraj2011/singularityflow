@@ -30,7 +30,7 @@ const ABANDONED_ATOMIC_WRITE = /\.tmp-\d+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0
 function abandonedStoryWrite(relative, config, workflow) {
   const id = workflow?.workItem?.id;
   if (!id) return false;
-  const itemRoot = `${storyLocation(null, [config, workflow], id).prefix}/`;
+  const itemRoot = `${storyLocation(null, [config, workflow], id).checkoutPath()}/`;
   return relative.startsWith(itemRoot) && (ABANDONED_ATOMIC_WRITE.test(relative) || /^evidence\/visual-sign-offs\/[\w.-]+\.png$/u.test(relative.slice(itemRoot.length)));
 }
 

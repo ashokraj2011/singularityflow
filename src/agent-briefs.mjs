@@ -7,7 +7,7 @@ import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
 import { nowIso, posix, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { recordFileIn, recordIn, storyLocation } from './story-paths.mjs';
 
 const SUMMARY_HEADINGS = Object.freeze(['agent brief', 'executive summary', 'summary', 'tl;dr', 'overview']);
 const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
@@ -54,7 +54,7 @@ function briefPolicy(declaration) {
 }
 
 export function agentBriefRelativePaths(itemRelative, producerPhase, generation, consumerPhase) {
-  const base = posix(path.join(itemRelative, 'context', 'briefs', `${producerPhase}-gen${generation}-for-${consumerPhase}`));
+  const base = recordIn(itemRelative, 'context', 'briefs', `${producerPhase}-gen${generation}-for-${consumerPhase}`);
   return { record: `${base}.json`, rendered: `${base}.md` };
 }
 
@@ -264,8 +264,8 @@ export async function createAgentBriefs(root, workflow, producerPhase, options =
   // one downstream phase must not leave apparently valid sibling projections on disk.
   const { created, pendingWrites } = await planAgentBriefs(root, workflow, producerPhase, options);
   for (const { paths, record, rendered } of pendingWrites) {
-    if (rendered) await writeText(path.join(root, paths.rendered), rendered);
-    await writeJson(path.join(root, paths.record), record);
+    if (rendered) await writeText(recordFileIn(root, options.itemRelative, paths.rendered), rendered);
+    await writeJson(recordFileIn(root, options.itemRelative, paths.record), record);
   }
   return created;
 }
@@ -274,7 +274,7 @@ export async function createAgentBriefs(root, workflow, producerPhase, options =
 export async function readAgentBrief(root, workflow, producerPhase, consumerPhase, declaration, { itemRelative } = {}) {
   const paths = agentBriefRelativePaths(itemRelative, producerPhase.id, producerPhase.generation, consumerPhase.id);
   let stored;
-  try { stored = JSON.parse(await readFile(path.join(root, paths.record), 'utf8')); }
+  try { stored = JSON.parse(await readFile(recordFileIn(root, itemRelative, paths.record), 'utf8')); }
   catch (error) {
     if (error?.code === 'ENOENT') return { status: 'brief_missing', error: `approved agent brief record is missing for ${producerPhase.id} → ${consumerPhase.id}` };
     return { status: 'brief_invalid', error: `approved agent brief record cannot be read for ${producerPhase.id} → ${consumerPhase.id}: ${error.message}` };

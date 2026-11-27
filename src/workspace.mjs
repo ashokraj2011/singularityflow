@@ -1760,6 +1760,8 @@ async function workspaceRepositoryReferenceProof(repository, target, {
   ], { cwd: target, env, allowFailure: true }), `Repository '${repository.id}' local references`);
   const localTags = new Map();
   for (const entry of refs) {
+    // A Story's state ref and its tracking ref were checked before (assertStoryStatesKept) [SSB M3].
+    if (/^refs\/(?:singularity\/state\/|singularity\/remotes\/origin\/state\/|heads\/sflow\/state\/)[^/]+$/u.test(entry.ref)) continue;
     if (entry.ref.startsWith('refs/heads/')) {
       const branchName = entry.ref.slice('refs/heads/'.length);
       const expectedUpstream = `refs/remotes/origin/${branchName}`;
@@ -2083,6 +2085,8 @@ export async function workspaceRepositoryDropProof(workspace, repository, status
       { code: 'WORKSPACE_CAPABILITY_DROP_UNPUSHED' }
     );
   }
+  // A state-ref Story's records are on refs of its own: each is on the remote before the clone goes [SSB:REQ-008, M3].
+  await (await import('./story-state-ref.mjs')).assertStoryStatesKept(target);
   const refsSha256 = await workspaceRepositoryReferenceProof(repository, target, { env: gitEnv });
   return {
     id: repository.id,

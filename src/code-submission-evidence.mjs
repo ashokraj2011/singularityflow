@@ -29,9 +29,10 @@ function committedJson(root, commit, relative) {
   });
   return JSON.parse(bytes.toString('utf8'));
 }
-async function unchangedRecord(root, commit, relative, phase) {
+async function unchangedRecord(root, commit, relative, phase, records = root) {
   const stored = committedJson(root, commit, relative);
-  const boundary = await secureRepositoryPath(root, relative, { label: 'Published submission evidence', mustExist: true, type: 'file' });
+  // The current copy is in the Story's records: the state checkout for a state-ref Story [SSB M3].
+  const boundary = await secureRepositoryPath(records, relative, { label: 'Published submission evidence', mustExist: true, type: 'file' });
   const current = JSON.parse(await readFile(boundary.absolute, 'utf8'));
   if (!same(stored, current)) stale(phase, `Published submission evidence changed: ${relative}. Preserve and inspect its exact committed bytes.`);
   return current;
@@ -57,8 +58,9 @@ export async function pendingCodeSubmissionEvidence(root, config, workflow, phas
   if (!commit) throw new SingularityFlowError('The current generation has no authenticated publication.', {
     code: 'GENERATION_PUBLICATION_MISSING'
   });
-  const item = storyLocation(null, config, workflow.workItem.id).prefix;
-  const stored = committedJson(root, commit, `${item}/workflow.json`).phases?.[phase.id];
+  // The Story's records at its lifecycle commit: at a state commit's root for a state-ref Story [SSB M3].
+  const location = storyLocation(root, [config, workflow], workflow.workItem.id);
+  const stored = committedJson(root, commit, location.record('workflow.json')).phases?.[phase.id];
   if (!stored || Number(stored.generation) !== Number(phase.generation)
       || !same(stored.generationIntent, phase.generationIntent)
       || !same(stored.claimMaps?.observed, pointer)
@@ -71,17 +73,17 @@ export async function pendingCodeSubmissionEvidence(root, config, workflow, phas
       stale(phase, `Phase '${phase.id}' pending delivery binding changed after publication.`);
     }
   }
-  const receipt = await unchangedRecord(root, commit, phase.deliveryEvidence.receiptPath, phase);
+  const receipt = await unchangedRecord(root, commit, phase.deliveryEvidence.receiptPath, phase, location.recordsRoot);
   readRecord('code-delivery', receipt);
   if (receipt.workId !== workflow.workItem.id || receipt.phase !== phase.id
       || Number(receipt.generation) !== Number(phase.generation) || receipt.status !== 'pending-tests'
       || (receipt.testExecutions ?? []).length) stale(phase, 'Pending submission requires this generation\'s unvalidated delivery receipt.');
   if (pointer) {
-    const expected = `${item}/context/claims/${phase.id}-gen${pointer.generation}-observed.json`;
+    const expected = location.record('context', 'claims', `${phase.id}-gen${pointer.generation}-observed.json`);
     if (pointer.path !== expected || !Number.isSafeInteger(Number(pointer.generation)) || Number(pointer.generation) < 1) {
       stale(phase, 'Historical observed claim binding does not name an exact earlier generation.');
     }
-    const old = await unchangedRecord(root, commit, pointer.path, phase);
+    const old = await unchangedRecord(root, commit, pointer.path, phase, location.recordsRoot);
     const digest = createHash('sha256').update(canonicalJson(old)).digest('hex');
     readRecord('specification-claim-map', old);
     if (old.kind !== 'observed' || old.workId !== workflow.workItem.id || old.phase !== phase.id

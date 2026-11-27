@@ -14,7 +14,7 @@ import { pathToFileURL } from 'node:url';
 
 import { applicationPathContext, isApplicationChangePath, isEditorConfigurationPath } from './application-paths.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { publishedGenerationCommit } from './generation-publication-store.mjs';
+import { lifecycleCodeCommit, publishedGenerationCommit } from './generation-publication-store.mjs';
 import { committedChangedPaths } from './git.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -71,7 +71,7 @@ async function changedSincePublication(root, config, workflow, phase, counted = 
         .filter((item) => isApplicationChangePath(item.value, { ...context, untracked: entry.type === 'untracked' }))
         .map((item) => item.value)))].filter(counted).sort();
   } catch { return null; }
-  const committed = [...new Set(committedChangedPaths(root, generationCommit)
+  const committed = [...new Set(committedChangedPaths(root, lifecycleCodeCommit(root, workflow, generationCommit))
     .filter((candidate) => isApplicationChangePath(candidate, context)))].filter(counted).sort();
   if (!uncommitted.length && !committed.length) return null;
   return { phase: phase.id, generation: Number(phase.generation), generationCommit, uncommitted, committed,

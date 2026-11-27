@@ -209,8 +209,10 @@ async function unrelatedLaterDecisions(root, config, workflow, phase, approvals)
 export async function retainUnchangedPhases(root, config, workflow, completed, { at, actor = null, agent = null } = {}) {
   const counts = await presenceCountsOf(root, workflow);
   const order = workflow.phaseOrder ?? [];
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
-  const itemDirectory = path.join(root, itemRelative);
+  // Documents named from the checkout; a state-ref Story keeps them, and its records, in its state checkout [SSB M3].
+  const location = storyLocation(root, [config, workflow], workflow.workItem.id);
+  const itemRelative = location.checkoutPath();
+  const itemDirectory = location.directory;
   const retained = [];
   let stale = null;
   for (let index = order.indexOf(completed.id) + 1; index > 0 && index < order.length; index += 1) {

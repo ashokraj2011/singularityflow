@@ -64,8 +64,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   fault = null
 } = {}) {
   validateId(config, workflow?.workItem?.id);
-  // A state-ref Story's records are committed on its state ref, never on its branch [SSB:REQ-002, 006; M2]. Its
-  // publication (one atomic push with the branch, the ledger and the pin) is M3: until then the state commit is local.
+  // A state-ref Story's records are committed and published on its state ref, never on its branch [SSB M3].
   const stateRef = storyLocation(root, [workflow, config], workflow.workItem.id).layout === 'state-ref';
   if (revisionPublication !== null && (typeof revisionPublication !== 'object'
       || Array.isArray(revisionPublication))) {
@@ -162,6 +161,11 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     ? 'explicit'
     : 'implicit-local-parent';
   let governedPublicationAuthority = publicationAuthority;
+  // Bound to the state the remote last held, as this clone knows it [SSB M3].
+  if (stateRef && expectedRemoteSha === undefined) {
+    governedExpectedRemoteSha = (await import('./story-state-ref.mjs')).publishedStateTip(root, workflow.workItem.id, config.git?.remote ?? 'origin');
+    expectedRemoteShaSource = 'state-tracking';
+  }
   if (publicationMode !== 'off' && expectedRemoteSha === undefined && !stateRef) {
     governedPublicationAuthority ??= configuredRemoteAuthority(
       root, config.git?.remote ?? 'origin'
@@ -223,7 +227,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   // blamed the operator) and a complete approved decision on disk for an approval that was undone —
   // which the next successful governed commit would then sweep into signed, pushed, attested history.
   const workDirectory = storyLocation(null, [workflow, config], workflow.workItem.id).branchPrefix;
-  const lessonPaths = event?.type === 'phase-approved' ? ['singularity/knowledge/records'] : [];
+  // A state-ref Story keeps its lessons on its state ref, never on the branch [WMR:REQ-022, SSB M3].
+  const lessonPaths = event?.type === 'phase-approved' && !stateRef ? ['singularity/knowledge/records'] : [];
   // Narrow evidence/appeal transactions must not sweep an unfinished phase draft into a commit.
   // The subject state and status projection remain mandatory owned paths; callers cannot use this
   // internal option to commit application code or another Story's files.
@@ -340,7 +345,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
           // refresh that registration inside the same publication transaction so
           // submit does not mistake Flow's own metadata update for user tampering.
           await registerArtifact(root, workflow, path.join(
-            storyLocation(null, config, workflow.workItem.id).prefix,
+            storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(),
             requestedPhase.requiredArtifact.path
           ), { phaseId: requestedPhase.id, kind: requestedPhase.requiredArtifact.kind, config });
           const designValidation = await validatePhase(root, config, workflow, requestedPhase,
@@ -391,8 +396,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
             if (requestedPhase.status === 'approved') {
               await ensureWorkIntervalBaseline(root, config, workflow, {
                 phaseId: workflow.currentPhase,
-                itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-                itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+                itemDirectory: storyLocation(root, [config, workflow], workflow.workItem.id).directory,
+                // The records' own spelling: '.' in a state-ref Story's state checkout [SSB M3].
+                itemRelative: storyLocation(null, [config, workflow], workflow.workItem.id).record()
               });
               // The step's lessons, noticed from its own records and kept with no stop [LRN:REQ-001, REQ-003]. Guidance
               // only: a lesson that cannot be kept never costs the approval [LRN:REQ-009].
@@ -479,13 +485,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     recoveryPreimage,
     stabilityGuard: worktreeGuard,
     transactionId,
-    fault
+    fault,
+    ...(stateRef ? { storage: { layout: 'state-ref', definition: config } } : {})
   };
-  // A state-ref Story's records are committed on its state ref by that ref's own adapter, local only until SSB M3
-  // publishes it under the lifecycle contract [SSB:REQ-002, 006; M2]. Every other Story publishes through the adapter.
-  const result = stateRef
-    ? await (await import('./story-state-ref.mjs')).storyStateAuthority(root, workflow.workItem.id, { definition: config }).publish(transition)
-    : await lifecycleAuthority(root).publish(transition);
+  const result = await lifecycleAuthority(root).publish(transition);
   // The revision binds the code checkout's HEAD; a state commit leaves the Story branch where it was.
   if (workflow[Symbol.for('singularity-flow.state-revision')] && !stateRef) {
     workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;

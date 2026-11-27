@@ -107,7 +107,7 @@ export function authoredArtifactFingerprint(text) {
 }
 
 export function requiredArtifactRepoPath(config, workflow, phase) {
-  return storyLocation(null, config, workflow.workItem.id).record(`${phase.requiredArtifact.path}`);
+  return storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(`${phase.requiredArtifact.path}`);
 }
 
 export function unsafeReviewArtifact(label, relative, reason, cause = null) {
@@ -267,7 +267,7 @@ export async function phaseAuthoredReviewArtifacts(root, config, workflow, phase
   // Draft-progress hints need only the primary. Publication/review keep the complete default;
   // this selection never claims that supporting documents are valid or ready for publication.
   if (set && !primaryOnly) {
-    const phaseArtifactRoot = storyLocation(null, config, workflow.workItem.id).record(memberRoot(phase));
+    const phaseArtifactRoot = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(memberRoot(phase));
     for (const member of set.members) {
       if (member.authority !== 'governed') continue;
       const relative = path.posix.join(phaseArtifactRoot, member.path);

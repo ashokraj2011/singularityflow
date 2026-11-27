@@ -414,7 +414,7 @@ async function workItemPlanningParts(root, definition, {
     { code: 'PLANNING_STEP_NOT_IN_PROGRESS', details: storyNextDetails(workflow) });
   if (targetId && targetId !== 'artifact') throw new SingularityFlowError(`Story planning supports only the 'artifact' promotion target.`);
   const itemDirectory = storyLocation(root, definition, id).directory;
-  const itemRelative = storyLocation(null, definition, id).prefix;
+  const itemRelative = storyLocation(null, [definition, workflow], id).checkoutPath();
   const target = path.join(itemDirectory, phase.requiredArtifact.path);
   const promptStudy = await resolveImpactPromptOverride(root, workflow, phase.id, {
     agentId: agent,

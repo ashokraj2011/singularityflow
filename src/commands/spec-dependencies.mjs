@@ -50,7 +50,7 @@ export async function specDependenciesCommand(positionals, options) {
     throw new SingularityFlowError(`Story ${workflow.workItem.id} has no step '${step}'. Its steps: ${(workflow.phaseOrder ?? []).join(', ')}.`, { code: 'SPEC_DEPENDENCIES_STEP_UNKNOWN',
       details: unknownStepDetails(workflow, step) });
   }
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemRelative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath();
   const result = await stepDependencies(root, workflow, { step });
   const summary = dependencyLines(workflow, result, { step });
   if (optionBoolean(options, 'json')) {

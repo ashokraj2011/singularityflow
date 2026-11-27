@@ -440,7 +440,7 @@ export function setUnfinishedRecordsAside(root, id) {
 
 // ---- A state write a process did not finish [SSB M3; plan §2.4] -------------------------------------------------------
 
-const PROCESS_TOKEN = randomUUID();
+const PROCESS_MARK = randomUUID();
 const stateWriteFile = (root, id) => path.join(commonDirectory(root), 'singularity-flow', 'state-write', `story--${safeFileId(id)}.json`);
 
 /** Saved before a state write begins: the files as they were (their bytes are in the machine's store), and the ref's commit. */
@@ -449,7 +449,7 @@ export async function saveStateWrite(root, id, { transactionId, parent, preimage
   await mkdir(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.tmp`;
   await writeFile(temporary, `${JSON.stringify({ kind: 'story-state-write', id, transactionId, parent, preimage,
-    owner: { pid: process.pid, host: os.hostname(), token: PROCESS_TOKEN }, at: new Date().toISOString() })}\n`, { mode: 0o600 });
+    owner: { pid: process.pid, host: os.hostname(), mark: PROCESS_MARK }, at: new Date().toISOString() })}\n`, { mode: 0o600 });
   await rename(temporary, file);
 }
 
@@ -459,7 +459,7 @@ export async function clearStateWrite(root, id) { await rm(stateWriteFile(root, 
 function ownerRuns(owner) {
   if (!owner?.pid) return false;
   if (owner.host !== os.hostname()) return true;
-  if (owner.pid === process.pid) return owner.token === PROCESS_TOKEN;
+  if (owner.pid === process.pid) return owner.mark === PROCESS_MARK;
   try { process.kill(owner.pid, 0); return true; } catch (error) { return error?.code === 'EPERM'; }
 }
 
@@ -474,7 +474,7 @@ export async function recoverInterruptedStateWrite(root, id, { definition = null
   if (!existsSync(file)) return { recovered: false };
   let journal;
   try { journal = JSON.parse(await readFile(file, 'utf8')); } catch { return { recovered: false, unreadable: true } }
-  const ours = journal?.owner?.pid === process.pid && journal.owner.token === PROCESS_TOKEN;
+  const ours = journal?.owner?.pid === process.pid && journal.owner.mark === PROCESS_MARK;
   if (ours || (!locked && ownerRuns(journal?.owner))) return { recovered: false, running: true };
   const tip = refTip(root, storyStateRef(id, definition));
   const folder = stateCheckoutPath(root);

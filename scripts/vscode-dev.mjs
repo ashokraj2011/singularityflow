@@ -1358,6 +1358,9 @@ async function packageExtension(packagingEnvironment = vscodePackagingEnvironmen
     await rm(staged, { recursive: true, force: true });
   }
 
+  // The source installer reports the final package location after publishing the pair.
+  if (vsixSourceManifestRequested(packagingEnvironment)) return;
+
   // Read, not hardcoded. This said `singularity-flow-vscode-0.9.0.vsix` literally, so the first
   // version bump would have printed an install command for a file that does not exist.
   const { name, version } = JSON.parse(await readFile(path.join(extension, 'package.json'), 'utf8'));

@@ -306,6 +306,10 @@ remote, history or Git command; its input and error output are bounded and its d
 seconds. Renames use relative source paths so a swapped ancestor cannot redirect capture elsewhere.
 The frozen process-site baseline includes this installer-only launch; no owner is exempted.
 
+`install.sh --build-only` adds a fixed Node launch for source packaging. The package-script
+entry runs the packaging and directory recovery tests without Git fixtures. Dependencies,
+typechecking, and packaging run in a source copy that excludes Git metadata.
+
 Configuration projections add two bounded local reads: the exact approved tree's blob inventory
 and one batch object-availability check. Both run in the disposable borrower, which has no promisor
 remote, so older Git releases cannot silently fetch through the application's origin. Missing blobs

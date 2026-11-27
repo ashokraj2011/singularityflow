@@ -354,6 +354,29 @@ test('clean reinstall delegates skip-tests before any Git requirement or reposit
   assert.match(commands, /--skip-tests/);
 });
 
+test('source build-only dispatches from outside a Git-less source folder', async t => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-build-only-script-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const source = path.join(fixture, 'Exported source');
+  const bin = path.join(fixture, 'bin');
+  const log = path.join(fixture, 'arguments.txt');
+  await mkdir(source);
+  await mkdir(bin);
+  await copyFile(path.join(root, 'install.sh'), path.join(source, 'install.sh'));
+  await writeFile(path.join(bin, 'node'), '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$INSTALL_TEST_LOG"\n', { mode: 0o755 });
+  for (const command of ['git', 'npm', 'code', 'copilot']) {
+    await writeFile(path.join(bin, command), '#!/usr/bin/env bash\nexit 97\n', { mode: 0o755 });
+  }
+  const registry = 'https://artifacts.example.test/api/npm/npm-virtual/';
+  const result = spawnSync('bash', [path.join(source, 'install.sh'), '--build-only', '--skip-tests', '--registry', registry, '--out-dir', 'other output'], {
+    cwd: fixture, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:/bin:/usr/bin`, INSTALL_TEST_LOG: log }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const [entry, ...args] = (await readFile(log, 'utf8')).trim().split(/\r?\n/u);
+  assert.match(shellPath(entry), /\/Exported source\/scripts\/build-source-artifacts\.mjs$/u);
+  assert.deepEqual(args, ['--skip-tests', '--registry', registry, '--out-dir', 'other output']);
+});
+
 test('full skip-tests source install automatically hands missing receipt repair to the isolated product service', async t => {
   const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-missing-receipt-install-'));
   t.after(() => rm(fixture, { recursive: true, force: true }));

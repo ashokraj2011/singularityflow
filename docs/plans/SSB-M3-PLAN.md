@@ -272,3 +272,31 @@ reach (code steps and their test runs, amendments, upstream issues, Epics) and s
 - **Left for (d):** a lesson noticed at approval is still written in the code checkout's knowledge store.
 - **Tests:** `test/story-state-ref-approvals.test.mjs` (2): the walk, and a code commit after a submission (A4). The
   helper `test/helpers/submitted-planning-story.mjs` takes the Story's description.
+
+### Stage (c), built 2026-11-27
+
+- **Removal and cleanup keep unpublished records.** `removeStateCheckout` refuses records not committed
+  (`STORY_STATE_CHECKOUT_UNSAVED`) and, through `assertStateRecordsSaved`, state commits the remote has not got: a
+  publication waits for them, or the local state ref is ahead of its tracking ref (`STORY_STATE_UNPUBLISHED`, way out
+  `sync <ID>`). A Story whose publication is off has no tracking ref and no waiting publication: its records stay with
+  the clone, as a local branch does, and its checkout may go. `releaseStateCheckout` (cleanup of a prepared launch,
+  workspace retention) keeps a checkout on either.
+- **The workspace drop** (`src/workspace.mjs`, Detach & drop local) loses the clone's refs too, so it asks more:
+  `assertStoryStatesKept` refuses while any local state ref, either transport's, is not contained in what the remote is
+  known to hold, with `sync <ID>` when a publication waits or was made, else the `git push` that sends the ref. The
+  reference proof then accepts state refs and their tracking refs. `workspace-relink.mjs` only forgets checkouts whose
+  folders are gone; the refs stay in the clone, so it asks nothing.
+- **No `git stash` (owner-side decision, 2026-11-27).** M2's way past unfinished records in the state checkout was a
+  stash in the state checkout. It is now `sync <ID> --set-aside`: previewed with the changes and a token, then
+  `--confirm <token>` keeps them in a commit on `refs/singularity/state-aside/<ID>/<time>-unfinished` whose parent is the
+  checkout's commit, and puts the checkout back (`setUnfinishedRecordsAside`). Every refusal that named the stash names
+  it instead.
+- **A process that dies during the state write.** Before the write the unit of work saves the files as they were (the
+  preimage, its bytes in the machine's store) and the ref's commit in `<common dir>/singularity-flow/state-write/`. The
+  next transition and `sync`, under the Story's lock, and the checkout's repair at command start, when the owner process
+  is gone, put the checkout back from it while the ref has not moved (the interrupted bytes are kept, as today's layout
+  keeps them), or bring the checkout's HEAD to a ref that did move. So the next transition never commits what it left.
+- **Tests:** `test/story-state-ref-retention.test.mjs` (3): unfinished records kept and set aside by `sync`, then the
+  checkout removed; state commits not published keep the checkout and stop the drop until `sync`; a transition whose
+  process exits in the middle of its state write, undone before the next commits. `test/story-state-ref.test.mjs`: the
+  two refusals name `sync <ID> --set-aside`.

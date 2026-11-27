@@ -16,15 +16,16 @@
  *
  * Loaded only for a state-ref Story.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { SingularityFlowError, nowIso } from './util.mjs';
 import { recordSha256 } from './records.mjs';
 import { STATE_CHECKOUT } from './story-paths.mjs';
 import { sourceFileAt, sourceRevision } from './source-inspection.mjs';
 import {
-  advanceStoryState, ensureStateCheckout, fetchStoryState, prepareStoryStateCommit, publishedStateTip,
-  recordStatePublished, refTip, setStoryStateAside, stateContains, storyStateRef
+  advanceStoryState, clearStateWrite, ensureStateCheckout, fetchStoryState, prepareStoryStateCommit, publishedStateTip,
+  recordStatePublished, recoverInterruptedStateWrite, refTip, saveStateWrite, setStoryStateAside, setUnfinishedRecordsAside,
+  stateCheckoutChanges, stateContains, storyStateRef
 } from './story-state-ref.mjs';
 import { headAndBranch, publicationPushOutcome, recordBranchPublication } from './git.mjs';
 import { configuredRemoteAuthority, frozenRemoteTransport, redactDiagnosticText } from './git-remote-diagnostics.mjs';
@@ -283,6 +284,8 @@ export class StoryStateUnitOfWork {
           code: 'PUBLICATION_BRANCH_MISMATCH', details: { nextAction: { owner: 'person', command: `git switch ${publication.branch}`, label: 'Go back to the Story\'s branch, then run the command again' } }
         });
       }
+      // What a process that died during its state write left is put back first, so it is never committed with this one.
+      await recoverInterruptedStateWrite(root, id, { definition, locked: true });
       if (await readPendingPublication(root, { kind: subject.kind, id })) throw pendingRefusal(subject);
       await ensureStateCheckout(root, id, { definition });
       const ref = storyStateRef(id, definition);
@@ -299,9 +302,12 @@ export class StoryStateUnitOfWork {
       // Cancelled while it waited for the lock or observed: nothing is written yet.
       assertNotCancelled(signal, 'transition');
       const preimage = await capturePublicationPreimage(root, [STATE_CHECKOUT]);
+      // Saved where the next command finds it: a process that dies before the records are committed is undone from it.
+      await saveStateWrite(root, id, { transactionId, parent, preimage });
       const undo = async (error) => {
         if (state?.rollback) await state.rollback(preimage);
         else await restorePublicationPreimage(root, preimage, { subject });
+        await clearStateWrite(root, id);
         throw error;
       };
       let ledgerIntentPath = null;
@@ -347,6 +353,7 @@ export class StoryStateUnitOfWork {
         if (record) await clearPendingPublication(root, { kind: subject.kind, id }).catch(() => {});
         await undo(error);
       }
+      await clearStateWrite(root, id);
       envelope = bindLifecycleEvent(envelope, commit);
       const result = { sha: commit, replayed: false, event: envelope, candidate: null,
         state: { ref, commit, parent, committed: prepared.committed, codeCommit: code } };
@@ -396,6 +403,7 @@ export async function syncStoryStatePublication(root, config, workflow) {
   const subject = { kind: 'story', id };
   const none = { pending: false, pushed: null, noOp: true, capabilityPublished: [], ledger: null };
   return withSubjectLock(root, subject, async () => {
+    await recoverInterruptedStateWrite(root, id, { definition: config, locked: true });
     const pending = await readPendingPublication(root, subject);
     if (!pending || pending.record?.layout !== 'state-ref') return none;
     const record = pending.record;
@@ -446,6 +454,13 @@ export async function syncStoryStatePublication(root, config, workflow) {
 export async function planStoryStateSetAside(root, config, workflow) {
   const id = workflow.workItem.id;
   const remote = config.git?.remote ?? 'origin';
+  // Records an unfinished command left in the state checkout come first: they are kept in a commit of their own.
+  const unfinished = stateCheckoutChanges(root);
+  if (unfinished.length) {
+    const token = unfinishedToken(root, config, id, unfinished);
+    return { workId: id, layout: 'state-ref', kind: 'unfinished', ref: storyStateRef(id, config), unfinished, token, needed: true,
+      nextAction: { executable: 'singularity-flow', argv: ['sync', id, '--set-aside', '--confirm', token], label: 'Keep the unfinished records on a ref of their own' } };
+  }
   const fetched = await fetchStoryState(root, id, { remote, definition: config });
   const ref = storyStateRef(id, config);
   const local = refTip(root, ref);
@@ -455,6 +470,12 @@ export async function planStoryStateSetAside(root, config, workflow) {
     nextAction: needed
       ? { executable: 'singularity-flow', argv: ['sync', id, '--set-aside', '--confirm', local], label: 'Set this clone\'s records aside and go on from the published ones' }
       : { executable: 'singularity-flow', argv: ['resume', id], label: 'Open the Story from its records' } };
+}
+
+/** What confirms the set-aside of unfinished records: the checkout's commit and its changes, as the preview saw them. */
+function unfinishedToken(root, config, id, changes) {
+  const head = refTip(root, storyStateRef(id, config)) ?? '';
+  return createHash('sha256').update([head, ...changes].join('\n')).digest('hex').slice(0, 12);
 }
 
 /**
@@ -468,6 +489,16 @@ export async function setAsideStoryStatePublication(root, config, workflow, { co
   return withSubjectLock(root, subject, async () => {
     const plan = await planStoryStateSetAside(root, config, workflow);
     if (!plan.needed) return { ...plan, setAside: false };
+    if (plan.kind === 'unfinished') {
+      if (String(confirm ?? '').toLowerCase() !== plan.token) {
+        throw new SingularityFlowError(`Story '${id}' unfinished records changed since the preview. Nothing was set aside.`, {
+          code: 'STORY_STATE_SET_ASIDE_CHANGED', details: { ref: plan.ref, unfinished: plan.unfinished,
+            nextAction: { executable: 'singularity-flow', argv: ['sync', id, '--set-aside'], label: 'Preview the set-aside again' } }
+        });
+      }
+      return { ...plan, ...setUnfinishedRecordsAside(root, id),
+        nextAction: { executable: 'singularity-flow', argv: ['resume', id], label: 'Open the Story from its records' } };
+    }
     if (String(confirm ?? '').toLowerCase() !== plan.local) {
       throw new SingularityFlowError(`Story '${id}' records changed since the preview (${String(plan.local).slice(0, 12)} now). Nothing was set aside.`, {
         code: 'STORY_STATE_SET_ASIDE_CHANGED', details: { ref: plan.ref, local: plan.local,

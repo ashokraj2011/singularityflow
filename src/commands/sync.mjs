@@ -359,7 +359,14 @@ async function syncSetAsideStateCommand(root, config, workflow, confirm, options
     : await state.planStoryStateSetAside(root, config, workflow);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   const short = (sha) => String(sha ?? '').slice(0, 12);
-  if (result.setAside) {
+  if (result.kind === 'unfinished') {
+    const count = result.unfinished?.length ?? 0;
+    if (result.setAside) console.log(`Kept ${count} unfinished record change(s) of ${result.workId} on ${result.aside}; the state checkout is back at its records.`);
+    else {
+      console.log(`The state checkout of ${result.workId} holds ${count} record change(s) an unfinished command left, not saved on its records.`);
+      console.log('Setting them aside keeps them in a commit on a ref of their own and puts the checkout back. Nothing is deleted.');
+    }
+  } else if (result.setAside) {
     console.log(`Set aside this clone's records for ${result.workId} (${short(result.local)}), kept on ${result.aside}.`);
     console.log(`The Story goes on from the published records (${short(result.published)}).`);
   } else if (result.needed) {

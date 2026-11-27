@@ -1132,7 +1132,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // review and its evidence found in the state ref's history with the code commit a state commit names (state.mjs
     // +5,106, story-lineage.mjs, generation-publication-store.mjs, specifications.mjs, clarifications.mjs, inject.mjs).
     // No new eager file.
-    assert.ok(closure.bytes <= 9_946_839, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,947,276 (measured for start.mjs, +437, 2026-11-27 on ssb-m3 stage c; submit.mjs 9,944,410): the workspace drop
+    // asks a clone's state-ref Stories whether the remote holds their records before it removes the clone, and accepts
+    // their state refs (workspace.mjs; the check itself loads lazily) [SSB:REQ-008; M3]. No new eager file.
+    assert.ok(closure.bytes <= 9_947_276, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

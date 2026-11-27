@@ -1172,7 +1172,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // eager file.
     // 9,956,342 (measured for start.mjs, +1,059 over 9,955,283 on the merge of change-story with main 237ff13d3,
     // 2026-11-27; submit.mjs 9,953,906): CSP's page above and SSB M3 stage e together. No new eager file.
-    assert.ok(closure.bytes <= 9_956_342, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,957,545 (measured for start.mjs, +1,203 over 9,956,342, 2026-11-28 on ssb-m3 stage f; submit.mjs 9,955,818): a
+    // state-ref Story's convergence, verification and release on its state ref [SSB:REQ-004, REQ-005, REQ-009; M3]: the
+    // convergence context's records place (convergence-context.mjs +618), the tested code compared with the code commit
+    // a state commit names (delivery-evidence.mjs +369), the conformance report named from the checkout
+    // (conformance-readiness.mjs +127), the scope check's document folders (state.mjs +72), document() where M3 keeps
+    // documents (story-paths.mjs +17); submit.mjs also the final audit's records and state ref (governance.mjs +709). No
+    // new eager file.
+    assert.ok(closure.bytes <= 9_957_545, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1387,7 +1394,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 898,149 (measured on ssb-m3 merged with main f6353df44, 2026-11-27): the two rises above together. No new eager file.
   // 898,667 (+518, measured 2026-11-27 on ssb-m3 stage e): recordPlace, where a caller's Story folder keeps its records
   // (story-paths.mjs) [SSB M3]. No new eager file.
-  assert.ok(root.bytes <= 898_667, `root dispatch loads ${root.bytes} source bytes`);
+  // 898,684 (+17, measured 2026-11-28 on ssb-m3 stage f): document() names a state-ref Story's documents where M3 keeps
+  // them, its state checkout (story-paths.mjs) [SSB:REQ-009; M3]. No new eager file.
+  assert.ok(root.bytes <= 898_684, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1862,7 +1871,9 @@ test('the common session projection does not import attach, state stores or publ
   // specifications.mjs, delivery-evidence.mjs, work-intervals.mjs) [SSB M3]. No new eager file.
   // 4,401,527 (measured on ssb-m3 merged with main 29c9c43b9, 2026-11-27): stage e and fix-source-loop's rules
   // (+1,616 on main's side) together. No new eager file.
-  assert.ok(current.bytes <= 4_401_527, `session current loads ${current.bytes} source bytes`);
+  // 4,401,913 (+386, measured 2026-11-28 on ssb-m3 stage f): the tested code compared with the code commit a state commit
+  // names (delivery-evidence.mjs +369) and document() (story-paths.mjs +17) [SSB M3]. No new eager file.
+  assert.ok(current.bytes <= 4_401_913, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

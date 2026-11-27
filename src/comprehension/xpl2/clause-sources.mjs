@@ -231,14 +231,17 @@ export async function readStoryRecordSources(root, workflow, { phaseId = null } 
   };
 }
 
-/** The Story's own directory, from the repository's definition; the built-in root otherwise. */
-async function workItemRelative(root, workId) {
+/**
+ * The Story's own folder as the checkout names it, from the Story and the repository's definition; the built-in root
+ * otherwise. A state-ref Story's is its state checkout, where its records are [SSB M3].
+ */
+async function workItemRelative(root, workId, workflow = null) {
   try {
     const { comprehensionDefinition } = await import('../code-scope.mjs');
     const definition = await comprehensionDefinition(root);
-    return storyLocation(null, definition, workId).prefix;
+    return storyLocation(null, [workflow, definition], workId).checkoutPath();
   } catch {
-    return storyLocation(null, null, workId).prefix;
+    return storyLocation(null, [workflow], workId).checkoutPath();
   }
 }
 
@@ -307,7 +310,7 @@ export async function readGenerationSources(root, workflow, { phase, generation 
   }
   try {
     const { stepAttempts } = await import('../../verification/attempts.mjs');
-    const all = (await stepAttempts(root, await workItemRelative(root, workId), workId, phase))
+    const all = (await stepAttempts(root, await workItemRelative(root, workId, workflow), workId, phase))
       .filter((attempt) => Number(attempt.generation) === Number(generation));
     result.attempts = { status: 'available', records: all.slice(0, XPL2_RECORD_LIMITS.attempts), omitted: Math.max(0, all.length - XPL2_RECORD_LIMITS.attempts) };
   } catch {

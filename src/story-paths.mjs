@@ -232,15 +232,17 @@ class StoryLocation {
   /** Whether a code-checkout path lies under this Story's records (strictly below the prefix). Never for state-ref. */
   owns(candidate) { return this.branch && typeof candidate === 'string' && candidate.startsWith(`${this.prefix}/`); }
 
-  /** A step's document: today under the Story's `artifacts/`; state-ref under `docs/stories/<ID>/`. */
+  /**
+   * A step's document: under the Story's `artifacts/`, named from the checkout (checkoutPath): a state-ref Story's in its
+   * state checkout until M4 moves its documents to `docs/stories/<ID>/` (STORY_DOCUMENTS) [SSB M3, REQ-009].
+   */
   document(artifact) {
-    const relative = this.branch ? this.record(artifact)
-      : slash(this.path, this.path.join(STORY_DOCUMENTS, this.id, String(artifact).replace(/^artifacts\//u, '')));
+    const relative = this.checkoutPath(artifact);
     return { relative, absolute: this.path.join(this.root, relative) };
   }
 
   isDocument(candidate) {
-    const folder = this.branch ? `${this.prefix}/artifacts/` : `${STORY_DOCUMENTS}/${this.id}/`;
+    const folder = this.branch ? `${this.prefix}/artifacts/` : `${STATE_CHECKOUT}/artifacts/`;
     return typeof candidate === 'string' && candidate.startsWith(folder);
   }
 

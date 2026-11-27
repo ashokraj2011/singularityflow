@@ -158,8 +158,11 @@ async function findingsWords(step) {
 
 /** The verification evidence, written from the records: null when the clause rows cannot be read here. */
 async function verificationBody(root, definition, workflow, phase, { ownRuns = null } = {}) {
-  const rows = await clauseRows(root, definition, workflow);
-  if (!rows?.length) return null;
+  const read = await clauseRows(root, definition, workflow);
+  if (!read?.length) return null;
+  // A statement a scope decision left out is no requirement of this Story: listed under the results, never counted.
+  const rows = read.filter((row) => row.type !== 'SCOPE');
+  const scope = read.filter((row) => row.type === 'SCOPE');
   const { runs, codeStep, ownRan } = await testRuns(root, workflow, phase, ownRuns);
   const verified = rows.filter((row) => VERIFIED_RESULTS.has(row.result));
   const open = rows.filter((row) => !VERIFIED_RESULTS.has(row.result) && row.result !== 'not-applicable');
@@ -181,6 +184,7 @@ async function verificationBody(root, definition, workflow, phase, { ownRuns = n
       '## Acceptance and specification results', '',
       '| Clause | Test evidence | Source | Result |', '|---|---|---|---|',
       ...rows.map((row) => `| ${code(row.id)} | ${cell(testEvidence(row, signedRecords(workflow)))} | ${cell(sourceEvidence(row))} | ${cell(resultWords(row))} |`), '',
+      ...scopeDecisionLines(scope),
       'A source tag binds a requirement to its code; only a test result or a person\'s recorded sign-off above verifies it.', '',
       '## Negative, regression, security, and non-functional checks', '',
       `- Scanners: ${findings ?? 'no scanner findings are recorded for the changed code.'}`,
@@ -189,6 +193,12 @@ async function verificationBody(root, definition, workflow, phase, { ownRuns = n
       `- Residual risk: ${open.length ? open.map((row) => `${code(row.id)} reads ${row.result}`).join('; ') : 'none the records show.'}`, ''
     ].join('\n')
   };
+}
+
+/** The statements a scope decision left out, each with its decision, as lines under a table; [] when there are none. */
+function scopeDecisionLines(scope) {
+  return scope.length ? ['Statements of the Story\'s sources that its scope decisions keep out of its clauses:', '',
+    ...scope.map((row) => `- ${code(row.id)}, ${cell(row.scope?.disposition ?? 'decided')}: ${cell(row.scope?.text ?? 'no text recorded')}`), ''] : [];
 }
 
 /** The deviations a person accepted at convergence, each with who accepted it; [] when none or unreadable. */
@@ -278,8 +288,7 @@ async function releaseBody(root, definition, config, workflow, phase) {
       '## Requirement trace', '',
       '| Clause | Evidence | Verdict |', '|---|---|---|',
       ...clauses.map((row) => `| ${code(row.id)} | ${cell(`${testEvidence(row, signedRecords(workflow))}; source ${sourceEvidence(row)}`)} | ${cell(verdictOf(row, deviations))} |`), '',
-      ...(scope.length ? ['Statements of the Story\'s sources that its scope decisions keep out of its clauses:', '',
-        ...scope.map((row) => `- ${code(row.id)}, ${cell(row.scope?.disposition ?? 'decided')}: ${cell(row.scope?.text ?? 'no text recorded')}`), ''] : []),
+      ...scopeDecisionLines(scope),
       '## Constitution conformance', '', ...constitutionLines(workflow), '',
       '## Exceptions', '', ...exceptionLines(workflow), '',
       '## Deviations', '', ...(deviations.length ? deviations.map((entry) => `- ${entry.id}: ${(entry.clauseIds ?? []).map(code).join(', ')}, accepted by ${cell(person(entry.decision?.actor))}: ${cell(entry.decision?.reason ?? 'no reason recorded')}`)

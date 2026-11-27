@@ -86,14 +86,15 @@ async function asked(root, config, workflow) {
  * The entries of a code step's delivered change sets: this version's (from the workflow, else its record file) and each
  * earlier version's record, so a file only an earlier version changed stays on the page; one changed back reads as unchanged.
  */
-async function changeEntries(root, phase) {
+async function changeEntries(location, phase) {
   const evidence = phase.deliveryEvidence ?? {};
   const inline = Array.isArray(evidence.changeSet?.entries) ? evidence.changeSet.entries : null;
   const current = /^(.*-gen)(\d+)(-changes\.json)$/u.exec(String(evidence.changeSetPath ?? ''));
   const entries = [...(inline ?? [])];
   for (let generation = current ? Number(current[2]) : 0; generation >= 1; generation -= 1) {
     if (inline && generation === Number(current[2])) continue;
-    const recorded = await json(path.join(root, `${current[1]}${generation}${current[3]}`), 16 * 1024 * 1024);
+    // A record: a state-ref Story's is in its state checkout, named relative to it [SSB M3].
+    const recorded = await json(location.fromRecord(`${current[1]}${generation}${current[3]}`), 16 * 1024 * 1024);
     if (Array.isArray(recorded?.entries)) entries.push(...recorded.entries);
   }
   return entries;
@@ -111,7 +112,7 @@ async function deliveredFiles(root, config, workflow, steps, revision) {
   const moved = new Map();
   const paths = new Set();
   for (const step of steps) {
-    for (const entry of await changeEntries(root, step)) {
+    for (const entry of await changeEntries(storyLocation(root, [workflow, config], workflow.workItem.id), step)) {
       for (const candidate of [entry?.oldPath, entry?.newPath]) {
         if (typeof candidate === 'string' && !isEditorConfigurationPath(candidate) && isApplicationChangePath(candidate, context)) paths.add(candidate);
       }
@@ -277,10 +278,10 @@ async function explanations(root, config, workflow, steps, files) {
   return result;
 }
 
-async function receipt(root, relative) {
+async function receipt(root, workflow, relative) {
   try {
     const { readRecord } = await import('./schema-migrations.mjs');
-    return readRecord('test-execution', await readFile(path.join(root, relative))).record;
+    return readRecord('test-execution', await readFile(storyLocation(root, [workflow], workflow.workItem.id).fromRecord(relative))).record;
   } catch { return null; }
 }
 
@@ -300,7 +301,7 @@ async function testRun(root, workflow, steps) {
     if (!counted.length) continue;
     const totals = { passed: 0, failed: 0, skipped: 0, statuses: [] };
     for (const run of counted) {
-      const read = run.receiptPath ? await receipt(root, run.receiptPath) : null;
+      const read = run.receiptPath ? await receipt(root, workflow, run.receiptPath) : null;
       const tests = run.counts ?? read?.tests ?? null;
       totals.passed += Number(tests?.passed ?? 0);
       totals.failed += Number(tests?.failed ?? 0);

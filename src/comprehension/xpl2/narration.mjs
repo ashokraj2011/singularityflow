@@ -77,6 +77,21 @@ function secretShaped(text) {
 const CONTROL = /[\p{Cc}\p{Cf}\u2028\u2029]/u;
 const STATEMENT_ID = /^[SD]-\d{3,}$/u;
 
+/**
+ * Why a model's plain text cannot be shown, or [] when it can: oversized, control or terminal characters, markup, links
+ * or code, or a secret's shape. The commentary below and the change page's English (src/change-story-page.mjs,
+ * CSP:REQ-003) are judged by this one check. Pure.
+ */
+export function xpl2TextWithheld(text, { maximumCharacters = XPL2_NARRATION_LIMITS.commentaryCharacters, maximumWords = Infinity } = {}) {
+  const value = String(text ?? '');
+  const reasons = [];
+  if (words(value) > maximumWords || value.length > maximumCharacters) reasons.push('commentary-oversized');
+  if (CONTROL.test(value.replace(/[\n\t]/gu, ' '))) reasons.push('commentary-control-characters');
+  if (MARKUP.test(value)) reasons.push('commentary-markup');
+  if (secretShaped(value)) reasons.push('commentary-secret-shaped');
+  return reasons;
+}
+
 function freezeDeep(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   Object.freeze(value);
@@ -189,10 +204,7 @@ function judgeCommentary(raw, known, maximumWords) {
       || raw.citations.some((entry) => typeof entry !== 'string')) {
     reasons.push('commentary-shape-invalid');
   } else {
-    if (words(raw.text) > maximumWords || raw.text.length > XPL2_NARRATION_LIMITS.commentaryCharacters) reasons.push('commentary-oversized');
-    if (CONTROL.test(raw.text.replace(/[\n\t]/gu, ' '))) reasons.push('commentary-control-characters');
-    if (MARKUP.test(raw.text)) reasons.push('commentary-markup');
-    if (secretShaped(raw.text)) reasons.push('commentary-secret-shaped');
+    reasons.push(...xpl2TextWithheld(raw.text, { maximumWords }));
     if (!raw.citations.length) reasons.push('commentary-uncited');
     if (raw.citations.some((id) => !known.has(id))) reasons.push('commentary-unknown-citation');
   }

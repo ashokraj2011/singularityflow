@@ -225,3 +225,18 @@ test('functions and tests are found in Java and Python too, by name and text', a
   assert.deepEqual((await testCaseChanges('CartTest.java', null, 'class CartTest {\n  @Test\n  void addsOne() {\n    assertEquals(2, add(1));\n  }\n}\n')).map((entry) => entry.name), ['addsOne']);
   assert.deepEqual((await testCaseChanges('test_cart.py', null, 'def test_adds():\n    assert add(1) == 2\n')).map((entry) => entry.name), ['test_adds']);
 });
+
+test('a later version\'s page keeps the files only an earlier version changed, from that version\'s change set', async (t) => {
+  const { root, workflow, item } = await story(t);
+  const code = workflow.phases.implementation;
+  code.generation = 2;
+  // Version 2 changed only the graph module; version 1's record holds the new axis module and the removed one.
+  code.deliveryEvidence.changeSet.entries = code.deliveryEvidence.changeSet.entries.filter((entry) => entry.newPath === 'src/graph.mjs');
+  code.deliveryEvidence.changeSetPath = `singularity/work-items/${W}/context/code-delivery/implementation-gen2-changes.json`;
+  await mkdir(path.join(item, 'context/code-delivery'), { recursive: true });
+  await writeFile(path.join(item, 'context/code-delivery/implementation-gen1-changes.json'), JSON.stringify({ entries: [
+    { status: 'added', oldPath: null, newPath: 'src/axis.mjs' }, { status: 'deleted', oldPath: 'src/old-axis.mjs', newPath: null }] }));
+  const model = await buildChangeStory(root, {}, workflow);
+  assert.deepEqual(model.files.map((file) => [file.path, file.change]), [['src/axis.mjs', 'new'], ['src/graph.mjs', 'edited'], ['src/old-axis.mjs', 'removed']]);
+  assert.match(renderChangeStory(model), /^Tests not run yet/mu);
+});

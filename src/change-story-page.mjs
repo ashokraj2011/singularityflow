@@ -82,12 +82,21 @@ async function asked(root, config, workflow) {
   };
 }
 
-/** The entries of a code step's delivered change set: from the workflow, else its record file. */
+/**
+ * The entries of a code step's delivered change sets: this version's (from the workflow, else its record file) and each
+ * earlier version's record, so a file only an earlier version changed stays on the page; one changed back reads as unchanged.
+ */
 async function changeEntries(root, phase) {
-  const inline = phase.deliveryEvidence?.changeSet?.entries;
-  if (Array.isArray(inline)) return inline;
-  const recorded = phase.deliveryEvidence?.changeSetPath ? await json(path.join(root, phase.deliveryEvidence.changeSetPath), 16 * 1024 * 1024) : null;
-  return Array.isArray(recorded?.entries) ? recorded.entries : [];
+  const evidence = phase.deliveryEvidence ?? {};
+  const inline = Array.isArray(evidence.changeSet?.entries) ? evidence.changeSet.entries : null;
+  const current = /^(.*-gen)(\d+)(-changes\.json)$/u.exec(String(evidence.changeSetPath ?? ''));
+  const entries = [...(inline ?? [])];
+  for (let generation = current ? Number(current[2]) : 0; generation >= 1; generation -= 1) {
+    if (inline && generation === Number(current[2])) continue;
+    const recorded = await json(path.join(root, `${current[1]}${generation}${current[3]}`), 16 * 1024 * 1024);
+    if (Array.isArray(recorded?.entries)) entries.push(...recorded.entries);
+  }
+  return entries;
 }
 
 /**

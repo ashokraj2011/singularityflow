@@ -61,6 +61,7 @@ XPL2 is a *subject view* layer over the existing comprehension capture (`CMP`), 
 | `explain TOPIC --subject S` | Refused: a topic and a subject are never combined silently. The refusal names the route to the topic. |
 | `explain --subject S --narrate` | Optional operation `explain.subject.narrate`; with models off it falls back to `explain.subject` and reports the narration unavailable (`model-disabled-fallback`). |
 | `--length` or `--commentary` without `--narrate` | Refused (`XPL2_NARRATION_LENGTH_INVALID`, `XPL2_NARRATION_OPTION_INVALID`). |
+| `explain --subject change --page [--work-id ID]` | The Story's plain-English "What this change does" page ([CSP-v1](SPEC-CSP-CHANGE-STORY-PAGE-v1.md)): the one SFlow wrote at a code step's last publication or submission, else built now from the records. Operation `explain.subject`; no capture, no model. |
 | `explain --subject S --snapshot …` | Refused with `XPL2_SNAPSHOT_UNAVAILABLE`: a retained snapshot keeps only what a comparison needs and cannot be shown as a view; the refusal names `--compare`, and `--since REVISION` sets an explicit baseline. |
 | `explain --subject change --compare previous|SNAPSHOT-ID` | The view plus `data.comparison` against a retained snapshot (§6). An unknown or ambiguous ID (`XPL2_SNAPSHOT_NOT_FOUND`, `XPL2_SNAPSHOT_AMBIGUOUS`), another subject (`XPL2_COMPARE_SUBJECT_INVALID`) or a malformed digest (`XPL2_SNAPSHOT_ID_INVALID`) is refused with `details.nextAction`; `previous` with nothing earlier reports the comparison unavailable. |
 

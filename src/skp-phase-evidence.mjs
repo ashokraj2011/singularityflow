@@ -258,6 +258,8 @@ export async function inspectSkillOutputSet(root, definition, workflow, phase, b
   const accepted = new Set(outputs.map((output) => posix(path.posix.join(item, output.path))));
   const artifactRoot = posix(path.posix.join(item, 'artifacts', phase.id));
   for (const artifact of phase.artifacts ?? []) {
+    // Optional, always [CSP:REQ-011].
+    if (path.posix.basename(artifact.path) === 'change-explanation.json') continue;
     if (artifact.path.startsWith(`${artifactRoot}/`) && !accepted.has(artifact.path)) {
       fail('SKP_OUTPUT_UNDECLARED', `Skill phase '${phase.id}' registered undeclared output '${artifact.path}'.`);
     }

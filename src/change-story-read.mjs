@@ -49,3 +49,20 @@ export async function readChangeStoryPage(root, config, workflow) {
 export function changeStoryCommand(workId) {
   return `singularity-flow explain --subject change --page --work-id ${workId}`;
 }
+
+/**
+ * The code step's approval line [CSP:REQ-007]: `{ phase, summary, path, command }` for a code step (one with delivered code)
+ * whose Story has a written page, else null. The decision list reads it for the step awaiting approval.
+ */
+export async function changeStoryFacts(root, config, workflow, phase) {
+  if (!phase?.deliveryEvidence || !workflow?.workItem?.id) return null;
+  const page = await readChangeStoryPage(root, config, workflow);
+  return page ? { phase: phase.id, summary: page.summary, path: page.path, command: changeStoryCommand(workflow.workItem.id) } : null;
+}
+
+/** The page as a pull request's section [CSP:REQ-009]: without its title and banner, its headings one level down. Pure. */
+export function changeStoryForPullRequest(text) {
+  return changeStoryBody(text).split('\n').filter((line, index) => !(index === 0 && /^# /u.test(line)))
+    .filter((line) => !/^> Written by SFlow from its records/u.test(line))
+    .map((line) => (/^#{1,4} /u.test(line) ? `##${line}` : line)).join('\n').replace(/^\s+/u, '').trimEnd();
+}

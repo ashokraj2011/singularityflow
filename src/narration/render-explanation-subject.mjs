@@ -89,6 +89,13 @@ function comparisonLines(comparison, { safe, short }) {
 
 /** Computed XPL2 subject view: typed statements with citations, in the selected audience's order. */
 export function explanationSubjectText(result) {
+  // `--page`: the Story's "What this change does" page, as written, and where it is [CSP:REQ-010].
+  const page = result.data?.page;
+  if (page) {
+    return [page.markdown ? String(page.markdown).trimEnd() : headline(result),
+      page.path ? style.detail(`\nThis page is ${page.path} in this checkout.`) : page.markdown ? style.detail('\nBuilt now from the records; SFlow writes the page when a code step is published.') : null,
+      preservationLine(result)].filter(Boolean).join('\n');
+  }
   const explanation = result.data?.explanation;
   if (!explanation) return [headline(result), preservationLine(result)].filter(Boolean).join('\n');
   const safe = codeExplanationTerminalValue;

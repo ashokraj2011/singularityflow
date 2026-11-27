@@ -20,6 +20,8 @@ import { legacyPendingPublicationPath, saveWorkflow, validateId } from "./story-
 import { LIFECYCLE_EVENT, lifecycleEvent, recordPublicationProjection } from "./lifecycle-event.mjs";
 import { normalizeLedgerConfig } from "./ledger-config.mjs";
 import { default as path } from "node:path";
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { phaseRequiresCodeDelivery } from "./code-delivery-policy.mjs";
 import { lifecycleAuthority } from "./sda/story-branch-authority.mjs";
 import { repositoryLogger } from "./logging.mjs";
@@ -399,6 +401,12 @@ export async function commitAndPublish(root, config, workflow, event, message, e
               } catch { /* no lesson, same approval */ }
             }
           }
+        }
+        // "What this change does", a Story record written in this commit; it never costs the commit [CSP:REQ-005, REQ-011]. From
+        // the CLI source, out of the VS Code bundles.
+        if (exactWorkItemPaths === null && [LIFECYCLE_EVENT.ARTIFACT_GENERATED, LIFECYCLE_EVENT.APPROVAL_REQUESTED].includes(publicationEvent.type)) {
+          try { await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'change-story-page.mjs')).href)).writeChangeStoryPage(root, config, workflow); }
+          catch { /* no page */ }
         }
         // Every publication that commits a Story as complete passes the final evaluation first, and
         // once. It runs after every other write of the transition (approval metadata, the approved

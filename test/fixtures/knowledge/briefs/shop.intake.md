@@ -1,7 +1,7 @@
 # Repository brief: shop at 8508ce5b8d07 (for intake, focused on this Story)
 
 ## What exists
-- shop: 11 code files in typescript (7 files), typescriptreact (4 files); JSX, React, React Router, Vitest; 2 entry points, 9 rules in code, 6 tests. (commit 8508ce5b8d07)
+- shop: 11 code files in typescript (7 files), typescriptreact (4 files); JSX, React, React Router, Vitest; 4 entry points, 10 rules in code, 6 tests. (commit 8508ce5b8d07)
 - build: `npm run build` (vite build) (package.json:2)
 - test: `npm test` (vitest run) (package.json:2)
 

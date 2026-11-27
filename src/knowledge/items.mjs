@@ -90,3 +90,28 @@ export function invalidCitations(items, filesByPath) {
   }
   return invalid;
 }
+
+/**
+ * What a knowledge build read of the large areas it read only in part, for a Story [WMR:§11]. `read(file)` says whether
+ * a file lies in such an area: what calls it, which tests reach it, how often it changes with others and how it
+ * compares with the rest of its folder are not known from a part, so a brief does not say them. `importersKnown(file)`
+ * says whether every file of its area that imports it was read, so a count of them from what was read is the whole
+ * count. `importersOf(file, read)` is who imports a file: `read` (the importers the build found) outside a part, the
+ * whole area's for one of the Story's own files (read from every file's imports), and null, not known, for the rest
+ * of a part. `notes` say plainly what was read, in one sentence. A whole build has no parts: everything is read.
+ */
+export function partRead(knowledge) {
+  const repository = knowledge?.repository ?? {};
+  const parts = [...(repository.part ? [repository.part] : []), ...(repository.parts ?? [])];
+  const inPart = (file) => parts.find((part) => {
+    const folder = String(file).includes('/') ? String(file).slice(0, String(file).lastIndexOf('/')) : '';
+    return part.own ? folder === part.area : part.area === '' || String(file).startsWith(`${part.area}/`);
+  }) ?? null;
+  return {
+    parts,
+    read: (file) => Boolean(file) && Boolean(inPart(file)),
+    importersKnown: (file) => !file || !inPart(file) || inPart(file).importersRead.includes(file),
+    importersOf: (file, read) => (!file || !inPart(file) ? read : inPart(file).importers?.[file] ?? null),
+    notes: parts.length ? [`only part of ${parts.length === 1 ? 'a large folder' : 'large folders'} was read (${parts.map((part) => `${part.read} of the ${part.files.toLocaleString('en-US')} code files ${part.own ? 'directly in' : 'under'} \`${part.area}/\``).join(', ')}: this Story's files and the files they import or that import them), so who calls them, which tests reach them and counts across ${parts.length === 1 ? 'that folder' : 'those folders'} are left out`] : []
+  };
+}

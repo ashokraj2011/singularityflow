@@ -8541,9 +8541,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   // The Code Explainer at the cursor: the function there, its callers and callees, and how the
   // change touches them. A file outside the governed repository is refused in the same words.
-  const showCodeExplainer = async (atCursor: boolean): Promise<unknown> => {
+  const showCodeExplainer = async (atCursor: boolean, options?: unknown): Promise<unknown> => {
     await reconcileActiveWorkspaceSelection();
-    const { CodeExplainerPanel } = lazyPanels();
+    const { CodeExplainerPanel, codeExplainerMode } = lazyPanels();
     // The gate count is the status bar's, from the same derivation, for the same repository and Story.
     const services = {
       gates: () => {
@@ -8553,7 +8553,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           && statusChromeCache.workId === workId ? statusChromeCache.value.gates ?? null : null;
       }
     };
-    if (!atCursor) return CodeExplainerPanel.show(context, store, client, { services });
+    // A caller may name the place to open on: the Work task page's "Explain the change" asks for My change.
+    if (!atCursor) return CodeExplainerPanel.show(context, store, client, { services, mode: codeExplainerMode(options) });
     const focus = await explainFocusRequest(undefined, true);
     if (!focus) return undefined;
     return CodeExplainerPanel.show(context, store, client, { focus: { path: focus.path, line: focus.line }, services });
@@ -9596,7 +9597,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // "Explain This Change" also passes the cursor line.
     'singularityFlow.explainFileChanges': ((argument?: unknown) => showChangeExplorerFocused(argument, false)) as never,
     'singularityFlow.explainChangeAtCursor': () => showChangeExplorerFocused(undefined, true),
-    'singularityFlow.openCodeExplainer': () => showCodeExplainer(false),
+    'singularityFlow.openCodeExplainer': ((options?: unknown) => showCodeExplainer(false, options)) as never,
     // A person's review of what was read: confirm it, correct it with a note, or reject it.
     'singularityFlow.reviewRepositoryKnowledge': async () => {
       type Item = { id: string; kind: string; subject?: { symbol?: string; path?: string }; statement?: Record<string, unknown>;
@@ -10272,7 +10273,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const work = new (lazyPanels().WorkPlace)({
         client, bind: (where) => client.forkForRepository(where),
         startTask: async (words) => { await vscode.commands.executeCommand('singularityFlow.startTask', words); },
-        command: async (id) => { await vscode.commands.executeCommand(id); },
+        command: async (id, ...args) => { await vscode.commands.executeCommand(id, ...args); },
         sendChat: sendTaskRoute,
         refresh: refreshAfterKnownMutation,
         openCard: (key) => { place.receive({ action: 'open', key }); },

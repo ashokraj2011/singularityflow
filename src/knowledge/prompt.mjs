@@ -42,7 +42,8 @@ import { buildRuleRecords, ruleQuestions } from './records/rules.mjs';
 import { applyRuleMeanings, readRuleMeanings } from './rule-meaning.mjs';
 import { buildContractRecords } from './records/contracts.mjs';
 import { buildFlowRecords } from './records/flows.mjs';
-import { buildImpactRecords, impactSymbols, knowledgePaths, readChange } from './records/impact.mjs';
+import { buildImpactRecords, filesNamedByWords, impactSymbols, knowledgePaths, readChange } from './records/impact.mjs';
+import { partRead } from './items.mjs';
 import { buildRiskRecords } from './records/risks.mjs';
 import { knowledgePromptPolicy } from './render.mjs';
 import { buildKnowledge, buildKnowledgeForAreas, selectKnowledgeAreas } from './store.mjs';
@@ -60,9 +61,12 @@ function storyFocus(workflow, changedPaths) {
 async function storyKnowledge(root, { focus, changedPaths, plannedPaths, limits, scope }) {
   let result = await buildKnowledge(root, { limits, scope });
   if (result.status !== 'ok') {
-    // Too large to read whole: build only the areas this Story changes, plans or names [WMR:REQ-008].
-    const areas = selectKnowledgeAreas(result.areas ?? [], { changedPaths, plannedPaths, focus });
-    if (areas.length) result = await buildKnowledgeForAreas(root, areas, { limits, scope });
+    // Too large to read whole: build only the areas this Story changes, plans or names [WMR:REQ-008]. Before it plans
+    // or changes a file, the files its words name choose areas too, read as the brief reads them (impact.mjs). An area
+    // too large to read whole is read in the part those files need [WMR:§11].
+    const namedPaths = changedPaths.length || plannedPaths.length ? [] : filesNamedByWords(result.codeFilePaths ?? [], focus);
+    const areas = selectKnowledgeAreas(result.areas ?? [], { changedPaths, plannedPaths, namedPaths, focus });
+    if (areas.length) result = await buildKnowledgeForAreas(root, areas, { limits, scope, storyPaths: [...changedPaths, ...plannedPaths, ...namedPaths] });
   }
   return result;
 }
@@ -121,12 +125,14 @@ export function phaseBriefPlacement({ definition = null, workflow = null, phase 
 /**
  * Whether a file's calls are resolved, so claims built on them are facts [WMR:REQ-014]: a semantic pack resolved calls
  * in a file of its language. While a language's calls are only matched by name, the brief states no reach, callers or
- * test reach for its files.
+ * test reach for its files. Nor does it for a file of a large area read only in part: who calls it and which tests
+ * reach it are not known from a part [WMR:§11].
  */
 export function callTrust(knowledge) {
   const resolved = new Set((knowledge?.graph?.callSites ?? []).filter((edge) => edge.how === 'resolved')
     .flatMap((edge) => [edge.from?.file, edge.to?.file]).filter(Boolean).map(languageOf));
-  return (file) => !file || resolved.has(languageOf(file));
+  const part = partRead(knowledge);
+  return (file) => !file || (resolved.has(languageOf(file)) && !part.read(file));
 }
 
 /** The digest of a file in the working tree, or null when it is not there. */
@@ -244,15 +250,20 @@ export async function repositoryBriefPrompt(root, {
         // Explanations are read from this machine's cache only; composing a prompt never calls a model for them.
         explanations = (await readExplanations(root, result.key))?.accepted ?? [];
         // Claims built on calls matched by name are left out [WMR:REQ-014]; `trustCalls` stands in for resolved calls in a test.
-        const trust = trustCalls ?? callTrust(knowledge);
+        // A large area read only in part for this Story says less: no callers, test reach or folder-wide counts [WMR:§11].
+        const part = partRead(knowledge);
+        const trusted = trustCalls ?? callTrust(knowledge);
+        const trust = part.parts.length ? (file) => trusted(file) && !part.read(file) : trusted;
         const documentation = readDocumentation(root, { focus: focus || null });
-        template = templateBrief(briefEvidence(knowledge, documentation, { focus: focus || null, trust }));
-        template.notKnown = briefNotKnown(knowledge, documentation);
+        template = templateBrief(briefEvidence(knowledge, documentation, { focus: focus || null, trust, importersKnown: part.importersKnown }));
+        template.notKnown = [...briefNotKnown(knowledge, documentation), ...part.notes];
         // A person's confirmed meanings, never a model's draft; an unreadable file is a warning.
         const meanings = await readRuleMeanings(root, { warnings }).catch((error) => { warnings.push(error.message); return []; });
         // A rule's own "tested" stays when a test names it; reach through calls matched by name is not a fact [WMR:REQ-014].
         rules = applyRuleMeanings(buildRuleRecords(knowledge, documentation, { focus: focus || null }), meanings)
-          .map((record) => (record.tested == null || trust(record.sources.code[0]?.path) ? record : { ...record, tested: record.testNamed ? true : null }));
+          .map((record) => (record.tested == null || trust(record.sources.code[0]?.path) ? record : { ...record, tested: record.testNamed ? true : null }))
+          // "No code enforcing it was found" needs every file: from a part it is not known [WMR:§11].
+          .filter((record) => !part.parts.length || record.status !== 'documented-only');
         contracts = buildContractRecords(knowledge, { focus: focus || null })
           .map((record) => (record.tested == null || trust(record.sources.code[0]?.path) ? record : { ...record, tested: null }));
         flows = buildFlowRecords(knowledge, { focus: focus || null, trust });
@@ -262,9 +273,10 @@ export async function repositoryBriefPrompt(root, {
           : { changedRanges: null };
         // A planned file the knowledge does not know and the checkout does not have is a new one [WMR:REQ-007].
         const newPaths = [...new Set(plannedPaths)].filter((file) => !known.has(file) && !changedPaths.includes(file) && !existsSync(path.join(root, file)));
-        impact = buildImpactRecords(knowledge, { changedPaths, changedRanges, plannedPaths, newPaths, focus: focus || null, trust });
+        impact = buildImpactRecords(knowledge, { changedPaths, changedRanges, plannedPaths, newPaths, focus: focus || null, trust, importersOf: part.importersOf });
         changeSha256 = sha256({ changedPaths, changedRanges, plannedPaths });
-        risks = buildRiskRecords(knowledge, { focus: focus || null, changedPaths, changedSymbols: changedRanges ? impactSymbols(impact) : null, trust });
+        risks = buildRiskRecords(knowledge, { focus: focus || null, changedPaths, changedSymbols: changedRanges ? impactSymbols(impact) : null, trust,
+          partRead: part.read, importersKnown: part.importersKnown });
         // Said once, whatever the step's sections: the claims it left out, and why [WMR:REQ-014].
         if (knowledge.graph?.functions?.some((fn) => !trust(fn.file))) {
           template.notKnown = template.notKnown.map((entry) => (/^calls are matched by name/u.test(entry)

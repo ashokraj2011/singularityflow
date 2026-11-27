@@ -22,7 +22,9 @@ import { validatedTypes, validationConstraints } from './validation.mjs';
 import { handlerSignature, repositoryInterfaces, typeRelations } from './contracts.mjs';
 import { ruleFileRules } from './rule-files.mjs';
 
-export const KNOWLEDGE_ANALYZER_VERSION = 5;
+// Version 6: a component whose parameters span lines or are destructured is a function with its whole body, and a
+// large area can be read in part for a Story [WMR:§11]. A brief kept by version 5 is composed again (REQ-013's key).
+export const KNOWLEDGE_ANALYZER_VERSION = 6;
 const PRODUCER = `knowledge-analyzer@${KNOWLEDGE_ANALYZER_VERSION}`;
 const AREA_TARGET_FILES = 150;
 const MAXIMUM_AREAS = 80;
@@ -1041,7 +1043,9 @@ export function analyzeKnowledge(source, { churn = null, commits = null, resolve
     analyzerVersion: KNOWLEDGE_ANALYZER_VERSION,
     repository: { name: source.name ?? null, commit: source.commit, area: source.area, roots: source.roots, frameworks,
       files: files.length, manifests: source.manifests.length, skipped: source.skipped, commits: commits?.length ?? null,
-      specifications: (source.documents ?? []).length, specificationsSkipped: source.requirementSkipped ?? [] },
+      specifications: (source.documents ?? []).length, specificationsSkipped: source.requirementSkipped ?? [],
+      // Only part of a large area was read, for a Story [WMR:§11]: a brief says less about it (items.mjs, partRead).
+      ...(source.part ? { part: source.part } : {}) },
     areas: areas.map((area) => ({ path: area.path || '.', files: area.files, own: Boolean(area.own) })),
     levels,
     metrics: {

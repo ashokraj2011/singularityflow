@@ -154,6 +154,26 @@ test('an outline read from text names functions, methods and test cases, nested 
   assert.equal(declaredName('  if (ready) {'), null);
 });
 
+test('an outline read from text reads a component whose props are destructured: its parameters may span lines, its body is its own [WMR:§11]', () => {
+  const shape = (list) => list.map((entry) => [entry.name, entry.range.start, entry.range.end, shape(entry.children ?? [])]);
+  const read = (text, language = 'javascript') => shape(textSymbols(text.split('\n'), language));
+  // Parameters one per line, the React style: a function from its declaration to its closing brace.
+  assert.deepEqual(read('export const Display = ({\n  value,\n  onClear,\n}) => {\n  function clear() { onClear(); }\n  return value;\n};'),
+    [['Display', 1, 7, [['clear', 5, 5, []]]]]);
+  // Destructured on one line: the braces in the parameter list are not the body.
+  assert.deepEqual(read('export default function Header({ title }) {\n  function click() {\n    go();\n  }\n  return title;\n}'),
+    [['Header', 1, 6, [['click', 2, 4, []]]]]);
+  // A type in front, and a body in parentheses that ends where they close.
+  assert.deepEqual(read('const Row: FC<Props> = ({\n  a,\n}: Props) => (\n  <div>{a}</div>\n);\nconst after = 1;', 'typescript'), [['Row', 1, 5, []]]);
+  // A value in parentheses is not a function; a default value's braces are not a body either.
+  assert.deepEqual(read('const total = (\n  a + b\n);\nfunction f(options = {}) {\n  return options;\n}'), [['f', 4, 6, []]]);
+  // A constructor's parameters over several lines (Kotlin): its members stay inside it.
+  assert.deepEqual(read('class Meter(\n  val a: Int,\n  val b: Int\n) {\n  fun read(\n    x: Int,\n    y: Int\n  ): Int {\n    return x\n  }\n}', 'kotlin'),
+    [['Meter', 1, 11, [['read', 5, 10, []]]]]);
+  // A test case is a call: its body is the callback's.
+  assert.deepEqual(read("test('adds', () => {\n  expect(add(1, 2)).toBe(3);\n});", 'typescript'), [["test('adds')", 1, 3, []]]);
+});
+
 test('the editor answer that carries both symbol shapes is read at the name, not the line start', () => {
   const range = (sl, sc, el, ec) => ({ start: { line: sl, character: sc }, end: { line: el, character: ec } });
   const merged = {
@@ -568,9 +588,13 @@ test('calls from Singularity Flow\'s analysis land on the outline\'s own symbols
 test('the host names calls the compiler resolved by their counts, not by a status word', async () => {
   const { readFile } = await import('node:fs/promises');
   const host = await readFile(new URL('../apps/vscode/src/views/code-explainer.ts', import.meta.url), 'utf8');
-  assert.match(host, /data\?\.counts\?\.resolved \? \(data\.counts\.byName \? 'resolved by the compiler where it could, matched by name elsewhere' : 'resolved by the compiler'\) : 'matched by name'/u);
+  // Each folder's counts are added up, then named [vscode-code-explainer-host.test.mjs drives the folders asked].
+  assert.match(host, /result\.resolved \+= data\?\.counts\?\.resolved \?\? 0;\s+result\.byName \+= data\?\.counts\?\.byName \?\? 0;/u);
+  assert.match(host, /analysis\.resolved \? \(analysis\.byName \? 'resolved by the compiler where it could, matched by name elsewhere' : 'resolved by the compiler'\) : 'matched by name'/u);
   assert.doesNotMatch(host, /resolution === 'complete'/u, 'a warmed pack reports "resolved", never "complete"');
-  // The fallback names the area of the files that got no call hierarchy, so a large repository is not refused [WMR:REQ-010].
-  assert.match(host, /const area = sharedFolder\(\[\.\.\.lacking\]\);\s+const reply = await this\.client\.run<unknown>\(\['wm', 'knowledge', 'calls', \.\.\.\(area \? \['--area', area\] : \[\]\), '--json'\]\)/u);
+  // The fallback names the area of the files that got no call hierarchy, so a large repository is not refused [WMR:REQ-010];
+  // one still too large is asked by its subfolders.
+  assert.match(host, /const queue = \[\{ area: sharedFolder\(files\), files \}\];/u);
+  assert.match(host, /this\.client\.run<unknown>\(\['wm', 'knowledge', 'calls', \.\.\.\(next\.area \? \['--area', next\.area\] : \[\]\), '--json'\]\)/u);
   assert.doesNotMatch(host, /\['wm', 'knowledge', 'calls', '--json'\]/u, 'never the whole repository');
 });

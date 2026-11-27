@@ -1208,7 +1208,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 2026-11-28; submit.mjs 9,961,145): WCB M1 and M2 above on top of main's. No other new eager file.
     // 9,967,840 (measured for start.mjs, +7,257 over 9,960,583 on the merge of watch-code-base with main 31f0c6c2a,
     // 2026-11-28; submit.mjs 9,965,606): WCB M1 and M2 above on top of main's. No other new eager file.
-    assert.ok(closure.bytes <= 9_967_840, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,968,300 (measured for start.mjs, +460 over 9,967,840, 2026-11-28 on watch-code-base; submit.mjs 9,966,066): a supporting
+    // change that says who made it is listed with the files outside the plan, a person's scratch note "by you" (plan-amendments.mjs
+    // outsidePlanSettled +460) [owner, 2026-11-28; WCB:REQ-014]. No new eager file.
+    assert.ok(closure.bytes <= 9_968_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1922,7 +1925,9 @@ test('the common session projection does not import attach, state stores or publ
   // M2 above on top of main's. No other new eager file.
   // 4,408,901 (+4,693 over 4,404,208, measured 2026-11-28 on the merge of watch-code-base with main 31f0c6c2a): WCB M1 and
   // M2 above on top of main's. No other new eager file.
-  assert.ok(current.bytes <= 4_408_901, `session current loads ${current.bytes} source bytes`);
+  // 4,409,361 (+460, measured 2026-11-28 on watch-code-base): a supporting change that says who made it is listed outside the
+  // plan (plan-amendments.mjs outsidePlanSettled) [owner, 2026-11-28; WCB:REQ-014]. No new eager file.
+  assert.ok(current.bytes <= 4_409_361, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

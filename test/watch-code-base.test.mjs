@@ -177,6 +177,9 @@ test('code changed outside the plan, by Copilot or by you, early or late, commit
     assert.ok(!((await read()).departures ?? []).length, 'a check records no departure for them');
     await writeFile(path.join(item, 'artifacts/implementation/implementation-summary.md'),
       summary(item, W, [['src/format.mjs', 'the summary page shows the value with two decimals.']]));
+    // A scratch note the person leaves in the repository is committed with the step as a supporting change, listed "by you"
+    // [owner, 2026-11-28].
+    await write('NOTES.md', 'Tell the team the summary page now shows two decimals.\n');
 
     // Published by a person, then submitted: every file outside the plan is taken up, nobody asked [WCB:REQ-010].
     const published = flow(root, ['phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json'], { allowFailure: true });
@@ -193,7 +196,9 @@ test('code changed outside the plan, by Copilot or by you, early or late, commit
     }
     assert.ok(!(workflow.departures ?? []).length, 'no departure waits for a person');
     // Published with the step: committed in its generation, the workspace's own files left where they are.
-    for (const file of ['src/format.mjs', 'src/helper.mjs', '.eslintrc.json', 'src/value.mjs']) assert.equal(git(root, 'status', '--porcelain', '--', file), '', file);
+    for (const file of ['src/format.mjs', 'src/helper.mjs', '.eslintrc.json', 'src/value.mjs', 'NOTES.md']) assert.equal(git(root, 'status', '--porcelain', '--', file), '', file);
+    const note = (workflow.settledDecisions ?? []).find((entry) => entry.subject === 'file:NOTES.md' && !entry.undone);
+    assert.deepEqual([note?.effect?.class, note?.effect?.writer], ['documentation', 'person'], JSON.stringify(note));
     assert.equal(git(root, 'ls-files', '--', '.vscode', 'test-results', '.env.local'), '');
 
     const submittedCode = flow(root, ['submit', 'implementation', '--json'], { allowFailure: true });
@@ -205,8 +210,9 @@ test('code changed outside the plan, by Copilot or by you, early or late, commit
     const approval = list.items.find((entry) => entry.kind === 'approval');
     assert.ok(approval, JSON.stringify(list.items.map((entry) => entry.kind)));
     assert.deepEqual(approval.details.outsidePlan.map((entry) => entry.words).sort(), [
-      '.eslintrc.json: by you', 'src/early.mjs: by you', 'src/format.mjs: by Copilot: the summary page shows the value with two decimals.',
-      'src/helper.mjs: by you']);
+      '.eslintrc.json: by you', 'NOTES.md: by you, as a supporting change', 'src/early.mjs: by you',
+      'src/format.mjs: by Copilot: the summary page shows the value with two decimals.', 'src/helper.mjs: by you']);
+    assert.ok(approval.details.lines.includes('Changed outside the plan: NOTES.md: by you, as a supporting change.'), JSON.stringify(approval.details.lines));
     assert.ok(approval.details.lines.includes('Changed outside the plan: src/format.mjs: by Copilot: the summary page shows the value with two decimals.'));
     assert.deepEqual(approval.details.heldBy, []);
     // The Story's "What this change does" page, written in the code step's own commits, reads the same records: each file
@@ -216,6 +222,7 @@ test('code changed outside the plan, by Copilot or by you, early or late, commit
     assert.ok(page.includes('## 6. Outside the plan'), page.slice(0, 3000));
     assert.match(section, /^- `src\/format\.mjs`: by Copilot: the summary page shows the value with two decimals\.?$/mu, section.slice(0, 1500));
     for (const file of ['.eslintrc.json', 'src/early.mjs', 'src/helper.mjs']) assert.ok(section.includes(`- \`${file}\`: by you`), `${file}: ${section.slice(0, 1500)}`);
+    assert.ok(section.includes('- `NOTES.md`: by you, as a supporting change'), section.slice(0, 1500));
 
     const approvedCode = flow(root, ['approve', 'implementation', '--yes'], { allowFailure: true });
     assert.equal(approvedCode.status, 0, approvedCode.stdout + approvedCode.stderr);

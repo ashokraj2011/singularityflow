@@ -12,6 +12,7 @@
  *   outsidePlanSettlement  the settled decision that takes one file up with the step, nobody asked [REQ-010]
  *   personHeldFiles    the files a person already holds, which publication never takes up [REQ-010]
  *   outsidePlanPreview what publication will take up, as prepublish tells the author, and the reasons still owed [REQ-012]
+ *   keepOutFiles       the files SFlow took up for the open code step that are still uncommitted: each can be kept out [REQ-015]
  *
  * Nothing here refuses, asks or holds. Records are evidence, never proof: a file no record explains is "by you".
  */
@@ -256,4 +257,24 @@ export async function codeLeftInCheckout(root, config, workflow) {
       .filter((item) => item?.kind === 'utf8' && !isWorkspaceLocalPath(item.value)
         && isApplicationChangePath(item.value, { ...context, untracked: entry.type === 'untracked' })).map((item) => item.value)))].sort();
   } catch { return null; }
+}
+
+/**
+ * The files SFlow took up with the open code step that are still only in the checkout [WCB:REQ-015]: each can be kept out of
+ * the Story in one step, its take-up undone and the file set aside with a private copy (`decisions undo --keep-out`).
+ * A Map of file to its settlement ID; empty when the step is not an open code step or nothing taken up is uncommitted.
+ */
+export async function keepOutFiles(root, config, workflow) {
+  const phase = workflow?.phases?.[workflow?.currentPhase];
+  if (workflow?.status !== 'in_progress' || phase?.status !== 'in_progress' || !phaseRequiresCodeDelivery(phase)) return new Map();
+  const { settledDecisions } = await import('./settled-decisions.mjs');
+  const taken = new Map(settledDecisions(workflow).filter((entry) => !entry.undone && entry.kind === 'plan-accounting' && entry.phase === phase.id
+    && typeof entry.effect?.file === 'string' && entry.effect.writer).map((entry) => [entry.effect.file, entry.id]));
+  if (!taken.size) return new Map();
+  try {
+    const { inspectLifecycleWorktree } = await import('./lifecycle-worktree.mjs');
+    const dirty = new Set(inspectLifecycleWorktree(root, config, workflow).entries.flatMap((entry) => [entry.path, entry.originalPath])
+      .filter((item) => item?.kind === 'utf8').map((item) => item.value));
+    return new Map([...taken].filter(([file]) => dirty.has(file)));
+  } catch { return new Map(); }
 }

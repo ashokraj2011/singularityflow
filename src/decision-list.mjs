@@ -1807,6 +1807,10 @@ const SETTLED_GROUP_WORDS = Object.freeze({ 'test-support': ['test-support file'
  * for Copilot the reason it wrote in the step's document.
  */
 export function outsidePlanWords(entry) {
+  // A supporting change (a scratch note, a test helper) is committed as one; Copilot owes no reason for it [owner, 2026-11-28].
+  if (entry.supporting) {
+    return entry.writer === 'copilot' ? `${entry.file}: by Copilot${entry.reason ? `: ${entry.reason}` : ''}, as a supporting change` : `${entry.file}: by you, as a supporting change`;
+  }
   return entry.writer === 'copilot' ? `${entry.file}: by Copilot: ${entry.reason ?? 'no reason written'}` : `${entry.file}: by you`;
 }
 
@@ -1852,6 +1856,14 @@ function settledItems(workflow, context) {
     const findings = history ? [] : startedFindings(context.facts?.reviewDisputes, entry);
     const disputes = findings.filter((finding) => !finding.disputed).slice(0, 5).map((finding) => disputeOption(workflow, context, context.facts.reviewDisputes, finding, `dispute-${finding.id}`));
     const disputed = findings.filter((finding) => finding.disputed).map((finding) => disputedFindingWords(finding.id, finding.disputed));
+    // A file the open code step took up that is still only in the checkout: kept out in one step, its take-up undone and the
+    // file set aside with a private copy [WCB:REQ-015, owner 2026-11-28]. The person's own terminal step, nothing to compose.
+    const keptFile = !history && context.facts?.keepOut?.[entry.effect?.file] === entry.id ? entry.effect.file : null;
+    const keepOut = keptFile ? personalStep({ id: 'keep-out', label: `Keep ${keptFile} out of this Story`,
+      command: `${undo} --keep-out ${keptFile}`,
+      words: `SFlow undoes taking ${keptFile} up and sets it aside: a private copy is kept, and your checkout goes back to its committed bytes.`,
+      does: `Leaves ${keptFile} out of ${stepName(workflow, entry.phase)}; nothing else changes.`,
+      decidedBy: anyone(`Whoever works on ${stepName(workflow, entry.phase)} takes this step.`) }) : null;
     return {
       kind: 'settled', settled: true, title: String(entry.answer).slice(0, 200), subject: entry.subject,
       answerWords: entry.answer, evidenceWords: evidence, evidence: (entry.evidence ?? []).map((fact) => `${fact.what} (${fact.where})`), by: entry.by, at: entry.at,
@@ -1859,11 +1871,12 @@ function settledItems(workflow, context) {
         findings.length ? 'Dispute a finding it was started for if the reviewer is wrong.' : ''].filter(Boolean).join(' '),
       // Undone on the Decide card or in the person's own terminal, never asked in chat: nothing waits on it [owner, 2026-11-20].
       options: history ? [] : [{ ...option(workflow, context, { id: 'undo', label: 'Undo: ask me instead', words: route.words,
-        effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo }, ...disputes],
+        effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo },
+        ...(keepOut ? [keepOut] : []), ...disputes],
       // What it changed, for its one line on every host (decision-plain.mjs) [owner, 2026-11-16].
       details: { settledId: entry.id, settledKind: entry.kind, ...(entry.phase ? { phase: entry.phase } : {}), evidence: entry.evidence, ...(entry.effect ? { effect: entry.effect } : {}),
         reraised: route, ...(disputed.length ? { disputed, allDisputed: findings.every((finding) => finding.disputed) } : {}), ...(history ? { history: true } : {}),
-        commands: history ? [] : [undo, ...disputes.map((entry) => entry.terminal)] }
+        commands: history ? [] : [undo, ...(keepOut ? [keepOut.action.command] : []), ...disputes.map((entry) => entry.terminal)] }
     };
   });
 }
@@ -2016,7 +2029,7 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
     .map((entry) => `${entry.code}${entry.path ? ` on ${entry.path}` : ''} was overridden by ${entry.actor ?? 'a person'}: "${entry.reason}". Recorded as overridden, not passed.`);
   // Every file taken up because it changed outside the plan, one line each, with who changed it and why [WCB:REQ-014].
   const outside = outsidePlanSettled(workflow, phase.id).map((entry) => ({ file: entry.file, by: entry.writer, reason: entry.reason,
-    ...(entry.kind ? { kind: entry.kind } : {}), settled: entry.id, words: outsidePlanWords(entry) }));
+    ...(entry.kind ? { kind: entry.kind } : {}), ...(entry.supporting ? { supporting: entry.supporting } : {}), settled: entry.id, words: outsidePlanWords(entry) }));
   // A Story with no code step: the code base files left in its checkout, which nothing delivers [WCB:REQ-017].
   const leftOut = context.facts?.noCodeStep?.uncommitted ?? [];
   const reviewed = [...(leftOut.length ? [`Not part of this task: ${listWords(leftOut.slice(0, 8))}${leftOut.length > 8 ? ` and ${leftOut.length - 8} more` : ''}, left in your checkout; nothing delivers ${leftOut.length === 1 ? 'it' : 'them'}.`] : []),

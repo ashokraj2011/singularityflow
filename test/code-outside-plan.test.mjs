@@ -106,3 +106,18 @@ test('the settlement takes a file up with the step, with its writer and reason, 
   assert.deepEqual(listed.map(outsidePlanWords), ['src/format.mjs: by Copilot: the summary page needs two decimals', 'config/settings.json: by you']);
   assert.deepEqual(outsidePlanSettled(workflow).map((entry) => entry.id), ['STL-001', 'STL-002'], 'an undone one is not listed');
 });
+
+test('a supporting change that says who made it is listed with the files outside the plan: a scratch note "by you" [owner, 2026-11-28]', () => {
+  const workflow = { settledDecisions: [
+    { id: 'STL-001', kind: 'plan-accounting', by: 'sflow', phase: 'implementation', subject: 'file:NOTES.md', answer: 'Listed NOTES.md as a supporting change.',
+      effect: { file: 'NOTES.md', class: 'documentation', writer: 'person', basis: 'no-hook-records' }, at: '2026-11-28T00:00:00.000Z' },
+    { id: 'STL-002', kind: 'plan-accounting', by: 'sflow', phase: 'implementation', subject: 'file:test/helpers/fixture.mjs', answer: 'Listed it as test support.',
+      effect: { file: 'test/helpers/fixture.mjs', class: 'test-support', writer: 'copilot', basis: 'recorded-write' }, at: '2026-11-28T00:00:01.000Z' },
+    // Settled before this rule, with no writer: the plan's, and not listed here.
+    { id: 'STL-003', kind: 'plan-accounting', by: 'sflow', phase: 'implementation', subject: 'file:README.md', answer: 'Listed README.md.',
+      effect: { file: 'README.md', class: 'documentation' }, at: '2026-11-28T00:00:02.000Z' }] };
+  const listed = outsidePlanSettled(workflow, 'implementation');
+  assert.deepEqual(listed.map((entry) => [entry.file, entry.writer, entry.supporting]),
+    [['NOTES.md', 'person', 'documentation'], ['test/helpers/fixture.mjs', 'copilot', 'test-support']]);
+  assert.deepEqual(listed.map(outsidePlanWords), ['NOTES.md: by you, as a supporting change', 'test/helpers/fixture.mjs: by Copilot, as a supporting change']);
+});

@@ -318,14 +318,15 @@ async function testRun(root, workflow, steps) {
 /** WCB's record of files changed outside the plan, on a code step: `{ file, writer, reason }`; null when there is none. */
 async function outsidePlan(workflow, steps) {
   try {
-    const { settledDecisions } = await import('./settled-decisions.mjs');
+    // WCB's one reader of its record: the out-of-plan settlements and the supporting changes that say who made them.
+    const { outsidePlanSettled } = await import('./plan-amendments.mjs');
     const ids = new Set(steps.map((step) => step.id));
-    const entries = settledDecisions(workflow).filter((entry) => entry.kind === 'plan-accounting' && !entry.undone && entry.effect?.class === 'out-of-plan'
-      && typeof entry.effect.file === 'string' && (!entry.phase || ids.has(entry.phase)));
+    const entries = outsidePlanSettled(workflow).filter((entry) => typeof entry.file === 'string' && (!entry.phase || ids.has(entry.phase)));
     if (!entries.length) return null;
     const seen = new Map();
-    for (const entry of entries) seen.set(entry.effect.file, { file: entry.effect.file, writer: entry.effect.writer === 'copilot' ? 'copilot' : 'person',
-      reason: entry.effect.writer === 'copilot' ? plain(entry.effect.reason ?? '', CHANGE_STORY_LIMITS.reasonCharacters) || null : null });
+    for (const entry of entries) seen.set(entry.file, { file: entry.file, writer: entry.writer,
+      reason: entry.writer === 'copilot' ? plain(entry.reason ?? '', CHANGE_STORY_LIMITS.reasonCharacters) || null : null,
+      ...(entry.supporting ? { supporting: entry.supporting } : {}) });
     return [...seen.values()].sort((left, right) => left.file.localeCompare(right.file));
   } catch { return null; }
 }
@@ -442,7 +443,9 @@ export function renderChangeStory(model) {
     ? `SFlow ran them on the delivered code (${model.tests.step} version ${model.tests.generation}): ${model.tests.passed} passed${model.tests.failed ? `, ${model.tests.failed} failed` : ''}${model.tests.skipped ? `, ${model.tests.skipped} skipped` : ''}.`
     : `Tests not run yet: SFlow runs them${model.tests.next ? ` when ${model.tests.next} is published` : ' at the next step that runs tests'}, and this page says what it found.`, '');
   if (model.outsidePlan?.length) {
-    out.push('## 6. Outside the plan', '', ...model.outsidePlan.map((entry) => `- ${code(entry.file)}: ${entry.writer === 'copilot' ? `by Copilot: ${entry.reason ?? 'no reason written'}` : 'by you'}`), '');
+    out.push('## 6. Outside the plan', '', ...model.outsidePlan.map((entry) => `- ${code(entry.file)}: ${entry.supporting
+      ? `${entry.writer === 'copilot' ? `by Copilot${entry.reason ? `: ${entry.reason}` : ''}` : 'by you'}, as a supporting change`
+      : entry.writer === 'copilot' ? `by Copilot: ${entry.reason ?? 'no reason written'}` : 'by you'}`), '');
   }
   if (model.withheld) out.push(`_SFlow did not show ${plural(model.withheld, 'note')} from the code step: ${model.withheld === 1 ? 'it' : 'each'} had a link, markup, code or a secret's shape, or named something this change does not hold._`, '');
   return `${out.join('\n').trimEnd()}\n`;

@@ -84,10 +84,13 @@ export async function settleOutOfPlan(root, config, workflow, phase, files, { ac
   // shaped like a key or certificate, which SFlow never commits on its own.
   const takesUp = (file) => !context.rejected.has(file) && !context.undone.has(file) && !context.open.has(file) && !SECRET.test(file)
     && !guarded.some((entry) => file === entry || file.startsWith(`${entry}/`));
-  const takeUp = async (file) => {
-    // The agent's own `departure record` says it changed the file: Copilot's, with its reason, when no hook says so already.
+  // The agent's own `departure record` says it changed the file: Copilot's, with its reason, when no hook says so already.
+  const writerOf = (file) => {
     const recorded = writers.get(file) ?? { writer: 'person', basis: 'no-hook-records' };
-    const writer = claimedBy === 'agent' && recorded.writer !== 'copilot' ? { writer: 'copilot', basis: 'agent-said' } : recorded;
+    return claimedBy === 'agent' && recorded.writer !== 'copilot' ? { writer: 'copilot', basis: 'agent-said' } : recorded;
+  };
+  const takeUp = async (file) => {
+    const writer = writerOf(file);
     const settlement = outside.outsidePlanSettlement(file, { phase, stepName: phase.label ?? phase.id, writer, document,
       reason: reasons.get(file) ?? (writer.writer === 'copilot' ? reason : null),
       kind: personClass(file)?.class ?? (sensitivePath(file) ? 'sensitive' : 'behaviour') });
@@ -111,9 +114,15 @@ export async function settleOutOfPlan(root, config, workflow, phase, files, { ac
     }
     const standing = settlementState(workflow, 'plan-accounting', `file:${file}`) === 'open';
     if (place.settle && standing) {
+      // A supporting change (a scratch note, a test helper) says who changed it, so the code approval and the change page
+      // list it "by you" or "by Copilot" too [owner, 2026-11-28]; the plan reads only its file and class.
+      const who = place.settle.effect?.file ? writerOf(file) : null;
+      const effect = who ? { ...place.settle.effect, writer: who.writer === 'copilot' ? 'copilot' : 'person', basis: who.basis,
+        ...(who.writer === 'copilot' && (reasons.get(file) ?? reason) ? { reason: String(reasons.get(file) ?? reason).replace(/\s+/gu, ' ').trim().slice(0, 400) } : {}) }
+        : place.settle.effect;
       try {
         const { record } = await commitSettledDecision(root, config, workflow, { kind: 'plan-accounting', by: 'sflow', phase: phase.id, subject: `file:${file}`,
-          answer: place.settle.answer, evidence: place.settle.evidence, effect: place.settle.effect }, { actor, agent });
+          answer: place.settle.answer, evidence: place.settle.evidence, effect }, { actor, agent });
         settled.push(record);
         if (place.settle.effect?.clauseId) context.settledRows?.set(file, place.settle.effect.clauseId);
         continue;

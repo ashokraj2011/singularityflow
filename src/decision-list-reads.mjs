@@ -341,6 +341,18 @@ async function noCodeStepFacts(root, config, workflow, phase) {
 }
 
 /**
+ * The files the open code step took up that are still only in the checkout, each with its settlement [WCB:REQ-015]: the
+ * Decide page offers to keep one out in a single step. Null when there is none, or nothing is being answered.
+ */
+async function keepOutFacts(root, config, workflow) {
+  try {
+    const outside = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'code-outside-plan.mjs')).href);
+    const files = await outside.keepOutFiles(root, config, workflow);
+    return files.size ? Object.fromEntries(files) : null;
+  } catch { return null; }
+}
+
+/**
  * What else waits for a person on this Story [SPEC-OAP M3], each from the reader its own command
  * uses. A source that cannot be read is named in `unavailable`, never read as nothing pending.
  * `approvalCheck`, `owed` and `publication` may arrive already read (readiness has them).
@@ -592,6 +604,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     excludedChanges: answering ? await excludedChangeFacts(root, config, workflow, phase) : null,
     rollover: answering ? await rolloverFacts(root, config, workflow, phase) : null,
     noCodeStep: workflow.status === 'in_progress' ? await noCodeStepFacts(root, config, workflow, phase) : null,
+    keepOut: answering ? await keepOutFacts(root, config, workflow) : null,
     departures: workflow.status === 'in_progress' ? await departureFacts(root, config, workflow, phase) : null,
     convergence,
     askedFor: workflow.status === 'in_progress' ? await askedForFacts(root, workflow, phase) : null,

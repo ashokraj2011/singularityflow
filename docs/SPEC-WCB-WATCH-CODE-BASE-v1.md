@@ -115,9 +115,19 @@ Everything below is about what is *not* a stop.
   The Story's "What this change does" page (SPEC-CSP, section 6 "Outside the plan") reads the same records, the
   `plan-accounting` settlements of class `out-of-plan` not undone: `effect.file`, `effect.writer` (`copilot` or
   `person`) and `effect.reason`, so it shows the same "by Copilot: <reason>" or "by you".
+  A file whose class places it as a supporting change (a person's scratch note, a test helper) is committed as one, and
+  its settlement says who changed it too, so the approval and the change page list it "by you, as a supporting change"
+  (or "by Copilot, as a supporting change", with a reason when Copilot wrote one). The owner decided this for a person's
+  scratch note on 2026-11-28: "Commit it". A supporting settlement made before this build carries no writer and is not
+  listed.
 - **WCB:REQ-015** Undo is returning the step. While the code step is still open, undoing a settlement hands that file
   back as a question, as for any settled file; once the step awaits approval, its approver returns it first; once
-  approved, it is history.
+  approved, it is history. Keeping one file out is one step (owner, 2026-11-28): while the code step is open and a file
+  it took up is still only in the checkout, its settled row on the Decide page has "Keep <file> out of this Story", the
+  person's terminal command `singularity-flow decisions undo <ID> --settled <STL> --keep-out <file>`. It undoes the
+  take-up, saves the checkout and the Git index in a private recovery copy, and returns exactly that file to its
+  committed bytes (an untracked one is removed). No question is asked and nothing is composed; a file already
+  committed has no such row.
 
 ### A Story with no code step
 
@@ -207,10 +217,11 @@ governs it), and another step's own document changed under the Story's `artifact
 - A commit on a Story with no code step that touches both code and the Story's own document is taken out whole by the
   revert; the person makes the document change again.
 - Publication takes up a person's scratch note or unrelated edit too (a supporting change, or "by you"). When it breaks
-  the tests, publication stops (REQ-001.2); keeping it out is two steps: undo its take-up on the Decide page, then set it
-  aside from recovery. The set-aside rows for such files before publication are gone.
-- A person's publication now runs the take-up too, so it reads the hook records and the step's document; under load the
-  appeals journeys ran up to twice as long (one stayed under its limit only on a quieter machine).
+  the tests, publication stops (REQ-001.2) and the person keeps the file out in one step (REQ-015). A file the person
+  committed has no keep-out row: it is taken out as any commit is.
+- A person's publication now runs the take-up too, so it reads the hook records and the step's document. Timed back to
+  back on a quiet machine (1-minute load under 8), 2026-11-28, main 31f0c6c2a against this branch: phase-appeals 288 s
+  and 300 s (+4%), journey-lessons 302 s and 313 s (+4%).
 - The `/sf-code` and `/sf-phase` skills sit at their token budget: the departure line dropped `--path` and two
   parentheticals to make room for the one line REQ-013 adds.
 - After the last code step is approved, a document step's approval still binds the code its review saw: an uncommitted

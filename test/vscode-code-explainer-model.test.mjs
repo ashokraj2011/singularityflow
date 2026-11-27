@@ -154,6 +154,26 @@ test('an outline read from text names functions, methods and test cases, nested 
   assert.equal(declaredName('  if (ready) {'), null);
 });
 
+test('an outline read from text reads a component whose props are destructured: its parameters may span lines, its body is its own [WMR:§11]', () => {
+  const shape = (list) => list.map((entry) => [entry.name, entry.range.start, entry.range.end, shape(entry.children ?? [])]);
+  const read = (text, language = 'javascript') => shape(textSymbols(text.split('\n'), language));
+  // Parameters one per line, the React style: a function from its declaration to its closing brace.
+  assert.deepEqual(read('export const Display = ({\n  value,\n  onClear,\n}) => {\n  function clear() { onClear(); }\n  return value;\n};'),
+    [['Display', 1, 7, [['clear', 5, 5, []]]]]);
+  // Destructured on one line: the braces in the parameter list are not the body.
+  assert.deepEqual(read('export default function Header({ title }) {\n  function click() {\n    go();\n  }\n  return title;\n}'),
+    [['Header', 1, 6, [['click', 2, 4, []]]]]);
+  // A type in front, and a body in parentheses that ends where they close.
+  assert.deepEqual(read('const Row: FC<Props> = ({\n  a,\n}: Props) => (\n  <div>{a}</div>\n);\nconst after = 1;', 'typescript'), [['Row', 1, 5, []]]);
+  // A value in parentheses is not a function; a default value's braces are not a body either.
+  assert.deepEqual(read('const total = (\n  a + b\n);\nfunction f(options = {}) {\n  return options;\n}'), [['f', 4, 6, []]]);
+  // A constructor's parameters over several lines (Kotlin): its members stay inside it.
+  assert.deepEqual(read('class Meter(\n  val a: Int,\n  val b: Int\n) {\n  fun read(\n    x: Int,\n    y: Int\n  ): Int {\n    return x\n  }\n}', 'kotlin'),
+    [['Meter', 1, 11, [['read', 5, 10, []]]]]);
+  // A test case is a call: its body is the callback's.
+  assert.deepEqual(read("test('adds', () => {\n  expect(add(1, 2)).toBe(3);\n});", 'typescript'), [["test('adds')", 1, 3, []]]);
+});
+
 test('the editor answer that carries both symbol shapes is read at the name, not the line start', () => {
   const range = (sl, sc, el, ec) => ({ start: { line: sl, character: sc }, end: { line: el, character: ec } });
   const merged = {

@@ -8,7 +8,7 @@
 - couponDiscount: when `code === 'SAVE10' && base >= 3000` → returns `Math.round(base * 0.1)`. Not documented, enforced, tested. (pricing.ts:20)
 - subtotal: computes `cart.lines.reduce((sum, line) => sum + line.priceCents * line.quantity, 0)`. Not documented, enforced. (pricing.ts:9)
 - cartReducer: when `action.type is 'setQuantity'` → does `const quantity = Math.min(Math.max(action.quantity, 0), MAX_QUANTITY_PER_LINE)`. Not documented, enforced, tested. (cart.ts:24)
-- handleSubmit: when `cart.lines.length === 0` → shows "Your cart is empty.". Not documented, enforced. (CheckoutForm.tsx:15)
+- CheckoutForm.handleSubmit: when `cart.lines.length === 0` → shows "Your cart is empty.". Not documented, enforced. (CheckoutForm.tsx:15)
 - couponDiscount: when `code === 'VIP20'` → checks `!isMember`. Not documented, enforced, tested. (pricing.ts:21)
 
 ## Risks

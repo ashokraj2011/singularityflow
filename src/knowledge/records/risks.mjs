@@ -38,8 +38,13 @@ function ownershipText(statement) {
   return statement.changes >= 3 && statement.topAuthorShare >= 0.75 ? 'mostly changed by one person' : null;
 }
 
-/** `trust(file)`: whether its calls are resolved; while only matched by name, no reach, callers or test reach is stated [WMR:REQ-014]. */
-export function buildRiskRecords(knowledge, { focus = null, changedPaths = [], changedSymbols = null, trust = () => true } = {}) {
+/**
+ * `trust(file)`: whether its calls are resolved; while only matched by name, no reach, callers or test reach is stated
+ * [WMR:REQ-014]. `partRead(file)`: whether the file lies in a large area read only in part for the Story, and
+ * `importersKnown(file)` whether every importer of it there was read: from a part, how many files import it or change
+ * with it, and which function is the most complex, are not known, so they are not said [WMR:§11].
+ */
+export function buildRiskRecords(knowledge, { focus = null, changedPaths = [], changedSymbols = null, trust = () => true, partRead = () => false, importersKnown = () => true } = {}) {
   const items = knowledge?.items ?? [];
   const changedFiles = new Set(changedPaths);
   // 2: the change falls in it; 1: it is in a changed file. Without changed lines, a changed file's functions count as changed.
@@ -56,8 +61,8 @@ export function buildRiskRecords(knowledge, { focus = null, changedPaths = [], c
     const reasons = [
       ...historyReasons(statement),
       statement.complexity >= 20 ? `complexity ${statement.complexity}` : null,
-      statement.importedBy >= 2 ? `imported by ${statement.importedBy} files` : null,
-      statement.coChanges >= 1 ? `changes together with ${plural(statement.coChanges, 'other file')}` : null
+      statement.importedBy >= 2 && importersKnown(item.subject?.path) ? `imported by ${statement.importedBy} files` : null,
+      statement.coChanges >= 1 && !partRead(item.subject?.path) ? `changes together with ${plural(statement.coChanges, 'other file')}` : null
     ].filter(Boolean);
     if (reasons.length < 2) continue;
     const ownership = ownershipText(statement);
@@ -74,13 +79,16 @@ export function buildRiskRecords(knowledge, { focus = null, changedPaths = [], c
   const entryCount = items.filter((item) => item.kind === 'entry-point' && item.statement?.kind === 'http').length;
   const reach = (symbol) => journeys.filter((journey) => (journey.statement?.steps ?? []).includes(symbol)).length;
   const risks = items.filter((item) => item.kind === 'risk');
+  // "The most complex function" compares with every function: not known once any area was read only in part [WMR:§11].
+  const comparable = !knowledge?.repository?.part && !knowledge?.repository?.parts?.length;
   const mostComplex = Math.max(0, ...risks.map((item) => item.statement?.complexity ?? 0));
   for (const item of risks) {
     const statement = item.statement ?? {};
     const resolved = trust(item.subject?.path);
     const reached = resolved ? reach(item.subject?.symbol) : 0;
     const reasons = [
-      statement.complexity >= 10 ? (statement.complexity === mostComplex && risks.length > 1 ? `the most complex function (complexity ${statement.complexity})` : `complexity ${statement.complexity}`) : null,
+      statement.complexity >= 10 ? (statement.complexity === mostComplex && risks.length > 1 && comparable
+        ? `the most complex function (complexity ${statement.complexity})` : `complexity ${statement.complexity}`) : null,
       reached ? (entryCount > 1 && reached >= entryCount ? 'reached by every endpoint' : `reached by ${plural(reached, 'entry point')}`) : null,
       resolved && statement.callers >= 2 ? `called from ${statement.callers} places` : null,
       statement.rules >= 3 ? plural(statement.rules, 'rule') : null,

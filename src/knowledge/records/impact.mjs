@@ -22,6 +22,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { isTestPath } from '../../code-intelligence/generated/code-explainer-model.mjs';
 import { subjectWords } from './anchors.mjs';
 
 function recordId(key) {
@@ -100,24 +101,34 @@ const NAMED_FILES = 3;
 
 /**
  * The code files whose names the Story's words match, best first: "graph" names `FunctionGrapher.jsx`. Only the file's
- * own name counts (split at case changes), never its folder or a test.
+ * own name counts (split at case changes), never its folder or a test. `importers(file)` breaks a tie. The same reader
+ * chooses the areas of a repository too large to build whole, from its file paths alone (store.mjs) [WMR:§11].
  */
-function filesNamedBy(knowledge, relevance, imports) {
-  const tests = new Set((knowledge?.items ?? []).filter((item) => item.kind === 'test-case').map((item) => item.subject?.path));
-  const code = new Set([...(knowledge?.graph?.functions ?? []).map((fn) => fn.file),
-    ...(knowledge?.items ?? []).filter((item) => item.kind === 'layer').map((item) => item.subject?.path)]);
-  const importers = (file) => imports.filter(([, to]) => to === file).length;
-  return [...code].filter((file) => file && !tests.has(file) && !/(?:^|[./_-])(?:test|spec)s?\.[^/]+$|(?:^|\/)__tests__\//u.test(file))
+export function filesNamedByWords(paths, focus, { importers = () => 0, tests = new Set(), limit = NAMED_FILES } = {}) {
+  const relevance = focusWeight(focus);
+  return [...new Set(paths)].filter((file) => file && !tests.has(file) && !isTestPath(file) && !/(?:^|[./_-])(?:test|spec)s?\.[^/]+$|(?:^|\/)__tests__\//u.test(file))
     .map((file) => ({ file, score: relevance(path.posix.basename(file).replace(/\.[^.]+$/u, '')) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || importers(b.file) - importers(a.file) || a.file.localeCompare(b.file, 'en'))
-    .slice(0, NAMED_FILES).map((entry) => entry.file);
+    .slice(0, limit).map((entry) => entry.file);
+}
+
+function filesNamedBy(knowledge, focus, imports) {
+  const tests = new Set((knowledge?.items ?? []).filter((item) => item.kind === 'test-case').map((item) => item.subject?.path));
+  const code = [...(knowledge?.graph?.functions ?? []).map((fn) => fn.file),
+    ...(knowledge?.items ?? []).filter((item) => item.kind === 'layer').map((item) => item.subject?.path)];
+  return filesNamedByWords(code, focus, { tests, importers: (file) => imports.filter(([, to]) => to === file).length });
 }
 
 /** How a file record says why it is listed. */
 const STATE_LABELS = Object.freeze({ named: 'name matches the Story\'s words' });
 
-export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges = null, plannedPaths = [], newPaths = [], focus = null, trust = () => true } = {}) {
+/**
+ * `importersOf(file, read)`: who imports a file, given the importers the build read; null when that is not known. A
+ * large area read only in part for the Story knows it for the Story's own files only (items.mjs partRead), so
+ * "imported by N files" is said only for them; a changed file with nothing else known says what it defines [WMR:§11].
+ */
+export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges = null, plannedPaths = [], newPaths = [], focus = null, trust = () => true, importersOf = (file, read) => read } = {}) {
   const items = knowledge?.items ?? [];
   const functions = knowledge?.graph?.functions ?? [];
   const calls = knowledge?.graph?.calls ?? [];
@@ -130,7 +141,7 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
   const relevance = focusWeight(focus);
   // Before the Story plans or changes a file, only its words can point at one: a planning step's first version is
   // composed before its plan exists [WMR:§11]. Once there is a plan or a change, its files lead (REQ-007).
-  const named = story.size || fresh.length ? [] : filesNamedBy(knowledge, relevance, imports);
+  const named = story.size || fresh.length ? [] : filesNamedBy(knowledge, focus, imports);
   if (!story.size && !fresh.length && !named.length) return [];
 
   const callersOf = new Map();
@@ -232,7 +243,8 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
     const flows = resolved ? [...new Set(inFile.flatMap((fn) => flowsThrough(fn.qualifiedName)))] : [];
     const rules = inFile.reduce((total, fn) => total + (rulesOf.get(fn.qualifiedName) ?? 0), 0);
     const tests = resolved ? [...new Set(inFile.flatMap((fn) => [...(testsOf.get(fn.qualifiedName) ?? [])]))] : [];
-    const importers = [...(importedBy.get(file) ?? [])].filter((importer) => !story.has(importer));
+    const known = importersOf(file, [...(importedBy.get(file) ?? [])]);
+    const importers = (known ?? []).filter((importer) => !story.has(importer));
     const parts = [
       ...contractText(file),
       flows.length ? `on ${names(flows, 2)}` : null,
@@ -243,7 +255,7 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
     ].filter(Boolean);
     // A planned file is always listed: the plan's files lead [WMR:REQ-007]; so is one the Story's words name. With
     // nothing else known, what it defines.
-    if (!parts.length && state !== 'changed' && inFile.length) parts.push(`defines ${names(inFile.map((fn) => shortName(fn.qualifiedName)), 3)}`);
+    if (!parts.length && (state !== 'changed' || !known) && inFile.length) parts.push(`defines ${names(inFile.map((fn) => shortName(fn.qualifiedName)), 3)}`);
     if (!parts.length && state === 'changed') return;
     const label = STATE_LABELS[state] ?? state;
     records.push({

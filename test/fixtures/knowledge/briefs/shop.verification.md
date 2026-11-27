@@ -10,18 +10,21 @@
 - cartReducer: when `action.type is 'setQuantity'` → does `const quantity = Math.min(Math.max(action.quantity, 0), MAX_QUANTITY_PER_LINE)`. Not documented, enforced, tested. (cart.ts:24)
 
 ## Risks
+- (changed by this Story) shipping: reached by 2 entry points (pricing.ts:12)
 - couponDiscount: test and code disagree: the test title says "more than" (strict), the code uses >= (pricing.ts)
-- couponDiscount: reached by 1 entry point, called from 2 places, 4 rules (pricing.ts:17)
-- subtotal: reached by 1 entry point, called from 3 places (pricing.ts:8)
-- handleSubmit: reached by 1 entry point, no test reaches it (CheckoutForm.tsx:13)
+- couponDiscount: reached by 3 entry points, called from 2 places, 4 rules (pricing.ts:17)
+- subtotal: reached by 3 entry points, called from 3 places (pricing.ts:8)
+- total: reached by 2 entry points (pricing.ts:28)
+- CheckoutForm.handleSubmit: reached by 1 entry point, no test reaches it (CheckoutForm.tsx:13)
 
 ## Flows
-- onSubmit on <form> in CheckoutForm.tsx → handleSubmit → couponDiscount (and 2 helpers: submitOrder, subtotal); refuses 1 way; 6 rules on the way; calls POST /orders, may fail with Error (CheckoutForm.tsx:37)
+- change in CheckoutForm → total → couponDiscount (and 2 helpers: subtotal, shipping); refuses 1 way; 7 rules on the way; may fail with Error (CheckoutForm.tsx:8)
+- submit in CheckoutForm → total → couponDiscount (and 2 helpers: subtotal, shipping); refuses 1 way; 7 rules on the way; may fail with Error (CheckoutForm.tsx:8)
 
 ## What a change touches
-- shipping (changed): called by total; 1 rule; tested by pricing.test.ts (pricing.ts:12)
+- shipping (changed): called by total; on change in CheckoutForm, submit in CheckoutForm; 1 rule; tested by pricing.test.ts (pricing.ts:12)
 
-- … 2 more: singularity-flow wm brief --phase verification
+- … 4 more: singularity-flow wm brief --phase verification
 
 Not known: calls are matched by name (no semantic pack is warmed); no runtime or incident data.
 Read without a model from the committed source. Open the cited lines before relying on a detail.

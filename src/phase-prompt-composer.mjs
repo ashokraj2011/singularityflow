@@ -1101,7 +1101,9 @@ export async function compose(root, options, {
     try {
       const lessons = await (await import('./story-lessons.mjs')).phaseLessons(root, {
         workflow, phase: signals.phase, record: !dryRun && !renderOnly,
-        paths: [...(signals.changedPaths ?? []), ...await workflowPlannedPaths(root, workItemRoot, workflow)]
+        paths: [...(signals.changedPaths ?? []), ...await workflowPlannedPaths(root, workItemRoot, workflow)],
+        // Before a plan or a change, the files the World Model guesses from the Story's words [LRN:REQ-008, WMR §11].
+        likelyPaths: repositoryBrief.likelyPaths ?? []
       });
       lessons.warnings.forEach((warning) => console.error(`Lessons warning: ${warning}`));
       if (lessons.text) repositoryBrief = { ...repositoryBrief, text: repositoryBrief.text ? `${repositoryBrief.text}\n\n${lessons.text}` : lessons.text };

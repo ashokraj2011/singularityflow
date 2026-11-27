@@ -136,6 +136,26 @@ test('a later step is given the lessons for the files it touches, as quoted data
   assert.equal(design.chosen.length, 0, 'a lesson for code steps is not given to a design step');
 });
 
+test('before a plan, a step is given the lessons for the files the World Model guesses, and says they are a guess [LRN:REQ-008]', async () => {
+  const root = await repository();
+  await noticeStepLessons(root, CONFIG, workflow(), 'implementation');
+  const next = workflow({ workItem: { id: 'LRN-2' }, departures: [], findingOverrides: [], changeRequests: [] });
+  next.phases.implementation.deliveryEvidence = {};
+  // No plan and no change: without a guess, a lesson about files reaches no one.
+  const none = await phaseLessons(root, { workflow: next, phase: 'implementation', paths: [] });
+  assert.equal(none.chosen.filter(({ record }) => record.scope?.paths?.length).length, 0);
+  const guessed = await phaseLessons(root, { workflow: next, phase: 'implementation', paths: [], likelyPaths: ['src/transfer.mjs'] });
+  assert.ok(guessed.chosen.some(({ record }) => record.scope?.paths?.includes('src/transfer.mjs')), 'the guessed file\'s lessons are given');
+  assert.deepEqual(guessed.likely, ['src/transfer.mjs']);
+  assert.match(guessed.text, /This Story has no plan yet: these are for the files its words name \(src\/transfer\.mjs\), which\nis a guess, not the files it will change\./u);
+  // Once the step plans or changes a file, those files decide and the guess is not used or named.
+  const planned = await phaseLessons(root, { workflow: next, phase: 'implementation', paths: ['docs/readme.md'], likelyPaths: ['src/transfer.mjs'] });
+  assert.equal(planned.chosen.length, 0);
+  assert.equal(planned.likely, undefined);
+  const real = await phaseLessons(root, { workflow: next, phase: 'implementation', paths: ['src/transfer.mjs'], likelyPaths: ['src/other.mjs'] });
+  assert.doesNotMatch(real.text, /no plan yet/u);
+});
+
 test('at most ten lessons and 2 KB; pinned, then confirmed, then the most recent', () => {
   const entry = (index, lesson = {}) => ({
     sha256: String(index).padStart(64, '0'),

@@ -18,6 +18,8 @@ import { phaseBriefProfile } from '../src/knowledge/phase-brief.mjs';
 import { phaseBriefPlacement, repositoryBriefPrompt } from '../src/knowledge/prompt.mjs';
 import { buildImpactRecords } from '../src/knowledge/records/impact.mjs';
 import { buildKnowledge } from '../src/knowledge/store.mjs';
+import { recordKnowledge } from '../src/knowledge.mjs';
+import { phaseLessons } from '../src/story-lessons.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com',
@@ -80,6 +82,7 @@ test('A2: the plan\'s file table leads: a plan brief and the first code brief na
     assert.match(brief.text, /^## What a change touches$/mu, `${phase}: the plan's files have their section`);
     assert.match(brief.text, /^- src\/FunctionGrapher\.jsx \(planned\)/mu, `${phase} names the file the plan names first`);
     assert.match(brief.text, /^- src\/graph\/plot\.js \(new, planned\)$/mu, `${phase} lists the new file the plan names`);
+    assert.deepEqual(brief.likelyPaths, [], `${phase}: with a plan, no file is guessed for the lessons`);
   }
 });
 
@@ -226,13 +229,32 @@ test('A8: before its plan exists, a planning step that writes a design document 
   // The owner's planning steps get the architect's brief: the document kind they pinned comes first (REQ-012).
   assert.equal(brief.profile, 'design');
   assert.match(brief.text, /^## What a change touches\n- src\/FunctionGrapher\.jsx \(name matches the Story's words\)/mu, brief.text);
+  // The same guess is handed to the lessons the step is given [LRN:REQ-008].
+  assert.deepEqual(brief.likelyPaths, ['src/FunctionGrapher.jsx']);
   // A Story whose words name no file: the architect is given no list of the code's busiest functions in its place.
   const none = await phaseRepositoryBrief(repository, { definition: { worldModel: {} }, workflow: planningStory('bimary'), phase: 'planning', changedPaths: [], polish: 'off' });
   assert.match(none.text, /^# Repository brief: /u);
   assert.doesNotMatch(none.text, /## What a change touches/u, none.text);
+  assert.deepEqual(none.likelyPaths, []);
   // A developer's brief keeps what depends on the functions the Story names, as before.
   const code = await repositoryBriefPrompt(repository, { definition: null, phase: 'implementation', workflow: planningStory('bimary'), polish: 'off' });
   assert.match(code.text, /## What a change touches/u);
+});
+
+test('A8: before its plan exists, a planning step is given the lessons for the file its Story\'s words name, marked as a guess [LRN:REQ-008]', async (t) => {
+  const repository = await fixture(t, 'graph-calc');
+  await recordKnowledge(repository, { type: 'gotcha', text: 'The grapher redraws on every keystroke; debounce the input first.',
+    provenance: [{ workId: 'GRAPH-1', artifact: 'artifacts/implementation/summary.md', sha256: 'a'.repeat(64), approvedRevision: 1 }],
+    scope: { paths: ['src/FunctionGrapher.jsx'] }, approvedSourceVerified: true });
+  const workflow = planningStory('graph');
+  // What compose does: the brief first, then the lessons for the files it guessed (phase-prompt-composer.mjs).
+  const brief = await phaseRepositoryBrief(repository, { definition: { worldModel: {} }, workflow, phase: 'planning', changedPaths: [], polish: 'off' });
+  const given = await phaseLessons(repository, { workflow, phase: 'planning', paths: [], likelyPaths: brief.likelyPaths });
+  assert.deepEqual(given.chosen.map(({ record }) => record.text), ['The grapher redraws on every keystroke; debounce the input first.']);
+  assert.match(given.text, /no plan yet: these are for the files its words name \(src\/FunctionGrapher\.jsx\)/u);
+  // A Story whose words name no file is given no lesson about one.
+  const none = await phaseRepositoryBrief(repository, { definition: { worldModel: {} }, workflow: planningStory('bimary'), phase: 'planning', changedPaths: [], polish: 'off' });
+  assert.equal((await phaseLessons(repository, { workflow: planningStory('bimary'), phase: 'planning', paths: [], likelyPaths: none.likelyPaths })).chosen.length, 0);
 });
 
 test('A8: once there is a plan or a change, its files lead and no file is listed for its name alone [WMR:§11, REQ-007]', async (t) => {

@@ -299,6 +299,9 @@ export async function repositoryBriefPrompt(root, {
   const brief = {
     text: rendered.text,
     warnings, status, role: profile.reader, profile: profile.id, cache,
+    // The files the Story's words name while it has no plan and no change (WMR §11), for the lessons a step is given:
+    // the World Model's guess, never a claim about what the Story will change [LRN:REQ-008].
+    likelyPaths: (impact ?? []).filter((record) => record.state === 'named').map((record) => record.parts.path),
     budget: profile.budget, included: rendered.included, omitted: rendered.omitted,
     // What the prompt receipt records: which records were sent, and whether a model phrased them.
     receipt: {

@@ -122,6 +122,10 @@ record that exists at that digest, or it is refused.
 **LRN:REQ-008, what a step is given.**
 - Each Story step's prompt gets the active lessons whose paths meet the files its plan names or its changes touch, and
   whose steps include its intent.
+- Before a step plans or changes any file (requirements, design, planning), the files are the ones the World Model's
+  brief guesses from the Story's words (at most 3, never a test; WMR §11). The section then says the Story has no plan
+  yet and names those files as a guess. A step that gets no brief (intake, by default) gets no guess, so only lessons
+  for its step reach it. Owner, 2026-11-27: "yes".
 - They come from the base branch, from the Story's own branch, and from this person's other open Stories on this
   machine (the Story index).
 - Confirmed lessons come first, then the most recent.

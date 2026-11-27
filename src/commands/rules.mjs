@@ -5,6 +5,7 @@
  * (`workflow studio apply --change-set - --propose`, the `tasks.*` operations), never here.
  */
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 import { commandLineFile, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
@@ -58,8 +59,8 @@ export async function run(argv, { positionals = argv, options = {} } = {}) {
     if (error instanceof SingularityFlowError) throw error;
     refuse(`The change set could not be read as JSON: ${String(error?.message ?? error).split('\n')[0]}`, 'RULES_CHANGE_SET_INVALID');
   }
-  const [{ withApprovedConfigurationRead, INSPECTION_READ }, { loadDefinition, WORKFLOW_PATH }, { configurationReadRoot }, path] = await Promise.all([
-    import('../approved-configuration-reader.mjs'), import('../config.mjs'), import('../configuration-read-scope.mjs'), import('node:path')]);
+  const [{ withApprovedConfigurationRead, INSPECTION_READ }, { loadDefinition, WORKFLOW_PATH }, { configurationReadRoot }] = await Promise.all([
+    import('../approved-configuration-reader.mjs'), import('../config.mjs'), import('../configuration-read-scope.mjs')]);
   // The configuration a proposal would be made on: the approved one as this clone last read it, once, in memory, with no
   // fetch, so a preview makes no network call [FPL:REQ-021]; the proposal itself is made on the newest.
   const { definition, text } = await withApprovedConfigurationRead(root, async () => ({

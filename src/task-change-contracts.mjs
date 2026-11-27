@@ -22,7 +22,8 @@ export const TASK_CHANGE_DERIVED_KEYS = Object.freeze(['policySha256', 'composit
 const LATER_STEP_CHANGES = Object.freeze(['order', 'inputs']);
 const QUALIFIED_SHA256 = /^sha256:[a-f0-9]{64}$/u;
 const STEP_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-const INTENTS = new Set(['requirements', 'design', 'plan', 'review']);
+// A big change gains its tests step too [ITW:REQ-105, docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md]; a person adds the first four.
+const INTENTS = new Set(['requirements', 'design', 'plan', 'review', 'test']);
 
 function fail(message, code = 'WFA_AMENDMENT_INVALID', details = undefined) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -51,7 +52,9 @@ const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.
  */
 export const TASK_GROWTHS = Object.freeze([
   Object.freeze({ from: 'fix', to: 'change', intent: 'plan', adds: true }),
-  Object.freeze({ from: 'refactor', to: 'change', intent: 'plan', adds: false })]);
+  Object.freeze({ from: 'refactor', to: 'change', intent: 'plan', adds: false }),
+  // A small change of another sized kind whose code turns out bigger keeps its kind and gains its plan [ITW:REQ-106].
+  ...['chore', 'change', 'feature', 'tests'].map((kind) => Object.freeze({ from: kind, to: kind, intent: 'plan', adds: true }))]);
 const growthOf = (change) => TASK_GROWTHS.find((entry) => entry.from === change?.from && entry.to === change?.to && entry.intent === change?.intent) ?? null;
 const isGrow = (change) => change?.change === 'grow';
 /** Whether a decision adds its step (every change but a kind change that keeps the steps). */
@@ -72,9 +75,20 @@ export function relabeledStep(phase, decision) {
   return label && phase?.id === decision.step.id ? { ...phase, label } : phase;
 }
 
+// The code step's label while a sized task is small; a big one names it as the kind's code step [ITW:REQ-105].
+const SMALL_CODE_LABELS = new Set(['Implement and test', 'Write and run the tests']);
+/** A step of a sized task as a big change names it: its code step "Code" (or "Write the tests") beside its tests step. */
+export function bigShapeStep(step, kind) {
+  return step?.intent === 'code' && SMALL_CODE_LABELS.has(step.label) ? { ...step, label: taskStepLabel(kind, 'code') } : step;
+}
+/** Whether a change to a sized task names its later code step as a big change's (`before`: the composition it changes). */
+const relabelsCode = (before, decision) => before?.sizing === 'requirement'
+  && (decision.change?.shape === 'big' || isGrow(decision.change) || (before.steps ?? []).some((step) => step.intent === 'plan'));
+
 /**
  * The change entry the composition gains: who asked, the team's rule and its reason (a `paths` rule for the files the
- * code changed, or an `always` rule of the kind a fix became), or a fix grown into a change with why and the files.
+ * code changed, or an `always` rule of the kind a fix became), a fix grown into a change with why and the files, or a
+ * step of a big change with why it is big (`shape`).
  */
 function validChange(change, step) {
   const paths = (value) => Array.isArray(value) && value.length >= 1 && value.length <= 256 && value.every((file) => isString(file, 4096));
@@ -86,8 +100,12 @@ function validChange(change, step) {
       : exactKeys(change, ['change', 'intent', 'at', 'by', 'from', 'to', 'because', 'checks', 'changeRequest']) && paths(change.checks)
         && /^CR-[0-9]{3,6}$/u.test(change.changeRequest ?? ''));
   }
+  if (change && Object.hasOwn(change, 'shape')) {
+    return exactKeys(change, ['change', 'intent', 'at', 'by', 'shape', 'because']) && change.change === 'add' && change.shape === 'big'
+      && timed && isString(change.because, 2000);
+  }
   const keys = ['change', 'intent', 'at', 'by', ...(change && Object.hasOwn(change, 'rule') ? ['rule', 'because', 'paths'] : [])];
-  return exactKeys(change, keys) && change.change === 'add' && timed
+  return exactKeys(change, keys) && change.change === 'add' && change.intent !== 'test' && timed
     && (!Object.hasOwn(change, 'rule') || (/^(?:paths|always)\[[0-9]{1,3}\]$/u.test(change.rule) && isString(change.because, 2000) && paths(change.paths)));
 }
 
@@ -162,7 +180,9 @@ function assertCompositionScope(before, after, decision) {
   }
   const adds = addsStep(decision);
   const kept = adds ? null : before.steps.map((step) => relabeledStep(step, decision));
-  if (!(adds ? same(after.steps, stepsWithInsertion(before.steps, decision.step, decision.position)) : same(after.steps, kept) || same(after.steps, before.steps))
+  const inserted = adds ? stepsWithInsertion(before.steps, decision.step, decision.position)
+    .map((step, index) => (index > decision.position && relabelsCode(before, decision) ? bigShapeStep(step, after.kind) : step)) : null;
+  if (!(adds ? same(after.steps, inserted) : same(after.steps, kept) || same(after.steps, before.steps))
       || (!adds && !same(before.steps[decision.position], decision.step))) {
     fail(adds ? 'A task change\'s steps are not the task\'s steps with exactly the recorded step added.' : 'A kind change changed the task\'s steps.');
   }
@@ -253,6 +273,12 @@ export function assertTaskChangeScope(previous, next, decision) {
     if (later.order !== index + 1) fail(`A task change gave the step '${prior.id}' the wrong place.`);
     for (const key of LATER_STEP_CHANGES) { delete prior[key]; delete later[key]; }
     if (prior.approval && later.approval) { delete prior.approval.rejectTo; delete later.approval.rejectTo; }
+    // A sized task's code step is named as a big change's, and only that [ITW:REQ-105]. A pinned step carries no intent:
+    // the composition says which is the code step.
+    const coded = (previous.composition?.steps ?? []).some((step) => step.id === prior.id && step.intent === 'code');
+    if (relabelsCode(previous.composition, decision) && coded && bigShapeStep({ ...prior, intent: 'code' }, next.composition.kind).label === later.label) {
+      delete prior.label; delete later.label;
+    }
     if (!same(prior, later)) fail(`A task change changed the later step '${before[index].id}' beyond its place, inputs and returns.`);
   }
   const added = after[position];

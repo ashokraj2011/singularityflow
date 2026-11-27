@@ -28,6 +28,9 @@ const APPROVE = 'singularity-flow approve intake --work-id TASK-1 --fetch';
 const TASK = Object.freeze({ workItem: { id: 'TASK-1', workType: 'task-fix' }, resolution: { composition: { kind: 'fix', steps: [] } } });
 const CLASSIC = Object.freeze({ workItem: { id: 'S-1', workType: 'quick-fix' }, resolution: {} });
 
+/** A Story composed from its kind, as one started before v1.2 is (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md §4): `tasks.sizing: kind`. */
+const v11 = (configuration) => { configuration.tasks = { ...(configuration.tasks ?? {}), sizing: 'kind' }; };
+
 test('the reviewed exception: /sf-task stands beside a command whose turn it takes, and nowhere else', () => {
   const approve = safeCommandGuidance({ command: APPROVE, skill: '/sf-approve', copilotCommand: TASK_ROUTE });
   assert.equal(approve.copilotCommand, TASK_ROUTE);
@@ -124,7 +127,7 @@ test('a task keeps its chat: no /clear or new chat between its steps, and the ap
 });
 
 test('ITW REQ-008: a real task Story names /sf-task at every turn, with each step\'s exact Shell route; a classic Story keeps its skills', async (t) => {
-  const story = await journeyRepository(t);
+  const story = await journeyRepository(t, { configure: v11 });
   story.cli('work', 'fix the value module so it returns 2', '--start', '--json');
   Object.assign(story, { workId: 'TASK-1', item: 'singularity/work-items/TASK-1' });
   const record = storyRecord(story);

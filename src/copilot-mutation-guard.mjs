@@ -854,6 +854,9 @@ export function argvAllowed(argv, mode, value) {
     // /sf-reject's other routes, for the bound Story only, each previewed and confirmed by the CLI:
     // reopen a closed Story, propose an intent amendment (its scope approvers decide it) and abandon
     // rework. Deciding or acknowledging an amendment is not among them.
+    // A task's requirement, asked as its approval: the person's "make it a big change" instead of their Yes only adds the
+    // big shape's steps to the bound Story, and approves nothing [ITW:REQ-103].
+    if (action === 'approve' && positionals[0] === 'work' && positionals[1] === 'shape') return positionals.length === 3 && positionals[2] === 'big';
     if (action === 'reject' && positionals[0] === 'reopen') return positionals.length === 2 && positionals[1] === value.contract.workId;
     if (action === 'reject' && positionals[0] === 'story') return intentAmendmentProposal(positionals, options, value.contract.workId)
       || options['work-id'] === value.contract.workId && positionals.length === 3

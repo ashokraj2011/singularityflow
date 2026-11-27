@@ -159,14 +159,17 @@ export function planNote(workflow) {
   }
   const labelOf = (intent) => lowerFirst((composition.steps ?? []).find((step) => step.intent === intent)?.label ?? taskStepLabel(composition.kind, intent));
   const sentences = [];
-  if (composition.uses) sentences.push(composition.rules?.[0]?.because ?? `Your team runs every ${composition.kind} task as one of its workflows.`);
-  else if (composition.local) sentences.push(`You chose your team's workflow ${composition.local.label ?? composition.local.workflow} as the plan.`);
+  if ((composition.uses && !composition.local) || composition.local?.by === 'use') sentences.push(composition.rules?.[0]?.because ?? `Your team runs every ${composition.kind} task as one of its workflows.`);
+  else if (composition.local) sentences.push(`Your team's workflow ${composition.local.label ?? composition.local.workflow} is the plan.`);
   else if (composition.agent) sentences.push(`Its steps are ${agentWords(composition.agent)}'s workflow, for ${KIND_ARTICLE[composition.kind] ?? 'a task'}.`);
   else sentences.push(`Composed from your words: ${KIND_ARTICLE[composition.kind] ?? 'a task'}.`);
   const byRules = [...new Set((composition.added ?? []).map((entry) => `the ${labelOf(entry.intent)}`)),
     ...(composition.personApproves ?? []).map((intent) => approvalWords(composition, intent))];
   if (byRules.length) sentences.push(`The team's rules added ${listWords(byRules)}.`);
-  const byPerson = (composition.changes ?? []).filter((entry) => entry.change === 'add').map((entry) => `the ${labelOf(entry.intent)}`);
+  const byPerson = (composition.changes ?? []).filter((entry) => entry.change === 'add' && !entry.shape).map((entry) => `the ${labelOf(entry.intent)}`);
+  // A sized task's shape, as its requirement decided it [ITW:REQ-103].
+  const big = (composition.changes ?? []).find((entry) => entry.shape === 'big' && entry.because);
+  if (big) sentences.push(`Big change: ${big.because.replace(/[.\s]+$/u, '')}.`);
   if (byPerson.length) sentences.push(`You added ${listWords(byPerson)}.`);
   const later = (workflow.history ?? []).filter((entry) => entry.event === 'task_step_added').map((entry) => lowerFirst(workflow.phases?.[entry.phase]?.label ?? entry.phase));
   if (later.length) sentences.push(`Added after the start: ${listWords(later)}.`);

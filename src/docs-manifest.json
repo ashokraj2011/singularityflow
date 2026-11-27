@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "169bb7f335afd523e865eebf1f260b69acfa0460",
+  "sourceCommit": "59b93e9b787a32a3f07a720be54cc5355a3ba42a",
   "topicCount": 96,
-  "contentSha256": "c7908a19f0fdcfe4dd3e941b677fe402b4e9e5c6ec66dfc42aa9b791d50a6bb8",
+  "contentSha256": "de18618ad0c9ee3834dc2d6ecb2304830eb42b090064ca2c7cf1ba9cdacbf086",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -672,8 +672,8 @@
     {
       "id": "tasks",
       "title": "Tasks: say what you want done",
-      "version": 24,
-      "sha256": "c484c4981cc5cf20ed8c8847f41f3dff62e0c7cf121426eb05838f65a5f57a1b",
+      "version": 25,
+      "sha256": "5ed335e97db47635ca680a69da5c59f2095f619de9318e72049d6831ddc9c1da",
       "routingSha256": "11b92ad953ab7337598e21b48b8771094a9b7d7b0c05581b98e739631d283ee7",
       "file": "tasks.md"
     },

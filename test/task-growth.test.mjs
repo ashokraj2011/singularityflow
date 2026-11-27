@@ -23,6 +23,9 @@ import { slowLane } from './helpers/slow-lane.mjs';
 const SOURCE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src');
 const ITEM = 'singularity/work-items/TASK-1';
 const json = (text) => JSON.parse(text);
+
+/** A Story composed from its kind, as one started before v1.2 is (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md §4): `tasks.sizing: kind`. */
+const v11 = (configuration) => { configuration.tasks = { ...(configuration.tasks ?? {}), sizing: 'kind' }; };
 const grows = (files) => taskGrowth(files, { isTest: isAllowedTestAutomationPath, migration: MIGRATION_PATH });
 
 test('ITW REQ-014: a fix grows into a change by the files its code changed, never by a test\'s own files', () => {
@@ -107,7 +110,7 @@ test('ITW REQ-014, REQ-015: a step a growth\'s return set back gets its next ver
 });
 
 async function startedFix(t, tasks) {
-  const story = await journeyRepository(t, { configure: (configuration) => { if (tasks) configuration.tasks = tasks; } });
+  const story = await journeyRepository(t, { configure: (configuration) => { configuration.tasks = { sizing: 'kind', ...(tasks ?? {}) }; } });
   Object.assign(story, { workId: 'TASK-1', item: ITEM });
   json(story.cli('work', 'fix the value module so it returns 2', '--kind', 'fix', '--start', '--json'));
   return story;
@@ -216,7 +219,7 @@ function migratingAgent(workId) {
 }
 
 test('journey ITW REQ-014, A15: a fix whose code adds a migration becomes a change; a person approves its plan before its code, and its code step is kept', slowLane({ timeout: 2_400_000 }), async (t) => {
-  const story = await journeyRepository(t);
+  const story = await journeyRepository(t, { configure: v11 });
   Object.assign(story, { workId: 'TASK-1', item: ITEM });
   const walk = await followRoutes(story, { label: 'task fix that grows', agent: migratingAgent('TASK-1'), person: generatedPerson(story, 'TASK-1'),
     start: { shell: 'singularity-flow work "fix the value module so it returns 2" --kind fix --start' },

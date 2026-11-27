@@ -211,7 +211,9 @@ async function choiceSets(root, definition, action, workflow = null) {
     const phase = workflow.phases[context.phase];
     // One approval with a Yes (owner, 2026-11-19): the person answers this question after the documents; their Yes, bound
     // to this receipt and so to the version reviewed, is the confirmation. Nobody types the step's ID.
-    const question = approvalQuestion(phase);
+    // A sized task's requirement says its shape: the Yes confirms it too [ITW:REQ-103].
+    const question = (workflow.resolution?.composition?.sizing === 'requirement'
+      && (await import('./task-shape.mjs')).taskApprovalQuestion(workflow, phase)) || approvalQuestion(phase);
     return [
       {
         id: 'phase-confirmation',

@@ -318,7 +318,18 @@ async function runCommand(story, command, { agent = true } = {}) {
   // the person's Yes or SFlow's own approval into the next step), which the walk then follows in the same turn.
   const ran = `singularity-flow ${argv.join(' ')}`;
   const chat = chatHooks?.story === story ? chatHooks : null;
-  if (agent && chat?.guard.turn && !chat.guard.subagent && storyRecord(story)?.resolution?.composition) {
+  // Where no hook runs (IntelliJ Copilot's local agent, a folder opened through a link), the /sf-task skill carries its own
+  // turn on: after a start, a submission or an approval it reads `work status` and, when SFlow says the skill carries it
+  // (no hook's turn record binds this checkout), goes on in the same turn [ITW:REQ-111].
+  if (agent && chat?.hooks === false && output.status === 0 && !chat.guard.subagent && SKILL_CARRIES.test(commandWords(argv.join(' ')).join(' ') + (argv.includes('--start') ? ' --start' : '')
+    + (argv.includes('--submit-if-ready') ? ' --submit-if-ready' : ''))) {
+    const read = story.spawn(process.execPath, [CLI, '--no-model', 'work', 'status', '--json']);
+    let status = null;
+    try { status = JSON.parse(read.stdout); } catch { status = null; }
+    if (status?.taskTurn?.carriedBy === 'skill' && status.status === 'in_progress') {
+      chat.guard.carried = { after: commandWords(argv.join(' ')).join(' '), note: 'no hook ran; the /sf-task skill reads work status and goes on', by: 'skill' };
+    }
+  } else if (agent && chat?.guard.turn && !chat.guard.subagent && storyRecord(story)?.resolution?.composition) {
     // As the agent typed it: a word with a space or quote stays one word (a task's words starting "add …" are no `work add`).
     const typed = ['singularity-flow', ...argv].map((word) => (/^[A-Za-z0-9_./:=@%+,-]+$/u.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`)).join(' ');
     const said = chat.guard.turn.after('bash', { command: typed }, { resultType: output.status === 0 ? 'success' : 'failure', textResultForLlm: output.stdout.slice(0, 200_000) });
@@ -330,6 +341,8 @@ async function runCommand(story, command, { agent = true } = {}) {
 let dumped = 0;
 // The walk whose chat the after-tool hook reports to (followRoutes): one at a time.
 let chatHooks = null;
+// The calls after which the /sf-task skill reads `work status` itself when no hook ran: a start, a submission, an approval.
+const SKILL_CARRIES = /^(?:work .*--start|submit\b|status .*--submit-if-ready|approve\b)/u;
 
 // ------------------------------------------------------------------------------------ state, routes and dead ends
 
@@ -415,7 +428,7 @@ export function formatTrail(trail) {
  * Returns { reached, findings: [{ kind, detail, step }], trail, steps, views }: `views` lists each hand-off where one of
  * the person's views named another skill than the agent's route (see personViews).
  */
-export async function followRoutes(story, { start, agent = {}, person = null, detour = null, newChat = null, done, maxSteps = 60, label = 'journey', host = 'cli', vscode = null, skillsRoot = SKILLS, values = {} }) {
+export async function followRoutes(story, { start, agent = {}, person = null, detour = null, newChat = null, done, maxSteps = 60, label = 'journey', host = 'cli', vscode = null, skillsRoot = SKILLS, values = {}, hooks = true }) {
   const entries = skillEntries();
   // VS Code's chat [hardening C]: /sf-approve and /sf-decide are entered as skills there, and their page tools are called on
   // the host's pages (test/helpers/vscode-host.mjs); every tool answer is kept to find the same one coming back unchanged.
@@ -429,7 +442,9 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
   const views = [];
   const entered = new Map();
   let route = { ...start, source: 'start' };
-  chatHooks = { story, guard };
+  chatHooks = { story, guard, hooks };
+  // With hooks off, the host runs none of SFlow's hooks: no turn is recorded and nothing is guarded (copilotTurn's stub).
+  hooksOff = hooks === false ? story : null;
   let turn = null;
   let idle = 0;
   let last = null;
@@ -499,7 +514,7 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     // SFlow's note after a command said this /sf-task turn goes on: its next action is this same turn's, nothing typed.
     const carried = guard.carried;
     guard.carried = null;
-    if (carried) entry.did = `${entry.did ? `${entry.did}; ` : ''}SFlow carries the /sf-task turn on (after ${carried.after})`;
+    if (carried) entry.did = `${entry.did ? `${entry.did}; ` : ''}${carried.by === 'skill' ? 'the /sf-task skill carries its own turn on, no hook ran' : 'SFlow carries the /sf-task turn on'} (after ${carried.after})`;
     if (carried && taken.next && isPersonRoute({ ...taken.next, inTurn: false })) taken.next = { ...taken.next, carried: true };
     if (task?.stepWork && !isPersonRoute({ ...taken.next, inTurn: false }) && !/^singularity-flow work\b/u.test(taken.next.shell ?? '') && current()) {
       const work = [...entries.values()].find((known) => known.oneWorkCommand && known.entry === task.stepWork)?.skill ?? null;
@@ -1070,7 +1085,10 @@ function nextFrom(result, { turn }) {
  * guard's own tests do with an earlier `now`: the turn's records keep the prompt's time as `recordedAt`, the only clock
  * the guard reads, and a record that carries an integrity digest gets it recomputed, as its writer computes it.
  */
+let hooksOff = null;
 export function copilotTurn(story, sessionId, { host = 'copilot-cli' } = {}) {
+  // A host that runs none of SFlow's hooks: nothing reaches SFlow, nothing is recorded or refused.
+  if (hooksOff === story) return { prompt: () => ({}), tool: () => ({}), after: () => ({}), answered: () => ({}), age: () => [] };
   const hook = (event, payload) => {
     const ran = story.spawn(process.execPath, [CLI, 'hook', event], { input: JSON.stringify({ cwd: story.root, sessionId, ...payload }) });
     try { return JSON.parse(ran.stdout || '{}'); } catch { return { unparsed: ran.stdout, stderr: ran.stderr }; }

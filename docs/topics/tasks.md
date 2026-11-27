@@ -12,22 +12,25 @@ commands:
   - rules
 related:
   - starting-work
-version: 24
+version: 25
 ---
-Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
+Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task (fix, feature, change, refactor, tests, docs, investigate, review or chore), and you see one of three shapes:
 
-| Kind | Steps |
-|---|---|
-| fix, chore | intake → code → tests |
-| change | intake → plan → code → tests |
-| feature | intake → requirements → plan → code → tests |
-| refactor | intake → plan (what must not change) → code → tests; before any edit, the tests run once on the base (`sflow tests base`), and the code step and the test step compare their runs with it: a test that passed before and fails after is a behaviour change, one that failed before is a finding |
-| tests | intake → write the tests → tests |
-| docs | intake → write the document (kept with the Story; a later task starts from it with `--from`) |
-| investigate | intake → investigate, ending with a report; no code changes |
-| review | intake → review, ending with findings; no code changes |
+| Shape | Kinds | Steps | You approve |
+|---|---|---|---|
+| Small change | fix, chore, change, feature, tests, when the requirement says small | requirement → implement and test | the requirement and the code |
+| Big change | the same kinds, when the requirement says big; a refactor always | requirement → spec (→ design) → plan → code → tests | the requirement, the plan and the code |
+| Analysis | investigate, review, docs | requirement → the report or document, then follow-ups | nothing; you choose a follow-up |
 
-Each step is one of the repository's own steps for that purpose, so it keeps its agent, its template and its settings. A person approves two things: the plan (for a fix, the intake is its plan) and what the task delivers (the code, the document, or the report). SFlow approves the other steps when they are clean.
+**The requirement first.** A code task starts with its requirement: numbered clauses, each with how it is tested; an analysis of the files and areas it likely touches, any data or public interface change and the risk; and the size Copilot proposes ("Size: small change"). It asks only what your words leave open. When it is submitted SFlow checks the proposal against the files the requirement names: a small change touches at most 5 files in at most 2 areas, with no migration, schema or contract file, and no team `paths` rule that plans those files. SFlow only ever makes a change bigger. The approval question says the shape ("Approve the requirement v1 · Small change: implement and test next?"), so your one Yes approves the requirement and confirms it. Say "make it a big change" instead (`sflow work shape big`) and the big steps are added; a big change stays big.
+
+A small change is implemented and tested in one step: the code step writes the code and its tests, SFlow runs the tests itself before the code is published (never the agent's word that they pass), and every clause of the requirement needs a test. A big change gets a spec, a design when its analysis finds UI or architecture work (a screen or component file, a new folder, a contract), a plan, the code and its tests; SFlow approves the spec, the design and the tests when they are clean. A small change whose code turns out bigger than a small change grows by itself: a plan comes before the code (SFlow returns the code to it), a tests step after it, and the submission says why in one line.
+
+A refactor is always big and keeps its own steps: requirement → plan (what must not change) → code → tests; before any edit, the tests run once on the base (`sflow tests base`), and the code step and the test step compare their runs with it: a test that passed before and fails after is a behaviour change, one that failed before is a finding.
+
+An analysis is done by SFlow and Copilot with nobody asked: SFlow approves the requirement and the report (or the document) when they are clean. The report ends with "## Follow-ups", one numbered item per finding that could be its own Story; when the task is done `sflow work status` lists them, and `/sf-task` asks "Start a story from: 1) … 2) …". One Yes starts a Story from that finding alone (`--from TASK-2 --finding 1`). A docs task's follow-up implements its document, bound to the version it wrote.
+
+Each step is one of the repository's own steps for that purpose, so it keeps its agent, its template and its settings. A team that wants the kind's own steps for every task, as before, says `tasks: { sizing: kind }`. A task started before this keeps its steps.
 
 **The plan first.** `sflow work "<words>"` shows the plan and writes nothing; `--kind` names the kind when the words alone do not. `--start` starts the Story: its ID is a Jira key the words or `--work-id` name, otherwise the next free `TASK-<n>`; its base is the default branch; its intake is your words. The composed workflow is recorded with the Story, so every later command and a second laptop see the same steps. It is never written to `singularity/workflow.yml`.
 
@@ -72,10 +75,12 @@ tasks:
 
 A task with a skill that needs your yes does not start until you answer: `--use-skill <ID>` is yes, `--without-skill <ID>` is no. The Story keeps the exact text of each skill it uses with its steps, so a later change to the library, or a second laptop, uses the same text.
 
-**The team's own workflow as the plan.** What the team already has comes first. When one of the repository's own workflows covers the task (one made in Workflow Studio, made from an agent with `sflow workflow from-agent`, or imported; never one SFlow ships or one archived) and the task's kind has no `use` rule, the plan offers it: "Your team's workflow Secure fix covers this task: use it as the plan, exactly as it is, code → tests?". It covers the task by the same rule as an agent below, and because it runs exactly as it is, it must also have a step for each step the team's `tasks:` rules add, and leave to a person each step they give a person: no rule is lost.
+**The team's own workflow as the plan.** What the team already has comes first. When one of the repository's own workflows covers the task (one made in Workflow Studio, made from an agent with `sflow workflow from-agent`, or imported; never one SFlow ships or one archived) and the task's kind has no `use` rule, it is the plan with no question: the plan line says whose it is ("Plan, from your team's workflow Secure fix: …"), and so does `sflow work status`. It covers the task by the same rule as an agent below. The team's `tasks:` rules add to it as to any plan: a rule's step the workflow lacks goes where it belongs, a step it has is not added twice, and a step a rule gives a person is theirs; with nothing to add it runs exactly as it is. The same holds for the workflow a `use` rule picks.
 
-- `--use-workflow secure-fix` is yes: the Story runs that workflow as it is, its steps in its order, with nothing added and nothing taken out, as a `use` rule would. The plan line says whose they are ("Plan, from your team's workflow Secure fix: …"), and so does `sflow work status`.
-- `--without-workflow secure-fix` is no: the task keeps its own steps and nothing more is asked.
+- `--without-workflow secure-fix` is no: the task keeps its own steps.
+- `--use-workflow secure-fix` names one when more than one would do.
+
+**What you used before.** The plan reads this repository's earlier task Stories that this checkout holds, on this computer only. When an agent or workflow was used most for similar changes (the same area, or a file your words name), it is offered first, with how those Stories went: "For similar changes to src/auth you used acme's secure-fix agent 3 times, 2 approved first time. Use it, or let SFlow decide?". No lets SFlow decide. The plan also names how many lessons earlier Stories left for those files.
 
 Then an agent the repository has: one in `.github/agents` (a `<name>.agent.md`, or a folder holding `agent.md`), or an agent APM installed (its package in `apm_modules`, with its `apm.yml`), whose stages cover the task by the same conversion and rule: "Installed agent qa-test-automation-agent covers this task: add its workflow to this repository and use it as the plan, …?". Its workflow comes in first through its conversion review (`sflow workflow from-agent <its path> --propose`), as a marketplace agent's does; once that change is approved, `--use-workflow <its workflow>` is the yes, and the next plan offers it as the team's own. An agent with no numbered stages is a chat agent and is never offered.
 
@@ -183,7 +188,8 @@ An Ask SFlow task handoff carries the selected reviewed specification revision, 
 - If the start says a skill needs your yes, read the skill (a marketplace one's text is shown), then start again with `--use-skill <ID>` or `--without-skill <ID>`.
 - If the start says a skill changed since the plan was shown, show the plan again: it chooses from the library as it is now.
 - If the start says an agent's workflow needs your yes, read its conversion review, then start again with `--use-agent <MARKETPLACE/AGENT>` or `--without-agent <MARKETPLACE/AGENT>`. If it says the workflow is not in the repository yet, import it through its conversion review, or start with `--without-agent` for now.
-- If the start says your team's workflow, or an agent the repository has, needs your yes, start again with `--use-workflow <ID>` or `--without-workflow <ID>`. For an agent whose workflow is not here yet, import it through its conversion review first, or start with `--without-workflow` for now.
+- If the start says an agent the repository has needs your yes, start again with `--use-workflow <ID>` or `--without-workflow <ID>`. For an agent whose workflow is not here yet, import it through its conversion review first, or start with `--without-workflow` for now.
+- Where Copilot runs no SFlow hooks (IntelliJ Copilot's local agent), `/sf-task` carries its own turn on: after each start, submission or approval it reads `sflow work status`, whose `taskTurn.carriedBy` says `skill`, and goes on, stopping only for your approval or question.
 
 ## Related topics
 

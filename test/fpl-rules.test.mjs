@@ -197,7 +197,8 @@ test('A15, REQ-025: tasks in flight keep the rules they started with; the page s
   const changed = withTasks({ always: [{ steps: ['design'], because: 'Every task is designed.' }] });
   const own = definitionForStory(changed, workflow).workTypes[composition.workType];
   assert.deepEqual(own.phases, composition.steps.map((step) => step.id));
-  assert.deepEqual(taskDefinition(changed, composition).workTypes['task-fix'].phases, ['intake', 'implementation', 'verification', 'conformance']);
+  // A fix sized by its requirement (ITW v1.2): its requirement, the step that implements and tests, and the rule's review.
+  assert.deepEqual(taskDefinition(changed, composition).workTypes['task-fix'].phases, ['intake', 'implementation', 'conformance']);
   assert.deepEqual(inFlightOf([{ status: 'in_progress', workType: 'task-fix' }, { status: 'in_progress', workType: 'task-change' },
     { status: 'closed', workType: 'task-fix' }, { status: 'in_progress', workType: 'feature' }]),
   { count: 2, words: '2 tasks in flight keep the rules they started with; a change applies to tasks started after it is approved.' });

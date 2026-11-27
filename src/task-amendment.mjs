@@ -103,13 +103,17 @@ export async function refuseTaskStepRemoval(workflow, intent) {
  * a plan goes, before the code step that is current and waits for its approval. That step is then returned to the plan
  * (growTaskAfterCode), so the code is never approved before a person approves the plan.
  */
-export async function assertTaskStepAddable(workflow, intent, { grow = null } = {}) {
+export async function assertTaskStepAddable(workflow, intent, { grow = null, shape = null } = {}) {
   const composer = await import('./task-composition.mjs');
   const id = workflow.workItem.id;
   const composition = await startedTask(workflow);
   const { kind } = composition;
   const noun = STEP_WORDS[intent] ?? intent;
-  if (!composer.ADDABLE.includes(intent)) {
+  // A sized task that becomes big gains the big shape's steps [ITW:REQ-103, REQ-105, REQ-106]: its spec, design, plan and tests.
+  if (shape && !(composer.isSized(composition) && composer.SIZED_KINDS.includes(kind) && composer.BIG_INTENTS.includes(intent))) {
+    throw refused(`${id} is not a task whose requirement sizes it, so it does not gain a big change's ${noun} step.`, statusAction(id), { add: intent });
+  }
+  if (!shape && !composer.ADDABLE.includes(intent)) {
     throw refused(`A task can gain a ${composer.ADDABLE.join(', ')} step, not '${intent}'.`,
       { command: `singularity-flow work add design --work-id ${id}`, label: 'Add one of the steps a task can gain.' }, { add: intent });
   }
@@ -156,13 +160,13 @@ function agentSkillsOn(effectiveLibrarySkills, agent, phaseIds) {
  * written: the new composition, the policy with the step added, the runtime state of every step, the decision and the
  * files the commit may hold. The transaction computes it again from the Story it holds and requires the same policy.
  */
-async function taskStepChange(root, definition, workflow, { intent, rule = null, grow = null, touchedPaths = [], changedPaths = [], at, by }) {
+async function taskStepChange(root, definition, workflow, { intent, rule = null, grow = null, shape = null, touchedPaths = [], changedPaths = [], at, by }) {
   const [composer, config, capabilityContext, phaseRoles, approval, skills, contracts, snapshots, paths, wel, walker] = await Promise.all([
     import('./task-composition.mjs'), import('./config.mjs'), import('./capability-context.mjs'), import('./phase-roles.mjs'),
     import('./approval-authority.mjs'), import('./skill-library.mjs'), import('./task-change-contracts.mjs'),
     import('./workflow-snapshots.mjs'), import('./story-paths.mjs'), import('./wel-policy.mjs'), import('./task-walk.mjs')]);
   const id = workflow.workItem.id;
-  const { composition, position } = await assertTaskStepAddable(workflow, intent, { grow });
+  const { composition, position } = await assertTaskStepAddable(workflow, intent, { grow, shape });
   const kind = grow?.to ?? composition.kind;
   const restart = restartAction(workflow, kind, intent);
   const noun = STEP_WORDS[intent] ?? intent;
@@ -170,27 +174,41 @@ async function taskStepChange(root, definition, workflow, { intent, rule = null,
   if (!stepId) {
     throw refused(`This repository's workflow has no ${noun} step to add. Add a step whose intent is ${intent} in Workflow Studio.`, statusAction(id), { add: intent });
   }
-  const step = { id: stepId, intent, label: composer.taskStepLabel(kind, intent) };
+  // A sized task names its steps as v1.2 does; once it is big, its code step is "Code" beside its tests [ITW:REQ-105].
+  const sized = composer.isSized(composition);
+  const big = sized && (Boolean(shape) || Boolean(grow) || composer.isBigShape(composition));
+  const step = { id: stepId, intent, label: composer.taskStepLabel(kind, intent, { sized, big }) };
   const files = [...new Set(touchedPaths.map(String))].sort();
   const change = grow ? { change: 'grow', intent, at, by, from: grow.from, to: grow.to, because: grow.because, paths: files }
-    : { change: 'add', intent, at, by, ...(rule ? { rule: rule.rule, because: rule.because, paths: files } : {}) };
-  const nextComposition = { ...structuredClone(composition), kind, steps: contracts.stepsWithInsertion(composition.steps, step, position),
-    changes: [...(composition.changes ?? []), change] };
+    : shape ? { change: 'add', intent, at, by, shape: 'big', because: shape.because }
+      : { change: 'add', intent, at, by, ...(rule ? { rule: rule.rule, because: rule.because, paths: files } : {}) };
+  const steps = contracts.stepsWithInsertion(composition.steps, step, position)
+    .map((entry, index) => (index > position && big ? contracts.bigShapeStep(entry, kind) : entry));
+  const nextComposition = { ...structuredClone(composition), kind, steps, changes: [...(composition.changes ?? []), change] };
   if (rule) {
     nextComposition.added = [...(composition.added ?? []), { intent, rule: rule.rule, because: rule.because }];
     if (!(composition.rules ?? []).some((entry) => entry.rule === rule.rule)) nextComposition.rules = [...(composition.rules ?? []), { rule: rule.rule, because: rule.because }];
-  } else if (!grow) {
+  } else if (!grow && !shape) {
     // The team's rules apply last [ITW:REQ-004]: composed again with every step a person asked for and this one, they
     // give exactly these steps (with those a rule added for the code's files since); an approval a rule gives a person on
     // this kind of step comes with it.
     const asked = (composition.changes ?? []).filter((entry) => entry.change === 'add' && !entry.rule).map((entry) => entry.intent);
     const ruled = new Set((composition.changes ?? []).filter((entry) => entry.change === 'add' && entry.rule).map((entry) => entry.intent));
     // A task that follows a marketplace agent's workflow is composed again from that workflow [ITW:REQ-011].
+    // A sized task is composed again as it is now: by its requirement, big once its requirement said so [ITW:REQ-102];
+    // a Story composed before v1.2 is composed again from its kind.
     const recomposed = composer.composeTask(definition, { kind, touchedPaths: composition.touchedPaths ?? [], add: [...asked, intent],
       skip: (composition.changes ?? []).filter((entry) => entry.change === 'skip').map((entry) => entry.intent),
-      ...(composition.agent ? { agent: composition.agent } : {}) });
+      ...(composition.agent ? { agent: composition.agent } : {}),
+      // The team's own workflow it chose, the team's rules added to it [ITW:REQ-107]; a `use` rule picks its own again.
+      ...(composition.local && composition.local.by !== 'use' ? { workflow: { workflow: composition.local.workflow, label: composition.local.label,
+        ...(composition.local.from ? { from: composition.local.from } : {}) } } : {}),
+      sizing: sized ? 'requirement' : 'kind' });
+    // The steps its shape gave it (a big change's, or a growth's) are its own, beside those the composer gives.
+    const shaped = new Set(sized ? (composition.changes ?? []).filter((entry) => entry.shape === 'big' || entry.change === 'grow').map((entry) => entry.intent) : []);
     const raised = recomposed.personApproves.filter((entry) => !(composition.personApproves ?? []).includes(entry));
-    if (!same(recomposed.steps.map((entry) => entry.id), nextComposition.steps.filter((entry) => !ruled.has(entry.intent)).map((entry) => entry.id))
+    if (!same(recomposed.steps.map((entry) => entry.id),
+      nextComposition.steps.filter((entry) => !ruled.has(entry.intent) && !shaped.has(entry.intent)).map((entry) => entry.id))
         || raised.some((entry) => entry !== intent)) {
       throw refused(`The team's task rules on this branch changed since ${id} started, so the step cannot be added to the same steps. Start the task again with it.`,
         restart, { add: intent });
@@ -244,6 +262,8 @@ async function taskStepChange(root, definition, workflow, { intent, rule = null,
     const copy = structuredClone(phase);
     for (const key of ['templateSnapshot', 'order', 'inputs']) delete copy[key];
     if (copy.approval) delete copy.approval.rejectTo;
+    // A big change's code step is named "Code" beside its tests [ITW:REQ-105]: its label is the one thing that changes.
+    if (big && composition.steps.some((entry) => entry.id === copy.id && entry.intent === 'code')) delete copy.label;
     return copy;
   };
   // Today's definition must give every step the task keeps the settings it pins, so a later reader of the composition
@@ -295,7 +315,8 @@ async function taskStepChange(root, definition, workflow, { intent, rule = null,
     if (index === position) return { ...structuredClone(added), order: index, templateSnapshot: structuredClone(capturedTemplate) };
     const prior = structuredClone(oldPhases[index - 1]);
     const later = tightened.phases[index];
-    return { ...prior, order: index, inputs: structuredClone(later.inputs), approval: { ...prior.approval, rejectTo: [...later.approval.rejectTo] } };
+    return { ...prior, order: index, label: entry.label === prior.label ? prior.label : later.label, inputs: structuredClone(later.inputs),
+      approval: { ...prior.approval, rejectTo: [...later.approval.rejectTo] } };
   });
   const proposed = structuredClone(workflow.resolution);
   proposed.composition = nextComposition;
@@ -344,6 +365,7 @@ async function runtimePhases(workflow, change) {
     else {
       phase = structuredClone(workflow.phases[entry.id]);
       phase.order = index;
+      if (pinned.label !== undefined) phase.label = pinned.label;
       phase.inputs = structuredClone(pinned.inputs ?? []);
       phase.approvalPolicy = structuredClone(pinned.approval);
     }
@@ -396,7 +418,7 @@ async function codeChangedFiles(root, config, workflow, phaseId = null) {
  * Add a step to a started task, after its current step. `definition` is the configuration on the Story's branch (its
  * agents and templates); `config` the Story's own accepted execution definition. Returns the change's result.
  */
-export async function addTaskStep(root, config, workflow, { intent, definition, rule = null, grow = null, touchedPaths = [], changedPaths = null } = {}) {
+export async function addTaskStep(root, config, workflow, { intent, definition, rule = null, grow = null, shape = null, touchedPaths = [], changedPaths = null } = {}) {
   const [{ identity }, { actorKey, transactStory }, { LIFECYCLE_EVENT }, { prospectiveTestCommandAmendments: PROSPECTIVE }, snapshots, contracts, { storyPublicationPending }] = await Promise.all([
     import('./git.mjs'), import('./state-stores.mjs'), import('./lifecycle-event.mjs'), import('./test-command-amendment-contracts.mjs'),
     import('./workflow-snapshots.mjs'), import('./task-change-contracts.mjs'), import('./story-publication-read.mjs')]);
@@ -421,13 +443,13 @@ export async function addTaskStep(root, config, workflow, { intent, definition, 
       { command: blockers[0].command, label: 'Settle it first, then add the step.' }, { blockers });
   }
   const changed = changedPaths ?? await codeChangedFiles(root, config, workflow).catch(() => []);
-  const initial = await taskStepChange(root, definition, workflow, { intent, rule, grow, touchedPaths, changedPaths: changed, at, by });
+  const initial = await taskStepChange(root, definition, workflow, { intent, rule, grow, shape, touchedPaths, changedPaths: changed, at, by });
   try {
     const { value, publication } = await transactStory(root, config, workflow, {
       type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId: workflow.currentPhase, generation: null, actor, agent: null,
       payload: { change: 'task-step-added', changeId: initial.decision.id, step: initial.step.id, intent, ...(grow ? { grown: grow.to } : {}) }
     }, `[${id}][task:${grow ? 'grow' : 'add'}] ${initial.decision.id} ${initial.step.id}`, async (current) => {
-      const fresh = await taskStepChange(root, definition, current, { intent, rule, grow, touchedPaths, changedPaths: changed, at, by });
+      const fresh = await taskStepChange(root, definition, current, { intent, rule, grow, shape, touchedPaths, changedPaths: changed, at, by });
       if (fresh.proposed.policySha256 !== initial.proposed.policySha256 || fresh.decision.id !== initial.decision.id) {
         throw refused(`${id} changed while the step was being added. Add it again.`, { command: `singularity-flow work add ${intent} --work-id ${id}`, label: 'Add the step again.' });
       }
@@ -456,7 +478,7 @@ export async function addTaskStep(root, config, workflow, { intent, definition, 
       const where = fresh.composition.steps[fresh.position + 1]?.label ?? null;
       current.history.push({ at, actor: by, agent: null, event: 'task_step_added', phase: fresh.step.id,
         detail: `${fresh.decision.id}: added ${fresh.step.label}${where ? ` before ${where}` : ' at the end'}${grow ? `; the ${grow.from} became a ${grow.to}: ${grow.because}`
-          : rule ? `, by the team's rule ${rule.rule}: ${rule.because}` : `, asked for by ${by}`}; snapshot revision ${reference.revision}.` });
+          : shape ? `; a big change: ${shape.because}` : rule ? `, by the team's rule ${rule.rule}: ${rule.because}` : `, asked for by ${by}`}; snapshot revision ${reference.revision}.` });
       return { changeId: fresh.decision.id, workflowSnapshot: reference };
     }, { exactWorkItemPaths: initial.exactWorkItemPaths });
     const said = await changeWords(initial, workflow);
@@ -530,7 +552,9 @@ async function returnCodeToPlan(root, workId, { code, plan, words, files }) {
 async function growTaskAfterCode(root, workId, phaseId, growth, definition) {
   const { loadAcceptedStoryExecution } = await import('./accepted-story-execution.mjs');
   const loaded = await loadAcceptedStoryExecution(root, workId);
-  const grow = { from: 'fix', to: 'change', because: `${growth.because}.` };
+  // A fix becomes a change; a sized task of another kind keeps its kind and becomes big [ITW:REQ-014, REQ-106].
+  const from = loaded.workflow.resolution?.composition?.kind ?? 'fix';
+  const grow = { from, to: from === 'fix' ? 'change' : from, because: `${growth.because}.` };
   let result;
   try {
     result = await addTaskStep(root, loaded.config ?? loaded.definition, loaded.workflow, { intent: 'plan', definition, grow, touchedPaths: growth.files });
@@ -540,8 +564,9 @@ async function growTaskAfterCode(root, workId, phaseId, growth, definition) {
       refused: { code: error.code, ...(error.details?.drifted ? { drifted: error.details.drifted } : {}), nextAction: error.details?.nextAction ?? null } };
   }
   const added = { id: result.added.id, intent: 'plan', grown: { from: grow.from, to: grow.to }, files: growth.files, changeId: result.changeId };
-  const line = `This fix changes ${growth.what}, so it is a change now: a plan comes before the code, and you approve the plan first. The code is kept and comes back for your approval after it.`;
-  const words = `${growth.because}. This fix is a change now: write the plan for what the code already does (the change to ${growth.what.replace(/ \(.*$/u, '')}, how it is rolled out and what it keeps working), from the code on the branch. The code is kept; SFlow starts its next version once the plan is approved.`;
+  const now = grow.from === grow.to ? 'a big change now' : `a ${grow.to} now`;
+  const line = `This ${growth.small ? 'small change' : grow.from} changes ${growth.what}, so it is ${now}: a plan comes before the code, and you approve the plan first. The code is kept and comes back for your approval after it.`;
+  const words = `${growth.because}. This ${growth.small ? 'small change' : grow.from} is ${now}: write the plan for what the code already does (the change to ${growth.what.replace(/ \(.*$/u, '')}, how it is rolled out and what it keeps working), from the code on the branch. The code is kept; SFlow starts its next version once the plan is approved.`;
   try {
     const returned = await returnCodeToPlan(root, workId, { code: phaseId, plan: result.added.id, words, files: growth.files });
     if (returned) return { lines: [line], added: [added], grown: { ...added, returned: true, changeRequest: returned.changeRequest } };
@@ -581,8 +606,12 @@ export async function addRuleStepsAfterCode(root, workId, phaseId) {
   const added = [];
   let grown = null;
   let notGrown = null;
-  const growth = composition.kind === 'fix' && !composition.steps.some((entry) => entry.intent === 'plan')
-    ? taskGrowth(files, { isTest: isAllowedTestAutomationPath, migration: MIGRATION_PATH }) : null;
+  // A small change grows by what its code touched [ITW:REQ-106]; a fix composed before v1.2 by a data change or a public
+  // interface only [ITW:REQ-014].
+  const unplanned = !composition.steps.some((entry) => entry.intent === 'plan');
+  const sized = composer.isSized(composition) && composer.SIZED_KINDS.includes(composition.kind);
+  const growth = !unplanned ? null : sized ? await smallChangeGrowth(root, definition, composition.kind, files)
+    : composition.kind === 'fix' ? taskGrowth(files, { isTest: isAllowedTestAutomationPath, migration: MIGRATION_PATH }) : null;
   if (growth) {
     const result = await growTaskAfterCode(root, workId, phaseId, growth, definition);
     lines.push(...result.lines);
@@ -590,6 +619,12 @@ export async function addRuleStepsAfterCode(root, workId, phaseId) {
     grown = result.grown ?? null;
     // Not grown: what stopped it, and the way on, for the caller's result.
     if (result.refused) notGrown = { ...result.refused, reasons: growth.reasons, files: growth.files };
+    // A big change has its tests step too, after the code [ITW:REQ-105, REQ-106].
+    if (grown && sized) {
+      const tests = await (await import('./task-shape.mjs')).growToBig(root, workId, { definition, because: `${growth.because}.`, intents: ['test'] });
+      added.push(...tests.added.map((entry) => ({ ...entry, grown: true })));
+      lines.push(...tests.lines.filter((line) => !/^Big change:/u.test(line)));
+    }
   }
   const kind = grown ? grown.grown.to : composition.kind;
   const applies = (rule) => rule.kinds.includes('all') || rule.kinds.includes(kind);
@@ -620,6 +655,22 @@ export async function addRuleStepsAfterCode(root, workId, phaseId) {
     }
   }
   return lines.length ? { lines, added, ...(grown ? { grown } : {}), ...(notGrown ? { notGrown } : {}) } : null;
+}
+
+/**
+ * Whether a small change's code is bigger than a small change [ITW:REQ-106]: the files its code changed, read with the facts
+ * a requirement is sized by (task-shape.mjs), over a small change's limits, changing the data or a public interface, or
+ * touching a team's `paths` rule that plans them. Returns REQ-014's growth (`{ reasons, files, what, because, small }`), or null.
+ */
+async function smallChangeGrowth(root, definition, kind, files) {
+  const { shapeFactsFor } = await import('./task-shape.mjs');
+  const facts = await shapeFactsFor(root, definition, { kind, files });
+  if (facts.shape !== 'big') return null;
+  const size = `${facts.files.length} application files in ${facts.areas.length} area${facts.areas.length === 1 ? '' : 's'}`;
+  const what = facts.growth?.what ?? size;
+  const reasons = [...(facts.growth?.reasons ?? []), ...(facts.files.length > 5 || facts.areas.length > 2 ? ['size'] : []), ...(facts.ruled.length ? ['rule'] : [])];
+  return { reasons, files: facts.growth?.files?.length ? facts.growth.files : facts.files, what, small: true,
+    because: `The code changes ${what}${facts.ruled.length ? `, which the team's rule plans (${facts.ruled[0].because.replace(/[.\s]+$/u, '')})` : ''}, more than a small change, so a person approves a plan for it before the code` };
 }
 
 /** The returns that grew a task: SFlow's own (a fix's code to its new plan) and a person's acceptance of a refactor's new behaviour. */

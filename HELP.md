@@ -3215,7 +3215,7 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 |---|---|
 | `/sf-about` | Explain the Singularity Flow brand, installed version, capabilities, and command namespace |
 | `/sf-start` | Guided Jira or manual intake and workflow selection; the first phase agent is automatic |
-| `/sf-task` | Say what you want done; SFlow composes the steps from the kind of task and starts its Story |
+| `/sf-task` | Say what you want done; SFlow writes the requirement first, sizes the task (small, big or analysis) and starts its Story |
 | `/sf-auto` | Plan, exact-hash ratify, and control one bounded Auto flight without bypassing human boundaries |
 | `/sf-resume` | Fetch, fast-forward, and activate the current phase agent |
 | `/sf-agent` | Select or change the prompt-only agent for the current local work-item session |

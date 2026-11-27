@@ -1121,7 +1121,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // checkout's Git reads go through the source inspection facade (checkoutPlace, checkoutChanges, indexEntries,
     // sourceTree; source-inspection.mjs +2,131) [SDA-AC-001], and the state-ref publication is named beside the
     // adapter (story-publication-service.mjs +263). No new eager file.
-    assert.ok(closure.bytes <= 9_933_663, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,934,063 (measured for start.mjs, +400 over 9,933,663 at 126eb798d, 2026-11-27 on omk-m3): a Story's start says
+    // what its marketplace deprecated or retired of what its workflow was made from or attaches (commands/start.mjs
+    // +400; the reading is marketplace-in-use.mjs, loaded lazily and only with a marketplace trusted) [OMK:REQ-041]. No
+    // new eager file.
+    assert.ok(closure.bytes <= 9_934_063, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -67,6 +67,8 @@ export class MarketplacePanel implements vscode.Disposable {
     'marketplace.newest': () => { this.newest = true; return this.load(); },
     'marketplace.trust': (message) => this.act('trust', stringField(message, 'key')),
     'marketplace.install': (message) => this.act('install', stringField(message, 'key')),
+    // Deprecated or retired and still used here: its replacement's own review in Studio (OMK §8).
+    'marketplace.replace': (message) => this.act('replace', stringField(message, 'key')),
     'marketplace.update': (message) => this.act('update', stringField(message, 'key')),
     'marketplace.remove': (message) => this.act('remove', stringField(message, 'key')),
     'marketplace.open': (message) => this.act('open', stringField(message, 'key')),

@@ -632,6 +632,25 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     };
   });
 
+  // A workflow made from a marketplace agent, or attaching a library skill, that its marketplace deprecated or retired:
+  // what Studio's view of it says, with Make a workflow from the replacement for an agent [OMK:REQ-041, REQ-042]. Read from
+  // each marketplace's listing kept at the commit it is trusted at, never fetched; it never stops the model.
+  if (definition && Object.keys(definition.marketplaces ?? {}).length) {
+    try {
+      const { readInUse, workflowInUseWords } = await import('./marketplace-in-use.mjs');
+      const { items } = await readInUse(root, { definition, openStories: false, keep: false });
+      for (const workflow of workflows) {
+        const used = items.filter((item) => item.uses.workflows.includes(workflow.id));
+        if (!used.length) continue;
+        workflow.deprecatedInUse = used.map((item) => ({ kind: item.kind, id: item.id, marketplace: item.marketplace, state: item.state,
+          words: workflowInUseWords(workflow.label, item),
+          replacement: item.replacement?.offered ? { kind: item.replacement.kind, id: item.replacement.id,
+            ...(item.replacement.kind === 'agent' && item.replacement.preview?.command.includes(' from-agent ') ? { target: `${item.marketplace}/${item.replacement.id}` }
+              : { reference: `market:${item.marketplace}/${item.replacement.id}` }) } : null }));
+      }
+    } catch { /* the model is whole without it */ }
+  }
+
   return {
     schemaVersion: 1,
     resultType: 'workflow-studio',

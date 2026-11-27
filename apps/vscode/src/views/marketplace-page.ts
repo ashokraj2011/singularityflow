@@ -13,7 +13,7 @@ import { escape } from './webview.ts';
 
 export type MarketplaceStatus = 'installed' | 'update-available' | 'not-installed' | 'local-only' | 'not-approved-yet';
 export type MarketplaceKind = 'skill' | 'agent' | 'workflow' | 'template' | 'mcp-server' | 'generated' | 'marketplace';
-export type MarketplaceAct = 'install' | 'update' | 'remove' | 'open' | 'approve' | 'trust';
+export type MarketplaceAct = 'install' | 'update' | 'remove' | 'open' | 'approve' | 'trust' | 'replace';
 export interface MarketplaceAction { command: string; label: string }
 export interface MarketplaceInstall { as: string; id: string | null; agent: string | null; label: string | null; importKey: string | null; archived: boolean }
 /** Who owns an item, and where that came from (OMK §4.1). */
@@ -23,8 +23,10 @@ export interface MarketplaceLifecycle {
   state: string | null; word: string | null; since: string | null; by: string[]; change: string | null; guarded: boolean | null; notGuarded: boolean;
   words: string; guardWords: string | null; replacedBy: string | null; recorded: boolean;
 }
-/** A deprecated or retired item still used here (OMK §8), when the engine says so. */
-export interface MarketplaceInUse { state: string; words: string }
+/** The item that replaces a deprecated one, offered only when its marketplace lists it and it is neither deprecated nor retired (OMK §8). */
+export interface MarketplaceReplacement { kind: string; id: string; marketplace: string; offered: boolean; words: string }
+/** A deprecated or retired item still used here (OMK §8), when the engine says so, with its replacement. */
+export interface MarketplaceInUse { state: string; words: string; newest: boolean; replacement: MarketplaceReplacement | null }
 /** What SFlow's text checks found in the copy installed here (OMK §7): refused, or lines a person should look at. */
 export interface MarketplaceSafety { state: 'blocked' | 'look'; words: string }
 export interface MarketplaceItem {
@@ -35,7 +37,7 @@ export interface MarketplaceItem {
   /** What changed in a Git repository marketplace's newest commit, once the person checked for newer versions. */
   newer: { version: string | null; gone: boolean; words: string } | null;
   installedAs: MarketplaceInstall | null; fromAgent: { marketplace: string; agent: string } | null; conflict: { replaces: boolean; words: string } | null;
-  importable: boolean; actions: Partial<Record<'preview' | 'install' | 'update' | 'remove' | 'open' | 'approve' | 'trust', MarketplaceAction>>;
+  importable: boolean; actions: Partial<Record<'preview' | 'install' | 'update' | 'remove' | 'open' | 'approve' | 'trust' | 'replace', MarketplaceAction>>;
   owner: MarketplaceOwner | null; lifecycleRecord: MarketplaceLifecycle | null; channel: 'stable' | 'beta' | null; deprecatedInUse: MarketplaceInUse | null;
   safety: MarketplaceSafety | null;
   /** What the marketplace's own records get wrong, for its maintainers. */
@@ -46,7 +48,7 @@ export interface MarketplaceSource { id: string; kind: string; label: string; ap
 export interface MarketplaceCatalog {
   sources: MarketplaceSource[];
   items: MarketplaceItem[];
-  summary: { items: number; byKind: Record<string, number>; byStatus: Record<string, number>; updates: number; newer: number };
+  summary: { items: number; byKind: Record<string, number>; byStatus: Record<string, number>; updates: number; newer: number; deprecatedInUse: number };
   /** Whether this answer read the Git repository marketplaces' newest commits (`--newest`). */
   newestChecked: boolean;
   warnings: string[];
@@ -61,7 +63,7 @@ const STATUSES: MarketplaceStatus[] = ['update-available', 'installed', 'not-ins
 export const STATUS_WORDS: Record<MarketplaceStatus, string> = { installed: 'Installed', 'update-available': 'Update available', 'not-installed': 'Not installed',
   'local-only': 'Only here', 'not-approved-yet': 'Not approved yet' };
 const KINDS: MarketplaceKind[] = ['skill', 'agent', 'workflow', 'template', 'mcp-server', 'generated', 'marketplace'];
-const ACTIONS = ['preview', 'install', 'update', 'remove', 'open', 'approve', 'trust'] as const;
+const ACTIONS = ['preview', 'install', 'update', 'remove', 'open', 'approve', 'trust', 'replace'] as const;
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item) => typeof item === 'string').map(String) : []);
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
@@ -91,7 +93,11 @@ function lifecycleFrom(value: unknown): MarketplaceLifecycle | null {
 
 function inUseFrom(value: unknown): MarketplaceInUse | null {
   const used = record(value);
-  return (used.state === 'deprecated' || used.state === 'retired') ? { state: used.state, words: text(used.words) } : null;
+  if (used.state !== 'deprecated' && used.state !== 'retired') return null;
+  const replacement = record(used.replacement);
+  return { state: used.state, words: text(used.words), newest: used.newest === true,
+    replacement: typeof replacement.id === 'string' && typeof replacement.marketplace === 'string' ? { kind: text(replacement.kind), id: replacement.id,
+      marketplace: replacement.marketplace, offered: replacement.offered === true, words: text(replacement.words) } : null };
 }
 
 function safetyFrom(value: unknown): MarketplaceSafety | null {
@@ -140,7 +146,7 @@ export function marketplaceCatalogFrom(value: unknown): MarketplaceCatalog | nul
       };
     }),
     summary: { items: Number(summary.items) || 0, byKind: counts(summary.byKind), byStatus: counts(summary.byStatus), updates: Number(summary.updates) || 0,
-      newer: Number(summary.newer) || 0 },
+      newer: Number(summary.newer) || 0, deprecatedInUse: Number(summary.deprecatedInUse) || 0 },
     newestChecked: record(data.filters).newest === true,
     warnings: strings(data.warnings)
   };
@@ -167,6 +173,25 @@ export function studioTargetFor(act: MarketplaceAct, item: MarketplaceItem): Stu
     const market = item.marketplaceLabel ?? item.marketplace;
     return { studio: { view: 'library', marketplaceRead: item.marketplace },
       notice: `Workflow Studio reads ${market}'s newest commit and adds trusting it to your changes. Publish it; once approved, Update shows here.` };
+  }
+  // Deprecated or retired and still used here: its replacement through the same review as any install (OMK §8). Nothing
+  // that uses this one changes until the person moves it.
+  if (act === 'replace') {
+    const next = item.deprecatedInUse?.replacement;
+    if (!next?.offered || !item.actions.replace) return null;
+    if (next.kind === 'agent' && item.marketplaceKind === 'repository') {
+      return { studio: { view: 'library', agentWorkflow: { target: `${next.marketplace}/${next.id}`, update: false } },
+        notice: `Workflow Studio shows the workflow ${next.id} becomes. Make it there; then start new Stories with it instead of ${item.name}.` };
+    }
+    if (next.kind === 'skill') {
+      return { studio: { view: 'library', preview: { reference: `market:${next.marketplace}/${next.id}`, replace: false } },
+        notice: `Workflow Studio shows ${next.id}'s exact text. Add it there; then attach it where ${item.name} is attached.` };
+    }
+    if (next.kind === 'agent' || next.kind === 'template' || next.kind === 'mcp-server') {
+      return { studio: { view: 'library', preview: { reference: `market:${next.marketplace}/${next.id}`, replace: false, as: next.kind } },
+        notice: `Workflow Studio shows ${next.id}'s exact text. Add it there, then publish.` };
+    }
+    return null;
   }
   if (act === 'install') {
     // An MCP server is added for the agents that may use its tools: Studio's preview shows them and asks which.
@@ -232,7 +257,7 @@ export function studioTargetFor(act: MarketplaceAct, item: MarketplaceItem): Stu
 }
 
 const BUTTONS: readonly { act: MarketplaceAct; words: string; primary: boolean }[] = [
-  { act: 'install', words: 'Install…', primary: true }, { act: 'update', words: 'Update…', primary: true },
+  { act: 'install', words: 'Install…', primary: true }, { act: 'update', words: 'Update…', primary: true }, { act: 'replace', words: 'Replace with…', primary: true },
   { act: 'trust', words: 'Get newer…', primary: false }, { act: 'open', words: 'Open', primary: false }, { act: 'remove', words: 'Remove…', primary: false }];
 
 function buttonsHtml(item: MarketplaceItem): string {
@@ -297,7 +322,8 @@ function rowHtml(item: MarketplaceItem, index: number): string {
   <td>${escape(versionWords(item))}</td>
   <td>${lifecycleHtml(item)}</td>
   <td><span class="mkt-badge mkt-${escape(item.status)}">${escape(STATUS_WORDS[item.status])}</span>${item.status === 'installed' && !item.statusWords.includes('could not be read') ? ''
-    : `<div class="mkt-words">${escape(item.statusWords)}</div>`}${item.newer ? `<div class="mkt-words mkt-newer">${escape(item.newer.words)}</div>` : ''}${item.safety
+    : `<div class="mkt-words">${escape(item.statusWords)}</div>`}${item.newer ? `<div class="mkt-words mkt-newer">${escape(item.newer.words)}</div>` : ''}${item.deprecatedInUse
+    ? `<div class="mkt-words mkt-in-use-words">${escape(item.deprecatedInUse.words)}</div>` : ''}${item.safety
     ? ` <span class="mkt-badge mkt-safety-${escape(item.safety.state)}">${escape(SAFETY_WORDS[item.safety.state])}</span><div class="mkt-words">${escape(item.safety.words)}</div>` : ''}</td>
   <td class="mkt-actions">${buttonsHtml(item)}</td>
 </tr>`;
@@ -315,7 +341,8 @@ function summaryHtml(catalog: MarketplaceCatalog): string {
     ? escape(plural(source.items, 'item')) : '<span class="mkt-warn">not read</span>'}${source.notApproved ? ` <span class="mkt-dim">${escape(source.notApproved)}</span>` : ''}${
     source.newest ? ` <span class="${source.newest.newer ? 'mkt-newer' : 'mkt-dim'}">${escape(source.newest.words)}</span>` : ''}</li>`).join('');
   const newer = catalog.newestChecked && catalog.summary.newer ? `<div class="mkt-tile mkt-tile-newer"><strong>${escape(String(catalog.summary.newer))}</strong><span>Newer in a newest commit</span></div>` : '';
-  return `<section class="mkt-summary" aria-label="Summary"><div class="mkt-tiles">${tiles}${newer}</div>
+  const inUse = catalog.summary.deprecatedInUse ? `<div class="mkt-tile mkt-tile-in-use"><strong>${escape(String(catalog.summary.deprecatedInUse))}</strong><span>Deprecated in use</span></div>` : '';
+  return `<section class="mkt-summary" aria-label="Summary"><div class="mkt-tiles">${tiles}${newer}${inUse}</div>
   <p class="mkt-dim">This is what Stories use now: an install, update or removal shows here once its change is approved.</p>${sources
     ? `<ul class="mkt-sources" aria-label="Trusted marketplaces">${sources}</ul>` : '<p class="mkt-dim">This repository trusts no marketplace yet. Trust one in Workflow Studio\'s Library.</p>'}</section>`;
 }
@@ -425,6 +452,8 @@ export const MARKETPLACE_STYLE = `
 .mkt-channel-beta, .mkt-unguarded { color: var(--vscode-editorWarning-foreground, var(--vscode-foreground)); }
 .mkt-channel-stable { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); }
 .mkt-in-use, .mkt-safety-blocked { color: var(--vscode-errorForeground, var(--vscode-foreground)); font-weight: 600; }
+.mkt-in-use-words { color: var(--vscode-editorWarning-foreground, var(--vscode-descriptionForeground)); }
+.mkt-tile-in-use { border-color: var(--vscode-errorForeground, var(--vscode-panel-border)); }
 .mkt-safety-look { color: var(--vscode-editorWarning-foreground, var(--vscode-foreground)); }
 .mkt-more { margin-top: 4px; font-size: .9em; max-width: 48ch; }
 .mkt-more summary { cursor: pointer; color: var(--vscode-textLink-foreground, var(--vscode-foreground)); }

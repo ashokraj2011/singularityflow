@@ -12,7 +12,7 @@ related:
   - importing-assets
   - apm-packages
   - skill-master
-version: 2
+version: 3
 ---
 A marketplace repository shares agents and skills across an organisation. This guide is for the people who keep one: how to name an owner for each item, record who approved each change of its lifecycle, declare who guards those records, and publish stable and beta channels. SFlow reads all of it at the commit a team trusts, and shows it everywhere the item is.
 
@@ -40,6 +40,7 @@ Use this topic when you maintain a marketplace repository: an `apm.yml` at its r
 - A lifecycle record is data. SFlow checks that it holds together and never refuses an item for it: each problem is a finding the marketplace owns, shown on the catalog row and in the conversion review's feedback, with its fix. The checks: the record against the `apm.yml`'s `lifecycle-state` (`marketplace-lifecycle-mismatch`), each move against the moves above (`marketplace-lifecycle-jump`), the last entry against `state`, each `from` against the entry before, the dates against each other and the commit, every `approved-by` against the record's code owners, and whether any code owner guards it (`marketplace-lifecycle-unguarded`).
 - An approval no code owner guards still counts as approved, and every surface labels it **Not guarded**.
 - The state that counts is the one at the commit a team trusts now, not the one recorded when a skill was imported: a skill deprecated since is never offered once the pin moves. A deprecated or retired item is never offered by a task; a retired one cannot be installed.
+- A deprecated or retired item a team still uses (in its skill library, an agent's imports, a workflow made from it or attaching it, or an open Story) is flagged on its Marketplace and All skills pages, in Workflow Studio, by `singularity-flow check`, and in a task's plan and a Story's start, and nothing is removed. Name its replacement in `replaced-by` as an item this marketplace lists, neither deprecated nor retired: only then do teams get **Replace with…**, through the same reviewed import.
 - An `issues` address that is not https is dropped, with a `marketplace-metadata` finding. SFlow reads at most 50 history entries of a record, `CODEOWNERS` up to 64 KiB and 2,000 rules.
 
 ## Troubleshooting

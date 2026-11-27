@@ -1135,7 +1135,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // +302, candidate-scope.mjs +203, lifecycle-worktree.mjs +423, recovery-preparation-context.mjs +66,
     // finding-escalation.mjs); with no return a refusal's route is the set-aside, never a plan decision, and it waits
     // on the person, never escalated (cross-phase-change.mjs +760) [office loop, 2026-11-27]. No new eager file.
-    assert.ok(closure.bytes <= 9_938_035, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,938,047 (measured for start.mjs, +12 over 9,938,035, 2026-11-27 on fix-source-loop; submit.mjs 9,934,299): the
+    // set-aside command is the map's own setAsideCommand (action-command-map.mjs +118), so state.mjs routes no command
+    // itself [OSA:AC-020]. No new eager file.
+    assert.ok(closure.bytes <= 9_938_047, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -28,7 +28,7 @@ import {
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import { documentSuccessorRefusal, documentSuccessorUnopened } from './prepared-document-successor.mjs';
-import { actionCommandLine, approveRoute, returnRoute, versionQuestionRoute } from './action-command-map.mjs';
+import { approveRoute, returnRoute, setAsideCommand, versionQuestionRoute } from './action-command-map.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -3719,7 +3719,7 @@ export async function assertPhaseChangeScope(root, config, workflow, phase) {
     if (outside.length) {
       const change = await crossPhaseChange(root, config, workflow, phase, outside);
       const described = describeCrossPhaseChange(change, { code: 'PHASE_ARTIFACT_ONLY_CHANGES', gate: 'submission', workflow, phase,
-        setAside: actionCommandLine('recover-operation', 'recover', { workId: workflow.workItem.id, step: phase.id }) });
+        setAside: setAsideCommand(workflow.workItem.id, phase.id) });
       throw new SingularityFlowError(`Phase ${phase.id} is artifact-only, but files outside its artifacts changed: ${outside.join(', ')}. ${described.text}`
         + drafts.heldCodeChangedWords(held.changed),
         // With no return its way out is the person's set-aside: it waits on them, so it is never escalated as a repair (office, 2026-11-27).
@@ -5940,7 +5940,7 @@ async function submitPhaseTransition(root, config, workflow, {
       // No return takes them: which are committed and which are only in this checkout, since recovery sets aside only the latter.
       const permitted = change.returns.some((entry) => entry.permitted);
       const held = permitted ? null : commitsTouchingSince(root, exactGenerationCommit, changedPaths);
-      const setAside = held?.uncommitted.length ? actionCommandLine('recover-operation', 'recover', { workId: workflow.workItem.id, step: phase.id }) : null;
+      const setAside = held?.uncommitted.length ? setAsideCommand(workflow.workItem.id, phase.id) : null;
       const described = describeCrossPhaseChange(change, { code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', gate: 'submission', workflow, phase, setAside });
       // No earlier code step owns them, so "move them to the code step" named nothing a person could
       // run (2026-10-28): take them out of this step now and bring them back in the code step ahead.

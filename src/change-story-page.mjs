@@ -415,14 +415,15 @@ export function renderChangeStory(model) {
     : ['- No reason is recorded: the approved plan and design list no decisions, and the code step gave none.']), '');
   out.push('## 4. What we changed', '');
   const product = model.files.filter((file) => !file.test);
-  for (const file of product.filter((entry) => entry.change !== 'removed')) {
+  // New and edited files first, then removed ones; the section ends with everything removed in one line.
+  for (const file of [...product.filter((entry) => entry.change !== 'removed'), ...product.filter((entry) => entry.change === 'removed')]) {
     out.push(`**${CHANGE_WORDS[file.change]}** ${code(file.path)}${file.from ? ` (moved from ${code(file.from)})` : ''}${serves(file.criteria)}`, '');
     const functions = file.functions ?? [];
     const shown = functions.filter((entry) => !entry.helperOf);
     if (shown.length) out.push(...shown.map((entry) => functionLine(entry, functions.filter((helper) => helper.helperOf === entry.key))), '');
     else out.push(file.read === false ? '- SFlow does not list functions for this kind of file; see the file itself.' : '- No function was added, changed or removed; other lines changed.', '');
   }
-  if (!product.some((file) => file.change !== 'removed')) out.push('No product file changed.', '');
+  if (!product.length) out.push('No product file changed.', '');
   const removed = [...product.filter((file) => file.change === 'removed').map((file) => code(file.path)),
     ...product.filter((file) => file.change !== 'removed').flatMap((file) => (file.functions ?? []).filter((entry) => entry.change === 'removed')
       .map((entry) => `${code(entry.display)} from ${code(file.path)}`))];

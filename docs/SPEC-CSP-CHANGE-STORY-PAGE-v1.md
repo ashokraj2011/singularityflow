@@ -2,7 +2,7 @@
 
 **Specification ID:** `CSP-v1`
 
-**Status:** building on branch `change-story` (from `main@29c9c43b9`), 2026-11-27.
+**Status:** M1 to M4 built on branch `change-story` (from `main@29c9c43b9`), 2026-11-27. The real VS Code check is owed (§5).
 
 **Owner, 2026-11-27:**
 - "a simple change explanation in prose manner: we had these requirements and acceptance criteria; to satisfy it we
@@ -21,8 +21,8 @@
 - XPL2's commentary checks (`src/comprehension/xpl2/narration.mjs`) for the words Copilot writes;
 - the record documents SFlow already writes (`src/record-documents.mjs`) and the Story's system documents
   (`README.md`, `STATUS.md`, `USER-STORY.md`);
-- [WCB](SPEC-WCB-WATCH-CODE-BASE-v1.md)'s record of code changed outside the plan (a `plan-accounting` settlement of class
-  `out-of-plan`), when it is on main.
+- WCB's record of code changed outside the plan, a `plan-accounting` settlement of class `out-of-plan`
+  (`SPEC-WCB-WATCH-CODE-BASE-v1.md` on branch `watch-code-base`), once it is on main.
 
 ---
 
@@ -128,8 +128,9 @@ outputs accepts `change-explanation.json` as an optional one.
 - **CSP:AC-006** The code step's approval item starts with the page's line and names the read.
 - **CSP:AC-007** `explain --subject change --page` prints the page.
 
-Tests: `test/change-story-page.test.mjs` (the builder: facts, functions, the fallback, withholding, reasons' sources)
-and `test/change-story-journey.test.mjs` (a real Story: intake, code, test).
+Tests: `test/change-story-page.test.mjs` (the builder: facts, functions, the fallback, withholding, reasons' sources, a
+later version), `test/change-story-vscode.test.mjs` (the approval page, the Decide card and the Work page) and
+`test/change-story-journey.test.mjs` (a real Story through the CLI: intake, code, testing).
 
 ## 4. Milestones
 
@@ -137,3 +138,20 @@ and `test/change-story-journey.test.mjs` (a real Story: intake, code, test).
 - **M2** Written in the lifecycle commits; a system document; the read; `/sf-explain`; the code step's prompt line.
 - **M3** The approval line, the Decide card, the VS Code approval page and Work page, `work status`, the pull request.
 - **M4** The journey test and the merge checks.
+
+## 5. Gaps
+
+- **The real VS Code check** of the approval page's first section, the Decide card's row and the Work page's button is
+  owed: the tests read their HTML and their handlers' source, not a running window.
+- **A state-ref Story** (`story.storage: state-ref`, behind its preview) writes the page in its state checkout; nothing
+  walks one yet, and `work status` names the page at the story-branch path only.
+- **Functions** are read exactly for JavaScript and TypeScript (the compiler's parser). Java, Python, Kotlin and Swift are
+  read by the structural scanner, and C, C++, C#, Go, PHP, Ruby and Rust by the lexical one, with a body bounded by its
+  braces or indentation: an expression-bodied function is one line, and a file over 512 KiB lists no functions.
+- **Test names** are read for `test`/`it` in JavaScript and TypeScript, Python's and Go's test functions, Ruby's `it`, and
+  JUnit or xUnit annotated methods; any other file says SFlow found no test case it can name.
+- **The pull request** carries the page in this checkout; `pr describe` from another checkout of the Story reads that
+  checkout's page.
+- **Copilot's notes** are the code step's own output: `change-explanation.json` is committed with the step and listed with
+  its documents, so a reviewer of the step reads it too.
+

@@ -138,6 +138,7 @@ test('Copilot\'s English is shown once checked; a function with none reads "not 
   assert.match(page, /^\*\*New\*\* `src\/axis\.mjs` \(serves `GRAPH-12:AC-002`\)$/mu);
   assert.match(page, /^- \*\*New\*\* `label`: not described yet\.$/mu);
   assert.match(page, /^Removed: `src\/old-axis\.mjs` and `legacyParse` from `src\/graph\.mjs`\.$/mu);
+  assert.match(page, /^\*\*Removed\*\* `src\/old-axis\.mjs`\n\n- \*\*Removed\*\* `axis`: not described yet\.\n\nRemoved:/mu, 'a removed file has its block too, last');
   assert.match(page, /^When the person types in the Graph tab/mu);
   assert.equal(model.withheld, 4, 'the link, the unchanged function, the other file\'s entry and the reason about it');
   assert.match(page, /SFlow did not show 4 notes from the code step/u);

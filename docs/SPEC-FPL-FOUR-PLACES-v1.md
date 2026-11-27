@@ -13,9 +13,13 @@ roadmap Bet 2. It is measured on `main@5ac41f37e`.
   `{ workflow, because, id }` form, the `tasks.rule.add`, `tasks.rule.change`, `tasks.rule.remove` and `tasks.idPrefix.set`
   Studio operations, the rules checked in `workflow check`, a Studio change set, `configuration save` and `configuration
   approve`, the proposals' "Waiting for review" (`taskRules` on each proposal), the Rules tab and its one page with the
-  form, its preview and Propose, and the topic's corrected `use: { change: classic-delivery }`. Not in M3: the `by:` group
-  (§11, question 3), the "Team guidance" rename (§11, question 4), and `/sf-explain` reading `rules --json` live (REQ-038):
-  its topic route serves the tasks topic, which names `sflow rules`.
+  form, its preview and Propose, and the topic's corrected `use: { change: classic-delivery }`.
+- **M3 follow-ups** (branch `fpl-rules-followups`, from `main@f6353df44`, built 2026-11-27): the `by:` group on `always` and
+  `paths` rules (§11, question 3), the "Team guidance" rename (§11, question 4), and `/sf-explain` answering a question
+  about the team's rules from `rules --json` (REQ-038). `by: <group>` names one of the repository's approval groups,
+  which must also approve the steps in the rule's `personApproves`: the composed step gets it as a required group, with
+  one more approver than it had, and keeps its own approvers (`withRuleApprovalGroups`, src/approval-authority.mjs). A
+  team workflow offered as the plan must already require that group on those steps.
 - The places stay behind `singularityFlow.navigation.layout` (default `classic`) until M5.
 
 **Owner, 2026-11-26:**
@@ -356,7 +360,8 @@ How the card runs:
   - a task touches these files (globs).
 - **Then**:
   - add a step, from requirements, design, plan, review and test;
-  - a person approves a step;
+  - a person approves a step, with **Who approves**: the step's own approvers, or one of the repository's approval groups
+    too (`by:`, §11 question 3), linking People;
   - follow a workflow. Only with "a task is of this kind", and only a workflow of this repository.
 - **Why**: one line, required. It becomes `because`, and it is what a refused "skip the tests" says (ITW REQ-004).
 - The form offers only what `taskRules` accepts. A kind, step or workflow that does not exist is never in a list. The
@@ -400,7 +405,7 @@ marketplace and makes no network call.
 
 **FPL:REQ-026, Rules stay rules.**
 - Rules lists only rules that add steps or approvals.
-- Lessons a team marked as rules (LRN) are guidance that agents read, not steps. They are not listed here. One line,
+- Lessons a team made team guidance (LRN `lessons guidance`, once "Team rule") are guidance that agents read, not steps. They are not listed here. One line,
   "Guidance the agents read: 3 lessons", links the Lessons page.
 - People and approval groups and the Constitution stay in Advanced. The Rules page links both, and a rule's approver
   links People.
@@ -759,6 +764,7 @@ A probe that fails changes this spec before the rest of M1 starts.
 - **Bundle size and activation.** The places load lazily, as other panels do (`lazyPanels`). The bundle-budget test
   bounds them.
 - **The same name for two things.** LRN's "Team rule" button and the Rules place both say "rules" (§11, question 4).
+  Resolved 2026-11-27 on `fpl-rules-followups`: the button, its command and its words say "Team guidance".
 
 ## 11. Open questions for the owner
 

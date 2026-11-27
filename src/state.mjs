@@ -103,7 +103,7 @@ import { stepChatCommand, stepDecisionOf } from './step-decision.mjs';
 import {
   approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
   eligibleApprovers, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority,
-  sameApprover
+  ruleApprovalGroupIds, sameApprover
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
@@ -1140,7 +1140,10 @@ export async function createWorkflow(root, config, {
   if (normalizeApprovalSecurity(config.approvalSecurity ?? {}).autoEnrollNewIdentities) {
     const email = String(creator.email ?? '').trim().toLowerCase();
     const githubLogin = String(creator.login ?? creator.githubLogin ?? '').trim();
-    for (const authority of Object.values(pinnedApprovalAuthorities)) {
+    // Never a group a team rule names in `by:` (FPL §11, question 3), as Story start's enrollment never joins one.
+    const ruled = ruleApprovalGroupIds(config.tasks);
+    for (const [id, authority] of Object.entries(pinnedApprovalAuthorities)) {
+      if (ruled.has(id)) continue;
       authority.members ??= [];
       const enrolled = authority.members.some((member) =>
         (email && String(member.email ?? '').trim().toLowerCase() === email)
@@ -3729,10 +3732,10 @@ export async function assertPhaseChangeScope(root, config, workflow, phase) {
         diagnosticAction: { command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` } } });
   }
   if ((phase.writeScope ?? 'artifact-only') === 'artifact-only') {
-    const allowed = storyLocation(null, config, workflow.workItem.id).record(`artifacts/${phase.id}/`);
+    const allowed = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(`artifacts/${phase.id}/`);
     // A code base file stays in the checkout, never published by a document step: the code step ahead takes it up
     // [WCB:REQ-004]. Only another step's own document, a Story record, is refused here.
-    const storyArtifacts = storyLocation(null, config, workflow.workItem.id).record('artifacts/');
+    const storyArtifacts = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath('artifacts/');
     let outside = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowed)
       && file.startsWith(storyArtifacts));
     // A later code step's code, kept for it by an amendment's closure or a return, is not this step's (SPEC-CIC switch 2).
@@ -3751,7 +3754,7 @@ export async function assertPhaseChangeScope(root, config, workflow, phase) {
           ...(held.changed.length ? { changedSinceClosure: held.changed.map((entry) => entry.path) } : {}) } });
     }
   } else {
-    const allowedArtifact = storyLocation(null, config, workflow.workItem.id).record(`artifacts/${phase.id}/`);
+    const allowedArtifact = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(`artifacts/${phase.id}/`);
     const sourceChanges = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowedArtifact));
     assertSourceBoundary(phase.sourceBoundary, sourceChanges, { phaseId: phase.id });
     // A phase that is not a code phase may change application source only after an approved code
@@ -3764,7 +3767,7 @@ export async function assertPhaseChangeScope(root, config, workflow, phase) {
       const ungoverned = sourceChanges.filter((file) => classifySupportingChange(file).refused);
       if (ungoverned.length) {
         // Another phase's artifact is a Story record, not application source, so name it as one.
-        const storyArtifacts = storyLocation(null, config, workflow.workItem.id).record(`artifacts/`);
+        const storyArtifacts = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(`artifacts/`);
         const otherArtifacts = ungoverned.filter((file) => file.startsWith(storyArtifacts));
         const source = ungoverned.filter((file) => !file.startsWith(storyArtifacts));
         throw new SingularityFlowError([
@@ -9797,7 +9800,7 @@ function forwardAmendmentTarget(config, workflow, phaseId) {
   if (isConvergencePhase(phase) || phase.kind === 'skill' || phase.artifactSet || !phase.requiredArtifact?.path) {
     forwardAmendmentRefusal(`${phaseId} is not a single-document step a forward amendment can change.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
   }
-  const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact.path);
+  const relative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(phase.requiredArtifact.path);
   const approved = (phase.artifacts ?? []).find((artifact) => artifact.path === relative)?.sha256 ?? null;
   if (!approved) forwardAmendmentRefusal(`${phaseId} has no approved snapshot of ${relative}.`);
   return { phase, current, relative, approved };

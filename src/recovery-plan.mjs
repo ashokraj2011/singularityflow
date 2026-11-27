@@ -31,7 +31,7 @@ import { inspectPhasePublicationReadiness } from './phase-publication-readiness.
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { upstreamChangeRoutes } from './upstream-routes.mjs';
 import { authorCommand } from './action-command-map.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { gitPlaceOf, storyLocation } from './story-paths.mjs';
 
 // Runner findings only an approved test command resolves: no supported runner, two build systems,
 // or a native target (Android variant, Xcode scheme) that would otherwise be guessed.
@@ -359,19 +359,21 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
 
   const deterministicConvergence = isConvergencePhase(phase);
   if (!phaseRequiresCodeDelivery(phase) && !deterministicConvergence && version.recorded && !version.writing) {
-    const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact.path);
+    const relative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(phase.requiredArtifact.path);
     try {
       const commit = publishedGenerationCommit(root, workflow, phase);
       if (!commit) throw new SingularityFlowError('No authenticated publication is available for the retained document.',
         { code: 'GENERATION_PUBLICATION_MISSING' });
-      const bytes = exactFileAtObject(root, commit, relative, { maximumBytes: 16 * 1024 * 1024, regularOnly: true });
+      // A state-ref Story's document is in its state commit, under the name its state checkout gives it [SSB M3].
+      const place = gitPlaceOf(root, relative);
+      const bytes = exactFileAtObject(place.cwd, commit, place.relative, { maximumBytes: 16 * 1024 * 1024, regularOnly: true });
       if (!bytes) throw new SingularityFlowError('The retained document is unavailable in its exact publication.',
         { code: 'GENERATION_PUBLICATION_INVALID' });
       const current = await secureRepositoryPath(root, relative, { mustExist: true, type: 'file', label: 'Published document' });
       if (authoredArtifactFingerprint(await readFile(current.absolute, 'utf8')) !== authoredArtifactFingerprint(bytes.toString('utf8'))) {
         // When the last commit still holds the published authored text (lifecycle metadata aside),
         // recover --set-aside restores it.
-        const headBytes = exactFileAtObject(root, head(root), relative, { maximumBytes: 16 * 1024 * 1024, regularOnly: true });
+        const headBytes = exactFileAtObject(place.cwd, head(place.cwd), place.relative, { maximumBytes: 16 * 1024 * 1024, regularOnly: true });
         blockers.push({ code: 'generation.document.published-changed', category: 'lifecycle', blocking: true,
           phase: phase.id, generation: phase.generation, path: relative,
           details: { message: 'Published document content changed. Restore the exact reviewed bytes (recover lists set-aside-worktree for it) or prepare an authorized successor; the old publication remains immutable.',

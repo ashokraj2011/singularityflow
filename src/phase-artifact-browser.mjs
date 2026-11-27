@@ -18,7 +18,7 @@ const fail = (message, code = 'PHASE_ARTIFACT_UNAVAILABLE') => { throw new Singu
 function phaseEntries(config, workflow, phase) {
   const entries = new Map();
   if (phase.requiredArtifact?.path) {
-    const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact.path);
+    const relative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(phase.requiredArtifact.path);
     entries.set(relative, { path: relative, label: phase.label ?? phase.id, kind: phase.requiredArtifact.kind ?? 'document' });
   }
   for (const artifact of phase.artifacts ?? []) {

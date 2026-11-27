@@ -351,10 +351,46 @@ code step: `prepare`, the code and its test written in the code checkout, `phase
 - **A stop between the state ref's move and its checkout's HEAD** (a fault point there) is finished at the next command's
   checkout repair, and `sync` publishes the waiting records (`test/story-state-ref-retention.test.mjs`).
 
+### Stage (f), built 2026-11-28 (owner's go)
+
+The walk `test/story-state-ref-code-step.test.mjs` now takes a state-ref Story from its start to its release on the real
+CLI: specification (one statement left out of scope), plan, code, convergence, verification, release, and the closed
+Story. The branch ends as the base and the one code commit; every transition after the code step is a state commit,
+published with the branch. The same walk runs in today's layout beside it. What it showed:
+- **Convergence's records** (the reconciliation, the projection, assisted candidates, legacy archives, earlier
+  iterations) were spelled from the Story folder and read against the checkout. The convergence context now carries
+  `recordsRoot` and `recordPrefix` (`recordPlace`) beside `itemRelative`, which stays the documents' spelling; its
+  upstream documents are asked of the state checkout's Git (`gitPlaceOf` in `assertCommittedPath`).
+- **The code is still the tested code**: the test step's and the release's check compared the checkout with a state
+  commit, so it listed every file of both trees. It compares with the code commit a state commit names.
+- **Documents named as records.** A step's document spelled with `record()` names a state-relative path the checkout
+  does not have (the release's conformance report first). Every document site now uses `checkoutPath()`: the conformance
+  report, a forward amendment's and a departure's target, the evidence report, the artifact browser, recovery's
+  published document (read in the state commit), the artifact-only scope check's document folders. `document()` and
+  `isDocument()` name where M3 keeps documents (the state checkout's `artifacts/`) until M4 moves them to
+  `docs/stories/<ID>/`; main's change-story page is their first user.
+- **The final audit** read pinned templates, clarifications, test receipts and the automatic approval's records from the
+  checkout, and looked for state commits on the remote branch. It reads them where the Story keeps its records
+  (`verifyCodeDeliveryReceipt` takes `recordsRoot`) and finds a state-ref Story's generations on the remote's state ref,
+  which the atomic push moves with the branch.
+- **The change-story page** (main's CSP) is written into the state checkout in the code step's publication and
+  committed on the state ref; its change sets and run receipts are read from the records, `explain --subject change
+  --page` finds it, and `work status` finds a state-ref Story checked out here (its record is in the state checkout).
+- **Not SSB, on main too:** SFlow's release record document listed a statement a scope decision left out as a clause
+  row, which its own conformance check then refused (`CONFORMANCE_REPORT_INCOMPLETE`, "invalid qualified clause ID
+  'SRI-…'"), in today's layout as well (measured on the same walk). The decisions are listed under the trace instead, and
+  under the verification evidence's results, which counted them as requirements ("2 of 3 requirements verified").
+- Prefix sites: 26 (21 files) before, 24 after (`clause-sources.mjs` moved): 4 in arms only today's layout takes, 2
+  bare-root readers that always name today's path (`knowledge.mjs`, `git-exact-story-revision.mjs`), 18 that refuse
+  off the walk.
+
 ### What is left of M3
 
-- The Story's steps after its code step: `prepare convergence` refuses first (`WORK_RECONCILIATION_BINDING_MISMATCH`):
-  the convergence context and its records (`convergence-context.mjs`, the convergence handlers in `commands/story.mjs`,
-  adjudications, record documents) spell their records from the checkout. The test step and the release follow.
-- The 20 `prefix` sites that refuse and the 2 bare-root readers listed under stage (e).
+- The 18 `prefix` sites that refuse, off the walk: source review, test recovery (TRP), test-command epochs and
+  amendments, evidence amendments, skill steps, task amendments, collaboration, application reviews, document
+  publication, the approver refresh, projectors, the approval focus's earlier text, `spec author coverage --repair`
+  and the workflow walk's fixed ID; and the 2 bare-root readers. Each is a family of its own walk (a returned step, a
+  test recovery, a task amendment, a reviewed step).
+- Copilot chat's prompt hook (`copilot-plain-chat.mjs`) and auto mode's step contract (`auto/auto-phase-contract.mjs`)
+  look for a Story under the Stories folder only, so they see no state-ref Story.
 

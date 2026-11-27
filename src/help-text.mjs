@@ -1150,7 +1150,7 @@ Usage:
   singularity-flow knowledge harvest [--initiative INIT-ID] [--phase PHASE] [--dry-run] [--json]
   singularity-flow knowledge resolve <K-ID> --resolution TEXT [--json]
   singularity-flow lessons [list] [--path PATH] [--story WORK-ID] [--json]
-  singularity-flow lessons drop|keep|rule <K-ID> [--json]
+  singularity-flow lessons drop|keep|guidance <K-ID> [--json]
   singularity-flow lessons edit <K-ID> --text TEXT [--json]
   singularity-flow work "<words>" [--kind KIND] [--path FILE]... [--use-workflow ID | --without-workflow ID] [--use-agent MARKETPLACE/AGENT | --without-agent MARKETPLACE/AGENT] [--use-skill ID]... [--without-skill ID]... [--json]
   singularity-flow work "<words>" --start [--kind KIND] [--work-id ID] [--base BRANCH] [--from TASK-ID] [--document FILE]... [--add STEP]... [--skip STEP]... [--use-workflow ID | --without-workflow ID] [--use-agent MARKETPLACE/AGENT | --without-agent MARKETPLACE/AGENT] [--use-skill ID]... [--without-skill ID]... [--new] [--json]

@@ -26,7 +26,7 @@ import { agentWords, composeTask, kindFromWords, planLine, TASK_KINDS, taskDefin
 import { addableSteps, nowAndNext, planChips, planNote, rulesApplied, standsWords, storyEvents, storySteps } from '../work-rows.mjs';
 import { walkTaskWorkType } from '../task-walk.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
-import { storiesDirectory, storiesRoot, storyLocation } from '../story-paths.mjs';
+import { STATE_CHECKOUT, storiesDirectory, storiesRoot, storyLocation } from '../story-paths.mjs';
 
 const JIRA_KEY = /\b([A-Z][A-Z0-9_]{1,31}-[1-9][0-9]{0,9})\b/u;
 
@@ -197,6 +197,14 @@ const recordBranch = (workflow) => workflow?.lineage?.canonicalBranch ?? workflo
  */
 async function storyRecordOf(root, id, remote = 'origin', { definition = null } = {}) {
   const current = branchName(root);
+  // A state-ref Story checked out here keeps its record in its state checkout, and its folder is that checkout [SSB M3].
+  const stateFile = storyLocation(root, null, id, { layout: 'state-ref' }).workflowFile;
+  if (existsSync(stateFile)) {
+    try {
+      const workflow = JSON.parse(readFileSync(stateFile, 'utf8'));
+      if (workflow?.workItem?.id === id && (current === id || recordBranch(workflow) === current)) return { workflow, folder: null, item: STATE_CHECKOUT, ref: null };
+    } catch { /* not this Story's */ }
+  }
   for (const folder of WORK_ITEMS) {
     const file = storyLocation(root, { workItemRoot: folder }, id).workflowFile;
     if (!existsSync(file)) continue;
@@ -230,8 +238,11 @@ async function storyRecordOf(root, id, remote = 'origin', { definition = null } 
 
 function branchName(root) { try { return branch(root); } catch { return null; } }
 
+/** The Story's folder as the checkout or its commit names it: `<Stories folder>/<ID>`, or a state-ref Story's state checkout. */
+const itemOf = (record, id) => record.item ?? `${record.folder}/${id}`;
+
 function storyFileText(root, record, id, relative) {
-  const inItem = `${record.folder}/${id}/${relative}`;
+  const inItem = `${itemOf(record, id)}/${relative}`;
   if (!record.ref) {
     const file = path.join(root, inItem);
     return existsSync(file) ? readFileSync(file, 'utf8') : null;
@@ -269,15 +280,15 @@ export async function taskStatus(root, id, { remote = 'origin', checksOf = null,
       code: 'TASK_UNKNOWN', details: { nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Start a task.' } } });
   }
   const { workflow } = record;
-  const steps = storySteps(workflow, record.folder, id);
+  const steps = storySteps(workflow, record.folder, id, itemOf(record, id));
   const composition = workflow.resolution?.composition ?? null;
   const done = steps.length > 0 && steps.every((step) => step.status === 'approved' || step.status === 'skipped');
   // What its checks ran and, for a refactor, what its plan says must not change that none covered [ITW:REQ-015, A13, A20].
   const read = (relative) => (record.ref ? committedFileText(root, record.ref, relative)
     : existsSync(path.join(root, relative)) ? readFileSync(path.join(root, relative), 'utf8') : null);
-  const checks = done && checksOf ? checksOf.taskChecks(workflow, read, { item: `${record.folder}/${id}` }) : null;
+  const checks = done && checksOf ? checksOf.taskChecks(workflow, read, { item: itemOf(record, id) }) : null;
   // What the change does, once a code step is published: the page's line and where it is, for the task view [CSP:REQ-008].
-  const changePage = `${record.folder}/${id}/CHANGE-STORY.md`;
+  const changePage = `${itemOf(record, id)}/CHANGE-STORY.md`;
   const changeText = read(changePage);
   const changeRead = changeText ? await import('../change-story-read.mjs') : null;
   const changeSummary = changeRead?.changeStorySummaryOf(changeText) ?? null;
@@ -316,11 +327,12 @@ function changedFiles(root, record, workflow, remote) {
     if (!baseRef || !commitOfRef(root, head)) return null;
     const from = typedMergeBase(root, baseRef, head);
     if (!from) return null;
-    const own = `${record.folder}/`;
+    // A state-ref Story's branch holds no record of it, so nothing is left out [SSB M3].
+    const own = record.folder ? `${record.folder}/` : null;
     const found = typedChangedPaths(root, from, record.ref, { max: 500 });
-    const files = found.entries.filter((entry) => !entry.path.startsWith(own)).slice(0, 200)
+    const files = found.entries.filter((entry) => !own || !entry.path.startsWith(own)).slice(0, 200)
       .map((entry) => ({ path: entry.path, added: entry.added, removed: entry.removed, ...(entry.binary ? { binary: true } : {}) }));
-    return { base, files, total: found.entries.filter((entry) => !entry.path.startsWith(own)).length + (found.truncated ? found.total - found.entries.length : 0) };
+    return { base, files, total: found.entries.filter((entry) => !own || !entry.path.startsWith(own)).length + (found.truncated ? found.total - found.entries.length : 0) };
   } catch { return null; }
 }
 

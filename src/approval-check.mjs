@@ -750,6 +750,8 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   // corrected in this checkout's workflow.
   AUTOMATIC_APPROVAL_NOT_APPLICABLE: 'someone-decides',
   AUTOMATIC_APPROVAL_NOT_ALLOWED: 'this-checkout',
+  // A team rule's `by:` group the configuration no longer has: whoever changes the team's rules or People decides it (FPL §11 q3).
+  TASK_RULE_GROUP_UNKNOWN: 'someone-decides',
   APPROVAL_INTENT_AMENDMENT_PENDING: 'someone-decides',
   // The step an amendment was proposed from waits while it is pending: a scope approver decides it, on the
   // decisions card or in their own terminal [owner, 2026-11-13, D3].

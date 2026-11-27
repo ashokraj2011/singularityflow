@@ -3,7 +3,7 @@
  * SFlow's own routes. The first Story's test step fails, SFlow sends the work back, and the fix passes: its code step's
  * approval keeps a lesson. The second Story's code step is given that lesson in its prompt, makes the same mistake
  * anyway, and the repeat is counted and said at its end. A third makes it again: the lesson is pinned and offered as a
- * team rule. Slow lane: the walks run the CLI as a person and an agent do.
+ * team guidance. Slow lane: the walks run the CLI as a person and an agent do.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -79,7 +79,7 @@ async function walkStory(t, story, W) {
   return walk;
 }
 
-test('journey LRN: a Story\'s failing test becomes a lesson, the next Story is given it, repeats the mistake anyway, and the third is offered a team rule', slowLane({ timeout: 3_600_000 }), async (t) => {
+test('journey LRN: a Story\'s failing test becomes a lesson, the next Story is given it, repeats the mistake anyway, and the third is offered as team guidance', slowLane({ timeout: 3_600_000 }), async (t) => {
   const story = await journeyRepository(t, { files: { 'checks/value-check.mjs': VALUE_CHECK }, configure: testedChange });
 
   const first = await walkStory(t, story, 'LRN-J1');
@@ -107,11 +107,11 @@ test('journey LRN: a Story\'s failing test becomes a lesson, the next Story is g
   });
 
   const third = await walkStory(t, story, 'LRN-J3');
-  await check(t, 'the third repeat pins the lesson and the approval offers it as a team rule', {}, async () => {
+  await check(t, 'the third repeat pins the lesson and the approval offers it as team guidance', {}, async () => {
     assert.equal(third.reached, true, report(third));
     const after = await lessonsAfterApproval(story.root, 'LRN-J3', 'implementation');
     assert.equal(after?.ruleOffers?.length, 1, JSON.stringify(after));
-    assert.match(after.line, /Make it a team rule, first for every step on these files: singularity-flow lessons rule K-[0-9a-f]{12}/u);
+    assert.match(after.line, /Make it team guidance, first for every step on these files: singularity-flow lessons guidance K-[0-9a-f]{12}/u);
     const current = (await readAllLessons(story.root, { base: false })).entries.find((entry) => entry.record.id === after.ruleOffers[0].id);
     assert.equal(current.record.lesson.pinned, true);
     assert.equal(current.record.lesson.repeats, 2);

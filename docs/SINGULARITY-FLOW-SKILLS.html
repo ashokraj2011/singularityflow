@@ -4415,7 +4415,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">conversational</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1399 body tokens</span>
+          <span class="pill">~1529 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-explain</code></dd></div>
@@ -4449,6 +4449,11 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
    - A first word of `change`, `clause`, `test`, `line`, `gap` or `generation` is the subject. Run exactly one subject
      command: `singularity-flow explain --subject &lt;SUBJECT&gt; &lt;REMAINING ARGUMENTS&gt; --for-agent --json`. `change` and `gap`
      need nothing more. Never guess a missing `--id`, `--path`, `--line` or `--gen`; ask the user for the exact value instead.
+   - A question about this team&#39;s rules for tasks (&quot;what are our team rules?&quot;, which rules apply, what a rule adds or who
+     approves): run `singularity-flow rules --json` (it only reads) and answer from it, never from the tasks topic alone:
+     `builtIn`, then each of `rules` as its `words` with its `because`, `waiting` with who proposed it, each `problems`
+     entry with its `field`, and `guidance` as lessons the agents read, which are not rules. End with `change.words` and
+     `change.command` as they are.
    - Words asking what the change did or does (&quot;what did this change do?&quot;): run `singularity-flow explain --subject change
      --page --for-agent --json` and answer with `data.page.summary`, and a Markdown-preview link to `data.page.path` when it
      has one.

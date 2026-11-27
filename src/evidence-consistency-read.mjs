@@ -38,7 +38,7 @@ export async function readEvidenceConsistency(root, config, workflow, phase, opt
       blocking: false });
   }
   if (!documents && reporting && phase.requiredArtifact?.path) {
-    const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact.path);
+    const relative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(phase.requiredArtifact.path);
     const { secureRepositoryPath } = await import('./util.mjs');
     try {
       const safe = await secureRepositoryPath(root, relative, { label: 'Evidence report', mustExist: false, type: 'file' });
@@ -52,7 +52,7 @@ export async function readEvidenceConsistency(root, config, workflow, phase, opt
   const reportedVerdicts = [];
   const documentBindings = [];
   for (const document of documents ?? []) {
-    const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact?.path ?? '');
+    const relative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(phase.requiredArtifact?.path ?? '');
     if (document.path !== relative) continue;
     if (document.error || document.truncated || document.binary || typeof document.content !== 'string') {
       findings.push({ code: 'EVIDENCE_REPORT_PARTIAL', path: document.path,

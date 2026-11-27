@@ -436,13 +436,13 @@ export async function lessonsAfterApproval(root, workId, phaseId) {
     ? `SFlow kept ${kept.length} lesson${kept.length === 1 ? '' : 's'} from this step: ${listed.slice(0, 5).map((entry) => `${entry.number}. ${clip(entry.text, 90)}`).join(' · ')}${kept.length > 5 ? ' · …' : ''}. `
       + 'Drop any you don\'t want: singularity-flow lessons drop <K-ID> (singularity-flow lessons lists them).'
     : null;
-  // A mistake that happened again although its lesson was in the step's prompt, twice: offered as a team rule [LRN:REQ-012].
+  // A mistake that happened again although its lesson was in the step's prompt, twice: offered as team guidance [LRN:REQ-012].
   const offerLines = ruleOffers.map((entry) => `This happened again ${entry.repeats} times although its lesson was given: "${clip(entry.text, 90)}". `
-    + `Make it a team rule, first for every step on these files: singularity-flow lessons rule ${entry.id}`);
+    + `Make it team guidance, first for every step on these files: singularity-flow lessons guidance ${entry.id}`);
   return { lessons: listed, ruleOffers, line: [keptLine, ...offerLines].filter(Boolean).join('\n') };
 }
 
-/** Lessons this step repeated for at least the second time, not yet a team rule. */
+/** Lessons this step repeated for at least the second time, not yet team guidance. */
 async function ruleOffersFrom(root, workId, phaseId) {
   try {
     const { readAllLessons } = await import('./story-lessons.mjs');

@@ -330,7 +330,7 @@ const repairFacts = (result) => [
 const LESSON_FIELDS = ['lessons', 'lessonsUse', 'ruleOffers'];
 const approvalLessonWords = (result) => (result.lessons ? ' Say in one line the lessons SFlow kept (data.lessons, numbered), and that the person drops one with singularity-flow lessons drop <its id> or in VS Code\'s Lessons.' : '')
   + (result.lessonsUse ? ' Say data.lessonsUse as it is.' : '')
-  + (result.ruleOffers ? ' Offer the person each data.ruleOffers as a team rule (singularity-flow lessons rule <id>); do not make one in this turn.' : '');
+  + (result.ruleOffers ? ' Offer the person each data.ruleOffers as team guidance (singularity-flow lessons guidance <id>); do not make one in this turn.' : '');
 
 export function agentAct(result) {
   if (result?.resultType === 'sflow-ask') {

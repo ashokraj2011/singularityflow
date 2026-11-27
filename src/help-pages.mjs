@@ -600,9 +600,11 @@ const PAGES = Object.freeze({
       'the Story, and each later step is given the ones for the files it touches, as guidance only.',
       '',
       'Drop resolves a lesson for good; Keep confirms it, so it comes first; Edit puts your words in',
-      'its place; Rule makes it a team rule, first for every step on its files. SFlow offers that when',
-      'a mistake happens again twice although its lesson was given. Each is committed on the checked-out',
-      'branch. Nothing here approves or blocks work.'
+      'its place; Guidance makes it team guidance, first for every step on its files (`lessons rule` is',
+      'its earlier name and still works). SFlow offers that when a mistake happens again twice although',
+      'its lesson was given. Team guidance is read by agents and adds no step; the team\'s rules that add',
+      'steps are `singularity-flow rules`. Each is committed on the checked-out branch. Nothing here',
+      'approves or blocks work.'
     ],
     options: [
       ['--path PATH', 'Only the lessons about this file or folder.'],

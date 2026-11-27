@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "169bb7f335afd523e865eebf1f260b69acfa0460",
+  "sourceCommit": "cc80b286d6f3e18c0c24997b4fe653f6e7a654f2",
   "topicCount": 96,
-  "contentSha256": "c7908a19f0fdcfe4dd3e941b677fe402b4e9e5c6ec66dfc42aa9b791d50a6bb8",
+  "contentSha256": "35e495d7613f3b91439df87879ba7c1624f6eee27b46c7739b13314925c39792",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -368,8 +368,8 @@
     {
       "id": "knowledge-and-remote-assets",
       "title": "Knowledge, artifacts, and remote assets",
-      "version": 6,
-      "sha256": "4d3c76ffa43b431cf420bd6a27da96134ce1c093fab65b96c1791fbb7f19154c",
+      "version": 7,
+      "sha256": "c7815a3139e1fa3ced04f1618ff243a1b3af35b05c704f73f620866c986c5c31",
       "routingSha256": "66196aec62b74341f0604759e3bceb5b05f404c71825eb8811827655383d5685",
       "file": "knowledge-and-remote-assets.md"
     },
@@ -672,8 +672,8 @@
     {
       "id": "tasks",
       "title": "Tasks: say what you want done",
-      "version": 24,
-      "sha256": "c484c4981cc5cf20ed8c8847f41f3dff62e0c7cf121426eb05838f65a5f57a1b",
+      "version": 25,
+      "sha256": "077771ba0c9cc7bc020b8c08b6668d6cbf003eff0efe7b31a027d5efa7f4008a",
       "routingSha256": "11b92ad953ab7337598e21b48b8771094a9b7d7b0c05581b98e739631d283ee7",
       "file": "tasks.md"
     },

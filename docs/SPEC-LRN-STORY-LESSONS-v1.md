@@ -3,8 +3,10 @@
 **Specification ID:** `LRN-v1`
 
 **Status:** Built on 2026-11-24 with the owner's defaults (§7), and its follow-ups the same day ("do all"): REQ-010's
-test command suggestions, and team rules as a lesson a person promotes (REQ-012). ITW's `tasks:` rules, which add steps
-rather than guidance, stay ITW's.
+test command suggestions, and team guidance as a lesson a person promotes (REQ-012). ITW's `tasks:` rules, which add steps
+rather than guidance, stay ITW's. On 2026-11-27 "Team rule" was renamed "Team guidance" (FPL §11, question 4, owner
+2026-11-26), so that "rules" means only the `tasks:` rules that add steps: `lessons guidance <K-ID>` is the command, and
+`lessons rule <K-ID>` still works for scripts.
 
 **Owner, 2026-11-24:** "We have so many learning in each run about the code base, testing methods what work and what
 doesnt ..how we make sure that this is part of the learning and next story it will not have the same mistake ..kind of
@@ -158,11 +160,12 @@ the repository's configured test command by itself.
   the finding and its files, or the environment stop.
 - When a later Story makes the same mistake while the lesson was in its prompt, the lesson counts a repeat.
 - The Story's closing summary says how many lessons it used and how many earlier mistakes happened again.
-- A lesson repeated twice is pinned, and the approval's line offers it to the person as a team rule:
-  `singularity-flow lessons rule <K-ID>`, or Team rule in VS Code's Lessons. A team rule comes first for every step on
-  its files, is never marked out of date by a rewrite, and reaches the team with the change that holds it. It stays
-  guidance (REQ-009). ITW's `tasks:` rules ([ITW](SPEC-ITW-INTENT-TO-WORK-v1.1.md) REQ-004) add steps, not guidance, and
-  are separate.
+- A lesson repeated twice is pinned, and the approval's line offers it to the person as team guidance:
+  `singularity-flow lessons guidance <K-ID>` (its earlier name, `lessons rule`, still works), or Team guidance in VS Code's
+  Lessons. Team guidance comes first for every step on its files, is never marked out of date by a rewrite, and reaches
+  the team with the change that holds it. It stays guidance (REQ-009). ITW's `tasks:` rules
+  ([ITW](SPEC-ITW-INTENT-TO-WORK-v1.1.md) REQ-004) add steps, not guidance, and are separate: the Rules place lists only
+  them (FPL REQ-026).
 
 **LRN:REQ-013, safety.**
 - A lesson is scanned for secrets with `src/secrets.mjs` before it is kept. One that holds a secret is refused, and the

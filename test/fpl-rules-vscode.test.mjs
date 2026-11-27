@@ -33,7 +33,8 @@ const read = (extra = {}) => ({ schemaVersion: 1, resultType: 'sflow-rules',
   guidance: { count: 3, words: 'Guidance the agents read: 3 lessons.' },
   inFlight: { count: 4, words: '4 tasks in flight keep the rules they started with; a change applies to tasks started after it is approved.' },
   problems: [], form: { kinds: [{ id: 'fix', words: 'a fix' }, { id: 'change', words: 'a change' }], steps: [{ id: 'review', words: 'a review' }, { id: 'test', words: 'tests' }],
-    approves: [{ id: 'code', words: 'the code' }], workflows: [{ id: 'classic-delivery', label: 'Classic delivery' }] }, lines: [], ...extra });
+    approves: [{ id: 'code', words: 'the code' }], workflows: [{ id: 'classic-delivery', label: 'Classic delivery' }],
+    groups: [{ id: 'engineering-reviewers', label: 'Engineering reviewers' }, { id: 'security', label: 'Security' }] }, lines: [], ...extra });
 
 test('REQ-019, REQ-026: the Rules tab lists built-in rules, the team\'s as When and Then, those waiting for review, the prefix and the links', () => {
   const list = rulesListFrom(read());
@@ -66,9 +67,9 @@ test('REQ-020, REQ-037: the form offers only what taskRules accepts, labels ever
   assert.match(form, /<option value="classic-delivery">Classic delivery<\/option>/u, 'only this repository\'s workflows');
   // What the page sends is bounded to the form's choices: an unknown kind, step or workflow is dropped.
   assert.deepEqual(ruleInputFrom({ when: 'paths', kinds: ['fix', 'nowhere'], paths: 'src/billing/**\n', then: 'step', step: 'deploy', because: '  Billing  is reviewed. ' }, list),
-    { kinds: ['fix'], paths: ['src/billing/**'], steps: [], personApproves: [], workflow: null, because: 'Billing is reviewed.' });
+    { kinds: ['fix'], paths: ['src/billing/**'], steps: [], personApproves: [], workflow: null, by: null, because: 'Billing is reviewed.' });
   assert.deepEqual(ruleInputFrom({ when: 'kinds', kinds: ['change'], then: 'workflow', workflow: 'classic-delivery', because: 'Changes ship the classic way.' }, list),
-    { kinds: ['change'], paths: [], steps: [], personApproves: [], workflow: 'classic-delivery', because: 'Changes ship the classic way.' });
+    { kinds: ['change'], paths: [], steps: [], personApproves: [], workflow: 'classic-delivery', by: null, because: 'Changes ship the classic way.' });
   assert.deepEqual(ruleInputFrom({ when: 'any', then: 'step', step: 'review', because: 'x' }, list).kinds, ['all']);
   assert.deepEqual(ruleInputFrom({ when: 'kinds', kinds: [], then: 'step', step: 'review', because: 'x' }, list).kinds, [],
     '"these kinds" with none ticked is said by the preview, never taken for any code changes');
@@ -77,8 +78,17 @@ test('REQ-020, REQ-037: the form offers only what taskRules accepts, labels ever
     { schema: 'sflow-studio-change-set@1', base: { workflowSha256: 'b'.repeat(64) }, changes: [{ op: 'tasks.rule.add', rule: { kinds: ['fix'], paths: [], steps: ['review'], personApproves: [], workflow: null, because: 'b' } }] });
   assert.equal(JSON.parse(ruleChangeSet(list, { op: 'remove', id: 'sign-in-review' })).changes[0].op, 'tasks.rule.remove');
   // Problems are linked to their fields.
-  assert.deepEqual(['tasks.paths[1].because', 'tasks.always[0].steps', 'tasks.paths[0].kinds', 'tasks.paths[0].paths', 'tasks.use.change.workflow', 'tasks.idPrefix'].map(formFieldOf),
-    ['why', 'then', 'kinds', 'paths', 'workflow', 'form']);
+  assert.deepEqual(['tasks.paths[1].because', 'tasks.always[0].steps', 'tasks.paths[0].kinds', 'tasks.paths[0].paths', 'tasks.use.change.workflow', 'tasks.idPrefix',
+    'tasks.paths[1].by'].map(formFieldOf), ['why', 'then', 'kinds', 'paths', 'workflow', 'form', 'by']);
+  // §11 question 3: "a person approves a step" asks Who approves, from the repository's groups, beside a link to People.
+  assert.match(form, /<label class="rules-inline" for="rule-by">Who approves<\/label><select id="rule-by" aria-describedby="rules-problems"><option value="" selected>The step(?:'|&#39;)s own approvers<\/option><option value="engineering-reviewers">The step(?:'|&#39;)s own approvers, and Engineering reviewers too<\/option><option value="security">The step(?:'|&#39;)s own approvers, and Security too<\/option><\/select>\s*<button type="button" class="link rules-inline" data-act="people">People and approval groups<\/button>/u);
+  assert.equal(ruleInputFrom({ when: 'paths', paths: 'src/payments/**', then: 'approves', approves: 'code', by: 'security', because: 'Payments need Security.' }, list).by, 'security');
+  assert.equal(ruleInputFrom({ when: 'paths', paths: 'src/payments/**', then: 'approves', approves: 'code', by: 'auditors', because: 'x' }, list).by, null, 'only the repository\'s groups');
+  assert.equal(ruleInputFrom({ when: 'any', then: 'step', step: 'review', by: 'security', because: 'x' }, list).by, null, 'only with a person approving a step');
+  const byRow = rulesListFrom(read({ rules: [rule('payments', { fields: { kinds: ['all'], paths: ['src/payments/**'], steps: [], personApproves: ['code'], workflow: null, by: 'security' } })] })).rules[0];
+  assert.equal(byRow.fields.by, 'security');
+  assert.match(ruleFormHtml(list, byRow), /<option value="security" selected>/u, 'changing a rule shows its group');
+  assert.equal(rulesListFrom(read({ rules: [rule('x', { fields: { kinds: ['all'], paths: [], steps: [], personApproves: ['code'], workflow: null, by: 'Bad Group' } })] })).rules[0].fields.by, null);
   // The page: the list with Change and Remove, the form and its polite preview, how tasks are composed, and the links.
   const page = rulesPageHtml(list, { editing: list.rules[0] });
   assert.match(page, /<h1 id="rules-title" tabindex="-1">The team(?:'|&#39;)s rules<\/h1>/u);
@@ -195,7 +205,7 @@ test('A12 in VS Code: the page previews the form\'s rule, and Propose sends one 
   const asked = host.calls.find((call) => call[0] === 'input' && call[1] === 'rules');
   assert.deepEqual(asked.slice(1, 6), ['rules', 'preview', '--change-set', '-', '--json']);
   assert.deepEqual(asked[6].changes, [{ op: 'tasks.rule.add', rule: { kinds: ['fix', 'change'], paths: ['src/billing/**'], steps: ['review'], personApproves: [], workflow: null,
-    because: 'Billing changes are reviewed.' } }]);
+    by: null, because: 'Billing changes are reviewed.' } }]);
   assert.match(panel.posted.at(-1).html, /Conformance review \(added\)/u);
 
   // Propose: nothing without the person's yes; with it, one Studio change set through `workflow studio apply --propose`.

@@ -32,13 +32,14 @@ export function isTaskStory(workflow) {
 }
 
 /** Each step as `work status` gives it: its label, its state, who approved it and its document on the Story's branch. */
-export function storySteps(workflow, folder, id = workflow?.workItem?.id) {
+// `item`: the Story's folder as the checkout names it (a state-ref Story's state checkout) [SSB M3].
+export function storySteps(workflow, folder, id = workflow?.workItem?.id, item = `${folder}/${id}`) {
   return (workflow?.phaseOrder ?? []).map((stepId) => {
     const phase = workflow.phases?.[stepId] ?? {};
     const approvedBy = phase.status !== 'approved' ? null
       : phase.approvalDisposition === 'approved_automatically' ? 'sflow' : phase.approvedBy ? 'person' : 'none-needed';
     return { id: stepId, label: phase.label ?? stepId, status: phase.status ?? 'not_started', approvedBy,
-      document: phase.requiredArtifact?.path ? `${folder}/${id}/${phase.requiredArtifact.path}` : null };
+      document: phase.requiredArtifact?.path ? `${item}/${phase.requiredArtifact.path}` : null };
   });
 }
 
@@ -164,7 +165,9 @@ export function planNote(workflow) {
   else if (composition.agent) sentences.push(`Its steps are ${agentWords(composition.agent)}'s workflow, for ${KIND_ARTICLE[composition.kind] ?? 'a task'}.`);
   else sentences.push(`Composed from your words: ${KIND_ARTICLE[composition.kind] ?? 'a task'}.`);
   const byRules = [...new Set((composition.added ?? []).map((entry) => `the ${labelOf(entry.intent)}`)),
-    ...(composition.personApproves ?? []).map((intent) => approvalWords(composition, intent))];
+    ...(composition.personApproves ?? []).map((intent) => approvalWords(composition, intent)),
+    // An approval group a rule adds (`by:`): "Security's approval of the code" [FPL §11, question 3].
+    ...(composition.groupApproves ?? []).map((entry) => `${entry.label ?? entry.group}'s approval of the ${labelOf(entry.intent)}`)];
   if (byRules.length) sentences.push(`The team's rules added ${listWords(byRules)}.`);
   const byPerson = (composition.changes ?? []).filter((entry) => entry.change === 'add').map((entry) => `the ${labelOf(entry.intent)}`);
   if (byPerson.length) sentences.push(`You added ${listWords(byPerson)}.`);

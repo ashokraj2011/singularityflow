@@ -133,6 +133,15 @@ test('/sf-explain answers a topic in its own turn, with the command its turn adm
   assert.match(first, /`data\.citation`/u);
   assert.equal(argvAllowed(['explain', 'environment-bindings', '--for-agent', '--json'], mutationTurnMode('sf-explain')), true);
   assert.equal(argvAllowed(['explain', '--subject', 'gap', '--for-agent', '--json'], mutationTurnMode('sf-explain')), true);
+  // FPL:REQ-038: "what are our team rules?" is answered from the rules as they are now, read only, in this turn, before any
+  // topic: the tasks topic only says how rules work.
+  const flat = first.replace(/\s+/gu, ' ');
+  assert.ok(first.includes('`singularity-flow rules --json`'));
+  assert.ok(flat.indexOf('`singularity-flow rules --json`') < flat.indexOf('Any other word'), 'the rules question is read before a topic');
+  assert.match(flat, /A question about this team's rules for tasks \("what are our team rules\?"[^)]*\): run `singularity-flow rules --json` \(it only reads\) and answer from it, never from the tasks topic alone/u);
+  assert.match(flat, /`guidance` as lessons the agents read, which are not rules\. End with `change\.words` and `change\.command` as they are\./u);
+  assert.equal(argvAllowed(['rules', '--json'], mutationTurnMode('sf-explain')), true);
+  assert.equal(argvAllowed(['rules', '--offline', '--json'], mutationTurnMode('sf-explain')), true);
 });
 
 test('/sf-explain: the longest topic reaches an agent bounded, with its text to read, and a plain question finds its topic', async (t) => {

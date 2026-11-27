@@ -354,7 +354,7 @@ async function proposeAmendment(root, config, workflow, options) {
   const target = workflow.phases?.[phaseId];
   if (!target?.requiredArtifact?.path) refused(`${phaseId} is not a step with one document to amend.`);
   const expected = nextForwardAmendmentProposal(storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(), workflow,
-    storyLocation(null, config, workflow.workItem.id).record(`${target.requiredArtifact.path}`));
+    storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(`${target.requiredArtifact.path}`));
   // The amended step's document is reset to its approved bytes in the same transaction; listing it in
   // exactWorkItemPaths lets a refused transaction restore the person's edit instead of leaving it reset.
   const { value: proposal } = await transactStory(root, config, workflow, {
@@ -364,7 +364,7 @@ async function proposeAmendment(root, config, workflow, options) {
     await assertNoPendingPublication(root, config, aggregate, 'propose a forward amendment');
     return proposeForwardAmendment(root, config, aggregate, { phaseId, reason: optionString(options, 'reason'),
       file: optionString(options, 'file') ?? null, actor, agent, upstreamIssue: issue });
-  }, { exactWorkItemPaths: [expected.proposedPath, storyLocation(null, config, workflow.workItem.id).record(`${target.requiredArtifact.path}`)],
+  }, { exactWorkItemPaths: [expected.proposedPath, storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(`${target.requiredArtifact.path}`)],
     eventFromResult: (result) => ({ payload: { decision: 'forward-amendment', stage: 'proposed', amendment: result.id, reviewPacketSha256: null } }) });
   const decide = `singularity-flow upstream-issue decide-amendment ${proposal.id} --work-id ${workflow.workItem.id} --decision approve|reject --reason "<why>" --confirm ${proposal.id}`;
   if (!optionBoolean(options, 'json')) {
@@ -413,7 +413,7 @@ export async function acceptWordingDeparture(root, config, workflow, { departure
   if (!target?.requiredArtifact?.path || !departure.proposal?.path) refused(`${departure.id} names no earlier document and draft to amend.`, 'DEPARTURE_INVALID');
   // Who may decide is checked before anything is written: a refused approver leaves no proposal behind.
   requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, target.approvalPolicy, actor);
-  const artifact = storyLocation(null, config, workflow.workItem.id).record(`${target.requiredArtifact.path}`);
+  const artifact = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(`${target.requiredArtifact.path}`);
   const expected = nextForwardAmendmentProposal(storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(), workflow, artifact);
   const { value: proposal } = await transactStory(root, config, workflow, {
     type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,

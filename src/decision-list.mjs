@@ -1940,7 +1940,8 @@ function reviewFindingItems(workflow, context, facts) {
  * only leaving the change out.
  */
 function rolloverItem(workflow, context, entry) {
-  if (entry.documents) return documentFilesItem(workflow, entry);
+  // A document step's application files; a change the person only asked for is the ordinary row.
+  if (entry.documents && entry.paths.length && entry.keepOut) return documentFilesItem(workflow, entry);
   const name = stepName(workflow, entry.phase);
   const shown = entry.paths.length ? `${listWords(entry.paths.slice(0, 5))}${entry.paths.length > 5 ? ` and ${entry.paths.length - 5} more` : ''}` : null;
   const asked = entry.requests.length ? `The person asked for a change after it was published: ${entry.requests.map((text) => `"${text}"`).join('; ')}.` : '';

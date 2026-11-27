@@ -238,3 +238,20 @@ Recorded here as each stage lands.
   a host hook that refuses the state ref), and real Stories (4: the start's one push of branch, state ref, ledger and
   pin; a transition stopped before its push finished by the next transition and by `sync`; a second clone; the branches
   transport). `test/sda-lifecycle-boundary.test.mjs`: `OTHER_PUBLICATIONS` is empty.
+
+### Stage (b), started 2026-11-27 (not committed)
+
+The walk of §3 (b) found the first sites, in order: the step's document path (`requiredArtifactRepoPath`, the artifact
+set's member root), the artifact set's catalog and its Git eligibility check, then `inspectPhasePublicationReadiness`
+(`phase-publication-readiness.mjs`). What they showed:
+- **Two spellings, as REQ-009 says.** A step's document is named relative to the code checkout. In M3 a state-ref
+  Story's document is in its state checkout, so its name is `.sflow-state/artifacts/<step>/…` (a new
+  `checkoutPath()` beside `record()`), and the readers that join it to the checkout read it unchanged; M4 changes the
+  folder to `docs/stories/<ID>/`. A state record keeps its state-relative spelling, read with `recordsRoot` or
+  `fromRecord`. So each `prefix` use is sorted first: a document (or a document set) takes `checkoutPath()`, a record
+  takes `record()` with `recordsRoot`. Most of `state.mjs`'s 52 pass `prefix` as `itemRelative` to a callee that both
+  writes records and names documents, so they are sorted callee by callee.
+- **Git's view of a document** (`unpublishableRequiredArtifactSetMembers`) is the state checkout's for a path inside
+  it: the code checkout's exclude line hides it.
+- **The five readers** read a recorded state path through `recordedStateFile(root, path)`, which joins the state
+  checkout when the process knows the checkout's Story keeps its records on its state ref.

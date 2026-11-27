@@ -587,6 +587,11 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     reviewDisputes: offerReuse && workflow.status === 'in_progress' && ['in_progress', 'awaiting_approval'].includes(phase?.status)
       ? await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'review-finding-dispute.mjs')).href)
         .then((module) => module.reviewDisputeFacts(root, config, workflow, phase)).catch(() => null) : null,
+    // What a code step's change does, in one line at the top of its approval, and where the whole page is [CSP:REQ-007]. A count
+    // skips it: it holds nothing. From the CLI source, out of the VS Code bundles that read this list.
+    changeStory: offerReuse && phase?.status === 'awaiting_approval' && phase.deliveryEvidence
+      ? await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'change-story-read.mjs')).href)
+        .then((module) => module.changeStoryFacts(root, config, workflow, phase)).catch(() => null) : null,
     // A check's blocking findings a person may override, while the step is written (finding-overrides.mjs) [owner, 2026-11-23].
     // A count skips them, as it skips disputes; from the CLI source, out of the VS Code bundles that read this list.
     findingOverrides: answering && phase?.status === 'in_progress'

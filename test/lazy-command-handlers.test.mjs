@@ -1164,7 +1164,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // governance.mjs). No new eager file.
     // 9,955,283 (measured for start.mjs on ssb-m3 merged with main 29c9c43b9, 2026-11-27; submit.mjs 9,952,847): stage
     // e and fix-source-loop's editor-configuration and set-aside rules (+3,906 on main's side) together. No new eager file.
-    assert.ok(closure.bytes <= 9_955_283, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,939,106 (measured for start.mjs, +1,059 over 9,938,047, 2026-11-27 on change-story; submit.mjs 9,935,358): a code
+    // step's publication and submission, and every later step's, write the Story's "What this change does" page in their
+    // own commit (story-publication-service.mjs +635, its builder loaded from the CLI source only when it runs), the page's
+    // read outcome (narration/messages.mjs +237), a skill step accepts its optional notes file (skp-phase-evidence.mjs
+    // +123), and the Story's documents list the page (documents-read.mjs +64) [CSP:REQ-005, REQ-010, REQ-011]. No new
+    // eager file.
+    // 9,956,342 (measured for start.mjs, +1,059 over 9,955,283 on the merge of change-story with main 237ff13d3,
+    // 2026-11-27; submit.mjs 9,953,906): CSP's page above and SSB M3 stage e together. No new eager file.
+    assert.ok(closure.bytes <= 9_956_342, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -276,7 +276,13 @@ export async function taskStatus(root, id, { remote = 'origin', checksOf = null,
   const read = (relative) => (record.ref ? committedFileText(root, record.ref, relative)
     : existsSync(path.join(root, relative)) ? readFileSync(path.join(root, relative), 'utf8') : null);
   const checks = done && checksOf ? checksOf.taskChecks(workflow, read, { item: `${record.folder}/${id}` }) : null;
+  // What the change does, once a code step is published: the page's line and where it is, for the task view [CSP:REQ-008].
+  const changePage = `${record.folder}/${id}/CHANGE-STORY.md`;
+  const changeText = read(changePage);
+  const changeRead = changeText ? await import('../change-story-read.mjs') : null;
+  const changeSummary = changeRead?.changeStorySummaryOf(changeText) ?? null;
   return {
+    ...(changeSummary ? { changeStory: { path: changePage, summary: changeSummary, command: changeRead.changeStoryCommand(id) } } : {}),
     schemaVersion: 1, resultType: 'sflow-task-status', id, kind: composition?.kind ?? null, title: workflow.workItem?.title ?? null,
     status: workflow.status, done, branch: workflow.workItem?.branch ?? id, base: workflow.workItem?.baseBranch ?? null,
     pullRequest: composition?.pullRequest === true, steps,

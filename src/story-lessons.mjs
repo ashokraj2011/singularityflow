@@ -10,7 +10,7 @@
  * files it touches. Lessons are guidance and never authority [LRN:REQ-009]: nothing here blocks, refuses, approves or
  * counts as evidence, and a store that cannot be read is one warning.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -22,6 +22,7 @@ import { canonicalJson, recordSha256 } from './records.mjs';
 import { scanText } from './secrets.mjs';
 import { KNOWLEDGE_ROOT, currentKnowledge, knowledgeEntryFrom, knowledgeEntryNamed, provenanceWords, readKnowledgeWithDiagnostics, recordKnowledge } from './knowledge.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
+import { STATE_CHECKOUT } from './story-paths.mjs';
 
 /** What one step is given [LRN:REQ-008]. */
 export const LESSON_LIMIT = 10;
@@ -175,14 +176,52 @@ function baseBranchLessons(root) {
   return entries;
 }
 
+/** Whether this clone keeps a state-ref Story: a state checkout here, or the clone's exclude line for one (no Git process). */
+function keepsStateRefs(root) {
+  if (existsSync(path.join(root, STATE_CHECKOUT))) return true;
+  try { return readFileSync(path.join(gitCommonDir(root), 'info', 'exclude'), 'utf8').split(/\r?\n/u).includes(`/${STATE_CHECKOUT}/`); }
+  catch { return false; }
+}
+
 /**
- * Every lesson a step may be given: this checkout's, the base branch's and this machine's copies, each once. A source
- * that cannot be read is a warning, never a refusal [LRN:REQ-009].
+ * State-ref Stories' lessons [WMR:REQ-022, SSB M3]: the Story in scope keeps them in its state checkout, committed on its
+ * state ref, and the clone's other state-ref Stories on theirs, read from Git objects with no checkout and no fetch.
+ */
+async function stateRefLessons(root) {
+  if (!keepsStateRefs(root)) return [];
+  const entries = [];
+  const own = path.join(root, STATE_CHECKOUT);
+  if (existsSync(path.join(own, RECORDS))) entries.push(...(await readKnowledgeWithDiagnostics(own)).entries);
+  const { detectStateCheckout, listStoryStates } = await import('./story-state-ref.mjs');
+  const ownId = detectStateCheckout(root)?.id ?? null;
+  const env = { ...process.env, GIT_NO_LAZY_FETCH: '1' };
+  for (const definition of [null, { ledger: { pinTransport: 'branches' } }]) {
+    for (const { id, commit } of await listStoryStates(root, { definition }).catch(() => [])) {
+      if (id === ownId) continue;
+      let names = [];
+      try { names = committedTreePaths(root, commit, [RECORDS], { env }); } catch { continue; }
+      for (const name of names) {
+        const file = path.posix.basename(name);
+        if (!RECORD_NAME.test(file)) continue;
+        try {
+          const text = committedFileText(root, commit, name, { env });
+          if (text != null) entries.push(knowledgeEntryFrom(file, Buffer.from(String(text), 'utf8')));
+        } catch { /* a blob this clone does not have, or a damaged record */ }
+      }
+    }
+  }
+  return entries;
+}
+
+/**
+ * Every lesson a step may be given: this checkout's, a state-ref Story's on its state ref, the base branch's and this
+ * machine's copies, each once. A source that cannot be read is a warning, never a refusal [LRN:REQ-009].
  */
 export async function readAllLessons(root, { base = true, machine = true } = {}) {
   const { entries, warning } = await readLessonStore(root);
   const bySha = new Map(entries.map((entry) => [entry.sha256, entry]));
   const add = (list) => { for (const entry of list) if (!bySha.has(entry.sha256)) bySha.set(entry.sha256, entry); };
+  try { add(await stateRefLessons(root)); } catch { /* the checkout's own lessons still count */ }
   if (machine) add(await machineLessons(root));
   if (base) { try { add(baseBranchLessons(root)); } catch { /* the checkout's own lessons still count */ } }
   const all = [...bySha.values()].sort((left, right) => String(left.record.createdAt).localeCompare(String(right.record.createdAt)));

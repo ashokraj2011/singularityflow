@@ -300,3 +300,25 @@ reach (code steps and their test runs, amendments, upstream issues, Epics) and s
   checkout removed; state commits not published keep the checkout and stop the drop until `sync`; a transition whose
   process exits in the middle of its state write, undone before the next commits. `test/story-state-ref.test.mjs`: the
   two refusals name `sync <ID> --set-aside`.
+
+### Stage (d), built 2026-11-27 (WMR REQ-022)
+
+- **Kept with the approval, on the state ref.** `noticeStepLessons` writes a state-ref Story's lessons in its state
+  checkout (`singularity/knowledge/records/` inside it), so the approval's state commit carries them and the Story branch
+  never does; the lesson's `at` is still the code commit it is about. Its three `prefix` uses moved: the step's test
+  attempts and documents are named from the checkout, its review records from the state checkout.
+- **Recalled from it.** `readAllLessons` adds, beside the checkout's own, the base branch's and this machine's copies:
+  the lessons in the state checkout of the Story in scope, and those on the clone's other state refs, read from Git
+  objects with no checkout and no fetch. It asks only a clone that keeps a state-ref Story (a state checkout here, or
+  the exclude line). `lessonsKeptBy` reads the same stores, so the line after an approval names the lesson.
+- **Tests:** `test/story-state-ref-approvals.test.mjs`: an approval with a lesson (a `Learnings to carry forward`
+  section) leaves the branch and the code checkout unchanged and the lesson on the state ref; it is recalled from the
+  state checkout, and another Story started in the same clone is given it from the first Story's state ref.
+
+### What is left of M3
+
+- The 101 `prefix` uses the walk does not reach (code steps and their test runs, delivery evidence, amendments, upstream
+  issues, input restore, Epics) still refuse loudly. A walk through a code step is the next driver.
+- A state write stopped between the state ref's move and its checkout's HEAD is finished at the next command; no test
+  stops a process exactly there.
+

@@ -12,8 +12,8 @@ import { departureStatus } from './departures.mjs';
 import { head } from './git-execution.mjs';
 import { recordSha256 } from './records.mjs';
 import { storyRefusals } from './lesson-refusals.mjs';
-import { KNOWLEDGE_ROOT, readKnowledgeWithDiagnostics, recordKnowledge } from './knowledge.mjs';
-import { agentLessonLines, givenLessons, lessonSecretFindings, lessonsLocalDirectory, mirrorLesson, stepIntent } from './story-lessons.mjs';
+import { KNOWLEDGE_ROOT, recordKnowledge } from './knowledge.mjs';
+import { agentLessonLines, givenLessons, lessonSecretFindings, lessonsLocalDirectory, mirrorLesson, readAllLessons, stepIntent } from './story-lessons.mjs';
 import { stepAttempts } from './verification/attempts.mjs';
 import { storyLocation } from './story-paths.mjs';
 
@@ -63,7 +63,7 @@ async function readJson(file) {
 async function environmentLessons(root, config, workflow, phase, intent) {
   const workId = workflow.workItem.id;
   let attempts = [];
-  try { attempts = await stepAttempts(root, storyLocation(null, config, workId).prefix, workId, phase.id); } catch { return []; }
+  try { attempts = await stepAttempts(root, storyLocation(null, [config, workflow], workId).checkoutPath(), workId, phase.id); } catch { return []; }
   const commandText = (id) => (phase.checks ?? []).find((check) => check?.id === id)?.command ?? id;
   const files = changedFiles(phase);
   const found = [];
@@ -139,7 +139,7 @@ async function refusalLessons(root, workflow, phase, intent) {
 }
 
 async function reviewGenerations(root, config, workflow, phaseId) {
-  const directory = path.join(root, storyLocation(null, config, workflow.workItem.id).prefix, 'context', 'reviews', phaseId);
+  const directory = storyLocation(root, [config, workflow], workflow.workItem.id).file('context', 'reviews', phaseId);
   let names = [];
   try { names = await readdir(directory); } catch { return []; }
   const generations = [];
@@ -290,7 +290,8 @@ async function agentLessons(root, config, workflow, phase, intent) {
   for (const artifact of phase.artifacts ?? []) {
     const relative = String(artifact?.path ?? '');
     if (!relative.endsWith('.md') || !/^[a-f0-9]{64}$/u.test(String(artifact.sha256 ?? ''))) continue;
-    const base = storyLocation(null, config, workId).prefix;
+    // A document named from the checkout: a state-ref Story's are in its state checkout until M4 [SSB M3].
+    const base = storyLocation(null, [config, workflow], workId).checkoutPath();
     const absolute = path.join(root, relative.startsWith(`${base}/`) ? relative : path.posix.join(base, relative));
     let text = '';
     try { text = await readFile(absolute, 'utf8'); } catch { continue; }
@@ -358,6 +359,10 @@ export async function noticeStepLessons(root, config, workflow, phaseId, { write
   }
   const given = new Set(await givenLessons(root, workId, phaseId));
   const at = headCommit(root);
+  // A state-ref Story keeps its lessons with its records: in its state checkout, committed on its state ref with the
+  // approval, never on the Story branch [WMR:REQ-022, SSB M3]. `at` stays the code commit the lesson is about.
+  const location = storyLocation(root, [config, workflow], workId);
+  const store = location.branch ? root : location.recordsRoot;
   const kept = []; const repeated = []; const refused = [];
   const handled = new Set();
   for (const candidate of candidates) {
@@ -395,7 +400,7 @@ export async function noticeStepLessons(root, config, workflow, phaseId, { write
     } else action = { kind: 'keep', input };
     if (!writeFiles) { (action.kind === 'repeat' ? repeated : kept).push({ text: action.input.text, kind: candidate.kind }); continue; }
     try {
-      const result = await recordKnowledge(root, action.input);
+      const result = await recordKnowledge(store, action.input);
       await mirrorLesson(root, result);
       if (action.kind === 'repeat') { repeated.push(result); await noteRepeat(root, workId, phaseId, action.entry); }
       else if (result.created) kept.push(result);
@@ -403,13 +408,14 @@ export async function noticeStepLessons(root, config, workflow, phaseId, { write
       refused.push({ kind: candidate.kind, reason: clip(error?.message, 160) });
     }
   }
-  return { kept, repeated, refused, warnings, paths: kept.length || repeated.length ? [`${KNOWLEDGE_ROOT}/records`] : [] };
+  return { kept, repeated, refused, warnings, paths: location.branch && (kept.length || repeated.length) ? [`${KNOWLEDGE_ROOT}/records`] : [] };
 }
 
 /** The lessons a step kept, for what a person reads after its approval. */
 export async function lessonsKeptBy(root, workId, phaseId) {
   try {
-    const { entries } = await readKnowledgeWithDiagnostics(root);
+    // The checkout's store and a state-ref Story's own, in its state checkout [WMR:REQ-022].
+    const { entries } = await readAllLessons(root, { base: false, machine: false });
     const superseded = new Set(entries.map(({ record }) => record.supersedes).filter(Boolean));
     return entries.filter((entry) => !superseded.has(entry.sha256) && entry.record.status === 'active'
       && entry.record.lesson?.origin?.workId === workId && entry.record.lesson.origin.phase === phaseId);

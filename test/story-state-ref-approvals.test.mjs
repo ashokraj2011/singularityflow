@@ -10,6 +10,10 @@ import path from 'node:path';
 import test from 'node:test';
 import { startedSpecificationStory, specification, implementationPlan, CLI } from './helpers/submitted-planning-story.mjs';
 import { STORY_STATE_REF_PREVIEW } from '../src/work-item-location.mjs';
+import { loadDefinition } from '../src/config.mjs';
+import { loadWorkflow } from '../src/story-workflow-read.mjs';
+import { phaseLessons, readAllLessons } from '../src/story-lessons.mjs';
+import { forgetStoryLayouts } from '../src/story-paths.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
 const REF = (work) => `refs/singularity/state/${work}`;
@@ -145,4 +149,40 @@ test('a code commit after a submission stops its approval, as a change after pub
   assert.match(refused.stdout + refused.stderr, /STORY_REVIEW_SOURCE_CHANGED|STORY_REVIEW_INTERVENING_COMMIT/u);
   assert.match(refused.stdout + refused.stderr, /changed after generation 1 was submitted|A change a person made after the submission/u);
   assert.equal(await status(item, 'specification'), 'awaiting_approval');
+});
+
+test('a lesson noticed at approval is committed on the state ref, not the branch, and recalled from it [WMR:REQ-022]', async (t) => {
+  const work = 'SSB-L1';
+  const story = await stateRefStory(t, work);
+  const { root, item, git, remoteGit } = story;
+  const cli = (...args) => cliIn(root, args);
+  const base = git('rev-parse', 'HEAD');
+  const lesson = 'Keep the value module free of side effects.';
+  await writeFile(path.join(item, 'artifacts/specification/spec.md'),
+    `${specification(work, 1)}\n\n## Learnings to carry forward\n\n- ${lesson}\n`);
+  cli('artifact', 'scan', '--phase', 'specification');
+  cli('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
+  cli('submit', 'specification', '--skip-checks');
+  await decideScope(cli);
+  if (await status(item, 'specification') === 'awaiting_approval') cli('approve', 'specification', '--yes');
+  assert.equal(await status(item, 'specification'), 'approved');
+  // On the state ref with the approval; nothing on the Story branch or in the code checkout.
+  assertPublishedOnStateRef(story, work, base, 'approve with a lesson');
+  const kept = git('ls-tree', '-r', '--name-only', REF(work)).split('\n').filter((file) => file.startsWith('singularity/knowledge/records/'));
+  assert.equal(kept.length, 1, 'the lesson is a record on the state ref');
+  assert.match(git('show', `${REF(work)}:${kept[0]}`), /free of side effects/u);
+  assert.equal(git('ls-tree', '-r', '--name-only', 'HEAD', '--', 'singularity/knowledge'), '', 'the branch holds no lesson');
+  assert.equal(remoteGit('rev-parse', `refs/heads/${work}`), base);
+  forgetStoryLayouts();
+  assert.ok((await readAllLessons(root)).entries.some((entry) => entry.record.text === lesson), 'recalled from the state checkout');
+
+  // Another Story in the same clone recalls it from the first Story's state ref.
+  cli('start', 'SSB-L2', '--from-branch', 'main', '--work-type', 'spec-driven-standard', '--title', 'Another value',
+    '--description', 'Return another value.');
+  forgetStoryLayouts();
+  const definition = await loadDefinition(root);
+  const other = await loadWorkflow(root, definition, 'SSB-L2');
+  assert.equal(other.workItem.id, 'SSB-L2');
+  const given = await phaseLessons(root, { workflow: other, phase: 'specification' });
+  assert.ok(given.chosen.some((entry) => entry.record.text === lesson), `the next Story's step is given it: ${given.text}`);
 });

@@ -1,5 +1,7 @@
 /**
- * `singularity-flow lessons [--path P] [--story ID] [--json]` and `lessons drop|keep|edit <K-ID>` [LRN:REQ-004, REQ-014].
+ * `singularity-flow lessons [--path P] [--story ID] [--json]` and `lessons drop|keep|edit|guidance <K-ID>` [LRN:REQ-004, REQ-014].
+ * `lessons guidance` makes a lesson team guidance [LRN:REQ-012]; `lessons rule` is its earlier name and still works, so
+ * scripts keep working, but "rules" are only the team's `tasks:` rules that add steps [FPL §11, question 4].
  *
  * A person's view of the lessons Stories left (src/story-lessons.mjs): what each one says, where it came from, how far it
  * is trusted and whether it may be out of date. Drop resolves one for good, Keep confirms it, Edit puts a person's words
@@ -10,7 +12,9 @@ import { add, changes, commit } from '../git.mjs';
 import { repoRoot } from '../git-execution.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-const WRITES = ['drop', 'keep', 'edit', 'rule'];
+const WRITES = ['drop', 'keep', 'edit', 'guidance', 'rule'];
+/** `lessons rule` is `lessons guidance` by its earlier name. */
+const GUIDANCE = new Set(['guidance', 'rule']);
 
 function commitLessons(root, message) {
   add(root, ['singularity/knowledge']);
@@ -55,13 +59,13 @@ export async function lessonsCommand(positionals = [], options = {}, { cwd = pro
     }
     const done = action === 'drop' ? await lessons.dropLesson(root, wanted)
       : action === 'keep' ? await lessons.keepLesson(root, wanted)
-        : action === 'rule' ? await lessons.ruleLesson(root, wanted)
+        : GUIDANCE.has(action) ? await lessons.ruleLesson(root, wanted)
           : await lessons.editLesson(root, wanted, optionString(options, 'text') ?? positionals.slice(3).join(' '));
     const entry = done.dropped ?? done.kept ?? done.ruled ?? done.edited;
     const committedAs = done.result.created ? commitLessons(root, `[lessons][${action}] ${entry.record.id}`) : null;
     const words = action === 'drop' ? `Dropped lesson ${entry.record.id}: it is never given to a step again.`
       : action === 'keep' ? `Kept lesson ${done.result.record.id}: a person confirmed it, so it comes first.`
-        : action === 'rule' ? `Lesson ${done.result.record.id} is a team rule now: it comes first for every step on its files, and reaches the team with this change.`
+        : GUIDANCE.has(action) ? `Lesson ${done.result.record.id} is team guidance now: it comes first for every step on its files, and reaches the team with this change.`
         : `Edited lesson ${entry.record.id}; it is ${done.result.record.id} now, in your words.`;
     return { schemaVersion: 1, resultType: 'sflow-lessons-change', action, lesson: entry.record.id, now: done.result.record.id, committed: Boolean(committedAs), words };
   }
@@ -103,12 +107,12 @@ function printResult(result) {
     return;
   }
   for (const lesson of result.lessons) {
-    const marks = [lesson.trust === 'rule' ? 'team rule' : lesson.pinned ? 'pinned' : null, lesson.trust === 'confirmed' ? 'confirmed' : lesson.trust === 'agent' ? "the agent's words" : null,
+    const marks = [lesson.trust === 'rule' ? 'team guidance' : lesson.pinned ? 'pinned' : null, lesson.trust === 'confirmed' ? 'confirmed' : lesson.trust === 'agent' ? "the agent's words" : null,
       lesson.mayBeOutOfDate ? 'may be out of date' : null].filter(Boolean);
     console.log(`\n${lesson.id}  ${lesson.text}`);
     console.log(`  from ${lesson.from}${lesson.paths.length ? ` · ${lesson.paths.slice(0, 3).join(', ')}${lesson.paths.length > 3 ? ' …' : ''}` : ''}${marks.length ? ` · ${marks.join(' · ')}` : ''}`);
   }
-  console.log('\nDrop one with singularity-flow lessons drop <K-ID>; keep one with lessons keep <K-ID>; make one a team rule with lessons rule <K-ID>.');
+  console.log('\nDrop one with singularity-flow lessons drop <K-ID>; keep one with lessons keep <K-ID>; make one team guidance with lessons guidance <K-ID>.');
 }
 
 export async function run(_argv, { positionals = ['lessons'], options = {} } = {}) {

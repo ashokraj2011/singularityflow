@@ -4357,7 +4357,7 @@ singularity-flow workspace list|current|use|prompt|copilot|stories
 singularity-flow repositories providers|list|search|status|select|cache ...
 singularity-flow knowledge list|show|record|import|harvest|resolve ...
 singularity-flow knowledge import <REPOSITORY-RELATIVE-MANIFEST.json|yaml|yml> [--dry-run] [--json]
-singularity-flow lessons [list|drop|keep|edit|rule] [K-ID] [--path PATH] [--story WORK-ID] [--text TEXT] [--json]
+singularity-flow lessons [list|drop|keep|edit|guidance] [K-ID] [--path PATH] [--story WORK-ID] [--text TEXT] [--json]
 singularity-flow work "<words>" [--kind KIND] [--path FILE]... [--start] [--work-id ID] [--base BRANCH] [--from TASK-ID] [--document FILE]... [--add STEP]... [--skip STEP]... [--use-agent MARKETPLACE/AGENT | --without-agent MARKETPLACE/AGENT] [--use-skill ID]... [--without-skill ID]... [--new] [--json]
 singularity-flow work "<words>" --plan-only [--kind KIND] [--path FILE]... [--json]
 singularity-flow work list [--offline] [--json]

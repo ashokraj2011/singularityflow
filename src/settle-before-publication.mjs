@@ -58,18 +58,42 @@ async function generatedAtBase(root, workflow) {
 }
 
 /**
- * Where each of `files` belongs, settled now when its class allows it [C3]. Returns `{ settled, person }`: the settlements
- * recorded (or already standing), and each file left for a person with its class. `reason`: the agent's own words, when
- * it recorded the files itself (`departure record`), kept as one more line of evidence. Never refuses: a settlement that
- * cannot be written leaves its question standing.
+ * Where each of `files` belongs, settled now [C3, WCB:REQ-010]. A file whose class places it (a companion, test support,
+ * documentation, an ignore file, a generated file) is settled into the plan as before; every other file is taken up with
+ * the step as changed outside the plan, with who changed it and, for Copilot, the reason it wrote in the step's document
+ * (code-outside-plan.mjs). Returns `{ settled, person }`: the settlements recorded (or already standing), and each file
+ * left for a person with its class: only one a person rejected or undid, one that already waits as a departure, or a
+ * protected path. `reason`: the agent's own words, when it recorded the files itself (`departure record`), kept as one
+ * more line of evidence. `takeUp`: only publication, whose document is final, and the agent's own `departure record` take a
+ * file up; prepublish settles the clear classes alone. Never refuses: a settlement that cannot be written leaves its
+ * question standing.
  */
-export async function settleOutOfPlan(root, config, workflow, phase, files, { actor, agent = null, reason = null } = {}) {
+export async function settleOutOfPlan(root, config, workflow, phase, files, { actor, agent = null, reason = null, takeUp: taking = true, claimedBy = null } = {}) {
   const settled = [];
   const person = [];
   if (!files.length) return { settled, person };
-  const [{ settlementState, commitSettledDecision }, { outOfPlanPlace }] = await Promise.all([import('./settled-decisions.mjs'), import('./out-of-plan-classes.mjs')]);
+  const [{ settlementState, commitSettledDecision }, { outOfPlanPlace, personClass, sensitivePath }, outside] = await Promise.all([
+    import('./settled-decisions.mjs'), import('./out-of-plan-classes.mjs'), import('./code-outside-plan.mjs')]);
   const context = await settleContext(root, config, workflow, phase, files);
   const pinned = outOfPlanSettling(workflow);
+  // Who changed each file, and what Copilot wrote about it, read once [WCB:REQ-011, REQ-012].
+  const [writers, { reasons, document }] = await Promise.all([outside.codeWriters(root, workflow, files).catch(() => new Map()),
+    outside.stepDocumentReasons(root, config, workflow, phase)]);
+  const guarded = context.protectedPaths.map((entry) => String(entry).replace(/\/$/u, ''));
+  // Taken up with the step unless a person already has it, it is a protected path, a hard stop [WCB:REQ-001, REQ-010], or it is
+  // shaped like a key or certificate, which SFlow never commits on its own.
+  const takesUp = (file) => !context.rejected.has(file) && !context.undone.has(file) && !context.open.has(file) && !SECRET.test(file)
+    && !guarded.some((entry) => file === entry || file.startsWith(`${entry}/`));
+  const takeUp = async (file) => {
+    // The agent's own `departure record` says it changed the file: Copilot's, with its reason, when no hook says so already.
+    const recorded = writers.get(file) ?? { writer: 'person', basis: 'no-hook-records' };
+    const writer = claimedBy === 'agent' && recorded.writer !== 'copilot' ? { writer: 'copilot', basis: 'agent-said' } : recorded;
+    const settlement = outside.outsidePlanSettlement(file, { phase, stepName: phase.label ?? phase.id, writer, document,
+      reason: reasons.get(file) ?? (writer.writer === 'copilot' ? reason : null),
+      kind: personClass(file)?.class ?? (sensitivePath(file) ? 'sensitive' : 'behaviour') });
+    const { record } = await commitSettledDecision(root, config, workflow, settlement, { actor, agent });
+    settled.push(record);
+  };
   for (const file of files) {
     let place;
     if (pinned) place = outOfPlanPlace(file, { ...context, reason });
@@ -85,35 +109,40 @@ export async function settleOutOfPlan(root, config, workflow, phase, files, { ac
           { what: `no other row of ${phase.id} names a file of that name there`, where: 'the approved plan' }],
         effect: { clauseId: row.clauseId, path: file } } } : { person: { class: 'behaviour' } };
     }
-    if (!place.settle || settlementState(workflow, 'plan-accounting', `file:${file}`) !== 'open') {
-      person.push({ file, ...(place.person ?? { class: 'behaviour' }) });
-      continue;
+    const standing = settlementState(workflow, 'plan-accounting', `file:${file}`) === 'open';
+    if (place.settle && standing) {
+      try {
+        const { record } = await commitSettledDecision(root, config, workflow, { kind: 'plan-accounting', by: 'sflow', phase: phase.id, subject: `file:${file}`,
+          answer: place.settle.answer, evidence: place.settle.evidence, effect: place.settle.effect }, { actor, agent });
+        settled.push(record);
+        if (place.settle.effect?.clauseId) context.settledRows?.set(file, place.settle.effect.clauseId);
+        continue;
+      } catch { /* Taken up below instead. */ }
     }
-    try {
-      const { record } = await commitSettledDecision(root, config, workflow, { kind: 'plan-accounting', by: 'sflow', phase: phase.id, subject: `file:${file}`,
-        answer: place.settle.answer, evidence: place.settle.evidence, effect: place.settle.effect }, { actor, agent });
-      settled.push(record);
-      if (place.settle.effect?.clauseId) context.settledRows?.set(file, place.settle.effect.clauseId);
-    } catch { person.push({ file, ...(place.person ?? { class: place.settle.class }) }); /* Settling is a convenience over the question it replaces: that question stands. */ }
+    if (!taking && standing && takesUp(file)) continue;
+    if (standing && takesUp(file)) {
+      try { await takeUp(file); continue; } catch { /* Settling is a convenience over the question it replaces: that question stands. */ }
+    }
+    person.push({ file, ...(place.person ?? { class: place.settle?.class ?? 'behaviour' }) });
   }
   return { settled, person };
 }
 
-/** Settle each changed file outside the plan whose place is clear; returns what was settled. */
-async function settlePlanAccounting(root, config, workflow, phase, { actor, agent }) {
-  const { unreconciledCandidatePaths } = await import('./candidate-scope.mjs');
-  const files = await unreconciledCandidatePaths(root, config, workflow, phase).catch(() => []);
-  return (await settleOutOfPlan(root, config, workflow, phase, files, { actor, agent })).settled;
+/** Settle each changed file outside the plan, committed or not [WCB:REQ-010]; returns what was settled. */
+async function settlePlanAccounting(root, config, workflow, phase, { actor, agent, takeUp }) {
+  const files = await (await import('./code-outside-plan.mjs')).outsidePlanFiles(root, config, workflow, phase).catch(() => []);
+  return (await settleOutOfPlan(root, config, workflow, phase, files, { actor, agent, takeUp })).settled;
 }
 
 /**
- * Settle before the step's tests and its departures; never refuses. `accounting`: the agent's prepublish, and its governed
- * publish, which records departures too [C3]: a companion was a person's question there before.
+ * Settle before the step's tests and its departures; never refuses. `accounting`: the agent's prepublish, and every
+ * publication [C3]: a companion was a person's question there before. `takeUp`: publication, which also takes up every other
+ * file no plan row names, with who changed it and Copilot's reason from the now final document [WCB:REQ-010].
  */
-export async function settleBeforePublication(root, config, workflow, phase, { actor, agent = null, accounting = false, nodeSettled = false } = {}) {
+export async function settleBeforePublication(root, config, workflow, phase, { actor, agent = null, accounting = false, takeUp = false, nodeSettled = false } = {}) {
   if (workflow.status !== 'in_progress' || phase?.generationIntent?.status !== 'open' || workflow.currentPhase !== phase.id) return { node: null, files: [] };
   // `nodeSettled`: the caller settled the Node already in this command (publish does, before its tests).
   const node = nodeSettled ? null : await (await import('./node-version-settle.mjs')).settleRepositoryNode(root, config, workflow, phase, { actor, agent }).catch(() => null);
-  const files = accounting ? await settlePlanAccounting(root, config, workflow, phase, { actor, agent }).catch(() => []) : [];
+  const files = accounting ? await settlePlanAccounting(root, config, workflow, phase, { actor, agent, takeUp }).catch(() => []) : [];
   return { node, files };
 }

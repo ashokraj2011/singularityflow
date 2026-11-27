@@ -18,7 +18,7 @@
 import { NODE_PIN_CLASS } from './node-pin-names.mjs';
 import { ISSUE_ONLY_OPTIONS, PERSON_STEPS } from './person-step-catalog.mjs';
 import { countedRecords, presenceRequires } from './presence/counted.mjs';
-import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
+import { MAX_PLAN_AMENDMENT_CHANGES, outsidePlanSettled, planAuthorities } from './plan-amendments.mjs';
 import { clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, rowChangeWords, rowTakesPaths } from './plan-row-fit.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { personClass } from './person-change-class.mjs';
@@ -1799,7 +1799,16 @@ const SETTLED_SHOWN = 20;
 
 // How a group of settled files reads in one line [owner, 2026-11-19, C3].
 const SETTLED_GROUP_WORDS = Object.freeze({ 'test-support': ['test-support file', 'listed as supporting changes'], documentation: ['documentation file', 'listed as supporting changes'],
-  'repository-metadata': ['ignore file', 'listed as supporting changes'], row: ['file', 'added to the row of the file beside it'] });
+  'repository-metadata': ['ignore file', 'listed as supporting changes'], row: ['file', 'added to the row of the file beside it'],
+  'out-of-plan': ['file', 'changed outside the plan, taken up with the step'] });
+
+/**
+ * One file taken up because it changed outside the plan, as the code approval lists it [WCB:REQ-014]: who changed it, and
+ * for Copilot the reason it wrote in the step's document.
+ */
+export function outsidePlanWords(entry) {
+  return entry.writer === 'copilot' ? `${entry.file}: by Copilot: ${entry.reason ?? 'no reason written'}` : `${entry.file}: by you`;
+}
 
 /**
  * What SFlow settled into the plan of `phaseId` and still stands, grouped by what it did, one line each: "12 test-support files
@@ -2005,10 +2014,14 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
   const overrides = countedRecords(workflow, workflow.findingOverrides).filter((entry) => entry.phase === phase.id
     && Number(entry.generation) === Number(phase.generation) && !entry.withdrawnAt)
     .map((entry) => `${entry.code}${entry.path ? ` on ${entry.path}` : ''} was overridden by ${entry.actor ?? 'a person'}: "${entry.reason}". Recorded as overridden, not passed.`);
+  // Every file taken up because it changed outside the plan, one line each, with who changed it and why [WCB:REQ-014].
+  const outside = outsidePlanSettled(workflow, phase.id).map((entry) => ({ file: entry.file, by: entry.writer, reason: entry.reason,
+    ...(entry.kind ? { kind: entry.kind } : {}), settled: entry.id, words: outsidePlanWords(entry) }));
   // A Story with no code step: the code base files left in its checkout, which nothing delivers [WCB:REQ-017].
   const leftOut = context.facts?.noCodeStep?.uncommitted ?? [];
   const reviewed = [...(leftOut.length ? [`Not part of this task: ${listWords(leftOut.slice(0, 8))}${leftOut.length > 8 ? ` and ${leftOut.length - 8} more` : ''}, left in your checkout; nothing delivers ${leftOut.length === 1 ? 'it' : 'them'}.`] : []),
-    ...ledger.map((group) => `Settled for you: ${group.words}.`), ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : []),
+    ...ledger.map((group) => `Settled for you: ${group.words}.`), ...outside.map((entry) => `Changed outside the plan: ${entry.words.replace(/[.\s]+$/u, '')}.`),
+    ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : []),
     ...disputes.map((entry) => entry.words), ...overrides];
   return {
     kind: 'approval', title: `Approve ${name}`,
@@ -2020,6 +2033,7 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
     details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length,
       ...(reviewed.length ? { ledger: { settled: ledger, issues: raised }, lines: reviewed } : {}),
       ...(leftOut.length ? { notPartOfTask: leftOut } : {}),
+      ...(outside.length ? { outsidePlan: outside } : {}),
       ...(disputes.length ? { disputes } : {}),
       // The one approval screen opens its documents, and those of the steps SFlow approved since the last approval (approve twice).
       documents: [...new Set((phase.artifacts ?? []).map((artifact) => artifact?.path).filter((file) => typeof file === 'string' && file))],

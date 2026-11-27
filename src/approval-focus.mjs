@@ -425,8 +425,12 @@ async function settledItems(workflow, phase) {
   try {
     const { settledDecisions, settlementMatters } = await import('./settled-decisions.mjs');
     return settledDecisions(workflow).filter((entry) => !entry.undone && settlementMatters(workflow, entry) && (!entry.phase || entry.phase === phase.id))
-      .map((entry) => ({ kind: 'settled', words: `Settled for you: ${entry.subject}: ${entry.answer} Undo it with singularity-flow decisions undo ${workflow.workItem.id} --settled ${entry.id} if you disagree.`,
-        at: at(entry.evidence?.[0]?.where && !/\s/u.test(entry.evidence[0].where) ? entry.evidence[0].where : null, null, { settled: entry.id }) }));
+      // A file changed outside the plan, taken up with the step: who changed it and why, at the file [WCB:REQ-014].
+      .map((entry) => (entry.effect?.class === 'out-of-plan' && entry.effect.file ? { kind: 'outside-plan',
+        words: `Changed outside the plan: ${entry.effect.file}, ${entry.effect.writer === 'copilot' ? `by Copilot: ${String(entry.effect.reason ?? 'no reason written').replace(/[.\s]+$/u, '')}` : 'by you'}. Return the step if it does not belong.`,
+        at: at(entry.effect.file, null, { settled: entry.id }) }
+        : { kind: 'settled', words: `Settled for you: ${entry.subject}: ${entry.answer} Undo it with singularity-flow decisions undo ${workflow.workItem.id} --settled ${entry.id} if you disagree.`,
+          at: at(entry.evidence?.[0]?.where && !/\s/u.test(entry.evidence[0].where) ? entry.evidence[0].where : null, null, { settled: entry.id }) }));
   } catch { return []; }
 }
 

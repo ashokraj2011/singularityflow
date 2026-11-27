@@ -42,7 +42,7 @@ import {
 } from './verification/adapters.mjs';
 import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
 import { scanSourceClauseTags } from './source-clause-tags.mjs';
-import { codeCandidateScope, outsideEveryCandidate, unreconciledCandidatePaths } from './candidate-scope.mjs';
+import { codeCandidateScope, heldCandidatePaths, outsideEveryCandidate, unreconciledCandidatePaths } from './candidate-scope.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts } from './verification/contracts.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
@@ -1324,7 +1324,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       }
     );
   }
-  const unresolved = requireReconciled ? await unreconciledCandidatePaths(root, config, workflow, phase, scope) : [];
+  // `held`: a read before publication, which takes up every other file no plan row names itself [WCB:REQ-010].
+  const unresolved = requireReconciled === 'held' ? await heldCandidatePaths(root, config, workflow, phase, scope)
+    : requireReconciled ? await unreconciledCandidatePaths(root, config, workflow, phase, scope) : [];
   // A file a person rejected as a departure goes back, by the model, in this generation [CQF:REQ-026].
   const rejected = unresolved.length && (workflow.departures ?? []).length
     ? (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'departures.mjs')).href)).rejectedDeparturePaths(workflow, phase.id) : new Map();

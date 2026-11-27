@@ -1148,7 +1148,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // code-outside-plan.mjs, loaded lazily), and a document step's submission and approval never answer for the code base,
     // while a Story with no code step stops for committed code (state.mjs +1,641; candidate-scope.mjs +89;
     // generation-boundary.mjs -823). One new eager file (workspace-local-paths.mjs).
-    assert.ok(closure.bytes <= 9_941_613, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,945,286 (measured for start.mjs, +3,673 over 9,941,613, 2026-11-27 on watch-code-base; submit.mjs 9,941,538): a file
+    // no plan row names is taken up with its code step at publication, nobody asked [WCB M2]: the candidate takes it and
+    // reads only what a person holds (candidate-scope.mjs +1,577 heldCandidatePaths), the settled record of it
+    // (plan-amendments.mjs +878 outsidePlanSettled), spec coverage counts it claimed (specifications.mjs +311), a read
+    // before publication asks about none (delivery-evidence.mjs +232), the code step's protocol asks Copilot for its
+    // reason (phase-authoring-contract.mjs +480) and the template's previous hash (packaged-asset-history.mjs +195). Who
+    // changed each file and why is read in code-outside-plan.mjs, loaded lazily. No new eager file.
+    assert.ok(closure.bytes <= 9_945_286, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1825,7 +1832,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,394,663 (+1,500 over 4,393,163, measured 2026-11-27 on the merge of watch-code-base with main 29c9c43b9): the workspace-local rule and the code step's
   // reach-back baseline (workspace-local-paths.mjs, 1,001, work-intervals.mjs +410, candidate-scope.mjs +89) [WCB M1]. One
   // new eager file (workspace-local-paths.mjs).
-  assert.ok(current.bytes <= 4_394_663, `session current loads ${current.bytes} source bytes`);
+  // 4,397,856 (+3,193, measured 2026-11-27 on watch-code-base): a file no plan row names is taken up at publication
+  // [WCB M2] (candidate-scope.mjs +1,577, plan-amendments.mjs +878, specifications.mjs +311, delivery-evidence.mjs +232,
+  // packaged-asset-history.mjs +195). No new eager file.
+  assert.ok(current.bytes <= 4_397_856, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

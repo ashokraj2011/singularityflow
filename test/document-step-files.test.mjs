@@ -107,7 +107,7 @@ async function classicStory(t, W, { approveIntake = true } = {}) {
 
 const json = (result) => JSON.parse(result.stdout);
 
-test('an editor\'s settings never stop a step, and any other file a document step leaves in the checkout', slowLane({ timeout: 900_000 }), async (t) => {
+test('an editor\'s settings never stop a step, and any other file a document step leaves in the checkout is taken up by the code step', slowLane({ timeout: 900_000 }), async (t) => {
   const W = 'DOCF-1';
   const { root, write } = await classicStory(t, W, { approveIntake: false });
   execute('mkdir', ['-p', '.vscode', '.idea', 'config'], root);
@@ -136,9 +136,8 @@ test('an editor\'s settings never stop a step, and any other file a document ste
   assert.equal((await read()).phases.intake.status, 'approved');
   assert.equal(await readFile(path.join(root, 'config/settings.json'), 'utf8'), '{ "spark": true }\n');
 
-  // The code step: the editor writes again; it is no plan question, no new draft, and no approval hold. The person drops
-  // the settings file before the code is written.
-  await rm(path.join(root, 'config/settings.json'));
+  // The code step: the editor writes again; it is no plan question, no new draft, and no approval hold. The settings file
+  // is taken up with the code, changed outside the plan by you.
   flow(root, ['prepare', 'implementation']);
   await write('src/value.mjs', `// @clause:${W}:AC-001 returns the approved value\nexport const value = 2;\n`);
   await write('test/value.test.mjs', ["import test from 'node:test';", "import assert from 'node:assert/strict';",
@@ -147,6 +146,8 @@ test('an editor\'s settings never stop a step, and any other file a document ste
   const summary = path.join(root, 'singularity/work-items', W, 'artifacts/implementation/implementation-summary.md');
   await writeFile(summary, (await readFile(summary, 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module returns the approved value.'));
   flow(root, ['phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place']);
+  const taken = ((await read()).settledDecisions ?? []).filter((entry) => entry.effect?.class === 'out-of-plan');
+  assert.deepEqual(taken.map((entry) => [entry.effect.file, entry.effect.writer]), [['config/settings.json', 'person']]);
   await write('.idea/workspace.xml', '<project version="4"/>\n');
   await write('service/.project', '<projectDescription/>\n');
   flow(root, ['submit', 'implementation']);

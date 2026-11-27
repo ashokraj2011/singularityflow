@@ -5,10 +5,11 @@
  * folders", and "If any code changes that was not agreed upon in planning phase, surface it, let copilot explain if it has
  * touched, add the reason in documents and carry forward. If human has done, let them do it and move forward."
  *
- * A person starts coding while Intake (the plan) is open and commits some of it, and an editor, a test runner and a local
+ * A person starts coding while Intake (the plan) is open, commits some of it, and an editor, a test runner and a local
  * settings file write their own files. Intake is submitted and approved with no question. The code step carries what was
- * already there, committed or not, and is published, submitted and approved with no question either. A clause with no
- * test is still refused: the hard stops stay.
+ * already there, Copilot changes one more file outside the plan and says why in its document, and the code step is
+ * published, submitted and approved with no question either: its approval lists each file outside the plan with who
+ * changed it. A clause with no test is still refused: the hard stops stay.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -21,6 +22,7 @@ import YAML from 'yaml';
 
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
+import { captureToolWrites, settleToolWrites } from '../src/comprehension/xpl2/observed-write-recorder.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -108,27 +110,29 @@ const summary = (item, W, outside = []) => [
 const valueTest = (W, value, tagged = true) => ["import test from 'node:test';", "import assert from 'node:assert/strict';",
   "import { value } from '../src/value.mjs';", ...(tagged ? [`// @ac:${W}:AC-001`] : []), `test('value', () => assert.equal(value, ${value}));`, ''].join('\n');
 
-test('code written while the plan is open, committed or not, reaches an approved code step with no question; the workspace\'s own files are never counted',
+test('code changed outside the plan, by Copilot or by you, early or late, committed or not, reaches an approved code step with no question, each file listed with who changed it',
   slowLane({ timeout: 900_000 }), async (t) => {
     const W = 'WCB-1';
     const { root, item, write, read } = await story(t, W);
     const base = (await read()).workItem.baseCommit;
     execute('mkdir', ['-p', '.vscode', 'test-results'], root);
 
-    // While Intake is open: a person starts the planned change, and an editor, a test runner and a local settings file write
-    // their own files.
+    // While Intake is open: a person starts the planned change and writes code no plan row names, commits one file, an
+    // editor and a test runner write their own files, and a local settings file and a tool configuration change.
     await write('src/value.mjs', 'export const value = 2;\n');
+    await write('src/helper.mjs', 'export const helper = (value) => value * 2;\n');
     await write('.vscode/settings.json', '{ "java.configuration.updateBuildConfiguration": "automatic" }\n');
     await write('test-results/.last-run.json', '{ "status": "passed" }\n');
     await write('.env.local', 'LEDGER_REGION=local\n');
+    await write('.eslintrc.json', '{ "root": true }\n');
 
     // Intake writes documents only: it is submitted and approved with nothing to set aside and nobody asked, while the
-    // person goes on coding and commits the test as it waits [WCB:REQ-005, REQ-006].
+    // person goes on coding and commits some of it as it waits [WCB:REQ-005, REQ-006].
     const submitted = flow(root, ['submit', 'intake', '--json'], { allowFailure: true });
     assert.equal(submitted.status, 0, submitted.stdout + submitted.stderr);
     await write('src/value.mjs', `// @clause:${W}:AC-001 returns the approved value\nexport const value = 2;\n`);
-    await write('test/value.test.mjs', valueTest(W, 2));
-    git(root, 'add', 'test/value.test.mjs');
+    await write('src/early.mjs', 'export const early = true;\n');
+    git(root, 'add', 'src/early.mjs');
     git(root, 'commit', '-q', '-m', 'early work');
     const intakeList = json(flow(root, ['decisions', W, '--json'])).data;
     assert.ok(!intakeList.items.some((entry) => ['generation-rollover', 'plan-accounting', 'departure'].includes(entry.kind)),
@@ -138,7 +142,7 @@ test('code written while the plan is open, committed or not, reaches an approved
     let workflow = await read();
     assert.equal(workflow.phases.intake.status, 'approved');
     // Nothing of the code base went into Intake's commits.
-    assert.equal(git(root, 'status', '--porcelain', '--', 'src/value.mjs'), 'M src/value.mjs');
+    assert.equal(git(root, 'status', '--porcelain', '--', 'src/value.mjs', 'src/helper.mjs', '.eslintrc.json').split('\n').length, 3);
     // The code step's interval starts where code was last governed, the Story's base, so the commit made during Intake is
     // in its change set [WCB:REQ-008].
     assert.equal(workflow.workIntervals.current.phaseId, 'implementation');
@@ -151,16 +155,61 @@ test('code written while the plan is open, committed or not, reaches an approved
     const start = JSON.parse(await readFile(path.join(root, workflow.phases.implementation.generationIntent.path), 'utf8'));
     assert.equal(start.baseline.mode, 'inherited');
     assert.equal(start.baseline.commit, base);
-    for (const file of ['src/value.mjs', 'test/value.test.mjs']) assert.ok(start.inherited.paths.includes(file), file);
+    for (const file of ['src/early.mjs', 'src/helper.mjs', 'src/value.mjs', '.eslintrc.json']) assert.ok(start.inherited.paths.includes(file), file);
     assert.ok(!start.inherited.paths.some((file) => file.startsWith('.vscode/') || file.startsWith('test-results/') || file === '.env.local'));
 
-    await writeFile(path.join(item, 'artifacts/implementation/implementation-summary.md'), summary(item, W));
+    // Copilot changes a file no plan row names, recorded by the hook SFlow runs on its edits, and says why in its document.
+    const pendingFile = path.join(root, '.git', 'wcb-pending-writes.json');
+    await captureToolWrites({ pendingFile, root, gitDirectory: path.join(root, '.git'),
+      writer: { kind: 'copilot-turn', session: 'wcb-session', turn: 'wcb-turn', skill: 'sf-code', agent: 'sflow-workflow' },
+      subject: { workId: W, phase: 'implementation', generation: 1 },
+      calls: [{ name: 'create_file', args: { filePath: 'src/format.mjs', content: 'export const format = (value) => value.toFixed(2);\n' }, targets: ['src/format.mjs'] }] });
+    await write('src/format.mjs', 'export const format = (value) => value.toFixed(2);\n');
+    await settleToolWrites(pendingFile, { final: true });
+    await write('test/value.test.mjs', valueTest(W, 2));
+    // Its check says what publication takes up, and that Copilot still owes the reason for its file [WCB:REQ-012].
+    const check = flow(root, ['phase', 'prepublish', 'implementation', '--json'], { allowFailure: true });
+    const preview = (JSON.parse(check.stdout).outsidePlan ?? JSON.parse(check.stdout).data?.outsidePlan);
+    assert.ok(preview, check.stdout.slice(0, 2000));
+    assert.deepEqual(preview.files.map((entry) => [entry.file, entry.writer]).sort(),
+      [['.eslintrc.json', 'person'], ['src/early.mjs', 'person'], ['src/format.mjs', 'copilot'], ['src/helper.mjs', 'person']]);
+    assert.deepEqual(preview.reasonsMissing, ['src/format.mjs']);
+    assert.ok(!((await read()).departures ?? []).length, 'a check records no departure for them');
+    await writeFile(path.join(item, 'artifacts/implementation/implementation-summary.md'),
+      summary(item, W, [['src/format.mjs', 'the summary page shows the value with two decimals.']]));
+
+    // Published by a person, then submitted: every file outside the plan is taken up, nobody asked [WCB:REQ-010].
     const published = flow(root, ['phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json'], { allowFailure: true });
     assert.equal(published.status, 0, published.stdout + published.stderr);
-    assert.equal(git(root, 'status', '--porcelain', '--', 'src/value.mjs'), '');
+    workflow = await read();
+    const outside = Object.fromEntries((workflow.settledDecisions ?? []).filter((entry) => entry.effect?.class === 'out-of-plan')
+      .map((entry) => [entry.effect.file, entry.effect]));
+    assert.deepEqual(Object.keys(outside).sort(), ['.eslintrc.json', 'src/early.mjs', 'src/format.mjs', 'src/helper.mjs']);
+    assert.equal(outside['src/format.mjs'].writer, 'copilot');
+    assert.equal(outside['src/format.mjs'].reason, 'the summary page shows the value with two decimals.');
+    for (const file of ['src/early.mjs', 'src/helper.mjs', '.eslintrc.json']) {
+      assert.equal(outside[file].writer, 'person', file);
+      assert.equal(outside[file].reason, null, `no reason is asked of a person for ${file}`);
+    }
+    assert.ok(!(workflow.departures ?? []).length, 'no departure waits for a person');
+    // Published with the step: committed in its generation, the workspace's own files left where they are.
+    for (const file of ['src/format.mjs', 'src/helper.mjs', '.eslintrc.json', 'src/value.mjs']) assert.equal(git(root, 'status', '--porcelain', '--', file), '', file);
     assert.equal(git(root, 'ls-files', '--', '.vscode', 'test-results', '.env.local'), '');
+
     const submittedCode = flow(root, ['submit', 'implementation', '--json'], { allowFailure: true });
     assert.equal(submittedCode.status, 0, submittedCode.stdout + submittedCode.stderr);
+    // The code approval lists each file outside the plan, with who changed it and Copilot's reason [WCB:REQ-014].
+    const list = json(flow(root, ['decisions', W, '--json'])).data;
+    assert.ok(!list.items.some((entry) => ['plan-accounting', 'departure', 'generation-rollover'].includes(entry.kind)),
+      JSON.stringify(list.items.map((entry) => entry.kind)));
+    const approval = list.items.find((entry) => entry.kind === 'approval');
+    assert.ok(approval, JSON.stringify(list.items.map((entry) => entry.kind)));
+    assert.deepEqual(approval.details.outsidePlan.map((entry) => entry.words).sort(), [
+      '.eslintrc.json: by you', 'src/early.mjs: by you', 'src/format.mjs: by Copilot: the summary page shows the value with two decimals.',
+      'src/helper.mjs: by you']);
+    assert.ok(approval.details.lines.includes('Changed outside the plan: src/format.mjs: by Copilot: the summary page shows the value with two decimals.'));
+    assert.deepEqual(approval.details.heldBy, []);
+
     const approvedCode = flow(root, ['approve', 'implementation', '--yes'], { allowFailure: true });
     assert.equal(approvedCode.status, 0, approvedCode.stdout + approvedCode.stderr);
     assert.equal((await read()).phases.implementation.status, 'approved');
@@ -169,7 +218,7 @@ test('code written while the plan is open, committed or not, reaches an approved
     assert.equal(await readFile(path.join(root, '.env.local'), 'utf8'), 'LEDGER_REGION=local\n');
   });
 
-test('the hard stops stay: a clause with no test is refused [WCB:REQ-001]',
+test('the hard stops stay: a clause with no test is refused even when everything else outside the plan is taken up [WCB:REQ-001]',
   slowLane({ timeout: 900_000 }), async (t) => {
     const W = 'WCB-2';
     const { root, write, item, read } = await story(t, W);
@@ -181,6 +230,7 @@ test('the hard stops stay: a clause with no test is refused [WCB:REQ-001]',
     flow(root, ['prepare', 'implementation']);
     assert.equal(JSON.parse(await readFile(path.join(root, (await read()).phases.implementation.generationIntent.path), 'utf8')).baseline.mode, 'clean');
     await write('src/value.mjs', `// @clause:${W}:AC-001 returns the approved value\nexport const value = 2;\n`);
+    await write('src/extra.mjs', 'export const extra = 1;\n');
     // The planned test no longer names its clause: AC-001 has code and no test case.
     await write('test/value.test.mjs', valueTest(W, 2, false));
     await writeFile(path.join(item, 'artifacts/implementation/implementation-summary.md'), summary(item, W));

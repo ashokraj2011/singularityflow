@@ -325,7 +325,13 @@ test('SCS REQ-042: an instruction accounted for as a departure is decided with i
   await typed('show the value on an entry page too', 'turn-a');
   await writeFile(path.join(repo.root, 'index.html'), '<!-- @clause:QF-1:AC-001 show the approved value -->\n<title>Value</title>\n');
   repo.sflow('prepare', 'implement');
-  // The agent's prepublish records the file as DEP-001; the model accounts for the instruction by it.
+  // A file no plan row names is taken up with the step, nobody asked [WCB:REQ-010]; the person undoes that to decide it
+  // themselves, so the agent's prepublish records it as DEP-001, and the model accounts for the instruction by it.
+  const claimed = repo.sflowJson('departure', 'record', '--kind', 'path', '--path', 'index.html', '--reason', 'The person asked for an entry page.');
+  assert.equal(claimed.status, 0, JSON.stringify(claimed.value));
+  const taken = ((await state()).settledDecisions ?? []).filter((entry) => entry.subject === 'file:index.html' && !entry.undone).at(-1);
+  assert.ok(taken, 'index.html is taken up');
+  repo.sflow('decisions', 'undo', 'QF-1', '--settled', taken.id, '--reason', 'I decide this file myself.');
   assert.deepEqual(repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent').value.departures.recorded, ['DEP-001']);
   const accounted = repo.sflowJson('departure', 'account', '--instruction', '1', '--departure', 'DEP-001');
   assert.equal(accounted.status, 0, JSON.stringify(accounted.value));

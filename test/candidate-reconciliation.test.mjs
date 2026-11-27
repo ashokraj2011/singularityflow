@@ -39,31 +39,24 @@ test('one decision on a test setup is one amendment that names each file, by the
     ['add-location', 'test/setup.mjs', 'QF-1:AC-001'], ['add-supporting', 'package-lock.json', 'dependency-lock'], ['add-supporting', 'playwright.config.js', 'build-configuration']]);
 });
 
-test('publication and prepublish detect excluded HTML before committing; narrow accounting keeps the current phase', async t => {
+test('prepublish says what publication takes up and publication takes HTML no plan row names with the step; the current phase stays', async t => {
   const repo = await draft(t);
   const workflowFile = path.join(repo.root, 'singularity/work-items/QF-1/workflow.json');
   const before = await readFile(workflowFile);
-  const head = repo.must('git', ['rev-parse', 'HEAD']);
   const html = await readFile(path.join(repo.root, 'index.html'));
+  // The check asks nothing: the file is the step's at publication, changed outside the plan [WCB:REQ-010].
   const gate = repo.sflowJson('phase', 'prepublish', 'implement');
   assert.equal(gate.status, 0, JSON.stringify(gate));
-  assert.equal(gate.value.status, 'correction-required');
-  assert.ok(JSON.stringify(gate.value).includes('GENERATION_EXCLUDED_CHANGES_UNRESOLVED'));
-  assert.ok(JSON.stringify(gate.value).includes('decision plan QF-1'));
-  const publish = repo.sflowJson('phase', 'publish', 'implement', '--authored', 'deterministic', '--channel', 'kernel-generator');
-  assert.notEqual(publish.status, 0);
-  assert.match(JSON.stringify(publish), /GENERATION_EXCLUDED_CHANGES_UNRESOLVED/);
-  assert.equal(repo.must('git', ['rev-parse', 'HEAD']), head);
-  assert.deepEqual(await readFile(workflowFile), before);
+  assert.ok(!JSON.stringify(gate.value).includes('GENERATION_EXCLUDED_CHANGES_UNRESOLVED'), JSON.stringify(gate.value.findings));
+  assert.deepEqual(gate.value.outsidePlan.files.map((entry) => entry.file), ['index.html']);
   assert.deepEqual(await readFile(path.join(repo.root, 'index.html')), html);
-  repo.sflow('decision', 'plan', '--add-location', 'QF-1:AC-001=index.html', '--reason', 'The entry page belongs to this approved value display and must ship with its code.');
-  repo.sflow('prepare', 'implement');
   const included = repo.sflowJson('phase', 'publish', 'implement', '--authored', 'deterministic', '--channel', 'kernel-generator');
   assert.equal(included.status, 0, JSON.stringify(included));
   const after = JSON.parse(await readFile(workflowFile));
   assert.deepEqual(after.phases.intake, JSON.parse(before).phases.intake, 'earlier approved planning bytes remain unchanged');
-  // The amendment binds what the person accounted for, by the hash reconciliation reads a file with.
-  assert.equal(after.planAmendments[0].contentHashes['index.html'], createHash('sha256').update(await readFile(path.join(repo.root, 'index.html'))).digest('hex'));
+  // No plan amendment: the settlement records the file, with who changed it.
+  assert.equal(after.planAmendments, undefined);
+  assert.deepEqual(after.settledDecisions.filter((entry) => entry.effect?.class === 'out-of-plan').map((entry) => entry.effect.file), ['index.html']);
   assert.equal(after.currentPhase, 'implement');
   assert.ok(after.phases.implement.deliveryEvidence.sourcePaths.includes('index.html'));
   assert.equal(repo.must('git', ['status', '--porcelain', '--', 'index.html']), '');
@@ -91,29 +84,14 @@ test('publication and prepublish detect excluded HTML before committing; narrow 
   assert.deepEqual(returned.phases.implement.approvalPolicy.rejectTo, ['intake']);
 });
 
-test('unrelated edits have an exact private-preservation route before publication, without sweeping in Story code', async t => {
+test('an edit no plan row names is no hold before publication: recovery offers nothing to set aside, and publication takes it up [WCB:REQ-010]', async t => {
   const repo = await draft(t);
-  const workflowFile = path.join(repo.root, 'singularity/work-items/QF-1/workflow.json');
-  const before = JSON.parse(await readFile(workflowFile));
   const plan = repo.sflowJson('recover', 'QF-1');
   assert.equal(plan.status, 0, JSON.stringify(plan));
-  const aside = plan.value.actions.find(action => action.id === 'set-aside-worktree');
-  assert.deepEqual(aside.paths, ['index.html']);
-  assert.equal(aside.humanOnly, true);
-  const source = await readFile(path.join(repo.root, 'src/value.mjs'));
-  const html = await readFile(path.join(repo.root, 'index.html'));
-  const saved = repo.sflowJson(...aside.commandGuidance.argv);
-  assert.equal(saved.status, 0, JSON.stringify(saved));
-  assert.equal(saved.value.setAside.lifecycleAdvanced, false);
-  assert.deepEqual(saved.value.setAside.removed, ['index.html']);
-  assert.deepEqual(await readFile(path.join(repo.root, 'src/value.mjs')), source);
-  assert.deepEqual(JSON.parse(await readFile(workflowFile)).phases.intake, before.phases.intake);
-  const copy = repo.sflowJson('appeal', 'checkpoint-show', saved.value.setAside.checkpoint, '--work-id', 'QF-1', '--phase', 'implement');
-  assert.equal(copy.status, 0, JSON.stringify(copy));
-  assert.ok(JSON.stringify(copy.value).includes('index.html'), 'the private copy retains the excluded file');
-  assert.deepEqual(await readFile(copy.value.data.files.find(file => file.path === 'index.html').recoveryCopy), html);
+  assert.ok(!plan.value.actions.some(action => action.id === 'set-aside-worktree'), JSON.stringify(plan.value.actions.map(action => action.id)));
   const published = repo.sflowJson('phase', 'publish', 'implement', '--authored', 'deterministic', '--channel', 'kernel-generator');
   assert.equal(published.status, 0, JSON.stringify(published));
+  assert.equal(repo.must('git', ['status', '--porcelain', '--', 'index.html']), '');
 });
 
 test('an always-local file needs no accounting, and publication leaves it on this laptop', async t => {

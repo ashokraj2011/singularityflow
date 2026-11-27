@@ -178,7 +178,13 @@ test('a settled item and an advised one on the same card; Undo from the card han
   await writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\n"
     + "import { value } from '../src/value.mjs';\n\n// @ac:QF-1:AC-001\ntest('value is two', () => assert.equal(value, 2));\n");
   sflow('prepare', 'implement');
-  // A file no plan row names: a departure the person decides, advised on the card.
+  // A file no plan row names is taken up with the step [WCB:REQ-010]; once the person undoes that, it is a departure they
+  // decide, advised on the card.
+  const recorded = sflowJson('departure', 'record', '--kind', 'path', '--path', 'src/extra.mjs', '--reason', 'The value module needed a helper.');
+  assert.equal(recorded.status, 0, JSON.stringify(recorded.value).slice(0, 1500));
+  const taken = ((await workflowOf(root)).settledDecisions ?? []).filter((entry) => entry.effect?.class === 'out-of-plan' && entry.effect.file === 'src/extra.mjs').at(-1);
+  assert.ok(taken, 'src/extra.mjs is taken up');
+  sflow('decisions', 'undo', 'QF-1', '--settled', taken.id, '--reason', 'I decide this file myself.');
   sflowJson('phase', 'prepublish', 'implement', '--for-agent');
   assert.deepEqual(((await workflowOf(root)).departures ?? []).flatMap((entry) => entry.paths), ['src/extra.mjs']);
   // The only test command the repository declares: settled for the person, never asked.

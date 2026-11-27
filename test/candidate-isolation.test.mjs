@@ -207,7 +207,7 @@ test('a folder this checkout would commit stays out, and another repository gets
   assert.equal(await lstat(path.join(other, 'node_modules')).catch((error) => error.code), 'ENOENT');
 });
 
-test('local verification isolates unrelated edits; publication requires explicit accounting or private preservation [D9]', async (t) => {
+test('local verification isolates unrelated edits; publication takes them up, and a person who undoes that sets them aside privately [D9, WCB:REQ-010]', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-isolation-'));
   const remote = `${root}.git`;
   // Git's detached maintenance can still be writing .git/objects as the test ends (ENOTEMPTY).
@@ -302,9 +302,17 @@ test('local verification isolates unrelated edits; publication requires explicit
   const local = JSON.parse(cli('tests', 'run', '--work-id', W, '--phase', 'implementation', '--json').stdout);
   assert.ok(local.commands.every(command => command.status === 'passed'), JSON.stringify(local));
   assert.equal(await readFile(path.join(root, 'src/config.mjs'), 'utf8'), unrelated);
+  // Publication takes up every file no plan row names, nobody asked [WCB:REQ-010]; its tests then run on that code and
+  // fail, a hard stop [WCB:REQ-001].
   const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /These changed files would be excluded from implementation/);
+  assert.doesNotMatch(refused.stdout + refused.stderr, /would be excluded from implementation/);
+  const unrelatedFiles = ['component.mdx', 'data.txt', 'src/config.mjs', 'src/scratch.mjs'];
+  const taken = (JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).settledDecisions ?? [])
+    .filter((entry) => !entry.undone && unrelatedFiles.includes(String(entry.subject ?? '').replace(/^file:/u, '')));
+  assert.deepEqual(taken.map((entry) => entry.subject.replace(/^file:/u, '')).sort(), unrelatedFiles);
+  // The person undoes each take-up: the file is theirs again, left out of the candidate and its tests.
+  for (const entry of taken) cli('decisions', 'undo', W, '--settled', entry.id, '--reason', 'Not part of this Story.');
   const recovery = JSON.parse(cli('recover', W, '--json').stdout);
   const aside = recovery.actions.find(action => action.id === 'set-aside-worktree');
   assert.deepEqual(aside.paths, ['component.mdx', 'data.txt', 'src/config.mjs', 'src/scratch.mjs']);

@@ -195,12 +195,14 @@ async function completenessFacts(root, config, workflow) {
 /**
  * While a code step is open: the changed files publication would refuse to leave out, and the rows each
  * may join. Only when the list is read to answer it, since a file a person is still writing is no count.
+ * A file no plan row names is taken up at publication with who changed it, never asked about: only one a
+ * person already holds is [WCB:REQ-010].
  */
 async function excludedChangeFacts(root, config, workflow, phase) {
   if (phase.status !== 'in_progress' || phase.id !== workflow.currentPhase) return null;
   try {
-    const { unreconciledCandidatePaths } = await import('./candidate-scope.mjs');
-    const paths = await unreconciledCandidatePaths(root, config, workflow, phase);
+    const { heldCandidatePaths } = await import('./candidate-scope.mjs');
+    const paths = await heldCandidatePaths(root, config, workflow, phase);
     if (!paths.length) return null;
     const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { planRowsOf }] = await Promise.all([import('./specifications.mjs'), import('./plan-amendments.mjs')]);
     return { unclaimedPaths: paths, planRows: planRowsOf(mergePlannedClaimRecords((await loadActiveSpecRecords(storyLocation(root, config, workflow.workItem.id).directory, workflow)).planned ?? [])),

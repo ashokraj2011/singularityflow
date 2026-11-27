@@ -125,7 +125,8 @@ Everything below is about what is *not* a stop.
     "Not part of this task" (`details.notPartOfTask` and one line), since nothing delivers it.
   - Code committed on its branch since its base (its own first-parent commits; a merge brings none) would reach the pull
     request with no clause or test check, so its document step's submission stops for it
-    (`PHASE_SOURCE_CHANGED_AFTER_PUBLICATION`, `details.noCodeStep`, `waits`), routed to the Decide page. The page has the
+    (`PHASE_SOURCE_CHANGED_AFTER_PUBLICATION`; the error carries `noCodeStep` and `waits`, its JSON the changed paths
+    and the route `singularity-flow decisions <ID>`, and its message the take-out), routed to the Decide page. The page has the
     row: "Take the commit out", the exact `git revert --no-edit <commits>` in the person's terminal; submitted again, it
     goes on. Such a task never grows into one with a code step: a task can gain only requirements, design, plan or review
     (`ADDABLE`), so the code is delivered by a task that has a code step.
@@ -158,6 +159,7 @@ Everything below is about what is *not* a stop.
 | Code generation begin | `GENERATION_DIRTY_START` | refused, or `--adopt-existing --confirm <digest>` | carried, `inherited` (REQ-009); protected and boundary paths still refuse |
 | Code generation begin (CIC) | `GENERATION_DIRTY_START` | refused code changed since an amendment's closure | carried, `inherited` (REQ-009) |
 | Code publication | `GENERATION_EXCLUDED_CHANGES_UNRESOLVED` | refused a file no row names (a person's publish), or recorded a departure (the agent's) | settled `out-of-plan` with writer and reason (REQ-010) |
+| Code publication's tests | (candidate, D9) | ran without every file no row names | run with every file publication takes up; only a file a person holds stays out (REQ-010) |
 | Code approval | `DEPARTURES_UNDECIDED` | held until a person decided each file departure | no file departure is recorded for an out-of-plan file (REQ-010); earlier ones keep their hold (REQ-016) |
 | Decide page | `plan-accounting` question | "Say where <file> belongs" while the code step is open | none for a file publication settles (REQ-010) |
 | Code approval | `SPEC_COVERAGE_INCOMPLETE` (unclaimed changed path) | a changed path no clause claims | a file taken up counts as claimed (REQ-010) |
@@ -183,6 +185,10 @@ governs it), and another step's own document changed under the Story's `artifact
   as not part of it and stops for a commit of code until the Decide page's take-out step clears it (REQ-017).
 - `test/document-step-files.test.mjs` (updated): a document step's application files no longer refuse or show a row.
 - Unit: `test/code-outside-plan.test.mjs` for attribution (each basis), reason parsing and the workspace-local predicate.
+- Updated to the rule: the CIC, base-move, AST, generation-boundary, approval-hold, step-sheet, choices, phase-entry, OAP,
+  dead-end, publication-preflight and candidate tests (M1); the CQF departure, appeal, upstream-discrepancy, plugin,
+  plan-amendment and candidate-isolation tests, and the settled-advice, settled-decisions and SCS asked-for tests, which
+  now reach a file departure by the person undoing its take-up (M2).
 
 ## Gaps
 
@@ -193,6 +199,13 @@ governs it), and another step's own document changed under the Story's `artifact
   step then lists upstream's files as "by you". A merge base is not yet subtracted.
 - A commit on a Story with no code step that touches both code and the Story's own document is taken out whole by the
   revert; the person makes the document change again.
+- Publication takes up a person's scratch note or unrelated edit too (a supporting change, or "by you"). When it breaks
+  the tests, publication stops (REQ-001.2); keeping it out is two steps: undo its take-up on the Decide page, then set it
+  aside from recovery. The set-aside rows for such files before publication are gone.
+- A person's publication now runs the take-up too, so it reads the hook records and the step's document; under load the
+  appeals journeys ran up to twice as long (one stayed under its limit only on a quieter machine).
+- The `/sf-code` and `/sf-phase` skills sit at their token budget: the departure line dropped `--path` and two
+  parentheticals to make room for the one line REQ-013 adds.
 - After the last code step is approved, a document step's approval still binds the code its review saw: an uncommitted
   edit to a file a plan row names, made while it waits, holds it (`STORY_REVIEW_SOURCE_CHANGED`) until the step is
   returned, as the delivered code's tests ran without it (REQ-001.2).

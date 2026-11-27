@@ -1361,7 +1361,7 @@ const PAGES = Object.freeze({
       ['enter [PHASE] [--compose]', 'Inspect the current phase; optionally compose its prompt through the existing kernel.'],
       ['--for-agent', 'Compact entry/draft-check/prepublish JSON; retain blockers/actions and expose full inspection routes.'],
       ['draft-check PHASE', 'Read-only authored-content validation with stable correction findings and a fingerprint.'],
-      ['--adopt-existing --confirm DIGEST', 'Explicitly adopt reviewed source that predates begin when Story policy permits it.'],
+      ['--adopt-existing --confirm DIGEST', 'Bind a reviewed change set to its digest; without it, begin carries code already changed, and publication lists any file no plan row names.'],
       ['rollover PHASE [--reason TEXT] [--confirm DIGEST]', 'Preview, then open on the person\'s yes, the next version; the published version stays as it is.'],
       ['rollover PHASE --as-question --confirm DIGEST', 'On the person\'s own "No, it was just a question": keeps what they typed as a question, and opens nothing.'],
       ['--authored human|governed-agent|external-tool', 'Who produced the artifact. Record it explicitly.'],

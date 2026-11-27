@@ -2230,6 +2230,30 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['inbox', 'approve', 'decisions', 'workspace']
   },
+  rules: {
+    summary: 'The team\'s rules for tasks in plain when and then, and what a change to them would add.',
+    description: [
+      'Lists the rules SFlow keeps for every task (every code change gets tests; a person approves the code, and a',
+      'plan where there is one), then every tasks: rule of the approved configuration as when and then with its',
+      'because, the ones waiting for review with who proposed them, the ID prefix and each kind\'s steps. Rules only',
+      'add a step or a person\'s approval; workflows run as they are.',
+      '',
+      'It changes nothing. `preview --change-set` reads a Studio change set of tasks.rule.add, tasks.rule.change,',
+      'tasks.rule.remove or tasks.idPrefix.set and says, for each kind of task, the steps before and after, and every',
+      'problem with where it is. A rule changes through `workflow studio apply --change-set - --propose`, which VS Code\'s',
+      'Rules page sends, or a proposed save of singularity/workflow.yml.'
+    ],
+    options: [
+      ['--offline', 'Read no proposals; show the approved rules only.'],
+      ['--change-set FILE|-', 'For preview: the Studio change set to read, from a file or stdin.'],
+      ['--json', 'Emit sflow-rules (or sflow-rules-preview), the read VS Code\'s Rules place uses.']
+    ],
+    examples: [
+      ['singularity-flow rules', 'See the team\'s rules for tasks.'],
+      ['singularity-flow rules preview --change-set rule.json', 'See what a rule change would add to each kind of task.']
+    ],
+    seeAlso: ['work', 'workflow', 'configuration', 'lessons']
+  },
   approvals: {
     summary: 'Show the Story approval chain with every phase document and human decision.',
     description: [

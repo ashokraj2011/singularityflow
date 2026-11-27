@@ -445,6 +445,28 @@ function selfApprovalLockout(reviewed, files, reader) {
   return otherApprovers(named, reviewed.proposer ?? {}).length ? null : named;
 }
 
+/**
+ * The problems approving `reviewed` would bring to the team's task rules [FPL:REQ-023]: one in a rule it adds or changes, or
+ * one it brings; a problem already on sflow/config in a rule it leaves alone is not this approval's. Empty when it does not
+ * change workflow.yml.
+ */
+async function taskRuleLandingProblems(reviewed, files, reader) {
+  const workflowPath = 'singularity/workflow.yml';
+  if (!files.has(workflowPath)) return [];
+  const parse = (file) => { try { return YAML.parse(Buffer.from(file?.bytes ?? '').toString('utf8'), { maxAliasCount: 100 }) ?? {}; } catch { return {}; } };
+  const { taskRuleChecks } = await import('./task-rules.mjs');
+  return taskRuleChecks(parse(reader.file(reviewed.targetCommit, workflowPath)), parse(files.get(workflowPath))).refused;
+}
+
+/** How a proposal changes the team's task rules, for the Rules place's "Waiting for review" [FPL:REQ-019]; null when it does not. */
+async function taskRulesChangeAt(reader, base, proposal) {
+  const parse = (commit) => { try { return YAML.parse(reader.file(commit, 'singularity/workflow.yml')?.bytes.toString('utf8') ?? '{}') ?? {}; } catch { return {}; } };
+  const before = parse(base);
+  const after = parse(proposal);
+  if (before?.tasks === undefined && after?.tasks === undefined) return null;
+  return (await import('./task-rules.mjs')).taskRulesChange(before, after);
+}
+
 function changedConfigurationFiles(root, base, proposal, env) {
   return readGitNameStatusDiff(root, base, proposal, { env });
 }
@@ -484,6 +506,7 @@ async function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
   // Only a proposal a person could activate now names the way to do it.
   const activation = valid && !merged ? workflowActivationRoute(branch, proposalCommit, clashes) : null;
   const repositoryTests = repositoryTestsChange(reader, reviewBase, proposalCommit);
+  const taskRules = await taskRulesChangeAt(reader, reviewBase, proposalCommit);
   const record = {
     remote: sanitizeRemote(remote), branch, kind: configurationProposalKind(branch), targetBranch: CONFIGURATION_BRANCH,
     targetCommit, proposalCommit, proposalBase, proposalCreatedAt, mergeBase, merged,
@@ -498,6 +521,7 @@ async function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
     invalidFiles: invalid, changedFiles: changed.statuses,
     workflows: workflowChanges(reader, reviewBase, proposalCommit),
     ...(repositoryTests ? { repositoryTests } : {}),
+    ...(taskRules ? { taskRules } : {}),
     ...(landing ? { clashCount: clashes.length } : {}),
     ...(landing && includeView ? { lands: { fields: landing.fields, clashes, picked: landing.decided, unused: landing.unused } } : {}),
     diff: diff == null ? null
@@ -918,6 +942,16 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
           { code: 'CONFIGURATION_SELF_APPROVAL_NO_SECOND_PERSON', details: { members: lockedOut,
             nextAction: { label: 'Another person approves it', command: approveCommand(proposalBranch, reviewed.proposalCommit) } } }
         );
+      }
+      // A broken task rule would refuse every task once approved [FPL:REQ-023]: refused here with each problem and its field.
+      const ruleProblems = await taskRuleLandingProblems(reviewed, prepared.files, transport.reader);
+      if (ruleProblems.length) {
+        const why = `it gives the team's task rules ${ruleProblems.length === 1 ? 'a problem' : `${ruleProblems.length} problems`}: ${ruleProblems.map((entry) => entry.field).join(', ')}`;
+        throw new SingularityFlowError(`Approving ${proposalBranch} would give the team's task rules ${ruleProblems.length === 1 ? 'a problem' : `${ruleProblems.length} problems`}. Nothing was changed.\n`
+          + ruleProblems.map((entry) => `- ${entry.message} (${entry.field})`).join('\n'), {
+          code: 'WORKFLOW_PROPOSAL_TASK_RULES_INVALID', details: { problems: ruleProblems, nextAction: {
+            label: 'Reject it with that reason, so its proposer fixes the rules',
+            command: `singularity-flow configuration reject ${proposalBranch} --confirm ${reviewed.proposalCommit} --reason "${why}"` } } });
       }
       if (problemsBefore) {
         const after = await workflowProblems(scratch, changedWorkflows);

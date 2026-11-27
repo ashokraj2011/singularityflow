@@ -763,6 +763,7 @@ Every public operation is classified before its implementation module is importe
 | revision.resume | mutation | never | — | — |
 | revision.show | read | never | — | — |
 | revision.status | read | never | — | — |
+| rules | read | never | — | — |
 | run | mutation | never | — | — |
 | secrets.protect | mutation | never | — | — |
 | secrets.scan | read | never | — | — |

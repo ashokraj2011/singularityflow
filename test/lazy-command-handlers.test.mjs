@@ -1121,7 +1121,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // checkout's Git reads go through the source inspection facade (checkoutPlace, checkoutChanges, indexEntries,
     // sourceTree; source-inspection.mjs +2,131) [SDA-AC-001], and the state-ref publication is named beside the
     // adapter (story-publication-service.mjs +263). No new eager file.
-    assert.ok(closure.bytes <= 9_933_663, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,933,741 (measured for start.mjs, +78 over 9,933,663 at 70131c215, 2026-11-27 on fpl-m3; submit.mjs 9,930,393, +78):
+    // `rules` registered as a read with /sf-explain as its skill (command-registry.mjs +53, command-skills.mjs +25)
+    // [FPL:REQ-019, REQ-038]. No new eager file.
+    assert.ok(closure.bytes <= 9_933_741, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1328,7 +1331,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 879,344 (+258, measured 2026-11-25 on vsc-agenthost-hooks): a command a Copilot chat runs says when SFlow's hooks never saw
   // the chat (cli-entry.mjs loads copilot-chat-hooks.mjs only then). No new eager file.
   // 894,560 (+258, measured 2026-11-27 on the merge of vsc-agenthost-hooks onto 5c682d8c1): the hooks note above. No new eager file.
-  assert.ok(root.bytes <= 894_560, `root dispatch loads ${root.bytes} source bytes`);
+  // 894,613 (+53, measured 2026-11-27 on fpl-m3 over 70131c215): `rules` registered as a read (command-registry.mjs)
+  // [FPL:REQ-019]. No new eager file.
+  assert.ok(root.bytes <= 894_613, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1787,7 +1792,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,391,469 (+2,131, measured 2026-11-27 on fix-suite-1127 over d99e2d11d): the source inspection facade's checkout
   // reads, which the state checkout now uses instead of starting Git itself (source-inspection.mjs) [SDA-AC-001]. No
   // new eager file.
-  assert.ok(current.bytes <= 4_391_469, `session current loads ${current.bytes} source bytes`);
+  // 4,391,547 (+78, measured 2026-11-27 on fpl-m3 over 70131c215): `rules` registered as a read with /sf-explain as its skill
+  // (command-registry.mjs, command-skills.mjs) [FPL:REQ-019, REQ-038]. No new eager file.
+  assert.ok(current.bytes <= 4_391_547, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

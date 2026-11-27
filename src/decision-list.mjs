@@ -2037,6 +2037,16 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
 }
 
 /**
+ * A code step's approval starts with what its change does, in one line, and the read that prints the whole page
+ * (change-story-read.mjs) [CSP:REQ-007]. Information only: it holds and asks nothing.
+ */
+function changeStoryFirst(item, change) {
+  if (!change?.summary || change.phase !== item.details?.phase) return item;
+  return { ...item, details: { ...item.details, changeStory: { summary: change.summary, path: change.path, command: change.command },
+    lines: [`What this change does: ${change.summary} The whole page: ${change.command}`, ...(item.details.lines ?? [])] } };
+}
+
+/**
  * The item kinds approval refuses for while they are open (CONFORMANCE_BLOCKING_VERDICTS, the
  * Story's final evaluation): the ones pendingDecisionSummary counts. Screen sizes, test-run risks
  * and test-command requests are decided while a step is open, never at its approval.
@@ -2385,9 +2395,9 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const heldHere = items.filter((item) => item.holdsApproval).map((item) => item.id);
   const door = dirty ? holdItem(workflow, context, 'approval-hold', dirty) : null;
   if (awaiting) {
-    const approval = approvalItem(workflow, context, phase, { heldBy: [...(door ? ['d0'] : []), ...heldHere],
+    const approval = changeStoryFirst(approvalItem(workflow, context, phase, { heldBy: [...(door ? ['d0'] : []), ...heldHere],
       youDecide: holds.filter((hold) => hold.owner === 'you-decide' && hold.clearedBy?.kind !== 'viewer-terminal').map((hold) => hold.summary),
-      ownTerminal: holds.some((hold) => hold.clearedBy?.kind === 'viewer-terminal' && hold.owner === 'you-decide') });
+      ownTerminal: holds.some((hold) => hold.clearedBy?.kind === 'viewer-terminal' && hold.owner === 'you-decide') }), facts.changeStory);
     // The approval starts from the card too: its row opens the review page [owner, 2026-11-13].
     const advised = advisedItem(workflow, { id: `d${items.length + 1}`, ...approval, decidedBy: itemDecidedBy(workflow, approval.options), holdsApproval: false });
     items.push({ ...advised, answer: { where: 'card', words: `Open it from the Decide card (/sf-decide ${workflow.workItem.id}), which opens its documents to review and approve; or /sf-approve ${phase.id}.` } });

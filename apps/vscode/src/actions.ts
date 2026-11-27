@@ -454,6 +454,7 @@ export async function approveWithReceipt(
   let sfGuard: import('./views/approval-review.ts').ApprovalReviewRequest['sfGuard'] = null;
   let covers: import('./views/approval-review.ts').ApprovalReviewRequest['covers'] = null;
   let disputes: import('./views/approval-review.ts').ApprovalReviewRequest['disputes'] = null;
+  let changeStory: import('./views/approval-review.ts').ApprovalReviewRequest['changeStory'] = null;
   let focus: import('./views/approval-review.ts').ApprovalReviewRequest['focus'] = null;
   if (request.kind === 'story') {
     try {
@@ -492,6 +493,8 @@ export async function approveWithReceipt(
       covers = (await import('./views/approval-review.ts')).coversOf(listed);
       // Each finding of its review a person disputed, and why: decided with it in view [owner, 2026-11-20].
       disputes = (await import('./views/approval-review.ts')).disputesOf(listed);
+      // What the code step's change does, first on the page, with its whole page a click away [CSP:REQ-007].
+      changeStory = (await import('./views/approval-review.ts')).changeStoryOf(listed);
       focus = (await import('./views/approval-review.ts')).focusOf(await shown);
       // Evidence counted on a "still holds" across an amendment's wording, named before approving [SCS:REQ-022].
       carried = listed?.approvalEvidence?.carried && Array.isArray(listed.approvalEvidence.carried.entries) ? listed.approvalEvidence.carried : null;
@@ -555,6 +558,7 @@ export async function approveWithReceipt(
       sfGuard,
       covers,
       disputes,
+      changeStory,
       tryIt: (await import('./views/try-it.ts')).tryItOf(storyReview?.tryIt),
       focus,
       repository: reviewedRepository,

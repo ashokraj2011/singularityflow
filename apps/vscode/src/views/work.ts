@@ -249,6 +249,9 @@ export class WorkTaskPanel {
       } else if (act === 'explain' && row.route.here) {
         // "Explain the change" opens the Code Explainer in My change [FPL:REQ-006].
         await this.host.command('singularityFlow.openCodeExplainer', { mode: 'change' });
+      } else if (act === 'change-story' && this.task?.changeStory && row.route.checkout) {
+        // "What this change does": the Story's page, as SFlow wrote it, in a Markdown preview [CSP:REQ-008].
+        await vscode.commands.executeCommand('markdown.showPreviewToSide', vscode.Uri.file(path.join(row.route.checkout, this.task.changeStory.path)));
       } else if (act === 'lessons') {
         await this.host.command('singularityFlow.lessons');
       }

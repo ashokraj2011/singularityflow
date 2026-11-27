@@ -303,9 +303,16 @@ const coversOf = (item: DecisionItemPacket): ApprovalCover[] => (Array.isArray(i
 const disputesOf = (item: DecisionItemPacket): string[] => (Array.isArray(item.details?.disputes)
   ? (item.details.disputes as Array<{ words?: unknown }>).map((entry) => entry?.words).filter((words): words is string => typeof words === 'string') : []);
 
+/** What a code step's change does, in one line, and its page (`details.changeStory`) [CSP:REQ-007]. */
+export const changeStoryOf = (item: DecisionItemPacket): { summary: string; path: string } | null => {
+  const story = item.details?.changeStory as { summary?: unknown; path?: unknown } | undefined;
+  return story && typeof story.summary === 'string' && typeof story.path === 'string' ? { summary: story.summary, path: story.path } : null;
+};
+
 /** The documents the approval row asks about: its step's, and those of the steps SFlow approved since (approve twice). */
 export function approvalDocuments(packet: DecisionPacket): string[] {
-  return approvalRows(packet).flatMap((item) => [...stringsOf(item.details?.documents), ...coversOf(item).flatMap((cover) => stringsOf(cover.documents))]);
+  return approvalRows(packet).flatMap((item) => [...stringsOf(item.details?.documents), ...coversOf(item).flatMap((cover) => stringsOf(cover.documents)),
+    ...stringsOf([changeStoryOf(item)?.path])]);
 }
 
 const fileLink = (file: string) => `<button type="button" class="dc-link" data-open="${escape(file)}">${escape(file)}</button>`;
@@ -386,9 +393,15 @@ export function versionOpeningHtml(packet: DecisionPacket, { declined = null as 
       ` : ''}<button type="button" class="secondary" data-version="no" data-digest="${digest}"${busy ? ' disabled' : ''}>${NOT_NOW}</button></div></section>`;
 }
 
+/** The code step's change in one line, first in its approval row, with its page opened beside the card. */
+function changeStoryHtml(story: { summary: string; path: string } | null): string {
+  return story ? `<p class="dc-docs">What this change does: ${escape(story.summary)} <button type="button" class="dc-link" data-open="${escape(story.path)}">Open the page</button></p>` : '';
+}
+
 function approvalHtml(packet: DecisionPacket): string {
   return approvalRows(packet).map((item) => ({ item, plain: plainWords(item) })).map(({ item, plain }) => `<section class="dc-approval" aria-label="${escape(item.title)}"><h2>${escape(plain.question ?? item.title)}</h2>
     ${plain.why ? `<p class="muted dc-why">${escape(plain.why)}</p>` : ''}${plain.recommended ? `<p class="dc-rec">${escape(plain.recommended)}</p>` : ''}
+    ${changeStoryHtml(changeStoryOf(item))}
     ${stringsOf(item.details?.documents).length ? `<p class="dc-docs">Documents: ${stringsOf(item.details?.documents).map(fileLink).join(' ')}</p>` : ''}
     ${coversOf(item).map((cover) => `<p class="dc-docs">Also covered: ${escape(String(cover.label ?? ''))} v${Number(cover.generation) || 0} (${escape(String(cover.words ?? 'approved automatically'))}) ${stringsOf(cover.documents).map(fileLink).join(' ')}</p>`).join('')}
     ${disputesOf(item).map((entry) => `<p class="dc-docs">Disputed: ${escape(entry)}</p>`).join('')}

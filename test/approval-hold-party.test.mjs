@@ -272,7 +272,9 @@ test('a dirty checkout holds the check, the list and the packet first; the door 
   await writeFile(path.join(root, 'test-results', '.last-run.json'), '{}\n');
   assert.deepEqual(readiness().approvalCheck.holds, [], 'files the door exempts stay exempt');
 
-  await writeFile(path.join(root, 'stray-note.js'), 'export const stray = 1;\n');
+  // A file of the Story's own records nothing wrote: a code base file would stay for the code step [WCB:REQ-006].
+  const stray = `singularity/work-items/${WORK}/context/stray-note.json`;
+  await writeFile(path.join(root, stray), '{"stray":1}\n');
   const dirty = readiness();
   const check = dirty.approvalCheck;
   assert.equal(check.ready, false);
@@ -280,11 +282,11 @@ test('a dirty checkout holds the check, the list and the packet first; the door 
   assert.deepEqual(check.holds.map((hold) => [hold.code, hold.owner, hold.who]),
     [['LIFECYCLE_WORKTREE_REVIEW_REQUIRED', 'this-checkout', 'Whoever works in this checkout clears it']]);
   const [hold] = check.holds;
-  assert.equal(hold.summary, 'The checkout has changes that are not part of this lifecycle decision: stray-note.js.');
-  assert.match(hold.message, /stray-note\.js\.\nA person reviews them and sets them aside/u);
+  assert.equal(hold.summary, `The checkout has changes that are not part of this lifecycle decision: ${stray}.`);
+  assert.match(hold.message, /stray-note\.json\.\nA person reviews them and sets them aside/u);
   assert.equal(hold.action.command, `singularity-flow recover ${WORK} --json`);
   assert.doesNotMatch(JSON.stringify(check), /test-results/u);
-  assert.match(approvalCheckLines(check).join('\n'), /Whoever works in this checkout clears it: The checkout has changes .*stray-note\.js\./u);
+  assert.match(approvalCheckLines(check).join('\n'), /Whoever works in this checkout clears it: The checkout has changes .*stray-note\.json\./u);
   assert.equal(dirty.classification, 'already-submitted', 'readiness still says what it said');
   assert.equal(dirty.nextSkill, '/sf-recover');
 
@@ -312,7 +314,7 @@ test('a dirty checkout holds the check, the list and the packet first; the door 
   assert.equal(JSON.parse(refused.stdout).error.code, 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED');
   const recovery = payload(cli('recover', WORK, '--json'));
   const setAside = recovery.actions.find((action) => action.id === 'set-aside-worktree');
-  assert.deepEqual(setAside.paths, ['stray-note.js']);
+  assert.deepEqual(setAside.paths, [stray]);
   run(process.execPath, [CLI, ...setAside.argv ?? setAside.command.split(' ').slice(1)]);
   assert.deepEqual(readiness().approvalCheck.holds, [], 'what the route said clears it');
   cli('approve', 'planning', '--work-id', WORK, '--yes', '--json');

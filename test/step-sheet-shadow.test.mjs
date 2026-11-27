@@ -320,8 +320,11 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
     list: completeAgentResult(json('decisions', WORK, '--for-agent', '--json')).data })) assert.equal(view.sheet?.digest, undefined, name);
 
   // A stray file: the door's refusal comes first on every surface, with its route.
+  // A staged file holds the approval, since SFlow's commit could take it; unstaged, a code base file would stay for the code
+  // step [WCB:REQ-006].
   const stray = path.join(root, 'stray.txt');
   await writeFile(stray, 'stray\n');
+  git('add', 'stray.txt');
   const dirty = await compare('dirty');
   assert.deepEqual([dirty.sheet.holds[0].code, dirty.sheet.holds[0].source, dirty.sheet.holds[0].clearedBy.kind, dirty.sheet.approval.mayApproveNow],
     ['LIFECYCLE_WORKTREE_REVIEW_REQUIRED', 'door', 'checkout', false]);
@@ -346,20 +349,16 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
   assert.match(reviewed.nextAction.reason, /can't be approved yet: 1 decision needed\. The checkout has changes/u);
   assert.equal(nextAfterStep({ continuation: reviewed }, 'Submitted.').commandGuidance.command, reviewed.nextCommand);
   assert.deepEqual(stopped.act.read, ['approvalPacket.sheet', 'approvalPacket.readiness.owedDecisions']);
-  await rm(stray);
+  git('rm', '-q', '-f', 'stray.txt');
 
-  // Application source committed during review: the gate's own refusals, and recording refuses with the first.
+  // Application source committed during review is the code step's to take up, never this review's: no surface holds the
+  // approval for it, and the code step's interval starts where code was last governed [WCB:REQ-006, REQ-008].
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 1;\n');
   git('add', 'src/value.mjs');
   git('commit', '-qm', 'Implement the value during the planning review');
-  const heldStory = await compare('held');
-  assert.ok(heldStory.sheet.holds.length >= 1);
-  assert.equal(heldStory.sheet.approval.mayApproveNow, false);
-  assert.ok(heldStory.readiness.approvalContinuation, 'the route');
-  const first = heldStory.readiness.approvalCheck.holds[0].code;
-  assert.ok(heldStory.sheet.holds.some((hold) => hold.codes.includes(first)), first);
-  assert.equal(attemptApprove().code, first, 'recording refuses with the first hold');
+  const codeCommitted = await compare('code committed');
+  assert.deepEqual([codeCommitted.sheet.holds.length, codeCommitted.sheet.approval.mayApproveNow], [0, true], JSON.stringify(codeCommitted.sheet.holds));
 
   // Back to the clean submission: approve records, as the sheet said it would, and the next step's sheet stands.
   git('reset', '-q', '--hard', 'HEAD~1');

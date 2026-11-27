@@ -74,7 +74,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // report reader or the departure model [SCS:REQ-010, REQ-013].
     // 474: automatic-approval-possible.mjs (2026-11-23), the one rule the evidence receipt and the approval chain share for
     // whether a step can be approved without a person; its own module so the session projection loads no approval rules.
-    assert.ok(closure.files.size <= 474, `${file} loads ${closure.files.size} local files (budget 474; retired graph 597)`);
+    // 475: workspace-local-paths.mjs (2026-11-27), the one rule every gate reads for the workspace's own files (editor
+    // settings, tool configuration, test-runner output) [WCB:REQ-002]; a leaf so the Copilot edit guard loads none of it.
+    assert.ok(closure.files.size <= 475, `${file} loads ${closure.files.size} local files (budget 475; retired graph 597)`);
     // Step intents' derivation loads only for a workflow.yml that opts in (config.mjs loadStepIntentSettings), never eagerly.
     for (const lazy of ['step-intent-settings.mjs', 'step-intents.mjs', 'workflow-step-settings.mjs']) {
       assert.equal(closure.files.has(path.join(sourceRoot, lazy)), false, `${file} eagerly loads ${lazy}`);
@@ -1132,7 +1134,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // lifecycle-worktree.mjs +423, recovery-preparation-context.mjs +66, finding-escalation.mjs); with no return a refusal's
     // route is the set-aside, never a plan decision, and it waits on the person, never escalated (cross-phase-change.mjs +760)
     // [office loop, 2026-11-27]. No new eager file.
-    assert.ok(closure.bytes <= 9_937_894, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,941,524 (measured for start.mjs, +3,630 over 9,937,894 at 96aa138eb, 2026-11-27 on watch-code-base; submit.mjs
+    // 9,937,776): a document step never stops for the code base and the code step takes it up [WCB M1]: one workspace-local
+    // rule for every gate (workspace-local-paths.mjs, 1,001, its own leaf so the Copilot edit guard loads none of it), a
+    // document step's checkout hold leaves code base files in place (lifecycle-worktree.mjs +1,248), the code step's first
+    // interval reaches back to where code was last governed (work-intervals.mjs +410, the reading itself in
+    // code-outside-plan.mjs, loaded lazily), and a document step's submission and approval never answer for the code base,
+    // while a Story with no code step stops for committed code (state.mjs +1,705; candidate-scope.mjs +89;
+    // generation-boundary.mjs -823). One new eager file (workspace-local-paths.mjs).
+    assert.ok(closure.bytes <= 9_941_524, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1358,7 +1368,8 @@ test('the common session projection does not import attach, state stores or publ
     assert.equal(current.files.has(path.join(sourceRoot, file)), false, `session current eagerly loads ${file}`);
   }
   // 221: confirm-code.mjs, which builds the short code a confirmation route carries [owner, 2026-11-12].
-  assert.ok(current.files.size <= 221, `session current reaches ${current.files.size} files; old session handler reached 429`);
+  // 222: workspace-local-paths.mjs, the workspace-local rule the candidate scope reads [WCB:REQ-002].
+  assert.ok(current.files.size <= 222, `session current reaches ${current.files.size} files; old session handler reached 429`);
   // 3,905,000: main cf33907d measures 3,898,542; plan corrections as the plan approver's own terminal step and an
   // upstream issue raised from /sf-decide add 1,906 for 3,900,448 (copilot-mutation-guard.mjs, command-skills.mjs).
   // 3,910,000: main 80f74694 measures 3,901,751; who decides for a step with no approval group (approval-fallback.mjs,
@@ -1801,7 +1812,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,393,085 (+1,616, measured 2026-11-27 on fix-source-loop over 4b925b87d): the editor-configuration rule and the
   // set-aside route of a document step's refusal (application-paths.mjs +588, candidate-scope.mjs +203,
   // cross-phase-change.mjs +760) [office loop]. No new eager file.
-  assert.ok(current.bytes <= 4_393_085, `session current loads ${current.bytes} source bytes`);
+  // 4,394,585 (+1,500, measured 2026-11-27 on watch-code-base over 96aa138eb): the workspace-local rule and the code step's
+  // reach-back baseline (workspace-local-paths.mjs, 1,001, work-intervals.mjs +410, candidate-scope.mjs +89) [WCB M1]. One
+  // new eager file (workspace-local-paths.mjs).
+  assert.ok(current.bytes <= 4_394_585, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

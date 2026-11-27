@@ -12,7 +12,8 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { applicationPathContext, isApplicationChangePath, isEditorConfigurationPath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
+import { isWorkspaceLocalPath } from './workspace-local-paths.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { committedChangedPaths } from './git.mjs';
@@ -35,29 +36,8 @@ function publishedCodeStep(workflow, phase) {
  */
 export async function changesAfterPublication(root, config, workflow, phase) {
   if (!publishedCodeStep(workflow, phase)) return null;
-  // An editor's own settings written after publication are no new draft's (office, 2026-11-27).
-  return changedSincePublication(root, config, workflow, phase, (file) => !isEditorConfigurationPath(file));
-}
-
-/**
- * A published document step's counterpart (office, 2026-11-27): the application files changed after its published
- * version, which a document step never holds, so only setting them aside lets it be submitted. Editor configuration is
- * not counted, as its publication does not count it, nor a later code step's code kept for it (amended-drafts.mjs).
- */
-export async function documentStepChanges(root, config, workflow, phase) {
-  if (!phase || phaseRequiresCodeDelivery(phase) || workflow?.currentPhase !== phase.id
-      || !['in_progress', 'awaiting_approval'].includes(phase.status) || !(Number(phase.generation ?? 0) > 0)) return null;
-  const changes = await changedSincePublication(root, config, workflow, phase, (file) => !isEditorConfigurationPath(file));
-  if (!changes) return null;
-  const { withoutHeldCode } = await import('./amended-drafts.mjs');
-  const kept = new Set((await withoutHeldCode(root, config, workflow, phase, changes.paths)).paths);
-  const uncommitted = changes.uncommitted.filter((file) => kept.has(file));
-  const committed = changes.committed.filter((file) => kept.has(file));
-  if (!uncommitted.length && !committed.length) return null;
-  return { ...changes, uncommitted, committed, paths: [...new Set([...uncommitted, ...committed])].sort() };
-}
-
-async function changedSincePublication(root, config, workflow, phase, counted = () => true) {
+  // A workspace-local file written after publication (an editor's settings) is no new draft's [WCB:REQ-002].
+  const counted = (file) => !isWorkspaceLocalPath(file);
   let generationCommit;
   try { generationCommit = publishedGenerationCommit(root, workflow, phase, phase.generation); }
   catch { return null; }

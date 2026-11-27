@@ -14,7 +14,7 @@ import {
 import { beginTelemetryCapture } from './telemetry.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
-import { isEditorConfigurationPath } from './application-paths.mjs';
+import { isWorkspaceLocalPath } from './workspace-local-paths.mjs';
 import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
 import { storyLocation } from './story-paths.mjs';
 
@@ -113,8 +113,9 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
   const applicationChangeSet = applicationChangeSetProjection(
     changeSet, applicationPathContext(config, workflow)
   );
-  // An editor's own settings are not code changed before the step began (office, 2026-11-27): they go with the code.
-  const existing = applicationChangeSet.entries.filter((entry) => [entry.oldPath, entry.newPath].filter(Boolean).some((file) => !isEditorConfigurationPath(file)));
+  // A workspace-local file (an editor's settings, a local-only file, test output) is not code changed before the step began
+  // [WCB:REQ-002]: it goes with the code.
+  const existing = applicationChangeSet.entries.filter((entry) => [entry.oldPath, entry.newPath].filter(Boolean).some((file) => !isWorkspaceLocalPath(file)));
   const dirtyPolicy = workflow.resolution?.codeDelivery?.generationBoundary?.dirtyStart ?? 'block';
   const changedPaths = changeSetPaths(applicationChangeSet, { bothEndpoints: true });
   const protectedGuards = [
@@ -146,9 +147,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
   // A generation an approved amendment closed unpublished (SPEC-CIC switch 2) changed code inside governance: the next
   // one, from the same baseline, carries it, never as work from before the first begin [CIC:REQ-009].
   const closed = phase.generationIntent;
-  const carried = closed?.status === 'superseded' && Number(closed.generation) === generation && closed.baseline?.commit === baselineCommit ? closed.id : null;
-  const initialAdoptionBlocked = !previousGenerationCommit
-    && dirtyPolicy !== 'allow-explicit-adoption' && !carried;
+  let carried = closed?.status === 'superseded' && Number(closed.generation) === generation && closed.baseline?.commit === baselineCommit ? closed.id : null;
   if (existing.length && (protectedPaths.length || outsideSourceBoundaryPaths.length)) {
     throw new SingularityFlowError(
       `Code changed outside the phase's allowed source scope before generation begin. `
@@ -156,40 +155,19 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
       { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
     );
   }
-  // It carries exactly the code the closure recorded, what an earlier document step left in place for it [owner, 2026-11-14].
-  if (carried && existing.length && !adoptExisting && phase.scopePin?.closedChangeSet) {
-    (await import('./amended-drafts.mjs')).assertCarriesClosedCode(config, workflow, phase, applicationChangeSet, dirtyDetails);
-  }
-  if (existing.length && !adoptExisting && !carried) {
-    if (initialAdoptionBlocked) {
-      throw new SingularityFlowError(
-        `Code already changed before the first generation began (${changedPaths.length} path(s)). `
-        + 'This Story policy blocks adoption. Review and preserve the listed changes outside this Story checkout, '
-        + 'return the checkout to its baseline, then begin generation and reapply the reviewed changes.',
-        { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
-      );
-    }
-    // Only `phase begin` adopts: `prepare`, which also opens a code generation, takes no adoption
-    // flags, so the refusal names the exact command whichever of the two met the changes.
-    const adopt = `singularity-flow phase begin ${phase.id} --adopt-existing --confirm ${applicationChangeSet.digest}`;
-    throw new SingularityFlowError(
-      `Code already changed before generation begin (${changedPaths.length} path(s)). After reviewing the full application change set, adopt it with: ${adopt}`,
-      { code: 'GENERATION_DIRTY_START', details: { ...dirtyDetails, phase: phase.id, nextAction: {
-        command: adopt, label: 'After a person reviews the listed changes, add them to the new version'
-      } } }
-    );
-  }
+  // It carries the code the closure recorded, what an earlier document step left in place for it [owner, 2026-11-14]. Code
+  // that changed since, or new code, is carried too, as code changed outside a version always is [WCB:REQ-009]: the
+  // receipt then says it inherited the change set, not that it carried exactly the closed generation's code.
+  if (carried && existing.length && !adoptExisting && phase.scopePin?.closedChangeSet?.intent === closed.id
+      && !(await import('./amended-drafts.mjs')).carriesExactlyClosedCode(config, workflow, phase, applicationChangeSet)) carried = null;
+  // Code already changed since the baseline (written while a document step was open, committed then, or after the last
+  // version's publication) is carried into this version, never a person's question [WCB:REQ-009]: the code step's
+  // publication lists each file no plan row names, with who changed it (code-outside-plan.mjs). The Story's baseline
+  // reaches back to where code was last governed (work-intervals.mjs), so nothing from before the Story is inherited, and
+  // `dirtyStart` no longer refuses it. A protected or out-of-boundary path still refuses, above.
+  const inherited = existing.length > 0 && !adoptExisting && !carried;
   if (adoptExisting) {
-    // `dirtyStart` protects generation 1 from inheriting unbounded work that predates governance.
-    // A later generation is different: its baseline is the exact prior generated commit and the
-    // contributor confirms the digest of only the post-publication delta. Permit that bounded
-    // rollover so a failed submit can be repaired without weakening initial dirty-start policy.
-    if (initialAdoptionBlocked) {
-      throw new SingularityFlowError(
-        'This Story policy blocks adoption of changes made before the first generation. Review and preserve the listed changes outside this Story checkout, return the checkout to its baseline, then begin generation and reapply the reviewed changes.',
-        { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
-      );
-    }
+    // An explicit adoption still binds the digest the person confirmed.
     if (!confirm || confirm !== applicationChangeSet.digest) {
       throw new SingularityFlowError(`Adoption confirmation must equal the current application change-set digest ${applicationChangeSet.digest}.`, {
         code: 'GENERATION_DIRTY_START', details: dirtyDetails
@@ -213,7 +191,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
       commit: baselineCommit,
       tree: changeSet.base.tree,
       initialChangeSetDigest: applicationChangeSet.digest,
-      mode: existing.length ? (carried && !adoptExisting ? 'carried' : 'adopted') : 'clean',
+      mode: existing.length ? (carried && !adoptExisting ? 'carried' : inherited ? 'inherited' : 'adopted') : 'clean',
       previousGenerationCommit,
       ...(carried ? { carriedFrom: carried } : {})
     },
@@ -227,7 +205,10 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     startedAt,
     startedBy: { actor, agent },
     telemetryCursor: { key: `${workflow.workItem.id}:${phase.id}:${generation}`, startedAt: telemetry.startedAt },
-    adoption: existing.length ? { confirmedDigest: applicationChangeSet.digest, paths: existing.length } : null
+    adoption: existing.length && !inherited ? { confirmedDigest: applicationChangeSet.digest, paths: existing.length } : null,
+    // What it carried without a person's confirmation [WCB:REQ-009]: only new receipts carry it.
+    ...(inherited ? { inherited: { digest: applicationChangeSet.digest,
+      paths: [...new Set(existing.flatMap((entry) => [entry.oldPath, entry.newPath].filter(Boolean)))].sort().slice(0, 500) } } : {})
   };
   const receipt = { ...receiptContent, receiptSha256: generationStartSha256(receiptContent) };
   phase.generationIntent = {

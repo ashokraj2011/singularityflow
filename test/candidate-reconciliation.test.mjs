@@ -171,6 +171,8 @@ test('reconciliation uses declared candidate ownership for any code phase and al
   const repo = await repository(t);
   for (const relative of ['index.html', 'api.schema.graphql', 'notes.txt', 'build.local.json']) await writeFile(path.join(repo.root, relative), 'local change\n');
   const paths = await unreconciledCandidatePaths(repo.root, {}, { workItem: { id: 'CUSTOM' } }, { id: 'custom-deliver' }, { allows: () => false });
-  for (const relative of ['index.html', 'api.schema.graphql', 'notes.txt', 'build.local.json']) assert.ok(paths.includes(relative), relative);
+  for (const relative of ['index.html', 'api.schema.graphql', 'notes.txt']) assert.ok(paths.includes(relative), relative);
+  // A file named to stay on this machine is never the code base's, so never asked about [WCB:REQ-002].
+  assert.ok(!paths.includes('build.local.json'));
   assert.deepEqual(await unreconciledCandidatePaths(repo.root, {}, { workItem: { id: 'CUSTOM' } }, { id: 'custom-deliver' }, null), [], 'unscoped legacy candidates still contain every application change');
 });

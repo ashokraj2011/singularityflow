@@ -301,17 +301,15 @@ async function rolloverFacts(root, config, workflow, phase) {
     const [changed, requested, { phaseRequiresCodeDelivery }] = await Promise.all([source('changes-after-publication.mjs'), source('requested-successor.mjs'),
       import('./code-delivery-policy.mjs')]);
     if (!requested.requestedSuccessorEligible(workflow, phase)) return null;
-    // A document step never holds application files: no version of it takes them, so its row only sets them aside
-    // (office, 2026-11-27: its submission was refused for them, and this list had nothing).
-    const documents = !phaseRequiresCodeDelivery(phase);
-    const after = await (documents ? changed.documentStepChanges : changed.changesAfterPublication)(root, config, workflow, phase).catch(() => null);
+    // A document step's code base files are the code step's to take up: no row asks about them [WCB:REQ-007]. Only a code
+    // step's own files changed after its publication are (changesAfterPublication reads a code step only).
+    const after = await changed.changesAfterPublication(root, config, workflow, phase).catch(() => null);
     const requests = await requested.requestedChanges(root, workflow, phase).catch(() => []);
-    if (documents && !after?.uncommitted?.length && !requests.length) return null;
     // Never the author's own correction: that is of a published generation whose bytes are unchanged and that nobody
     // asked to change, which this item never covers (neither files nor a request); `phase rollover --correction` previews
     // it and the person answers its own "Start version N …?" question (owner, 2026-11-17; own-correction-rollover.mjs).
     if (!after && !requests.length) return null;
-    const action = requested.requestedSuccessorAction(workflow, phase, { requested: requests.length > 0, changedPaths: documents ? [] : after?.paths ?? [] });
+    const action = requested.requestedSuccessorAction(workflow, phase, { requested: requests.length > 0, changedPaths: after?.paths ?? [] });
     const chatRoute = phaseRequiresCodeDelivery(phase) ? `/sf-code ${phase.id}` : action?.copilotCommand?.replace(/ <what to change>$/u, '') ?? null;
     const next = Math.max(Number(phase.generation), Number(phase.generationHighWatermark ?? 0)) + 1;
     const keepOut = after?.uncommitted?.length ? `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` : null;
@@ -320,11 +318,23 @@ async function rolloverFacts(root, config, workflow, phase) {
     const asked = await requested.successorAsked(root, workflow, phase, next).catch(() => false);
     if (asked && !keepOut) return null;
     return { phase: phase.id, generation: Number(phase.generation), next,
-      paths: (documents ? after?.uncommitted : after?.paths) ?? [], uncommitted: after?.uncommitted ?? [], requests: requests.map((text) => String(text).replace(/\s+/gu, ' ').trim().slice(0, 200)),
-      command: `singularity-flow phase rollover ${phase.id}`, keepOut, ...(asked ? { asked: true } : {}), chatRoute, code: !documents,
-      // The code step ahead, which writes the code the person set aside.
-      ...(documents ? { documents: true, codeStep: (workflow.phaseOrder ?? []).slice((workflow.phaseOrder ?? []).indexOf(phase.id) + 1)
-        .find((id) => phaseRequiresCodeDelivery(workflow.phases?.[id])) ?? null } : {}) };
+      paths: after?.paths ?? [], uncommitted: after?.uncommitted ?? [], requests: requests.map((text) => String(text).replace(/\s+/gu, ' ').trim().slice(0, 200)),
+      command: `singularity-flow phase rollover ${phase.id}`, keepOut, ...(asked ? { asked: true } : {}), chatRoute, code: phaseRequiresCodeDelivery(phase) };
+  } catch { return null; }
+}
+
+/**
+ * A Story with no code step at all [WCB:REQ-017]: the code base files left in its checkout, which nothing delivers and its
+ * approval lists as not part of it, and code committed on its branch, which only taking the commit out clears. Null for a
+ * Story with a code step, or when there is neither.
+ */
+async function noCodeStepFacts(root, config, workflow, phase) {
+  if (!phase) return null;
+  try {
+    const outside = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'code-outside-plan.mjs')).href);
+    const [committed, uncommitted] = await Promise.all([outside.codeCommittedWithoutCodeStep(root, config, workflow), outside.codeLeftInCheckout(root, config, workflow)]);
+    if (!committed && !uncommitted?.length) return null;
+    return { phase: phase.id, ...(committed ? { committed } : {}), ...(uncommitted?.length ? { uncommitted } : {}) };
   } catch { return null; }
 }
 
@@ -579,6 +589,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     completeness: answering ? await completenessFacts(root, config, workflow) : null,
     excludedChanges: answering ? await excludedChangeFacts(root, config, workflow, phase) : null,
     rollover: answering ? await rolloverFacts(root, config, workflow, phase) : null,
+    noCodeStep: workflow.status === 'in_progress' ? await noCodeStepFacts(root, config, workflow, phase) : null,
     departures: workflow.status === 'in_progress' ? await departureFacts(root, config, workflow, phase) : null,
     convergence,
     askedFor: workflow.status === 'in_progress' ? await askedForFacts(root, workflow, phase) : null,

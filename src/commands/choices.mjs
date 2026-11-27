@@ -56,9 +56,10 @@ export async function choicesCommand(positionals, options) {
           try { current = await loadAcceptedStoryExecution(root); }
           catch (readError) { if (readError.code !== 'STORY_NOT_FOUND') throw readError; }
           if (current?.workflow.workItem.id !== workId) throw error;
-          // What is kept in place for a later code step is not this decision's (SPEC-CIC switch 2).
+          // What is kept in place for a later code step is not this decision's (SPEC-CIC switch 2), nor a code base file at a
+          // document step, which the code step ahead takes up [WCB:REQ-006]: the Story's own rules decide.
           const held = await heldForLaterCode(root, current.definition, current.workflow);
-          try { if (!held?.size) throw error; assertLifecycleWorktreeClean(root, current.definition, current.workflow, { held }); }
+          try { assertLifecycleWorktreeClean(root, current.definition, current.workflow, { held }); }
           catch (dirty) {
             await assertApprovalSubmitted(root, current.definition, current.workflow);
             throw await withSetAsideRoute(dirty, root, current.definition, current.workflow);

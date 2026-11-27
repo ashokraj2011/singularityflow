@@ -375,7 +375,7 @@ test('a later step the amendment resets, holding a draft from before it, is pinn
       assert.deepEqual(left, right, `${label}: the Story reads the same with the switch on and off`);
     };
     const CODE = [' M src/value.mjs', ' M test/value.test.mjs'];
-    // The checkout at a point in the middle: on, the code step's code stays where it is; off, the person set it aside.
+    // The checkout at a point in the middle: the code step's code stays where it is, either way [WCB:REQ-004].
     const checkouts = (label, expected) => assert.deepEqual([on.dirty(), off.dirty()], expected, label);
     await both((f) => f.scoped('PD-3'));
     await both((f) => f.designed('PD-3'));
@@ -411,26 +411,17 @@ test('a later step the amendment resets, holding a draft from before it, is pinn
     await both(async (f) => {
       f.nextVersion('fix-design');
       f.sflow('prepare', 'fix-design');
-      // Composing it: on, the code is no change for the design to review; off, the checkout holds it for a person first.
+      // Composing it: the code is no change for the design to review, with the switch on or off: a document step never
+      // stops for code base files, which the code step takes up [WCB:REQ-004, REQ-006].
       const entry = JSON.parse(f.sflow('phase', 'enter', 'fix-design', '--compose', '--json'));
-      if (f === on) assert.deepEqual([entry.status, entry.contextAdmission.blockers], ['authoring-entry', []]);
-      else assert.ok(entry.contextAdmission.blockers.some((blocker) => blocker.code === 'PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED'), JSON.stringify(entry.contextAdmission));
+      assert.deepEqual([entry.status, entry.contextAdmission.blockers], ['authoring-entry', []], JSON.stringify(entry.contextAdmission));
       await writeFile(f.item('PD-3', 'artifacts/fix-design/fix-design.md'), f.designText('PD-3').replace('keeps the module to a single export', 'keeps exactly one named export'));
-      // Off (and on every Story pinned before the field): a document step publishes no application change, so the person
-      // sets the code aside while the design is redone. On: the code stays; the design does not count it against itself.
-      if (f === off) {
-        const refused = f.run(['phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place', '--json']);
-        assert.equal(refusedCode(refused), 'PHASE_ARTIFACT_ONLY_CHANGES', refused.stdout || refused.stderr);
-        assert.match(refused.stdout, /They change PD-3:AC-001, PD-3:AC-002\./u, 'no step owns them yet, so no empty owner is named');
-        assert.doesNotMatch(refused.stdout, /owned by \./u);
-        f.must('git', ['checkout', '--', 'src', 'test']);
-      }
       const checked = JSON.parse(f.sflow('phase', 'prepublish', 'fix-design', '--json'));
       assert.equal(checked.status, 'ready', JSON.stringify(checked.findings));
       f.sflow('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place');
     });
     await same('after the design is published again');
-    checkouts('after the design is published again', [CODE, []]);
+    checkouts('after the design is published again', [CODE, CODE]);
     // Its publication commits only the design, whichever way: the code is never a document step's.
     for (const f of [on, off]) assert.deepEqual(f.published('PD-3', 'fix-design', 2).filter((file) => !file.startsWith('singularity/')), []);
     assert.deepEqual((await on.workflow('PD-3')).phases['fix-design'].artifacts.map((artifact) => artifact.path), ['singularity/work-items/PD-3/artifacts/fix-design/fix-design.md']);
@@ -438,11 +429,11 @@ test('a later step the amendment resets, holding a draft from before it, is pinn
     await same('after the design is submitted again');
     await both((f) => f.sflow('approve', 'fix-design', '--yes'));
     await same('after the design is written again and approved');
-    checkouts('after the design is approved', [CODE, []]);
+    checkouts('after the design is approved', [CODE, CODE]);
     assert.equal((await on.workflow('PD-3')).phases.implement.generationIntent.status, 'superseded', 'the code step\'s generation is still the closed one');
     const before = storyOff.phases.implement.generationIntent.id;
     // The code step, reached again, is begun and composed under the amended scope, and publishes. On, its begin carries the
-    // code the closure recorded; off, the person brings the code back and it continues the generation opened before.
+    // code the closure recorded; off, it continues the generation opened before, with the code where it stayed.
     await both(async (f) => {
       f.sflow('prepare', 'implement'); f.sflow('phase', 'begin', 'implement', '--json');
       await f.code('PD-3');
@@ -463,7 +454,7 @@ test('a later step the amendment resets, holding a draft from before it, is pinn
 
 const errorOf = (result) => { try { const parsed = JSON.parse(result.stdout || result.stderr); return parsed.error ?? parsed; } catch { return {}; } };
 
-test('a reopened design still answers for code changed after the closure, for new code and for a protected path, and the code step carries only what was recorded [owner, 2026-11-14]',
+test('a reopened design answers only for a protected path; code changed after the closure, and new code, are carried by the code step [owner, 2026-11-14; WCB:REQ-004, REQ-009]',
   slowLane({ timeout: 900_000 }), async (t) => {
     const f = await fixture(t, { refuse: true, protect: 'ops/' });
     const file = (relative) => path.join(f.root, relative);
@@ -490,43 +481,26 @@ test('a reopened design still answers for code changed after the closure, for ne
     let refused = errorOf(publish());
     assert.deepEqual([refused.code, refused.details?.paths], ['CHANGE_SET_POLICY_VIOLATION', ['ops/']], JSON.stringify(refused).slice(0, 600));
     await rm(file('ops'), { recursive: true });
-    // A path changed after the closure is the design's to answer for again; the one still as recorded stays the code step's.
+    // A path changed after the closure, and new code, are no longer the design's to answer for: a document step never stops
+    // for code base files, and the code step takes them up [WCB:REQ-004, REQ-009].
     const kept = await readFile(file('src/value.mjs'), 'utf8');
     await writeFile(file('src/value.mjs'), `${kept}// edited after the amendment\n`);
-    refused = errorOf(publish());
-    assert.deepEqual([refused.code, refused.details?.changedPaths, refused.details?.changedSinceClosure], ['PHASE_ARTIFACT_ONLY_CHANGES', ['src/value.mjs'], ['src/value.mjs']], JSON.stringify(refused).slice(0, 600));
-    assert.match(refused.message, /src\/value\.mjs changed after AMD-001 left implement's code in place for it, so this step answers for it: put back the bytes recorded then, or set it aside; implement picks up only that code\.$/u);
-    assert.doesNotMatch(refused.message, /owned by \./u);
-    assert.ok(blockers().includes('PHASE_ARTIFACT_ONLY_CHANGES'), 'prepublish says the same');
-    await writeFile(file('src/value.mjs'), kept);
-    // New code is refused as before.
     await writeFile(file('src/extra.mjs'), 'export const extra = 1;\n');
-    refused = errorOf(publish());
-    assert.deepEqual([refused.code, refused.details?.changedPaths], ['PHASE_ARTIFACT_ONLY_CHANGES', ['src/extra.mjs']], JSON.stringify(refused).slice(0, 600));
-    await rm(file('src/extra.mjs'));
-    // With only the recorded code left, the design is checked, published and submitted with it in place.
     assert.ok(!blockers().includes('PHASE_ARTIFACT_ONLY_CHANGES'));
     f.sflow('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place');
     assert.deepEqual(f.published('PD-5', 'fix-design', 2).filter((entry) => !entry.startsWith('singularity/')), []);
     f.sflow('submit', 'fix-design');
-    // Its approval refuses a recorded path changed since, as it refuses any change in the checkout.
-    await writeFile(file('src/value.mjs'), `${kept}// edited after the amendment\n`);
-    refused = errorOf(f.run(['approve', 'fix-design', '--yes', '--json']));
-    assert.deepEqual([refused.code, refused.details?.paths], ['LIFECYCLE_WORKTREE_REVIEW_REQUIRED', ['src/value.mjs']], JSON.stringify(refused).slice(0, 600));
-    await writeFile(file('src/value.mjs'), kept);
+    // Its approval leaves them where they are too.
     f.sflow('approve', 'fix-design', '--yes');
-    assert.deepEqual(f.dirty(), [' M src/value.mjs', ' M test/value.test.mjs']);
-    // The code step's begin carries exactly the recorded code: a path changed since is refused there, in that step.
-    await writeFile(file('src/value.mjs'), `${kept}// edited after the amendment\n`);
-    refused = errorOf(f.run(['phase', 'begin', 'implement', '--json']));
-    assert.deepEqual([refused.code, refused.details?.changedSinceClosure], ['GENERATION_DIRTY_START', ['src/value.mjs']], JSON.stringify(refused).slice(0, 600));
-    await writeFile(file('src/value.mjs'), kept);
+    assert.deepEqual(f.dirty(), [' M src/value.mjs', ' M test/value.test.mjs', '?? src/extra.mjs']);
+    // The code step's begin carries all of it: the recorded code changed since, so it inherits the change set rather than
+    // carrying exactly the closed generation's code.
     f.sflow('phase', 'begin', 'implement', '--json');
     const begun = (await f.workflow('PD-5')).phases.implement.generationIntent;
-    assert.deepEqual([begun.status, begun.baseline.mode], ['open', 'carried']);
+    assert.deepEqual([begun.status, begun.baseline.mode], ['open', 'inherited']);
   });
 
-test('a return to the design from a code step whose generation is open leaves its code in place for it the same way; with the switch off the design still stalls on it [owner, 2026-11-14]',
+test('a return to the design from a code step whose generation is open leaves its code in place for it the same way, with the switch on or off [owner, 2026-11-14; WCB:REQ-004]',
   slowLane({ timeout: 900_000 }), async (t) => {
     const on = await fixture(t, { refuse: true });
     const off = await fixture(t, { refuse: false });
@@ -558,17 +532,13 @@ test('a return to the design from a code step whose generation is open leaves it
       f.nextVersion('fix-design');
       f.sflow('prepare', 'fix-design'); f.sflow('phase', 'enter', 'fix-design', '--compose', '--json');
       await writeFile(f.item('PD-6', 'artifacts/fix-design/fix-design.md'), f.designText('PD-6').replace('holds the old value', 'holds the old literal value'));
-      if (f === off) {
-        const refused = errorOf(f.run(['phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place', '--json']));
-        assert.equal(refused.code, 'PHASE_ARTIFACT_ONLY_CHANGES', JSON.stringify(refused).slice(0, 600));
-        f.must('git', ['checkout', '--', 'src', 'test']);
-      }
+      // With the switch off too, the design never stops for the code: it stays in the checkout [WCB:REQ-004].
       f.sflow('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place');
       f.sflow('submit', 'fix-design');
       f.sflow('approve', 'fix-design', '--yes');
     });
     await same('after the design is approved again');
-    assert.deepEqual([on.dirty(), off.dirty()], [CODE, []]);
+    assert.deepEqual([on.dirty(), off.dirty()], [CODE, CODE]);
     for (const f of [on, off]) assert.deepEqual(f.published('PD-6', 'fix-design', 2).filter((entry) => !entry.startsWith('singularity/')), []);
     // The code step picks its code up in the same open generation, and publishes it.
     await both(async (f) => {
@@ -652,17 +622,16 @@ test('before a closed generation begins again, recovery routes exactly its recor
       assert.deepEqual(routes.filter(([id]) => id === 'working-tree'), [['working-tree', BEGIN]], JSON.stringify(routes));
       assert.ok(!routes.some(([id]) => id === 'commit-reviewed-worktree'), JSON.stringify(routes));
     }
-    // A recorded file changed since: beyond the record, the routes are today's, and the begin refuses it in this step.
+    // A recorded file changed since: the begin carries that too, as code changed outside a version always is, so the routes
+    // still lead to it, and nothing offers to commit it as reviewed [WCB:REQ-009].
     const kept = await readFile(path.join(f.root, 'src/value.mjs'), 'utf8');
     await writeFile(path.join(f.root, 'src/value.mjs'), `${kept}// edited after the amendment\n`);
     const beyond = entryRoutes(f, 'implement');
-    assert.ok(!beyond.some(([, command]) => command === BEGIN), JSON.stringify(beyond));
-    assert.ok(beyond.some(([id]) => id === 'commit-reviewed-worktree'), JSON.stringify(beyond));
-    assert.equal(errorOf(f.run(['phase', 'begin', 'implement', '--json'])).code, 'GENERATION_DIRTY_START');
-    await writeFile(path.join(f.root, 'src/value.mjs'), kept);
-    // The route it named carries the code.
+    assert.deepEqual(beyond.filter(([id]) => id === 'working-tree'), [['working-tree', BEGIN]], JSON.stringify(beyond));
+    assert.ok(!beyond.some(([id]) => id === 'commit-reviewed-worktree'), JSON.stringify(beyond));
+    // The route it named carries the code: exactly the record's, `carried`; with the change since, `inherited`.
     f.sflow('phase', 'begin', 'implement', '--json');
-    assert.deepEqual((await f.workflow('PD-8')).phases.implement.generationIntent.baseline.mode, 'carried');
+    assert.deepEqual((await f.workflow('PD-8')).phases.implement.generationIntent.baseline.mode, 'inherited');
 
     // r: a return to the design leaves the code step's open generation and its code in place (`heldCode`). Reached again, the
     // generation is still open: its code is that generation's draft to continue, and nothing routes it to a begin.

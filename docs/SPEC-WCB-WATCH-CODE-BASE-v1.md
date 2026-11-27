@@ -35,8 +35,8 @@ Everything below is about what is *not* a stop.
 - **WCB:REQ-002** Workspace-local files are never counted by any gate, never part of a code step's candidate, never
   listed, never asked about: an editor's or IDE's own files (`isEditorConfigurationPath`, from 96aa138eb), files named to
   stay on one machine (`.env`, `.env.*`, `*.local.*`, `application-local.*`: `alwaysLocalName`), and a test runner's
-  output folders (`test-results/`, `playwright-report/`, `blob-report/`). One predicate, `isWorkspaceLocalPath`
-  (src/application-paths.mjs), is shared by every gate below. Unstaged, they stay where they are; staged, the checkout
+  output folders (`test-results/`, `playwright-report/`, `blob-report/`, tracked or not). One predicate, `isWorkspaceLocalPath`
+  (src/workspace-local-paths.mjs, a leaf the Copilot edit guard never loads), is shared by every gate below. Unstaged, they stay where they are; staged, the checkout
   hold still names them, since a commit could take them.
 - **WCB:REQ-003** Tool configuration (lint, format, `.editorconfig`) and build, dependency and CI files are code-base
   files: never a stop, and at the code step taken up with the change and listed (REQ-009).
@@ -50,11 +50,15 @@ Everything below is about what is *not* a stop.
 - **WCB:REQ-005** A document step's submission never refuses application files changed after its publication (today
   `PHASE_SOURCE_CHANGED_AFTER_PUBLICATION`) when a code step comes later in the workflow: that code step takes them up.
   With no code step ahead, uncommitted files never refuse (they are not delivered); a *commit* that changes code an
-  approved code step delivered keeps its return to that code step (REQ-001.2).
-- **WCB:REQ-006** A document step's approval never holds for unstaged or untracked application files (today
-  `LIFECYCLE_WORKTREE_REVIEW_REQUIRED`). Staged files still hold: SFlow's approval commit must never take them.
+  approved code step delivered keeps its return to that code step (REQ-001.2). A Story with no code step at all: REQ-017.
+- **WCB:REQ-006** A document step never holds for unstaged or untracked application files: not its approval's checkout
+  hold (today `LIFECYCLE_WORKTREE_REVIEW_REQUIRED`), not recovery's review roster, so not its composition either (today
+  `PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED`). Staged files still hold: SFlow's approval commit must never take them. When a
+  code step comes later, its review does not answer for the code base either: a commit of application files alone made
+  while it waits (today `STORY_REVIEW_INTERVENING_COMMIT`), or code and test configuration changed since its submission
+  (today `STORY_REVIEW_SOURCE_CHANGED`, `STORY_REVIEW_TEST_INPUT_CHANGED`), never holds its approval.
 - **WCB:REQ-007** The Decide page has no row for a document step's application files (the `documentStepChanges`
-  set-aside row 96aa138eb added): there is nothing to decide. Recovery still shows the set-aside for anyone who wants it.
+  set-aside row 96aa138eb added): there is nothing to decide.
 
 ### The code step takes up what changed
 
@@ -65,17 +69,23 @@ Everything below is about what is *not* a stop.
   explicit baseline (readiness repair, a test-command amendment) is never moved.
 - **WCB:REQ-009** A code generation's begin never refuses code that already changed since its baseline (today
   `GENERATION_DIRTY_START`, whatever the `dirtyStart` policy, first generation or later). It carries it: the
-  generation-start receipt records `baseline.mode: 'inherited'` and `inherited: { paths, digest }`. A protected path or
-  a path outside the step's source boundary still refuses (REQ-001.3; the boundary is the workflow's own rule).
-- **WCB:REQ-010** At every publication of a code step (prepublish, the agent's publish and a person's publish), each
-  changed application file no plan row names (uncommitted, or committed since the generation's baseline) is settled:
+  generation-start receipt records `baseline.mode: 'inherited'` and `inherited: { paths, digest }`. A generation an
+  amendment closed (SPEC-CIC) still carries exactly its recorded code as `carried`; code changed since, or new code, makes
+  it `inherited` instead of a refusal. A protected path or a path outside the step's source boundary still refuses
+  (REQ-001.3; the boundary is the workflow's own rule).
+- **WCB:REQ-010** At every publication of a code step (the agent's publish and a person's), each changed application
+  file no plan row names (uncommitted, or committed since the generation's baseline) is settled:
   the plan's clear classes as today (companion, test support, documentation, ignore file, generated), and every other
   file as a `plan-accounting` settlement of class `out-of-plan`, `by: 'sflow'`, with
   `effect: { file, class: 'out-of-plan', writer, reason, kind }`. The file joins that step's candidate and is published
   with it. Nobody is asked; nothing is refused. Never settled this way: a protected path (refused), a workspace-local
-  file (REQ-002), a file a person rejected as a departure (its author restores it, as today), a file whose settlement a
+  file (REQ-002), a file shaped like a key or certificate (`*.pem`, `*.key`, `id_rsa`: SFlow never commits one; it keeps
+  today's route), a file a person rejected as a departure (its author restores it, as today), a file whose settlement a
   person undid (theirs to answer, as today), a file that already waits as an open departure, a file another code step's
-  plan names (`GENERATION_EXCLUSIONS_UNSAFE`, as today).
+  plan names (`GENERATION_EXCLUSIONS_UNSAFE`, as today). The agent's prepublish settles the clear classes only, records no
+  departure for any other file, and lists what publication will take up (`outsidePlan`). A read before publication (the
+  Decide page, recovery, composition) asks about none of them: only a file a person holds stays a question. Spec coverage
+  counts a file taken up as claimed: no clause answers for it.
 
 ### Who changed it, and why
 
@@ -90,8 +100,9 @@ Everything below is about what is *not* a stop.
   the basis.
 - **WCB:REQ-012** Copilot writes the reason in its step's document, under a heading `Changes outside the plan` (any
   level), one line per file: the file in backticks, then why (a list item or a table row). SFlow reads it at
-  settlement into `effect.reason`. A Copilot file with no reason is never a stop: it is recorded and shown as "by
-  Copilot: no reason written", and the publish result tells the author to add it.
+  publication, when the document is final, into `effect.reason`; `departure record --kind path` with `--reason` takes the
+  file up with that reason at once. A Copilot file with no reason is never a stop: it is recorded and shown as "by
+  Copilot: no reason written", and prepublish's `outsidePlan.reasonsMissing` tells the author to add it.
 - **WCB:REQ-013** The code step's prompt protocol, the `/sf-code` skill and the implementation template's guidance tell
   Copilot to write that section for any file it changed that no plan row names, instead of recording a file departure.
   Departures stay for plan rows, tests, wording and clauses.
@@ -100,10 +111,26 @@ Everything below is about what is *not* a stop.
 
 - **WCB:REQ-014** The code approval lists every out-of-plan file of that step, each marked `by Copilot: <reason>` or
   `by you`: the Decide card's approval row (`details.outsidePlan` and one line each in `details.lines`), the approval
-  page and step sheet that read that row, and `Settled for you` (one group, "changed outside the plan").
+  focus page ("Changed outside the plan", at the file), and `Settled for you` (one group, "changed outside the plan").
 - **WCB:REQ-015** Undo is returning the step. While the code step is still open, undoing a settlement hands that file
   back as a question, as for any settled file; once the step awaits approval, its approver returns it first; once
   approved, it is history.
+
+### A Story with no code step
+
+- **WCB:REQ-017** A Story whose workflow has no code step at all (a docs, investigate or review task, whose steps are
+  intake and design: `KIND_STEPS` in src/task-composition.mjs; or a team workflow with none) has no step to take code up.
+  The choice (coordinator, 2026-11-27):
+  - Code left uncommitted in its checkout never stops it and stays untouched; each approval, and so the last, lists it as
+    "Not part of this task" (`details.notPartOfTask` and one line), since nothing delivers it.
+  - Code committed on its branch since its base (its own first-parent commits; a merge brings none) would reach the pull
+    request with no clause or test check, so its document step's submission stops for it
+    (`PHASE_SOURCE_CHANGED_AFTER_PUBLICATION`, `details.noCodeStep`, `waits`), routed to the Decide page. The page has the
+    row: "Take the commit out", the exact `git revert --no-edit <commits>` in the person's terminal; submitted again, it
+    goes on. Such a task never grows into one with a code step: a task can gain only requirements, design, plan or review
+    (`ADDABLE`), so the code is delivered by a task that has a code step.
+  - Code committed after its submission keeps today's approval hold (`STORY_REVIEW_INTERVENING_COMMIT`): returned and
+    submitted again, it meets the stop above.
 
 ### Migration
 
@@ -120,20 +147,30 @@ Everything below is about what is *not* a stop.
 |---|---|---|---|
 | Document publication | `PHASE_ARTIFACT_ONLY_CHANGES` | refused any changed file outside its artifacts | refuses only another step's document; application files stay in the checkout, not committed (REQ-004) |
 | Document scan | (registration) | would register every changed file | registers only the step's own documents (REQ-004) |
-| Document submission | `PHASE_SOURCE_CHANGED_AFTER_PUBLICATION` | refused application files changed after publication | refuses only a commit to an approved code step's delivered code, by its return (REQ-005) |
+| Document submission | `PHASE_SOURCE_CHANGED_AFTER_PUBLICATION` | refused application files changed after publication | refuses only a commit to an approved code step's delivered code, by its return (REQ-005), or, on a Story with no code step, code committed on it, taken out from the Decide page (REQ-017) |
+| Document approval (no code step) | (listing) | nothing | lists code left in the checkout as not part of the task (REQ-017) |
 | Document approval | `LIFECYCLE_WORKTREE_REVIEW_REQUIRED` | held for any changed file | holds only for staged files and Story records (REQ-006) |
+| Document approval | `STORY_REVIEW_INTERVENING_COMMIT` | any commit after submission | not for a commit of application files alone, with a code step ahead (REQ-006) |
+| Document approval | `STORY_REVIEW_SOURCE_CHANGED`, `STORY_REVIEW_TEST_INPUT_CHANGED` | code or test configuration changed since submission | not with a code step ahead (REQ-006) |
+| Document composition | `PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED` | held for any changed file | not for application files, which recovery leaves out (REQ-006) |
 | Decide page | `generation-rollover` (documents) | a set-aside row | no row (REQ-007) |
 | Code step's interval | (baseline) | HEAD | where code was last governed, when code was committed since (REQ-008) |
 | Code generation begin | `GENERATION_DIRTY_START` | refused, or `--adopt-existing --confirm <digest>` | carried, `inherited` (REQ-009); protected and boundary paths still refuse |
+| Code generation begin (CIC) | `GENERATION_DIRTY_START` | refused code changed since an amendment's closure | carried, `inherited` (REQ-009) |
 | Code publication | `GENERATION_EXCLUDED_CHANGES_UNRESOLVED` | refused a file no row names (a person's publish), or recorded a departure (the agent's) | settled `out-of-plan` with writer and reason (REQ-010) |
 | Code approval | `DEPARTURES_UNDECIDED` | held until a person decided each file departure | no file departure is recorded for an out-of-plan file (REQ-010); earlier ones keep their hold (REQ-016) |
 | Decide page | `plan-accounting` question | "Say where <file> belongs" while the code step is open | none for a file publication settles (REQ-010) |
+| Code approval | `SPEC_COVERAGE_INCOMPLETE` (unclaimed changed path) | a changed path no clause claims | a file taken up counts as claimed (REQ-010) |
+| Code composition | `PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED` | an out-of-plan file was "unexpected" | it is the step's, as publication takes it up (REQ-010) |
 | Every gate | (counting) | editor files only (96aa138eb) | every workspace-local file (REQ-002) |
 
 Still refused, by design: protected paths (`CHANGE_SET_POLICY_VIOLATION`, `GENERATION_DIRTY_START` for a protected or
 out-of-boundary path), a clause without its code or test (spec coverage), a failing or narrowed required test, a file
 another code step's plan names (`GENERATION_EXCLUSIONS_UNSAFE`), a rejected departure not yet restored
-(`DEPARTURE_REJECTED_NOT_REVERTED`), and a commit to delivered code after its code step's approval.
+(`DEPARTURE_REJECTED_NOT_REVERTED`), a commit to delivered code after its code step's approval, and a code step's own
+files changed after its publication (its next version, on the person's yes: the owner's version rule). Left as they are:
+a non-code step that writes source with no approved code step before it (`PHASE_SOURCE_CHANGE_UNGOVERNED`: no code step
+governs it), and another step's own document changed under the Story's `artifacts/` (a Story record, not code).
 
 ## Tests
 
@@ -142,7 +179,8 @@ another code step's plan names (`GENERATION_EXCLUSIONS_UNSAFE`), a rejected depa
   and is approved with no question; the code step begins without adoption; Copilot-attributed (a recorded
   observed write) and person-made out-of-plan files settle at publication; the code step is approved with no person
   question; the approval row lists each out-of-plan file with its writer and Copilot's reason. A second case: a clause
-  with no test case is still refused (REQ-001.1).
+  with no test case is still refused (REQ-001.1). A third: a Story with no code step lists a file left in its checkout
+  as not part of it and stops for a commit of code until the Decide page's take-out step clears it (REQ-017).
 - `test/document-step-files.test.mjs` (updated): a document step's application files no longer refuse or show a row.
 - Unit: `test/code-outside-plan.test.mjs` for attribution (each basis), reason parsing and the workspace-local predicate.
 
@@ -153,5 +191,8 @@ another code step's plan names (`GENERATION_EXCLUSIONS_UNSAFE`), a rejected depa
 - A hook that ran in another checkout (a symlinked folder, VS Code's linked-folder case) wrote its records there.
 - A commit that merges upstream into the Story branch during a document step changes application files too; the code
   step then lists upstream's files as "by you". A merge base is not yet subtracted.
-- A workflow with no code step at all governs no code: a document step's code changes are left in the checkout and
-  never listed.
+- A commit on a Story with no code step that touches both code and the Story's own document is taken out whole by the
+  revert; the person makes the document change again.
+- After the last code step is approved, a document step's approval still binds the code its review saw: an uncommitted
+  edit to a file a plan row names, made while it waits, holds it (`STORY_REVIEW_SOURCE_CHANGED`) until the step is
+  returned, as the delivered code's tests ran without it (REQ-001.2).

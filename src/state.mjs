@@ -58,7 +58,7 @@ import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObs
 import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCapture } from './test-recovery-adapters.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
-  actionActor, artifactChangeInventory, branch, changedFiles, commitIsAncestor, commitsTouchingSince, committedChangedPaths, headTreeEntries, refHead, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
+  actionActor, artifactChangeInventory, branch, changedFiles, commitChangedPaths, commitIsAncestor, committedChangedPaths, headTreeEntries, refHead, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, refreshStalePublishedIndex, remoteContains, shallowBoundaryCommit, untrackedFiles
 } from './git.mjs';
 import {
@@ -230,7 +230,7 @@ import {
   recordFinalReconciliation, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 import { operationContext } from './operation-context.mjs';
-import { isEditorConfigurationPath } from './application-paths.mjs';
+import { isWorkspaceLocalPath } from './workspace-local-paths.mjs';
 import { normalizeQualityGateMode, qualityRiskStatus } from './phase-quality-risk.mjs';
 import {
   evaluateExternalCommandForModelMode, externalCommandText, FINDING_COMMAND_KINDS, findingCommand, findingReportFromStdout, normalizeExternalCommand,
@@ -2986,7 +2986,7 @@ function ignored(config, workflow, relativePath, { untracked = false } = {}) {
   if (untracked && isGeneratedOutputPath(relativePath)) return true;
   if ([WORKFLOW_PATH, 'singularity/config.json', 'singularity/worldmodel.json'].includes(relativePath)) return true;
   if (relativePath.startsWith('singularity/world-model/')) return true;
-  if (relativePath.startsWith('.git/') || isEditorConfigurationPath(relativePath)) return true;
+  if (relativePath.startsWith('.git/') || isWorkspaceLocalPath(relativePath)) return true;
   const itemRoot = storyLocation(null, config, workflow.workItem.id).prefix;
   if (relativePath.startsWith(`${itemRoot}/artifacts/`)) return false;
   if (relativePath.startsWith(`${itemRoot}/`)) return true;
@@ -3023,8 +3023,10 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   // A later code step's code, kept in place for it by an amendment's closure or a return (SPEC-CIC switch 2), is never a
   // document step's artifact: not registered, never committed.
   const others = scope ? [] : discovered.filter((file) => !file.startsWith(storyLocation(null, config, workflow.workItem.id).record(`artifacts/`)));
-  const kept = others.length ? (await (await import('./amended-drafts.mjs')).withoutHeldCode(root, config, workflow, phase, others)).paths : others;
-  const held = new Set(others.filter((file) => !kept.includes(file)));
+  // A document step never publishes a code base file: it stays in the checkout for the code step ahead [WCB:REQ-004].
+  const documentsOnly = (phase.writeScope ?? 'artifact-only') === 'artifact-only';
+  const kept = others.length && !documentsOnly ? (await (await import('./amended-drafts.mjs')).withoutHeldCode(root, config, workflow, phase, others)).paths : [];
+  const held = new Set(documentsOnly ? others : others.filter((file) => !kept.includes(file)));
   if (held.size) phase.artifacts = phase.artifacts.filter((artifact) => !held.has(artifact.path));
   if (scope) {
     phase.artifacts = phase.artifacts.filter((artifact) => !excluded.has(artifact.path));
@@ -3682,6 +3684,16 @@ async function assertRequiredArtifactSetPublishable(root, phase, catalog) {
 }
 
 /**
+ * The code step after a document step, which takes up every code base file changed while that step was open [WCB:REQ-005,
+ * REQ-006, REQ-008]; null for a code step, or when none comes after it.
+ */
+export function codeStepAhead(workflow, phase) {
+  if (!phase || phaseRequiresCodeDelivery(phase)) return null;
+  const order = workflow?.phaseOrder ?? [];
+  return order.slice(order.indexOf(phase.id) + 1).find((id) => phaseRequiresCodeDelivery(workflow.phases?.[id])) ?? null;
+}
+
+/**
  * What a phase that delivers no code may change, refused exactly as its publication refuses it:
  * protected process paths, files outside an artifact-only phase's artifacts, its source boundary,
  * and application source, tests or migrations no approved code phase governs. Publication and
@@ -3689,6 +3701,8 @@ async function assertRequiredArtifactSetPublishable(root, phase, catalog) {
  * a change it never mentioned [gate parity].
  */
 export async function assertPhaseChangeScope(root, config, workflow, phase) {
+  // Recovery's view of this step: the diagnosis of a protected path, and the person's set-aside of another step's document.
+  const recoverStep = `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`;
   const changed = changedFiles(root);
   const untracked = new Set(untrackedFiles(root));
   const protectedPaths = [...new Set([
@@ -3707,11 +3721,15 @@ export async function assertPhaseChangeScope(root, config, workflow, phase) {
       // The code-delivery refusal's code and shape, so recovery routes both the same way.
       { code: 'CHANGE_SET_POLICY_VIOLATION', details: { violationKind: 'protected-process-path', workId: workflow.workItem.id,
         phase: phase.id, paths: [protectedChange],
-        diagnosticAction: { command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` } } });
+        diagnosticAction: { command: recoverStep } } });
   }
   if ((phase.writeScope ?? 'artifact-only') === 'artifact-only') {
     const allowed = storyLocation(null, config, workflow.workItem.id).record(`artifacts/${phase.id}/`);
-    let outside = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowed));
+    // A code base file stays in the checkout, never published by a document step: the code step ahead takes it up
+    // [WCB:REQ-004]. Only another step's own document, a Story record, is refused here.
+    const storyArtifacts = storyLocation(null, config, workflow.workItem.id).record('artifacts/');
+    let outside = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowed)
+      && file.startsWith(storyArtifacts));
     // A later code step's code, kept for it by an amendment's closure or a return, is not this step's (SPEC-CIC switch 2).
     const drafts = outside.length ? await import('./amended-drafts.mjs') : null;
     const held = drafts ? await drafts.withoutHeldCode(root, config, workflow, phase, outside) : null;
@@ -3719,7 +3737,7 @@ export async function assertPhaseChangeScope(root, config, workflow, phase) {
     if (outside.length) {
       const change = await crossPhaseChange(root, config, workflow, phase, outside);
       const described = describeCrossPhaseChange(change, { code: 'PHASE_ARTIFACT_ONLY_CHANGES', gate: 'submission', workflow, phase,
-        setAside: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` });
+        setAside: recoverStep });
       throw new SingularityFlowError(`Phase ${phase.id} is artifact-only, but files outside its artifacts changed: ${outside.join(', ')}. ${described.text}`
         + drafts.heldCodeChangedWords(held.changed),
         // With no return its way out is the person's set-aside: it waits on them, so it is never escalated as a repair (office, 2026-11-27).
@@ -5909,11 +5927,9 @@ async function submitPhaseTransition(root, config, workflow, {
     requestedPhase: phase.id,
     reason: `Generation commit is missing for generation ${phase.generation}.`
   });
-  // Artifact-only phases review documents; they never authorize application changes. A plain Git
-  // commit made after publication used to disappear from `changedFiles()` and could therefore be
-  // swept into the later submission/approval history. Compare the complete repository state with
-  // the exact generation commit so committed, staged, unstaged, renamed, deleted, and untracked
-  // application paths all fail before the first submission mutation.
+  // Artifact-only phases review documents; they never authorize application changes. Compare the complete repository
+  // state with the exact generation commit, committed, staged, unstaged, renamed, deleted and untracked, so a change to
+  // delivered code made after publication is never swept into the later submission/approval history.
   if (!codeDeliveryRequired && exactGenerationCommit) {
     const postPublication = await buildRepositoryChangeSet(root, {
       baseCommit: exactGenerationCommit,
@@ -5927,36 +5943,38 @@ async function submitPhaseTransition(root, config, workflow, {
     const applicationChanges = applicationChangeSetProjection(
       postPublication, applicationPathContext(config, workflow)
     ).entries
-      // Editor configuration is not the step's: publication never counts it (ignored), so neither does its submission.
-      .filter((entry) => [entry.oldPath, entry.newPath].filter(Boolean).some((file) => !isEditorConfigurationPath(file)));
+      // A workspace-local file is not the step's: publication never counts it (ignored), so neither does its submission.
+      .filter((entry) => [entry.oldPath, entry.newPath].filter(Boolean).some((file) => !isWorkspaceLocalPath(file)));
     // A later code step's code, kept for it by an amendment's closure or a return, is not this step's (SPEC-CIC switch 2).
     const drafts = applicationChanges.length ? await import('./amended-drafts.mjs') : null;
     const kept = drafts ? await drafts.withoutHeldCode(root, config, workflow, phase, [...new Set(applicationChanges.flatMap((entry) => [
       entry.oldPath, entry.newPath
     ]).filter(Boolean))].sort()) : null;
-    if (kept?.paths.length) {
-      const changedPaths = kept.paths;
-      const change = await crossPhaseChange(root, config, workflow, phase, changedPaths);
-      // No return takes them: which are committed and which are only in this checkout, since recovery sets aside only the latter.
-      const permitted = change.returns.some((entry) => entry.permitted);
-      const held = permitted ? null : commitsTouchingSince(root, exactGenerationCommit, changedPaths);
-      const setAside = held?.uncommitted.length ? `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` : null;
-      const described = describeCrossPhaseChange(change, { code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', gate: 'submission', workflow, phase, setAside });
-      // No earlier code step owns them, so "move them to the code step" named nothing a person could
-      // run (2026-10-28): take them out of this step now and bring them back in the code step ahead.
-      const ahead = change.returns.length ? null : (workflow.phaseOrder ?? []).slice((workflow.phaseOrder ?? []).indexOf(phase.id) + 1)
-        .find((id) => phaseRequiresCodeDelivery(workflow.phases?.[id]));
-      const shortList = (commits) => commits.map((commit) => commit.slice(0, 12)).join(' ');
-      const takeOut = ahead && held ? [
-        ...(held.commits.length ? [`git revert --no-edit ${shortList([...held.commits].reverse())} now, and git cherry-pick ${shortList(held.commits)} once ${ahead} is prepared`] : []),
-        // The set-aside keeps a private copy; the stash is the way to bring them back in the code step.
-        ...(held.uncommitted.length ? [`set ${held.uncommitted.join(', ')} aside (${setAside} shows the person's command; a private copy is kept), or to bring them back in ${ahead}: git stash push --include-untracked -- ${held.uncommitted.join(' ')} now, and git stash pop once ${ahead} is prepared`] : [])
-      ] : [];
+    // A Story with no code step at all: code committed on its branch would reach the pull request with no clause or test
+    // check, so it stops here until the commit is taken out; the Decide page carries that step [WCB:REQ-017].
+    const unchecked = await (await import('./code-outside-plan.mjs')).codeCommittedWithoutCodeStep(root, config, workflow);
+    if (unchecked) {
+      throw new SingularityFlowError(`${unchecked.paths.join(', ')} ${unchecked.paths.length === 1 ? 'was' : 'were'} committed on this Story, which has no step `
+        + `that checks code against a clause and a test. Take the commit out (${unchecked.takeOut}), then submit again; a task with a code step delivers it.`, {
+        code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION',
+        details: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation, changedPaths: unchecked.paths, noCodeStep: true,
+          commits: unchecked.commits.map((entry) => entry.commit), waits: true, recoveryCommands: [unchecked.takeOut],
+          nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide', label: 'Take the commit out from the Decide page' } }
+      });
+    }
+    // A code step ahead takes every code base change up, committed or not, and nothing here is a person's to clear; with
+    // none ahead, an uncommitted file is delivered by nobody and stays in the checkout [WCB:REQ-005]. Only a commit to code
+    // an approved code step delivered stops: its tests ran on other code, so it goes back there [WCB:REQ-001].
+    const ahead = kept?.paths.length ? codeStepAhead(workflow, phase) : null;
+    const committed = kept?.paths.length && !ahead
+      ? [...new Set(committedChangedPaths(root, exactGenerationCommit))].filter((file) => kept.paths.includes(file)).sort() : [];
+    const change = committed.length ? await crossPhaseChange(root, config, workflow, phase, committed) : null;
+    if (change?.returns.some((entry) => entry.permitted)) {
+      const changedPaths = committed;
+      const described = describeCrossPhaseChange(change, { code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', gate: 'submission', workflow, phase });
       throw new SingularityFlowError(
-        `Phase '${phase.id}' is artifact-only, but application source or tests changed after generation ${phase.generation} was published: `
-        + `${changedPaths.join(', ')}. `
-        + (takeOut.length ? `No earlier code step owns them; ${ahead} will deliver them. Take them out of ${phase.id}: ${takeOut.join('; ')}. Then submit the unchanged ${phase.id} generation again.`
-          : `Move them to the code step that owns them, then submit the unchanged ${phase.id} generation again. ${described.text}`) + drafts.heldCodeChangedWords(kept.changed),
+        `Phase '${phase.id}' is artifact-only, but code ${change.owners.join(', ')} delivered was committed after version ${phase.generation} was published: `
+        + `${changedPaths.join(', ')}. Its tests ran on other code. ${described.text}` + drafts.heldCodeChangedWords(kept.changed),
         {
           code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION',
           details: {
@@ -5967,9 +5985,6 @@ async function submitPhaseTransition(root, config, workflow, {
             changedPaths,
             crossPhase: change,
             gate: described.gate,
-            // Only a person sets the files aside or takes the commits out: no repair by the author passes it (office, 2026-11-27).
-            ...(permitted ? {} : { waits: true }),
-            ...(takeOut.length ? { codeStepAhead: ahead, heldCommits: held.commits, heldUncommitted: held.uncommitted, recoveryCommands: takeOut } : {}),
             ...(kept.changed.length ? { changedSinceClosure: kept.changed.map((entry) => entry.path) } : {})
           }
         }
@@ -6876,6 +6891,15 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
     const { reviewSafeTaskChanges } = await import('./task-change-review.mjs');
     for (const commit of await reviewSafeTaskChanges(root, config, workflow, phase, unallowed())) allowedReviewCommits.add(commit);
   }
+  // A commit of code base files alone while a document step waits is the code step's to take up, never this review's: that
+  // step's interval starts where code was last governed, so it carries the commit and lists it [WCB:REQ-006, REQ-008].
+  if (unallowed().length && codeStepAhead(workflow, phase)) {
+    const context = applicationPathContext(config, workflow);
+    for (const commit of unallowed()) {
+      const paths = commitChangedPaths(root, commit);
+      if (paths.length && paths.every((file) => isApplicationChangePath(file, context))) allowedReviewCommits.add(commit);
+    }
+  }
   const pendingProposals = amendments && unallowed().length
     ? await amendments.pendingIntentAmendmentProposals(root, config, workflow, unallowed()) : [];
   for (const { proposalCommit } of pendingProposals) allowedReviewCommits.add(proposalCommit);
@@ -7154,7 +7178,9 @@ export async function evaluateApproval(root, config, workflow, {
           }
         );
       }
-      if (submittedReview.sourceTreeSha256 !== currentSourceTreeSha256) {
+      // A document step's review never answers for the code base when a code step comes after it: that step takes up what
+      // changed, committed or not, and lists it at its own approval, so this approval absorbs nothing [WCB:REQ-006].
+      if (submittedReview.sourceTreeSha256 !== currentSourceTreeSha256 && !codeStepAhead(workflow, phase)) {
         throw new SingularityFlowError(
           `Phase '${phase.id}' application source or tests changed after generation ${phase.generation} was submitted. `
           + 'Approval cannot absorb implementation created during review. '
@@ -7179,7 +7205,8 @@ export async function evaluateApproval(root, config, workflow, {
     });
     await stage('test-input', async () => {
       const currentTestInputSha256 = await testInputTreeHash(root, config, workflow);
-      if (currentTestInputSha256 && submittedReview.testInputSha256 !== currentTestInputSha256) {
+      // As the source binding: the code step ahead takes up a changed test configuration [WCB:REQ-003, REQ-006].
+      if (currentTestInputSha256 && submittedReview.testInputSha256 !== currentTestInputSha256 && !codeStepAhead(workflow, phase)) {
         throw new SingularityFlowError(
           `Phase '${phase.id}' separately hashed test inputs changed after submission. Submit a fresh review packet before approval.`,
           { code: 'STORY_REVIEW_TEST_INPUT_CHANGED' }

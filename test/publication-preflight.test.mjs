@@ -1410,7 +1410,8 @@ test('recovery keeps unrelated and protected paths manual even beside an exact p
   assert.equal(action.mode, 'manual');
   assert.equal(action.classification, 'review-required');
   assert.ok(action.expectedPaths.includes('singularity/work-items/PREFLIGHT-1/artifacts/intake/intake.md'));
-  assert.deepEqual(action.unexpectedPaths, ['README.md', 'singularity/workflow.yml']);
+  // A code base file is left for the code step ahead, never a document step's review [WCB:REQ-006]; the protected path stays.
+  assert.deepEqual(action.unexpectedPaths, ['singularity/workflow.yml']);
   assert.equal(action.safe, false);
   assert.equal(action.automatic, false);
 });
@@ -1703,13 +1704,13 @@ test('the required artifact is expected while unrelated untracked files still wa
     assert.deepEqual(firstWarnings, [], 'the declared required artifact was reported as accidental adoption');
     assert.ok(phase.artifacts.some((artifact) => artifact.path.endsWith('/artifacts/intake/intake.md')));
 
+    // A document step never adopts a code base file: it stays in the checkout for the code step, unregistered [WCB:REQ-004].
     await writeFile(path.join(root, 'unexpected-source.js'), 'export const unexpected = true;\n');
     const secondWarnings = [];
     console.warn = (message) => secondWarnings.push(String(message));
     try { await scanArtifacts(root, config, workflow, 'intake'); }
     finally { console.warn = originalWarn; }
-    assert.ok(secondWarnings.some((message) => message.includes('unexpected-source.js')),
-      `the unrelated file was not disclosed: ${JSON.stringify(secondWarnings)}`);
+    assert.ok(!phase.artifacts.some((artifact) => artifact.path === 'unexpected-source.js'), 'the code base file is not this step\'s');
     assert.ok(secondWarnings.every((message) => !message.includes('/artifacts/intake/intake.md')),
       `the required artifact reappeared in the adoption warning: ${JSON.stringify(secondWarnings)}`);
   });

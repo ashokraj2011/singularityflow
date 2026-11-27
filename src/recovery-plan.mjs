@@ -149,8 +149,9 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
         !protectedPaths.has(candidate) && !outsideBoundaryPaths.has(candidate)))
       .map(entry => entry.newPath).sort();
     const excludedChanges = await unreconciledCandidatePaths(root, config, workflow, phase);
-    // The closed generation's recorded code and nothing else: the step's own `phase begin` carries it [paid run, 2026-11-14].
-    const closedCarry = closed ? (await import('./amended-drafts.mjs')).carriesExactlyClosedCode(config, workflow, phase, changeSet) : null;
+    // The closed generation's code: the step's own `phase begin` carries it [paid run, 2026-11-14], and code changed since
+    // too, as code changed outside a version always is, unless a protected or out-of-boundary path refuses it [WCB:REQ-009].
+    const closedCarry = closed ? changeSet.entries.length > 0 && !protectedPaths.size && !outsideBoundaryPaths.size : null;
     return { status: 'verified', basis: consumed ? 'published-generation' : closed ? 'closed-generation' : 'open-generation', excludedChanges,
       ...(closed ? { closedCarry } : {}),
       phaseId: phase.id, generation: version.next(), baseCommit,

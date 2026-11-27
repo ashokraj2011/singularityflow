@@ -379,7 +379,7 @@ export async function nextStepsAgentPacket(workId = null, { cwd = process.cwd() 
     const resolved = await collectInputs(entry.root, entry.workflow, entry.phase, {
       definition: entry.definition,
       itemDirectory: storyLocation(entry.root, entry.definition, packet.workId).directory,
-      itemRelative: storyLocation(null, entry.definition, packet.workId).prefix
+      itemRelative: storyLocation(null, entry.definition, packet.workId).checkoutPath()
     });
     inputs = { phase: packet.phase, dryRun: true, ...resolved,
       records: resolved.records.map(({ content, ...record }) => record) };

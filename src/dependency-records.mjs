@@ -30,7 +30,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { clauseReferences, loadActiveSpecRecords, mergePlannedClaimRecords, plannedClaimsForObservedPhase } from './specifications.mjs';
 import { posix, writeJson } from './util.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { recordPlace, storyLocation } from './story-paths.mjs';
 
 export const STEP_DEPENDENCIES_SCHEMA = 'step-dependencies/v1';
 export const EDGE_KINDS = Object.freeze(['input', 'claim', 'path', 'test', 'witness', 'binding', 'citation']);
@@ -88,7 +88,7 @@ function edgeKey(edge) {
  * receipt is that file, bound by digest. Null for anything else: a code step's code, and every generation a model or a
  * person wrote, still needs its prompt receipt, and reads `receipt-missing` without one.
  */
-async function promptlessInput(root, workflow, phase, generation, itemRelative) {
+async function promptlessInput(root, workflow, phase, generation, itemRelative, place = recordPlace(root, itemRelative)) {
   const origin = (phase.generationPublications ?? []).find((entry) => Number(entry.generation) === generation)?.origin;
   const authorship = (phase.authorship ?? []).find((entry) => Number(entry.generation) === generation);
   let receipt = null;
@@ -99,8 +99,8 @@ async function promptlessInput(root, workflow, phase, generation, itemRelative) 
     }
   } else if (!phaseRequiresCodeDelivery(phase) && phase.generationPolicy?.producer === 'deterministic'
       && authorship?.producer === 'deterministic' && authorship.kernelModel?.invoked !== true) {
-    const relative = posix(path.join(itemRelative, 'context', `inputs-${phase.id}-gen${generation}.json`));
-    const file = await readJsonFile(root, relative);
+    const relative = posix(path.join(place.prefix, 'context', `inputs-${phase.id}-gen${generation}.json`));
+    const file = await readJsonFile(place.root, relative);
     if (file.value?.phase === phase.id && Number(file.value.generation) === generation) receipt = { kind: 'governed-inputs', path: relative, sha256: `sha256:${hex(file.bytes)}` };
   }
   if (!receipt) return null;
@@ -117,13 +117,15 @@ async function promptlessInput(root, workflow, phase, generation, itemRelative) 
  */
 export async function recordStepDependencies(root, workflow, phase, { itemRelative, publishedAt }) {
   const itemDirectory = path.join(root, itemRelative);
+  // Its records are the Story's: in the state checkout, named relative to it, for a state-ref Story [SSB M3].
+  const place = recordPlace(root, itemRelative);
   const generation = Number(phase.generation);
   const reasons = new Set();
   const edges = new Map();
   const add = (edge) => edges.set(edgeKey(edge), edge);
   // input: the clause revisions the prompt receipt says the composed prompt held.
-  const receiptPath = posix(path.join(itemRelative, 'context', `${phase.id}-gen${generation}.json`));
-  const receiptFile = await readJsonFile(root, receiptPath);
+  const receiptPath = posix(path.join(place.prefix, 'context', `${phase.id}-gen${generation}.json`));
+  const receiptFile = await readJsonFile(place.root, receiptPath);
   let receipt = null;
   // A generation with no prompt by design reads its own input instead (promptlessInput); any other without a receipt is unresolved.
   const promptless = receiptFile.bytes ? null : await promptlessInput(root, workflow, phase, generation, itemRelative);
@@ -133,7 +135,7 @@ export async function recordStepDependencies(root, workflow, phase, { itemRelati
   } else if (!receiptFile.bytes) reasons.add('receipt-missing');
   else {
     receipt = { path: receiptPath, sha256: `sha256:${hex(receiptFile.bytes)}` };
-    const prompt = receiptFile.value?.promptPath ? await readFile(path.join(root, receiptFile.value.promptPath)).catch(() => null) : null;
+    const prompt = receiptFile.value?.promptPath ? await readFile(path.join(place.root, receiptFile.value.promptPath)).catch(() => null) : null;
     if (!prompt || hex(prompt) !== String(receiptFile.value?.renderedSha256 ?? '').replace(/^sha256:/u, '')) reasons.add('receipt-digest');
     const revisions = receiptFile.value?.promptBudget?.activeClauseCapsule?.clauseRevisions;
     if (!Array.isArray(revisions)) reasons.add('receipt-clauses-unrecorded');
@@ -142,7 +144,7 @@ export async function recordStepDependencies(root, workflow, phase, { itemRelati
   // claim: the planned claim maps the step relies on, each checked against the digest its owner recorded.
   const claimMaps = reliedClaimMaps(workflow, phase);
   for (const map of claimMaps) {
-    const file = map.path ? await readJsonFile(root, map.path) : { bytes: null, value: null };
+    const file = map.path ? await readJsonFile(place.root, map.path) : { bytes: null, value: null };
     if (!file.value) reasons.add('claim-map-missing');
     else if (hex(canonicalJson(file.value)) !== String(map.sha256 ?? '').replace(/^sha256:/u, '')) reasons.add('claim-map-digest');
   }
@@ -205,9 +207,9 @@ export async function recordStepDependencies(root, workflow, phase, { itemRelati
     ...(supportingPaths.length ? { supportingPaths } : {}),
     coverage: { state: reasons.size ? 'unresolved' : 'resolved', reasons: [...reasons].sort() }
   });
-  const relative = dependencyRecordPath(itemRelative, phase.id, generation);
-  await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
-  await writeJson(path.join(root, relative), record);
+  const relative = dependencyRecordPath(place.prefix, phase.id, generation);
+  await mkdir(path.dirname(path.join(place.root, relative)), { recursive: true });
+  await writeJson(path.join(place.root, relative), record);
   phase.dependencyRecords = [...(phase.dependencyRecords ?? []).filter((entry) => Number(entry.generation) !== generation),
     { generation, path: relative, recordSha256: record.recordSha256 }].sort((left, right) => left.generation - right.generation);
   return record;

@@ -1940,6 +1940,8 @@ function reviewFindingItems(workflow, context, facts) {
  * only leaving the change out.
  */
 function rolloverItem(workflow, context, entry) {
+  // A document step's application files; a change the person only asked for is the ordinary row.
+  if (entry.documents && entry.paths.length && entry.keepOut) return documentFilesItem(workflow, entry);
   const name = stepName(workflow, entry.phase);
   const shown = entry.paths.length ? `${listWords(entry.paths.slice(0, 5))}${entry.paths.length > 5 ? ` and ${entry.paths.length - 5} more` : ''}` : null;
   const asked = entry.requests.length ? `The person asked for a change after it was published: ${entry.requests.map((text) => `"${text}"`).join('; ')}.` : '';
@@ -1961,6 +1963,38 @@ function rolloverItem(workflow, context, entry) {
     options,
     details: { phase: entry.phase, generation: entry.generation, next: entry.next, paths: entry.paths, requested: entry.requests.length > 0, ...(entry.asked ? { asked: true } : {}),
       ...(entry.chatRoute ? { chatRoute: entry.chatRoute } : {}), commands: options.map((option) => option.action.command) }
+  };
+}
+
+/**
+ * A published document step's application files changed in this checkout (office, 2026-11-27): no version of a document
+ * step holds them, so it is submitted only once they are set aside, which keeps a private copy. A change the person asked
+ * for still starts the next version, for the documents. The row of a generation rollover, so every reader of that kind
+ * shows it; its `documents` detail says which.
+ */
+function documentFilesItem(workflow, entry) {
+  const name = stepName(workflow, entry.phase);
+  const files = entry.paths;
+  const shown = `${listWords(files.slice(0, 5))}${files.length > 5 ? ` and ${files.length - 5} more` : ''}`;
+  const them = files.length === 1 ? 'it' : 'them';
+  const code = entry.codeStep ?? null;
+  const anyoneHere = anyone(`Whoever works on ${name} takes this step.`);
+  const options = [
+    ...(entry.requests.length && !entry.asked ? [personalStep({ id: 'start-next-generation', label: `Start version ${entry.next} of ${name} for the change`,
+      command: entry.command, words: `Your terminal previews version ${entry.next} and asks you to confirm it; version ${entry.generation} and its review stay as published.`,
+      does: `Opens version ${entry.next} of ${name} for the change you asked for; ${shown} still ${files.length === 1 ? 'needs' : 'need'} setting aside.`, decidedBy: anyoneHere })] : []),
+    personalStep({ id: 'set-aside', label: `Set ${shown} aside`, command: entry.keepOut,
+      words: `Recovery shows the set-aside; a private copy of every changed file is kept, and version ${entry.generation} of ${name} is submitted as it is.`,
+      does: `Sets ${shown} aside with a private copy; ${name} goes ahead without ${them}${code ? `, and ${stepName(workflow, code)} writes the code` : ''}.`, decidedBy: anyoneHere })
+  ];
+  const asked = entry.requests.length ? ` The person also asked for a change after it was published: ${entry.requests.map((text) => `"${text}"`).join('; ')}.` : '';
+  return {
+    kind: 'generation-rollover', title: `Set ${shown} aside: ${name} writes documents only`,
+    why: [`${shown} changed after ${name} v${entry.generation} was published. ${name} writes documents only: set ${them} aside to submit it (a copy is kept).`,
+      code ? `${stepName(workflow, code)} writes the code.` : '', asked.trim()].filter(Boolean).join(' '),
+    options,
+    details: { phase: entry.phase, generation: entry.generation, next: entry.next, paths: files, documents: true, requested: entry.requests.length > 0,
+      ...(entry.asked ? { asked: true } : {}), ...(entry.chatRoute ? { chatRoute: entry.chatRoute } : {}), commands: options.map((option) => option.action.command) }
   };
 }
 
@@ -2000,6 +2034,16 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
       ...(() => { const covers = automaticApprovalsBefore(workflow, phase.id).map(coveredStep); return covers.length ? { covers } : {}; })(),
       commands: [`singularity-flow approve ${phase.id} --work-id ${workId} --fetch`] }
   };
+}
+
+/**
+ * A code step's approval starts with what its change does, in one line, and the read that prints the whole page
+ * (change-story-read.mjs) [CSP:REQ-007]. Information only: it holds and asks nothing.
+ */
+function changeStoryFirst(item, change) {
+  if (!change?.summary || change.phase !== item.details?.phase) return item;
+  return { ...item, details: { ...item.details, changeStory: { summary: change.summary, path: change.path, command: change.command },
+    lines: [`What this change does: ${change.summary} The whole page: ${change.command}`, ...(item.details.lines ?? [])] } };
 }
 
 /**
@@ -2351,9 +2395,9 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const heldHere = items.filter((item) => item.holdsApproval).map((item) => item.id);
   const door = dirty ? holdItem(workflow, context, 'approval-hold', dirty) : null;
   if (awaiting) {
-    const approval = approvalItem(workflow, context, phase, { heldBy: [...(door ? ['d0'] : []), ...heldHere],
+    const approval = changeStoryFirst(approvalItem(workflow, context, phase, { heldBy: [...(door ? ['d0'] : []), ...heldHere],
       youDecide: holds.filter((hold) => hold.owner === 'you-decide' && hold.clearedBy?.kind !== 'viewer-terminal').map((hold) => hold.summary),
-      ownTerminal: holds.some((hold) => hold.clearedBy?.kind === 'viewer-terminal' && hold.owner === 'you-decide') });
+      ownTerminal: holds.some((hold) => hold.clearedBy?.kind === 'viewer-terminal' && hold.owner === 'you-decide') }), facts.changeStory);
     // The approval starts from the card too: its row opens the review page [owner, 2026-11-13].
     const advised = advisedItem(workflow, { id: `d${items.length + 1}`, ...approval, decidedBy: itemDecidedBy(workflow, approval.options), holdsApproval: false });
     items.push({ ...advised, answer: { where: 'card', words: `Open it from the Decide card (/sf-decide ${workflow.workItem.id}), which opens its documents to review and approve; or /sf-approve ${phase.id}.` } });

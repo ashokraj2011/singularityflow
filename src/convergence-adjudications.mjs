@@ -69,7 +69,7 @@ export async function adjudicationList(root, config, workflow, { actor } = {}) {
     return { ...base, status: 'not-open', items: [], open: 0, message: 'There is nothing to adjudicate: this Story is not at an open convergence step.' };
   }
   const subject = await currentConvergenceContext(root, config, workflow);
-  const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
+  const projection = await readConvergence(subject.recordsRoot, subject.recordPrefix, subject.iteration);
   if (!projection) return { ...base, status: 'not-prepared', items: [], open: 0, message: `Convergence has not been prepared. Run singularity-flow prepare ${phase.id}.` };
   const changed = new Map((subject.reconciliation?.findings ?? []).map((finding) => [posix(finding.path), finding]));
   const planSays = (file) => subject.planAccount(changed.get(file) ?? { path: file });

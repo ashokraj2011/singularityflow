@@ -957,8 +957,8 @@ export async function startStory(root, {
       pushed: publication.pushed === true,
       commit: publication.sha
     },
-    // The state ref holds the Story's records; it is published with the Story branch from SSB M3 [REQ-005].
-    ...(stateOpened ? { storage: { layout: 'state-ref', ref: stateOpened.ref, commit: publication.sha, checkout: stateOpened.checkout, published: false } }
+    // The state ref holds the Story's records, published with the Story branch in one push [REQ-005, SSB M3].
+    ...(stateOpened ? { storage: { layout: 'state-ref', ref: stateOpened.ref, commit: publication.sha, checkout: stateOpened.checkout, published: publication.pushed === true } }
       : held.held ? { storage: { layout: 'story-branch', requested: 'state-ref', notice: held.notice } } : {}),
     measurement: workflow.measurement?.plan ? {
       status: workflow.measurement.status,

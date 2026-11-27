@@ -26,6 +26,7 @@ import { executeGitQuery } from './git-query.mjs';
 import { untrackedFiles } from './git.mjs';
 import { exists, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { STATE_CHECKOUT } from './story-paths.mjs';
 
 /** How much a member's absence or change is allowed to mean. */
 export const MEMBER_AUTHORITIES = Object.freeze(['governed', 'advisory']);
@@ -223,6 +224,11 @@ export async function unpublishableRequiredArtifactSetMembers(root, catalog) {
     ...executeGitQuery(root, 'repository.tracked-paths'),
     ...untrackedFiles(root)
   ].map(posix));
+  // A state-ref Story's documents are published by its state ref, so Git there decides [SSB M3].
+  if ((catalog?.members ?? []).some((member) => member.path.startsWith(`${STATE_CHECKOUT}/`))) {
+    const state = path.join(root, STATE_CHECKOUT);
+    for (const file of [...executeGitQuery(state, 'repository.tracked-paths'), ...untrackedFiles(state)]) eligible.add(`${STATE_CHECKOUT}/${posix(file)}`);
+  }
   for (const member of catalog?.members ?? []) {
     if (!member.required) continue;
     const relative = member.path.replace(/\/+$/u, '');

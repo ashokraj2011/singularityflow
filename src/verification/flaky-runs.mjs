@@ -47,7 +47,7 @@ export async function storyFlakyTestRuns(root, itemRelative, workflow) {
 export async function flakyTestReview(root, config, workflow, phase) {
   const reused = (phase.checks ?? []).map((check) => check.reusedFrom?.attemptId).filter(Boolean);
   if (!phase.deliveryEvidence && !reused.length && !(phase.checks ?? []).some((check) => check.kind === 'test')) return {};
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemRelative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath();
   const own = new Set([...(await stepAttempts(root, itemRelative, workflow.workItem.id, phase.id)).map((attempt) => attempt.reusedFrom?.attemptId ?? attempt.attemptId), ...reused]);
   const flaky = (await storyFlakyTestRuns(root, itemRelative, workflow)).filter((entry) => entry.attemptIds.some((id) => own.has(id)));
   return flaky.length ? { flakyTestRuns: flaky.map(({ commandId, failed, passed, words }) => ({ commandId, failed, passed, words })) } : {};

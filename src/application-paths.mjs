@@ -182,6 +182,16 @@ export function isGeneratedOutputPath(candidate, options = null) {
     || compared.split('/').some((segment) => ['node_modules', 'vendor', 'target', 'build', 'coverage'].includes(segment));
 }
 
+/**
+ * An editor's or IDE's own files, in any folder: `.vscode/`, `.idea/`, and the Eclipse metadata Java tooling writes
+ * (`.settings/`, `.project`, `.classpath`, `.factorypath`). Never a step's concern: SFlow watches the code base (owner,
+ * 2026-11-27). A Java extension's `.vscode/settings.json`, written after Planning was published, refused its submission
+ * with a route the Decide page had no row for, which sent the person back to submit (office, 2026-11-27).
+ */
+export function isEditorConfigurationPath(candidate) {
+  return /(?:^|\/)(?:\.(?:vscode|idea|settings)\/|\.(?:project|classpath|factorypath)$)/u.test(String(candidate ?? ''));
+}
+
 /** The single ownership boundary shared by lifecycle, review, specification, WM, and Auto. */
 export function isApplicationPath(candidate, options = null) {
   const normalized = requiredRepositoryPath(candidate);

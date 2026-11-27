@@ -32,7 +32,7 @@ import { buildRepositoryChangeSet, compareRepositoryIdentity, evaluateProtectedP
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { recordPlace, storyLocation } from './story-paths.mjs';
 
 /** Whether the Story's pinned spec policy refuses drafts written before an approved amendment (switch 2) [CIC:REQ-018]. */
 export const refusesPreAmendmentDrafts = (workflow) => workflow?.resolution?.spec?.preAmendmentDrafts === 'refuse';
@@ -52,10 +52,12 @@ export async function pinReopenedStep(root, workflow, phase, { amendment, revisi
     setAside.prompt = (await supersedePromptGeneration(root, workflow, phase, { workDir },
       `Set aside by ${amendment}: composed before the amended scope.`)).directory;
   }
-  const kept = posix(path.join(itemRelative, 'context', 'superseded', `${phase.id}-gen${generation}-before-${amendment}`));
+  // Kept with the Story's records: named relative to them, in the state checkout for a state-ref Story [SSB M3].
+  const place = recordPlace(root, itemRelative);
+  const kept = posix(path.join(place.prefix, 'context', 'superseded', `${phase.id}-gen${generation}-before-${amendment}`));
   const keep = async (from, name) => {
-    await mkdir(path.join(root, kept), { recursive: true });
-    await copyFile(from, path.join(root, kept, name));
+    await mkdir(path.join(place.root, kept), { recursive: true });
+    await copyFile(from, path.join(place.root, kept, name));
     return `${kept}/${name}`;
   };
   const intent = phase.generationIntent;

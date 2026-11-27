@@ -12,6 +12,7 @@ import { readAgentBrief } from './agent-briefs.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
 import { canonicalJson } from './records.mjs';
 import { inputFindingSeverity } from './lifecycle-evidence-policy.mjs';
+import { recordsRootFor } from './story-paths.mjs';
 import { acceptedRevalidationBindings, pendingAmendmentRevalidations, revalidateCommand } from './forward-amendments.mjs';
 import {
   resolveSkillPhaseEvidenceBinding, verifyApprovedSkillOutputContinuity,
@@ -435,7 +436,8 @@ export async function recordInputs(root, workflow, phase, result, { itemDirector
   const file = path.join(itemDirectory, 'context', `inputs-${phase.id}-gen${result.generation}.json`);
   await writeJson(file, record);
   const info = await snapshot(file);
-  return { record, rendered, file, path: posix(path.relative(root, file)), sha256: info.sha256 };
+  // Named relative to the Story's records: the state checkout for a state-ref Story [SSB M3].
+  return { record, rendered, file, path: posix(path.relative(recordsRootFor(root, itemDirectory), file)), sha256: info.sha256 };
 }
 
 function recordedInputs(records = []) {
@@ -525,7 +527,7 @@ export async function verifyInputsIntegrity(root, workflow, phase, { itemDirecto
   const record = readRecord('phase-input-record', await readFile(file)).record;
   if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== phase.generation || record.mode !== mode) add(`${phase.id} phase-input record identity or mode does not match workflow state`);
   const recordSnapshot = await snapshot(file);
-  const expectedRecordPath = posix(path.relative(root, file));
+  const expectedRecordPath = posix(path.relative(recordsRootFor(root, itemDirectory), file));
   const anchor = phase.inputContext ?? null;
   if (!anchor
     || Number(anchor.generation) !== Number(phase.generation)

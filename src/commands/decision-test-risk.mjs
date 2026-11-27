@@ -33,7 +33,7 @@ import { storyLocation } from '../story-paths.mjs';
 
 /** The latest recorded run of each test command of a step, by command. */
 function latestAttempts(root, config, workflow, phaseId) {
-  return latestStepAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, phaseId);
+  return latestStepAttempts(root, storyLocation(null, config, workflow.workItem.id).checkoutPath(), workflow.workItem.id, phaseId);
 }
 
 function chooseAttempt(latest, commandId, phaseId, argvSha256 = null) {

@@ -59,10 +59,11 @@ function codeStepBefore(workflow, phase) {
     .find((step) => step?.deliveryEvidence?.testExecutions?.length || step?.deliveryEvidence?.acceptanceCriteria) ?? null;
 }
 
-async function receipt(root, relative) {
+// A run's receipt is a record: in a state-ref Story's state checkout, named relative to it [SSB M3].
+async function receipt(root, workflow, relative) {
   try {
-    const { readRecord } = await import('./schema-migrations.mjs');
-    return readRecord('test-execution', await readFile(path.join(root, relative))).record;
+    const [{ readRecord }, { storyLocation }] = await Promise.all([import('./schema-migrations.mjs'), import('./story-paths.mjs')]);
+    return readRecord('test-execution', await readFile(storyLocation(root, workflow, workflow.workItem.id).fromRecord(relative))).record;
   } catch { return null; }
 }
 
@@ -74,7 +75,7 @@ async function testRuns(root, workflow, phase, ownRuns) {
   const step = codeStepBefore(workflow, phase);
   for (const execution of step?.deliveryEvidence?.testExecutions ?? []) {
     if (execution.kind === 'phase-validation-observation') continue;
-    const read = execution.receiptPath ? await receipt(root, execution.receiptPath) : null;
+    const read = execution.receiptPath ? await receipt(root, workflow, execution.receiptPath) : null;
     runs.push({ step: step.id, commandId: execution.commandId, attemptId: read?.attemptId ?? execution.attemptId ?? null, status: read?.status ?? execution.status ?? 'unavailable',
       tests: read?.tests ?? null, environment: read?.environment ?? null, receiptPath: execution.receiptPath ?? null, receiptSha256: execution.receiptSha256 ?? null });
   }
@@ -83,7 +84,7 @@ async function testRuns(root, workflow, phase, ownRuns) {
     // A run reused on unchanged code is the code step's run again: it says so there, once.
     const same = runs.find((entry) => (run.reusedFrom?.attemptId && entry.attemptId === run.reusedFrom.attemptId) || (run.receiptPath && entry.receiptPath === run.receiptPath));
     if (same) { same.reusedBy = phase.id; continue; }
-    const read = run.receiptPath ? await receipt(root, run.receiptPath) : null;
+    const read = run.receiptPath ? await receipt(root, workflow, run.receiptPath) : null;
     runs.push({ step: phase.id, commandId: run.commandId, attemptId: run.attemptId ?? read?.attemptId ?? null, status: run.status ?? read?.status ?? 'unavailable',
       tests: run.counts ?? read?.tests ?? null, environment: read?.environment ?? null, receiptPath: run.receiptPath ?? null, receiptSha256: run.receiptSha256 ?? null,
       ...(run.reusedFrom ? { reusedFrom: run.reusedFrom } : {}) });
@@ -157,8 +158,11 @@ async function findingsWords(step) {
 
 /** The verification evidence, written from the records: null when the clause rows cannot be read here. */
 async function verificationBody(root, definition, workflow, phase, { ownRuns = null } = {}) {
-  const rows = await clauseRows(root, definition, workflow);
-  if (!rows?.length) return null;
+  const read = await clauseRows(root, definition, workflow);
+  if (!read?.length) return null;
+  // A statement a scope decision left out is no requirement of this Story: listed under the results, never counted.
+  const rows = read.filter((row) => row.type !== 'SCOPE');
+  const scope = read.filter((row) => row.type === 'SCOPE');
   const { runs, codeStep, ownRan } = await testRuns(root, workflow, phase, ownRuns);
   const verified = rows.filter((row) => VERIFIED_RESULTS.has(row.result));
   const open = rows.filter((row) => !VERIFIED_RESULTS.has(row.result) && row.result !== 'not-applicable');
@@ -180,6 +184,7 @@ async function verificationBody(root, definition, workflow, phase, { ownRuns = n
       '## Acceptance and specification results', '',
       '| Clause | Test evidence | Source | Result |', '|---|---|---|---|',
       ...rows.map((row) => `| ${code(row.id)} | ${cell(testEvidence(row, signedRecords(workflow)))} | ${cell(sourceEvidence(row))} | ${cell(resultWords(row))} |`), '',
+      ...scopeDecisionLines(scope),
       'A source tag binds a requirement to its code; only a test result or a person\'s recorded sign-off above verifies it.', '',
       '## Negative, regression, security, and non-functional checks', '',
       `- Scanners: ${findings ?? 'no scanner findings are recorded for the changed code.'}`,
@@ -188,6 +193,12 @@ async function verificationBody(root, definition, workflow, phase, { ownRuns = n
       `- Residual risk: ${open.length ? open.map((row) => `${code(row.id)} reads ${row.result}`).join('; ') : 'none the records show.'}`, ''
     ].join('\n')
   };
+}
+
+/** The statements a scope decision left out, each with its decision, as lines under a table; [] when there are none. */
+function scopeDecisionLines(scope) {
+  return scope.length ? ['Statements of the Story\'s sources that its scope decisions keep out of its clauses:', '',
+    ...scope.map((row) => `- ${code(row.id)}, ${cell(row.scope?.disposition ?? 'decided')}: ${cell(row.scope?.text ?? 'no text recorded')}`), ''] : [];
 }
 
 /** The deviations a person accepted at convergence, each with who accepted it; [] when none or unreadable. */
@@ -265,6 +276,10 @@ async function releaseBody(root, definition, config, workflow, phase) {
   const { selfApprovalDisclosureLines } = await import('./conformance-readiness.mjs');
   const disclosures = selfApprovalDisclosureLines(workflow);
   const W = workflow.workItem.id;
+  // A statement a scope decision left out is no clause of this Story: the trace's every row is read as one, and refused
+  // without a clause ID, so the decisions are listed under it instead [E2G-006].
+  const clauses = rows.filter((row) => row.type !== 'SCOPE');
+  const scope = rows.filter((row) => row.type === 'SCOPE');
   return {
     from: 'the approved verification, the requirement table, the convergence decisions and the approvals',
     index: await evidenceIndex(root, workflow, phase, rows),
@@ -272,7 +287,8 @@ async function releaseBody(root, definition, config, workflow, phase) {
       `# Release conformance — ${W}`, '', RECORD_DOCUMENT_BANNER, '',
       '## Requirement trace', '',
       '| Clause | Evidence | Verdict |', '|---|---|---|',
-      ...rows.map((row) => `| ${code(row.id)} | ${cell(`${testEvidence(row, signedRecords(workflow))}; source ${sourceEvidence(row)}`)} | ${cell(verdictOf(row, deviations))} |`), '',
+      ...clauses.map((row) => `| ${code(row.id)} | ${cell(`${testEvidence(row, signedRecords(workflow))}; source ${sourceEvidence(row)}`)} | ${cell(verdictOf(row, deviations))} |`), '',
+      ...scopeDecisionLines(scope),
       '## Constitution conformance', '', ...constitutionLines(workflow), '',
       '## Exceptions', '', ...exceptionLines(workflow), '',
       '## Deviations', '', ...(deviations.length ? deviations.map((entry) => `- ${entry.id}: ${(entry.clauseIds ?? []).map(code).join(', ')}, accepted by ${cell(person(entry.decision?.actor))}: ${cell(entry.decision?.reason ?? 'no reason recorded')}`)

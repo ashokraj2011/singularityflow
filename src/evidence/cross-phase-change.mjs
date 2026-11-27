@@ -94,8 +94,15 @@ export async function crossPhaseChange(root, config, workflow, phase, changedPat
   };
 }
 
-/** The sentence a refusal adds, and the gate-refusal record it carries, for a cross-phase change. */
-export function describeCrossPhaseChange(change, { code, gate, workflow, phase }) {
+/**
+ * The sentence a refusal adds, and the gate-refusal record it carries, for a cross-phase change. `setAside`: the recovery
+ * command that shows the person's set-aside for files only in this checkout, when the gate offers one.
+ *
+ * A permitted return leads: it is what clears this step. With none, accounting for a path in the plan clears nothing here,
+ * so the set-aside is the route, never `decision plan`: a document step's refusal sent the person to /sf-decide, whose page
+ * had nothing for it and sent them back to submit (office, 2026-11-27).
+ */
+export function describeCrossPhaseChange(change, { code, gate, workflow, phase, setAside = null }) {
   const permitted = change.returns.filter((entry) => entry.permitted);
   const subjects = [...new Set(change.obligations.map((entry) => entry.subject))];
   // The return comes first: it is what the reader does next.
@@ -106,12 +113,15 @@ export function describeCrossPhaseChange(change, { code, gate, workflow, phase }
   }
   sentences.push('They stay in your worktree; nothing was reverted or adopted.');
   if (subjects.length) sentences.push(`They change ${subjects.join(', ')}${change.owners.length ? `, owned by ${change.owners.join(', ')}` : ''}.`);
-  if (change.unplanned.length) {
+  const asideOnly = !permitted.length && Boolean(setAside);
+  if (asideOnly) {
+    sentences.push(`Nothing before ${phase.id} can take them, so set them aside: ${setAside} shows the person's command, and a private copy of every changed file is kept.`);
+  } else if (change.unplanned.length) {
     sentences.push(`No plan row names ${change.unplanned.join(', ')}: account for each with singularity-flow decision plan --add-location <clause>=<path> --reason <reason>, or move it out of the worktree.`);
   }
-  const actions = [
-    ...(change.unplanned.length ? ['singularity-flow decision plan --add-location <clause>=<path> --reason <reason>'] : []),
-    ...permitted.map((entry) => entry.command)
+  const actions = asideOnly ? [setAside] : [
+    ...permitted.map((entry) => entry.command),
+    ...(change.unplanned.length ? ['singularity-flow decision plan --add-location <clause>=<path> --reason <reason>'] : [])
   ];
   return {
     text: sentences.join(' '),

@@ -26,7 +26,7 @@ import { readOnlyAgent } from './phase-actor-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { allPlanRows, clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, rowTakesPaths } from './plan-row-fit.mjs';
 import { posix, SingularityFlowError, nowIso } from './util.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { gitPlaceOf, storyLocation } from './story-paths.mjs';
 
 const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
 // Read only when a wording departure is recorded or accepted: loaded from the CLI source, so the long-lived
@@ -149,7 +149,7 @@ function planTarget(config, workflow, phase) {
     ?? (workflow.phaseOrder ?? []).find((id) => workflow.phases?.[id]?.claimMaps?.planned) ?? null;
   const step = owner ? workflow.phases?.[owner] : null;
   if (!step || step.status !== 'approved' || !step.requiredArtifact?.path) return null;
-  const relative = storyLocation(null, config, workflow.workItem.id).record(step.requiredArtifact.path);
+  const relative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(step.requiredArtifact.path);
   return { phase: owner, generation: Number(step.generation ?? 0), sha256: (step.artifacts ?? []).find((artifact) => artifact.path === relative)?.sha256 ?? null, path: relative };
 }
 
@@ -162,9 +162,10 @@ async function targetDocument(root, config, workflow, phaseId) {
     departureRefusal(`${phaseId ?? 'That step'} is not an earlier step of this Story; --target names the approved document the change departs from.`);
   }
   if (phase.status !== 'approved' || !phase.requiredArtifact?.path) departureRefusal(`${phaseId} has no approved document to depart from.`);
-  const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact.path);
+  const relative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(phase.requiredArtifact.path);
   const approved = (phase.artifacts ?? []).find((artifact) => artifact.path === relative)?.sha256 ?? null;
-  const committed = exactFileAtObject(root, head(root), relative, { maximumBytes: 4 * 1024 * 1024 });
+  const place = gitPlaceOf(root, relative);
+  const committed = exactFileAtObject(place.cwd, head(place.cwd), place.relative, { maximumBytes: 4 * 1024 * 1024 });
   if (!approved || !committed || sha(committed) !== approved) departureRefusal(`${relative} at HEAD is not ${phaseId}'s approved bytes; sync first.`, 'DEPARTURE_TARGET_STALE');
   return { phase, relative, approved, bytes: committed };
 }

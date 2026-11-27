@@ -25,6 +25,9 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
      `builtIn`, then each of `rules` as its `words` with its `because`, `waiting` with who proposed it, each `problems`
      entry with its `field`, and `guidance` as lessons the agents read, which are not rules. End with `change.words` and
      `change.command` as they are.
+   - Words asking what the change did or does ("what did this change do?"): run `singularity-flow explain --subject change
+     --page --for-agent --json` and answer with `data.page.summary`, and a Markdown-preview link to `data.page.path` when it
+     has one.
    - Any other word, even one word alone, is a documentation topic or question, so never ask what to explain; answer in
      this turn. Run `singularity-flow explain '$ARGUMENTS' --for-agent --json`, one single-quoted argument with each inner
      `'` as `'\''` (PowerShell `''`) so nothing expands. Answer only from `data.served.text`, ending with `data.citation`

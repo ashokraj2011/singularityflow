@@ -25,6 +25,8 @@ export type WorkTask = {
   events: Array<{ when: string | null; words: string }>; now: string | null; next: string | null;
   documents: Array<{ label: string; path: string }>; rules: string[]; addable: Array<{ step: string; label: string }>;
   changed: { base: string; files: Array<{ path: string; added: number | null; removed: number | null; binary: boolean }>; total: number } | null;
+  /** What the change does, once a code step is published: the page's line and where it is [CSP:REQ-008]. */
+  changeStory?: { summary: string; path: string } | null;
 };
 /** What a person's Needs-you item says about a Story, from the live list. */
 export type WaitingItem = { key: string; question: string; story?: { id: string } | null; repository?: { id: string } | null; step?: { id: string } | null };
@@ -120,6 +122,12 @@ export function workTaskFrom(value: unknown): WorkTask | null {
       const step = text(entry?.step, 40);
       return step && ['requirements', 'design', 'plan', 'review'].includes(step) ? [{ step, label: text(entry?.label, 80) ?? step }] : [];
     }),
+    changeStory: (() => {
+      const story = object(result.changeStory);
+      const summary = text(story?.summary, 200);
+      const file = text(story?.path, 1000);
+      return summary && file && !file.split('/').includes('..') ? { summary, path: file } : null;
+    })(),
     changed: changed && text(changed.base, 200) ? {
       base: String(changed.base), total: Math.max(0, Number(changed.total) || 0),
       files: (Array.isArray(changed.files) ? changed.files : []).map(object).filter(Boolean).slice(0, 200).flatMap((file) => (text(file?.path, 1000)
@@ -274,6 +282,13 @@ export function chatRouteOf(row: Pick<WorkRow, 'task' | 'route'>): { kind: 'task
 const lineCount = (file: { added: number | null; removed: number | null; binary: boolean }) => (file.binary ? 'binary'
   : `+${file.added ?? 0} −${file.removed ?? 0}`);
 
+/** What the change does in one line, and its page in a Markdown preview, where the Story is checked out here [CSP:REQ-008]. */
+function changeStoryHtml(row: WorkRow, task: WorkTask | null): string {
+  if (!task?.changeStory) return '';
+  return `<section aria-labelledby="change-story-title"><h2 id="change-story-title">What this change does</h2><p>${escape(task.changeStory.summary)}</p>${row.route.checkout
+    ? '<p><button type="button" class="secondary" data-act="change-story">What this change does</button></p>' : ''}</section>`;
+}
+
 /** The one task page [FPL:REQ-006]: the header and its buttons, the plan, what is happening, documents, changes and rules. */
 export function workTaskHtml(row: WorkRow, task: WorkTask | null, { result = null as string | null, lessons = 0, error = null as string | null } = {}): string {
   const kind = task?.kind ?? row.kind;
@@ -310,7 +325,7 @@ ${away}
 <section aria-labelledby="plan-title"><h2 id="plan-title">The plan</h2>${chipsHtml(chips, `Plan of ${row.id}`)}${add}
 ${task?.planFrom ? `<p class="muted">Its steps are from ${escape(task.planFrom)}.</p>` : ''}${task?.planNote ? `<p>${escape(task.planNote)}</p>` : ''}</section>
 ${events || nowNext ? `<section aria-labelledby="happening-title"><h2 id="happening-title">What is happening</h2>${events}${nowNext}</section>` : ''}
-${documents}${changed}${rules}
+${documents}${changeStoryHtml(row, task)}${changed}${rules}
 ${lessons > 0 ? `<p><button type="button" class="link" data-act="lessons">Lessons from this Story (${lessons})</button></p>` : ''}
 ${error ? `<p class="warning">${escape(error)}</p>` : ''}
 <div id="task-result" role="status" aria-live="polite">${result ? escape(result) : ''}</div>

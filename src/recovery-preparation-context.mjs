@@ -8,6 +8,7 @@ import { resolveRepositoryManifest } from './repository-manifest.mjs';
 import { readBoundSpecificationClaimMap } from './specifications.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { snapshot } from './util.mjs';
+import { isEditorConfigurationPath } from './application-paths.mjs';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
 import YAML from 'yaml';
@@ -299,7 +300,7 @@ export async function expectedStepOwnedPaths(root, config, workflow, phase, {
     }
   }
   for (const relative of outside) {
-    if (/^\.(?:vscode|idea)\//u.test(relative)) {
+    if (isEditorConfigurationPath(relative)) {
       // Editor configuration (mcp scaffold writes .vscode/mcp.json): publication never registers it, so
       // holding a step for it would hold every later step too.
       await admit(relative);

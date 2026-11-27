@@ -24,6 +24,7 @@ import { PACKAGE_ROOT } from '../package-root.mjs';
 import { canonicalJson } from '../records.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { posix, secureRepositoryPath, writeAtomicExclusive } from '../util.mjs';
+import { recordPlace } from '../story-paths.mjs';
 import { classifyTestCommand } from './adapters.mjs';
 import { profileForCommand } from './profiles.mjs';
 
@@ -81,7 +82,9 @@ async function readAttempts(directory) {
 
 /** Every attempt known for a step, kept or admitted, latest completed last. */
 export async function stepAttempts(root, itemRelative, workId, phaseId) {
-  const admitted = await secureRepositoryPath(root, attemptsDirectory(itemRelative, phaseId), { label: 'Test attempt directory' });
+  // A step's records are in the Story's records: a state-ref Story's state checkout [SSB M3]. Private storage stays the checkout's.
+  const place = recordPlace(root, itemRelative);
+  const admitted = await secureRepositoryPath(place.root, attemptsDirectory(place.prefix, phaseId), { label: 'Test attempt directory' });
   const byId = new Map();
   for (const record of [
     ...(admitted.exists ? await readAttempts(admitted.absolute) : []),
@@ -149,13 +152,14 @@ export async function unchangedTestRun(root, itemRelative, workflow, phaseId, co
     : (workflow.testCommandPins ?? []).filter((entry) => entry.commandId === latest.commandId).at(-1)?.sha256 ?? null;
   if (latest.pin?.sha256 && pin && latest.pin.sha256 !== pin) return { moved: `the command's pin changed since ${latest.attemptId}` };
   if (!latest.candidate.commit || !commitIsAncestor(root, latest.candidate.commit, commit)) return { moved: `${latest.attemptId} ran on a commit outside this branch's history` };
-  const reports = await rawReportBytes(root, workId, latest);
+  const place = recordPlace(root, itemRelative);
+  const reports = await rawReportBytes(root, workId, latest, place.root);
   if (!reports) return { moved: `the report of ${latest.attemptId} is not available` };
-  return { attempt: latest, reports, path: `${attemptsDirectory(itemRelative, latest.phase)}/${latest.attemptId}.json`, sha256: attemptSha256(latest) };
+  return { attempt: latest, reports, path: `${attemptsDirectory(place.prefix, latest.phase)}/${latest.attemptId}.json`, sha256: attemptSha256(latest) };
 }
 
 /** A run's raw reports, each checked against its address, from private storage or the Story; null when one is missing. */
-async function rawReportBytes(root, workId, attempt) {
+async function rawReportBytes(root, workId, attempt, records = root) {
   if (!attempt.rawReports?.length) return null;
   const reports = [];
   for (const report of attempt.rawReports) {
@@ -163,7 +167,7 @@ async function rawReportBytes(root, workId, attempt) {
     try { bytes = await readFile(path.join(stagingDirectory(root, workId), 'raw', report.sha256)); } catch { /* admitted, or gone */ }
     if (!bytes) {
       try {
-        const secured = await secureRepositoryPath(root, report.path, { label: 'Raw test report' });
+        const secured = await secureRepositoryPath(records, report.path, { label: 'Raw test report' });
         if (secured.exists) bytes = await readFile(secured.absolute);
       } catch { /* unavailable */ }
     }
@@ -193,7 +197,7 @@ async function recordReusedAttempt(root, itemRelative, { command, check, purpose
     }
   }
   // Its coverage report goes with it [CQF:REQ-030].
-  const coverage = source.coverage?.report ? await (await coverageReports()).reusedCoverage(root, staging, source.coverage) : source.coverage;
+  const coverage = source.coverage?.report ? await (await coverageReports()).reusedCoverage(recordPlace(root, itemRelative).root, staging, source.coverage) : source.coverage;
   const previous = (await stepAttempts(root, itemRelative, workId, phaseId)).filter((entry) => entry.commandId === command.id).at(-1);
   const { localRunId, uncommittedChanges, epoch: _epoch, pin: _pin, narrowing: _narrowing, coverage: _coverage, freshRun: _fresh, ...measured } = source;
   const attempt = { ...measured, ...newAttemptIdentity(random), parentAttemptId: previous?.attemptId ?? null, purpose, phase: phaseId, generation,
@@ -203,7 +207,7 @@ async function recordReusedAttempt(root, itemRelative, { command, check, purpose
   if (pin) attempt.pin = pin;
   if (narrowing) attempt.narrowing = (await import('../test-narrowing.mjs')).observedNarrowing(attemptNarrowingFacts(narrowing, source), source.tests);
   await writeAtomicExclusive(path.join(staging, phaseId, `${attempt.attemptId}.json`), `${JSON.stringify(attempt, null, 2)}\n`, { mode: 0o600 });
-  return { attempt, parsed, reportError: null, path: `${attemptsDirectory(itemRelative, phaseId)}/${attempt.attemptId}.json`, sha256: attemptSha256(attempt) };
+  return { attempt, parsed, reportError: null, path: `${attemptsDirectory(recordPlace(root, itemRelative).prefix, phaseId)}/${attempt.attemptId}.json`, sha256: attemptSha256(attempt) };
 }
 
 // A run of only the new tests finds fewer tests than the suite by design: its scope says so, and its baseline is not compared [TCE:REQ-093].
@@ -226,13 +230,14 @@ export async function recordTestAttempt(root, itemRelative, {
     catch (error) { reportError = String(error?.message ?? error).slice(0, 500); }
   }
   const staging = stagingDirectory(root, workId);
+  const place = recordPlace(root, itemRelative);
   const rawReports = [];
   for (const report of parsed?.rawReports ?? []) {
     const target = path.join(staging, 'raw', report.sha256);
     try { await writeAtomicExclusive(target, report.contents, { mode: 0o600 }); } catch (error) {
       if (error?.code !== 'EEXIST') throw error;
     }
-    rawReports.push({ path: rawReportPath(itemRelative, report.sha256, parsed.adapter), sha256: report.sha256, bytes: report.bytes });
+    rawReports.push({ path: rawReportPath(place.prefix, report.sha256, parsed.adapter), sha256: report.sha256, bytes: report.bytes });
   }
   const previous = (await stepAttempts(root, itemRelative, workId, phaseId)).filter((entry) => entry.commandId === command.id).at(-1);
   const profile = profileForCommand(command);
@@ -249,7 +254,7 @@ export async function recordTestAttempt(root, itemRelative, {
     attempt.cause = (await import('../test-run-cause.mjs')).attemptRunCause({ check, parsed, attempt, delivery });
   }
   // The coverage report this run wrote, a second raw report beside its test report [CQF:REQ-030].
-  if (check?.coverageReport) attempt.coverage = await (await coverageReports()).keptCoverage(staging, itemRelative, check.coverageReport);
+  if (check?.coverageReport) attempt.coverage = await (await coverageReports()).keptCoverage(staging, place.prefix, check.coverageReport);
   // The pin a gate ran it under, which replay finds on the Story [TCE:REQ-014], and what narrowed it [TCE:REQ-021].
   if (pin) attempt.pin = pin;
   // A run of the Story's new tests only says so: which files, and why it may run fewer than the suite [TCE:REQ-093].
@@ -259,7 +264,7 @@ export async function recordTestAttempt(root, itemRelative, {
   await writeAtomicExclusive(path.join(staging, phaseId, `${attempt.attemptId}.json`), `${JSON.stringify(attempt, null, 2)}\n`, { mode: 0o600 });
   return {
     attempt, parsed, reportError,
-    path: `${attemptsDirectory(itemRelative, phaseId)}/${attempt.attemptId}.json`,
+    path: `${attemptsDirectory(place.prefix, phaseId)}/${attempt.attemptId}.json`,
     sha256: attemptSha256(attempt)
   };
 }
@@ -288,17 +293,18 @@ async function admitFile(root, relative, bytes, label) {
  */
 export async function admitTestAttempts(root, itemRelative, workId, phaseId) {
   const staging = stagingDirectory(root, workId);
+  const place = recordPlace(root, itemRelative);
   for (const attempt of await readAttempts(path.join(staging, phaseId))) {
     for (const report of attempt.rawReports ?? []) {
       const bytes = await readFile(path.join(staging, 'raw', report.sha256));
       if (sha256(bytes) !== report.sha256) throw new Error(`kept raw report ${report.sha256} changed`);
-      await admitFile(root, report.path, bytes, 'Raw test report');
+      await admitFile(place.root, report.path, bytes, 'Raw test report');
     }
     // A coverage report is shown, never judged: one gone from both places admits nothing and refuses nothing.
-    const coverage = attempt.coverage?.report ? await (await coverageReports()).coverageReportBytes(root, staging, attempt.coverage.report) : null;
-    if (coverage) await admitFile(root, attempt.coverage.report.path, coverage, 'Coverage report');
+    const coverage = attempt.coverage?.report ? await (await coverageReports()).coverageReportBytes(place.root, staging, attempt.coverage.report) : null;
+    if (coverage) await admitFile(place.root, attempt.coverage.report.path, coverage, 'Coverage report');
     // The kept bytes themselves are admitted, so the committed record is exactly the one written.
-    await admitFile(root, `${attemptsDirectory(itemRelative, phaseId)}/${attempt.attemptId}.json`,
+    await admitFile(place.root, `${attemptsDirectory(place.prefix, phaseId)}/${attempt.attemptId}.json`,
       await readFile(path.join(staging, phaseId, `${attempt.attemptId}.json`)), 'Test attempt');
   }
   return (await stepAttempts(root, itemRelative, workId, phaseId)).map((attempt) => ({

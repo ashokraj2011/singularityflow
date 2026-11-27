@@ -6,7 +6,7 @@ import { readStoryReviewPacket } from './story-lineage.mjs';
 import { evaluateQuickFixWaiver, supportedWaiverPolicy } from './quick-fix-policy.mjs';
 import { assertWorkReconciliationIntegrity } from './work-intervals.mjs';
 import { exactFileAtObject, head } from './git.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { recordedStateFile, storyLocation } from './story-paths.mjs';
 
 function committedJson(root, commit, relative) {
   const bytes = exactFileAtObject(root, commit, relative, { maximumBytes: 16 * 1024 * 1024 });
@@ -21,7 +21,7 @@ function committedJson(root, commit, relative) {
  */
 async function pendingWaiverSubmission(root, phase, entry) {
   if (exactFileAtObject(root, head(root), entry.path)) return null;
-  const stored = JSON.parse(await readFile(path.join(root, entry.path), 'utf8'));
+  const stored = JSON.parse(await readFile(recordedStateFile(root, entry.path), 'utf8'));
   const { packetSha256, ...base } = stored;
   if (packetSha256 !== entry.packetSha256 || createHash('sha256').update(JSON.stringify(base)).digest('hex') !== packetSha256
       || stored.phase !== phase.id || Number(stored.generation) !== Number(phase.generation) || stored.status !== 'policy_waived'

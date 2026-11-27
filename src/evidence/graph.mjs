@@ -33,14 +33,15 @@ import {
   extractClauses, isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap, readSubmittedSpecificationIndex,
   readBoundSpecificationIndex, selectActiveSpecRecords, plannedClaimsForObservedPhase
 } from '../specifications.mjs';
-import { storiesRoot, storyLocation } from '../story-paths.mjs';
+import { recordedStateFile, storiesRoot, storyLocation } from '../story-paths.mjs';
 
 function itemDirectory(root, definition, workId) {
   return storyLocation(root, definition, workId).directory;
 }
 
+// A recorded path, read where its Story keeps its records (the state checkout for a state-ref Story) [SSB M3].
 async function readJsonAt(root, relative) {
-  return JSON.parse(await readFile(path.join(root, relative), 'utf8'));
+  return JSON.parse(await readFile(recordedStateFile(root, relative), 'utf8'));
 }
 
 /** What the evaluator needs of one test attempt: how it ended and every occurrence it observed. */
@@ -62,7 +63,7 @@ function attemptProjection(record) {
 /** Read one bound test attempt, or report it. */
 async function loadAttempt(root, entry, phase, findings, label) {
   try {
-    return attemptProjection(readRecord('test-execution', await readFile(path.join(root, entry.receiptPath))).record);
+    return attemptProjection(readRecord('test-execution', await readFile(recordedStateFile(root, entry.receiptPath))).record);
   } catch (error) {
     findings.push({
       code: 'EVIDENCE_TEST_RECEIPT_UNREADABLE', category: 'records', blocking: true, obligationIds: [],

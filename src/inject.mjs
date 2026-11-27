@@ -13,6 +13,7 @@ import { withSubjectLock } from './subject-lock.mjs';
 import { tokenEconomyDigest } from './token-economy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { withAgentPathProtocol } from './safe-command-guidance.mjs';
+import { recordsRootFor } from './story-paths.mjs';
 import { verifyTokenReductionShadow } from './token-reduction/shadow-record.mjs';
 
 const DEFAULT_INJECTION = { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768, rules: [] };
@@ -163,12 +164,15 @@ function promptGenerationLocation(root, workflow, phase, workDir) {
   const generation = nextPhaseGeneration(phase);
   const promptFile = path.join(workDir, 'context', 'prompts', `${phase.id}-gen${generation}.md`);
   const recordFile = path.join(workDir, 'context', `${phase.id}-gen${generation}.json`);
+  // Records are named relative to the Story's records: the state checkout for a state-ref Story [SSB M3].
+  const recordsRoot = recordsRootFor(root, workDir);
   return {
     generation,
     promptFile,
     recordFile,
-    promptPath: posix(path.relative(root, promptFile)),
-    recordPath: posix(path.relative(root, recordFile)),
+    recordsRoot,
+    promptPath: posix(path.relative(recordsRoot, promptFile)),
+    recordPath: posix(path.relative(recordsRoot, recordFile)),
     label: `${workflow.workItem.id}/${phase.id}/generation ${generation}`
   };
 }
@@ -199,7 +203,7 @@ export async function supersedePromptGeneration(root, workflow, phase, { workDir
   }, null, 2)}\n`);
   await rename(location.promptFile, path.join(directory, path.basename(location.promptFile)));
   await rename(location.recordFile, path.join(directory, path.basename(location.recordFile)));
-  return { directory: posix(path.relative(root, directory)) };
+  return { directory: posix(path.relative(recordsRootFor(root, workDir), directory)) };
 }
 
 function promptGenerationFailure(message, code, details = {}) {
@@ -462,10 +466,10 @@ function verifiedTokenReductionPromptBudget(promptBudget, receipt, workflow, loc
 export async function readPromptGeneration(root, workflow, phase, { workDir, ...expected } = {}) {
   const location = promptGenerationLocation(root, workflow, phase, workDir);
   const [recordTarget, promptTarget] = await Promise.all([
-    secureRepositoryPath(root, location.recordPath, {
+    secureRepositoryPath(location.recordsRoot, location.recordPath, {
       label: 'Prompt generation receipt', type: 'file'
     }),
-    secureRepositoryPath(root, location.promptPath, {
+    secureRepositoryPath(location.recordsRoot, location.promptPath, {
       label: 'Prompt generation snapshot', type: 'file'
     })
   ]);
@@ -529,7 +533,7 @@ export async function readPromptGeneration(root, workflow, phase, { workDir, ...
     // Takeover can materialize a committed LF snapshot as CRLF. Accept only the exact pinned
     // Git bytes with an otherwise identical working copy; arbitrary prompt edits still refuse.
     const canonical = (await import('./documents-read.mjs')).committedDocumentBytes(
-      root, location.promptPath, { sha256: record.renderedSha256 }, Buffer.from(text, 'utf8'));
+      location.recordsRoot, location.promptPath, { sha256: record.renderedSha256 }, Buffer.from(text, 'utf8'));
     if (canonical) {
       text = canonical.toString('utf8');
       actualSha256 = promptSha256(text);
@@ -619,10 +623,10 @@ async function repairInterruptedPromptGeneration(
   root, workflow, phase, location, record, renderedText, workDir, beforePersist = null
 ) {
   const [recordTarget, promptTarget] = await Promise.all([
-    secureRepositoryPath(root, location.recordPath, {
+    secureRepositoryPath(location.recordsRoot, location.recordPath, {
       label: 'Prompt generation receipt', type: 'file'
     }),
-    secureRepositoryPath(root, location.promptPath, {
+    secureRepositoryPath(location.recordsRoot, location.promptPath, {
       label: 'Prompt generation snapshot', type: 'file'
     })
   ]);
@@ -839,10 +843,10 @@ export async function recordInjection(root, workflow, phase, injection, {
     // Re-resolve immediately before mutation so a pre-existing symlink cannot redirect either
     // atomic writer outside the repository.
     const finalTargets = await Promise.all([
-      secureRepositoryPath(root, location.recordPath, {
+      secureRepositoryPath(location.recordsRoot, location.recordPath, {
         label: 'Prompt generation receipt', type: 'file'
       }),
-      secureRepositoryPath(root, location.promptPath, {
+      secureRepositoryPath(location.recordsRoot, location.promptPath, {
         label: 'Prompt generation snapshot', type: 'file'
       })
     ]);

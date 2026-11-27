@@ -367,6 +367,8 @@ export function itemRecommendation(workflow, item) {
     case 'check-finding':
       return lean('override it only if the check is wrong; otherwise its author fixes it, and nothing needs your answer.');
     case 'generation-rollover':
+      // A document step's application files: setting them aside is the one way it is submitted (office, 2026-11-27).
+      if (details.documents && !details.requested) return rec(item, 'set-aside', `${stepName(workflow, details.phase)} writes documents only, so it is submitted only once they are set aside; a private copy is kept.`);
       // Starting the version is asked on its own (its preview's question): this row only leaves the change out.
       if (details.asked) return lean(`answer the question about version ${details.next} first; leave the change out only if it does not belong in this step.`);
       return details.requested ? rec(item, 'start-next-generation', 'The person asked for this change after the step was published.')

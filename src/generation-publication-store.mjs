@@ -16,6 +16,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   gitHeadIsUnborn, gitReadOutput, posix, run, SingularityFlowError, writeJson
 } from './util.mjs';
+import { recordFileIn, recordIn, storyLocation } from './story-paths.mjs';
 import {
   canonicalJson as canonicalWorldModelJson, sha256 as worldModelSha256
 } from './canonical-json.mjs';
@@ -48,11 +49,13 @@ function workDirectoryFromPhase(phase) {
 export function generationPublicationRelative(phase, generation = phase?.generation, workDirectory = null) {
   const itemRoot = posix(workDirectory ?? workDirectoryFromPhase(phase) ?? '');
   if (!itemRoot || !Number.isInteger(Number(generation)) || Number(generation) < 1) return null;
-  return `${itemRoot}/context/generation-publications/${phase.id}-gen${Number(generation)}.json`;
+  // A state-ref Story names its records relative to its state checkout [SSB M3].
+  return recordIn(itemRoot, 'context', 'generation-publications', `${phase.id}-gen${Number(generation)}.json`);
 }
 
 function workflowRelative(recordPath) {
-  return `${path.posix.dirname(path.posix.dirname(path.posix.dirname(recordPath)))}/workflow.json`;
+  const itemRoot = path.posix.dirname(path.posix.dirname(path.posix.dirname(recordPath)));
+  return itemRoot === '.' ? 'workflow.json' : `${itemRoot}/workflow.json`;
 }
 
 function readStoredAt(root, commit, relative) {
@@ -91,8 +94,23 @@ function commitIdentity(root, commit) {
     tree,
     parents,
     transactionId: trailer('Singularity-Flow-Transaction'),
-    eventSha256: trailer('Singularity-Flow-Event-SHA256')
+    eventSha256: trailer('Singularity-Flow-Event-SHA256'),
+    storyCodeCommit: trailer('Story-Code-Commit')
   };
+}
+
+/**
+ * The code commit a Story's lifecycle commit is about [SSB:REQ-004, M3]: the commit itself on today's layout; for a
+ * state-ref Story, the Story branch commit its state commit names.
+ */
+/** The code commit a lifecycle commit names, read from the commit alone: itself unless a state commit names one. */
+export function codeCommitNamedBy(root, commit) {
+  return commit ? commitIdentity(root, commit)?.storyCodeCommit ?? commit : commit;
+}
+
+export function lifecycleCodeCommit(root, workflow, commit) {
+  if (!commit || storyLocation(root, workflow, workflow.workItem.id).branch) return commit;
+  return commitIdentity(root, commit)?.storyCodeCommit ?? commit;
 }
 
 function authenticateStoredPublication(root, commit, record, {
@@ -381,7 +399,7 @@ export async function persistGenerationPublicationRecord(root, workflow, phase, 
     publishedAt: publication.publishedAt
   };
   const record = { ...core, recordSha256: sha256Record(core) };
-  await writeJson(path.join(root, recordPath), record);
+  await writeJson(recordFileIn(root, workDirectory ?? workDirectoryFromPhase(phase) ?? '', recordPath), record);
   publication.record = { path: recordPath, sha256: record.recordSha256 };
   if (phase.generationIntent?.publication) phase.generationIntent.publication.record = publication.record;
   return { path: recordPath, record };
@@ -402,10 +420,12 @@ function publicationHistory(root, args, label) {
 }
 
 /** Resolve the exact verified generation commit; presentation subjects only enumerate legacy candidates. */
-export function publishedGenerationCommit(root, workflow, phase, number = phase.generation) {
+export function publishedGenerationCommit(checkout, workflow, phase, number = phase.generation) {
   const generation = Number(number);
   if (!Number.isInteger(generation) || generation < 1) return null;
   const workId = workflow.workItem.id;
+  // A record's history is its records' own: the state checkout's for a state-ref Story [SSB M3].
+  const root = storyLocation(checkout, workflow, workId).recordsRoot;
   const publication = (phase.generationPublications ?? [])
     .find((entry) => Number(entry.generation) === generation);
   const recordPath = publication?.record?.path

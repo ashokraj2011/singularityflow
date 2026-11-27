@@ -24,6 +24,8 @@ import { verifyPlanEvidenceAmendments } from './plan-evidence-amendments.mjs';
 import { applyPlanCorrections } from './plan-row-corrections.mjs';
 import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue, pathDefect, shown } from './draft-diagnostics.mjs';
 import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
+import { STATE_CHECKOUT, gitPlaceOf, recordsRootFor } from './story-paths.mjs';
+import { codeCommitNamedBy } from './generation-publication-store.mjs';
 
 const OK = 'pass';
 
@@ -479,7 +481,7 @@ export function extractClauses(markdown, {
 
 export async function buildSpecIndex(root, artifact, {
   workId, phase, generation = 0, outputPath = null, policy = {}, write = true,
-  externalClauseIds = [], externalClauses = []
+  externalClauseIds = [], externalClauses = [], recordsRoot = root
 } = {}) {
   const normalized = normalizeSpecPolicy(policy);
   const source = await secureRepositoryPath(root, artifact, {
@@ -503,7 +505,7 @@ export async function buildSpecIndex(root, artifact, {
     clauses
   };
   const index = { ...indexWithoutHash, indexSha256: sha256(canonicalJson(indexWithoutHash)) };
-  if (write && outputPath) await writeJson(path.join(root, outputPath), canonicalize(index));
+  if (write && outputPath) await writeJson(path.join(recordsRoot, outputPath), canonicalize(index));
   return index;
 }
 
@@ -1269,7 +1271,9 @@ function expectedClaimMapPath(root, itemDirectory, phase, kind) {
   )));
 }
 
-function assertCommittedInputBytes(root, relative, label) {
+function assertCommittedInputBytes(checkout, named, label) {
+  // A path in a state-ref Story's state checkout is committed on its state ref [SSB M3].
+  const { cwd: root, relative } = gitPlaceOf(checkout, named);
   const current = run('git', ['hash-object', '--', relative], { cwd: root, allowFailure: true });
   const committed = run('git', ['rev-parse', '--verify', `HEAD:${relative}`], {
     cwd: root, allowFailure: true
@@ -1315,18 +1319,20 @@ async function readSpecificationIndexBinding(root, itemDirectory, workflow, phas
       { code: 'SPECIFICATION_INDEX_BINDING_REQUIRED' }
     );
   }
-  const expectedPath = expectedSpecIndexPath(root, itemDirectory, phase);
+  // A record is named relative to the Story's records: the state checkout for a state-ref Story [SSB M3].
+  const records = recordsRootFor(root, itemDirectory);
+  const expectedPath = expectedSpecIndexPath(records, itemDirectory, phase);
   if (pointer.path !== expectedPath || Number(pointer.generation) !== Number(phase.generation)) {
     throw new SingularityFlowError(
       `Phase '${phase.id}' specification-index binding is stale.`,
       { code: 'SPECIFICATION_INDEX_BINDING_STALE' }
     );
   }
-  const boundary = await secureRepositoryPath(root, pointer.path, {
+  const boundary = await secureRepositoryPath(records, pointer.path, {
     label: `Specification index for phase '${phase.id}'`, mustExist: true, type: 'file'
   });
   if (requireCommitted) {
-    assertCommittedInputBytes(root, boundary.relative, `Specification index for phase '${phase.id}'`);
+    assertCommittedInputBytes(records, boundary.relative, `Specification index for phase '${phase.id}'`);
   }
   const index = readRecord('specification-index', await readFile(boundary.absolute)).record;
   const withoutHash = { ...index };
@@ -1390,18 +1396,19 @@ export async function readBoundSpecificationClaimMap(root, itemDirectory, workfl
       { code: 'SPECIFICATION_CLAIM_MAP_BINDING_REQUIRED' }
     );
   }
-  const expectedPath = expectedClaimMapPath(root, itemDirectory, phase, kind);
+  const records = recordsRootFor(root, itemDirectory);
+  const expectedPath = expectedClaimMapPath(records, itemDirectory, phase, kind);
   if (pointer.path !== expectedPath || Number(pointer.generation) !== Number(phase.generation)) {
     throw new SingularityFlowError(
       `Phase '${phase.id}' ${kind} claim-map binding is stale.`,
       { code: 'SPECIFICATION_CLAIM_MAP_BINDING_STALE' }
     );
   }
-  const boundary = await secureRepositoryPath(root, pointer.path, {
+  const boundary = await secureRepositoryPath(records, pointer.path, {
     label: `Phase '${phase.id}' ${kind} claim map`, mustExist: true, type: 'file'
   });
   if (requireCommitted) {
-    assertCommittedInputBytes(root, boundary.relative, `Phase '${phase.id}' ${kind} claim map`);
+    assertCommittedInputBytes(records, boundary.relative, `Phase '${phase.id}' ${kind} claim map`);
   }
   const raw = JSON.parse(await readFile(boundary.absolute, 'utf8'));
   if (sha256(canonicalJson(raw)) !== pointer.sha256) {
@@ -1740,15 +1747,16 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
   for (const phaseId of plannedOnly ? [] : phaseOrder) {
     const phase = workflow.phases?.[phaseId];
     if (!phase || !(phase.generation > 0)) continue;
-    const relative = posix(path.relative(root, path.join(
+    const records = recordsRootFor(root, itemDirectory);
+    const relative = posix(path.relative(records, path.join(
       itemDirectory, 'context', 'acceptance', `${phase.id}-gen${phase.generation}.json`
     )));
-    if (!(await exists(path.join(root, relative)))) continue;
-    const boundary = await secureRepositoryPath(root, relative, {
+    if (!(await exists(path.join(records, relative)))) continue;
+    const boundary = await secureRepositoryPath(records, relative, {
       label: `Specification acceptance for phase '${phase.id}'`, mustExist: true, type: 'file'
     });
     if (requireCommitted) {
-      assertCommittedInputBytes(root, boundary.relative, `Specification acceptance for phase '${phase.id}'`);
+      assertCommittedInputBytes(records, boundary.relative, `Specification acceptance for phase '${phase.id}'`);
     }
     const record = readRecord('specification-acceptance', await readFile(boundary.absolute)).record;
     const withoutHash = { ...record };
@@ -2069,7 +2077,9 @@ function gitCommit(root) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-export function changedRepositoryPaths(root, { base = null, target = 'HEAD', pathContext = null } = {}) {
+export function changedRepositoryPaths(root, { base = null, target: given = 'HEAD', pathContext = null } = {}) {
+  // A state commit's code is the Story branch commit it names [SSB:REQ-004, M3]; only a checkout with a state checkout asks.
+  const target = given !== 'HEAD' && existsSync(path.join(root, STATE_CHECKOUT)) ? codeCommitNamedBy(root, given) : given;
   const args = base
     ? ['diff', '--name-only', '--diff-filter=ACDMRTUXB', base, target, '--']
     : ['diff', '--name-only', '--diff-filter=ACDMRTUXB', `${target}^`, target, '--'];

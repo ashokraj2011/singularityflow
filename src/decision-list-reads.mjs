@@ -108,7 +108,7 @@ async function testRisks(root, config, workflow, phase, at) {
   if (phase?.status !== 'in_progress') return { risks: [], narrowings: [] };
   const [{ latestStepAttempts }, { testRunCause, testRunRiskIneligibility, testRunRiskStateFor }, { storyLocation }, { pendingTestNarrowings }] = await Promise.all([
     import('./verification/attempts.mjs'), import('./test-run-risk.mjs'), import('./story-paths.mjs'), import('./test-narrowing.mjs')]);
-  const latest = await latestStepAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, phase.id);
+  const latest = await latestStepAttempts(root, storyLocation(null, config, workflow.workItem.id).checkoutPath(), workflow.workItem.id, phase.id);
   return { narrowings: pendingTestNarrowings(workflow, phase.id, latest.values(), { at }), risks: [...latest.values()].map((attempt) => ({ attempt,
     state: testRunRiskStateFor(workflow, { phaseId: phase.id, attempt }, { at })?.state ?? null }))
     .filter(({ attempt, state }) => !testRunRiskIneligibility(attempt) && state !== 'active')
@@ -301,13 +301,17 @@ async function rolloverFacts(root, config, workflow, phase) {
     const [changed, requested, { phaseRequiresCodeDelivery }] = await Promise.all([source('changes-after-publication.mjs'), source('requested-successor.mjs'),
       import('./code-delivery-policy.mjs')]);
     if (!requested.requestedSuccessorEligible(workflow, phase)) return null;
-    const after = await changed.changesAfterPublication(root, config, workflow, phase).catch(() => null);
+    // A document step never holds application files: no version of it takes them, so its row only sets them aside
+    // (office, 2026-11-27: its submission was refused for them, and this list had nothing).
+    const documents = !phaseRequiresCodeDelivery(phase);
+    const after = await (documents ? changed.documentStepChanges : changed.changesAfterPublication)(root, config, workflow, phase).catch(() => null);
     const requests = await requested.requestedChanges(root, workflow, phase).catch(() => []);
+    if (documents && !after?.uncommitted?.length && !requests.length) return null;
     // Never the author's own correction: that is of a published generation whose bytes are unchanged and that nobody
     // asked to change, which this item never covers (neither files nor a request); `phase rollover --correction` previews
     // it and the person answers its own "Start version N …?" question (owner, 2026-11-17; own-correction-rollover.mjs).
     if (!after && !requests.length) return null;
-    const action = requested.requestedSuccessorAction(workflow, phase, { requested: requests.length > 0, changedPaths: after?.paths ?? [] });
+    const action = requested.requestedSuccessorAction(workflow, phase, { requested: requests.length > 0, changedPaths: documents ? [] : after?.paths ?? [] });
     const chatRoute = phaseRequiresCodeDelivery(phase) ? `/sf-code ${phase.id}` : action?.copilotCommand?.replace(/ <what to change>$/u, '') ?? null;
     const next = Math.max(Number(phase.generation), Number(phase.generationHighWatermark ?? 0)) + 1;
     const keepOut = after?.uncommitted?.length ? `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` : null;
@@ -316,8 +320,11 @@ async function rolloverFacts(root, config, workflow, phase) {
     const asked = await requested.successorAsked(root, workflow, phase, next).catch(() => false);
     if (asked && !keepOut) return null;
     return { phase: phase.id, generation: Number(phase.generation), next,
-      paths: after?.paths ?? [], uncommitted: after?.uncommitted ?? [], requests: requests.map((text) => String(text).replace(/\s+/gu, ' ').trim().slice(0, 200)),
-      command: `singularity-flow phase rollover ${phase.id}`, keepOut, ...(asked ? { asked: true } : {}), chatRoute, code: phaseRequiresCodeDelivery(phase) };
+      paths: (documents ? after?.uncommitted : after?.paths) ?? [], uncommitted: after?.uncommitted ?? [], requests: requests.map((text) => String(text).replace(/\s+/gu, ' ').trim().slice(0, 200)),
+      command: `singularity-flow phase rollover ${phase.id}`, keepOut, ...(asked ? { asked: true } : {}), chatRoute, code: !documents,
+      // The code step ahead, which writes the code the person set aside.
+      ...(documents ? { documents: true, codeStep: (workflow.phaseOrder ?? []).slice((workflow.phaseOrder ?? []).indexOf(phase.id) + 1)
+        .find((id) => phaseRequiresCodeDelivery(workflow.phases?.[id])) ?? null } : {}) };
   } catch { return null; }
 }
 
@@ -580,6 +587,11 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     reviewDisputes: offerReuse && workflow.status === 'in_progress' && ['in_progress', 'awaiting_approval'].includes(phase?.status)
       ? await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'review-finding-dispute.mjs')).href)
         .then((module) => module.reviewDisputeFacts(root, config, workflow, phase)).catch(() => null) : null,
+    // What a code step's change does, in one line at the top of its approval, and where the whole page is [CSP:REQ-007]. A count
+    // skips it: it holds nothing. From the CLI source, out of the VS Code bundles that read this list.
+    changeStory: offerReuse && phase?.status === 'awaiting_approval' && phase.deliveryEvidence
+      ? await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'change-story-read.mjs')).href)
+        .then((module) => module.changeStoryFacts(root, config, workflow, phase)).catch(() => null) : null,
     // A check's blocking findings a person may override, while the step is written (finding-overrides.mjs) [owner, 2026-11-23].
     // A count skips them, as it skips disputes; from the CLI source, out of the VS Code bundles that read this list.
     findingOverrides: answering && phase?.status === 'in_progress'

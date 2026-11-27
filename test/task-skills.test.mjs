@@ -24,7 +24,13 @@ import { TASK_KINDS } from '../src/task-composition.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = YAML.parse(readFileSync(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
 const FIXTURE = path.join(ROOT, 'test/fixtures/sdlc-marketplace');
-const base = () => structuredClone(BASE);
+// The kind's own steps, as v1.1 composed them (`tasks.sizing: kind`): the skills each step gets are the same under v1.2's
+// shapes for the steps a task has (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md); test/omk-metadata.test.mjs reads a v1.2 plan line.
+const base = () => Object.assign(structuredClone(BASE), { tasks: { sizing: 'kind' } });
+const repository = (t, options = {}) => journeyRepository(t, { ...options, configure: (configuration) => {
+  options.configure?.(configuration);
+  configuration.tasks = { ...(configuration.tasks ?? {}), sizing: 'kind' };
+} });
 
 const library = (id, tags, extra = {}) => librarySkillCandidate({ id, label: id, tags, sha256: `${id}-bytes` }, extra.imported ?? null);
 const market = (name, tags, pdlcTasks, lifecycleState = 'approved') => marketplaceSkillCandidate({ name, tags, pdlcTasks, lifecycleState, version: '1.0.0' }, 'acme');
@@ -194,7 +200,7 @@ function refused(story, args) {
 }
 
 test('ITW REQ-010, A9: a library skill chosen for a step is frozen into the Story\'s snapshot with its exact text', async (t) => {
-  const story = await journeyRepository(t, { files: { 'package.json': WEB_PACKAGE, 'singularity/skill-library/web-smoke-checks/SKILL.md': SMOKE_SKILL } });
+  const story = await repository(t, { files: { 'package.json': WEB_PACKAGE, 'singularity/skill-library/web-smoke-checks/SKILL.md': SMOKE_SKILL } });
   const shown = json(story.cli('work', 'fix the login button', '--json'));
   assert.match(shown.plan, /^Plan: code \(with web-smoke-checks\) → tests\./u);
   assert.deepEqual(shown.skills.map(({ id, steps }) => [id, steps]), [['web-smoke-checks', ['implementation']]]);
@@ -230,7 +236,7 @@ test('ITW REQ-010, A9: a library skill chosen for a step is frozen into the Stor
 });
 
 test('ITW REQ-010: a skill the plan read but the Story\'s base does not have is refused before anything is written, with a start without it', async (t) => {
-  const story = await journeyRepository(t, { files: { 'package.json': WEB_PACKAGE } });
+  const story = await repository(t, { files: { 'package.json': WEB_PACKAGE } });
   await story.write('singularity/skill-library/web-smoke-checks/SKILL.md', SMOKE_SKILL);
   story.git('add', '-A');
   story.git('commit', '-qm', 'A skill committed here and not pushed');
@@ -245,7 +251,7 @@ test('ITW REQ-010: a skill the plan read but the Story\'s base does not have is 
 
 test('ITW A6, A7: a trusted marketplace\'s skill is offered new here; one yes with its text imports it, and the next task uses it without asking', async (t) => {
   const acme = await marketplaceRepository(t);
-  const story = await journeyRepository(t, {
+  const story = await repository(t, {
     files: { 'package.json': WEB_PACKAGE },
     configure: (configuration) => { configuration.marketplaces = { acme: { label: 'Acme', repository: acme.repository, commit: acme.commit } }; }
   });
@@ -298,7 +304,7 @@ test('ITW A6, A7: a trusted marketplace\'s skill is offered new here; one yes wi
 
 test('ITW REQ-010: imports check re-checks a skill imported from a Git-repository marketplace: still the same, newer, its trust moved, gone', async (t) => {
   const acme = await marketplaceRepository(t);
-  const story = await journeyRepository(t, {
+  const story = await repository(t, {
     files: { 'package.json': WEB_PACKAGE },
     configure: (configuration) => { configuration.marketplaces = { acme: { label: 'Acme', repository: acme.repository, commit: acme.commit } }; }
   });
@@ -395,7 +401,7 @@ test('ITW REQ-010, A6, A7: a trusted HTTPS index marketplace\'s skills are offer
   const catalog = await indexMarketplace(t, [
     { id: 'web-checks', label: 'Web checks', tags: ['web', 'playwright', 'ga'], phases: ['implementation'], text: WEB_CHECKS },
     { id: 'visual-diff', label: 'Visual diff', tags: ['web', 'beta'], phases: ['requirements'], text: VISUAL_DIFF }]);
-  const story = await journeyRepository(t, {
+  const story = await repository(t, {
     files: { 'package.json': WEB_PACKAGE },
     env: { SINGULARITY_FLOW_TEST_REMOTE_FIXTURES: catalog.directory },
     configure: (configuration) => { configuration.marketplaces = { team: { label: 'Team catalog', index: catalog.index, allowedOrigins: ['https://cdn.example.org'] } }; }
@@ -522,7 +528,7 @@ test('an index past its hour is asked whether it changed: a 304 keeps the checke
 
 test('ITW A7: a marketplace only a working-copy edit of workflow.yml trusts is not trusted yet: no task offers its skills and no preview reads it', async (t) => {
   const catalog = await indexMarketplace(t, [{ id: 'web-checks', label: 'Web checks', tags: ['web', 'ga'], phases: ['implementation'], text: WEB_CHECKS }]);
-  const story = await journeyRepository(t, { files: { 'package.json': WEB_PACKAGE }, env: { SINGULARITY_FLOW_TEST_REMOTE_FIXTURES: catalog.directory } });
+  const story = await repository(t, { files: { 'package.json': WEB_PACKAGE }, env: { SINGULARITY_FLOW_TEST_REMOTE_FIXTURES: catalog.directory } });
   // The approved configuration, sflow/config on the remote (and its tracking ref here), trusts no marketplace.
   story.git('push', '-q', 'origin', 'main:sflow/config');
   story.git('fetch', '-q', 'origin');

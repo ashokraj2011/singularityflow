@@ -586,7 +586,8 @@ test('read at the trusted commit: the catalog, browse, the skill catalog, the co
     ['Owner: QA Guild', 'Proposed by QA Guild on 16 Sep 2026; not yet approved', 'The marketplace declares @acme/marketplace-stewards as the code owners of its lifecycle record.']);
   // A task uses the library's copy while its marketplace says ga.
   const before = json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json'));
-  assert.match(before.plan, /^Plan: code \(with web-e2e-test-generation\) → tests\./u);
+  // A fix sized by its requirement (ITW v1.2): the skill is on the step that implements and tests.
+  assert.match(before.plan, /^Plan: requirement → implement and test \(with web-e2e-test-generation\) → SFlow runs the tests\./u);
   assert.deepEqual(before.notes ?? [], []);
 
   // The marketplace deprecates it, and retires android-unit-test; the repository moves its trust, as a reviewed change does.

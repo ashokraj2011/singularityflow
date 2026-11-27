@@ -2,7 +2,7 @@
 
 **Specification ID:** `ITW-v1.2`
 
-**Status:** Built 2026-11-27 on branch sf-task-v12 (M1 to M5 in one pass: src/task-shape.mjs, src/task-followups.mjs,
+**Status:** Built 2026-11-27 on branch sf-task-v12 (M1 to M5 built together, in src/task-shape.mjs, src/task-followups.mjs,
 src/task-history.mjs, with src/task-composition.mjs, src/task-amendment.mjs, src/task-change-contracts.mjs,
 src/task-agents.mjs, src/task-turn.mjs and `work`), walked by test/journey-tasks-shapes.test.mjs. Builds on [ITW v1.1](SPEC-ITW-INTENT-TO-WORK-v1.1.md) and replaces its composition
 (REQ-003, the default approvals of REQ-004 and REQ-005, and the offer of the team's own workflow in REQ-020). Everything

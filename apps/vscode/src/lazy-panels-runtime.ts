@@ -20,7 +20,7 @@ export { addUserAgentFolder } from './user-agent-folder.ts';
 export { collectReviewConfirmation } from './views/review-confirmation.ts';
 export { DiagnosticsPanel } from './views/diagnostics.ts';
 export { ComprehensionCenterPanel } from './views/comprehension-center.ts';
-export { CodeExplainerPanel } from './views/code-explainer.ts';
+export { CodeExplainerPanel, codeExplainerMode } from './views/code-explainer.ts';
 export { RepositoryBriefPanel } from './views/repository-brief.ts';
 export { PhaseBriefPanel } from './views/phase-brief.ts';
 export { LocalResetPanel } from './views/local-reset.ts';

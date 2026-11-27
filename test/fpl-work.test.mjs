@@ -8,8 +8,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  addableSteps, endedWhere, orderRows, planChips, planNote, rulesApplied, statusWords, storyEvents, storySteps, withWaiting, workRow
+  addableSteps, endedWhere, orderRows, planChips, planNote, rulesApplied, statusWords, storyEvents, storySteps, waitingItem, waitingOf, withWaiting, workRow
 } from '../src/work-rows.mjs';
+import { stepApprovalItem } from '../src/needs-you-items.mjs';
 import { journeyRepository } from './helpers/route-follower.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -76,6 +77,32 @@ test('REQ-005: the plan as chips with `work status` steps, each state in words, 
   assert.equal(held.chips[0].state, 'waits-for-you');
   assert.equal(held.chips[0].words, 'Plan, waits for you');
   assert.equal(withWaiting(row, null), row);
+});
+
+test('REQ-005: "Waiting for you" is current with the record the row was read from, never an item already decided', () => {
+  const repository = { id: 'shop-api', name: 'shop-api' };
+  const waiting = story('TASK-11');
+  const row = { ...workRow(waiting, { repository, folder: 'singularity/work-items', mine: 'started' }), updatedAt: '2026-11-26T10:00:00.000Z' };
+  // The record's own item, computed as Needs you computes it, from the same record.
+  const live = [waitingOf(stepApprovalItem(waiting, { repository, actor: me }))];
+  assert.deepEqual(live.map((item) => [item.key, item.question]), [['shop-api:TASK-11:approve:plan:1', 'Approve Plan?']]);
+  assert.equal(waitingItem(row, { live }).question, 'Approve Plan?');
+  // Approved since: the record holds nothing of theirs, and what Needs you kept before is not said.
+  const keptApproval = { ...live[0], readAt: '2026-11-26T11:00:00.000Z' };
+  assert.equal(waitingItem(row, { live: [], kept: [keptApproval] }), null, 'the record decides its own kinds');
+  // A row kept before its items were: Needs you's copy, only when it was read after the Story's latest record.
+  assert.equal(waitingItem(row, { live: null, kept: [keptApproval] }).key, keptApproval.key);
+  assert.equal(waitingItem(row, { live: null, kept: [{ ...keptApproval, readAt: '2026-11-26T09:59:59.000Z' }] }), null, 'read before the record changed');
+  assert.equal(waitingItem(row, { live: null, kept: [{ ...keptApproval, readAt: null }] }), null, 'no read time, no trust');
+  // An item only a checkout can say (a decision) comes from Needs you's copy, by the same rule; another Story's never.
+  const decision = { key: 'shop-api:TASK-11:decision:clarification:x', kind: 'decision', group: 'holds-work', repository, story: { id: 'TASK-11' },
+    step: { id: 'plan' }, question: 'Which timeout should it use?', waitingSince: '2026-11-25T09:00:00.000Z', readAt: '2026-11-26T10:30:00.000Z' };
+  assert.equal(waitingItem(row, { live: [], kept: [decision] }).question, 'Which timeout should it use?');
+  assert.equal(waitingItem(row, { live: [], kept: [{ ...decision, readAt: '2026-11-26T09:00:00.000Z' }] }), null);
+  assert.equal(waitingItem(row, { live: [], kept: [{ ...decision, story: { id: 'TASK-99' } }] }), null);
+  assert.equal(waitingItem(row, { live: [], kept: [{ ...decision, repository: { id: 'shop-web' } }] }), null);
+  // Both: Needs you's one order, oldest first.
+  assert.equal(waitingItem(row, { live, kept: [decision] }).question, 'Which timeout should it use?', 'the decision waits since before the step was submitted');
 });
 
 test('REQ-006, REQ-007: where the plan came from, the rules applied, what happened, the steps it can gain and where it ended', () => {
@@ -164,11 +191,12 @@ test('A8: for each kind\'s sentence the likely plan is the plan line the chat sa
 
 // ------------------------------------------------------------------------------------------- A9: across the workspace
 
-async function publishStory(f, state) {
+async function publishStory(f, state, { again = false } = {}) {
   const { appendLedgerIntent, createLedgerIntent } = await import('../src/ledger.mjs');
   const { storyLifecycleProgress } = await import('../src/session-roster.mjs');
   const branch = state.workItem.branch;
-  f.git(f.source, 'switch', '--quiet', '-c', branch, 'main');
+  // A Story's next record is a new commit on its branch.
+  f.git(f.source, 'switch', '--quiet', ...(again ? [branch] : ['-c', branch, 'main']));
   const file = path.join(f.source, f.definition.workItemRoot, state.workItem.id, 'workflow.json');
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, JSON.stringify(state));
@@ -226,11 +254,13 @@ test('A9: In progress lists this person\'s Stories across the workspace, waits f
     'this person\'s, newest first; not APP-2 (another person\'s), APP-4 (ended before this week) or APP-5 (cancelled)');
   assert.deepEqual(listed.doneThisWeek.map((row) => [row.id, row.ended.where]), [['APP-3', 'report ready']]);
   assert.equal(listed.inProgress[0].statusLine, 'Waiting for Release owners: approve Plan');
-  assert.equal(listed.inProgress[1].statusLine, 'Waiting for Quality reviewers: approve Plan', 'nothing kept in Needs you yet');
+  // Their own group approves APP-1's plan: its record says so, with no Needs-you read first.
+  assert.equal(listed.inProgress[1].statusLine, 'Waiting for you: Approve Plan?', 'computed from the record the row was read from');
+  assert.match(listed.inProgress[1].waiting.key, /^app:APP-1:approve:plan:1$/u);
   assert.deepEqual(listed.here, { id: 'app', name: 'app' });
   // What /sf-task with no words says in the chat [REQ-038]: the same rows and words.
   assert.deepEqual(listed.say, ['Story API-1 (API-1, api): Waiting for Release owners: approve Plan',
-    'Story APP-1 (APP-1, app): Waiting for Quality reviewers: approve Plan', 'Done this week: Story APP-3 (APP-3), report ready.']);
+    'Story APP-1 (APP-1, app): Waiting for you: Approve Plan?', 'Done this week: Story APP-3 (APP-3), report ready.']);
   assert.equal(listed.inProgress[0].route.here, undefined);
   assert.match(listed.inProgress[0].route.elsewhere.commands[0], /^singularity-flow session open API-1 --workspace readiness-bench --repository api$/u);
 
@@ -255,6 +285,23 @@ test('A9: In progress lists this person\'s Stories across the workspace, waits f
   assert.deepEqual(painted.inProgress.map((row) => row.id), joined.inProgress.map((row) => row.id));
   assert.equal(painted.inProgress.find((row) => row.id === 'APP-1').statusLine, 'Waiting for you: Approve Plan?');
   assert.equal((await lastTiming(app.original))?.counters?.['git.remote.total'] ?? 0, 0, 'an offline read fetches nothing');
+
+  // They approve APP-1's plan, and it waits for a second reviewer. Needs you is not read again, so what it kept still
+  // asks "Approve Plan?"; work list says what the record says, fresh and offline alike.
+  const approved = story('APP-1', { createdAt: new Date(now - 2 * DAY).toISOString(),
+    history: [{ at: new Date().toISOString(), event: 'approval_recorded', phase: 'plan', actor: me }] });
+  approved.phases.plan.approvalPolicy.minimum = 2;
+  approved.phases.plan.approvals = [{ actor: me, decision: 'approved', at: new Date().toISOString(), authorityGroup: 'quality-reviewers', generation: 1 }];
+  await publishStory(app, approved, { again: true });
+  const stale = JSON.parse(cli(app, ['needs-you', '--offline', '--json']).stdout);
+  assert.ok(stale.items.some((item) => item.story?.id === 'APP-1' && item.question === 'Approve Plan?'), 'Needs you still keeps the old item');
+  const current = JSON.parse(cli(app, ['work', 'list', '--json']).stdout).inProgress.find((row) => row.id === 'APP-1');
+  assert.equal(current.statusLine, 'Waiting for Quality reviewers: approve Plan', 'never an item already decided');
+  assert.equal(current.waiting, undefined);
+  assert.notEqual(current.chips[0].state, 'waits-for-you');
+  const paintedAgain = JSON.parse(cli(app, ['work', 'list', '--offline', '--json']).stdout).inProgress.find((row) => row.id === 'APP-1');
+  assert.equal(paintedAgain.statusLine, 'Waiting for Quality reviewers: approve Plan', 'offline, from the row and its items as kept together');
+  assert.doesNotMatch(cli(app, ['work', 'list', '--offline']).stdout, /Waiting for you: Approve Plan\?/u);
 
   // With api's remote away, app's rows still show, and api keeps its last rows with one line.
   await rename(api.remote, `${api.remote}.away`);

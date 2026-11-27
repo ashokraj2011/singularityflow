@@ -9,15 +9,17 @@
  *
  * What a read found is kept per repository and identity, beside Needs you's (needs-you-cache.mjs): a Story whose commit did
  * not move costs no read, `--offline` paints from what is kept with no Git, and a repository that cannot be read keeps its
- * last rows with one line. The status line says "Waiting for you: …" when an item in Needs you belongs to the Story, read
- * from what Needs you kept. It records nothing.
+ * last rows with one line. The status line says "Waiting for you: …" when an item of this person's belongs to the Story:
+ * its step's approval and the decision after it are computed from the record the row was read from, as Needs you computes
+ * them (needs-you-items.mjs), and kept with the row; the items only a checkout can say come from what Needs you kept, and
+ * only when it read them after the Story's latest record, so an item already decided is never said. It records nothing.
  */
 import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { identitySection, identityKey, keptDirectory, keptFile, readKept, writeKept } from './needs-you-cache.mjs';
 import { timeWords } from './needs-you-list.mjs';
-import { DONE_WINDOW_MS, orderRows, WORK_LIST_RESULT, withWaiting, workRow } from './work-rows.mjs';
+import { DONE_WINDOW_MS, orderRows, WORK_LIST_RESULT, waitingItem, waitingOf, withWaiting, workRow } from './work-rows.mjs';
 import { mapLimit } from './util.mjs';
 
 /** Repositories are read three at a time, as Needs you reads them [FPL:REQ-017]. */
@@ -66,14 +68,33 @@ async function checkoutEntries(scope, env) {
   return kept;
 }
 
-/** A Story checked out here, read from its checkout as `work status` reads it; null when it cannot be read. */
+/** A Story checked out here, read from its checkout as `work status` reads it, with its record; null when it cannot be read. */
 async function checkoutRow(entry, member, { actor, now }) {
   try {
     const workflow = JSON.parse(await readFile(path.join(entry.checkoutPath, entry.workflowPath), 'utf8'));
     if (workflow?.workItem?.id !== entry.workId || !listable(workflow, now)) return null;
-    return workRow(workflow, { repository: member, folder: folderOf(entry.workflowPath), now,
-      mine: await startedBy(workflow, actor) ? 'started' : 'checkout', place: { checkout: entry.checkoutPath, clone: member.root ?? null } });
+    return { workflow, row: workRow(workflow, { repository: member, folder: folderOf(entry.workflowPath), now,
+      mine: await startedBy(workflow, actor) ? 'started' : 'checkout', place: { checkout: entry.checkoutPath, clone: member.root ?? null } }) };
   } catch { return null; }
+}
+
+/**
+ * The items of this person's a Story's record holds, as Needs you computes them from the same record (its step's
+ * approval, the decision after it): no other read, so the row's line is as current as the row [FPL:REQ-005].
+ */
+async function recordItems(workflow, member, { actor, fallbackAuthorities = null }) {
+  if (workflow?.status !== 'in_progress') return [];
+  const items = await import('./needs-you-items.mjs');
+  let counts = null;
+  // SF Guard decides which approvals count, from the person records in the clone (no network).
+  if (member.root && workflow.resolution?.presence) {
+    counts = await import('./presence/person-records.mjs').then((module) => module.presenceCountsFor(member.root, workflow)).catch(() => null);
+  }
+  const repository = { id: member.id, name: member.name };
+  try {
+    return [items.stepApprovalItem(workflow, { repository, actor, fallbackAuthorities, counts }),
+      items.workflowDecisionItem(workflow, { repository, actor, fallbackAuthorities })].filter(Boolean).map(waitingOf);
+  } catch { return []; }
 }
 
 /** One member, read fresh; on failure its kept rows with one line. */
@@ -86,16 +107,23 @@ async function readMember(member, scope, { directory, entries, env, now }) {
   const previous = identitySection(kept, key);
   const identity = { email: actor.email ?? null, login: actor.login ?? null, name: actor.name ?? null };
   const at = now.toISOString();
-  const local = [];
+  const checkedOut = [];
   for (const entry of entries.filter((candidate) => candidate.repository?.id === member.id)) {
-    const row = await checkoutRow(entry, member, { actor, now });
-    if (row) local.push(row);
+    const read = await checkoutRow(entry, member, { actor, now });
+    if (read) checkedOut.push(read);
   }
+  const local = checkedOut.map((read) => read.row);
+  // The checkouts' own items, from their records; the approval groups the repository names when a record names none.
+  const localItems = async (definition) => (await Promise.all(checkedOut.map((read) => recordItems(read.workflow, member,
+    { actor, fallbackAuthorities: definition?.approvalAuthorities ?? null })))).flat();
   try {
     const keptStories = previous.stories ?? {};
     const since = now.getTime() - DONE_WINDOW_MS;
-    // Unchanged since the kept read, cancelled, or ended before this week: no workflow.json is read for it.
-    const { roster } = await memberRoster(member, scope, { env, skip: (pointer) => keptStories[pointer.id]?.commit === pointer.commitOid
+    // Unchanged since the kept read, cancelled, or ended before this week: no workflow.json is read for it. A row kept
+    // before its items were kept with it is read once more, so its line is computed from its record.
+    const unchanged = (pointer) => keptStories[pointer.id]?.commit === pointer.commitOid
+      && (!keptStories[pointer.id].row || Array.isArray(keptStories[pointer.id].items));
+    const { roster, definition } = await memberRoster(member, scope, { env, skip: (pointer) => unchanged(pointer)
       || pointer.story?.status === 'cancelled' || (pointer.story?.status === 'closed' && Date.parse(pointer.story?.updatedAt ?? '') < since) });
     const stories = {};
     const tally = { read: 0, kept: 0 };
@@ -111,19 +139,36 @@ async function readMember(member, scope, { directory, entries, env, now }) {
       tally.read += 1;
       const mine = listable(workflow, now) && await startedBy(workflow, actor);
       stories[found.id] = { commit: found.commitOid, row: mine ? workRow(workflow, { repository: member, folder: folderOf(found.path), now, mine: 'started',
-        place: { checkout: null, clone: member.root ?? null } }) : null };
+        place: { checkout: null, clone: member.root ?? null } }) : null,
+      items: mine ? await recordItems(workflow, member, { actor, fallbackAuthorities: found.definition?.approvalAuthorities ?? definition?.approvalAuthorities ?? null }) : [] };
     }
-    const section = { identity, at, stories, local: { at, rows: local } };
+    const section = { identity, at, stories, local: { at, rows: local, items: await localItems(definition) } };
     const record = { repository: { id: member.id, name: member.name, url: member.url ?? null }, workspaceId: scope.workspace?.id ?? null,
       lastIdentity: key, byIdentity: { ...(kept?.byIdentity ?? {}), [key]: section }, failure: null };
     await writeKept(file, record);
     return { member, section, read: 'fresh', at, identity, stories: tally };
   } catch (error) {
     // Its checkouts here are still read: they are files on this computer.
-    const section = { ...previous, local: { at, rows: local } };
+    const section = { ...previous, local: { at, rows: local, items: await localItems(null) } };
     if (kept) await writeKept(file, { ...kept, byIdentity: { ...kept.byIdentity, [key]: section }, failure: { at, why: failureWords(error), code: error?.code ?? null } });
     return { member, section, read: previous.at ? 'kept' : 'failed', at: previous.at ?? null, identity, why: failureWords(error) };
   }
+}
+
+/**
+ * The items each row of a kept section says "Waiting for you" for, computed from the record the row was read from: by
+ * `<repository>\0<ID>`, null for a row kept before its items were. A Story checked out here takes its checkout's.
+ */
+function sectionItems(section, member) {
+  const byRow = new Map();
+  for (const entry of Object.values(section?.stories ?? {})) {
+    if (entry?.row?.id) byRow.set(`${member.id}\0${entry.row.id}`, Array.isArray(entry.items) ? entry.items : null);
+  }
+  const local = Array.isArray(section?.local?.items) ? section.local.items : null;
+  for (const row of section?.local?.rows ?? []) {
+    if (row?.id) byRow.set(`${member.id}\0${row.id}`, local ? local.filter((item) => item.story?.id === row.id) : null);
+  }
+  return byRow;
 }
 
 /** Every row a kept section holds: a Story checked out here is its checkout's row, else its record's. */
@@ -167,19 +212,31 @@ function repositoryLine(entry, now) {
   return entry.at ? `${entry.name} could not be read (${entry.why}); showing ${timeWords(entry.at, now)}.` : `${entry.name} could not be read (${entry.why}).`;
 }
 
-/** The items Needs you kept for this person, so a Story it holds says "Waiting for you: …"; no Git, no network. */
-async function waitingItems({ env, cwd, now }) {
-  try {
-    const { needsYou } = await import('./needs-you.mjs');
-    return (await needsYou({ offline: true, env, cwd, now })).items ?? [];
-  } catch { return []; }
+/**
+ * The Story items Needs you kept for this person, each with when it was read (`readAt`), so a row can tell whether it is
+ * still current: read from its kept files alone, with the identity this read judged with. No Git, no network.
+ */
+async function keptNeedsYouItems(scope, repositories, env) {
+  const directory = keptDirectory(env);
+  const found = [];
+  await Promise.all(scope.members.map(async (member) => {
+    const record = await readKept(keptFile(directory, { workspaceId: scope.workspace?.id ?? null, repositoryId: member.id, url: member.url ?? member.root }));
+    if (!record) return;
+    const identity = repositories.find((entry) => entry.id === member.id)?.identity ?? null;
+    const section = identitySection(record, identity ? identityKey(identity) : record.lastIdentity);
+    for (const story of Object.values(section.stories ?? {})) {
+      for (const item of Array.isArray(story?.items) ? story.items : []) found.push({ ...item, readAt: section.at ?? null });
+    }
+    for (const item of Array.isArray(section.local?.items) ? section.local.items : []) found.push({ ...item, readAt: section.local.at ?? null });
+  }));
+  return found.filter((item) => item?.key && item.story?.id);
 }
 
-async function resultOf(scope, repositories, rows, { now, offline, env, cwd, entries }) {
-  const items = await waitingItems({ env, cwd, now });
+async function resultOf(scope, repositories, rows, { now, offline, env, entries, live }) {
+  const kept = await keptNeedsYouItems(scope, repositories, env).catch(() => []);
   // Times are said as of this paint ("Monday", "yesterday"), whenever the row was kept.
   const dated = rows.map((row) => ({ ...row, startedWhen: timeWords(row.startedAt, now), ...(row.ended ? { ended: { ...row.ended, when: timeWords(row.ended.at, now) } } : {}) }));
-  const joined = dated.map((row) => withWaiting(row, items.find((item) => item.story?.id === row.id && item.repository?.id === row.repository.id) ?? null));
+  const joined = dated.map((row) => withWaiting(row, waitingItem(row, { live: live.get(`${row.repository.id}\0${row.id}`) ?? null, kept })));
   const { inProgress, doneThisWeek } = orderRows(await withRoutes(joined, scope, entries), { now });
   const read = repositories.filter((entry) => entry.read !== 'failed');
   const checked = read.map((entry) => entry.at).filter(Boolean).sort().at(-1) ?? null;
@@ -222,6 +279,7 @@ export async function workList({ offline = false, env = process.env, cwd = proce
       { workspaceId: scope.workspace?.id ?? null, repositoryId: member.id, url: member.url ?? member.root }))));
     const repositories = [];
     const rows = [];
+    const live = new Map();
     scope.members.forEach((member, index) => {
       const record = records[index];
       const section = record ? identitySection(record, record.lastIdentity) : null;
@@ -229,15 +287,17 @@ export async function workList({ offline = false, env = process.env, cwd = proce
       repositories.push({ id: member.id, name: member.name, read: at ? 'kept' : 'failed', at, why: at ? record.failure?.why ?? null : 'not read yet',
         identity: section?.identity ?? null });
       rows.push(...sectionRows(section).filter((row) => row.status === 'in_progress' || row.status === 'closed'));
+      for (const [key, items] of sectionItems(section, member)) live.set(key, items);
     });
-    return resultOf(scope, repositories, rows, { now, offline: true, env, cwd, entries: [] });
+    return resultOf(scope, repositories, rows, { now, offline: true, env, entries: [], live });
   }
   const entries = await checkoutEntries(scope, env);
   const read = await mapLimit(scope.members, concurrency, (member) => readMember(member, scope, { directory, entries, env, now }));
   const rows = read.flatMap((entry) => sectionRows(entry.section));
+  const live = new Map(read.flatMap((entry) => [...sectionItems(entry.section, entry.member)]));
   const repositories = read.map((entry) => ({ id: entry.member.id, name: entry.member.name, read: entry.read, at: entry.at,
     why: entry.why ?? null, identity: entry.identity, ...(entry.stories ? { stories: entry.stories } : {}) }));
-  return resultOf(scope, repositories, rows, { now, offline: false, env, cwd, entries });
+  return resultOf(scope, repositories, rows, { now, offline: false, env, entries, live });
 }
 
 /** The list in the terminal, in the Work tab's order and words. */

@@ -568,9 +568,13 @@ test('calls from Singularity Flow\'s analysis land on the outline\'s own symbols
 test('the host names calls the compiler resolved by their counts, not by a status word', async () => {
   const { readFile } = await import('node:fs/promises');
   const host = await readFile(new URL('../apps/vscode/src/views/code-explainer.ts', import.meta.url), 'utf8');
-  assert.match(host, /data\?\.counts\?\.resolved \? \(data\.counts\.byName \? 'resolved by the compiler where it could, matched by name elsewhere' : 'resolved by the compiler'\) : 'matched by name'/u);
+  // Each folder's counts are added up, then named [vscode-code-explainer-host.test.mjs drives the folders asked].
+  assert.match(host, /result\.resolved \+= data\?\.counts\?\.resolved \?\? 0;\s+result\.byName \+= data\?\.counts\?\.byName \?\? 0;/u);
+  assert.match(host, /analysis\.resolved \? \(analysis\.byName \? 'resolved by the compiler where it could, matched by name elsewhere' : 'resolved by the compiler'\) : 'matched by name'/u);
   assert.doesNotMatch(host, /resolution === 'complete'/u, 'a warmed pack reports "resolved", never "complete"');
-  // The fallback names the area of the files that got no call hierarchy, so a large repository is not refused [WMR:REQ-010].
-  assert.match(host, /const area = sharedFolder\(\[\.\.\.lacking\]\);\s+const reply = await this\.client\.run<unknown>\(\['wm', 'knowledge', 'calls', \.\.\.\(area \? \['--area', area\] : \[\]\), '--json'\]\)/u);
+  // The fallback names the area of the files that got no call hierarchy, so a large repository is not refused [WMR:REQ-010];
+  // one still too large is asked by its subfolders.
+  assert.match(host, /const queue = \[\{ area: sharedFolder\(files\), files \}\];/u);
+  assert.match(host, /this\.client\.run<unknown>\(\['wm', 'knowledge', 'calls', \.\.\.\(next\.area \? \['--area', next\.area\] : \[\]\), '--json'\]\)/u);
   assert.doesNotMatch(host, /\['wm', 'knowledge', 'calls', '--json'\]/u, 'never the whole repository');
 });

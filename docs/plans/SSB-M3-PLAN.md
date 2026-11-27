@@ -337,10 +337,14 @@ code step: `prepare`, the code and its test written in the code checkout, `phase
   run marker, flaky runs, repository tests, `tests` and the test decisions, node pin, refactor behaviour), delivery and
   submission evidence, work intervals, version opening, input restore, upstream issues and forward amendments (their
   proposals as documents in the state checkout, read at its head), the mutation contract, retention and the other
-  document readers. 101 uses (52 files) before; 23 (18 files) after, of which 4 are in arms only today's layout takes.
-  The 19 left are on paths the walk does not reach: source review, test recovery (TRP), test-command epochs and
+  document readers. 101 uses (52 files) before; 26 (21 files) after, measured on the merge with main 29c9c43b9. Of
+  those, 4 are in arms only today's layout takes (state.mjs twice, story-state-write.mjs, workflow-snapshots.mjs), and 2
+  pass a bare work-item root, so they always name today's path and never refuse (knowledge.mjs's Story base and the
+  exact Story revision reader of skill steps, git-exact-story-revision.mjs): for a state-ref Story they read nothing.
+  The 20 left refuse, on paths the walk does not reach: source review, test recovery (TRP), test-command epochs and
   amendments, evidence amendments, skill steps, task amendments, collaboration, application reviews, the approver
-  refresh, projectors, the approval focus's earlier text, clause sources and the workflow walk's fixed ID.
+  refresh, projectors, the approval focus's earlier text, clause sources, `spec author coverage --repair` and the
+  workflow walk's fixed ID.
 - **Lessons.** `lessons drop`, `keep`, `edit` and `rule` on a state-ref Story write the change in its state checkout and
   commit it on its state ref (only the lesson records), never on the branch; `sync <ID>` now sends state commits made
   with no transition of their own, leased at the remote's last known value.
@@ -352,5 +356,5 @@ code step: `prepare`, the code and its test written in the code checkout, `phase
 - The Story's steps after its code step: `prepare convergence` refuses first (`WORK_RECONCILIATION_BINDING_MISMATCH`):
   the convergence context and its records (`convergence-context.mjs`, the convergence handlers in `commands/story.mjs`,
   adjudications, record documents) spell their records from the checkout. The test step and the release follow.
-- The 19 `prefix` sites listed under stage (e).
+- The 20 `prefix` sites that refuse and the 2 bare-root readers listed under stage (e).
 

@@ -1138,7 +1138,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,938,047 (measured for start.mjs, +12 over 9,938,035, 2026-11-27 on fix-source-loop; submit.mjs 9,934,299): the
     // set-aside command is the map's own setAsideCommand (action-command-map.mjs +118), so state.mjs routes no command
     // itself [OSA:AC-020]. No new eager file.
-    assert.ok(closure.bytes <= 9_938_047, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,939,106 (measured for start.mjs, +1,059 over 9,938,047, 2026-11-27 on change-story; submit.mjs 9,935,358): a code
+    // step's publication and submission, and every later step's, write the Story's "What this change does" page in their
+    // own commit (story-publication-service.mjs +635, its builder loaded from the CLI source only when it runs), the page's
+    // read outcome (narration/messages.mjs +237), a skill step accepts its optional notes file (skp-phase-evidence.mjs
+    // +123), and the Story's documents list the page (documents-read.mjs +64) [CSP:REQ-005, REQ-010, REQ-011]. No new
+    // eager file.
+    assert.ok(closure.bytes <= 9_939_106, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

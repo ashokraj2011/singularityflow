@@ -11450,6 +11450,9 @@ export async function decideStorySkillVersion(root, config, workflow, options = 
 
 export async function syncPublication(root, config, workflow, { fault = null, rebindRemote = null } = {}) {
   assertStoryNotArchived(root, workflow);
+  if (storyLocation(root, [workflow, config], workflow.workItem.id).layout === 'state-ref') { // SSB M3
+    return (await import('./story-state-publication.mjs')).syncStoryStatePublication(root, config, workflow);
+  }
   const subject = { kind: 'story', id: workflow.workItem.id };
   const pendingOptions = {
     ...subject,

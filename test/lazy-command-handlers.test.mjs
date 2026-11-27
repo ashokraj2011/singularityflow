@@ -1121,7 +1121,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // checkout's Git reads go through the source inspection facade (checkoutPlace, checkoutChanges, indexEntries,
     // sourceTree; source-inspection.mjs +2,131) [SDA-AC-001], and the state-ref publication is named beside the
     // adapter (story-publication-service.mjs +263). No new eager file.
-    assert.ok(closure.bytes <= 9_933_663, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,934,309 (measured for start.mjs, +646 over 9,933,663 at 6c7b0ecbf, 2026-11-27 on ssb-m3; submit.mjs 9,930,939):
+    // a state-ref Story's state ref is its lifecycle authority behind the same adapter, which loads its unit of work and
+    // observes a state ref (sda/story-branch-authority.mjs +506), and sync's state-ref arm (state.mjs +218); the
+    // publication itself (story-state-publication.mjs) loads lazily [SSB M3]. No new eager file.
+    assert.ok(closure.bytes <= 9_934_309, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -5,7 +5,9 @@
 **Status:** Open questions decided by the owner on 2026-11-26 (§10). M0's local probes ran on 2026-11-26 (§11); the
 real-host and real-app probes are still to run. M1 (the resolver, [SSB-M1-PLAN](plans/SSB-M1-PLAN.md)) is on main. M2
 (the state ref and its checkout, created at Story start) is built on branch `ssb-m2` (2026-11-26), behind
-`story.storage` and held back by a preview gate until M5, with today's layout unchanged (§12). M3 to M6 are not built. On the roadmap as
+`story.storage` and held back by a preview gate until M5, with today's layout unchanged (§12). M3 is being built on
+`ssb-m3` ([SSB-M3-PLAN](plans/SSB-M3-PLAN.md)): the state ref's atomic publication and recovery under the lifecycle
+contract are built; M4 to M6 are not. On the roadmap as
 [`SSB-001`](PENDING-WORK-ROADMAP.md#story-storage-off-the-code-branch-ssb). Decision record:
 [ADR 0019](adr/0019-story-state-off-the-code-branch.md).
 

@@ -1650,10 +1650,10 @@
     },
     "src/story-state-ref.mjs": {
       "counts": {
-        "command-git": 10,
+        "command-git": 11,
         "command-run": 1
       },
-      "digest": "240feedb741d8e478d42eae4f843ceef8e8042de17d381a13e8e70b27bad4c98"
+      "digest": "79a13251663bb7576cf30fd0a0d3691eabc6b293d57eea6f68758a298a86d2b8"
     },
     "src/story-worktree.mjs": {
       "counts": {

@@ -208,3 +208,33 @@ and the remote's are unchanged); a code commit after an approval makes it stale 
 ## 5. Changes while building
 
 Recorded here as each stage lands.
+
+### Stage (a), built 2026-11-27
+
+- **One store for what waits.** No journal of its own: the sealed pending record (`writePendingPublication`) is
+  written before the state ref moves, with `layout: 'state-ref'`, and carries every ref's lease (§2.4). So the
+  transition gate (`assertNoPendingPublication` and its `repairRetainedPublication`), status and `sync` see it as today.
+  `syncPublication` hands a state-ref Story to `syncStoryStatePublication`.
+- **Refused before the write.** The one `ls-remote` runs before the state write. A remote another clone moved is
+  refused there (`STORY_STATE_REMOTE_MOVED`, `REVISION_CONFLICT`), with `resume <ID> --fetch` as the way out, or
+  `sync <ID> --set-aside` when this clone also holds unpublished state commits. A remote branch with commits the checkout
+  lacks is `STORY_PUBLICATION_REMOTE_DIVERGED` with `refresh-branch`, as today.
+- **A lost answer stays unknown.** As the branch's unit of work does, a push whose answer was lost is retained as
+  `transport-indeterminate` (`OUTCOME_UNKNOWN`), not settled by a second observation in the same command, so both
+  adapters pass the same conformance suite. `sync` settles it from what the remote holds.
+- **The ledger entry rides the push only when its tip is the remote's.** Otherwise the branch and the state ref go
+  atomically and the entry follows by `appendLedgerIntent`, as today's unit of work does after its branch push.
+  Publication `off` commits locally and appends the ledger as today's unit of work does.
+- **The set-aside is previewed**, then done with `sync <ID> --set-aside --confirm <local state commit>`, as today's
+  branch set-aside is.
+- **Left as M2 had it:** a process that dies *during* the state write leaves its files in `.sflow-state/`; the next
+  transition commits them with its own. The branch's journal restores its preimage after such a death; the state ref's
+  unit of work restores it only on a thrown error.
+- **Budgets.** Eager: start.mjs 9,934,309 (+646 over 9,933,663), submit.mjs 9,930,939, root dispatch and session current
+  unchanged, no new eager file. VS Code: `gateway-runtime.cjs` 7,932,471 bytes and 950 modules (+15,780, +1:
+  `story-state-publication.mjs`, bundled from the adapter's dynamic import); every other bundle unchanged.
+- **Tests:** `test/story-state-publication.test.mjs` (16): the conformance suite on the state ref (8), the state ref's
+  own checks (4: the code commit named, a lost answer settled by sync, one refused lease moves no ref and the set-aside,
+  a host hook that refuses the state ref), and real Stories (4: the start's one push of branch, state ref, ledger and
+  pin; a transition stopped before its push finished by the next transition and by `sync`; a second clone; the branches
+  transport). `test/sda-lifecycle-boundary.test.mjs`: `OTHER_PUBLICATIONS` is empty.

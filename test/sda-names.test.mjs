@@ -22,7 +22,8 @@ export const SDA_NAMES = Object.freeze({
   LEDGER_EVENT_PAYLOAD_CONFLICT: ['src/ledger.mjs', 'src/outcome-classes.mjs'],
   TRANSPORT_OPERATION_ID_REUSED: ['src/outcome-classes.mjs', 'src/transport-intents.mjs'],
   TRANSPORT_OPERATION_ID_INVALID: ['src/transport-intents.mjs'],
-  PUSH_EXPECTED_REVISION_REQUIRED: ['src/git.mjs', 'src/publication-unit-of-work.mjs'],
+  // The state ref's unit of work refuses an unbound transition as the branch's does (SSB M3, one lifecycle contract).
+  PUSH_EXPECTED_REVISION_REQUIRED: ['src/git.mjs', 'src/publication-unit-of-work.mjs', 'src/story-state-publication.mjs'],
   LEDGER_PAGE_LIMIT_INVALID: ['src/ledger-pages.mjs', 'src/sda/shared-state-contract.mjs'],
   LEDGER_CONTINUATION_INVALID: ['src/ledger-pages.mjs', 'src/sda/shared-state-contract.mjs'],
   LEDGER_CONTINUATION_UNAVAILABLE: ['src/ledger-pages.mjs', 'src/sda/shared-state-contract.mjs'],
@@ -126,7 +127,8 @@ export const SDA_NAMES = Object.freeze({
   // leads with the set-aside preview for a commit the remote moved past; a lost race's plan (B2); a
   // reset refuses while a publication waits, unless the reviewed reset discards it (D7). Destructive
   // local-reset and the fresh-install reset refuse the same way for their workspace clones.
-  remoteBuiltOn: ['src/commands/sync.mjs', 'src/state.mjs'],
+  // A state-ref Story's sync reports the same lost answer built on by another clone (SSB M3).
+  remoteBuiltOn: ['src/commands/sync.mjs', 'src/state.mjs', 'src/story-state-publication.mjs'],
   "'set-aside-preview'": ['src/collaboration.mjs'],
   "'set-aside-retained-commit'": ['src/refusal-remediation.mjs'],
   FACTORY_RESET_PUBLICATION_PENDING: ['src/factory-reset.mjs'],
@@ -149,8 +151,9 @@ export const SDA_NAMES = Object.freeze({
   // An existing code, now also thrown by the unit of work, with its one meaning: a retained transition.
   // Its recovery plan names the subject's own sync (sweep E10). The kernel's `publication-pending` task fact carries the
   // same code for that same retained transition (OSA Stage 3, workflow-task-outcome.mjs) [OSA:REQ-012].
+  // The state ref's unit of work retains a state-ref Story's transition the same way (SSB M3).
   "'PUBLICATION_PENDING'": ['src/publication-unit-of-work.mjs', 'src/refusal-remediation.mjs', 'src/state-planes.mjs',
-    'src/workflow-task-outcome.mjs'],
+    'src/story-state-publication.mjs', 'src/workflow-task-outcome.mjs'],
   // M5: backups of the drafts and documents that exist only on one laptop
   'local-backup-manifest': ['src/local-backup.mjs', 'src/schema-migrations.mjs'],
   'sflow-backup-': ['src/commands/backup.mjs', 'src/help-pages.mjs', 'src/local-backup.mjs', 'src/narration/migration-status.mjs'],
@@ -177,7 +180,7 @@ export const SDA_NAMES = Object.freeze({
   maximumDrafts: ['src/local-backup.mjs'],
   savedConfigurationDrafts: ['src/factory-reset.mjs'],
   // M4 leftover: cancellation inside a transition. Cancelled after its commit, before its push: retained.
-  PUBLICATION_CANCELLED_BEFORE_PUSH: ['src/publication-unit-of-work.mjs'],
+  PUBLICATION_CANCELLED_BEFORE_PUSH: ['src/publication-unit-of-work.mjs', 'src/story-state-publication.mjs'],
   // The consistency block of sflow-result v2 (SDA §14, optional and additive). Its field is scoped as
   // `consistency.freshness`, apart from the home projection's per-source `freshness` words.
   "'refresh-if-stale'": ['src/gateway/result.mjs'],

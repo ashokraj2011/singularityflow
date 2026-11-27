@@ -100,7 +100,9 @@ const FAMILIES = Object.freeze([
   // The ordinary product requirement verdict must not import the entire phase/installer family.
   // Its actual installer dependencies are lazy; share this existing bounded local-gate slot.
   ['publication', ['commands/git-policy.mjs', 'story-publication-store.mjs', 'story-publication-service.mjs', 'product-requirement.mjs',
-    'publication-unit-of-work.mjs']],
+    'publication-unit-of-work.mjs',
+    // A state-ref Story's lifecycle authority, its state ref's unit of work [SSB M3], beside the branch's.
+    'story-state-publication.mjs']],
   ['hook-context', ['commands/phase-show.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs',
     // The step's reviewer started as a sub-agent (agent-start) and its guarded calls. Unclaimed, every

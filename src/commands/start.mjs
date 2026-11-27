@@ -2150,7 +2150,7 @@ async function startCommandAtRoot(positionals, options) {
       },
       // Where the Story keeps SFlow's records, when its configuration named a layout [SSB M2]. The state ref is
       // published with the branch from SSB M3.
-      ...(stateOpened ? { storage: { layout: 'state-ref', ref: stateOpened.ref, commit: publication.sha, checkout: stateOpened.checkout, published: false } }
+      ...(stateOpened ? { storage: { layout: 'state-ref', ref: stateOpened.ref, commit: publication.sha, checkout: stateOpened.checkout, published: publication.pushed === true } }
         : storyStorage.held ? { storage: { layout: 'story-branch', requested: 'state-ref', notice: storyStorage.notice } } : {}),
       returnLocator: {
         path: returnLocator.path,

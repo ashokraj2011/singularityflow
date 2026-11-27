@@ -343,10 +343,30 @@ async function syncSetAsideCommand(root, config, requestedId, options) {
   ]);
   const workflow = await loadStoryAggregate(root, config, requestedId);
   const confirm = optionString(options, 'confirm');
+  // A state-ref Story sets aside its unpublished state commits, not a branch commit [SSB M3].
+  if ((await import('../story-paths.mjs')).storyLocation(root, [workflow, config], workflow.workItem.id).layout === 'state-ref') {
+    return syncSetAsideStateCommand(root, config, workflow, confirm, options);
+  }
   const result = confirm ? await aside.setPublicationAside(root, config, workflow, { confirm })
     : await aside.planPublicationSetAside(root, config, workflow);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, pending: undefined }, null, 2));
   printSetAside(result, aside.setAsideReason, `singularity-flow nextsteps ${result.workId}`);
+}
+
+async function syncSetAsideStateCommand(root, config, workflow, confirm, options) {
+  const state = await import('../story-state-publication.mjs');
+  const result = confirm ? await state.setAsideStoryStatePublication(root, config, workflow, { confirm })
+    : await state.planStoryStateSetAside(root, config, workflow);
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+  const short = (sha) => String(sha ?? '').slice(0, 12);
+  if (result.setAside) {
+    console.log(`Set aside this clone's records for ${result.workId} (${short(result.local)}), kept on ${result.aside}.`);
+    console.log(`The Story goes on from the published records (${short(result.published)}).`);
+  } else if (result.needed) {
+    console.log(`This clone holds records for ${result.workId} (${short(result.local)}) that the remote's (${short(result.published)}) do not contain.`);
+    console.log('Setting them aside keeps them on a ref of their own and goes on from the published records.');
+  } else console.log(`Nothing to set aside for ${result.workId}: this clone's records are the published ones or behind them.`);
+  printCommandRoutes(`${result.nextAction.executable} ${result.nextAction.argv.join(' ')}`, { label: result.nextAction.label });
 }
 
 /** A set-aside preview or result in words; a Story and an Epic or Initiative read alike. */

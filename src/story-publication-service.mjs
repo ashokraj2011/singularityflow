@@ -62,8 +62,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   fault = null
 } = {}) {
   validateId(config, workflow?.workItem?.id);
-  // A state-ref Story's records are committed on its state ref, never on its branch [SSB:REQ-002, 006; M2]. Its
-  // publication (one atomic push with the branch, the ledger and the pin) is M3: until then the state commit is local.
+  // A state-ref Story's records are committed and published on its state ref, never on its branch [SSB M3].
   const stateRef = storyLocation(root, [workflow, config], workflow.workItem.id).layout === 'state-ref';
   if (revisionPublication !== null && (typeof revisionPublication !== 'object'
       || Array.isArray(revisionPublication))) {
@@ -160,6 +159,11 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     ? 'explicit'
     : 'implicit-local-parent';
   let governedPublicationAuthority = publicationAuthority;
+  // Bound to the state the remote last held, as this clone knows it [SSB M3].
+  if (stateRef && expectedRemoteSha === undefined) {
+    governedExpectedRemoteSha = (await import('./story-state-ref.mjs')).publishedStateTip(root, workflow.workItem.id, config.git?.remote ?? 'origin');
+    expectedRemoteShaSource = 'state-tracking';
+  }
   if (publicationMode !== 'off' && expectedRemoteSha === undefined && !stateRef) {
     governedPublicationAuthority ??= configuredRemoteAuthority(
       root, config.git?.remote ?? 'origin'
@@ -471,13 +475,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     recoveryPreimage,
     stabilityGuard: worktreeGuard,
     transactionId,
-    fault
+    fault,
+    ...(stateRef ? { storage: { layout: 'state-ref', definition: config } } : {})
   };
-  // A state-ref Story's records are committed on its state ref by that ref's own adapter, local only until SSB M3
-  // publishes it under the lifecycle contract [SSB:REQ-002, 006; M2]. Every other Story publishes through the adapter.
-  const result = stateRef
-    ? await (await import('./story-state-ref.mjs')).storyStateAuthority(root, workflow.workItem.id, { definition: config }).publish(transition)
-    : await lifecycleAuthority(root).publish(transition);
+  const result = await lifecycleAuthority(root).publish(transition);
   // The revision binds the code checkout's HEAD; a state commit leaves the Story branch where it was.
   if (workflow[Symbol.for('singularity-flow.state-revision')] && !stateRef) {
     workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;

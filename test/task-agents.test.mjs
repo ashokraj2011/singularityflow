@@ -190,7 +190,8 @@ test('ITW REQ-011, A7, A9: a trusted marketplace\'s agent is offered; its yes im
   const story = await journeyRepository(t, {
     configure: (configuration) => {
       configuration.marketplaces = { acme: { label: 'Acme', repository: acme.repository, commit: acme.commit } };
-      configuration.tasks = { always: [RULE] };
+      // The kind's own steps, as a Story started before v1.2 is composed: the agent's offer is the same either way.
+      configuration.tasks = { sizing: 'kind', always: [RULE] };
     }
   });
   const shown = json(story.cli('work', WORDS, '--kind', 'tests', '--json'));
@@ -260,7 +261,7 @@ test('ITW REQ-011, A7, A9: a trusted marketplace\'s agent is offered; its yes im
 });
 
 test('ITW REQ-011, A7: with no trusted marketplace nothing is read and nothing is offered; an agent named anyway is refused with its way on', slowLane({ timeout: 600_000 }), async (t) => {
-  const story = await journeyRepository(t);
+  const story = await journeyRepository(t, { configure: (configuration) => { configuration.tasks = { sizing: 'kind' }; } });
   const shown = json(story.cli('work', WORDS, '--kind', 'tests', '--json'));
   assert.equal(shown.agentOffer, undefined);
   assert.equal(shown.plan, 'Plan: write the tests → tests. You approve the plan in the intake and the tests. Say "add a design step" to change it.');

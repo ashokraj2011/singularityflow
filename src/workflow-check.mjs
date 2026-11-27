@@ -1041,6 +1041,24 @@ async function sfGuardState(root) {
 }
 
 /**
+ * The team's task rules [FPL:REQ-023]: every problem of `tasks:` as written, at its line. A rule that does not hold refuses
+ * every task (`/sf-task`, `work`), so each is a problem; a Story started with a workflow is not affected.
+ */
+async function taskRuleFindings(definition, raw, locate) {
+  if (raw?.tasks === undefined) return [];
+  const { checkTaskRules } = await import('./task-composition.mjs');
+  const keys = (field) => String(field).split('.').flatMap((part) => {
+    const [name, ...indexes] = part.split(/\[(\d+)\]/u).filter((entry) => entry !== '');
+    return [name, ...indexes.map(Number)];
+  });
+  return checkTaskRules({ ...definition, tasks: raw.tasks }).problems.map((problem) => finding({ code: 'CHECK_TASK_RULE_INVALID', area: 'flow', severity: 'problem',
+    title: `A team rule for tasks cannot be used: ${problem.message}`,
+    detail: `Every task is refused until it is fixed (${problem.field}); a Story started with a workflow is not affected.`,
+    subject: { file: WORKFLOW_PATH, field: problem.field }, location: locate(keys(problem.field)),
+    fix: 'Change the rule in VS Code (Rules), or in singularity/workflow.yml; singularity-flow rules lists each problem with where it is.' }));
+}
+
+/**
  * A configuration that does not load: every located problem, each refusing every Story. A step's
  * clarification that does not load is said at its own line instead of the validator's bare refusal.
  */
@@ -1128,7 +1146,7 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null,
   for (const item of model.instructions ?? []) await guidance.scan(item.path);
   const attachmentsText = await readFile(path.join(configRoot, SKILL_ATTACHMENTS_PATH), 'utf8').catch(() => null);
   const repository = [...mapping, ...await checkAssets({ model, definition, guidance, configRoot, attachmentsText }),
-    ...await skillProblemFindings(root, definition, resolvedById)];
+    ...await skillProblemFindings(root, definition, resolvedById), ...await taskRuleFindings(definition, raw, locate)];
   const all = [...results.flatMap((entry) => entry.findings), ...repository];
   const result = {
     ...base,

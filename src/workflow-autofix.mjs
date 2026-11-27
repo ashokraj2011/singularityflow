@@ -333,6 +333,14 @@ export async function checkedConfigurationSave(checkout, requestedPath, content,
   const file = path.join(checkout, ...WORKFLOW_FILE.split('/'));
   const previous = await readFile(file).catch(() => null);
   const ids = changedWorkflows(parsedYaml(previous), parsedYaml(content));
+  // The team's task rules [FPL:REQ-023]: a problem in a rule this save adds or changes, or one it brings, refuses it with
+  // every problem and its field; one already there in a rule it left alone does not stop it.
+  const { taskRuleChecks, taskRulesRefusal } = await import('./task-rules.mjs');
+  const rules = taskRuleChecks(parsedYaml(previous), parsedYaml(content));
+  if (rules.refused.length) {
+    throw taskRulesRefusal(rules.refused, { what: `${WORKFLOW_FILE} was not saved`, code: 'CONFIGURATION_SAVE_TASK_RULES_INVALID',
+      nextAction: { label: 'Change the rules each problem names, then save again', command: 'singularity-flow rules' } });
+  }
   if (!ids.length) return save();
   const before = await problemsBefore(checkout, ids);
   const result = await save();

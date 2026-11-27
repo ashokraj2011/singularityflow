@@ -825,7 +825,9 @@ const RANK = Object.freeze({
   'constitution.policy': 7.4, 'constitution.set': 7.5,
   'phase.agent': 8, 'agent.update': 9, 'skill.attach': 9.5, 'skill.detach': 9.5,
   'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11, 'skill.remove': 11.1,
-  'integration.target.remove': 11.5, 'agent.remove': 11.05
+  'integration.target.remove': 11.5, 'agent.remove': 11.05,
+  // After the workflows, so a `use` rule may name a workflow the same change set makes [FPL:REQ-022].
+  'tasks.idPrefix.set': 7.3, 'tasks.rule.add': 7.3, 'tasks.rule.change': 7.3, 'tasks.rule.remove': 7.3
 });
 
 /** A step's after-step actions as the page sends them: the written shape, checked for form only. */
@@ -1408,8 +1410,18 @@ class StudioCandidate {
       case 'epicStep.update': return this.updateEpicStep(change);
       case 'epicOutput.set': return this.setEpicOutput(change);
       case 'epicOutput.remove': return this.removeEpicOutput(change);
+      case 'tasks.rule.add': case 'tasks.rule.change': case 'tasks.rule.remove': case 'tasks.idPrefix.set': return this.changeTaskRules(change);
       default: throw new SingularityFlowError(`Unknown Studio change '${change?.op}'.`, { code: 'STUDIO_CHANGE_UNKNOWN' });
     }
+  }
+
+  /**
+   * The team's task rules [FPL:REQ-022]: one `tasks.*` operation written in place in workflow.yml (src/task-rules.mjs). What
+   * it writes is checked with the whole change set (planStudioChangeSet), so every problem is named with its field.
+   */
+  async changeTaskRules(change) {
+    const { applyTaskRuleChange } = await import('./task-rules.mjs');
+    this.summary.push(applyTaskRuleChange(this.document, change, { labelOf: (id) => this.content.workTypes?.[id]?.label ?? id }));
   }
 
   // -------------------------------------------------------------------------------------------
@@ -3659,6 +3671,16 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
     }
   }
   if (!problems.length) candidate.finalize(problems);
+  // The team's task rules after the change [FPL:REQ-023]: a problem in a rule it adds or changes, or one it brings, refuses
+  // it with its field; one already there in a rule it left alone is a warning, so an approved configuration stays usable.
+  let taskRuleWarnings = [];
+  if (!problems.length && (sources.raw?.tasks !== undefined || candidate.content.tasks !== undefined)) {
+    const { taskRuleChecks, taskProblemLine } = await import('./task-rules.mjs');
+    const checked = taskRuleChecks({ ...sources.raw }, candidate.content);
+    for (const entry of checked.refused) problems.push({ code: 'TASK_RULE_INVALID', message: taskProblemLine(entry), field: entry.field,
+      subject: { kind: 'tasks', id: entry.field }, nextAction: { command: 'singularity-flow rules', label: 'See the team\'s rules and each problem with where it is.' } });
+    taskRuleWarnings = checked.warnings.map((entry) => ({ code: 'TASK_RULE_INVALID', message: `Already there, not changed by this: ${taskProblemLine(entry)}`, field: entry.field }));
+  }
   let files = [];
   if (!problems.length) {
     try { files = await candidate.files(); }
@@ -3721,7 +3743,7 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
     valid: problems.length === 0,
     changed: files.length > 0,
     problems,
-    warnings: problems.length ? [] : [...candidate.warnings(), ...obligationWarnings, ...refused],
+    warnings: problems.length ? [] : [...candidate.warnings(), ...obligationWarnings, ...refused, ...taskRuleWarnings],
     summary: [...candidate.summary, ...(problems.length ? [] : (checked?.repairs ?? []).map((entry) => entry.text))],
     ...(checked?.repairs?.length && !problems.length ? { repairs: checked.repairs } : {}),
     files: files.map((file) => ({
@@ -3733,7 +3755,10 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   };
   if (!write) return plan;
   if (!plan.valid) {
-    throw new SingularityFlowError(`Workflow Studio changes were not applied: ${problems[0].message}`, { code: 'STUDIO_CHANGES_INVALID',
+    // A rule's problems are said together, each with its field, so the form is fixed in one go [FPL:REQ-023].
+    const rules = problems.filter((entry) => entry.code === 'TASK_RULE_INVALID');
+    const message = rules.length > 1 ? `the team's task rules would have ${rules.length} problems:\n${rules.map((entry) => `- ${entry.message}`).join('\n')}` : problems[0].message;
+    throw new SingularityFlowError(`Workflow Studio changes were not applied: ${message}`, { code: 'STUDIO_CHANGES_INVALID',
       details: { problems, ...(problems[0].nextAction ? { nextAction: problems[0].nextAction, recoveryCommands: problems[0].recoveryCommands } : {}) } });
   }
   if (refused.length && proposing) {

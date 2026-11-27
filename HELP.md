@@ -3962,6 +3962,8 @@ singularity-flow integrations test <TARGET> [--trigger submitted|approved|reject
 singularity-flow inbox [--offline] [--json]
 singularity-flow needs-you [--offline] [--refresh] [--all] [--json]
 singularity-flow needs-you show <KEY> [--offline] [--json]
+singularity-flow rules [--offline] [--json]
+singularity-flow rules preview --change-set <FILE|-> [--json]
 singularity-flow finalize [--json]
 singularity-flow quickstart [--keep] [--json]
 singularity-flow guide [WORK-ID] [--json]

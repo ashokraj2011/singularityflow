@@ -91,58 +91,101 @@ export function taskStepFor(definition, intent) {
   return null;
 }
 
-/** The team's rules for tasks [ITW:REQ-004]: `tasks:` in workflow.yml, checked; absent means the defaults. */
-export function taskRules(definition) {
+/** A rule's stable name [FPL:REQ-024]: its `id` when it has one (the Rules place gives every rule it writes one), else its place. */
+export const taskRuleName = (rule, section, index) => (typeof rule?.id === 'string' && rule.id ? rule.id : `${section}[${index}]`);
+/** A rule's `id`: lower-case words joined by hyphens, as the Rules place makes it from the rule's when and then. */
+export const TASK_RULE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const TASK_RULE_KEYS = Object.freeze(['id', 'kinds', 'paths', 'steps', 'personApproves', 'because']);
+
+/**
+ * The team's rules for tasks [ITW:REQ-004], every problem collected with where it is [FPL:REQ-023]: `rules` holds the rules
+ * that are valid (a broken rule is left out of them), `problems` each problem with its field (`tasks.paths[1].because`), the
+ * section and place of its rule, and the rule as written. Absent `tasks:` means the defaults. Pure.
+ */
+export function checkTaskRules(definition) {
   const raw = definition?.tasks;
-  if (raw === undefined || raw === null) return { idPrefix: 'TASK', always: [], paths: [], use: {} };
-  const where = 'workflow.yml tasks';
-  const fail = (message) => { throw taskRefusal('TASK_RULES_INVALID', `${where}: ${message}`, {
-    command: 'singularity-flow workflow check', label: 'Check the workflow configuration, then fix the tasks: rules it names.' }); };
-  if (typeof raw !== 'object' || Array.isArray(raw)) fail('must be a mapping.');
-  const known = new Set(['idPrefix', 'always', 'paths', 'use']);
-  for (const key of Object.keys(raw)) if (!known.has(key)) fail(`'${key}' is not a tasks rule; use idPrefix, always, paths or use.`);
+  const rules = { idPrefix: 'TASK', always: [], paths: [], use: {}, useRules: {} };
+  const problems = [];
+  if (raw === undefined || raw === null) return { rules, problems };
+  const add = (field, message, where = {}) => problems.push({ code: 'TASK_RULE_INVALID', field, message, ...where });
+  if (typeof raw !== 'object' || Array.isArray(raw)) { add('tasks', 'must be a mapping.'); return { rules, problems }; }
+  for (const key of Object.keys(raw)) if (!['idPrefix', 'always', 'paths', 'use'].includes(key)) add(`tasks.${key}`, `'${key}' is not a tasks rule; use idPrefix, always, paths or use.`);
   const idPrefix = raw.idPrefix ?? 'TASK';
-  if (typeof idPrefix !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,15}$/u.test(idPrefix)) fail('idPrefix must be letters and digits, starting with a letter (for example TASK).');
-  const intents = (value, label) => {
-    const list = value === undefined ? [] : Array.isArray(value) ? value : [value];
-    for (const intent of list) if (!INTENT_ORDER.includes(intent)) fail(`${label} names '${intent}'; a step is one of ${INTENT_ORDER.join(', ')}.`);
-    return list;
-  };
-  const kinds = (value, label) => {
-    const list = value === undefined ? ['all'] : Array.isArray(value) ? value : [value];
-    for (const kind of list) if (kind !== 'all' && !TASK_KINDS.includes(kind)) fail(`${label} names the kind '${kind}'; a kind is one of ${TASK_KINDS.join(', ')}, or all.`);
-    return list;
-  };
-  const rule = (entry, label) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail(`${label} must be a mapping.`);
-    for (const key of Object.keys(entry)) {
-      if (!['kinds', 'paths', 'steps', 'personApproves', 'because'].includes(key)) fail(`${label} has '${key}'; a rule has kinds, paths, steps, personApproves and because.`);
+  if (typeof idPrefix !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,15}$/u.test(idPrefix)) add('tasks.idPrefix', 'idPrefix must be letters and digits, starting with a letter (for example TASK).', { value: idPrefix });
+  else rules.idPrefix = idPrefix;
+  const ids = new Set();
+  const listOf = (value, fallback) => (value === undefined ? fallback : Array.isArray(value) ? value : [value]);
+  const rule = (entry, section, index) => {
+    const label = `${section}[${index}]`;
+    const where = { section, index, rule: entry };
+    const before = problems.length;
+    const fail = (key, message) => add(`tasks.${label}${key ? `.${key}` : ''}`, message, where);
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) { fail(null, `${label} must be a mapping.`); return null; }
+    for (const key of Object.keys(entry)) if (!TASK_RULE_KEYS.includes(key)) fail(key, `${label} has '${key}'; a rule has id, kinds, paths, steps, personApproves and because.`);
+    if (entry.id !== undefined) {
+      if (typeof entry.id !== 'string' || !TASK_RULE_ID.test(entry.id) || entry.id.length > 64) fail('id', `${label} id must be lower-case words joined by hyphens, like billing-review.`);
+      else if (ids.has(entry.id)) fail('id', `${label} id '${entry.id}' is the id of another rule; each rule's id is its own.`);
+      else ids.add(entry.id);
     }
-    if (typeof entry.because !== 'string' || !entry.because.trim()) fail(`${label} needs a because: the team's reason, shown when the rule adds a step.`);
-    return { kinds: kinds(entry.kinds, `${label} kinds`), steps: intents(entry.steps, `${label} steps`),
-      personApproves: intents(entry.personApproves, `${label} personApproves`), because: entry.because.trim() };
+    const kinds = listOf(entry.kinds, ['all']);
+    if (!kinds.length) fail('kinds', `${label} kinds names no kind, so it applies to no task; name at least one kind, or all.`);
+    for (const kind of kinds) if (kind !== 'all' && !TASK_KINDS.includes(kind)) fail('kinds', `${label} kinds names the kind '${kind}'; a kind is one of ${TASK_KINDS.join(', ')}, or all.`);
+    const intents = (key) => {
+      const list = listOf(entry[key], []);
+      for (const intent of list) if (!INTENT_ORDER.includes(intent)) fail(key, `${label} ${key} names '${intent}'; a step is one of ${INTENT_ORDER.join(', ')}.`);
+      return list;
+    };
+    const steps = intents('steps');
+    const personApproves = intents('personApproves');
+    if (typeof entry.because !== 'string' || !entry.because.trim()) fail('because', `${label} needs a because: the team's reason, shown when the rule adds a step.`);
+    let globs = null;
+    if (section === 'paths') {
+      globs = Array.isArray(entry.paths) ? entry.paths : [entry.paths];
+      if (!globs.length || globs.some((glob) => typeof glob !== 'string' || !glob.trim())) fail('paths', `${label} needs paths: the files it is about.`);
+    }
+    if (problems.length > before) return null;
+    return { id: typeof entry.id === 'string' ? entry.id : null, kinds, steps, personApproves, because: entry.because.trim(), ...(globs ? { paths: globs } : {}) };
   };
-  const always = (raw.always ?? []);
-  if (!Array.isArray(always)) fail('always must be a list of rules.');
-  const paths = (raw.paths ?? []);
-  if (!Array.isArray(paths)) fail('paths must be a list of rules.');
-  const use = raw.use ?? {};
-  if (typeof use !== 'object' || Array.isArray(use)) fail('use must map a kind to a workflow.');
-  for (const [kind, workType] of Object.entries(use)) {
-    if (!TASK_KINDS.includes(kind)) fail(`use names the kind '${kind}'; a kind is one of ${TASK_KINDS.join(', ')}.`);
-    if (!definition.workTypes?.[workType]) fail(`use sends ${kind} to '${workType}', which is not a workflow here.`);
+  for (const section of ['always', 'paths']) {
+    const list = raw[section] ?? [];
+    if (!Array.isArray(list)) { add(`tasks.${section}`, `${section} must be a list of rules.`); continue; }
+    list.forEach((entry, index) => { const checked = rule(entry, section, index); if (checked) rules[section].push({ ...checked, name: taskRuleName(checked, section, index) }); });
   }
-  return {
-    idPrefix,
-    always: always.map((entry, index) => rule(entry, `always[${index}]`)),
-    paths: paths.map((entry, index) => {
-      const checked = rule(entry, `paths[${index}]`);
-      const globs = Array.isArray(entry.paths) ? entry.paths : [entry.paths];
-      if (!globs.length || globs.some((glob) => typeof glob !== 'string' || !glob.trim())) fail(`paths[${index}] needs paths: the files it is about.`);
-      return { ...checked, paths: globs };
-    }),
-    use: { ...use }
-  };
+  const use = raw.use ?? {};
+  if (typeof use !== 'object' || Array.isArray(use)) add('tasks.use', 'use must map a kind to a workflow.');
+  else {
+    for (const [kind, value] of Object.entries(use)) {
+      const where = { section: 'use', kind, rule: value };
+      const field = `tasks.use.${kind}`;
+      // `use: { change: classic-delivery }`, or the Rules place's `{ workflow, because, id }` [FPL:REQ-020].
+      const spelled = value && typeof value === 'object' && !Array.isArray(value) ? value : { workflow: value };
+      const before = problems.length;
+      if (!TASK_KINDS.includes(kind)) add(field, `use names the kind '${kind}'; a kind is one of ${TASK_KINDS.join(', ')}.`, where);
+      for (const key of Object.keys(spelled)) if (!['workflow', 'because', 'id'].includes(key)) add(`${field}.${key}`, `use.${kind} has '${key}'; a use rule has workflow, because and id.`, where);
+      if (typeof spelled.workflow !== 'string' || !definition?.workTypes?.[spelled.workflow]) add(`${field}${spelled === value ? '.workflow' : ''}`, `use sends ${kind} to '${spelled.workflow}', which is not a workflow here.`, where);
+      if (spelled.because !== undefined && (typeof spelled.because !== 'string' || !spelled.because.trim())) add(`${field}.because`, `use.${kind} because must say the team's reason.`, where);
+      if (spelled.id !== undefined) {
+        if (typeof spelled.id !== 'string' || !TASK_RULE_ID.test(spelled.id) || spelled.id.length > 64) add(`${field}.id`, `use.${kind} id must be lower-case words joined by hyphens, like release-classic.`, where);
+        else if (ids.has(spelled.id)) add(`${field}.id`, `use.${kind} id '${spelled.id}' is the id of another rule; each rule's id is its own.`, where);
+        else ids.add(spelled.id);
+      }
+      if (problems.length > before) continue;
+      rules.use[kind] = spelled.workflow;
+      rules.useRules[kind] = { workflow: spelled.workflow, because: typeof spelled.because === 'string' ? spelled.because.trim() : null,
+        id: typeof spelled.id === 'string' ? spelled.id : null, name: typeof spelled.id === 'string' ? spelled.id : `use.${kind}` };
+    }
+  }
+  return { rules, problems };
+}
+
+/** The team's rules for tasks [ITW:REQ-004]: `tasks:` in workflow.yml, checked; absent means the defaults. A problem refuses, naming every one. */
+export function taskRules(definition) {
+  const { rules, problems } = checkTaskRules(definition);
+  if (!problems.length) return rules;
+  const more = problems.length > 1 ? ` (and ${problems.length - 1} more: ${problems.slice(1, 4).map((problem) => problem.field).join(', ')})` : '';
+  throw taskRefusal('TASK_RULES_INVALID', `workflow.yml tasks: ${problems[0].message}${more}`, {
+    command: 'singularity-flow rules', label: 'See the team\'s rules and each problem with where it is.' },
+  { problems: problems.map(({ field, message }) => ({ field, message })) });
 }
 
 function globPattern(glob) {
@@ -187,12 +230,13 @@ export const ADDABLE = Object.freeze(['requirements', 'design', 'plan', 'review'
  * The composed task: its kind, its steps in order (each with the repository step it uses), the rules that added to it,
  * and the work type the Story pins. Deterministic: the same kind, definition and touched paths give the same result.
  */
-export function composeTask(definition, { kind, touchedPaths = [], add = [], skip = [], agent = null, workflow = null } = {}) {
+export function composeTask(definition, { kind, touchedPaths = [], add = [], skip = [], agent = null, workflow = null, rules: checked = null } = {}) {
   if (!TASK_KINDS.includes(kind)) {
     throw taskRefusal('TASK_KIND_UNKNOWN', `'${kind}' is not a kind of task. A task is one of: ${TASK_KINDS.join(', ')}.`,
       { command: 'singularity-flow work "<what you want done>" --kind change', label: 'Name one of the kinds of task.' }, { kinds: [...TASK_KINDS] });
   }
-  const rules = taskRules(definition);
+  // `rules`: rules already checked (the Rules place's preview composes with the valid ones beside a broken one).
+  const rules = checked ?? taskRules(definition);
   const used = rules.use[kind];
   if (agent) {
     if (used) {
@@ -209,9 +253,10 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
     return composeLocalTask(definition, { kind, workflow, skip });
   }
   if (used) {
+    const named = rules.useRules?.[kind];
     return { schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: used, uses: used, steps: (definition.workTypes[used].phases ?? []).map((id) => ({
       id, intent: definition.phases?.[id]?.intent ?? null, label: definition.phases?.[id]?.label ?? id })), added: [], personApproves: [], rules: [
-      { rule: `use.${kind}`, because: `This team runs every ${kind} task as the ${definition.workTypes[used].label ?? used} workflow.` }] };
+      { rule: named?.name ?? `use.${kind}`, because: named?.because ?? `This team runs every ${kind} task as the ${definition.workTypes[used].label ?? used} workflow.` }] };
   }
   const intents = [...KIND_STEPS[kind]];
   const changes = [];
@@ -256,12 +301,12 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
     applied.push({ rule: name, because: rule.because });
   };
   rules.always.forEach((rule, index) => {
-    if (rule.kinds.includes('all') || rule.kinds.includes(kind)) apply(rule, `always[${index}]`);
+    if (rule.kinds.includes('all') || rule.kinds.includes(kind)) apply(rule, rule.name ?? taskRuleName(rule, 'always', index));
   });
   const touched = [...new Set(touchedPaths.map(String))].sort();
   rules.paths.forEach((rule, index) => {
     if (!(rule.kinds.includes('all') || rule.kinds.includes(kind))) return;
-    if (touched.some((file) => rule.paths.some((glob) => pathMatches(glob, file)))) apply(rule, `paths[${index}]`);
+    if (touched.some((file) => rule.paths.some((glob) => pathMatches(glob, file)))) apply(rule, rule.name ?? taskRuleName(rule, 'paths', index));
   });
   intents.sort((left, right) => INTENT_ORDER.indexOf(left) - INTENT_ORDER.indexOf(right));
   const steps = intents.map((intent) => {
@@ -367,11 +412,11 @@ function composeAgentTask(definition, rules, { kind, agent, touchedPaths, add, s
     for (const intent of rule.personApproves) personApproves.add(intent);
     applied.push({ rule: name, because: rule.because });
   };
-  rules.always.forEach((rule, index) => { if (rule.kinds.includes('all') || rule.kinds.includes(kind)) apply(rule, `always[${index}]`); });
+  rules.always.forEach((rule, index) => { if (rule.kinds.includes('all') || rule.kinds.includes(kind)) apply(rule, rule.name ?? taskRuleName(rule, 'always', index)); });
   const touched = [...new Set(touchedPaths.map(String))].sort();
   rules.paths.forEach((rule, index) => {
     if (!(rule.kinds.includes('all') || rule.kinds.includes(kind))) return;
-    if (touched.some((file) => rule.paths.some((glob) => pathMatches(glob, file)))) apply(rule, `paths[${index}]`);
+    if (touched.some((file) => rule.paths.some((glob) => pathMatches(glob, file)))) apply(rule, rule.name ?? taskRuleName(rule, 'paths', index));
   });
   return {
     schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: taskWorkTypeId(kind), steps,
@@ -539,6 +584,15 @@ function approvedWord(kind, step, composition) {
   return `the ${step.intent}`;
 }
 
+/** What a person approves, as the plan line says it (" You approve the plan and the code."), or '' when SFlow approves every step. */
+export function approvalWords(composition, approvals = {}) {
+  const approved = composition.steps.filter((step) => approvals[step.id] === 'person').map((step) => approvedWord(composition.kind, step, composition));
+  return approved.length ? ` You approve ${approved.length > 1 ? `${approved.slice(0, -1).join(', ')} and ${approved.at(-1)}` : approved[0]}.` : '';
+}
+
+/** Each kind's steps by intent, as a task of that kind is composed before the team's rules [ITW:REQ-003]. */
+export const kindSteps = (kind) => [...(KIND_STEPS[kind] ?? [])];
+
 /**
  * The one plan line a person reads [ITW:REQ-012]: the steps after the intake, each with the skills it uses or offers
  * [ITW:REQ-010], then what the person approves. `approvals` maps a step to 'person' where a person approves it;
@@ -553,8 +607,7 @@ export function planLine(composition, { approvals = {}, pullRequest = false, ski
   if (composition.kind === 'investigate') words.push('report');
   if (composition.kind === 'review') words.push('findings');
   if (pullRequest) words.push('pull request');
-  const approved = composition.steps.filter((step) => approvals[step.id] === 'person').map((step) => approvedWord(composition.kind, step, composition));
-  const who = approved.length ? ` You approve ${approved.length > 1 ? `${approved.slice(0, -1).join(', ')} and ${approved.at(-1)}` : approved[0]}.` : '';
+  const who = approvalWords(composition, approvals);
   // A marketplace agent's workflow, or the team's own, as the plan says whose it is [ITW:REQ-011, REQ-020].
   const whose = composition.agent ? `, from ${agentWords(composition.agent)}` : composition.local ? `, from your team's workflow ${composition.local.label}` : '';
   return `Plan${whose}: ${words.join(' → ')}.${who} Say "add a design step" to change it.`;

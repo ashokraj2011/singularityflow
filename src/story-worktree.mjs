@@ -16,6 +16,7 @@ import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { commitIsAncestor, gitCommonDir, headAndBranch, localRefHeads, refExists, remoteNames } from './git.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { parsePorcelainV2Status } from './git-status-detail.mjs';
+import { checkoutChanges } from './source-inspection.mjs';
 import { isAgentOutputEntry, isStateCheckoutEntry, STATE_CHECKOUT_FOLDER } from './agent-output-folder.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
@@ -544,8 +545,8 @@ export function durableStoryWorkflowOnBranch(root, id, storyBranch = id) {
  */
 function releaseStateCheckoutSync(repositoryPath) {
   if (!existsSync(path.join(repositoryPath, STATE_CHECKOUT_FOLDER))) return true;
-  const status = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: path.join(repositoryPath, STATE_CHECKOUT_FOLDER), allowFailure: true });
-  if (status.status !== 0 || String(status.stdout).trim()) return false;
+  const changes = checkoutChanges(path.join(repositoryPath, STATE_CHECKOUT_FOLDER));
+  if (changes.status !== 'present' || changes.value.length) return false;
   return run('git', ['worktree', 'remove', '--', path.join(repositoryPath, STATE_CHECKOUT_FOLDER)], { cwd: repositoryPath, allowFailure: true }).status === 0;
 }
 export async function releaseStateCheckout(repositoryPath) { return releaseStateCheckoutSync(repositoryPath); }

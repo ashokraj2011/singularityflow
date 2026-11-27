@@ -94,6 +94,39 @@ export function sourceContains(root, ancestor, descendant, { env = process.env, 
   return { status: 'unavailable', result: checked };
 }
 
+/** The tree ID a revision's commit holds. */
+export function sourceTree(root, revision, { env = process.env, offline = false } = {}) {
+  const resolved = read(root, ['rev-parse', '--verify', '--quiet', `${revision}^{tree}`], { env, offline });
+  if (processResultSucceeded(resolved)) return { status: 'present', value: resolved.stdout.trim() };
+  if (processResultCompleted(resolved) && resolved.status === 1 && !resolved.stdout) return { status: 'absent' };
+  return { status: 'unavailable', result: resolved };
+}
+
+/** Where a checkout folder sits: its top folder and its clone's common Git folder (absolute); absent outside a checkout. */
+export function checkoutPlace(folder, { env = process.env } = {}) {
+  const shown = read(folder, ['rev-parse', '--show-toplevel', '--git-common-dir'], { env, offline: true });
+  if (processResultSucceeded(shown)) {
+    const [top, common] = String(shown.stdout).split(/\r?\n/u);
+    if (top && common) return { status: 'present', value: { top, commonDir: path.resolve(folder, common) } };
+  }
+  if (processResultCompleted(shown) && shown.status === 128) return { status: 'absent' };
+  return { status: 'unavailable', result: shown };
+}
+
+/** A checkout's uncommitted changes, untracked files included, as porcelain v1 lines ([] when clean). */
+export function checkoutChanges(folder, { env = process.env } = {}) {
+  const status = read(folder, ['status', '--porcelain=v1', '--untracked-files=all'], { env, offline: true });
+  if (processResultSucceeded(status)) return { status: 'present', value: String(status.stdout).split('\n').filter(Boolean) };
+  return { status: 'unavailable', result: status };
+}
+
+/** The index entries (`ls-files --stage` lines) at one repository path, staged or committed; [] when it has none. */
+export function indexEntries(root, relative, { env = process.env } = {}) {
+  const listed = read(root, ['ls-files', '--stage', '--', literalPathspec(relative)], { env, offline: true });
+  if (processResultSucceeded(listed)) return { status: 'present', value: String(listed.stdout).split('\n').filter(Boolean) };
+  return { status: 'unavailable', result: listed };
+}
+
 /**
  * The checkout's branch, head and changed paths, through the registered revision query. The query
  * registry loads only here: the facade's readers sit in startup read graphs that never ask this.

@@ -258,10 +258,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       return revisionSelection;
     }
   };
-  const authority = stateRef
-    ? (await import('./story-state-ref.mjs')).storyStateAuthority(root, workflow.workItem.id, { definition: config })
-    : lifecycleAuthority(root);
-  const result = await authority.publish({
+  const transition = {
     subject: envelope.subject,
     expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
     // An approved step's lessons are committed with its approval [LRN:REQ-005].
@@ -475,7 +472,12 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     stabilityGuard: worktreeGuard,
     transactionId,
     fault
-  });
+  };
+  // A state-ref Story's records are committed on its state ref by that ref's own adapter, local only until SSB M3
+  // publishes it under the lifecycle contract [SSB:REQ-002, 006; M2]. Every other Story publishes through the adapter.
+  const result = stateRef
+    ? await (await import('./story-state-ref.mjs')).storyStateAuthority(root, workflow.workItem.id, { definition: config }).publish(transition)
+    : await lifecycleAuthority(root).publish(transition);
   // The revision binds the code checkout's HEAD; a state commit leaves the Story branch where it was.
   if (workflow[Symbol.for('singularity-flow.state-revision')] && !stateRef) {
     workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;

@@ -64,10 +64,22 @@ test('a lifecycle branch is observed on the remote only through the adapter; the
     'a new direct observation is lifecycle authority (read it through lifecycleAuthority(root).observe) or needs a listed reason');
 });
 
+/**
+ * The one lifecycle publication beside the adapter, with its reason: a state-ref Story's records are committed on its
+ * own state ref by that ref's adapter, local only, behind a preview the person cannot turn on (SSB M2). SSB M3
+ * publishes the ref and brings that adapter under the lifecycle contract, and then this list is empty.
+ */
+const OTHER_PUBLICATIONS = Object.freeze({
+  'story-publication-service.mjs': { count: 1, reason: 'a state-ref Story\'s records on its state ref (SSB M2, local, preview only)' }
+});
+
 test('every publishing workflow family reaches lifecycle authority through the adapter', async () => {
   for (const [family, module] of Object.entries(PUBLISHING_FAMILIES)) {
     const source = await readFile(path.join(SRC, module), 'utf8');
     assert.match(source, /import \{ lifecycleAuthority \} from ['"](?:\.\.?\/)+sda\/story-branch-authority\.mjs['"]/u, family);
-    assert.match(source, /lifecycleAuthority\([^)]*\)\.publish\(\{/u, `${family} publishes through the adapter`);
+    assert.match(source, /lifecycleAuthority\([^)]*\)\.publish\((?:\{|transition\))/u, `${family} publishes through the adapter`);
   }
+  const found = await occurrences(/\bstoryStateAuthority\([^)]*\)\.publish\(/gu);
+  assert.deepEqual(found, Object.fromEntries(Object.entries(OTHER_PUBLICATIONS).map(([file, { count }]) => [file, count])),
+    'a lifecycle publication beside the adapter needs a listed reason');
 });

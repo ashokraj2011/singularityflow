@@ -10,6 +10,7 @@
 import path from 'node:path';
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
+import { showCompactWarningMessage } from '../compact-message.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
@@ -267,7 +268,7 @@ export class WorkTaskPanel {
       prompt: 'Why is this work being stopped? The reason, who stopped it, its documents and approvals stay in Git.',
       validateInput: (value) => (value.trim() ? null : 'A reason is required.') });
     if (!reason?.trim()) return;
-    const yes = await vscode.window.showWarningMessage(`Stop ${row.id}? Its steps stop and it moves to Archived. Its documents are kept.`,
+    const yes = await showCompactWarningMessage(`Stop ${row.id}? Its steps stop and it moves to Archived. Its documents are kept.`,
       { modal: true, detail: `Reason: ${reason.trim()}` }, 'Stop the task');
     if (yes !== 'Stop the task') return;
     await this.host.bind(where).runText(['cancel', row.id, '--reason', reason.trim(), '--confirm', row.id]);

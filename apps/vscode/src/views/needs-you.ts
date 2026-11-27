@@ -10,6 +10,7 @@
 import path from 'node:path';
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
+import { showCompactWarningMessage } from '../compact-message.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
@@ -332,7 +333,7 @@ export class NeedsYouCardPanel {
     const reviewed = await bound.run<{ branch: string; proposalCommit: string; merged?: boolean; selfApproval?: ConfigurationSelfApproval | null }>(
       ['workflow', 'proposal', branch, '--json']);
     const result = await activateReviewedWorkflowProposal(reviewed, {
-      acknowledge: async (selfApproval) => (await vscode.window.showWarningMessage(`Approve ${branch}?`,
+      acknowledge: async (selfApproval) => (await showCompactWarningMessage(`Approve ${branch}?`,
         { modal: true, detail: selfApprovalWords(selfApproval) }, 'Approve')) === 'Approve',
       activate: (args) => bound.run(args)
     });

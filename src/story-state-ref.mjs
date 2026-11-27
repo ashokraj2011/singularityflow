@@ -22,6 +22,9 @@ import { appendFile, lstat, mkdir, readFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { SingularityFlowError, run } from './util.mjs';
 import {
+  checkoutChanges, checkoutPlace, indexEntries, sourceContains, sourceFileAt, sourceRevision, sourceTree
+} from './source-inspection.mjs';
+import {
   STATE_CHECKOUT, STATE_CONFIGURATION, STATE_REF_PREFIX, rememberStoryLayout, stateRefName, stateTrackingRefName
 } from './story-paths.mjs';
 import { rememberPinnedConfigurationRoot } from './configuration-read-scope.mjs';
@@ -43,6 +46,9 @@ function git(cwd, args, { input, env = process.env } = {}) {
   return run('git', args, { cwd, allowFailure: true, env: localEnvironment(env), ...(input === undefined ? {} : { input }) });
 }
 
+// Reads go through the source inspection facade (SDA-AC-001), in the same clean environment and never fetching.
+const reading = () => ({ env: localEnvironment(), offline: true });
+
 function gitOut(cwd, args, label, options) {
   const result = git(cwd, args, options);
   if (result.status !== 0) {
@@ -58,6 +64,8 @@ function gitOut(cwd, args, label, options) {
 export function stateCheckoutPath(root) { return path.join(root, STATE_CHECKOUT); }
 
 function commonDirectory(root) {
+  const place = checkoutPlace(root, reading());
+  if (place.status === 'present') return place.value.commonDir;
   return path.resolve(root, gitOut(root, ['rev-parse', '--git-common-dir'], 'Reading the clone\'s Git folder'));
 }
 
@@ -68,11 +76,11 @@ export function storyStateRef(id, definition = null) { return stateRefName(id, r
 
 /** The commit a local ref names, or null. */
 export function refTip(root, ref) {
-  const result = git(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
-  return result.status === 0 ? String(result.stdout).trim() : null;
+  const resolved = sourceRevision(root, ref, reading());
+  return resolved.status === 'present' ? resolved.value : null;
 }
 
-const isAncestor = (root, older, newer) => git(root, ['merge-base', '--is-ancestor', older, newer]).status === 0;
+const isAncestor = (root, older, newer) => sourceContains(root, older, newer, reading()).value === true;
 
 /**
  * The exclude line, once, in the clone's common `info/exclude` (shared by every worktree; the team's .gitignore is never
@@ -138,20 +146,17 @@ function listWorktrees(root) {
   }))).filter((entry) => entry.worktree);
 }
 
-const real = (value) => { try { return realpathSync(value); } catch { return path.resolve(value); } };
+const real = (value) => { try { return realpathSync.native(value); } catch { return path.resolve(value); } };
 // A folder that may be gone: its parent's real path and its own name.
 const place = (value) => path.join(real(path.dirname(path.resolve(value))), path.basename(value));
 
 /** Whether `folder` is a healthy linked worktree of the clone at `root`. */
 function healthyCheckout(root, folder) {
   if (!existsSync(path.join(folder, '.git'))) return false;
-  const top = git(folder, ['rev-parse', '--show-toplevel']);
-  if (top.status !== 0) return false;
-  const common = git(folder, ['rev-parse', '--git-common-dir']);
-  if (common.status !== 0) return false;
+  const place = checkoutPlace(folder, reading());
+  if (place.status !== 'present') return false;
   try {
-    return real(String(top.stdout).trim()) === real(folder)
-      && real(path.resolve(folder, String(common.stdout).trim())) === real(commonDirectory(root));
+    return real(place.value.top) === real(folder) && real(place.value.commonDir) === real(commonDirectory(root));
   } catch { return false; }
 }
 
@@ -169,8 +174,8 @@ function setAsideUnfinished(root) {
 export function stateCheckoutChanges(root) {
   const folder = stateCheckoutPath(root);
   if (!existsSync(path.join(folder, '.git'))) return [];
-  const status = git(folder, ['status', '--porcelain=v1', '--untracked-files=all']);
-  return status.status === 0 ? String(status.stdout).split('\n').filter(Boolean) : [];
+  const changes = checkoutChanges(folder, reading());
+  return changes.status === 'present' ? changes.value : [];
 }
 
 /**
@@ -249,8 +254,9 @@ export function commitStoryState(root, id, message, { definition = null, expecte
     });
   }
   gitOut(folder, ['add', '--all', '--', '.'], 'Staging the Story\'s records');
-  if (git(folder, ['diff', '--cached', '--quiet']).status === 0) return { committed: false, ref, commit: parent };
   const tree = gitOut(folder, ['write-tree'], 'Writing the state tree');
+  // The staged records are the ref's own when their tree is the parent's: nothing to commit.
+  if (sourceTree(folder, parent, reading()).value === tree) return { committed: false, ref, commit: parent };
   const commit = gitOut(folder, ['commit-tree', tree, '-p', parent, '-m', message], 'Writing the state commit');
   const moved = git(root, ['update-ref', '-m', message, ref, commit, parent]);
   if (moved.status !== 0) {
@@ -441,7 +447,7 @@ export async function moveConfigurationIntoState(root, id, snapshot) {
   const moved = [];
   for (const relative of snapshot.paths ?? []) {
     const from = path.join(root, relative);
-    const tracked = git(root, ['cat-file', '-e', `HEAD:${relative}`]).status === 0;
+    const tracked = sourceFileAt(root, 'HEAD', relative, reading()).status === 'present';
     if (existsSync(from)) {
       const to = path.join(target, relative);
       await mkdir(path.dirname(to), { recursive: true });
@@ -518,10 +524,10 @@ export async function resumeStoryState(root, id, { remote = 'origin', fetch = fa
   const ref = storyStateRef(reference, definition);
   const tip = refTip(root, ref);
   if (!tip) return null;
-  const shown = git(root, ['show', `${tip}:workflow.json`]);
-  if (shown.status !== 0) return null;
+  const shown = sourceFileAt(root, tip, 'workflow.json', reading());
+  if (shown.status !== 'present') return null;
   let workflow;
-  try { workflow = JSON.parse(shown.stdout); } catch { return null; }
+  try { workflow = JSON.parse(shown.value); } catch { return null; }
   if (workflow?.workItem?.id !== reference) return null;
   rememberStoryLayout(root, reference, 'state-ref');
   const canonicalBranch = String(workflow.lineage?.canonicalBranch ?? workflow.workItem.branch ?? reference);
@@ -532,7 +538,7 @@ export async function resumeStoryState(root, id, { remote = 'origin', fetch = fa
 /** The state commit that finished a state-ref Story's start (it holds workflow.json), or null [SSB M2]. */
 export function stateStartCompleted(root, { ref }) {
   const tip = refTip(root, ref);
-  return tip && git(root, ['cat-file', '-e', `${tip}:workflow.json`]).status === 0 ? tip : null;
+  return tip && sourceFileAt(root, tip, 'workflow.json', reading()).status === 'present' ? tip : null;
 }
 
 /**
@@ -564,8 +570,8 @@ export function discardUnstartedStoryState(root, { ref, commit }) {
  */
 export function assertNoStateCheckoutGitlink(root) {
   if (!existsSync(path.join(root, STATE_CHECKOUT))) return;
-  const listed = git(root, ['ls-files', '--stage', '--', STATE_CHECKOUT]);
-  if (listed.status === 0 && !String(listed.stdout).trim()) return;
+  const listed = indexEntries(root, STATE_CHECKOUT, reading());
+  if (listed.status === 'present' && !listed.value.length) return;
   const command = `git rm -r --cached --quiet -- ${STATE_CHECKOUT}`;
   throw new SingularityFlowError(`The code step's changes include ${STATE_CHECKOUT}, SFlow's records for this Story. They never go in the code branch. Nothing was changed.`, {
     code: 'CODE_DELIVERY_STATE_CHECKOUT_STAGED', details: { path: STATE_CHECKOUT,

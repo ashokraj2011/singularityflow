@@ -1117,7 +1117,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // held back to today's layout unless its preview is on (work-item-location.mjs newStoryLayout, the resolution in
     // config.mjs), and the command-line start opens the state ref and says the held line (commands/start.mjs). No new
     // eager file.
-    assert.ok(closure.bytes <= 9_931_269, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,933,663 (measured for start.mjs, +2,394 over 9,931,269 at d99e2d11d, 2026-11-27 on fix-suite-1127): the state
+    // checkout's Git reads go through the source inspection facade (checkoutPlace, checkoutChanges, indexEntries,
+    // sourceTree; source-inspection.mjs +2,131) [SDA-AC-001], and the state-ref publication is named beside the
+    // adapter (story-publication-service.mjs +263). No new eager file.
+    assert.ok(closure.bytes <= 9_933_663, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1780,7 +1784,10 @@ test('the common session projection does not import attach, state stores or publ
   // (work-item-location.mjs, config.mjs) and the state checkout the Story index finds [SSB M2]. No new eager file.
   // 4,389,338 (+1,005, measured 2026-11-27 on ssb-m2): the held-back state-ref layout (work-item-location.mjs,
   // config.mjs) [SSB M2]. No new eager file.
-  assert.ok(current.bytes <= 4_389_338, `session current loads ${current.bytes} source bytes`);
+  // 4,391,469 (+2,131, measured 2026-11-27 on fix-suite-1127 over d99e2d11d): the source inspection facade's checkout
+  // reads, which the state checkout now uses instead of starting Git itself (source-inspection.mjs) [SDA-AC-001]. No
+  // new eager file.
+  assert.ok(current.bytes <= 4_391_469, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

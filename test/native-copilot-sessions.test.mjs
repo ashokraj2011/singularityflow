@@ -196,7 +196,10 @@ test('only the offline audit script reaches the session analyzer and the host lo
   // The Copilot extensions page is opened by a person, reads at most 4,000 lines of a chat, and no work command loads it.
   // Story reports read the logs' usage records (src/copilot-session-usage.mjs); only `report`, `telemetry sessions`
   // and the snapshot load it, which test/copilot-session-usage.test.mjs holds. [owner, 2026-11-13]
-  const hostLogReaders = new Set(['src/fresh-install-reset.mjs', 'apps/vscode/src/views/copilot-extensions-model.ts', 'src/copilot-session-usage.mjs']);
+  // A command run in a Copilot chat none of SFlow's hooks saw names the host from one line of that chat's
+  // workspace.yaml (`client_name`, at most 64 KB), never its events (src/copilot-chat-hooks.mjs, held below).
+  const hostLogReaders = new Set(['src/fresh-install-reset.mjs', 'apps/vscode/src/views/copilot-extensions-model.ts', 'src/copilot-session-usage.mjs',
+    'src/copilot-chat-hooks.mjs']);
   const files = [];
   const walk = async (directory) => {
     let entries;
@@ -219,4 +222,7 @@ test('only the offline audit script reaches the session analyzer and the host lo
     }
     if (file.startsWith('plugin/')) assert.equal(/audit:copilot|native-copilot-audit/u.test(text), false, `${file} runs the audit`);
   }
+  const hooks = await readFile(path.join(packageRoot, 'src/copilot-chat-hooks.mjs'), 'utf8');
+  assert.equal(/events\.jsonl|createReadStream/u.test(hooks), false, 'the chat hooks check reads no session events');
+  assert.deepEqual([...hooks.matchAll(/path\.join\(state, [^)]*\)/gu)].map((match) => match[0]), ["path.join(state, id, 'workspace.yaml')"]);
 });

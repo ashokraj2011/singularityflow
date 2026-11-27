@@ -192,6 +192,9 @@ const FAMILIES = Object.freeze([
     // Story lessons [LRN-v1]: the step prompt's lessons and the approval's noticing. Unclaimed, every compose and
     // approval would load compatibility and models.
     'story-lessons.mjs', 'story-lessons-notice.mjs',
+    // The files an approved plan's table names, which the step prompt's lessons and brief read (phase-prompt-composer.mjs
+    // approvedPlanTablePaths) [WMR M2]. Unclaimed, every compose loaded compatibility and models.
+    'advisory-tasks.mjs',
     // The one pending list that nextsteps and readiness count from, and the approval check it
     // previews. Unclaimed, they fell into compatibility, so nextsteps on an open step loaded it and models.
     'decision-list-reads.mjs', 'decision-list.mjs', 'step-sheet.mjs', 'approval-check.mjs', 'visual-profile-decisions.mjs', 'commands/decision-plan-amendment.mjs', 'commands/decision-obligation-risk.mjs', 'commands/decision-story-records.mjs', 'commands/story-adjudicate-terminal.mjs', '../plugin/extensions/decisions/decisions.mjs', '../plugin/extensions/decisions/form-rounds.mjs',

@@ -1650,17 +1650,17 @@
     },
     "src/story-state-ref.mjs": {
       "counts": {
-        "command-git": 20,
+        "command-git": 10,
         "command-run": 1
       },
-      "digest": "45ccbd285c143c15b431dad27a00a0252583afcb0fb85764b4c4487e64a9eb73"
+      "digest": "240feedb741d8e478d42eae4f843ceef8e8042de17d381a13e8e70b27bad4c98"
     },
     "src/story-worktree.mjs": {
       "counts": {
-        "command-run": 19,
+        "command-run": 18,
         "command-runCommand": 1
       },
-      "digest": "258a6a2c24bc492720e8f9c289da03b618200b5d671e4579837d1d07d3bca4b4"
+      "digest": "fe158f77961d87e218bef554c6534e0238d2fcd7312ef4e656624ace0512cada"
     },
     "src/transport-intents.mjs": {
       "counts": {

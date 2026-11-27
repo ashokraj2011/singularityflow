@@ -20,7 +20,7 @@ import {
   applicationChangeSetProjection, applicationPathContext, assertWorkReconciliationIntegrity
 } from './work-intervals.mjs';
 import { posix, run, secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { gitPlaceOf, recordPlace, storyLocation } from './story-paths.mjs';
 
 function sameDigest(left, right) {
   return String(left ?? '').replace(/^sha256:/, '') === String(right ?? '').replace(/^sha256:/, '');
@@ -66,9 +66,11 @@ export function assertLegacyConvergenceSourceIdentity(projection, {
 }
 
 function assertCommittedPath(root, relative, label, details = {}) {
-  const current = run('git', ['hash-object', '--', relative], { cwd: root, allowFailure: true });
-  const committed = run('git', ['rev-parse', '--verify', `HEAD:${relative}`], {
-    cwd: root, allowFailure: true
+  // A path in a state-ref Story's state checkout is asked of it: its HEAD is the state ref [SSB M3].
+  const place = gitPlaceOf(root, relative);
+  const current = run('git', ['hash-object', '--', place.relative], { cwd: place.cwd, allowFailure: true });
+  const committed = run('git', ['rev-parse', '--verify', `HEAD:${place.relative}`], {
+    cwd: place.cwd, allowFailure: true
   });
   if (current.status !== 0 || committed.status !== 0
       || current.stdout.trim() !== committed.stdout.trim()) {
@@ -209,8 +211,11 @@ export async function currentConvergenceContext(root, config, workflow, { codeAw
   }
   const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
   const itemRelative = posix(path.relative(root, itemDirectory));
+  // The Story's records: in the state checkout and named relative to it for a state-ref Story, in the checkout under the
+  // Story folder otherwise [SSB M3, REQ-009]. Its documents stay named from the checkout (itemRelative).
+  const { root: recordsRoot, prefix: recordPrefix } = recordPlace(root, itemRelative);
   const expectedReconciliationPath = posix(path.join(
-    itemRelative, 'context', 'work-intervals', 'reconciliations',
+    recordPrefix, 'context', 'work-intervals', 'reconciliations',
     `${reconciliationRef.reconciliationSha256}.json`
   ));
   if (posix(reconciliationRef.path) !== expectedReconciliationPath) {
@@ -222,10 +227,10 @@ export async function currentConvergenceContext(root, config, workflow, { codeAw
       }
     );
   }
-  const reconciliationPath = await secureRepositoryPath(root, reconciliationRef.path, {
+  const reconciliationPath = await secureRepositoryPath(recordsRoot, reconciliationRef.path, {
     label: 'Implementation reconciliation', mustExist: true, type: 'file'
   });
-  assertCommittedPath(root, reconciliationPath.relative, 'Implementation reconciliation');
+  assertCommittedPath(recordsRoot, reconciliationPath.relative, 'Implementation reconciliation');
   const reconciliation = readRecord(
     'work-reconciliation', await readFile(reconciliationPath.absolute)
   ).record;
@@ -268,7 +273,7 @@ export async function currentConvergenceContext(root, config, workflow, { codeAw
   // Stop asking what the approved plan answered. The answer stays on the record, by its entry.
   const { pathsKeptByPerson, planAccounts, settleChangedPaths } = await import('./plan-accounts.mjs');
   const planAccount = planAccounts(workflow, records.planned, {
-    keptByPerson: await pathsKeptByPerson(root, itemRelative, iteration)
+    keptByPerson: await pathsKeptByPerson(recordsRoot, recordPrefix, iteration)
   });
   const { facts, settled } = settleChangedPaths(everyFact, { reconciliation, planAccount });
   const bindings = convergenceBindings({
@@ -291,6 +296,8 @@ export async function currentConvergenceContext(root, config, workflow, { codeAw
     implementation,
     itemDirectory,
     itemRelative,
+    recordsRoot,
+    recordPrefix,
     reconciliation,
     reconciliationTarget,
     records,
@@ -502,7 +509,7 @@ export async function assertConvergenceSources(root, projection, { itemRelative 
 
 function convergenceProjectionRelative(current) {
   return posix(path.join(
-    current.itemRelative, 'context', 'convergence', `iteration-${current.iteration}.json`
+    current.recordPrefix ?? current.itemRelative, 'context', 'convergence', `iteration-${current.iteration}.json`
   ));
 }
 
@@ -527,7 +534,7 @@ export async function loadVerifiedConvergenceProjection(root, config, workflow) 
   const projectionRelative = convergenceProjectionRelative(current);
   let projectionPath;
   try {
-    projectionPath = await secureRepositoryPath(root, projectionRelative, {
+    projectionPath = await secureRepositoryPath(current.recordsRoot, projectionRelative, {
       label: 'Convergence projection', mustExist: true, type: 'file'
     });
   } catch (error) {
@@ -540,8 +547,8 @@ export async function loadVerifiedConvergenceProjection(root, config, workflow) 
     currentFacts: current.facts,
     currentSettlement: current.settlement
   });
-  const candidateSources = await assertConvergenceSources(root, projection, {
-    itemRelative: current.itemRelative
+  const candidateSources = await assertConvergenceSources(current.recordsRoot, projection, {
+    itemRelative: current.recordPrefix
   });
   const snapshotSha256 = `sha256:${recordSha256({
     workId: workflow.workItem.id,

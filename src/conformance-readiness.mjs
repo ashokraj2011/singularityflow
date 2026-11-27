@@ -279,7 +279,8 @@ async function inspectUnhonouredConformance(root, config, workflow, phase) {
   if (phase?.requiredArtifact?.kind !== 'conformance-report') return { findings: [], advisories: [], summary: null };
   const qualified = workflow.resolution?.spec?.conformanceRows === 'qualified';
   const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
-  const relative = storyLocation(null, config, workflow.workItem.id).record(phase.requiredArtifact.path);
+  // A document, named from the checkout (in a state-ref Story's state checkout until M4) [SSB M3, REQ-009].
+  const relative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(phase.requiredArtifact.path);
   const safe = await secureRepositoryPath(root, relative, {
     label: `Conformance report for phase '${phase.id}'`, mustExist: qualified, type: 'file'
   });

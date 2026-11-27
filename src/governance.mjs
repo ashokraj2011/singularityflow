@@ -62,7 +62,7 @@ import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 import { verifyPhaseApprovalWaiver } from './approval-waiver.mjs';
 import { artifactSnapshotCheckoutMatches, readReviewArtifactBytes } from './artifact-review-read.mjs';
 import { pinnedStorySourceSnapshot } from './story-epic-sources.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { stateTrackingRefName, storyLocation } from './story-paths.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 
@@ -333,7 +333,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       else refuse('gate.configuration.snapshot-drift', 'workflow.yml differs from the immutable work-item configuration snapshot', { path: 'singularity/workflow.yml' });
     }
     for (const [phaseId, template] of Object.entries(workflow.resolution.templates ?? {})) {
-      const present = await snapshot(path.join(root, template.path));
+      // A pinned template is a record: in a state-ref Story's state checkout, named relative to it [SSB M3].
+      const present = await snapshot(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(template.path));
       if (present.sha256 === template.sha256) continue;
       if (mergedFromBase(template.path)) warnings.push(`${template.path} came from ${workflow.workItem.baseBranch} through a merge; ${phaseId} keeps its pinned template`);
       else refuse('gate.template.snapshot-drift', `template snapshot changed for ${phaseId}: ${template.path}`, { phase: phaseId, path: template.path });
@@ -497,7 +498,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         if (!publicationInvalid) refuse('gate.generation.commit-missing', `${phaseId} generation ${generation} has no required Git commit`, { phase: phaseId });
       } else if (config.git?.publish === 'required') {
         const remote = config.git.remote ?? 'origin';
-        const remoteRef = `refs/remotes/${remote}/${workflowPublicationBranch(root, workflow)}`;
+        // A state-ref Story's lifecycle commits are its state commits, published on its state ref with the branch in one
+        // atomic push [SSB:REQ-005, M3]: the remote's state ref, as last fetched or pushed, holds them.
+        const remoteRef = storyLocation(root, [config, workflow], workflow.workItem.id).branch
+          ? `refs/remotes/${remote}/${workflowPublicationBranch(root, workflow)}` : stateTrackingRefName(remote, workflow.workItem.id);
         const published = run('git', ['merge-base', '--is-ancestor', found[0], remoteRef], { cwd: root, allowFailure: true });
         // A branch the remote deleted after its merge leaves no tracking ref; its generations are
         // published when they are on the base it merged into.
@@ -574,6 +578,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
                 && phase.sourceBoundary !== 'test-automation'
                 ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',
               pathContext: applicationPathContext(config, workflow),
+              recordsRoot: storyLocation(root, [config, workflow], workflow.workItem.id).recordsRoot,
               // A run a step approver accepted could not execute any test, judged as of the Story's end.
               testRunRisks: { workflow, at: terminalTransitionAt(workflow) },
               ...riskReplay
@@ -589,7 +594,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       // longer verifies was never bound (publication warned), so it warns here too. On a Story SF Guard
       // requires, a person's authorship claim its author did not sign is read as the agent's.
       const agentAuthored = believedProducer(workflow, authorship, { phase: phaseId, generation }) === 'governed-agent';
-      if (agentAuthored || await exists(path.join(root, clarificationRecordRelative(config, workflow, phase, generation)))) {
+      if (agentAuthored || await exists(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(clarificationRecordRelative(config, workflow, phase, generation)))) {
         const clarification = await verifyClarificationRecord(root, config, workflow, phase, { generation });
         if (agentAuthored) refuseEach('gate.clarification.invalid', clarification.errors, { phase: phaseId });
         else warnings.push(...clarification.errors.map((message) => `${phaseId} generation ${generation} clarification record is not bound: ${message}`));

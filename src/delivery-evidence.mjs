@@ -8,7 +8,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { renderPlatformCommand } from './safe-command-guidance.mjs';
 import { STATE_CHECKOUT, storyLocation } from './story-paths.mjs';
-import { codeCommitNamedBy } from './generation-publication-store.mjs';
+import { codeCommitNamedBy, lifecycleCodeCommit } from './generation-publication-store.mjs';
 
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 
@@ -266,10 +266,11 @@ async function governedReviewBaseline(root, config, workflow, { phase, source, e
       const entry = code || boundary ? currentSubmission(workflow, candidate) : null;
       if (!entry) continue;
       const packet = await readStoryReviewPacket(root, config, workflow, entry.packetSha256);
+      const commit = lifecycleCodeCommit(root, workflow, packet.evidenceCommit);
       if (packet.workId === workflow.workItem.id && packet.phase === candidate.id
-          && Number(packet.generation) === Number(candidate.generation) && packet.evidenceCommit
-          && packet.evidenceCommit !== evidenceCommit && isAncestor(root, evidenceCommit, packet.evidenceCommit)) {
-        checkpoints.push({ phaseId: candidate.id, boundary, commit: packet.evidenceCommit });
+          && Number(packet.generation) === Number(candidate.generation) && commit
+          && commit !== evidenceCommit && isAncestor(root, evidenceCommit, commit)) {
+        checkpoints.push({ phaseId: candidate.id, boundary, commit });
       }
     } catch { /* the refusal this checkpoint might have explained stands */ }
   }
@@ -343,14 +344,16 @@ export async function assertReviewCodeEvidenceFresh(root, config, workflow, phas
   const pathContext = applicationPathContext(config, workflow);
   const subject = { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation };
   const permission = { pathContext, boundary: reviewOwnRepairBoundary(workflow, phase), phaseId: phase.id };
-  let changedPaths = await unpermittedReviewPaths(root, packet.evidenceCommit, subject, permission);
-  let comparisonBase = packet.evidenceCommit;
+  // The code a state-ref Story's state commit names, which its tests ran on [SSB M3]; today's layout, the commit itself.
+  const codeCommit = lifecycleCodeCommit(root, workflow, packet.evidenceCommit);
+  let changedPaths = await unpermittedReviewPaths(root, codeCommit, subject, permission);
+  let comparisonBase = codeCommit;
   // A review pinned to one step's tests (testEvidenceFrom) consumes exactly that tested tree.
   if (changedPaths.length && !pinnedTestEvidenceSource(workflow, phase)) {
     const base = await governedReviewBaseline(root, config, workflow, {
-      phase, source, evidenceCommit: packet.evidenceCommit, pathContext
+      phase, source, evidenceCommit: codeCommit, pathContext
     });
-    if (base !== packet.evidenceCommit) {
+    if (base !== codeCommit) {
       changedPaths = await unpermittedReviewPaths(root, base, subject, permission);
       comparisonBase = base;
     }
@@ -498,7 +501,7 @@ export async function acceptanceIds(root, config, workflow, phase) {
   for (const phaseId of workflow.phaseOrder.slice(0, Math.max(0, position))) {
     const prior = workflow.phases[phaseId];
     if (!prior?.requiredArtifact?.path) continue;
-    const relative = storyLocation(null, config, workflow.workItem.id).record(prior.requiredArtifact.path);
+    const relative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(prior.requiredArtifact.path);
     const secured = await secureRepositoryPath(root, relative, {
       label: 'Acceptance specification source', type: 'file'
     });
@@ -1991,7 +1994,9 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   pathContext = null,
   testRecovery = null,
   // { workflow, at }: the Story, for test-run risks and the pins its attempts ran under.
-  testRunRisks = null
+  testRunRisks = null,
+  // Where the receipt's recorded paths are on disk: a state-ref Story's state checkout [SSB M3]; the checkout otherwise.
+  recordsRoot = root
 } = {}) {
   const errors = [];
   const fail = (message) => errors.push(message);
@@ -2292,7 +2297,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       if (source && source.status !== 0) throw new Error(`not present in evidence commit ${evidenceCommit}`);
       const storedBytes = prefetched ?? (source
         ? source.stdout
-        : await readDurableTestObservation(root, execution.receiptPath));
+        : await readDurableTestObservation(recordsRoot, execution.receiptPath));
       const storedRecord = replayFiles.records.has(execution.receiptPath) ? replayFiles.records.get(execution.receiptPath)
         : JSON.parse(Buffer.isBuffer(storedBytes) ? storedBytes.toString('utf8') : storedBytes);
       if (receiptDigest(storedRecord) !== String(execution.receiptSha256 ?? '').replace(/^sha256:/, '')) {
@@ -2345,7 +2350,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
           if (raw.status !== 0) throw new Error(`not present in evidence commit ${evidenceCommit}`);
           bytes = raw.stdout;
         } else {
-          bytes = await readDurableTestObservation(root, report.path, {
+          bytes = await readDurableTestObservation(recordsRoot, report.path, {
             expectedSha256: report.sha256,
             expectedBytes: report.bytes
           });

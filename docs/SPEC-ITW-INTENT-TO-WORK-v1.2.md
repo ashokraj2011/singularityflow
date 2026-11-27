@@ -127,7 +127,8 @@ REQ-104). The composition says so: `sizing: 'requirement'`.
   about: SFlow approves it when the repository's tests pass at its submission (`testsAtSubmit: repository`). It is SFlow's
   own run, and the record the Story's final check reads for each clause (built 2026-11-27: with the code step last, the
   final evaluation found the clauses' test evidence open and routed the code's approval to the evidence matrix, so the
-  run that records it stays a step of its own; open question 8).
+  run that records it stays a step of its own). Decided (owner, 2026-11-28: "Hidden step is fine"): the tests step stays
+  SFlow's own, and the evidence model is not changed.
 
 **ITW:REQ-105, a big change: spec, plan, code and tests.**
 - Steps: the requirement → spec (the repository's requirements step, labelled "Spec") → plan → code (labelled "Code") →
@@ -200,8 +201,8 @@ a folder opened through a symbolic link), the after-tool hook cannot carry the `
 - With `skill`, the sflow-task skill goes on by its own instructions: after each start, submission or approval it reads
   the Story's next action (`work status <ID> --json`, its `next`) and does it in the same turn, stopping only at a
   person's approval or question, exactly where the hook path stops. No new stop, relay or hand-off.
-- Where SFlow knows hooks were expected and did not run in a Copilot chat (`SFLOW_HOOKS_OFF`), its guard is off and every
-  result still says so first; see open question 7.
+- Where SFlow knows hooks were expected and did not run in a Copilot chat (`SFLOW_HOOKS_OFF`), its guard is off, so SFlow
+  stops there and says why, as today. Decided (owner, 2026-11-28: "Stop and say why").
 
 **ITW:REQ-112, counting a person's work.** The journeys (test/journey-tasks.test.mjs and test/journey-tasks-shapes.test.mjs)
 count a person's actions through the real CLI:
@@ -253,7 +254,7 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
   off reaches the end with the same person actions.
 - **B10:** A Story started before this version keeps its steps and its approval words.
 
-## 7. Open questions for the owner, with the default built
+## 7. Open questions for the owner, with the default built (7 and 8 decided 2026-11-28)
 
 1. **The limits of a small change.** Default: at most 5 application files and 2 areas, tests apart.
 2. **Making a big change small.** Default: not after the start; a big change stays big (steps are only added). The person
@@ -267,14 +268,13 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
 5. **A refactor.** Default: always big, with v1.1's steps (its plan says what must not change); it gains no spec step.
 6. **An analysis's follow-ups.** Default: from the report's "Follow-ups" section; a docs task's one follow-up implements
    its document.
-7. **Hooks expected but not run.** Default: where SFlow knows a Copilot chat's hooks were expected and did not run
-   (`SFLOW_HOOKS_OFF`, a VS Code folder opened through a link), SFlow's guard is off, so SFlow still says so and stops
-   there as today; the skill carries the turn on where no hook is installed for the host (IntelliJ's local agent) and
-   wherever SFlow's commands still run. Turning the stop into a carry-on means running without the guard; the owner
-   decides.
-8. **One step for implement and test, with nothing after it.** Default: the tests step stays as SFlow's own (no person,
-   no question), because the final evaluation reads each clause's test evidence from it. Folding it into the code step
-   needs the evidence model to count a code step's own test runs as a clause's final evidence; not built.
+7. **Hooks expected but not run.** Decided (owner, 2026-11-28: "Stop and say why"): where SFlow knows a Copilot chat's
+   hooks were expected and did not run (`SFLOW_HOOKS_OFF`, a VS Code folder opened through a link), SFlow's guard is
+   off, so SFlow stops there and says why, as today. The skill carries the turn on where no hook is installed for the
+   host (IntelliJ's local agent) and wherever SFlow's commands still run.
+8. **One step for implement and test, with nothing after it.** Decided (owner, 2026-11-28: "Hidden step is fine"): the
+   tests step stays SFlow's own (no person, no question), because the final evaluation reads each clause's test evidence
+   from it. The evidence model is not changed.
 
 ## 8. Milestones
 

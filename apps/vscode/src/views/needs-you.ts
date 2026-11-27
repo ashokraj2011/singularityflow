@@ -52,7 +52,7 @@ export interface NeedsYouHost {
   showRefusal(error: unknown, headline: string): void;
 }
 
-/** Another place in the tab strip (Work, views/work.ts): its panel, its style and script, and its messages. */
+/** Another place in the tab strip (Work, views/work.ts; Rules, views/rules.ts): its panel, its style and script, and its messages. */
 export interface PlacePart {
   panel(): string;
   readonly style: string;
@@ -67,7 +67,7 @@ export interface PlacePart {
 
 /**
  * The sidebar's places while they are on: the Needs-you list and its badge, the tab shown, and the other places beside it
- * (Work from M2). The sidebar opens on Work [FPL:REQ-001].
+ * (Work from M2, Rules from M3). The sidebar opens on Work [FPL:REQ-001].
  */
 export class NeedsYouPlace implements vscode.Disposable {
   private list: NeedsYouList | null = null;
@@ -75,7 +75,8 @@ export class NeedsYouPlace implements vscode.Disposable {
   private error: string | null = null;
   private all = false;
   private tab: PlaceTab = 'work';
-  private work: PlacePart | null = null;
+  /** The other places by their tab: Work, Rules. */
+  private readonly parts = new Map<PlaceTab, PlacePart>();
   private post: ((message: unknown) => void) | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private pending: Promise<void> | null = null;
@@ -136,24 +137,28 @@ export class NeedsYouPlace implements vscode.Disposable {
   badge(): { value: number; tooltip: string } | undefined { return needsYouBadge(this.list); }
 
   /** Work beside Needs you [FPL:REQ-004 to REQ-007]: its tab comes first, and the sidebar opens on it. */
-  setWork(work: PlacePart): void {
-    this.work = work;
-    if (this.post) work.attach(this.post);
+  setWork(work: PlacePart): void { this.setPart('work', work); }
+
+  /** Another place beside Needs you: Work, or Rules [FPL:REQ-019]. */
+  setPart(tab: Exclude<PlaceTab, 'needs-you' | 'advanced'>, part: PlacePart): void {
+    this.parts.set(tab, part);
+    if (this.post) part.attach(this.post);
     this.changed();
   }
 
   /** How a place reaches the sidebar's page without repainting it. */
   attach(post: (message: unknown) => void): void {
     this.post = post;
-    this.work?.attach(post);
+    for (const part of this.parts.values()) part.attach(post);
   }
 
   /** The sidebar's body for the open tab, or null under Advanced (today's Navigator, unchanged, below `advancedHeader`). */
   body(): { body: string; style: string; script: string } | null {
     if (this.tab === 'advanced') return null;
-    if (this.tab === 'work' && this.work) {
-      return { body: placePanelBody('work', this.list, this.work.panel()), style: `${NEEDS_YOU_STYLE}${this.work.style}`,
-        script: `const vscode = acquireVsCodeApi();\n${PLACES_TABS_SCRIPT}\n${this.work.script}` };
+    const part = this.parts.get(this.tab);
+    if (part) {
+      return { body: placePanelBody(this.tab, this.list, part.panel()), style: `${NEEDS_YOU_STYLE}${part.style}`,
+        script: `const vscode = acquireVsCodeApi();\n${PLACES_TABS_SCRIPT}\n${part.script}` };
     }
     return { body: needsYouPlaceBody(this.list, { reading: this.reading, error: this.error, all: this.all }), style: NEEDS_YOU_STYLE, script: NEEDS_YOU_SCRIPT };
   }
@@ -168,11 +173,11 @@ export class NeedsYouPlace implements vscode.Disposable {
     if (message.action === 'tab' && PLACE_TABS.includes(message.tab as PlaceTab)) {
       this.tab = message.tab as PlaceTab;
       if (this.tab === 'needs-you') void this.read({});
-      if (this.tab === 'work') this.work?.activate();
+      this.parts.get(this.tab)?.activate();
       this.changed();
       return true;
     }
-    if (this.work?.receive(message)) return true;
+    for (const part of this.parts.values()) if (part.receive(message)) return true;
     if (message.action === 'more') { this.all = true; this.changed(); return true; }
     if (message.action === 'open' && typeof message.key === 'string' && this.list?.items.some((item) => item.key === message.key)) {
       void NeedsYouCardPanel.show(this.host, this, message.key);

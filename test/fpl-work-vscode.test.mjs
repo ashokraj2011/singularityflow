@@ -283,7 +283,7 @@ test('Work is off by default, lazy, first in the places, and wired with today\'s
   const extension = await readFile(path.join(REPOSITORY, 'apps/vscode/src/extension.ts'), 'utf8');
   assert.match(extension, /const work = new \(lazyPanels\(\)\.WorkPlace\)\(\{/u, 'loaded from the lazy panels, only while the places are on');
   assert.match(extension, /place\.setWork\(work\);/u);
-  assert.match(extension, /needsYouAfterChange = \(\) => \{ void place\.read\(\{\}\); void work\.read\(\{\}\); \};/u, 'read again after any change made here');
+  assert.match(extension, /needsYouAfterChange = \(\) => \{ void place\.read\(\{\}\); void work\.read\(\{\}\); void rules\.read\(\{\}\); \};/u, 'read again after any change made here');
   // A command's arguments reach it: "Explain the change" names the explainer's place, My change.
   assert.match(extension, /command: async \(id, \.\.\.args\) => \{ await vscode\.commands\.executeCommand\(id, \.\.\.args\); \},/u);
   assert.match(extension, /'singularityFlow\.openCodeExplainer': \(\(options\?: unknown\) => showCodeExplainer\(false, options\)\) as never,/u);

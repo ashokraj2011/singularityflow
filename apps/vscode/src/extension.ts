@@ -10251,9 +10251,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const orphaned = REPOSITORY_COMMANDS.filter((id) => !handlers.has(id));
   if (orphaned.length) output.appendLine(`Commands with no handler: ${orphaned.join(', ')}`);
 
-  // The four places [FPL:REQ-001]: Work (M2), Needs you and Advanced, behind `singularityFlow.navigation.layout` until M5
-  // makes `places` the default. Loaded lazily; with the setting off nothing of it loads. Each card choice and each task-page
-  // button runs today's path with a client bound to its Story's checkout or repository (views/needs-you.ts, views/work.ts).
+  // The four places [FPL:REQ-001]: Work (M2), Needs you, Rules (M3) and Advanced, behind `singularityFlow.navigation.layout`
+  // until M5 makes `places` the default. Loaded lazily; with the setting off nothing of it loads. Each card choice and each
+  // task-page button runs today's path with a client bound to its Story's checkout or repository (views/needs-you.ts,
+  // views/work.ts); a rule is proposed through Workflow Studio's reviewed path (views/rules.ts).
   let needsYouPlace: import('./views/needs-you.ts').NeedsYouPlace | null = null;
   const syncPlaces = (): void => {
     const on = vscode.workspace.getConfiguration('singularityFlow').get<string>('navigation.layout') === 'places';
@@ -10281,11 +10282,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showRefusal: (error, headline) => showRefusal(error, { headline })
       }, () => sidebar.placesChanged());
       place.setWork(work);
+      // Rules [FPL:REQ-019 to REQ-026]: the team's rules, their form and preview; a proposal becomes a Review item in Needs you.
+      const rules = new (lazyPanels().RulesPlace)({
+        client, command: async (id, ...args) => { await vscode.commands.executeCommand(id, ...args); },
+        refresh: refreshAfterKnownMutation,
+        showRefusal: (error, headline) => showRefusal(error, { headline })
+      }, () => sidebar.placesChanged());
+      place.setPart('rules', rules);
       needsYouPlace = place;
-      needsYouAfterChange = () => { void place.read({}); void work.read({}); };
+      needsYouAfterChange = () => { void place.read({}); void work.read({}); void rules.read({}); };
       sidebar.setPlaces(place);
       place.start();
       work.start();
+      rules.start();
     } else if (!on && needsYouPlace) {
       needsYouPlace.dispose();
       needsYouPlace = null;

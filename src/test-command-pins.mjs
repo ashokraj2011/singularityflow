@@ -813,7 +813,7 @@ function firstPassingRun(attempts, sha) {
 /** The recorded runs of one step, oldest first, that pins and baselines are read from. */
 async function recordedRuns(root, config, workflow, phase) {
   const [{ stepAttempts }, { storyLocation }] = await Promise.all([import('./verification/attempts.mjs'), import('./story-paths.mjs')]);
-  return stepAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, phase.id);
+  return stepAttempts(root, storyLocation(null, config, workflow.workItem.id).checkoutPath(), workflow.workItem.id, phase.id);
 }
 
 // What the Story changed is measured against its base: narrowing already there is the team's own [TCE:REQ-021].

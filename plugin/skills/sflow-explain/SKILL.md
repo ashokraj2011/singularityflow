@@ -20,6 +20,9 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
    - A first word of `change`, `clause`, `test`, `line`, `gap` or `generation` is the subject. Run exactly one subject
      command: `singularity-flow explain --subject <SUBJECT> <REMAINING ARGUMENTS> --for-agent --json`. `change` and `gap`
      need nothing more. Never guess a missing `--id`, `--path`, `--line` or `--gen`; ask the user for the exact value instead.
+   - Words asking what the change did or does ("what did this change do?"): run `singularity-flow explain --subject change
+     --page --for-agent --json` and answer with `data.page.summary`, and a Markdown-preview link to `data.page.path` when it
+     has one.
    - Any other word, even one word alone, is a documentation topic or question, so never ask what to explain; answer in
      this turn. Run `singularity-flow explain '$ARGUMENTS' --for-agent --json`, one single-quoted argument with each inner
      `'` as `'\''` (PowerShell `''`) so nothing expands. Answer only from `data.served.text`, ending with `data.citation`

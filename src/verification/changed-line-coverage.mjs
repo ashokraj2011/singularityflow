@@ -13,7 +13,7 @@ import path from 'node:path';
 
 import { SingularityFlowError } from '../util.mjs';
 import { lineRanges, rangeLines } from './coverage-reports.mjs';
-import { storyLocation } from '../story-paths.mjs';
+import { recordedStateFile, storyLocation } from '../story-paths.mjs';
 
 export const CHANGED_LINE_COVERAGE_MODES = Object.freeze(['off', 'warn', 'enforce']);
 export const DEFAULT_CHANGED_LINE_COVERAGE = Object.freeze({ mode: 'warn', minimum: 80 });
@@ -119,7 +119,7 @@ export async function boundStepAttempts(root, phase) {
   const attempts = [];
   for (const execution of bound ?? []) {
     if (execution.kind === 'phase-validation-observation' || !execution.receiptPath) continue;
-    try { attempts.push(readRecord('test-execution', await readFile(path.join(root, execution.receiptPath))).record); } catch { /* unavailable: not measured */ }
+    try { attempts.push(readRecord('test-execution', await readFile(recordedStateFile(root, execution.receiptPath))).record); } catch { /* unavailable: not measured */ }
   }
   return attempts;
 }

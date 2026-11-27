@@ -57,7 +57,7 @@ export async function inspectPendingEvidenceContracts(root, config, workflow, ph
   generation = phaseInspectionGeneration(workflow, phase)
 } = {}) {
   if (!correctionOwner(workflow, phase) || !requiresProspectivePhaseInspection(workflow, phase)) return { paths: [], actions: [] };
-  const itemRoot = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemRoot = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath();
   const candidates = inspectLifecycleWorktree(root, config, workflow).entries
     .filter(entry => entry.path.kind === 'utf8' && entry.path.value.startsWith(`${itemRoot}/evidence/`))
     .map(entry => entry.path.value);

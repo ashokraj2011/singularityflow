@@ -33,7 +33,7 @@ import {
   extractClauses, isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap, readSubmittedSpecificationIndex,
   readBoundSpecificationIndex, selectActiveSpecRecords, plannedClaimsForObservedPhase
 } from '../specifications.mjs';
-import { storiesRoot, storyLocation } from '../story-paths.mjs';
+import { recordedStateFile, storiesRoot, storyLocation } from '../story-paths.mjs';
 
 function itemDirectory(root, definition, workId) {
   return storyLocation(root, definition, workId).directory;
@@ -62,7 +62,7 @@ function attemptProjection(record) {
 /** Read one bound test attempt, or report it. */
 async function loadAttempt(root, entry, phase, findings, label) {
   try {
-    return attemptProjection(readRecord('test-execution', await readFile(path.join(root, entry.receiptPath))).record);
+    return attemptProjection(readRecord('test-execution', await readFile(recordedStateFile(root, entry.receiptPath))).record);
   } catch (error) {
     findings.push({
       code: 'EVIDENCE_TEST_RECEIPT_UNREADABLE', category: 'records', blocking: true, obligationIds: [],

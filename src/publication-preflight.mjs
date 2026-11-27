@@ -336,7 +336,7 @@ async function inspectRawPhaseAuthoredReviewContent(root, config, workflow, phas
   const set = resolvedArtifactSet(config, workflow, phase);
   if (!set) return findings;
   const required = requiredArtifactRepoPath(config, workflow, phase);
-  const phaseArtifactRoot = storyLocation(null, config, workflow.workItem.id).record(memberRoot(phase));
+  const phaseArtifactRoot = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(memberRoot(phase));
   for (const member of set.members) {
     // Advisory members are context only: their absence, content, or unfinished prose cannot become
     // a lifecycle gate. Only governed review members contribute hard authoring findings.

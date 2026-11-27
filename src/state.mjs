@@ -13,7 +13,7 @@ export { commitAndPublish };
 export { validatePhase, refreshPhaseSpecificationIndex, refreshSkillLifecycleArtifactIdentities, registerApprovedSnapshot, settleRetainedPhases, updateArtifactMetadata, writeDecision };
 import { assertStoryNotArchived } from './governance-archive.mjs';
 import { normalizeCurrentWorkflow } from './story-state-normalization.mjs';
-import { workDir, workflowBranchNames, workflowBranchAllowed, storyLocation, storiesRoot } from './story-paths.mjs';
+import { workDir, workflowBranchNames, workflowBranchAllowed, gitPlaceOf, stateRelative, recordFileIn, recordIn, STATE_CHECKOUT, stateRefName, stateTrackingRefName, storyLocation, storiesRoot } from './story-paths.mjs';
 export { workDir, workDirRelative, workflowPath, workflowBranchNames, workflowBranchAllowed } from './story-paths.mjs';
 import { loadWorkflow, attachLegacyGovernedRoots } from './story-workflow-read.mjs';
 export { loadWorkflow } from './story-workflow-read.mjs';
@@ -642,8 +642,12 @@ export function governedStateChange(root, config, workflow, commit) {
   const identity = governedCommitIdentity(root, commit);
   if (identity?.parents.length !== 1 || !identity.eventSha256) return null;
   const [parent] = identity.parents;
-  const item = storyLocation(null, config, workflow.workItem.id).prefix;
-  const stateFile = `${item}/workflow.json`;
+  // A state-ref Story's lifecycle commit is a state commit: its records are at the tree's root, so `item` is null and
+  // `itemFile` names a record in either layout [SSB M3].
+  const location = storyLocation(null, [config, workflow], workflow.workItem.id);
+  const item = location.branch ? location.prefix : null;
+  const itemFile = (relative) => (item === null ? relative : `${item}/${relative}`);
+  const stateFile = itemFile('workflow.json');
   let changed;
   try { changed = exactChangedPathsBetweenObjects(root, parent, identity.commit); } catch { return null; }
   if (!changed.includes(stateFile)) return null;
@@ -663,8 +667,8 @@ export function governedStateChange(root, config, workflow, commit) {
     } catch { return null; }
   }
   return {
-    identity, parent, item, changed, before, after,
-    ownPaths: [stateFile, `${item}/STATUS.md`, ...(intentFile ? [intentFile.path] : [])],
+    identity, parent, item, itemFile, changed, before, after,
+    ownPaths: [stateFile, itemFile('STATUS.md'), ...(intentFile ? [intentFile.path] : [])],
     event: after.publicationProjections?.at(-1)?.event ?? null
   };
 }
@@ -1332,7 +1336,7 @@ export async function createWorkflow(root, config, {
         throw new SingularityFlowError('The baseline changed during human review. No Story was created.', { code: 'TRP_INTAKE_EVIDENCE_STALE' });
       }
     }
-    await ensureSecureRepositoryDirectory(root, storyLocation(null, config, id).prefix, { label: 'Story test policy' });
+    await ensureSecureRepositoryDirectory(root, storyLocation(null, config, id).checkoutPath(), { label: 'Story test policy' });
     await appendTrpRecord(storyLocation(root, config, id).directory, agreement);
     await materializeTrpIntake(root, config, workflow, intakeReview);
     for (const baseline of originalTrpBaselines) await appendTrpOriginalBaseline(storyLocation(root, config, id).directory, baseline);
@@ -1821,7 +1825,9 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
   // complete expected projection first, then permit a retained retry file only when its canonical
   // JSON is byte-for-byte the same projection. Preserve its original timestamp so a failed
   // publication can be retried without manufacturing a false difference from the clock.
-  const existing = await existingClaimMap(root, relative, workflow, phase, 'planned', clauseIds, policy);
+  // A record: in the Story's records, the state checkout for a state-ref Story [SSB M3].
+  const claimRecords = storyLocation(root, [config, workflow], workflow.workItem.id).recordsRoot;
+  const existing = await existingClaimMap(claimRecords, relative, workflow, phase, 'planned', clauseIds, policy);
   const record = {
     ...derived.claimMap,
     ...(contracts.length ? { verificationContracts: contracts } : {}),
@@ -1839,7 +1845,7 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
     );
   }
   if (!existing) {
-    await writeJson(path.join(root, relative), record);
+    await writeJson(path.join(claimRecords, relative), record);
   }
   const digest = existing?.sha256 ?? claimMapSha256(record);
 
@@ -1963,7 +1969,8 @@ async function refreshObservedSpecificationClaims(root, config, workflow, phase,
     generationCommit: phase.generationCommit
   });
   const relative = claimMapRelativePath(config, workflow, phase, 'observed');
-  const existing = await existingClaimMap(root, relative, workflow, phase, 'observed', clauseIds, policy, planned.claims);
+  const claimRecords = storyLocation(root, [config, workflow], workflow.workItem.id).recordsRoot;
+  const existing = await existingClaimMap(claimRecords, relative, workflow, phase, 'observed', clauseIds, policy, planned.claims);
   let record;
   let digest;
   if (existing) {
@@ -1986,7 +1993,7 @@ async function refreshObservedSpecificationClaims(root, config, workflow, phase,
         changeSetDigest: deliveryReceipt.changeSet?.digest ?? null
       }
     };
-    await writeJson(path.join(root, relative), record);
+    await writeJson(path.join(claimRecords, relative), record);
     digest = claimMapSha256(record);
   }
   bindPhaseClaimMap(phase, 'observed', relative, digest);
@@ -2426,7 +2433,8 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   const impactGate = impactImplementationGate(workflow, phase.id);
   if (impactGate) throw new SingularityFlowError(impactGate);
   const itemDirectory = storyLocation(root, [workflow, config], workflow.workItem.id).directory;
-  const itemRelative = storyLocation(null, [workflow, config], workflow.workItem.id).record();
+  // Inputs are documents, named from the checkout [SSB M3].
+  const itemRelative = storyLocation(null, [workflow, config], workflow.workItem.id).checkoutPath();
   if (!dryRun) {
     if (phaseRequiresCodeDelivery(phase)) {
       await assertPlannedSpecificationClaims(root, config, workflow, phase);
@@ -2821,7 +2829,7 @@ export async function inspectRequiredArtifactRegistration(root, config, workflow
 
   const exactCommit = generationCommit ?? publishedGenerationCommit(root, workflow, phase);
   if (!exactCommit) return { status: 'unavailable', reason: 'generation-commit-missing', path: relativePath, registered, current };
-  const publishedResult = run('git', ['show', `${exactCommit}:${relativePath}`], { cwd: root, allowFailure: true });
+  const publishedResult = run('git', ['show', `${exactCommit}:${stateRelative(relativePath)}`], { cwd: root, allowFailure: true });
   if (publishedResult.status !== 0) return {
     status: 'unsafe', reason: 'published-artifact-missing', path: relativePath, registered, current,
     generationCommit: exactCommit
@@ -2832,7 +2840,7 @@ export async function inspectRequiredArtifactRegistration(root, config, workflow
   const securedCurrent = await secureRepositoryPath(root, relativePath, { label: 'Artifact', mustExist: true, type: 'file' });
   const currentBytes = await readFile(securedCurrent.absolute);
   if (!artifactBytesAreText(currentBytes)) {
-    const publishedBytes = exactFileAtObject(root, exactCommit, relativePath, { maximumBytes: currentBytes.length + 1 });
+    const publishedBytes = exactFileAtObject(root, exactCommit, stateRelative(relativePath), { maximumBytes: currentBytes.length + 1 });
     const digest = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
     const binaryBase = { path: relativePath, registered, current, generationCommit: exactCommit,
       currentAuthoredSha256: digest(currentBytes), publishedAuthoredSha256: publishedBytes ? digest(publishedBytes) : null };
@@ -2884,8 +2892,8 @@ export async function inspectRequiredArtifactRegistration(root, config, workflow
     return { ...base, status: 'unsafe', reason: 'managed-metadata-invalid' };
   }
 
-  const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemDirectory = storyLocation(root, [config, workflow], workflow.workItem.id).directory;
+  const itemRelative = storyItemRelative(config, workflow);
   const declarations = phase.kind === 'skill'
     ? (await resolveStorySkillPackage(root, config, workflow, { phaseId: phase.id })).bindingRefs.inputs ?? []
     : resolvedPhaseInputs(workflow, phase);
@@ -2960,7 +2968,7 @@ export async function registerArtifact(root, workflow, candidate, { phaseId, kin
   assertStoryNotArchived(root, workflow);
   const phase = await assertPhaseSequence(root, workflow, 'register artifacts', { requestedPhase: phaseId });
   const absolute = path.resolve(root, candidate); const relativePath = repoRelative(root, absolute);
-  const itemRoot = storyLocation(null, config ?? workflow.resolution ?? {}, workflow.workItem.id).prefix;
+  const itemRoot = storyLocation(null, [config ?? workflow.resolution ?? {}, workflow], workflow.workItem.id).checkoutPath();
   const phaseArtifacts = `${itemRoot}/artifacts/`;
   if (!relativePath.startsWith(phaseArtifacts)
       && !isApplicationPath(relativePath, applicationPathContext(config, workflow))) {
@@ -2987,7 +2995,7 @@ function ignored(config, workflow, relativePath, { untracked = false } = {}) {
   if ([WORKFLOW_PATH, 'singularity/config.json', 'singularity/worldmodel.json'].includes(relativePath)) return true;
   if (relativePath.startsWith('singularity/world-model/')) return true;
   if (relativePath.startsWith('.git/') || isWorkspaceLocalPath(relativePath)) return true;
-  const itemRoot = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemRoot = storyItemRelative(config, workflow);
   if (relativePath.startsWith(`${itemRoot}/artifacts/`)) return false;
   if (relativePath.startsWith(`${itemRoot}/`)) return true;
   return !isApplicationChangePath(relativePath, {
@@ -3001,10 +3009,10 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   const skillPackage = phase.kind === 'skill'
     ? await resolveStorySkillPackage(root, config, workflow, { phaseId: phase.id }) : null;
   const skillOutputKinds = new Map((skillPackage?.bindingRefs?.outputs ?? []).map((output) => [
-    storyLocation(null, config, workflow.workItem.id).record(output.path), output.kind
+    storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(output.path), output.kind
   ]));
   pruneTransientArtifactRegistrations(phase);
-  const inventory = artifactChangeInventory(root);
+  const inventory = storyArtifactChangeInventory(root, config, workflow);
   const untracked = inventory.untracked;
   // `prepare` creates the required phase artifact on purpose. Calling that expected output an
   // "adopted" file makes the ordinary authoring path look like accidental scope expansion and, on
@@ -3019,10 +3027,12 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   // excluded: left where it is, never registered and never committed.
   const scope = await codeCandidateScope(storyLocation(root, config, workflow.workItem.id).directory, workflow, phase);
   const pathContext = applicationPathContext(config, workflow);
-  const excluded = new Set(scope ? discovered.filter((file) => isApplicationPath(file, pathContext) && !scope.allows(file)) : []);
+  // A state-ref Story's own documents sit in its state checkout until M4: never code outside the plan [SSB M3].
+  const ownDocuments = `${storyItemRelative(config, workflow)}/artifacts/`;
+  const excluded = new Set(scope ? discovered.filter((file) => isApplicationPath(file, pathContext) && !scope.allows(file) && !file.startsWith(ownDocuments)) : []);
   // A later code step's code, kept in place for it by an amendment's closure or a return (SPEC-CIC switch 2), is never a
   // document step's artifact: not registered, never committed.
-  const others = scope ? [] : discovered.filter((file) => !file.startsWith(storyLocation(null, config, workflow.workItem.id).record(`artifacts/`)));
+  const others = scope ? [] : discovered.filter((file) => !file.startsWith(storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(`artifacts/`)));
   // A document step never publishes a code base file: it stays in the checkout for the code step ahead [WCB:REQ-004].
   const documentsOnly = (phase.writeScope ?? 'artifact-only') === 'artifact-only';
   const kept = others.length && !documentsOnly ? (await (await import('./amended-drafts.mjs')).withoutHeldCode(root, config, workflow, phase, others)).paths : [];
@@ -3087,9 +3097,7 @@ async function refreshSkillLifecycleArtifactIdentities(root, config, workflow, p
         { code: 'SKP_ARTIFACT_SET_INVALID' }
       );
     }
-    const current = await catalogArtifactSet(
-      root, storyLocation(null, config, workflow.workItem.id).prefix, phase, set
-    );
+    const current = await catalogArtifactSet(...storyDocumentsPair(root, config, workflow), phase, set);
     phase.artifactSet = {
       ...prior, ...current, generation: phase.generation,
       publicationBundleSha256: prior.publicationBundleSha256 ?? prior.bundleSha256,
@@ -3100,7 +3108,7 @@ async function refreshSkillLifecycleArtifactIdentities(root, config, workflow, p
     }
   }
   if (stage === 'approved' && decision) {
-    const itemRoot = storyLocation(null, config, workflow.workItem.id).prefix;
+    const itemRoot = storyItemRelative(config, workflow);
     decision.skillOutputIdentityVersion = 1;
     decision.skillApprovedOutputs = [];
     for (const output of skill.bindingRefs.outputs ?? []) {
@@ -3158,7 +3166,7 @@ async function validatePhase(root, config, workflow, phase, { placeholders = tru
    */
   if (phase.artifactSet?.bundleSha256) {
     const set = resolvedArtifactSet(config, workflow, phase);
-    const current = set ? await catalogArtifactSet(root, storyLocation(null, config, workflow.workItem.id).prefix, phase, set) : null;
+    const current = set ? await catalogArtifactSet(...storyDocumentsPair(root, config, workflow), phase, set) : null;
     if (current && current.bundleSha256 !== phase.artifactSet.bundleSha256) {
       const moved = artifactSetDiff(phase.artifactSet, current).changed.map((member) => member.path);
       errors.push(`Artifact set '${current.setId}' changed after generation ${phase.artifactSet.generation}: ${moved.join(', ')}. Publish a new generation so the bundle and its approval agree.`);
@@ -3492,7 +3500,7 @@ export async function generationResultMatches(root, config, workflow, phase) {
   catch { return false; }
   if (!generationCommit) return false;
   const changeSet = await buildRepositoryChangeSet(root, {
-    baseCommit: generationCommit,
+    baseCommit: lifecycleCodeCommit(root, config, workflow, generationCommit),
     subject: {
       workId: workflow.workItem.id,
       phase: phase.id,
@@ -3515,7 +3523,7 @@ export async function generationResultMatches(root, config, workflow, phase) {
   if (phase.artifactSet?.bundleSha256) {
     const set = resolvedArtifactSet(config, workflow, phase);
     const catalog = set
-      ? await catalogArtifactSet(root, storyLocation(null, config, workflow.workItem.id).prefix, phase, set)
+      ? await catalogArtifactSet(...storyDocumentsPair(root, config, workflow), phase, set)
       : null;
     if (catalog && catalog.bundleSha256 !== phase.artifactSet.bundleSha256) return false;
   }
@@ -3589,8 +3597,7 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
   // A later unrelated policy amendment does not rewrite this source phase's policy binding.
   await verifyTestCommandEpochValidation(root, config, workflow, source, { packet });
   // A rewritten branch history (rebase, force-push) drops the approval commit: named, not "absent".
-  assertRecordedHistory(root, workflow, [...recordedStepCommits(source), { commit: packet.evidenceCommit, label: `${sourceId}'s approved code evidence` }],
-    { branch: workflowPublicationBranch(root, workflow), remote: config.git?.remote ?? 'origin', itemPath: storyLocation(null, config, workflow.workItem.id).prefix });
+  assertRecordedStoryHistory(root, config, workflow, [...recordedStepCommits(source), { commit: packet.evidenceCommit, label: `${sourceId}'s approved code evidence` }]);
   const historical = run('git', ['show', `${packet.evidenceCommit}:${binding.path}`], {
     cwd: root, allowFailure: true
   });
@@ -3628,9 +3635,9 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
     const repairTarget = reviewRepairTarget(workflow, phase);
     // Main's own changes, merged in after the code was approved, read as this Story's edits
     // (2026-10-28). The approved tests still never ran with them, so the return stays; the cause is named.
-    const itemPrefix = `${storyLocation(null, config, workflow.workItem.id).prefix}/`;
+    const itemPrefix = `${storyItemRelative(config, workflow)}/`;
     const merged = storyMergedBaseChanges(root, config, workflow,
-      committedChangedPaths(root, packet.evidenceCommit).filter((file) => !file.startsWith(itemPrefix)));
+      committedChangedPaths(root, lifecycleCodeCommit(root, config, workflow, packet.evidenceCommit)).filter((file) => !file.startsWith(itemPrefix)));
     const mergedCause = merged?.paths.length
       ? ` ${merged.paths.slice(0, 5).join(', ')}${merged.paths.length > 5 ? ` and ${merged.paths.length - 5} more` : ''} came from ${workflow.workItem.baseBranch} through a merge after ${sourceId} was approved, not from this Story; `
         + `its approved tests never ran with them, so ${sourceId} runs its tests again on the merged code, or the merge waits until ${workflow.workItem.id} ends.`
@@ -3833,7 +3840,7 @@ export async function publishGeneration(root, config, workflow, {
   // SPEC-CIC switch 2 [CIC:REQ-009]: a reopened step's draft from before the amendment is refused, and written again in this step.
   if (phase.scopePin && workflow.resolution?.spec?.preAmendmentDrafts === 'refuse') {
     await (await import('./amended-drafts.mjs')).assertDraftPostdatesAmendment(root, workflow, phase,
-      { itemRelative: storyLocation(null, config, workflow.workItem.id).prefix, producer: authorship?.producer ?? 'legacy-unspecified' });
+      { itemRelative: storyItemRelative(config, workflow), producer: authorship?.producer ?? 'legacy-unspecified' });
   }
   const generationIntent = await verifyOpenGenerationIntent(root, workflow, phase);
   assertRequiredAssignment(workflow, phase);
@@ -3932,7 +3939,7 @@ export async function publishGeneration(root, config, workflow, {
   // too late for the author to repair this generation safely.
   const requiredSet = resolvedArtifactSet(config, workflow, phase);
   if (requiredSet) {
-    const catalog = await catalogArtifactSet(root, storyLocation(null, config, workflow.workItem.id).prefix, phase, requiredSet);
+    const catalog = await catalogArtifactSet(...storyDocumentsPair(root, config, workflow), phase, requiredSet);
     await assertRequiredArtifactSetPublishable(root, phase, catalog);
   }
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'publish a generation');
@@ -4011,8 +4018,8 @@ export async function publishGeneration(root, config, workflow, {
   // heading contract can be validated now. This keeps ambiguity, missing preserved sections, and
   // size-bound failures on the no-mutation side of the publication boundary.
   await planAgentBriefs(root, workflow, phase, {
-    itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-    itemRelative: storyLocation(null, config, workflow.workItem.id).prefix,
+    itemDirectory: storyLocation(root, [config, workflow], workflow.workItem.id).directory,
+    itemRelative: storyItemRelative(config, workflow),
     generation: nextPhaseGeneration(phase)
   });
   // Repository-owned tests may change dependency bytes too. Recheck before input/Story writes.
@@ -4137,7 +4144,8 @@ export async function publishGeneration(root, config, workflow, {
     const deliveryRoot = storyLocation(null, config, workflow.workItem.id).record('context', 'code-delivery');
     const receiptPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}.json`;
     const changeSetPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}-changes.json`;
-    await writeJson(path.join(root, changeSetPath), deliveryPreflight.changeSet);
+    // Records, written where their spelling is read: the state checkout for a state-ref Story [SSB M3].
+    await writeJson(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(changeSetPath), deliveryPreflight.changeSet);
     const { treeSha256: workingStateDigest, codeTreeSha256 } = await sourceTreeDigests(root, config, workflow);
     const testInputSha256 = await testInputTreeHash(root, config, workflow);
     const receipt = {
@@ -4216,7 +4224,7 @@ export async function publishGeneration(root, config, workflow, {
       status: 'pending-tests',
       capturedAt: publishedAt
     };
-    await writeJson(path.join(root, receiptPath), receipt);
+    await writeJson(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(receiptPath), receipt);
     phase.deliveryEvidence = {
       ...deliveryPreflight,
       changeClassification: {
@@ -4290,7 +4298,7 @@ export async function publishGeneration(root, config, workflow, {
   if (isConformancePhase(phase)) phase.conformanceTree = await sourceTreeHash(root, config, workflow);
   phase.usage.push(...normalizedUsage);
   const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
-    itemDirectory: storyLocation(root, config, workflow.workItem.id).directory, itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+    itemDirectory: storyLocation(root, [config, workflow], workflow.workItem.id).directory, itemRelative: storyItemRelative(config, workflow)
   });
   phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== phase.generation), phaseTelemetrySummary(telemetry)];
   await updateArtifactMetadata(root, config, workflow, phase);
@@ -4301,11 +4309,11 @@ export async function publishGeneration(root, config, workflow, {
    * Capture only after lifecycle metadata and checkout representation have settled. The kernel
    * owns `context/sidecars/`, outside the artifact-only scope already checked above [SPK:CON-023].
    */
-  const sidecarDir = storyLocation(null, config, workflow.workItem.id).prefix;
+  const sidecarDir = storyItemRelative(config, workflow);
   phase.sidecars = [];
   for (const artifact of phase.artifacts ?? []) {
     if (!artifact.sha256) continue;
-    const relative = sidecarRelativePath(sidecarDir, phase.id, phase.generation, artifact.path);
+    const relative = sidecarRelativePath(recordIn(sidecarDir), phase.id, phase.generation, artifact.path);
     const record = buildArtifactSidecar({
       subject: { kind: 'story', id: workflow.workItem.id },
       phase: phase.id,
@@ -4325,15 +4333,15 @@ export async function publishGeneration(root, config, workflow, {
       // The commit is not known until the publication transaction closes.
       publication: { commit: null, branch: workflow.workItem.branch ?? null, publishedAt }
     });
-    await writeText(path.join(root, relative), serializeArtifactSidecar(record));
+    await writeText(recordFileIn(root, sidecarDir, relative), serializeArtifactSidecar(record));
     phase.sidecars.push({ path: relative, artifact: artifact.path, integritySha256: record.integritySha256 });
   }
   // Generate the downstream projection from the exact generation bytes that this publication
   // commits. Submission later binds these hashes into its immutable review packet; subsequent
   // approval metadata must not redefine what the reviewer and downstream consumer received.
   const agentBriefs = await createAgentBriefs(root, workflow, phase, {
-    itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-    itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+    itemDirectory: storyLocation(root, [config, workflow], workflow.workItem.id).directory,
+    itemRelative: storyItemRelative(config, workflow)
   });
   if (agentBriefs.length) {
     phase.agentBriefs = [
@@ -4355,7 +4363,7 @@ export async function publishGeneration(root, config, workflow, {
   const artifactSet = resolvedArtifactSet(config, workflow, phase);
   if (artifactSet) {
     const previous = phase.artifactSet ?? null;
-    const catalog = await catalogArtifactSet(root, storyLocation(null, config, workflow.workItem.id).prefix, phase, artifactSet);
+    const catalog = await catalogArtifactSet(...storyDocumentsPair(root, config, workflow), phase, artifactSet);
     await assertRequiredArtifactSetPublishable(root, phase, catalog);
     const diff = artifactSetDiff(previous, catalog, { declared: phase.surgicalReopen?.members ?? [] });
     for (const line of disclosureLines(diff)) console.warn(`Warning: ${line}`);
@@ -4420,13 +4428,13 @@ export async function publishGeneration(root, config, workflow, {
   if (publicationTransaction) {
     await persistGenerationPublicationRecord(root, workflow, phase, {
       ...publicationTransaction,
-      workDirectory: storyLocation(null, config, workflow.workItem.id).prefix
+      workDirectory: storyItemRelative(config, workflow)
     });
   }
   // SPEC-CIC switch 1: what this generation depended on, from production facts, committed with it [CIC:REQ-001].
   if (workflow.resolution?.spec?.observedDependencies === 'on') {
     await (await import('./dependency-records.mjs')).recordStepDependencies(root, workflow, phase,
-      { itemRelative: storyLocation(null, config, workflow.workItem.id).prefix, publishedAt });
+      { itemRelative: storyItemRelative(config, workflow), publishedAt });
   }
   normalizedUsage.forEach((usage) => addUsageAggregate(workflow, phase, usage));
   workflow.history.push({ at: nowIso(), actor: actorKey(session.actor), agent: session.agent, event: 'phase_generated', phase: phase.id, detail: `generation ${phase.generation}` });
@@ -4460,7 +4468,7 @@ export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId 
   phase.usage = [...(phase.usage ?? []).filter((item) => item.generation !== generation), ...normalizedUsage];
   const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
     itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-    itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+    itemRelative: storyItemRelative(config, workflow)
   });
   phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== generation), phaseTelemetrySummary(telemetry)];
   rebuildUsageAggregates(workflow);
@@ -5111,7 +5119,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   const runs = !localRun && !candidateRoot && commands.some((command) => command?.kind === 'test') ? await testRunMarker() : null;
   const runTarget = (command) => ({ workId: workflow.workItem.id, phaseId: phase.id, commandId: command.id });
   try {
-  if (runs) await runs.assertNoHeldRuns(root, commands.filter((command) => command?.kind === 'test').map(runTarget), { itemRelative: storyLocation(null, config, workflow.workItem.id).prefix });
+  if (runs) await runs.assertNoHeldRuns(root, commands.filter((command) => command?.kind === 'test').map(runTarget), { itemRelative: storyItemRelative(config, workflow) });
   for (const [index, value] of commands.entries()) {
     const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
     const command = policy.command ?? policy.argv.join(' ');
@@ -5269,7 +5277,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     if (reuseUnchanged && policy.kind === 'test' && policy.argv && gateRun && !environmentGate.run) {
       const observed = {};
       await gateRun.attach(observed);
-      const standing = await unchangedTestRun(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow, phase.id, value, {
+      const standing = await unchangedTestRun(root, storyItemRelative(config, workflow), workflow, phase.id, value, {
         commit: sourceCommit, treeSha256: sourceTreeSha256, codeTreeSha256, testInputSha256, environmentSha256: runEnvironmentSha256(observed.runEnvironment),
         dependencies: observed.reuseKey?.dependencies ?? null, testPolicySha256,
         ...(pinOf ? { pinSha256: pinOf(policy.id) } : {}) });
@@ -5292,7 +5300,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     const coverageBefore = policy.kind === 'test' && policy.argv && !environmentGate.run && !candidateIsOtherCode
       ? await (await coverageReports()).coverageReportsBefore(executionRoot, policy) : null;
     // A gate's test run starts once its command's last run is reconciled, and records that it started [CVL-REQ-016].
-    const run = runs && policy.kind === 'test' ? await runs.beginTestRun(root, runTarget(policy), { startedAt, itemRelative: storyLocation(null, config, workflow.workItem.id).prefix }) : null;
+    const run = runs && policy.kind === 'test' ? await runs.beginTestRun(root, runTarget(policy), { startedAt, itemRelative: storyItemRelative(config, workflow) }) : null;
     let result;
     try {
       result = policy.argv
@@ -5520,7 +5528,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   const checks = await qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance])),
     reuseUnchanged: mayReuseUnchangedRuns(workflow, phase), pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null,
-    onMutation: (ran) => recordRunsBeforeRefusal(root, storyLocation(null, config, workflow.workItem.id).prefix, commands, ran, { pins,
+    onMutation: (ran) => recordRunsBeforeRefusal(root, storyItemRelative(config, workflow), commands, ran, { pins,
       purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase), delivery: deliveryEvidence })
   });
   const passing = [];
@@ -5535,7 +5543,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     // suite's failure never drops another's.
     for (const command of commands) {
       const check = checks.find((entry) => entry.id === command.id);
-      const recorded = check ? await recordTestAttempt(root, storyLocation(null, config, workflow.workItem.id).prefix, {
+      const recorded = check ? await recordTestAttempt(root, storyItemRelative(config, workflow), {
         command, check, purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id,
         generation: nextPhaseGeneration(phase), delivery: deliveryEvidence, ...pins.attempt(command.id)
       }) : null;
@@ -5575,7 +5583,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
               observedOutcome: observation.observedOutcome, disposition: 'accepted-risk', evidenceUse: 'executed',
               evaluationSha256: accepted.evaluation.recordSha256 };
             // An accepted risk publishes too, so its attempts are committed with it [E2G-016].
-            await admitTestAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, phase.id);
+            await admitTestAttempts(root, storyItemRelative(config, workflow), workflow.workItem.id, phase.id);
             return { commands, checks: [], testRecovery: { observation, evaluation: accepted.evaluation } };
           }
           // A step approver may have accepted that this command cannot run here [test-run risk].
@@ -5655,7 +5663,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   if (runRisks.length) deliveryEvidence.testRunRisks = runRisks;
   await pins.record(workflow, attempts.map((attempt) => attempt.commandId), { at: nowIso() });
   // The publication commits this preflight and every earlier kept attempt of the step [E2G-016].
-  await admitTestAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, phase.id);
+  await admitTestAttempts(root, storyItemRelative(config, workflow), workflow.workItem.id, phase.id);
   return { commands, checks };
 }
 
@@ -5930,7 +5938,7 @@ async function submitPhaseTransition(root, config, workflow, {
   // delivered code made after publication is never swept into the later submission/approval history.
   if (!codeDeliveryRequired && exactGenerationCommit) {
     const postPublication = await buildRepositoryChangeSet(root, {
-      baseCommit: exactGenerationCommit,
+      baseCommit: lifecycleCodeCommit(root, config, workflow, exactGenerationCommit),
       subject: {
         workId: workflow.workItem.id,
         phase: phase.id,
@@ -5965,7 +5973,7 @@ async function submitPhaseTransition(root, config, workflow, {
     // an approved code step delivered stops: its tests ran on other code, so it goes back there [WCB:REQ-001].
     const ahead = kept?.paths.length ? codeStepAhead(workflow, phase) : null;
     const committed = kept?.paths.length && !ahead
-      ? [...new Set(committedChangedPaths(root, exactGenerationCommit))].filter((file) => kept.paths.includes(file)).sort() : [];
+      ? [...new Set(committedChangedPaths(root, lifecycleCodeCommit(root, config, workflow, exactGenerationCommit)))].filter((file) => kept.paths.includes(file)).sort() : [];
     const change = committed.length ? await crossPhaseChange(root, config, workflow, phase, committed) : null;
     if (change?.returns.some((entry) => entry.permitted)) {
       const changedPaths = committed;
@@ -5992,7 +6000,7 @@ async function submitPhaseTransition(root, config, workflow, {
   const publicationBranch = workflowPublicationBranch(root, workflow);
   const publicationMode = workflowPublicationMode(config, workflow);
   const exactPublicationCommit = exactGenerationCommit
-    && (publicationMode === 'off' || remoteContains(root, exactGenerationCommit, config.git?.remote ?? 'origin', publicationBranch))
+    && (publicationMode === 'off' || lifecycleCommitPublished(root, config, workflow, exactGenerationCommit, config.git?.remote ?? 'origin', publicationBranch))
     ? exactGenerationCommit
     : null;
   if (publicationMode !== 'off' && !exactPublicationCommit) await enforceSequenceGate(root, workflow, 'remoteGeneration', 'submit for approval', {
@@ -6047,7 +6055,7 @@ async function submitPhaseTransition(root, config, workflow, {
       phaseId: phase.id, itemDirectory: storyLocation(root, config, workflow.workItem.id).directory, allowReconciled: true
     });
     await ensureWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id,
-      itemDirectory: storyLocation(root, config, workflow.workItem.id).directory, itemRelative: storyLocation(null, config, workflow.workItem.id).prefix,
+      itemDirectory: storyLocation(root, config, workflow.workItem.id).directory, itemRelative: storyItemRelative(config, workflow),
       sourceBaseCommit: retainedBaseline.sourceBaseCommit, baselineTag: testCommandEpochRun.suffix });
   }
   if (codeDeliveryRequired && !runChecks) {
@@ -6094,7 +6102,7 @@ async function submitPhaseTransition(root, config, workflow, {
         : testCommandProvenance(phase, command)])),
     reuseUnchanged: mayReuseUnchangedRuns(workflow, phase) && !testCommandEpochRun, published: true,
     ...(pins ? { pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null } : {}),
-    onMutation: (ran) => recordRunsBeforeRefusal(root, storyLocation(null, config, workflow.workItem.id).prefix, codeDeliveryRequired ? requiredTestCommands : repositoryTests?.commands ?? [], ran, { pins,
+    onMutation: (ran) => recordRunsBeforeRefusal(root, storyItemRelative(config, workflow), codeDeliveryRequired ? requiredTestCommands : repositoryTests?.commands ?? [], ran, { pins,
       purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id, phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null,
       delivery: codeDeliveryRequired ? phase.deliveryEvidence : null })
   }) : [];
@@ -6120,13 +6128,13 @@ async function submitPhaseTransition(root, config, workflow, {
     // and every run, fresh or reused, is bound into the Story record [CQF:REQ-010].
     if (repositoryTests?.commands.length) {
       phase.stepTestRuns = { ...(Number(phase.stepTestRuns?.generation) === Number(phase.generation) ? phase.stepTestRuns : {}), generation: phase.generation,
-        testExecutions: await (await import('./verification/repository-tests.mjs')).bindRepositoryTestRuns(root, storyLocation(null, config, workflow.workItem.id).prefix, {
+        testExecutions: await (await import('./verification/repository-tests.mjs')).bindRepositoryTestRuns(root, storyItemRelative(config, workflow), {
           commands: repositoryTests.commands, checks: phase.checks, purpose: 'submission', workflow, phase, generation: phase.generation }) };
     }
     // These phases validate the process exit, not a fresh structured test receipt. An exit-zero
     // command may emit no report at all, so it cannot authorize discarding a preserved report.
     for (const check of phase.checks) await restoreTransientQualityResult(check);
-    if (repositoryTests?.commands.length) await admitTestAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, phase.id);
+    if (repositoryTests?.commands.length) await admitTestAttempts(root, storyItemRelative(config, workflow), workflow.workItem.id, phase.id);
   }
   const repositoryTestFailures = repositoryTests
     ? (await import('./verification/repository-tests.mjs')).settleRepositoryTestChecks(phase.checks, repositoryTests) : [];
@@ -6142,7 +6150,7 @@ async function submitPhaseTransition(root, config, workflow, {
       for (const command of requiredTestCommands) {
         if (retainedRisk && command.id === retainedRisk.observation.obligationId) continue;
         const check = phase.checks.find((entry) => entry.id === command.id);
-        const recorded = check ? await recordTestAttempt(root, storyLocation(null, config, workflow.workItem.id).prefix, {
+        const recorded = check ? await recordTestAttempt(root, storyItemRelative(config, workflow), {
           command, check, purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id,
           phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null, delivery: phase.deliveryEvidence, ...pins?.attempt(command.id)
         }) : null;
@@ -6260,7 +6268,7 @@ async function submitPhaseTransition(root, config, workflow, {
     // The submission commits these attempts and every earlier kept attempt of the step, failed
     // ones included, so a later failure can never hide behind the pass it was retried into [E2G-016].
     attemptHistory.splice(0, attemptHistory.length,
-      ...await admitTestAttempts(root, storyLocation(null, config, workflow.workItem.id).prefix, workflow.workItem.id, phase.id));
+      ...await admitTestAttempts(root, storyItemRelative(config, workflow), workflow.workItem.id, phase.id));
   }
   // The specification acceptance the ending judges, judged where the last code step can still run it [PHR:REQ-007], G6.
   if (ownerStepChecks(workflow) && phaseRequiresCodeDelivery(phase)) {
@@ -6428,7 +6436,7 @@ async function submitPhaseTransition(root, config, workflow, {
     const validatedReceiptPath = testCommandEpochRun
       ? storyLocation(null, config, workflow.workItem.id).record('context', 'code-delivery', `${phase.id}-gen${phase.generation}-${testCommandEpochRun.suffix}.json`)
       : phase.deliveryEvidence.receiptPath;
-    await writeJson(path.join(root, validatedReceiptPath), readyReceipt);
+    await writeJson(storyLocation(root, [config, workflow], workflow.workItem.id).fromRecord(validatedReceiptPath), readyReceipt);
     phase.deliveryEvidence.receiptPath = validatedReceiptPath;
     // Exposed now, judged at this step's approval for a Story that pinned the owner-step checks [PHR:REQ-002],
     // else at the end: a criterion whose own test did not pass (and was not refused above) keeps the step,
@@ -6453,7 +6461,7 @@ async function submitPhaseTransition(root, config, workflow, {
   }
   if (phaseUsesWorkInterval(phase)) {
     const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
-    const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+    const itemRelative = storyItemRelative(config, workflow);
     const interval = workflow.workIntervals?.current;
     if (!interval || interval.phaseId !== phase.id || interval.status !== 'open') {
       throw new SingularityFlowError(
@@ -6566,7 +6574,7 @@ async function submitPhaseTransition(root, config, workflow, {
       await ensureWorkIntervalBaseline(root, config, workflow, {
         phaseId: upcoming.id,
         itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-        itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+        itemRelative: storyItemRelative(config, workflow)
       });
     }
     await markIntentAmendmentRevalidated(root, config, workflow, phase, phase.submittedAt, session.actor);
@@ -6744,6 +6752,23 @@ function mappingSentence(branch, mapping) {
  * `recorded` lists `{ commit, label }`; the first one missing is named, and every missing one is
  * matched against the rewritten history (rewrittenHistoryMapping).
  */
+/**
+ * The recorded commits still on the Story's history. A state-ref Story's are state commits [SSB M3, REQ-004]: they are
+ * asked of its state ref, and the code commit each names is asked of the Story branch, so a rewritten branch is found
+ * as it is today.
+ */
+function assertRecordedStoryHistory(root, config, workflow, recorded) {
+  const options = { branch: workflowPublicationBranch(root, workflow), remote: config.git?.remote ?? 'origin' };
+  if (storyItemRelative(config, workflow) !== STATE_CHECKOUT) {
+    assertRecordedHistory(root, workflow, recorded, { ...options, itemPath: storyLocation(null, config, workflow.workItem.id).prefix });
+    return;
+  }
+  const records = storyLocation(root, [config, workflow], workflow.workItem.id).recordsRoot;
+  assertRecordedHistory(records, workflow, recorded, { ...options, branch: storyStateRefName(workflow) });
+  assertRecordedHistory(root, workflow, recorded.map((entry) => ({ ...entry,
+    commit: entry?.commit ? lifecycleCodeCommit(root, config, workflow, entry.commit) : entry?.commit })), options);
+}
+
 function assertRecordedHistory(root, workflow, recorded, { branch = workflow.workItem.branch ?? workflow.workItem.id,
   remote = 'origin', base = workflow.workItem.baseBranch ?? 'main', itemPath = null } = {}) {
   // One Git process per distinct commit: a step's generation, submission and publication are often one.
@@ -6804,14 +6829,23 @@ function assertRecordedHistory(root, workflow, recorded, { branch = workflow.wor
 export async function reviewHistoryCommits(root, config, workflow, phase, submittedReview, { reviewedRisks = async () => [] } = {}) {
   // Approval checked first that the step's recorded commits are still on the branch (a rebase or
   // force-push read here as every rewritten commit made after submission, 2026-10-28).
-  const reviewRange = `${submittedReview.evidenceCommit}..${head(root)}`;
-  const interveningCommits = storyHistoryCommits(root, [
+  // A state-ref Story's review evidence is a state commit [SSB M3, REQ-004]: its records' history is the state ref's,
+  // and every commit on the Story branch after the code commit it names is a change after the submission, as today.
+  const stateRef = storyItemRelative(config, workflow) === STATE_CHECKOUT;
+  const records = stateRef ? storyLocation(root, [config, workflow], workflow.workItem.id).recordsRoot : root;
+  const reviewRange = `${submittedReview.evidenceCommit}..${head(records)}`;
+  const interveningCommits = storyHistoryCommits(records, [
     'rev-list', '--first-parent', reviewRange
   ], `Phase '${phase.id}' history since its review evidence`);
+  if (stateRef) {
+    interveningCommits.push(...storyHistoryCommits(root, [
+      'rev-list', '--first-parent', `${lifecycleCodeCommit(root, config, workflow, submittedReview.evidenceCommit)}..${head(root)}`
+    ], `Phase '${phase.id}' code since its review evidence`));
+  }
   const approvalSummary = posix(path.relative(
-    root, approvalPath(root, config, workflow.workItem.id, phase.id)
+    records, approvalPath(root, config, workflow.workItem.id, phase.id)
   ));
-  const priorApprovalCommits = storyHistoryCommits(root, [
+  const priorApprovalCommits = storyHistoryCommits(records, [
     'log', '--first-parent', '--format=%H', reviewRange, '--', approvalSummary
   ], `Phase '${phase.id}' prior approvals`);
   const allowedReviewCommits = new Set(priorApprovalCommits);
@@ -7145,8 +7179,7 @@ export async function evaluateApproval(root, config, workflow, {
       }
       // A rewritten history changes the source tree too, and every later check blamed that instead.
       // The packet is found on the current history, so the step's recorded commits are what tell.
-      assertRecordedHistory(root, workflow, recordedStepCommits(phase),
-        { branch: workflowPublicationBranch(root, workflow), remote: config.git?.remote ?? 'origin', itemPath: storyLocation(null, config, workflow.workItem.id).prefix });
+      assertRecordedStoryHistory(root, config, workflow, recordedStepCommits(phase));
     }, { foundation: true });
     await stage('test-command-epoch', async () => {
       await verifyTestCommandEpochValidation(root, config, workflow, phase, { packet: submittedReview });
@@ -7501,7 +7534,7 @@ export async function evaluateApproval(root, config, workflow, {
     });
     await stage('briefs', async () => {
       const briefReview = await verifyAgentBriefsForReview(root, workflow, phase, {
-        itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+        itemRelative: storyItemRelative(config, workflow)
       });
       if (!briefReview.valid) {
         throw new SingularityFlowError(
@@ -7758,8 +7791,8 @@ export async function approvePhase(root, config, workflow, options = {}) {
       if (persist) {
         await ensureWorkIntervalBaseline(root, config, workflow, {
           phaseId: upcoming.id,
-          itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-          itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+          itemDirectory: storyLocation(root, [config, workflow], workflow.workItem.id).directory,
+          itemRelative: storyLocation(null, [config, workflow], workflow.workItem.id).record()
         });
       }
     }
@@ -7825,6 +7858,7 @@ async function refreshPhaseSpecificationIndex(root, config, workflow, phase) {
     phase: phase.id,
     generation: phase.generation,
     outputPath: specIndexPath,
+    recordsRoot: storyLocation(root, [config, workflow], workflow.workItem.id).recordsRoot,
     policy: specPolicy,
     externalClauses: predecessorSpecClauses(priorSpecRecords, workflow, phase.id)
   });
@@ -8136,7 +8170,7 @@ export async function previewTestingRepair(root, config, workflow) {
     evidenceCommit: packet.evidenceCommit
   });
   const changeSet = await buildRepositoryChangeSet(root, {
-    baseCommit: code.generationCommit,
+    baseCommit: lifecycleCodeCommit(root, config, workflow, code.generationCommit),
     subject: { kind: 'testing-repair', id: workflow.workItem.id,
       phase: review.id, testingGeneration: review.generation }
   });
@@ -8265,7 +8299,7 @@ async function settleRetainedPhases(root, config, workflow, at) {
     if (retained.retention.rule === 'E9') {
       const { authoredRetentionBindings } = await import('./inputs.mjs');
       retained.retention.inputBindings = await authoredRetentionBindings(root, workflow, retained, retained.retention.authoredProducers ?? [], {
-        itemDirectory: storyLocation(root, config, workflow.workItem.id).directory, itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+        itemDirectory: storyLocation(root, [config, workflow], workflow.workItem.id).directory, itemRelative: storyItemRelative(config, workflow)
       });
     }
     await refreshPhaseSpecificationIndex(root, config, workflow, retained);
@@ -8388,7 +8422,7 @@ async function loopBackForDecision(root, config, workflow, phase, outcome, {
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: targetId,
     itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-    itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+    itemRelative: storyItemRelative(config, workflow)
   });
   workflow.changeRequests.push(changeRequest);
   return { changeRequest };
@@ -8463,7 +8497,7 @@ export async function decideStory(root, config, workflow, {
       await ensureWorkIntervalBaseline(root, config, workflow, {
         phaseId: upcoming.id,
         itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-        itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+        itemRelative: storyItemRelative(config, workflow)
       });
     }
   }
@@ -8727,7 +8761,7 @@ export async function rejectPhase(root, config, workflow, {
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: targetId,
     itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-    itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+    itemRelative: storyItemRelative(config, workflow)
   });
   const packet = workflow.lineage?.submissions?.findLast?.((entry) =>
     entry.phase === phase.id && entry.generation === phase.generation
@@ -9153,7 +9187,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   // its proposed bytes already exist in the immutable proposal commit. Register that reviewed
   // source so downstream `fallback: block` briefs retain the same exact expansion guarantee.
   const amendmentReferenceRevision = referenceRevision(
-    root, head(root), proposal.specification.proposedPath
+    root, head(gitPlaceOf(root, proposal.specification.proposedPath).cwd), proposal.specification.proposedPath
   );
   const amendmentReference = await registerReference(root, {
     repository: {
@@ -9187,7 +9221,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     startedAt: at, completedAt: at
   }, {
     itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-    itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+    itemRelative: storyItemRelative(config, workflow)
   });
   specification.telemetry = [
     ...(specification.telemetry ?? []).filter((entry) => Number(entry.generation) !== Number(specification.generation)),
@@ -9206,7 +9240,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   // from an unreviewed missing submission packet.
   const agentBriefs = await createAgentBriefs(root, workflow, specification, {
     itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-    itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+    itemRelative: storyItemRelative(config, workflow)
   });
   if (agentBriefs.length) {
     specification.agentBriefs = [
@@ -9268,7 +9302,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   // The amended scope generation is published here, not by publishGeneration: its dependency record too [CIC:REQ-001].
   if (workflow.resolution?.spec?.observedDependencies === 'on') {
     await (await import('./dependency-records.mjs')).recordStepDependencies(root, workflow, specification,
-      { itemRelative: storyLocation(null, config, workflow.workItem.id).prefix, publishedAt: at });
+      { itemRelative: storyItemRelative(config, workflow), publishedAt: at });
   }
 
   const nextIndex = workflow.phaseOrder.indexOf(specification.id) + 1;
@@ -9369,7 +9403,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   // the amended scope; its earlier prompt and code generation are set aside and its draft kept read only.
   if (firstReset != null && workflow.resolution?.spec?.preAmendmentDrafts === 'refuse') {
     await (await import('./amended-drafts.mjs')).pinResetSteps(root, workflow, workflow.phaseOrder.slice(firstReset),
-      { amendment: proposal.id, revision: scopeRevision, itemRelative: storyLocation(null, config, workflow.workItem.id).prefix, at, config });
+      { amendment: proposal.id, revision: scopeRevision, itemRelative: storyItemRelative(config, workflow), at, config });
   }
   // D1 [CIC:REQ-021]: each step kept here whose prompt held a changed clause it does not cite is asked, by its own
   // approvers on the Decide card, whether it still holds: the rows pendingAmendmentRevalidations lists, never settled.
@@ -9807,7 +9841,7 @@ export async function proposeForwardAmendment(root, config, workflow, {
     forwardAmendmentRefusal(`Keep ${phaseId}'s managed input block unchanged; amend only the authored text.`);
   }
   workflow.forwardAmendments ??= [];
-  const { id, proposedPath } = nextForwardAmendmentProposal(storyLocation(null, config, workflow.workItem.id).prefix, workflow, relative);
+  const { id, proposedPath } = nextForwardAmendmentProposal(storyItemRelative(config, workflow), workflow, relative);
   const target = await secureRepositoryPath(root, proposedPath, { label: 'Forward amendment proposal' });
   if (target.exists) forwardAmendmentRefusal(`${proposedPath} already exists; never overwrite a proposal.`);
   await writeBytes(target.absolute, bytes);
@@ -9868,7 +9902,9 @@ export async function decideForwardAmendment(root, config, workflow, {
   }
   const proposed = await secureRepositoryPath(root, proposal.proposedPath, { label: 'Forward amendment proposal', mustExist: true, type: 'file' });
   const bytes = await readFile(proposed.absolute);
-  const committed = exactFileAtObject(root, head(root), proposal.proposedPath);
+  // A state-ref Story's proposal is committed on its state ref: read at its head, by its name there [SSB M3].
+  const proposalPlace = gitPlaceOf(root, proposal.proposedPath);
+  const committed = exactFileAtObject(root, head(proposalPlace.cwd), proposalPlace.relative);
   if (!committed?.equals(bytes) || createHash('sha256').update(bytes).digest('hex') !== proposal.proposedSha256) {
     forwardAmendmentRefusal(`${amendmentId}'s proposed bytes are not the committed proposal.`, 'FORWARD_AMENDMENT_STALE');
   }
@@ -9877,7 +9913,7 @@ export async function decideForwardAmendment(root, config, workflow, {
     forwardAmendmentRefusal(`${relative} has uncommitted edits; restore the approved bytes before deciding.`, 'FORWARD_AMENDMENT_STALE');
   }
   const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemRelative = storyItemRelative(config, workflow);
   const declared = workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length > 0;
   const authorship = buildGenerationAuthorship({
     options: normalizeAuthorshipOptions(), actor: proposal.proposedBy, governedAgentContext: null,
@@ -9915,7 +9951,7 @@ export async function decideForwardAmendment(root, config, workflow, {
     subject: { kind: 'story', id: workflow.workItem.id, branch: workflow.workItem.branch, subjectRevision: phase.generation },
     artifact: { phaseId: phase.id, generation: phase.generation, outputId: phase.requiredArtifact?.id ?? phase.id,
       path: proposal.proposedPath, mediaType: 'text/markdown' },
-    revision: referenceRevision(root, head(root), proposal.proposedPath),
+    revision: referenceRevision(root, head(gitPlaceOf(root, proposal.proposedPath).cwd), proposal.proposedPath),
     visibility: 'model'
   });
   phase.approvals.push(approval);
@@ -9989,7 +10025,7 @@ export async function revalidateAfterForwardAmendment(root, config, workflow, {
   const phase = workflow.phases[phaseId];
   const authority = requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, phase.approvalPolicy, actor);
   const itemDirectory = storyLocation(root, config, workflow.workItem.id).directory;
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemRelative = storyItemRelative(config, workflow);
   let binding = null;
   if (outcome === 'unchanged') {
     // A plan is said to still hold only while it plans every clause the specification now holds, and no other [PHR:REQ-002, finding 15].
@@ -10196,7 +10232,7 @@ export async function reopenWorkflow(root, config, workflow, {
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: targetId,
     itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
-    itemRelative: storyLocation(null, config, workflow.workItem.id).prefix
+    itemRelative: storyItemRelative(config, workflow)
   });
   await invalidateImpactReceipt(root, config, workflow, {
     reason: changeRequest.comment,
@@ -10238,7 +10274,7 @@ function reworkScopePath(config, workflow, candidate, { untracked = false } = {}
   if (isApplicationChangePath(relative, {
     ...applicationPathContext(config, workflow), untracked
   })) return true;
-  const itemRoot = posix(storyLocation(null, config, workflow.workItem.id).prefix);
+  const itemRoot = posix(storyItemRelative(config, workflow));
   if (!(relative === itemRoot || relative.startsWith(`${itemRoot}/`))) return false;
   const child = relative.slice(itemRoot.length).replace(/^\//, '');
   // A version's opening record is append-only: a withdrawn opening keeps its record, as it keeps its number [OSA §4.3].
@@ -11485,8 +11521,51 @@ export async function decideStorySkillVersion(root, config, workflow, options = 
 
 
 
+/** A Story's documents and their sets, named relative to the checkout (REQ-009): its state checkout until M4 [SSB M3]. */
+function storyDocumentsPair(root, config, workflow) { return [root, storyItemRelative(config, workflow)]; }
+
+/**
+ * The Story's folder named from the checkout, for a callee that joins documents and records under it (its records
+ * through recordIn and recordFileIn): '<Stories folder>/<ID>' as before, the state checkout for a state-ref Story
+ * [SSB M3; REQ-009].
+ */
+function storyItemRelative(config, workflow) { return storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(); }
+
+/** A state-ref Story's state ref, as its pinned ledger transport names it. */
+function storyStateRefName(workflow) {
+  return stateRefName(workflow.workItem.id, { pinTransport: workflow.resolution?.ledger?.pinTransport === 'branches' ? 'branches' : 'refs' });
+}
+
+/** The code commit a Story's lifecycle commit is about: itself, or what a state commit names (REQ-004) [SSB M3]. */
+function lifecycleCodeCommit(root, config, workflow, commit) {
+  if (!commit || storyItemRelative(config, workflow) !== STATE_CHECKOUT) return commit;
+  return governedCommitIdentity(root, commit)?.storyCodeCommit ?? commit;
+}
+
+/** Whether the remote holds a lifecycle commit: on the Story branch, or a state-ref Story's on its state ref [SSB M3]. */
+function lifecycleCommitPublished(root, config, workflow, commit, remote, branchName) {
+  if (storyItemRelative(config, workflow) !== STATE_CHECKOUT) return remoteContains(root, commit, remote, branchName);
+  return commitIsAncestor(root, commit, stateTrackingRefName(remote, workflow.workItem.id));
+}
+
+/**
+ * The checkout's changed files, and a state-ref Story's changed documents: they are in its state checkout until M4,
+ * which the checkout's exclude line hides from Git there [SSB M3].
+ */
+function storyArtifactChangeInventory(root, config, workflow) {
+  const inventory = artifactChangeInventory(root);
+  if (storyItemRelative(config, workflow) !== STATE_CHECKOUT) return inventory;
+  const state = artifactChangeInventory(path.join(root, STATE_CHECKOUT));
+  const documents = state.paths.filter((file) => file.startsWith('artifacts/'));
+  for (const file of documents) if (state.untracked.has(file)) inventory.untracked.add(`${STATE_CHECKOUT}/${file}`);
+  return { paths: [...inventory.paths, ...documents.map((file) => `${STATE_CHECKOUT}/${file}`)].sort(), untracked: inventory.untracked };
+}
+
 export async function syncPublication(root, config, workflow, { fault = null, rebindRemote = null } = {}) {
   assertStoryNotArchived(root, workflow);
+  if (storyLocation(root, [workflow, config], workflow.workItem.id).layout === 'state-ref') { // SSB M3
+    return (await import('./story-state-publication.mjs')).syncStoryStatePublication(root, config, workflow);
+  }
   const subject = { kind: 'story', id: workflow.workItem.id };
   const pendingOptions = {
     ...subject,

@@ -58,6 +58,73 @@ export function rememberStoryLayout(root, id, layout) {
   knownLayouts.set(layoutKey(path.resolve(root), id), layout);
 }
 
+/**
+ * The file a recorded state path names, for a reader with no Story in scope [SSB M3; the M1 plan's §9 B12]. In a
+ * checkout whose Story keeps its records on its state ref (remembered for this process), a state-relative record is in
+ * the state checkout; a story-branch spelling, and any other checkout, is joined to the checkout as written.
+ */
+export function recordedStateFile(root, recorded) {
+  return typeof recorded === 'string' && !recorded.startsWith(`${DEFAULT_WORK_ITEM_ROOT}/`) && keepsStateRefRecords(root)
+    ? path.join(root, STATE_CHECKOUT, recorded) : path.join(root, recorded);
+}
+
+function keepsStateRefRecords(root) {
+  if (!knownLayouts.size || root == null) return false;
+  const prefix = `${path.resolve(String(root))}\0`;
+  for (const [key, layout] of knownLayouts) if (layout === 'state-ref' && key.startsWith(prefix)) return true;
+  return false;
+}
+
+/**
+ * A record under the Story folder a caller names by `itemRelative`, that folder's checkout-relative spelling
+ * (`checkoutPath()`) [SSB M3, REQ-009]. A state-ref Story's folder is its state checkout, and its records are named
+ * relative to it; a story-branch Story's records are named from the checkout, as before. `recordIn` is the spelling a
+ * record stores, `recordFileIn` the file that spelling names.
+ */
+export function recordIn(itemRelative, ...parts) {
+  return itemRelative === STATE_CHECKOUT ? slash(path, path.join(...parts)) : slash(path, path.join(itemRelative, ...parts));
+}
+
+/**
+ * Where a caller's Story folder (`itemRelative`, as recordIn) keeps its records: `root` to resolve a record spelling
+ * against and `prefix` to spell it with [SSB M3]. The checkout and '<Stories folder>/<ID>' for story-branch; the state
+ * checkout and '.' (a spelling relative to it) for state-ref.
+ */
+export function recordPlace(root, itemRelative) {
+  return itemRelative === STATE_CHECKOUT || itemRelative === '.' ? { root: path.join(root, STATE_CHECKOUT), prefix: '.' } : { root, prefix: itemRelative };
+}
+
+export function recordFileIn(root, itemRelative, recorded) {
+  // '.' is a state-ref Story's own `record()`, as Story start passes it (M2).
+  return itemRelative === STATE_CHECKOUT || itemRelative === '.' ? path.join(root, STATE_CHECKOUT, recorded) : path.join(root, recorded);
+}
+
+/**
+ * A path named from the checkout, as the state checkout names it [SSB M3]: how a state record spells it, and where a
+ * state commit's tree has it. A path outside the state checkout is returned as written, so a story-branch Story's
+ * paths never change.
+ */
+export function stateRelative(relative) {
+  return typeof relative === 'string' && relative.startsWith(`${STATE_CHECKOUT}/`) ? relative.slice(STATE_CHECKOUT.length + 1) : relative;
+}
+
+/**
+ * What a Story's record spellings are relative to, from the Story folder a caller holds (`itemDirectory`): the state
+ * checkout when that folder is it, else the checkout [SSB M3]. Pure: no file read.
+ */
+export function recordsRootFor(root, itemDirectory) {
+  return itemDirectory && path.resolve(itemDirectory) === path.resolve(root, STATE_CHECKOUT) ? path.join(root, STATE_CHECKOUT) : root;
+}
+
+/**
+ * Where Git answers for a path named from the checkout [SSB M3]: a path in the state checkout is asked of the state
+ * checkout (its HEAD is the state ref), by the name it has there. Any other path is asked of the checkout as written.
+ */
+export function gitPlaceOf(root, relative) {
+  const inside = stateRelative(relative);
+  return inside === relative ? { cwd: root, relative } : { cwd: path.join(root, STATE_CHECKOUT), relative: inside };
+}
+
 /** Forget every remembered layout (tests). */
 export function forgetStoryLayouts() { knownLayouts.clear(); }
 
@@ -124,6 +191,14 @@ class StoryLocation {
     return slash(this.path, this.branch ? this.path.join(this.storiesRoot, this.id, ...parts) : this.path.join(...parts));
   }
 
+  /**
+   * A step's document or other file named relative to the code checkout (REQ-009): the record itself for story-branch;
+   * inside the state checkout for state-ref, where M3 keeps its documents until M4 moves them to docs/stories.
+   */
+  checkoutPath(...parts) {
+    return this.branch ? this.record(...parts) : slash(this.path, this.path.join(STATE_CHECKOUT, ...parts));
+  }
+
   /** The state file a record names, on disk, read as written. */
   fromRecord(recorded) {
     return this.branch ? this.path.join(this.root, recorded) : this.path.join(this.root, STATE_CHECKOUT, recorded);
@@ -180,7 +255,10 @@ class StoryLocation {
   /** Where the pinned configuration's usual paths resolve. */
   get configurationRoot() { return this.branch ? this.root : this.path.join(this.root, STATE_CHECKOUT, STATE_CONFIGURATION); }
 
-  /** The root a code-tree digest leaves out: the Stories folder's first segment. null for state-ref until M3. */
+  /**
+   * The root a code-tree digest leaves out: the Stories folder's first segment. null for state-ref: its code checkout's
+   * tree holds no records, so nothing is left out (REQ-004, SSB M3).
+   */
   get codeTreeExclusion() { return this.branch ? `${String(this.storiesRoot).split('/')[0]}/` : null; }
 
   /** A Git object to read: revision null is the caller's commit. */

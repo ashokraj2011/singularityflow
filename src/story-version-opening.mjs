@@ -25,7 +25,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { recordSha256 } from './records.mjs';
-import { nowIso, posix, SingularityFlowError } from './util.mjs';
+import { nowIso, SingularityFlowError } from './util.mjs';
 import { versionNumbers } from './kernel/step-versions.mjs';
 import { openingFactsOf, versionFactsOf } from './phase-generation-need.mjs';
 import { CHECKPOINT_PURPOSE, CHECKPOINT_SCHEMA, WRITER_SCHEMA, checkpointFile, gitDirectories, readCheckpoint, readWriterId, sealHere,
@@ -184,8 +184,9 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
   if (fault) await fault('before-reservation', { operationId: id });
   const [{ commitAndPublish }, { LIFECYCLE_EVENT }, { storyLocation }, { writeJson }] = await Promise.all([
     import('./story-publication-service.mjs'), import('./lifecycle-event.mjs'), import('./story-paths.mjs'), import('./util.mjs')]);
-  const directory = storyLocation(null, config, workId).prefix;
-  const recordPath = posix(path.join(directory, 'context', 'version-openings', `${phase.id}-v${proposal.version}.json`));
+  // Records of the Story, named and written in its records: the state checkout for a state-ref Story [SSB M3].
+  const location = storyLocation(root, [config, workflow], workId);
+  const recordPath = location.record('context', 'version-openings', `${phase.id}-v${proposal.version}.json`);
   const openedAt = nowIso();
   const writer = { fence, writerId, operationId: id };
   let recordSha256 = null;
@@ -205,7 +206,7 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
     `Open ${phase.id} version ${proposal.version} of ${workId}`, [], {
       transactionId: id,
       // Only the Story's metadata: never application files, unrelated changes or local attachments [§7.2, OSA:REQ-031].
-      exactWorkItemPaths: [recordPath, posix(path.join(directory, 'context', 'generation-start')), posix(path.join(directory, 'context', 'work-intervals'))],
+      exactWorkItemPaths: [recordPath, location.record('context', 'generation-start'), location.record('context', 'work-intervals')],
       beforeStateWrite: async () => {
         intent = await open(workflow, phase);
         // The settlement that stands in for the person's yes is written in this same commit: an opening that fails leaves none.
@@ -219,7 +220,7 @@ export async function openVersion(root, config, workflow, phase, { proposal, dig
           writer: { ...writer, actor: principal ? { name: principal.name ?? null, email: principal.email ?? null, login: principal.login ?? null } : null },
           intent: intent?.id ? { id: intent.id, receiptSha256: intent.receiptSha256 ?? null } : null, openedAt };
         recordSha256 = sha(record);
-        await writeJson(path.join(root, recordPath), record);
+        await writeJson(location.fromRecord(recordPath), record);
         // The reservation moves the high-watermark in the same commit as the opening it reserves [§4.3, §7.2].
         phase.versionOpening = { operationId: id, version: proposal.version, highWatermark: proposal.version, reason: proposal.reason,
           path: recordPath, sha256: recordSha256, consent: receipt ? { receiptId: receipt.receiptId, surface: receipt.response.surface,
@@ -310,7 +311,8 @@ export async function reconcileOpening(root, config, workflow, phase, { operatio
   if (!commit) {
     // No commit kept here: the opening settles by its committed record only, never by a working-copy edit [§14].
     const [{ sourceFileAt }, { storyLocation }] = await Promise.all([import('./source-inspection.mjs'), import('./story-paths.mjs')]);
-    const committed = sourceFileAt(root, 'HEAD', storyLocation(null, config, workId).record(`workflow.json`));
+    const records = storyLocation(root, [config, workflow], workId);
+    const committed = sourceFileAt(records.recordsRoot, 'HEAD', records.record(`workflow.json`));
     let held = false;
     try { held = committed.status === 'present' && named(JSON.parse(committed.value)?.phases?.[phase.id]?.versionOpening); } catch { held = false; }
     if (!held) throw refuse(`The opening ${operationId} of ${phase.id} is in this working copy only, never committed: it opens nothing. Inspect what this checkout knows of it; its next version opens only through its own preview and the person's yes.`,
@@ -427,7 +429,8 @@ export async function takeOverWriter(root, config, workflow, phase, { fault = nu
   const fence = Number(pointer.writer?.fence ?? 0) + 1;
   const [{ commitAndPublish }, { LIFECYCLE_EVENT }, { storyLocation }, { writeJson }] = await Promise.all([
     import('./story-publication-service.mjs'), import('./lifecycle-event.mjs'), import('./story-paths.mjs'), import('./util.mjs')]);
-  const recordPath = storyLocation(null, config, workId).record('context', 'version-openings', `${phase.id}-v${pointer.version}-fence${fence}.json`);
+  const location = storyLocation(root, [config, workflow], workId);
+  const recordPath = location.record('context', 'version-openings', `${phase.id}-v${pointer.version}-fence${fence}.json`);
   let checkpoint = await saveCheckpoint(commonDir, { operationId: id, payloadDigest: sha({ operation: TAKEOVER_OPERATION, workId, phase: phase.id, version: pointer.version, fence }),
     workId, phase: phase.id, version: pointer.version, proposalDigest: null, state: 'prepared', history: [] });
   const at = nowIso();
@@ -437,7 +440,7 @@ export async function takeOverWriter(root, config, workflow, phase, { fault = nu
     `Take over ${phase.id} version ${pointer.version} of ${workId}`, [], {
       transactionId: id, exactWorkItemPaths: [recordPath],
       beforeStateWrite: async () => {
-        await writeJson(path.join(root, recordPath), { schema: TAKEOVER_SCHEMA, operationId: id, opening: pointer.operationId, version: pointer.version,
+        await writeJson(location.fromRecord(recordPath), { schema: TAKEOVER_SCHEMA, operationId: id, opening: pointer.operationId, version: pointer.version,
           fence, previous: { fence: pointer.writer?.fence ?? null, writerId: pointer.writer?.writerId ?? null }, writerId,
           actor: principal ? { name: principal.name ?? null, email: principal.email ?? null, login: principal.login ?? null } : null, at });
         phase.versionOpening = { ...pointer, writer: { fence, writerId, operationId: id } };

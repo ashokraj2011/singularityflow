@@ -29,7 +29,7 @@ import { upstreamChangeRoutes } from '../upstream-routes.mjs';
 import {
   optionBoolean, optionString, posix, secureRepositoryPath, SingularityFlowError, snapshot, unknownStepDetails, writeAtomic
 } from '../util.mjs';
-import { storyLocation } from '../story-paths.mjs';
+import { gitPlaceOf, stateRelative, storyLocation } from '../story-paths.mjs';
 
 const HISTORY_LIMIT = 200;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -86,7 +86,10 @@ async function planEntry(root, finding, staged, headCommit) {
   }
   await secureRepositoryPath(root, finding.path, { label: `Approved ${finding.phase} input` });
   const approved = plain(finding.approvedSha256);
-  const committed = committedFileBytes(root, 'HEAD', finding.path);
+  // A state-ref Story's document is committed on its state ref, so Git there answers for it [SSB M3].
+  const place = gitPlaceOf(root, finding.path);
+  if (place.cwd !== root) headCommit = head(place.cwd);
+  const committed = committedFileBytes(place.cwd, 'HEAD', place.relative);
   if (committed && sha256(committed) === approved) {
     if (staged.has(finding.path)) {
       return { ...entry, drift: 'staged', source: { kind: 'head', commit: headCommit },
@@ -95,7 +98,7 @@ async function planEntry(root, finding, staged, headCommit) {
     }
     return { ...entry, restorable: true, drift: 'uncommitted', source: { kind: 'head', commit: headCommit } };
   }
-  const historical = approvedCommitInHistory(root, finding.path, approved);
+  const historical = approvedCommitInHistory(place.cwd, place.relative, approved);
   return { ...entry, drift: 'committed', source: historical ? { kind: 'commit', commit: historical } : null,
     code: 'INPUT_RESTORE_COMMITTED_DRIFT',
     reason: historical
@@ -134,7 +137,7 @@ async function approvedArtifactDrift(root, workflow, phase, itemRelative) {
  * the change is meant, and the restore preview when it is not.
  */
 export async function approvedArtifactDriftWarnings(root, config, workflow, phase) {
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemRelative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath();
   const findings = await approvedArtifactDrift(root, workflow, phase, itemRelative).catch(() => []);
   return findings.map((finding) => {
     const route = upstreamChangeRoutes(workflow, finding.phase, { currentPhaseId: phase.id }).routes[0] ?? null;
@@ -150,7 +153,7 @@ export async function approvedArtifactDriftWarnings(root, config, workflow, phas
 /** Read-only preview with a digest the apply step must repeat exactly. */
 export async function inputRestorePlan(root, config, workflow, phaseId = null) {
   const phase = restorePhase(workflow, phaseId);
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemRelative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath();
   const inputs = await collectInputs(root, workflow, phase, {
     definition: config, itemDirectory: path.join(root, itemRelative), itemRelative
   });
@@ -223,7 +226,7 @@ export async function applyInputRestore(root, config, workflow, phaseId = null, 
     const checkpoint = await createPhaseCheckpoint(root, config, workflow, phase);
     const restored = [];
     for (const entry of restorable) {
-      const bytes = committedFileBytes(root, entry.source.commit, entry.path);
+      const bytes = committedFileBytes(root, entry.source.commit, stateRelative(entry.path));
       if (!bytes || sha256(bytes) !== plain(entry.approvedSha256)) {
         throw new SingularityFlowError(
           `The approved bytes of ${entry.path} are no longer readable from the commit that held them. Nothing further was restored; checkpoint ${checkpoint.id} holds the earlier copy.`,

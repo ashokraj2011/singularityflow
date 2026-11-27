@@ -183,7 +183,7 @@ async function mcpConfigurationStatus(root, definition) {
  */
 async function visualAssuranceSnapshot(root, definition, workflow) {
   if (!workflow) return null;
-  const itemDirectoryRelative = storyLocation(null, [workflow, definition], workflow.workItem.id).prefix;
+  const itemDirectoryRelative = storyLocation(null, [workflow, definition], workflow.workItem.id).checkoutPath();
   const itemDirectory = path.join(root, itemDirectoryRelative);
   const errors = [], warnings = [], passes = [];
 

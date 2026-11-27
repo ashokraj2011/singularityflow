@@ -1,6 +1,9 @@
 import { nextPhaseGeneration, groundingRecordRelative, clarificationRecordRelative } from './phase-generation.mjs';
 import { CLARIFICATION_RESPONSE_FORMAT, pinnedClarificationPolicy } from './phase-staging-paths.mjs';
 import { storyLocation } from './story-paths.mjs';
+
+/** Where a clarification's records are read and written: the state checkout for a state-ref Story [SSB M3]. */
+const recordsOf = (root, definition, workflow) => storyLocation(root, [definition, workflow], workflow.workItem.id).recordsRoot;
 export { clarificationRecordRelative };
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
@@ -163,9 +166,9 @@ function responseArrayFromPayload(payload) {
  */
 export async function readClarificationRecord(root, definition, workflow, phase, generation) {
   const relative = clarificationRecordRelative(definition, workflow, phase, generation);
-  if (!(await exists(path.join(root, relative)))) return null;
+  if (!(await exists(path.join(recordsOf(root, definition, workflow), relative)))) return null;
   try {
-    return readRecord('clarification-record', await readJson(path.join(root, relative))).record;
+    return readRecord('clarification-record', await readJson(path.join(recordsOf(root, definition, workflow), relative))).record;
   } catch (error) {
     if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
     return null;
@@ -188,10 +191,10 @@ export function answeredMarkerHashes(record) {
 export async function clarificationPromptComposition(root, definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
   const groundingPath = groundingRecordRelative(definition, workflow, phase, generation);
   const command = `singularity-flow wm compose --phase ${phase.id}`;
-  if (!(await exists(path.join(root, groundingPath)))) return { status: 'missing', command, groundingPath, grounding: null };
-  const grounding = await readJson(path.join(root, groundingPath)).catch(() => null);
+  if (!(await exists(path.join(recordsOf(root, definition, workflow), groundingPath)))) return { status: 'missing', command, groundingPath, grounding: null };
+  const grounding = await readJson(path.join(recordsOf(root, definition, workflow), groundingPath)).catch(() => null);
   const promptPath = posix(grounding?.promptPath ?? '');
-  const promptInfo = promptPath ? await snapshot(path.join(root, promptPath)) : { exists: false, sha256: null };
+  const promptInfo = promptPath ? await snapshot(path.join(recordsOf(root, definition, workflow), promptPath)) : { exists: false, sha256: null };
   const current = promptInfo.exists && promptInfo.sha256 && promptInfo.sha256 === grounding?.renderedSha256;
   return { status: current ? 'current' : 'stale', command, groundingPath, grounding, promptPath, promptInfo };
 }
@@ -221,9 +224,9 @@ export async function recordClarificationResponses(root, definition, workflow, p
     throw promptNotComposed(workflow, phase, `The composed prompt for ${phase.id} generation ${generation} is missing or stale. Re-run singularity-flow wm compose --phase ${phase.id}.`);
   }
   const { grounding, promptPath, promptInfo } = composition;
-  const groundingInfo = await snapshot(path.join(root, groundingPath));
+  const groundingInfo = await snapshot(path.join(recordsOf(root, definition, workflow), groundingPath));
   const relative = clarificationRecordRelative(definition, workflow, phase, generation);
-  const destination = path.join(root, relative);
+  const destination = path.join(recordsOf(root, definition, workflow), relative);
   let stagedAtDestination = false;
   if (responseFile && await sameExistingFile(responseFile, destination)) {
     const stagedPayload = await readJson(destination);
@@ -371,7 +374,7 @@ async function inspectClarificationRecord(root, definition, workflow, phase, {
   const policy = resolvedPolicy(definition, workflow, phase);
   const relative = clarificationRecordRelative(definition, workflow, phase, generation);
   if (policy.mode === 'off') return { mode: policy.mode, recordState: 'not-applicable', errors: [], warnings: [], passes: [], record: null, path: null, sha256: null };
-  if (!(await exists(path.join(root, relative)))) {
+  if (!(await exists(path.join(recordsOf(root, definition, workflow), relative)))) {
     const message = `clarification response is missing for ${phase.id} generation ${generation}; this does not mean the human has not answered. Match existing replies to this checkpoint and reviewed context, then repair recording with the returned staging route. Ask only unanswered or materially changed questions from pinned evidence; never fabricate answers or ask the human to provide the questions.`;
     return {
       mode: policy.mode,
@@ -385,7 +388,7 @@ async function inspectClarificationRecord(root, definition, workflow, phase, {
     };
   }
   let record;
-  try { record = readRecord('clarification-record', await readJson(path.join(root, relative))).record; }
+  try { record = readRecord('clarification-record', await readJson(path.join(recordsOf(root, definition, workflow), relative))).record; }
   catch (error) {
     return { mode: policy.mode, recordState: 'invalid', errors: [`clarification record is invalid for ${phase.id} generation ${generation}: ${error.message}`], warnings: [], passes: [], record: null, path: relative, sha256: null };
   }
@@ -401,21 +404,21 @@ async function inspectClarificationRecord(root, definition, workflow, phase, {
   if (record.completed !== true) problems.push(`clarification checkpoint is not complete: ${relative}`);
   const expectedGroundingPath = groundingRecordRelative(definition, workflow, phase, generation);
   if (record.groundingRecordPath !== expectedGroundingPath) problems.push(`clarification record points to the wrong grounding record: ${relative}`);
-  const groundingInfo = await snapshot(path.join(root, expectedGroundingPath));
+  const groundingInfo = await snapshot(path.join(recordsOf(root, definition, workflow), expectedGroundingPath));
   // Staleness alone (the prompt was recomposed after the answers) is re-bound by the person, not a bad record.
   const stale = [];
   if (!groundingInfo.exists || groundingInfo.sha256 !== record.groundingRecordSha256) stale.push(`clarification record is stale because the grounding record changed: ${relative}`);
-  const currentGrounding = groundingRecord ?? (groundingInfo.exists ? await readJson(path.join(root, expectedGroundingPath)).catch(() => null) : null);
+  const currentGrounding = groundingRecord ?? (groundingInfo.exists ? await readJson(path.join(recordsOf(root, definition, workflow), expectedGroundingPath)).catch(() => null) : null);
   if (!currentGrounding || currentGrounding.renderedSha256 !== record.promptSha256) stale.push(`clarification record is stale because the composed prompt changed: ${relative}`);
   const expectedPromptPath = storyLocation(null, definition, workflow.workItem.id).record('context', 'prompts', `${phase.id}-gen${generation}.md`);
   if (record.promptPath !== expectedPromptPath) problems.push(`clarification prompt snapshot path differs: ${relative}`);
   // A record may name an arbitrary path. Never open it merely to diagnose a bad binding.
   const promptInfo = record.promptPath === expectedPromptPath
-    ? await snapshot(path.join(root, expectedPromptPath)) : { exists: false, sha256: null };
+    ? await snapshot(path.join(recordsOf(root, definition, workflow), expectedPromptPath)) : { exists: false, sha256: null };
   if (!promptInfo.exists || promptInfo.sha256 !== record.promptSha256) stale.push(`clarification prompt snapshot hash differs: ${relative}`);
   const staleOnly = !problems.length && stale.length > 0;
   problems.push(...stale);
-  const info = await snapshot(path.join(root, relative));
+  const info = await snapshot(path.join(recordsOf(root, definition, workflow), relative));
   return {
     mode: policy.mode,
     recordState: problems.length ? 'stale-or-incomplete' : 'complete',

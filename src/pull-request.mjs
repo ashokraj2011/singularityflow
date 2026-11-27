@@ -21,7 +21,7 @@ function bulleted(values, empty) {
 // identity, the acceptance criteria, and every approved artifact with the exact hash it was
 // approved at. Nothing here is invented.
 export function storyPullRequestBody(workflow, seed = null, {
-  mergeSequence = null, evidenceReceipt = null, evidence = null, builtOn = null
+  mergeSequence = null, evidenceReceipt = null, evidence = null, builtOn = null, changeStory = null
 } = {}) {
   const story = seed?.story ?? {};
   const initiative = seed?.initiative ?? {};
@@ -29,6 +29,8 @@ export function storyPullRequestBody(workflow, seed = null, {
 
   lines.push(`## ${workflow.workItem.id} — ${workflow.workItem.title}`, '');
   if (story.description) lines.push(story.description, '');
+  // What the change does, in plain English, as SFlow wrote it for the Story [CSP:REQ-009].
+  if (changeStory) lines.push('### What this change does', '', changeStory, '');
 
   lines.push('### Lineage', '');
   if (initiative.id) lines.push(`- Epic: \`${initiative.id}\`${story.epicJiraKey ? ` (Jira ${story.epicJiraKey})` : ''}`);
@@ -262,6 +264,13 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
     // A preview never invents evidence: the body says the matrix could not be evaluated.
     evidence = null;
   }
+  // The Story's "What this change does" page, as written at its code step's last publication or submission [CSP:REQ-009].
+  let changeStory = null;
+  try {
+    const read = await import('./change-story-read.mjs');
+    const page = await read.readChangeStoryPage(root, config, workflow);
+    changeStory = page ? read.changeStoryForPullRequest(page.text) : null;
+  } catch { changeStory = null; }
   // A closing commit still waiting to be pushed is not on the remote head the pull request opens from:
   // the PR said "closed" while its head lacked the close (2026-10-29).
   let unpublished = false;
@@ -275,7 +284,7 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
     head,
     policy,
     title: `${workflow.workItem.id}: ${workflow.workItem.title}`,
-    body: storyPullRequestBody(workflow, seed, { mergeSequence, evidenceReceipt, evidence, builtOn }),
+    body: storyPullRequestBody(workflow, seed, { mergeSequence, evidenceReceipt, evidence, builtOn, changeStory }),
     ...(builtOn ? { builtOn } : {}),
     evidenceReceipt,
     requiredChecks: seed?.story?.requiredChecks ?? [],

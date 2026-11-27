@@ -12,7 +12,12 @@ import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
 const WRITES = ['drop', 'keep', 'edit', 'rule'];
 
-function commitLessons(root, message) {
+async function commitLessons(root, message, store = null) {
+  // A state-ref Story's lessons are committed on its state ref, published with its next transition [SSB M3].
+  if (store?.stateRef) {
+    const committed = (await import('../story-state-ref.mjs')).commitStoryState(root, store.stateRef, message, { paths: ['singularity/knowledge'] });
+    return committed.committed ? committed.commit : null;
+  }
   add(root, ['singularity/knowledge']);
   if (!changes(root).length) return null;
   return commit(root, message, ['singularity/knowledge']);
@@ -58,7 +63,7 @@ export async function lessonsCommand(positionals = [], options = {}, { cwd = pro
         : action === 'rule' ? await lessons.ruleLesson(root, wanted)
           : await lessons.editLesson(root, wanted, optionString(options, 'text') ?? positionals.slice(3).join(' '));
     const entry = done.dropped ?? done.kept ?? done.ruled ?? done.edited;
-    const committedAs = done.result.created ? commitLessons(root, `[lessons][${action}] ${entry.record.id}`) : null;
+    const committedAs = done.result.created ? await commitLessons(root, `[lessons][${action}] ${entry.record.id}`, done.result.store) : null;
     const words = action === 'drop' ? `Dropped lesson ${entry.record.id}: it is never given to a step again.`
       : action === 'keep' ? `Kept lesson ${done.result.record.id}: a person confirmed it, so it comes first.`
         : action === 'rule' ? `Lesson ${done.result.record.id} is a team rule now: it comes first for every step on its files, and reaches the team with this change.`

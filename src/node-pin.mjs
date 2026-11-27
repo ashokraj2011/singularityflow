@@ -203,7 +203,7 @@ export async function storyNodePin(root, config, workflow, phase, { environment 
   const [{ latestStepAttempts }, { storyLocation }, { head }] = await Promise.all([
     import('./verification/attempts.mjs'), import('./story-paths.mjs'), import('./git.mjs')]);
   const workId = workflow.workItem.id;
-  const latest = await latestStepAttempts(root, storyLocation(null, config, workId).prefix, workId, phase.id).catch(() => new Map());
+  const latest = await latestStepAttempts(root, storyLocation(null, config, workId).checkoutPath(), workId, phase.id).catch(() => new Map());
   const attempts = [...latest.values()];
   // A count on a read path: nothing failed, so nothing waits on a pin, and no test command is resolved to say so.
   if (failedOnly && !attempts.some((attempt) => attempt.status !== 'passed')) return null;

@@ -549,7 +549,17 @@ function releaseStateCheckoutSync(repositoryPath) {
   if (changes.status !== 'present' || changes.value.length) return false;
   return run('git', ['worktree', 'remove', '--', path.join(repositoryPath, STATE_CHECKOUT_FOLDER)], { cwd: repositoryPath, allowFailure: true }).status === 0;
 }
-export async function releaseStateCheckout(repositoryPath) { return releaseStateCheckoutSync(repositoryPath); }
+/**
+ * As releaseStateCheckoutSync, and kept too while the Story's state ref holds commits the remote has not got
+ * [SSB:REQ-008, M3]: a checkout whose records wait to be published is not removed by cleanup or retention.
+ */
+export async function releaseStateCheckout(repositoryPath) {
+  if (!existsSync(path.join(repositoryPath, STATE_CHECKOUT_FOLDER))) return true;
+  const { detectStateCheckout, unpublishedStoryState } = await import('./story-state-ref.mjs');
+  const id = detectStateCheckout(repositoryPath)?.id ?? null;
+  if (id && unpublishedStoryState(repositoryPath, id)) return false;
+  return releaseStateCheckoutSync(repositoryPath);
+}
 
 /** Inspect every visible worktree change, including ignored files, before rollback. */
 export function storyWorktreeChanges(repositoryPath) {

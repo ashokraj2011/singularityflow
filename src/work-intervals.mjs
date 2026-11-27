@@ -16,7 +16,7 @@ import {
   applicationPathContext, isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
   isGeneratedOutputPath, isTransientTestResultPath
 } from './application-paths.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { recordFileIn, recordIn, recordsRootFor, storyLocation } from './story-paths.mjs';
 
 export {
   applicationPathContext, isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
@@ -113,7 +113,7 @@ export function phaseUsesWorkInterval(phase) {
 }
 
 function intervalRelative(itemRelative, phaseId, generation) {
-  return posix(path.join(itemRelative, 'context', 'work-intervals', `${phaseId}-gen${generation}-baseline.json`));
+  return recordIn(itemRelative, 'context', 'work-intervals', `${phaseId}-gen${generation}-baseline.json`);
 }
 
 function protectedPaths(config, workflow) {
@@ -179,7 +179,8 @@ export async function verifyWorkIntervalBaseline(root, config, workflow, {
   }
   const itemTarget = await secureRepositoryPath(root, itemDirectory, { label: 'Story directory', type: 'directory' });
   const itemAbsolute = itemTarget.absolute;
-  const target = await secureRepositoryPath(root, current.path, { label: 'Work-interval baseline', type: 'file' });
+  // A record, read from the Story's records: the state checkout for a state-ref Story [SSB M3].
+  const target = await secureRepositoryPath(recordsRootFor(root, itemDirectory), current.path, { label: 'Work-interval baseline', type: 'file' });
   const relativeToItem = path.relative(itemAbsolute, target.absolute);
   if (!relativeToItem || relativeToItem.startsWith('..') || path.isAbsolute(relativeToItem)) {
     throw new SingularityFlowError(`Work-interval baseline must remain inside the Story directory: ${current.path}`);
@@ -269,8 +270,9 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
     reconciliationPolicy: policy.reconciliation
   };
   const record = { ...core, baselineSha256: hash(core), createdAt: nowIso(), path: relative, status: 'open' };
-  // `relative` is the record's spelling: inside a state-ref Story's state checkout (itemRelative '.'), else the checkout's.
-  await writeJson(itemRelative === '.' && itemDirectory ? path.join(itemDirectory, relative) : path.join(root, relative), record);
+  // `relative` is the record's spelling: inside a state-ref Story's state checkout (itemRelative '.' or its checkout
+  // spelling), else the checkout's [SSB M3].
+  await writeJson(recordFileIn(root, itemRelative, relative), record);
   workflow.workIntervals.current = {
     intervalId,
     phaseId: phase.id,
@@ -474,10 +476,10 @@ export async function reconcileWorkInterval(root, config, workflow, {
 }
 
 export async function recordFinalReconciliation(root, workflow, report, { itemRelative } = {}) {
-  const relative = posix(path.join(itemRelative, 'context', 'work-intervals', 'reconciliations', `${report.reconciliationSha256}.json`));
+  const relative = recordIn(itemRelative, 'context', 'work-intervals', 'reconciliations', `${report.reconciliationSha256}.json`);
   const governed = { ...report, localPath: undefined, final: true, recordedAt: nowIso(), path: relative };
   delete governed.localPath;
-  await writeJson(path.join(root, relative), governed);
+  await writeJson(recordFileIn(root, itemRelative, relative), governed);
   workflow.workIntervals.current = {
     ...workflow.workIntervals.current,
     status: 'reconciled',

@@ -18,7 +18,8 @@ export function projectedLedgerIntentFile(subjectRelative, projection) {
   const intent = projection?.ledgerIntent;
   const eventId = projection?.event?.eventId;
   if (!intent || !eventId || intent.eventId !== eventId) return null;
-  return { path: `${subjectRelative}/${LEDGER_INTENT_DIRECTORY}/${eventId}.json`, intent };
+  // A state-ref Story's records are at its state commit's root: no folder before them [SSB M3].
+  return { path: `${subjectRelative ? `${subjectRelative}/` : ''}${LEDGER_INTENT_DIRECTORY}/${eventId}.json`, intent };
 }
 
 export function lifecycleEvent({

@@ -166,7 +166,9 @@ async function rawReportContents(root, receipt, workId) {
   const contents = [];
   for (const report of receipt.rawReports) {
     let bytes = null;
-    for (const candidate of [path.join(root, report.path), path.join(gitDir(root), 'singularity-flow', 'test-attempts', workId, 'raw', report.sha256)]) {
+    // A record: in a state-ref Story's state checkout when this checkout keeps one [SSB M3].
+    const { recordedStateFile } = await import('../story-paths.mjs');
+    for (const candidate of [recordedStateFile(root, report.path), path.join(gitDir(root), 'singularity-flow', 'test-attempts', workId, 'raw', report.sha256)]) {
       try { bytes = await readFile(candidate); break; } catch { /* try the next place it may be kept */ }
     }
     if (!bytes || createHash('sha256').update(bytes).digest('hex') !== report.sha256) return null;
@@ -483,7 +485,7 @@ async function storySummary(root, options, { localRunId = null } = {}) {
     import('../accepted-story-execution.mjs'), import('../verification/attempts.mjs'), import('../story-paths.mjs'),
     import('../test-summary.mjs'), import('../environment-declaration.mjs')]);
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemRelative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath();
   const wanted = localRunId ?? (typeof options.run === 'string' ? options.run : null);
   let phaseId = optionString(options, 'phase', null) ?? workflow.currentPhase;
   let consumedAttempts = null;
@@ -592,7 +594,7 @@ async function storyContext(root, options) {
 /** The paths a step's plan names, and the commands those paths would resolve to once they change. */
 async function plannedPaths(root, config, workflow, phase) {
   const [{ plannedStepPaths }, { storyLocation }] = await Promise.all([import('../candidate-scope.mjs'), import('../story-paths.mjs')]);
-  return plannedStepPaths(path.join(root, storyLocation(null, config, workflow.workItem.id).prefix), workflow, phase).catch(() => ({ sourcePaths: [], testPaths: [] }));
+  return plannedStepPaths(storyLocation(root, [config, workflow], workflow.workItem.id).directory, workflow, phase).catch(() => ({ sourcePaths: [], testPaths: [] }));
 }
 
 async function planStory(root, options) {
@@ -684,7 +686,7 @@ export async function tryStoryBase(root, options) {
   await prepareDependencies(root, context.config, commands);
   const scope = { kind: 'story', capability: context.workflow.resolution?.capability?.id ?? null, workId: context.workflow.workItem.id, phase: phase.id };
   if (!baseCommit) fail(`Story ${context.workflow.workItem.id} names no base commit to compare with.`, 'TESTS_BASE_UNKNOWN');
-  const attempts = await stepAttempts(root, storyLocation(null, context.config, context.workflow.workItem.id).prefix, context.workflow.workItem.id, phase.id);
+  const attempts = await stepAttempts(root, storyLocation(null, context.config, context.workflow.workItem.id).checkoutPath(), context.workflow.workItem.id, phase.id);
   const results = [];
   for (const selected of context.select(commands)) {
     // Files only this Story added or changed are no question for the base: it runs the whole command.
@@ -837,7 +839,7 @@ async function heldRuns(root, options) {
   const phaseId = optionString(options, 'phase', null) ?? workflow.currentPhase;
   if (!workflow.phases?.[phaseId]) fail(`This Story has no step '${phaseId}'.`, 'TESTS_COMMAND_INVALID', unknownStepDetails(workflow, phaseId));
   return marker.setAsideTestRun(root, { workId: workflow.workItem.id, phaseId, commandId: optionString(options, 'command', null) },
-    { confirm: optionBoolean(options, 'set-aside') ? optionString(options, 'confirm', null) : null, itemRelative: storyLocation(null, config, workflow.workItem.id).prefix });
+    { confirm: optionBoolean(options, 'set-aside') ? optionString(options, 'confirm', null) : null, itemRelative: storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath() });
 }
 
 export async function run(_argv, { positionals, options = {} }) {

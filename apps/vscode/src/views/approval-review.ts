@@ -122,6 +122,11 @@ export interface ApprovalReviewRequest {
    */
   disputes?: Array<{ finding: string; words: string }> | null;
   /**
+   * What the code step's change does, in one line, and the Story's page of it (the decision list's approval item
+   * `details.changeStory`) [CSP:REQ-007]: shown first, the page opened in a Markdown preview beside the review.
+   */
+  changeStory?: { summary: string; path: string } | null;
+  /**
    * A code step's ready ways to try this version, from SFlow's runtime check of it (`tryIt` of `review --format json`,
    * step intents spec §12.5): a URL, requests, commands or a snippet. Optional: it records and holds nothing.
    */
@@ -218,6 +223,25 @@ export function disputesOf(listed: unknown): ApprovalReviewRequest['disputes'] {
   if (!Array.isArray(disputes) || !disputes.length) return null;
   return disputes.filter((entry) => entry && typeof entry.finding === 'string' && typeof entry.words === 'string')
     .map((entry) => ({ finding: entry.finding as string, words: entry.words as string }));
+}
+
+/** The page of what the change does that the decision list's approval item names (`details.changeStory`), or null. */
+export function changeStoryOf(listed: unknown): ApprovalReviewRequest['changeStory'] {
+  const items = (listed as { items?: Array<{ kind?: string; details?: { changeStory?: { summary?: unknown; path?: unknown } } }> } | null)?.items;
+  const story = Array.isArray(items) ? items.find((item) => item?.kind === 'approval')?.details?.changeStory : null;
+  return story && typeof story.summary === 'string' && typeof story.path === 'string' && !story.path.split('/').includes('..')
+    ? { summary: story.summary, path: story.path } : null;
+}
+
+/** What the code step's change does, in one line, at the top of its approval, with its whole page a click away. */
+export function approvalChangeStoryHtml(story: ApprovalReviewRequest['changeStory']): string {
+  if (!story) return '';
+  return `<section class="approval-change-story" aria-label="What this change does">
+    <h2>What this change does</h2>
+    <p>${escape(story.summary)}</p>
+    <button type="button" class="secondary" data-change-story>Open the full page</button>
+    <span class="muted">SFlow wrote it from its records and the code step's own notes; it opens beside this review.</span>
+  </section>`;
 }
 
 /** The reviewer's findings a person disputed, each with who and why, before the person approves. */
@@ -620,7 +644,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
       <h1>${escape(approvalChoice(request))}?</h1>
       <p class="meta">${escape(request.title)}. Review this version and answer any decision below, then choose ${escape(approvalChoice(request))}. Nothing is approved until you do.</p>
     </header>
-    ${approvalFocusHtml(request.focus)}
+    ${approvalChangeStoryHtml(request.changeStory)}${approvalFocusHtml(request.focus)}
     <div class="review-binding approval-binding">${binding}</div>
     ${approvalCoversHtml(request.covers)}${approvalDisputesHtml(request.disputes)}
     ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${carried}${tests}${tryIt}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
@@ -674,6 +698,8 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .form-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:0; padding:.6rem 0; border-top:var(--sf-border); background:var(--vscode-editor-background); }
 .approval-progress { flex-basis:100%; margin:0; font-size:.85rem; }
 .sfg-card { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; margin:.4rem 0; padding:.6rem .75rem; border:var(--sf-border); border-radius:var(--sf-radius); }
+.approval-change-story { margin:1rem 0; padding:1rem; border:var(--sf-border); border-left:4px solid var(--sf-ok); border-radius:var(--sf-radius); }
+.approval-change-story h2 { margin-top:0; }
 .approval-focus { margin:1rem 0; padding:1rem; border:1px solid var(--sf-wait); border-left:4px solid var(--sf-wait); border-radius:var(--sf-radius); }
 .approval-focus h2, .approval-new h2 { margin-top:0; }
 .approval-focus li { margin:.35rem 0; overflow-wrap:anywhere; }
@@ -833,6 +859,8 @@ export const REVIEW_SCRIPT = `
   if (decide) decide.addEventListener('click', function () { window.__sfVscode.postMessage({ type: 'approval.decide' }); });
   const tests = form.querySelector('[data-test-summary]');
   if (tests) tests.addEventListener('click', function () { window.__sfVscode.postMessage({ type: 'approval.testSummary' }); });
+  const change = form.querySelector('[data-change-story]');
+  if (change) change.addEventListener('click', function () { window.__sfVscode.postMessage({ type: 'approval.changeStory' }); });
   // Try it: only which way and which entry; the panel looks the address or the text up in what it loaded.
   Array.from(form.querySelectorAll('[data-try]')).forEach(function (button) {
     button.addEventListener('click', function () {
@@ -908,6 +936,13 @@ export function collectApprovalReview(
       'approval.testSummary': () => {
         if (!request.testRun) return;
         void vscode.commands.executeCommand('singularityFlow.testSummary', { workId: request.workId, phase: request.phaseId, beside: true });
+      },
+      // The page of what the change does, in a Markdown preview beside the review, which stays open [CSP:REQ-007].
+      'approval.changeStory': () => {
+        const story = request.changeStory;
+        if (!story || !request.repository) return;
+        void vscode.commands.executeCommand('markdown.showPreviewToSide', vscode.Uri.joinPath(vscode.Uri.file(request.repository), ...story.path.split('/')))
+          .then(undefined, () => undefined);
       },
       // Optional, and never a reason to stop: it opens or copies what the panel loaded, and records nothing.
       'approval.tryIt': (message) => {

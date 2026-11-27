@@ -109,8 +109,8 @@ function committedDigest(root, revision, relative) {
 
 function approvedSpecificationSnapshot(root, revision, entries) {
   const workflows = entries.filter((entry) => storyRecordWithin(entry.path)?.inside === 'workflow.json').slice(0, 200);
-  const indexes = entries.filter((entry) => entry.path.includes('/context/spec-indexes/') && entry.path.endsWith('.json'));
-  const claims = entries.filter((entry) => entry.path.includes('/context/claims/') && entry.path.endsWith('.json'));
+  const indexes = entries.filter((entry) => `/${entry.path}`.includes('/context/spec-indexes/') && entry.path.endsWith('.json'));
+  const claims = entries.filter((entry) => `/${entry.path}`.includes('/context/claims/') && entry.path.endsWith('.json'));
   const active = [];
   const activeKeys = new Set();
   for (const workflowEntry of workflows) {

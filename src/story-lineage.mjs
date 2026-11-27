@@ -11,7 +11,7 @@ import {
 import { loadSession, setAgentSession } from './session.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { loadWorkflow } from './story-workflow-read.mjs';
-import { workflowBranchAllowed, storyLocation } from './story-paths.mjs';
+import { stateRelative, workflowBranchAllowed, storyLocation } from './story-paths.mjs';
 import { commitAndPublish, saveStoryDraft, sourceTreeDigests, sourceTreeHash, testInputTreeHash, storyWelEnrollmentStatus, workflowPublicationBranch } from './state-stores.mjs';
 import {
   gitHeadIsUnborn, gitReadOutput, nowIso, run, SingularityFlowError, snapshot, writeJson
@@ -79,7 +79,7 @@ function ownedClaimMapPath(root, config, workId, candidate) {
     || candidate.split('/').includes('..')
     || !candidate.endsWith('.json')) return false;
   const claimRoot = path.relative(
-    root,
+    storyLocation(root, config, workId).recordsRoot,
     storyLocation(root, config, workId).file('context', 'claims')
   ).split(path.sep).join('/');
   if (!claimRoot || claimRoot === '..' || claimRoot.startsWith('../')) return false;
@@ -225,7 +225,8 @@ function gitBlobAtCommit(root, commit, relativePath) {
 }
 
 function gitBlobAtCommitFromGit(root, commit, relativePath) {
-  const result = run('git', ['show', `${commit}:${relativePath}`], {
+  // A state-ref Story's document is at its state commit's root [SSB M3].
+  const result = run('git', ['show', `${commit}:${stateRelative(relativePath)}`], {
     cwd: root,
     encoding: 'buffer',
     maxBuffer: 128 * 1024 * 1024,
@@ -565,12 +566,12 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     generation: phase.generation,
     branch: submittedBranch,
     sourceTreeSha256: base.sourceTreeSha256,
-    path: path.relative(root, file).split(path.sep).join('/'),
+    path: path.relative(storyLocation(root, config, workflow.workItem.id).recordsRoot, file).split(path.sep).join('/'),
     submittedAt: base.submittedAt,
     projection: structuredClone(base)
   });
   await saveStoryDraft(root, config, workflow);
-  return { packet, path: path.relative(root, file).split(path.sep).join('/') };
+  return { packet, path: path.relative(storyLocation(root, config, workflow.workItem.id).recordsRoot, file).split(path.sep).join('/') };
 }
 
 /**
@@ -590,6 +591,8 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
 }
 
 async function verifiedStoryReviewPacket(root, config, workflow, packetSha256) {
+  // The packet and its evidence are records: their history is the state ref's for a state-ref Story [SSB M3].
+  const records = storyLocation(root, [config, workflow], workflow.workItem.id).recordsRoot;
   const selected = packetSha256
     ? workflow.lineage?.submissions?.find((entry) => entry.packetSha256 === packetSha256)
     : workflow.lineage?.submissions?.at(-1);
@@ -599,13 +602,13 @@ async function verifiedStoryReviewPacket(root, config, workflow, packetSha256) {
   // reviewed branch's ancestry.
   // A history Git could not walk is not a packet that was never committed: refuse, naming why.
   const commits = (gitReadOutput(run('git', ['log', '--format=%H', 'HEAD', '--', selected.path], {
-    cwd: root, allowFailure: true
+    cwd: records, allowFailure: true
   }), `Story '${workflow.workItem.id}' review packet history`, {
-    absentWhen: () => gitHeadIsUnborn(root)
+    absentWhen: () => gitHeadIsUnborn(records)
   }) ?? '').split(/\r?\n/u).filter(Boolean);
   const failures = [];
   for (const evidenceCommit of commits) {
-    const historical = run('git', ['show', `${evidenceCommit}:${selected.path}`], { cwd: root, allowFailure: true });
+    const historical = run('git', ['show', `${evidenceCommit}:${selected.path}`], { cwd: records, allowFailure: true });
     if (historical.status !== 0) continue;
     let packet;
     try {
@@ -662,7 +665,13 @@ async function verifiedStoryReviewPacket(root, config, workflow, packetSha256) {
     let artifactCheckoutRepresentations = [];
     if (packet.artifacts?.length) {
       const { reviewArtifactBindings } = await import(REVIEW_ARTIFACT_READ_MODULE);
-      const checked = reviewArtifactBindings(root, evidenceCommit, packet.artifacts, gitBlobAtCommit);
+      // A state-ref Story's evidence commit holds its records and documents; its code is in the Story branch commit the
+      // state commit names [SSB:REQ-004, M3].
+      const { lifecycleCodeCommit } = await import('./generation-publication-store.mjs');
+      const codeCommit = lifecycleCodeCommit(root, workflow, evidenceCommit);
+      const readBlob = codeCommit === evidenceCommit ? gitBlobAtCommit
+        : (where, commit, relative) => gitBlobAtCommit(where, stateRelative(relative) === relative ? codeCommit : commit, relative);
+      const checked = reviewArtifactBindings(root, evidenceCommit, packet.artifacts, readBlob);
       if (!checked.valid) {
         failures.push(`${evidenceCommit.slice(0, 12)} ${checked.reason}`);
         continue;
@@ -699,7 +708,7 @@ async function verifiedStoryReviewPacket(root, config, workflow, packetSha256) {
         valid = false;
         break;
       }
-      const evidence = run('git', ['show', `${evidenceCommit}:${binding.path}`], { cwd: root, allowFailure: true });
+      const evidence = run('git', ['show', `${evidenceCommit}:${binding.path}`], { cwd: records, allowFailure: true });
       if (evidence.status !== 0) { failures.push(`${evidenceCommit.slice(0, 12)} lacks ${binding.path}`); valid = false; break; }
       try {
         const storedRecord = JSON.parse(evidence.stdout);

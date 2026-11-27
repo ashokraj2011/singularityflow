@@ -1199,7 +1199,7 @@
       "counts": {
         "command-run": 2
       },
-      "digest": "265a9a7c5e1c6e020b9e9a2601fc162c100999f668043b861c535069f5d228a9"
+      "digest": "c10d130274e8851899e405cce34bc9778abd4890b40d6758fade5cd8e49501d1"
     },
     "src/history-index-worker.mjs": {
       "counts": {
@@ -1616,7 +1616,7 @@
       "counts": {
         "command-run": 31
       },
-      "digest": "2cbabab28ce4f4fb8cfabef3528ee8d2ca20d328d915da72467fe1ff6a9c952e"
+      "digest": "c143038559d7afe349ceb427e2adbdab89ef07b511562903bad67f211a49923e"
     },
     "src/story-intake-verification.mjs": {
       "counts": {
@@ -1628,7 +1628,7 @@
       "counts": {
         "command-run": 10
       },
-      "digest": "3f93e9845684dbbce519941193f1d458d361a51472a87709ae9daf716367e6ff"
+      "digest": "7a1a0ecf4fcb2b92ac3a7e777a1947875856f1c75f7588af46010ee83c70532c"
     },
     "src/story-stack.mjs": {
       "counts": {
@@ -1650,10 +1650,10 @@
     },
     "src/story-state-ref.mjs": {
       "counts": {
-        "command-git": 10,
+        "command-git": 11,
         "command-run": 1
       },
-      "digest": "240feedb741d8e478d42eae4f843ceef8e8042de17d381a13e8e70b27bad4c98"
+      "digest": "79a13251663bb7576cf30fd0a0d3691eabc6b293d57eea6f68758a298a86d2b8"
     },
     "src/story-worktree.mjs": {
       "counts": {

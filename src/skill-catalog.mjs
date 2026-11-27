@@ -25,6 +25,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { compareVersions } from './marketplace.mjs';
+import { deprecatedInUseOf, inUseState, itemUses } from './marketplace-in-use.mjs';
 import { itemLifecycle, lifecycleSummary } from './marketplace-lifecycle.mjs';
 import { STEP_INTENTS } from './phase-roles.mjs';
 import { composeTask, storyComposition, TASK_KINDS } from './task-composition.mjs';
@@ -176,7 +177,7 @@ const count = (rows, keyOf) => {
  * a map of skill ID to `{ agents, workflows }`, and `stories` the task Stories `{ workId, kind, skills }` in this checkout.
  */
 export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces = [], definition = {}, kinds = [], uses = new Map(), stories = [], warnings = [],
-  unapproved = [], safety = new Map() } = {}) {
+  unapproved = [], safety = new Map(), openStories = [] } = {}) {
   const libraryIds = new Set(library.map((skill) => skill.id));
   const recordOf = (id) => {
     const source = imports[`library-skill:${id}`]?.source ?? null;
@@ -224,6 +225,24 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
       storyUses.get(skill.id).push({ workId: story.workId, kind: story.kind, steps: [...(skill.steps ?? [])] });
     }
   }
+  /**
+   * A library skill its marketplace deprecated or retired (at the commit trusted now, else as its import recorded, said
+   * so), with who uses it here and the replacement that marketplace lists [OMK:REQ-040–REQ-042]; null when not.
+   */
+  const libraryInUse = (id, used) => {
+    const record = recordOf(id);
+    if (!record) return null;
+    const listed = readSkills.get(record.marketplace) ?? null;
+    const trusted = listed?.get(record.entry ?? id) ?? null;
+    const entry = trusted ? { kind: 'skill', ...trusted } : { kind: 'skill', name: record.entry ?? id, lifecycleState: record.lifecycleState ?? null, owner: record.owner ?? null };
+    if (!inUseState(entry)) return null;
+    const here = itemUses({ marketplace: record.marketplace, kind: 'skill', name: entry.name }, { imports, library: libraryIds, openStories });
+    const inUse = { ...here, agents: [...new Set([...here.agents, ...used.agents.map((use) => use.id)])].sort(), workflows: [...new Set([...here.workflows, ...used.workflows.map((use) => use.id)])].sort() };
+    const found = deprecatedInUseOf(entry, { marketplace: record.marketplace, label: labels.get(record.marketplace) ?? record.marketplace,
+      marketplaceKind: marketplaces.find((market) => market.id === record.marketplace)?.kind ?? 'repository', uses: inUse,
+      items: [...(listed?.values() ?? [])].map((skill) => ({ kind: 'skill', ...skill })), installed: (skill) => libraryIds.has(skill.name), recorded: !trusted });
+    return found?.replacement?.offered ? { ...found, replacement: { ...found.replacement, reference: `market:${record.marketplace}/${found.replacement.id}` } } : found;
+  };
   const rows = entries.map(({ candidate, key, source, marketplace, version, label, description, tags, owner, lifecycleRecord, channel, findings, safety: flag = null }) => {
     const id = candidate.id;
     const record = recordOf(id);
@@ -243,9 +262,10 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
       inLibrary, libraryVersion, newerVersion,
       usedBy: source === 'library' ? { agents: used.agents, workflows: used.workflows, tasks: storyUses.get(id) ?? [] } : { agents: [], workflows: [], tasks: [] },
       overlaps: [],
-      // Its owner, its lifecycle with who and when, and the channel its marketplace is trusted on [OMK:REQ-015]; whether it
-      // is deprecated in use here is OMK's later milestone, and null until then.
-      owner: owner ?? null, lifecycleRecord: lifecycleRecord ?? null, channel: channel ?? null, deprecatedInUse: null, findings: [...(findings ?? [])],
+      // Its owner, its lifecycle with who and when, and the channel its marketplace is trusted on [OMK:REQ-015]; whether its
+      // marketplace deprecated or retired it while this library still uses it, with its replacement [OMK:REQ-041].
+      owner: owner ?? null, lifecycleRecord: lifecycleRecord ?? null, channel: channel ?? null, deprecatedInUse: source === 'library' ? libraryInUse(id, used) : null,
+      findings: [...(findings ?? [])],
       // What SFlow's text checks found in the library's copy (installed-text-safety.mjs), null when nothing [OMK:REQ-032].
       safety: flag,
       actions: {
@@ -256,9 +276,15 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
       words: { name: skillWords(id, label), all: skillWords(id, label, description, displayTags(tags)) }
     };
   });
-  // The library's copy says so too when its marketplace has a newer version.
+  // The library's copy says so too when its marketplace has a newer version; that marketplace's row says what the library's
+  // copy says of being deprecated in use, with the same way to its replacement.
   for (const row of rows.filter((item) => item.source === 'library' && item.marketplace)) {
-    row.newerVersion = rows.find((other) => other.key === `market:${row.marketplace}/${row.id}`)?.newerVersion ?? null;
+    const listed = rows.find((other) => other.key === `market:${row.marketplace}/${row.id}`);
+    row.newerVersion = listed?.newerVersion ?? null;
+    if (listed && row.deprecatedInUse) listed.deprecatedInUse = row.deprecatedInUse;
+  }
+  for (const row of rows.filter((item) => item.deprecatedInUse?.replacement?.reference)) {
+    row.actions.replace = `singularity-flow import preview "${row.deprecatedInUse.replacement.reference}" --as skill --json`;
   }
   const overlaps = overlapsOf(rows);
   for (const overlap of overlaps) {
@@ -290,6 +316,7 @@ export function analyzeSkillCatalog({ library = [], imports = {}, marketplaces =
       byLifecycle: count(rows, (row) => row.lifecycle ?? 'not marked'),
       byIntent: count(rows, (row) => (row.intents.length ? row.intents : ['no step'])),
       notInLibrary: rows.filter((row) => !row.inLibrary).length,
+      deprecatedInUse: rows.filter((row) => row.source === 'library' && row.deprecatedInUse).length,
       newerAvailable: rows.filter((row) => row.source === 'marketplace' && row.newerVersion).length,
       overlaps,
       coverage,
@@ -399,11 +426,13 @@ async function readApprovedSkillCatalog(root, { only, fetchImpl, working }) {
       marketplaces.push({ id: marketplace.id, label: marketplace.label ?? marketplace.id, kind, skills: [], warning: unreadable(marketplace, error) });
     }
   }
-  const { installedTextSafety, safetyFlagsByKey } = await import('./installed-text-safety.mjs');
+  const [{ installedTextSafety, safetyFlagsByKey }, { openStoriesHere }] = await Promise.all([import('./installed-text-safety.mjs'), import('./marketplace-in-use.mjs')]);
+  // The open Stories on this computer are read only when a marketplace read marks a skill deprecated or retired [OMK:REQ-040].
+  const marked = marketplaces.some((marketplace) => marketplace.skills.some((skill) => inUseState(skill)));
   return analyzeSkillCatalog({ library: [...library.skills.values()], imports: ledger.imports ?? {}, marketplaces, definition, kinds,
     uses: usesFrom(model), stories: await taskStories(root, definition), warnings,
     unapproved: unapproved.filter((entry) => only == null || entry.id === only),
-    safety: safetyFlagsByKey(await installedTextSafety(root).catch(() => null)) });
+    safety: safetyFlagsByKey(await installedTextSafety(root).catch(() => null)), openStories: marked ? await openStoriesHere(root).catch(() => []) : [] });
 }
 
 /** The catalog as a person reads it in a terminal. */
@@ -431,6 +460,8 @@ export function skillCatalogLines(catalog) {
     const users = [...row.usedBy.agents.map((use) => use.label), ...row.usedBy.workflows.map((use) => `workflow ${use.id}`), ...row.usedBy.tasks.map((use) => use.workId)];
     if (users.length) lines.push(`             Used by: ${users.join(', ')}`);
     if (row.safety) lines.push(`             ${row.safety.words}`);
+    if (row.deprecatedInUse && row.source === 'library') lines.push(`             In use: ${row.deprecatedInUse.words}`);
+    if (row.actions.replace && row.source === 'library') lines.push(`             Replace with: ${row.actions.replace.replace(/ --json$/u, '')}`);
   }
   if (summary.overlaps.length) {
     lines.push('Skills that look alike:');

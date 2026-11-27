@@ -781,6 +781,30 @@ const TEXT_TYPED_METHOD = /^\s*(?:(?:public|private|protected|internal|static|fi
 const TYPED_MEMBER_LANGUAGES = new Set(['java', 'csharp']);
 /** Test cases in the common JavaScript runners: `test('…', …)`, `it(…)`, `describe(…)`. */
 const TEXT_TEST = /^\s*((?:test|it|describe|suite|context)(?:\.(?:only|skip|each|concurrent))?)\s*\(\s*(['"`])(.{1,80}?)\2/;
+/** A variable bound to something in parentheses: `const Display = ({`, `const X: FC<Props> = (`. */
+const TEXT_ARROW_START = /^\s*(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*[^=;]+?)?=\s*(?:async\s+)?\(/;
+
+/**
+ * The name of a variable bound to an arrow function whose parameter list one line does not show whole: a component
+ * destructuring its props one per line (`export const Display = ({\n  value,\n}) => {`), or one with a type in front
+ * (`const Row: FC<Props> = ({ a }) => …`). The list is balanced over the masked lines that follow, then the arrow must
+ * come next; a value in parentheses (`const total = (\n  a + b\n);`) is not a function.
+ */
+function arrowDeclaredName(masked: string[], index: number): string | null {
+  const match = (masked[index] ?? '').match(TEXT_ARROW_START);
+  if (!match) return null;
+  const text = masked.slice(index, index + 60).join('\n');
+  let depth = 0;
+  for (let at = match[0].length - 1; at < text.length; at += 1) {
+    const character = text[at];
+    if (character === '(' || character === '[' || character === '{') depth += 1;
+    else if (character === ')' || character === ']' || character === '}') {
+      depth -= 1;
+      if (depth === 0) return /^\s*(?::\s*[^=;{]+?)?\s*=>/.test(text.slice(at + 1, at + 200)) ? match[1]! : null;
+    }
+  }
+  return null;
+}
 
 /**
  * An outline read from the file's own text, for a code file no language service answered for:
@@ -793,7 +817,7 @@ export function textSymbols(lines: string[], language: string): CxRawSymbol[] {
   const indentBased = language === 'python' || language === 'ruby';
   const found: CxRawSymbol[] = [];
   const indentOf = (line: string) => (line.match(/^[ \t]*/)?.[0].replace(/\t/g, '    ').length ?? 0);
-  const extent = (start: number): number => {
+  const extent = (start: number, call = false): number => {
     if (indentBased) {
       const base = indentOf(lines[start - 1] ?? '');
       let end = start;
@@ -805,15 +829,37 @@ export function textSymbols(lines: string[], language: string): CxRawSymbol[] {
       }
       return end;
     }
+    // The body is the first brace outside parentheses. A parameter list's braces and brackets are not it (a component
+    // destructuring its props, `({ value }) => {`), and the list may run over several lines. An arrow whose body is in
+    // parentheses (`=> (\n  <div />\n)`) ends where they close. A test case is a call (`test('…', () => {`): its body
+    // is the first brace in its arguments.
     let depth = 0;
+    let parens = 0;
     let opened = false;
+    let arrow = false;
+    let wrapped = false;
+    let waiting = start;
     for (let line = start; line <= Math.min(lines.length, start + 2000); line += 1) {
-      for (const character of masked[line - 1] ?? '') {
-        if (character === '{') { depth += 1; opened = true; }
-        else if (character === '}') { depth -= 1; if (opened && depth <= 0) return line; }
-        else if (!opened && character === ';' && line === start) return start;
+      const text = masked[line - 1] ?? '';
+      for (let at = 0; at < text.length; at += 1) {
+        const character = text[at];
+        if (opened) {
+          if (character === '{') depth += 1;
+          else if (character === '}') { depth -= 1; if (depth <= 0) return line; }
+        } else if (character === '(' || character === '[') {
+          if (parens === 0 && arrow) wrapped = true;
+          parens += 1;
+        } else if (character === ')' || character === ']') {
+          parens = Math.max(0, parens - 1);
+          if (parens === 0 && wrapped) return line;
+        } else if (parens > 0 && !call) continue;
+        else if (character === '{') { depth = 1; opened = true; }
+        else if (character === '=' && text[at + 1] === '>') arrow = true;
+        else if (character === ';' && line === start) return start;
       }
-      if (!opened && line >= start + 2) return start;
+      // An open parameter list keeps the declaration going for at most 60 lines; a body in parentheses, to its end.
+      if (parens > 0 && (wrapped || line < start + 60)) waiting = line;
+      if (!opened && line >= waiting + 2) return start;
     }
     return start;
   };
@@ -833,10 +879,10 @@ export function textSymbols(lines: string[], language: string): CxRawSymbol[] {
     const testCase = (lines[index] ?? '').match(TEXT_TEST);
     if (testCase && /^\s*(?:test|it|describe|suite|context)\b/.test(text)) {
       const label = `${testCase[1]}('${testCase[3]}')`;
-      found.push({ name: label, kind: SYMBOL_KIND.Function, range: { start: line, end: extent(line) }, selection: { line, character: Math.max(0, (lines[index] ?? '').indexOf(testCase[1]!)) } });
+      found.push({ name: label, kind: SYMBOL_KIND.Function, range: { start: line, end: extent(line, true) }, selection: { line, character: Math.max(0, (lines[index] ?? '').indexOf(testCase[1]!)) } });
       continue;
     }
-    const name = declaredName(text) ?? (insideClass ? text.match(TEXT_METHOD)?.[1]
+    const name = declaredName(text) ?? arrowDeclaredName(masked, index) ?? (insideClass ? text.match(TEXT_METHOD)?.[1]
       ?? (TYPED_MEMBER_LANGUAGES.has(language) ? text.match(TEXT_TYPED_METHOD)?.[1] : null) ?? null : null);
     if (!name || NOT_A_NAME.has(name)) continue;
     const end = extent(line);

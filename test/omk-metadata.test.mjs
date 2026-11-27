@@ -620,9 +620,11 @@ test('read at the trusted commit: the catalog, browse, the skill catalog, the co
   const refused = story.raw(['import', 'preview', 'market:acme/android-unit-test', '--as', 'skill', '--json']);
   assert.notEqual(refused.status, 0);
   assert.match(`${refused.stdout}${refused.stderr}`, /MARKETPLACE_ITEM_RETIRED/u);
-  // Deprecated since it was imported approved: the task no longer uses it [REQ-011].
+  // Deprecated since it was imported approved: the task no longer uses it [REQ-011]; the plan line names it, with what
+  // replaces it, where it would have fitted (OMK §8, test/omk-in-use.test.mjs).
   const now = json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json'));
-  assert.doesNotMatch(now.plan, /web-e2e-test-generation/u);
+  assert.match(now.plan, /\(not web-e2e-test-generation: it is deprecated by Web QA; web-e2e-test-generation-v2 replaces it\)/u);
+  assert.ok(now.steps.every((step) => !step.skills?.includes('web-e2e-test-generation')), 'no step is given it');
   assert.equal(now.offers, undefined);
   const skillsNow = json(story.cli('skill', 'catalog', '--json'));
   assert.deepEqual(['lifecycle', 'readiness'].map((field) => skillsNow.rows.find((row) => row.key === 'library:web-e2e-test-generation')[field]), ['deprecated', 'retired']);

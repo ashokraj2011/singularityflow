@@ -88,6 +88,9 @@ const OVERRIDES = {
   // A trusted index's workflow bundle, kept exactly as fetched (and checked against the digest the index pins) in SFlow's
   // private folder beside a marketplace agent's bundles, for `workflow import` to read; fetched again when it is gone.
   'marketplace-workflow-bundle.mjs': 'projection',
+  // What is deprecated or retired and still used here (OMK §8), worked out from the configuration and the kept listings and
+  // kept in the clone's Git folder for a Copilot session's start to say; worked out again by the next check or catalog.
+  'marketplace-in-use.mjs': 'projection',
   // Ask SFlow (codex/spec-ask-r1): a saved conversation is this person's own data on this machine, and the copy shared
   // to resume elsewhere is theirs too; neither is a Story's record. Its reads cite the Git history they read.
   'ask/conversation-store.mjs': 'local-authored',

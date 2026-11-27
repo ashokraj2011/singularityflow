@@ -67,15 +67,16 @@ async function prune(directory) {
  * The knowledge for HEAD (or one area of it). Reads the committed source, reuses an exact cache
  * entry when there is one, and otherwise analyses and stores the result.
  */
-export async function buildKnowledge(root, { area = null, ownOnly = false, history = true, refresh = false, limits = undefined, resolveCalls = true, ref = 'HEAD', scope = null } = {}) {
+export async function buildKnowledge(root, { area = null, ownOnly = false, history = true, refresh = false, limits = undefined, resolveCalls = true, ref = 'HEAD', scope = null, storyPaths = null } = {}) {
   const started = performance.now();
   // `ref` is a commit to read instead of HEAD (from Git's objects; nothing is checked out). `scope` is a Story's pinned
-  // source scope, in place of the approved configuration's [WMR:REQ-009].
-  const source = await readKnowledgeSource(root, { area, ownOnly, ref, scope, ...(limits ? { limits } : {}) });
+  // source scope, in place of the approved configuration's [WMR:REQ-009]. `storyPaths` are a Story's files: a large
+  // area is read only in the part they need [WMR:§11].
+  const source = await readKnowledgeSource(root, { area, ownOnly, ref, scope, storyPaths, ...(limits ? { limits } : {}) });
   if (source.status !== 'ok') {
     return {
       status: source.status, reason: source.reason, commit: source.commit, area, areas: source.areas ?? [],
-      codeFiles: source.codePaths, knowledge: null, cache: 'none', durationMs: Math.round(performance.now() - started)
+      codeFiles: source.codePaths, codeFilePaths: source.codeFilePaths ?? [], knowledge: null, cache: 'none', durationMs: Math.round(performance.now() - started)
     };
   }
   // Calls a compiler resolved (a warmed semantic AST pack); their digest is part of the key, so
@@ -118,18 +119,21 @@ export async function buildKnowledge(root, { area = null, ownOnly = false, histo
 
 /**
  * The areas worth building for one piece of work in a repository too large to build whole: those
- * holding the files it changed or plans to change [WMR:REQ-008], then those whose folder names match its words. Both
- * are split at case changes first, as everywhere a Story's words are matched to code: "flags" names `featureFlags/`
- * [WMR:§11]. Pure, so a prompt and a test choose the same areas.
+ * holding the files it changed or plans to change [WMR:REQ-008], then those holding the files its words name
+ * (`namedPaths`, before it plans or changes one), then those whose folder names match its words. All are split at
+ * case changes first, as everywhere a Story's words are matched to code: "flags" names `featureFlags/`, "graph" names
+ * `FunctionGrapher.jsx` [WMR:§11]. Pure, so a prompt and a test choose the same areas.
  */
-export function selectKnowledgeAreas(areas, { changedPaths = [], plannedPaths = [], focus = null, limit = 3 } = {}) {
+export function selectKnowledgeAreas(areas, { changedPaths = [], plannedPaths = [], namedPaths = [], focus = null, limit = 3 } = {}) {
   const stems = focusStems(splitCase(focus));
   const story = [...new Set([...changedPaths, ...plannedPaths])];
   const scored = areas.map((area) => {
-    const changed = story.filter((file) => inArea(file, { path: area.path === '.' ? '' : area.path, own: area.own })).length;
+    const holds = (file) => inArea(file, { path: area.path === '.' ? '' : area.path, own: area.own });
+    const changed = story.filter(holds).length;
+    const files = namedPaths.filter(holds).length;
     const words = splitCase(area.path).toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean);
     const named = stems.filter((stem) => words.some((word) => stemOf(word) === stem || (word.length >= 4 && (word.startsWith(stem) || stem.startsWith(word))))).length;
-    return { area, score: changed * 10 + named * 3 };
+    return { area, score: changed * 10 + files * 5 + named * 3 };
   });
   return scored.filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score || a.area.path.localeCompare(b.area.path, 'en'))
     .slice(0, limit).map((entry) => entry.area);
@@ -139,14 +143,15 @@ export function selectKnowledgeAreas(areas, { changedPaths = [], plannedPaths = 
  * Knowledge for several areas (paths, or `{ path, own }` from an area listing), each built and cached
  * on its own, merged into one model. Used when a
  * repository is too large to build whole: the result says which areas it covers, so no reader
- * mistakes it for the whole repository.
+ * mistakes it for the whole repository. With `storyPaths`, an area larger than `maximumAreaFiles` is read only in the
+ * part the Story needs, and its `parts` say so [WMR:§11].
  */
-export async function buildKnowledgeForAreas(root, areaPaths, { history = true, refresh = false, limits = undefined, scope = null } = {}) {
+export async function buildKnowledgeForAreas(root, areaPaths, { history = true, refresh = false, limits = undefined, scope = null, storyPaths = null } = {}) {
   const started = performance.now();
   const built = [];
   for (const entry of areaPaths) {
     const area = typeof entry === 'string' ? entry : entry.path;
-    const result = await buildKnowledge(root, { area, ownOnly: typeof entry === 'object' && Boolean(entry.own), history, refresh, limits, scope });
+    const result = await buildKnowledge(root, { area, ownOnly: typeof entry === 'object' && Boolean(entry.own), history, refresh, limits, scope, storyPaths });
     if (result.status === 'ok') built.push(result);
   }
   if (!built.length) return { status: 'insufficient', reason: 'no-area-built', knowledge: null, cache: 'none', key: null, durationMs: Math.round(performance.now() - started) };
@@ -162,15 +167,19 @@ export async function buildKnowledgeForAreas(root, areaPaths, { history = true, 
   const sum = (pick) => knowledges.reduce((total, knowledge) => total + (pick(knowledge) ?? 0), 0);
   const byKind = {};
   for (const item of items) byKind[item.kind] = (byKind[item.kind] ?? 0) + 1;
+  // Each area's part is listed once, in `parts`.
+  const { part: _firstPart, ...firstRepository } = first.repository;
+  const parts = knowledges.flatMap((entry) => (entry.repository.part ? [entry.repository.part] : []));
   const knowledge = {
     ...first,
     repository: {
-      ...first.repository,
+      ...firstRepository,
       area: areaPaths.map((entry) => (typeof entry === 'string' ? entry : entry.path)).join(', '),
       roots: areaPaths.map((entry) => (typeof entry === 'string' ? entry : entry.path)),
       files: sum((entry) => entry.repository.files),
       frameworks: [...new Set(knowledges.flatMap((entry) => entry.repository.frameworks))].sort(),
-      partial: true
+      partial: true,
+      ...(parts.length ? { parts } : {})
     },
     areas: knowledges.flatMap((entry) => entry.areas),
     levels,

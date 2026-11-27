@@ -2,9 +2,11 @@
 
 **Specification ID:** `OMK-v1`
 
-**Status:** M1 and M2 built. M1 (the metadata read and shown, §4, §5) is on main (merged at `8a386d941`, 2026-11-26).
-M2 (the safety review, §7) is built on branch `omk-m2` from main `2809f6edc`, 2026-11-26, not merged yet; what it
-built, and where it differs from the text below, is under §7 "Built in M2". M3 to M7 are not built. Written on 2026-11-26
+**Status:** M1, M2 and M3 built. M1 (the metadata read and shown, §4, §5) is on main (merged at `8a386d941`, 2026-11-26).
+M2 (the safety review, §7) is built on branch `omk-m2` from main `2809f6edc`, 2026-11-26; what it built, and where it
+differs from the text below, is under §7 "Built in M2". M3 (deprecated and retired in use, §8) is built on branch `omk-m3`
+from main `126eb798d`, 2026-11-27, not merged yet; what it built, and the choices it made where §8 left one open, is under
+§8 "Built in M3". M4 to M7 are not built. Written on 2026-11-26
 from the owner's decisions of that day (roadmap Bet 4). Checked against `bet4` at `5ac41f37e`.
 
 **Owner, 2026-11-26.** Bets 2, 3 and 4 are the priority, and every open decision for Bet 4 is answered:
@@ -561,6 +563,51 @@ When Bet 2's **Needs you** inbox lands, each deprecated-in-use item becomes one 
 that item's preview and install, through the same reviewed import. A replacement that is itself deprecated or retired is
 not offered, and the row says so.
 
+**Built in M3 (2026-11-27, branch `omk-m3`).**
+- `src/marketplace-in-use.mjs` works out what is in use (REQ-040) and says it: the state that counts is the item's at the
+  commit trusted now (REQ-011); the words are §8's ("Deprecated by Web QA on 20 Nov 2026 (supported until 31 Mar 2027);
+  still used by the skill library, workflow quick-fix and 1 open Story. Use web-e2e-test-generation-v2."), and the "by" is
+  the item's owner, as §5.3 and §8 write it. A replacement already installed here is not offered again ("installed here
+  too: move what uses this one to it"). `readInUse` reads only what is kept: each marketplace's listing at the commit it is
+  trusted at (`task-skills.mjs keptTrustedListing`), the import record, the library, the attachments and the workflows.
+- Open Stories (item 5) are read from files only, until M5's reader: the machine's Story index entries that share this
+  repository's Git folder, and this checkout's own Story, at most 500, each record and its newest snapshot manifest. A
+  Story uses an item when its workflow was made from it, its task chose that library skill, or its snapshot holds the
+  installed copy's text (by SHA-256). M5 reads branch tips through Git objects and SSB's resolver instead (REQ-050).
+- The catalog row's `deprecatedInUse { state, newest?, recorded?, replacedBy, sunset, since, owner, uses, replacement,
+  words }`, the row's `actions.replace` (the replacement's preview, or `workflow from-agent <ID>/<agent> --review` for an
+  agent) with the replacement row's own install, the workflow made from an agent saying what its agent's row says,
+  `summary.deprecatedInUse` (a workflow and its agent count once), and the terminal's `In use:` and `Replace with:` lines.
+  With `--newest`, an item deprecated only there is marked so and not counted. A library skill whose marketplace could not
+  be read uses the state its import recorded, and says so.
+- `skill catalog` and the All skills page: the library row and its marketplace row, with **Replace with…** (Studio's
+  import preview of the replacement). The Marketplace page: the badge, the words in the status cell, a **Deprecated in
+  use** tile beside the filter M1 placed, and **Replace with…** (the replacement's preview, or an agent's conversion
+  review, in Workflow Studio).
+- Workflow Studio: a workflow made from, or attaching, a deprecated or retired item gets a **Uses a deprecated item** pill
+  on its card, and a callout on the card and in its settings, with **Make a workflow from the replacement** for an agent
+  and **Preview the replacement** for a skill. The workflow is never changed.
+- `singularity-flow check`: one warning for each item, whose route is the replacement's first reviewed step (else the
+  catalog); a marketplace with no kept listing, or with only its skills kept while a workflow here was made from one of
+  its agents, is "Not checked", routed to `marketplace catalog --marketplace <ID>`, which reads and keeps it. It never
+  fetches.
+- A task's plan line: a deprecated or retired library skill is named where it would have fitted (the chooser's own fit
+  rule): `not web-e2e-test-generation: it is deprecated by Web QA; web-e2e-test-generation-v2 replaces it`, and the step it
+  leaves bare is offered the marketplace's skills, its replacement among them when that fits (A4). The team's own workflow
+  keeps a skill it attaches and the line says `web-e2e-test-generation is deprecated by Web QA:
+  web-e2e-test-generation-v2 replaces it`. A workflow made from a marketplace agent is that agent's plan, which a task never
+  offers once it is deprecated (M1); when the team's rules run every task of a kind as such a workflow, the plan gets a
+  note with the command to the replacement.
+- A Story's start: a `Readiness advisory` for each item its workflow was made from or attaches, with the whole command to
+  the replacement; also in `--json` under `readiness.warnings` (`marketplace-in-use`). Attached skills are said too, which
+  §8 left open; it is advice and never stops the start.
+- A Copilot session's start says the list the last `check` or unnarrowed `marketplace catalog` kept in the Git folder, in
+  one line with `/sf-marketplace`; it never reads a marketplace. `/sf-marketplace` relays `actions.replace`.
+- A retired item in use is treated as a deprecated one: flagged everywhere, never removed or blocked (open question 3's
+  default); it stays not installable and never offered, as M1 made it.
+- An index marketplace's kept listing holds its skills only, so `check` flags an index's skills; its templates, agents and
+  MCP servers are flagged by the catalog, which reads the index.
+
 ## 9. Usage and outcomes, worked out here
 
 ### 9.1 Sources: the Story records already kept
@@ -859,7 +906,7 @@ are today.
 | M0 | The probes (§15). P2 and P4 need a person on the office marketplace host. | 1 day |
 | M1 | The metadata read and shown (§4, §5): `marketplace-lifecycle.mjs`, `codeowners.mjs`, the owner, the record and its fallbacks, its findings, the v3 listings; the catalog, both pages, Studio, the conversion review, `/sf-marketplace`, the task offers; the fixture's additions; the maintainer topic (§11) | about 3 days |
 | M2 | The safety review (§7): `import-safety.mjs`; the preview, update and conversion review rows; `--looked` and its record; the sweep of installed text; offers withheld | about 2.5 days |
-| M3 | Deprecated and retired in use (§8): detection, every surface, `check`, the plan and start lines, replacements | about 1.5 days |
+| M3 | Deprecated and retired in use (§8): detection, every surface, `check`, the plan and start lines, replacements. **Built** on `omk-m3` (2026-11-27); see §8 "Built in M3" | about 1.5 days |
 | M4 | Channels (§6): `--channel`, the order and rewind checks with a bounded history read, the move review, **Move and update**, the beta yes, index channels, the Studio Trust form | about 3 days |
 | M5 | Usage and outcomes (§9): the Story record reader for both layouts, the per-item report, `marketplace usage`, the page sections, Copilot, the export and its schema | about 4 days |
 | M6 | Feedback (§10): the evidence document, the issue address, the Story Analytics and page buttons, `marketplace feedback`, Copilot | about 1.5 days |

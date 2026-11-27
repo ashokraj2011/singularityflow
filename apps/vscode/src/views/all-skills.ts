@@ -51,6 +51,8 @@ export class AllSkillsPanel implements vscode.Disposable {
     'allSkills.refresh': () => this.load(),
     'allSkills.preview': (message) => this.preview(stringField(message, 'key')),
     'allSkills.open': (message) => this.open(stringField(message, 'key')),
+    // Deprecated or retired and still used here: the replacement's exact text, added through Studio's review (OMK §8).
+    'allSkills.replace': (message) => this.replace(stringField(message, 'key')),
     'allSkills.skillMaster': () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'skills' }),
     // The Marketplace: the same marketplaces as an app store, with Install, Update and Remove.
     'allSkills.marketplace': () => vscode.commands.executeCommand('singularityFlow.marketplace')
@@ -82,6 +84,13 @@ export class AllSkillsPanel implements vscode.Disposable {
     if (!row?.actions.reference) return;
     await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio',
       { view: 'library', preview: { reference: row.actions.reference, replace: row.inLibrary } });
+  }
+
+  /** A deprecated skill's replacement, in Studio's import preview: nothing that uses the old one changes until the person moves it. */
+  private async replace(key: string | null | undefined): Promise<void> {
+    const reference = this.row(key)?.deprecatedInUse?.replacement?.reference ?? null;
+    if (!reference) return;
+    await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'library', preview: { reference, replace: false } });
   }
 
   private async open(key: string | null | undefined): Promise<void> {

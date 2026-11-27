@@ -3,7 +3,9 @@
  * the plan's files lead (A2), a large repository reads the Story's scope and planned areas (A3), the brief is left
  * out of intake, verification and release unless a team turns it back on (A4), a step's intent picks its reader (A5),
  * a step's next version reuses its brief (A6), calls matched by name are never stated as facts (A7), and before a
- * plan exists the Story's words name the files they match, read split at case changes (A8, §11).
+ * plan exists the Story's words name the files they match, read split at case changes (A8, §11). §11's follow-ups (F1–F3):
+ * a component whose parameters span lines is a function (F1), a folder over the area cap is read in the part the Story
+ * needs and says less (F2), and the files a Story's words name choose areas too (F3).
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -273,4 +275,86 @@ test('A8: a large repository\'s areas are chosen by folder names split at case c
   const areas = [{ path: 'src/featureFlags', files: 9 }, { path: 'src/billing', files: 9 }];
   assert.deepEqual(selectKnowledgeAreas(areas, { focus: 'Turn the new flags on' }).map((area) => area.path), ['src/featureFlags']);
   assert.deepEqual(selectKnowledgeAreas(areas, { focus: 'Change the FeatureFlags default' }).map((area) => area.path), ['src/featureFlags']);
+});
+
+test('F1: a component whose parameters span lines is a function: its name, its lines, what it calls and a change inside it [WMR:§11]', async (t) => {
+  const repository = await fixture(t, 'react-props');
+  const { knowledge } = await buildKnowledge(repository, { history: false });
+  const span = (name) => knowledge.graph.functions.filter((fn) => fn.qualifiedName === name).map((fn) => [fn.file, fn.start, fn.end]);
+  // `export const Display = ({\n  value,\n …}) => {` and a typed one whose body is in parentheses.
+  assert.deepEqual(span('Display'), [['src/components/Display.jsx', 4, 19]]);
+  assert.deepEqual(span('Gauge'), [['src/components/Gauge.tsx', 6, 13]]);
+  assert.deepEqual(knowledge.graph.calls.filter(([, to]) => to === 'formatReading').map(([from]) => from).sort(), ['Display', 'Gauge']);
+  // A changed line inside the component is read as a change to it, and its helper's callers are the components.
+  const changedRanges = new Map([['src/components/Display.jsx', [[10, 10]]], ['src/utils/format.js', [[3, 3]]]]);
+  const records = buildImpactRecords(knowledge, { changedPaths: ['src/components/Display.jsx', 'src/utils/format.js'], changedRanges });
+  const display = records.find((record) => record.parts.symbol === 'Display');
+  assert.equal(display?.state, 'changed');
+  assert.equal(display.sources.code[0].line, 4);
+  assert.deepEqual(records.find((record) => record.parts.symbol === 'formatReading')?.parts.callers, ['Display', 'Gauge']);
+});
+
+/** A flat folder of eight files, as SFlow's own src/ is at a larger size: one planned file, two that import it, five others. */
+function flatFolder() {
+  const files = {
+    'lib/core.js': 'export function settle(amount) {\n  if (amount < 0) throw new Error(\'amount must not be negative\');\n  if (amount > 500) return 500;\n  return amount;\n}\n',
+    'lib/refunds.js': 'import { settle } from \'./core.js\';\n\nexport function refund(amount) {\n  return settle(amount);\n}\n',
+    'lib/payouts.js': 'import { settle } from \'./core.js\';\n\nexport function payout(amount) {\n  return settle(amount) * 2;\n}\n'
+  };
+  for (const name of ['alpha', 'bravo', 'charlie', 'delta', 'echo']) {
+    files[`lib/${name}.js`] = `export function ${name}Total(count) {\n  if (count > 9000) throw new Error('too many');\n  for (let i = 0; i < count; i += 1) { if (i % 7 === 0) count += 1; }\n  return count;\n}\n`;
+  }
+  return files;
+}
+
+// Too large to build whole (the fixture and the folder hold 27 code files), with room for the eight-file folder.
+const LARGE = { maximumCodeFiles: 12, maximumFileBytes: 512 * 1024, maximumTotalBytes: 48 * 1024 * 1024 };
+
+test('F2: a folder over the area cap is read in the part the Story needs, and its brief says so and says less [WMR:§11]', async (t) => {
+  const repository = await fixture(t, 'graph-calc', { files: flatFolder() });
+  const story = { workItem: { title: 'Cap a settled amount', description: 'Never settle more than was asked.' } };
+  const options = { definition: null, phase: 'implementation-spec', workflow: story, plannedPaths: ['lib/core.js'], polish: 'off', trustCalls: () => true };
+  // Read whole (the cap above the folder's eight files): with resolved calls the folder-wide claims are made.
+  const whole = await repositoryBriefPrompt(repository, { ...options, limits: { ...LARGE, maximumAreaFiles: 100 } });
+  assert.match(whole.text, /lib\/core\.js \(planned\): imported by 2 files; 2 rules; no test reaches it/u, whole.text);
+  assert.doesNotMatch(whole.text, /only part of/u);
+  // Over the cap: the planned file, the two files that import it, and nothing else of the folder.
+  const brief = await repositoryBriefPrompt(repository, { ...options, limits: { ...LARGE, maximumAreaFiles: 4 } });
+  assert.match(brief.text, /only part of a large folder was read \(3 of the 8 code files under `lib\/`: this Story's files and the files they import or that import them\)/u, brief.text);
+  // Who imports the planned file is read from the whole folder, so its count stays; reach, callers and comparisons go.
+  assert.match(brief.text, /lib\/core\.js \(planned\): imported by 2 files; 2 rules/u);
+  assert.doesNotMatch(brief.text, /no test reaches it|called by|called from|reached by|the most complex|tested through/u, brief.text);
+  assert.doesNotMatch(brief.text, /alphaTotal|bravoTotal|lib\/alpha\.js/u, 'a file the Story does not reach is not read');
+  // An area over the cap holding none of the Story's files is not read at all.
+  const none = await repositoryBriefPrompt(repository, { definition: null, phase: 'implementation-spec', workflow: { workItem: { title: 'Tidy the lib folder' } },
+    polish: 'off', limits: { ...LARGE, maximumAreaFiles: 4 } });
+  assert.equal(none.text, '', none.text);
+  const { buildKnowledge: build } = await import('../src/knowledge/store.mjs');
+  const skipped = await build(repository, { area: 'lib', limits: { ...LARGE, maximumAreaFiles: 4 }, storyPaths: [], history: false });
+  assert.deepEqual([skipped.status, skipped.reason], ['insufficient', 'area-too-large']);
+  // The lines count too: a folder of few files but many lines is read in part the same way.
+  const byLines = await build(repository, { area: 'lib', limits: { ...LARGE, maximumAreaFiles: 100, maximumAreaLines: 20 }, storyPaths: ['lib/core.js'], history: false });
+  assert.deepEqual([byLines.knowledge.repository.part.read, byLines.knowledge.repository.part.files], [3, 8]);
+  assert.deepEqual(byLines.knowledge.repository.part.importers, { 'lib/core.js': ['lib/payouts.js', 'lib/refunds.js'] });
+  // Without a Story's files (`wm knowledge build --area lib`), a folder is read whole, as before.
+  const asked = await build(repository, { area: 'lib', limits: { ...LARGE, maximumAreaFiles: 4 }, history: false });
+  assert.equal(asked.knowledge.repository.files, 8);
+  assert.equal(asked.knowledge.repository.part, undefined);
+});
+
+test('F3: in a repository too large to build whole, a planning step whose words name a file but no folder reads that file\'s area [WMR:§11, REQ-008]', async (t) => {
+  const repository = await fixture(t, 'graph-calc', { files: flatFolder() });
+  // "graph" names src/FunctionGrapher.jsx; no folder is called anything like it.
+  const brief = await repositoryBriefPrompt(repository, { definition: { worldModel: {} }, phase: 'planning', workflow: planningStory('graph'), limits: LARGE, polish: 'off' });
+  assert.equal(brief.profile, 'design');
+  assert.match(brief.text, /^## What a change touches\n- src\/FunctionGrapher\.jsx \(name matches the Story's words\)/mu, brief.text);
+  assert.deepEqual(brief.likelyPaths, ['src/FunctionGrapher.jsx']);
+  // The same reader as the brief's: never a test, at most three, best match first.
+  const { filesNamedByWords } = await import('../src/knowledge/records/impact.mjs');
+  assert.deepEqual(filesNamedByWords(['src/FunctionGrapher.jsx', 'src/FunctionGrapher.test.jsx', 'test/graph-helper.js', 'src/App.jsx'], 'graph'), ['src/FunctionGrapher.jsx']);
+  const { selectKnowledgeAreas } = await import('../src/knowledge/store.mjs');
+  const areas = [{ path: 'src', files: 3, own: true }, { path: 'src/components', files: 8 }, { path: 'lib', files: 8 }];
+  assert.deepEqual(selectKnowledgeAreas(areas, { namedPaths: ['src/FunctionGrapher.jsx'], focus: 'graph' }).map((area) => area.path), ['src']);
+  // Once there is a plan, its files choose the areas; words naming files do not add more (prompt.mjs passes none).
+  assert.deepEqual(selectKnowledgeAreas(areas, { plannedPaths: ['lib/core.js'], focus: 'graph' }).map((area) => area.path), ['lib']);
 });

@@ -9,7 +9,9 @@ is on main (`4c8b464a6`). M1's last part, the dead `worldModelViews` fields and 
 code, is retired on branch `wm-dead` (§10). M4: REQ-023 is built with SSB M2 on branch `ssb-m2` (2026-11-26);
 REQ-020–022 wait for SSB M3 and M4 (§4.6). The probes' answers are in §7. The
 planning fix §11 left open is built on branch `wmr-words` (2026-11-26): every graph Story's planning brief now names the
-grapher file (§11).
+grapher file (§11). Three of §11's follow-ups are built on branch `wm-followups` (2026-11-27): a component whose
+parameters span lines is a function, a large folder is read in the part a Story needs, and the files a Story's words
+name choose areas (§11, "Follow-ups").
 Written on 2026-11-26 from two read-only reviews of that day: one of the code, one of the owner's real use. Checked
 against `main@cbeb9978d`; built on `main@30484105e`.
 
@@ -343,7 +345,7 @@ Answered on 2026-11-26 while building M1 and M2 (`wmr-m1m2`):
   record had nothing to say and was dropped (`records/impact.mjs`, `if (!parts.length) return`): its only importer,
   `App.jsx`, was planned too, so "imported by" was empty. So the cause is REQ-007's, not JSX: **REQ-016 is not built.**
   Seen on the way: a component whose parameters span lines (`export const Display = ({\n … }) => {`) is not read as a
-  function; it did not cause the missing file.
+  function; it did not cause the missing file. Built since (§11, "Follow-ups").
 - **P2:** measured on a scratch clone of SFlow's own repository at `30484105e` (4,195 code files in 48 areas), on this
   machine, with no semantic pack, for a Story planning `src/knowledge/records/impact.mjs` and
   `src/phase-prompt-composer.mjs`:
@@ -356,7 +358,7 @@ Answered on 2026-11-26 while building M1 and M2 (`wmr-m1m2`):
   - **So:** the cost is the size of the areas the Story's files fall in. A folder's own files are one area however
     many there are, so a flat `src/` costs about 27 s cold whenever one of its files changes; a changed file there cost
     the same before. REQ-017 keeps bookkeeping commits from paying it again. Not changed here: a cap on an area's
-    size, or a planned file's area being built only when small, is a follow-up.
+    size, or a planned file's area being built only when small, is a follow-up. Built since (§11, "Follow-ups").
 - **P3:** not run: it needs real VS Code.
 - **P4:** yes: the 16 golden briefs pass on `main@30484105e`.
 - **P5:** no. Recording a step's lessons runs inside the approval's publication unit, in a `try` whose `catch` keeps the
@@ -574,12 +576,67 @@ no brief.
 - **New Stories.** A13 asks for new Stories of the same app after the change. The replay re-composes the same Stories'
   steps instead. Once the owner has run new Stories, the same command without `--replay` measures them.
 
-**Follow-ups already known:**
-- An area-size cap for one huge folder (P2: a flat `src/` of 1,081 files is one area and takes about 27 s cold).
-- A component whose parameters span lines (`export const X = ({\n … }) => …`) is not read as a function (P1).
-- Area selection matches folder names only. In a repository too large to build whole, a planning step whose words
-  name a file but no folder still gets no brief. Matching file names there would build more areas while composing
-  (P2's cost), so it is left until it is measured.
+**Follow-ups (built on branch `wm-followups`, 2026-11-27).** Measured on a scratch clone of SFlow's own repository at
+`6c7b0ecbf` (4,241 code files in 48 areas; `src/`'s own 1,089 files of about 389,000 lines are one area), on this
+machine, with no semantic pack. Two other builds ran at the same time (one-minute load 8 to 21), so each figure is the
+range of two or three runs.
+- **A component whose parameters span lines is a function** (P1). The text outline balances a parameter list over the
+  lines that follow, so `export const Display = ({\n  value,\n}) => {` and `const Gauge: FC<Props> = ({ … }) => (` are
+  functions, from their declaration to their closing brace or parenthesis. Found on the way, the same class: a
+  parameter list's braces were taken for the body, so every component destructuring its props on one line
+  (`function CheckoutForm({ cart }) {`) ended on its first line. Its body, and the handlers declared in it, were not
+  part of it. Now a nested handler is named after its component (`CheckoutForm.handleSubmit`), as a language service
+  names it, and the events its markup handles are its entry points. A test case's body is still its callback's.
+  The knowledge analyzer is version 6, so a brief kept by version 5 is composed again (REQ-013).
+  - Fixture `react-props` (F1 in `test/knowledge-story-focus.test.mjs`): two such components have their lines, their
+    calls to a helper and a change inside them; that helper's change is "called by Display, Gauge" (before: no
+    function, no caller).
+  - Goldens: only the shop fixture's 7 change. Its `CheckoutForm` now holds its body: 2 more entry points ("change in
+    CheckoutForm", "submit in CheckoutForm") and 1 more rule in the counts, `handleSubmit` named
+    `CheckoutForm.handleSubmit`, and, where calls are read as resolved, 2 more flows, risk lines for the functions
+    they reach, and one for `ProductList`, whose body is now read. A few lines move into the "… N more" pointer. The
+    other fixtures' goldens and expected items do not change.
+- **A large folder is read in the part a Story needs** (P2). An area a Story's brief reads is read whole up to 300 code
+  files and 60,000 lines (`KNOWLEDGE_SOURCE_LIMITS.maximumAreaFiles`, `maximumAreaLines`). Above either, only the Story's
+  files there are read (changed, planned, or named by its words), then the files they import, then the files that
+  import them, within both bounds. Imports are read from every file of the area: under 0.1 s for `src/`, since comments
+  are not masked for it (0.5 s if they were; a commented-out import only adds a file to the part). An area that large
+  with none of the Story's files is not read. `wm knowledge build --area` still reads an area whole (F2).
+  - **Chosen from the measure.** The cost follows the lines more than the files, and grows faster than either.
+    Analysing 212 files of 44,000 lines takes 0.7 s cold, 338 of 117,000 lines 3.5 s, `src/`'s own 1,089 files 27 s.
+    The part of `src/` around its most imported file takes 1.3 s at 40,000 lines, 1.8 s at 60,000, 2.8 s at 80,000 and
+    3.9 s at 100,000. So 60,000 lines keeps one area near 2 s, and `src/commands` (212 files) and `scripts` are still
+    read whole.
+  - **Says less, never more.** The brief's closing line says what was read: "only part of a large folder was read (51
+    of the 1,089 code files directly in `src/`: this Story's files and the files they import or that import them), so
+    who calls them, which tests reach them and counts across that folder are left out". In such a part, even with
+    resolved calls, the brief states no callers, flows, test reach, "no test reaches it", "called from N places" or
+    "reached by". It states no "the most complex function" and no "Documented; no code enforcing it was found" (nor
+    its question). A hotspot's importer and co-change counts are left out unless every importer was read. The overview
+    says its counts are of the part read. "Imported by N files" stays for the Story's own files, counted from the
+    whole area's imports: `src/util.mjs (changed): imported by 599 files`.
+
+  | Compose, SFlow's repository | Before: cold, warm, cache | After: cold, warm, cache |
+  |---|---|---|
+  | Plan brief, two planned files (`src/knowledge/`, `src/`) | 31–42 s, 0.7–0.8 s, 12.5 MB | 2.1–5.5 s, 0.5–1.5 s, 2.9 MB (51 of `src/`'s 1,089 read) |
+  | First code brief, one changed and two planned | 29–34 s, 0.7–1.0 s, 12.5 MB | 1.6–4.8 s, 0.5–1.6 s, 2.9 MB |
+  | Code brief, `src/util.mjs` changed (599 files import it) | 28–33 s, 0.8–0.9 s, 11.7 MB | 3.2–10.6 s, 0.7–1.3 s, 3.5 MB (154 read) |
+  | Planning brief, words name a `src/` file, no plan | no brief, 0.04 s | 2.0–5.6 s, 0.6–1.8 s, 2.3 MB |
+
+  Every brief above names the Story's file. P2 measured the first two rows at 26–28 s cold on a quieter machine.
+- **The files a Story's words name choose areas too** (REQ-008). In a repository too large to build whole, before the
+  Story plans or changes a file, the code files its words name select their areas, read as the brief reads them: at
+  most 3, never a test, split at case changes with "-er" folded (`filesNamedByWords`, the same reader as "name
+  matches the Story's words"). A file named counts 5 toward its area, a planned or changed file 10 and a folder word 3.
+  Once there is a plan or a change, its files choose, as before. Measured with a planning Story titled "Make the phase
+  prompt composer leave the brief out sooner" (last row above). Before, it got no brief. Now its brief names
+  `src/phase-prompt-composer.mjs` first, with two `apps/vscode` files whose names match ("phase brief"). It reads 51 of
+  `src/`'s files and 7 of `apps/vscode`'s 324, and it costs 2.0–5.6 s cold the first time, 0.6–1.8 s warm. F3 checks
+  it on the graph fixture: a planning step titled "graph" in a repository over the limit names `FunctionGrapher.jsx`.
+- **Seen on the way, not changed:** most of a large area's cold time is two readers. The one that says where a limit
+  is used tries every limit on every line, about 15 of `src/`'s 27 s. The lens matches imports by name, about 3.4 s.
+
+**Follow-ups still open:**
 - `wm show --focus` and the approved requirements' word leads keep their own readers. The first matches by substring
   and so already reaches "grapher" from "graph"; the second does not fold "-er".
 - A plan's file table can name a file that is not code (a Story's evidence picture). It is listed as "(new, planned)"

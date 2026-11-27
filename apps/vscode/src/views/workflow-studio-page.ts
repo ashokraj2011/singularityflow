@@ -1075,7 +1075,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     catalogSearch: catalogSearch, agentPromptPreview: agentPromptPreview, renderHome: renderHome, renderAgents: renderAgents, renderSkills: renderSkills, renderInstructions: renderInstructions, renderInspector: renderInspector,
     duplicateAgent: duplicateAgent, editAgent: editAgent, renderAgentForm: renderAgentForm, saveAgentForm: saveAgentForm,
     renderConstitution: renderConstitution, openConstitutionForm: openConstitutionForm, saveConstitutionArticle: saveConstitutionArticle,
-    renderEpicStep: renderEpicStep, renderSeededWorkflow: renderSeededWorkflow,
+    renderEpicStep: renderEpicStep, renderSeededWorkflow: renderSeededWorkflow, inUseNotes: function () { return inUseNotes.apply(null, arguments); },
     insertSkillInstruction: insertSkillInstruction,
     proposalGroups: function () { return proposalGroups.apply(null, arguments); }, proposalEntityCard: function () { return proposalEntityCard.apply(null, arguments); },
     proposalCard: function () { return proposalCard.apply(null, arguments); }, stepTestsWords: function () { return stepTestsWords.apply(null, arguments); },
@@ -1724,6 +1724,28 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     render();
     return true;
   }
+  /**
+   * What a workflow was made from, or attaches, that its marketplace deprecated or retired (OMK section 8): a callout each,
+   * with the way to its replacement. The workflow runs as it is; nothing here changes it.
+   */
+  function inUseNotes(id) {
+    var entry = ((state.model && state.model.workflows) || []).find(function (candidate) { return candidate.id === id; });
+    return ((entry && entry.deprecatedInUse) || []).map(function (item) {
+      var next = item.replacement;
+      var act = next && next.target ? button('Make a workflow from the replacement', function () { state.view = 'library'; state.returnTo = null; previewAgentWorkflow(next.target, next.id, {}, false); },
+        { class: 'secondary', 'data-key': 'in-use-replace-' + id + '-' + item.id, title: 'Shows the workflow ' + next.id + ' becomes, through its review; this workflow keeps running as it is' })
+        : next && next.reference ? button('Preview the replacement', function () { state.view = 'library'; state.returnTo = null; previewImport(next.reference, 'skill', null); },
+          { class: 'secondary', 'data-key': 'in-use-replace-' + id + '-' + item.id, title: 'Shows ' + next.id + '\'s exact text; attach it where ' + item.id + ' is attached once it is added' }) : null;
+      return el('div', { class: 'callout wait', 'data-key': 'in-use-' + id + '-' + item.id }, el('span', { text: item.words }), act ? el('div', { class: 'studio-row' }, act) : null);
+    });
+  }
+  function inUsePill(id) {
+    var entry = ((state.model && state.model.workflows) || []).find(function (candidate) { return candidate.id === id; });
+    var used = (entry && entry.deprecatedInUse) || [];
+    if (!used.length) return null;
+    var retired = used.some(function (item) { return item.state === 'retired'; });
+    return el('span', { class: 'pill archived', 'data-in-use-pill': 'true', text: retired ? 'Uses a retired item' : 'Uses a deprecated item', title: used.map(function (item) { return item.words; }).join(' ') });
+  }
   function renderHome(main) {
     var workflows = state.draft.order.concat(Object.keys(state.draft.workflows).filter(function (id) { return state.draft.order.indexOf(id) < 0; }));
     var live = workflows.filter(function (id) { return !archivedWorkflow('story', id); });
@@ -1778,7 +1800,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       });
       var card = el('article', { class: 'studio-card ' + (readOnly ? 'workflow-seeded' : 'workflow-editable') + (archived ? ' workflow-archived' : ''), 'data-workflow-card': id },
         el('div', { class: 'studio-row spread' },
-          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly), archivedPill(archived),
+          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly), archivedPill(archived), inUsePill(id),
             userAgent ? el('span', { class: 'pill origin-editable', text: 'Your agent', title: 'Your own agent folder, run as one step with its own instructions and files (call add)' }) : null,
             workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'NEW' }) : null,
             pendingProposal ? el('span', { class: 'pill new', text: 'Pending review' }) : null),
@@ -1794,6 +1816,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
             retireButtons('story:' + id, workflow.label, archived, !readOnly, workflow.isNew || Boolean(workflow.installFrom)))),
         el('span', { class: 'muted', text: workflow.phases.length + ' steps' + (code ? ' · writes code' : '') + (archived && archived.reason ? ' · archived: ' + archived.reason : '') }),
         workflow.description ? el('span', { class: 'muted', text: workflow.description }) : null,
+        inUseNotes(id),
         rail(workflow.phases));
       var group = archived ? archivedWorkflows : readOnly ? seededWorkflows : userWorkflows;
       group.appendChild(card);
@@ -3434,6 +3457,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       el('span', { class: 'hint', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.isNew || workflow.installFrom ? ' · new, not published yet' : '') }),
       changeImpactHint(workflowId)
     ].filter(Boolean)));
+    var inUse = inUseNotes(workflowId);
+    if (inUse.length) aside.appendChild(section('in-use', 'From its marketplace', inUse, null, String(inUse.length)));
     aside.appendChild(section('rules', 'Rules & decisions', workflowRules(workflowId), null, String((workflow.reworkLoops || []).length + (workflow.decisions || []).length)));
     var claimsSection = plannedClaimsSection(workflowId, workflow);
     if (claimsSection) aside.appendChild(claimsSection);

@@ -72,7 +72,8 @@ test('the React shop: rules, limits, journeys, tests, an untested handler and a 
   assert.ok(rule.relations.some((relation) => relation.type === 'tested-by' && relation.label === 'SAVE10 needs more than $30'));
   const drift = knowledge.items.find((item) => item.kind === 'drift');
   assert.match(drift.statement.detail, /"more than" \(strict\), the code uses >=/u);
-  assert.equal(knowledge.items.filter((item) => item.kind === 'untested-rule').map((item) => item.subject.symbol).join(), 'handleSubmit');
+  // The handler is declared inside the component, and is named after it, as a language service names it [WMR:§11].
+  assert.equal(knowledge.items.filter((item) => item.kind === 'untested-rule').map((item) => item.subject.symbol).join(), 'CheckoutForm.handleSubmit');
   const limit = knowledge.items.find((item) => item.kind === 'limit' && item.statement.name === 'MAX_QUANTITY_PER_LINE');
   assert.equal(limit.statement.value, '10');
   assert.ok(limit.statement.usedIn.some((use) => use.symbol === 'cartReducer'), 'a limit says where it is applied');

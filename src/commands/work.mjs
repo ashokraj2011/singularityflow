@@ -70,6 +70,9 @@ export function kindOf(words, options) {
   });
 }
 
+/** A plan line's entries no step is given: task-skills.mjs NOT_GIVEN, here so the plan reads it without that module. */
+const NOT_GIVEN = new Set(['withheld', 'deprecated', 'deprecated-attached']);
+
 const approvalOf = (phase) => phase.approval?.mode === 'none' ? 'none'
   : phase.approval?.automatic === 'when-ready' ? 'sflow' : 'person';
 
@@ -98,8 +101,9 @@ export async function taskPlan(definition, { kind, touchedPaths = [], pullReques
     composition,
     plan: planLine(composition, { approvals, pullRequest, skills: byStep, skillWords }),
     steps: composition.steps.map((step) => ({ id: step.id, intent: step.intent, label: step.label, approvedBy: approvals[step.id],
-      // A skill SFlow's text checks refuse is named in the plan line, never given to the step [OMK:REQ-032].
-      ...(byStep[step.id]?.some((entry) => entry.status !== 'withheld') ? { skills: byStep[step.id].filter((entry) => entry.status !== 'withheld').map((entry) => entry.id) } : {}) })),
+      // A skill SFlow's text checks refuse, or its marketplace deprecated, is named in the plan line, never given to the
+      // step [OMK:REQ-032, REQ-041] (task-skills.mjs NOT_GIVEN).
+      ...(byStep[step.id]?.some((entry) => !NOT_GIVEN.has(entry.status)) ? { skills: byStep[step.id].filter((entry) => !NOT_GIVEN.has(entry.status)).map((entry) => entry.id) } : {}) })),
     walk: walk.outcome,
     ...(chosen ? { skills: chosen.skills, offers: chosen.offers } : {}),
     ...(found?.offer ? { agentOffer: found.offer } : {}),

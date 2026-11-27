@@ -36,6 +36,7 @@ import { createHash } from 'node:crypto';
 
 import { differencesWords, piecesDifferences } from './agent-workflow-provenance.mjs';
 import { compareVersions } from './marketplace.mjs';
+import { deprecatedInUseOf, inUseState, itemUses } from './marketplace-in-use.mjs';
 import { itemLifecycle, lifecycleInstallable, lifecycleSummary } from './marketplace-lifecycle.mjs';
 import { librarySkillCandidate, marketplaceSkillCandidate, unapprovedMarketplaces } from './task-skills.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -148,8 +149,9 @@ function textUpdate(installedVersion, version, label) {
  * One row. Beside today's fields it carries what OMK reads [OMK:REQ-015]: the item's `owner` (with where it came from),
  * its `lifecycleRecord` (lifecycleSummary: state, who, when, its change, the guard), the `channel` its marketplace is
  * trusted on, and the marketplace-owned `findings` on them. `safety` is what SFlow's text checks found in the copy
- * installed here (installed-text-safety.mjs safetyFlag, OMK §7), null when nothing; `deprecatedInUse` and `use` are filled
- * by OMK's later milestones and are null until then.
+ * installed here (installed-text-safety.mjs safetyFlag, OMK §7), null when nothing. `deprecatedInUse` says an item its
+ * marketplace deprecated or retired that something here still uses, with its replacement (marketplace-in-use.mjs, OMK §8),
+ * null when not; `use` is filled by OMK's usage milestone and is null until then.
  */
 function row({ key, kind, id, name = id, description = '', source, marketplace = null, labels, marketplaceKind = null, version = null, installedVersion = null,
   facts = null, tags = [], status, statusWords, update = null, newer = null, installedAs = null, fromAgent = null, conflict = null, importable = true, actions = {},
@@ -216,7 +218,7 @@ function cameFromWords(record, { trusted, listed, labels }) {
  * (`newer`), with the reviewed change that trusts that commit (`actions.trust`).
  */
 export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imports = {}, workflows = {}, steps = {}, unapproved = [], warnings = [],
-  only = null, kind = null, search = null, newest = false, safety = new Map() } = {}) {
+  only = null, kind = null, search = null, newest = false, safety = new Map(), attachments = [], openStories = [] } = {}) {
   const markets = [...marketplaces].sort((left, right) => byText(left.id, right.id));
   const labels = new Map([...unapproved.map((entry) => [entry.id, entry.label ?? entry.id]), ...markets.map((market) => [market.id, market.label ?? market.id])]);
   const trusted = new Set(markets.map((market) => market.id));
@@ -522,6 +524,39 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       actions: { approve: action('singularity-flow configuration proposals', 'See whether the change that trusts it waits for approval.') } }));
   }
 
+  // Deprecated or retired in its marketplace and still used here [OMK:REQ-040–REQ-042]: the state at the commit trusted now,
+  // or only in the newest commit read (--newest); who uses it; its replacement, offered through the same reviewed import.
+  const inUseInput = { imports, library: new Set(libraryById.keys()), workflows, attachments, openStories };
+  const installedHere = (market) => (listed) => rows.some((other) => other.source === 'marketplace' && other.marketplace === market.id && other.kind === listed.kind
+    && other.id === listed.name && other.installedAs && other.status !== 'not-installed');
+  for (const item of rows.filter((entry) => entry.source === 'marketplace' && entry.kind !== 'marketplace')) {
+    const market = readable.get(item.marketplace);
+    const entry = (market?.items ?? []).find((candidate) => candidate.kind === item.kind && candidate.name === item.id);
+    if (!entry) continue;
+    const newestEntry = newestOf.get(market.id)?.get(`${entry.kind}:${entry.name}`) ?? null;
+    if (!inUseState(entry) && !inUseState(newestEntry)) continue;
+    const used = deprecatedInUseOf(entry, { marketplace: market.id, label: labels.get(market.id), marketplaceKind: market.kind, items: market.items ?? [],
+      uses: itemUses({ marketplace: market.id, kind: entry.kind, name: entry.name }, inUseInput), installed: installedHere(market), newest: newestEntry });
+    if (!used) continue;
+    const replacement = used.replacement?.offered ? rows.find((other) => other.source === 'marketplace' && other.marketplace === market.id
+      && other.kind === used.replacement.kind && other.id === used.replacement.id) ?? null : null;
+    item.deprecatedInUse = { ...used, replacement: used.replacement ? { ...used.replacement, key: replacement?.key ?? null,
+      install: replacement?.actions.install ?? null } : null };
+    if (used.replacement?.offered && used.replacement.preview) item.actions.replace = action(used.replacement.preview.command, used.replacement.preview.label);
+  }
+  // A workflow made from an agent says what its agent's row says; a library skill from a marketplace not read just now,
+  // what its import recorded, said so [OMK:REQ-011].
+  for (const item of rows.filter((entry) => entry.source === 'here' && entry.installedAs?.importKey)) {
+    const agent = item.fromAgent ? agentRows.get(item.installedAs.importKey) : null;
+    if (agent?.deprecatedInUse) { item.deprecatedInUse = agent.deprecatedInUse; if (agent.actions.replace) item.actions.replace = agent.actions.replace; continue; }
+    const record = records.find((entry) => entry.key === item.installedAs.importKey);
+    if (!item.lifecycleRecord?.recorded || !record || !MARKETPLACE_SOURCES.has(record.source?.kind)) continue;
+    const kindOf = record.kind === 'library-skill' ? 'skill' : record.kind;
+    item.deprecatedInUse = deprecatedInUseOf({ kind: kindOf, name: record.source.entry ?? item.id, lifecycleState: record.source.lifecycleState, owner: item.owner },
+      { marketplace: record.source.marketplace, label: labels.get(record.source.marketplace), recorded: true,
+        uses: itemUses({ marketplace: record.source.marketplace, kind: kindOf, name: record.source.entry ?? item.id }, inUseInput) });
+  }
+
   // What SFlow's text checks found in an installed copy (installed-text-safety.mjs): a badge on its row [OMK:REQ-032].
   for (const item of rows) {
     const installed = item.installedAs;
@@ -581,7 +616,10 @@ export function analyzeMarketplaceCatalog({ marketplaces = [], library = [], imp
       byKind: Object.fromEntries(KIND_ORDER.map((name) => [name, shown.filter((item) => item.kind === name).length])),
       byStatus: Object.fromEntries(CATALOG_STATUSES.map((name) => [name, count((item) => item.status)[name] ?? 0])),
       updates: shown.filter((item) => item.status === 'update-available').length,
-      newer: shown.filter((item) => item.newer && !item.newer.gone).length
+      newer: shown.filter((item) => item.newer && !item.newer.gone).length,
+      // Deprecated or retired, and still used here [OMK:REQ-041]: a workflow made from an agent counts once, on its agent's row.
+      deprecatedInUse: shown.filter((item) => item.deprecatedInUse && !item.deprecatedInUse.newest
+        && !(item.source === 'here' && item.fromAgent && agentRows.has(item.installedAs?.importKey))).length
     },
     warnings: [...warnings, ...sources.filter((source) => source.warning).map((source) => source.warning),
       ...sources.filter((source) => source.newest && !source.newest.checked).map((source) => source.newest.words)]
@@ -684,9 +722,19 @@ async function readApprovedCatalog(root, { only, kind, search, newest, fetchImpl
   if (marketplaces.some((market) => (market.items ?? []).some((item) => item.kind === 'generated'))) {
     await markReadOnlySteps(configRoot, definition, steps, agents).catch(() => null);
   }
-  const { installedTextSafety, safetyFlagsByKey } = await import('./installed-text-safety.mjs');
-  return analyzeMarketplaceCatalog({ marketplaces, library: [...library.skills.values()], imports: ledger.imports ?? {}, workflows, steps, unapproved, warnings,
-    only, kind, search, newest, safety: safetyFlagsByKey(await installedTextSafety(root).catch(() => null)) });
+  const [{ installedTextSafety, safetyFlagsByKey }, { keepInUse, openStoriesHere }, { readSkillAttachments }] = await Promise.all([
+    import('./installed-text-safety.mjs'), import('./marketplace-in-use.mjs'), import('./skill-library.mjs')]);
+  // The open Stories on this computer are read only when some item read is deprecated or retired [OMK:REQ-040].
+  const marked = marketplaces.some((market) => [...(market.items ?? []), ...(market.newest?.items ?? [])].some((entry) => inUseState(entry)));
+  const catalog = analyzeMarketplaceCatalog({ marketplaces, library: [...library.skills.values()], imports: ledger.imports ?? {}, workflows, steps, unapproved, warnings,
+    only, kind, search, newest, safety: safetyFlagsByKey(await installedTextSafety(root).catch(() => null)),
+    attachments: await readSkillAttachments(configRoot).catch(() => []), openStories: marked ? await openStoriesHere(root).catch(() => []) : [] });
+  // Every marketplace read, nothing narrowed: what is deprecated in use is kept for a Copilot session's start.
+  if (only == null && kind == null && search == null && marketplaces.every((market) => !market.warning)) {
+    await keepInUse(root, catalog.items.filter((item) => item.source === 'marketplace' && item.deprecatedInUse && !item.deprecatedInUse.newest)
+      .map((item) => ({ key: item.key, kind: item.kind, id: item.id, marketplace: item.marketplace, marketplaceLabel: item.marketplaceLabel, ...item.deprecatedInUse })));
+  }
+  return catalog;
 }
 
 /**
@@ -751,6 +799,9 @@ export function marketplaceCatalogLines(catalog) {
       for (const finding of (item.findings ?? []).slice(0, 3)) lines.push(`      For the marketplace: ${finding.words}`);
       if ((item.findings ?? []).length > 3) lines.push(`      For the marketplace: ${item.findings.length - 3} more, in --json under findings.`);
       if (item.newer) lines.push(`      Newer: ${item.newer.words}`);
+      // Deprecated or retired and still used here, and the reviewed way to its replacement [OMK:REQ-041, REQ-042].
+      if (item.deprecatedInUse) lines.push(`      In use: ${item.deprecatedInUse.words}`);
+      if (item.actions.replace) lines.push(`      Replace with: ${item.actions.replace.command.replace(/ --json$/u, '')}`);
       if (item.safety) lines.push(`      ${item.safety.words}`);
       // A generated source has no text to preview: its next step is the reviewed proposal that adds it.
       const next = item.status === 'update-available' ? item.actions.preview ?? null : item.status === 'not-installed' ? item.actions.preview ?? item.actions.install ?? null

@@ -3455,8 +3455,10 @@ export const CODE_EXPLAINER_RUNTIME = String.raw`
       else if (!view.selected && !view.selectedModule && model.focus) view.selected = model.focus;
       render(fresh);
       // With no change to explain, the repository itself is what there is to read; the full view is its map.
-      // Where to start: the function under the cursor in Explore, a change in My change, otherwise the repository's map.
-      if (fresh && !view.mode) setMode(message.focus || (vscode.embedded ? model.requested : model.focus) ? 'explore' : model.change.status === 'available' ? 'change' : 'map');
+      // Where to start: the place the host was asked for ("Explain the change" asks for My change), else the function
+      // under the cursor in Explore, a change in My change, otherwise the repository's map.
+      if (MODES.indexOf(message.mode) >= 0) setMode(message.mode);
+      else if (fresh && !view.mode) setMode(message.focus || (vscode.embedded ? model.requested : model.focus) ? 'explore' : model.change.status === 'available' ? 'change' : 'map');
       else if (fresh && !viewChosen && view.lens === 'code' && model.view !== 'full' && model.change.status === 'empty' && !model.focus && view.tab !== 'repo' && view.mode !== 'explore') setTab('repo');
       else if (view.tab === 'repo' && !repo.explanation && !repo.loading && !repo.error) askRepository(repo.path ? 'refresh' : 'root');
       if (view.mode === 'explore' && view.lens === 'code') ensureSelection();
@@ -3472,6 +3474,9 @@ export const CODE_EXPLAINER_RUNTIME = String.raw`
       if (model) renderStatus();
     } else if (message.type === 'cx.notice') {
       showNotice(String(message.text || ''), message.tone);
+    } else if (message.type === 'cx.mode') {
+      // A place asked for while the page already shows a model: the same as choosing it on the page.
+      if (model && MODES.indexOf(message.mode) >= 0) setMode(message.mode);
     } else if (message.type === 'cx.focus') {
       if (model && model.byId[message.symbol]) { view.mode = 'explore'; view.isolate = true; setTab('graph'); select(message.symbol, true); }
     } else if (message.type === 'cx.repository') {

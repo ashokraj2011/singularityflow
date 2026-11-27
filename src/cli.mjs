@@ -3963,9 +3963,11 @@ async function importLooked(root, { reference, as, id, sha256, options, phases }
     import('./asset-import.mjs'), import('./import-safety.mjs')]);
   const looked = parseLookedChecks(optionString(options, 'looked') ?? []);
   const agent = optionString(options, 'agent');
-  const ledgerKey = !optionBoolean(options, 'replace') ? null
+  const replace = optionBoolean(options, 'replace');
+  // An agent replaced with no --id: addSafetyGate finds its record by the ID its own file gives, as the replace does.
+  const ledgerKey = !replace ? null
     : as === 'skill' ? importLedgerKey(agent ? 'skill' : 'library-skill', { agent, id }) : id ? importLedgerKey(as, { id }) : null;
-  const checked = await withApprovedConfigurationRead(root, () => addSafetyGate(root, { sha256, as, looked, ledgerKey }), { preferAuthority: true });
+  const checked = await withApprovedConfigurationRead(root, () => addSafetyGate(root, { sha256, as, looked, ledgerKey, replace }), { preferAuthority: true });
   if (!checked) return looked;
   const label = `the ${as} at ${reference}`;
   if (checked.gate.blocked.length) {

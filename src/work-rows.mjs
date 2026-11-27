@@ -8,7 +8,7 @@
 import { normalizeApprovalAuthorities } from './approval-authority.mjs';
 import { ADDABLE, agentWords, taskStepLabel } from './task-composition.mjs';
 import { storyCreatorName } from './story-presentation.mjs';
-import { timeWords } from './needs-you-list.mjs';
+import { orderItems, timeWords } from './needs-you-list.mjs';
 
 export const WORK_LIST_RESULT = 'sflow-work-list';
 /** Done this week: what ended in the last seven days [FPL:REQ-007]. */
@@ -209,6 +209,29 @@ export function workRow(workflow, { repository, folder, mine, place = {}, now = 
     updatedAt, ...(workflow.status === 'closed' ? { ended: { at: updatedAt, when: timeWords(updatedAt, now), where: endedWhere(workflow) } } : {}),
     place: { checkout: place.checkout ?? null, clone: place.clone ?? null }
   };
+}
+
+/** The items work list computes itself from the Story's record, as Needs you does: its step's approval, the decision after it. */
+export const RECORD_ITEM_KINDS = Object.freeze(['step-approval', 'workflow-decision']);
+
+/** What a row keeps of a Needs-you item: enough to say "Waiting for you: …", order it, and open its card. */
+export function waitingOf(item) {
+  return { key: item.key, kind: item.kind, group: item.group, repository: item.repository ?? null, story: { id: item.story?.id ?? null },
+    step: item.step ?? null, question: item.question, waitingSince: item.waitingSince ?? null };
+}
+
+/**
+ * The one item of this person's a row says "Waiting for you: …" for, current with the record the row was read from
+ * [FPL:REQ-005]. `live` is what work list computed from that record (null when it has none yet); `kept` is what Needs
+ * you last kept, each with the time it was read (`readAt`). A kept item read before the Story's latest record may be
+ * one already decided, so it is never said; a kind work list computes itself is taken from the record only.
+ */
+export function waitingItem(row, { live = null, kept = [] } = {}) {
+  const changedAt = Date.parse(row?.updatedAt ?? '');
+  const current = kept.filter((item) => item.story?.id === row.id && item.repository?.id === row.repository?.id
+    && !(live && RECORD_ITEM_KINDS.includes(item.kind))
+    && (!Number.isFinite(changedAt) || Date.parse(item.readAt ?? '') >= changedAt));
+  return orderItems([...(live ?? []), ...current])[0] ?? null;
 }
 
 /** The row with this person's Needs-you item, when one belongs to its Story: its status line, and its chip waits for you. */

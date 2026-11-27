@@ -179,7 +179,7 @@ function fakeHost({ answers = {} } = {}) {
   const host = { calls, sent: [], refusals: [], started: [], cards: [],
     client: client('window'), bind: (where) => client(where),
     startTask: async (words) => { host.started.push(words); },
-    command: async (id) => { calls.push(['command', id]); },
+    command: async (id, ...args) => { calls.push(['command', id, ...args]); },
     sendChat: async (text) => { host.sent.push(text); },
     refresh: async () => {}, openCard: (key) => host.cards.push(key), waiting: () => null,
     showRefusal: (error, headline) => host.refusals.push([headline, error.message]) };
@@ -262,6 +262,9 @@ test('A10: the task page adds a step through work add with its refusal\'s words,
   // Its card: a Needs-you key opens the card page.
   await panel.send({ type: 'card', key: 'shop-web:TASK-12:approve:plan:1' }); await settle();
   assert.deepEqual(host.cards, ['shop-web:TASK-12:approve:plan:1']);
+  // Explain the change opens the Code Explainer in My change, not on its default place (spec §3.2, REQ-006).
+  await panel.send({ type: 'act', act: 'explain' }); await settle();
+  assert.deepEqual(host.calls.at(-1), ['command', 'singularityFlow.openCodeExplainer', { mode: 'change' }]);
 
   // A refusal is shown in its own words, with its route (showRefusal).
   const refusing = fakeHost({ answers: { refuse: true } });
@@ -281,6 +284,10 @@ test('Work is off by default, lazy, first in the places, and wired with today\'s
   assert.match(extension, /const work = new \(lazyPanels\(\)\.WorkPlace\)\(\{/u, 'loaded from the lazy panels, only while the places are on');
   assert.match(extension, /place\.setWork\(work\);/u);
   assert.match(extension, /needsYouAfterChange = \(\) => \{ void place\.read\(\{\}\); void work\.read\(\{\}\); \};/u, 'read again after any change made here');
+  // A command's arguments reach it: "Explain the change" names the explainer's place, My change.
+  assert.match(extension, /command: async \(id, \.\.\.args\) => \{ await vscode\.commands\.executeCommand\(id, \.\.\.args\); \},/u);
+  assert.match(extension, /'singularityFlow\.openCodeExplainer': \(\(options\?: unknown\) => showCodeExplainer\(false, options\)\) as never,/u);
+  assert.match(extension, /CodeExplainerPanel\.show\(context, store, client, \{ services, mode: codeExplainerMode\(options\) \}\)/u);
   const lazy = await readFile(path.join(REPOSITORY, 'apps/vscode/src/lazy-panels-runtime.ts'), 'utf8');
   assert.match(lazy, /export \{ WorkPlace, WorkTaskPanel \} from '\.\/views\/work\.ts';/u);
   const places = await readFile(path.join(REPOSITORY, 'apps/vscode/src/views/needs-you.ts'), 'utf8');

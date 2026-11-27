@@ -17,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
+import { cliRefusalCode } from '../cli/runner.ts';
 import type { ComprehensionIdeSnapshot } from '../cli/snapshot.ts';
 import { repositoryRelativePath } from '../explain-target.ts';
 import { DEFAULT_COMPREHENSION_SLICE_LEASE_MS, type SliceLease, type WorkspaceStore } from '../state.ts';
@@ -55,6 +56,16 @@ import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } fr
 
 /** A file and, from the editor, the line the person asked about. */
 export interface CodeExplainerFocus { path: string; line: number | null }
+
+/** The page's three places: Explore one function, Map the repository, My change. */
+export type CodeExplainerMode = 'explore' | 'map' | 'change';
+const CODE_EXPLAINER_MODES: readonly CodeExplainerMode[] = ['explore', 'map', 'change'];
+
+/** The place a caller asked the explainer to open on (`{ mode: 'change' }`), or null for anything else. */
+export function codeExplainerMode(options: unknown): CodeExplainerMode | null {
+  const mode = options && typeof options === 'object' ? (options as { mode?: unknown }).mode : null;
+  return CODE_EXPLAINER_MODES.find((entry) => entry === mode) ?? null;
+}
 
 /** The parts of an `explain code --repository` result the host resolves page requests against. */
 interface RepositoryExplanationView {
@@ -202,6 +213,8 @@ export class CodeExplainerPanel {
   private building = false;
   /** A person asked about a line; the next build's view selects what is there. */
   private focusPending = false;
+  /** The place a caller asked for ("Explain the change" asks for My change), until the page has been told. */
+  private modePending: CodeExplainerMode | null = null;
   private disposed = false;
 
   private constructor(
@@ -238,16 +251,17 @@ export class CodeExplainerPanel {
     panel.webview.html = page('Code Explainer', codeExplainerMarkup(icon, escape(token)), contentSecurityPolicy(panel.webview, token), token, CODE_EXPLAINER_SCRIPT);
   }
 
-  /** Open the explainer, or bring it forward focused on a file and line. */
+  /** Open the explainer, or bring it forward focused on a file and line, or on one of its places. */
   static show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
     client: SingularityFlowClient,
-    { focus = null, services = {} }: { focus?: CodeExplainerFocus | null; services?: CodeExplainerServices } = {}
+    { focus = null, services = {}, mode = null }: { focus?: CodeExplainerFocus | null; services?: CodeExplainerServices; mode?: CodeExplainerMode | null } = {}
   ): CodeExplainerPanel {
     const existing = CodeExplainerPanel.current;
     if (existing) {
       existing.panel.reveal(vscode.ViewColumn.Active);
+      if (mode) existing.applyMode(mode);
       if (focus) existing.applyFocus(focus);
       return existing;
     }
@@ -256,7 +270,18 @@ export class CodeExplainerPanel {
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] }
     );
     CodeExplainerPanel.current = new CodeExplainerPanel(panel, store, client, context, focus, services);
+    if (mode) CodeExplainerPanel.current.applyMode(mode);
     return CodeExplainerPanel.current;
+  }
+
+  /**
+   * Show one of the page's places, as choosing it on the page does. A page showing a model is told at once; one that
+   * has none yet is told with its first, and My change then builds the delta first, never the full map.
+   */
+  private applyMode(mode: CodeExplainerMode): void {
+    if (this.pageReady && this.model) { this.post({ type: 'cx.mode', mode }); return; }
+    if (mode === 'change' && !this.model) this.view = 'delta';
+    this.modePending = mode;
   }
 
   /**
@@ -356,8 +381,15 @@ export class CodeExplainerPanel {
 
   private pageLoaded(): void {
     this.pageReady = true;
-    if (this.model) this.post({ type: 'cx.model', model: this.model, reset: true, progress: this.building ? 'Indexing…' : null });
+    if (this.model) this.post({ type: 'cx.model', model: this.model, reset: true, progress: this.building ? 'Indexing…' : null, mode: this.takeMode() });
     else if (!this.building) void this.build();
+  }
+
+  /** The place asked for, once: the page shows it with the model it is sent with. */
+  private takeMode(): CodeExplainerMode | null {
+    const mode = this.modePending;
+    this.modePending = null;
+    return mode;
   }
 
   private applyFocus(focus: CodeExplainerFocus): void {
@@ -667,7 +699,7 @@ export class CodeExplainerPanel {
       this.locations = locations;
       this.request = 0;
       const focusId = this.focusPending ? this.model.requested : null;
-      if (this.pageReady) this.post({ type: 'cx.model', model: this.model, reset, progress, focus: focusId });
+      if (this.pageReady) this.post({ type: 'cx.model', model: this.model, reset, progress, focus: focusId, mode: this.takeMode() });
       if (progress === null) this.focusPending = false;
     };
     publish(true, 'Tracing calls…');
@@ -744,19 +776,48 @@ export class CodeExplainerPanel {
     let frontier: Frontier[] = [];
     let traced = 0;
     let bounded = false;
-    await mapLimit(seeds, 4, async (symbol) => {
-      if (!budget() || !current()) return;
+    const prepare = async (symbol: (typeof seeds)[number], ms: number): Promise<'answered' | 'none' | 'timed-out' | 'skipped'> => {
+      if (!budget() || !current()) return 'skipped';
       const located = rawByKey.get(symbol.key);
-      if (!located) return;
+      if (!located) return 'skipped';
       const uri = vscode.Uri.file(path.join(root, located.relative));
       requests += 1;
+      const own = serviceStats();
+      // At the name, never the declaration's first column: asked there the service answers nothing.
       const prepared = await withTimeout(vscode.commands.executeCommand<vscode.CallHierarchyItem[] | vscode.CallHierarchyItem>(
-        'vscode.prepareCallHierarchy', uri, new vscode.Position(located.raw.selection.line - 1, located.raw.selection.character)), REQUEST_MS, prepareStats);
+        'vscode.prepareCallHierarchy', uri, new vscode.Position(located.raw.selection.line - 1, located.raw.selection.character)), ms, own);
+      addStats(prepareStats, own);
       const item = Array.isArray(prepared) ? prepared[0] : prepared;
-      if (!item) { input.callStatus[symbol.key] = 'unavailable'; return; }
+      if (!item) { input.callStatus[symbol.key] = 'unavailable'; return own.timedOut ? 'timed-out' : 'none'; }
       seen.add(itemKey(item));
       frontier.push({ item, direction: 'both', depth: 1, key: symbol.key });
-    });
+      return 'answered';
+    };
+    // A language's first call-hierarchy question is where its service builds its project (JavaScript with no
+    // jsconfig.json loads every file the open ones import), so it is asked alone, with the first request's time. A
+    // language that does not answer it in that time is not asked again in this build: its functions would each wait the
+    // full time for nothing, and its files get Singularity Flow's analysis of the code instead.
+    const byLanguage = new Map<string, typeof seeds>();
+    for (const symbol of seeds) {
+      const located = rawByKey.get(symbol.key);
+      if (!located) continue;
+      const language = files.get(located.relative)?.language ?? languageOf(located.relative);
+      byLanguage.set(language, [...(byLanguage.get(language) ?? []), symbol]);
+    }
+    const silent: string[] = [];
+    await Promise.all([...byLanguage].map(async ([language, group]) => {
+      const [first, ...rest] = group;
+      if (!first) return;
+      if (await prepare(first, FIRST_REQUEST_MS) === 'timed-out') {
+        silent.push(language);
+        for (const symbol of rest) input.callStatus[symbol.key] = 'unavailable';
+        return;
+      }
+      await mapLimit(rest, 4, (symbol) => prepare(symbol, REQUEST_MS));
+    }));
+    if (silent.length) {
+      notes.push(`The ${listWords(silent.map(languageLabel))} language service gave no call hierarchy in ${FIRST_REQUEST_MS / 1000} s, so its other functions were not asked. Re-index once it has loaded.`);
+    }
     while (frontier.length && current()) {
       const next: Frontier[] = [];
       await mapLimit(frontier, 4, async (entry) => {
@@ -826,23 +887,18 @@ export class CodeExplainerPanel {
     const lacking = new Set(seeds.map((symbol) => symbol.file).filter((file): file is string => Boolean(file) && !answered.has(file)));
     if (lacking.size) {
       this.progress('Reading calls from the code…');
-      try {
-        // The area of the files that got no call hierarchy, never the whole repository: one that large is refused
-        // (KNOWLEDGE_SCOPE_TOO_LARGE) and its calls never came back [WMR:REQ-010].
-        const area = sharedFolder([...lacking]);
-        const reply = await this.client.run<unknown>(['wm', 'knowledge', 'calls', ...(area ? ['--area', area] : []), '--json']);
-        const data = (reply && typeof reply === 'object' && 'data' in reply ? (reply as { data: unknown }).data : reply) as { edges?: CxAnalysisCall[]; counts?: { resolved?: number; byName?: number } } | null;
-        const found = analysisCalls(data?.edges ?? [], files.values(), (file) => lacking.has(file));
-        if (current() && found.length) {
-          calls.push(...found);
-          for (const symbol of seeds) if (symbol.file && lacking.has(symbol.file)) input.callStatus[symbol.key] = 'analysis';
-          const languages = [...new Set([...lacking].map((file) => languageLabel(languageOf(file))))].join(', ');
-          const resolved = found.length && data?.counts?.resolved ? (data.counts.byName ? 'resolved by the compiler where it could, matched by name elsewhere' : 'resolved by the compiler') : 'matched by name';
-          notes.push(`Calls for ${languages} come from Singularity Flow's analysis of the committed code (${resolved}), because the editor gave no call hierarchy for them.`);
-        }
-      } catch (error) {
-        notes.push(`Singularity Flow's own call analysis was not available: ${error instanceof Error ? error.message : String(error)}`);
+      const analysis = await this.knowledgeCalls([...lacking], current);
+      if (!current()) return;
+      const found = boundedCalls(analysisCalls(analysis.edges, files.values(), (file) => lacking.has(file)), ANALYSIS_CALLS_PER_FUNCTION);
+      if (found.length) {
+        calls.push(...found);
+        for (const symbol of seeds) if (symbol.file && lacking.has(symbol.file)) input.callStatus[symbol.key] = 'analysis';
+        const languages = [...new Set([...lacking].map((file) => languageLabel(languageOf(file))))].join(', ');
+        const resolved = analysis.resolved ? (analysis.byName ? 'resolved by the compiler where it could, matched by name elsewhere' : 'resolved by the compiler') : 'matched by name';
+        notes.push(`Calls for ${languages} come from Singularity Flow's analysis of the committed code (${resolved}), because the editor gave no call hierarchy for them.`);
       }
+      notes.push(...analysis.notes);
+      if (analysis.left) truncated.push(`calls from Singularity Flow's analysis were read for ${analysis.asked} of ${analysis.asked + analysis.left} folders`);
       if ([...lacking].some((file) => languageOf(file) === 'java')) notes.push(javaCallHierarchyHint());
     }
     input.calls = calls;
@@ -879,6 +935,44 @@ export class CodeExplainerPanel {
     input.status = truncated.length || sliceNote ? 'partial' : 'complete';
     publish(false, null);
     this.progress(null);
+  }
+
+  /**
+   * The calls `wm knowledge calls` found in the folder the files share, never the whole repository when they share one
+   * [WMR:REQ-010]. A folder with more code than one knowledge build reads (KNOWLEDGE_SCOPE_TOO_LARGE: the whole of a
+   * large repository, when a map samples every folder of it) is refused before anything is read; it is asked again by its
+   * subfolders that hold the files, the folder with the most of them first, at most KNOWLEDGE_AREA_ASKS builds in all.
+   */
+  private async knowledgeCalls(files: string[], current: () => boolean): Promise<{ edges: CxAnalysisCall[]; resolved: number; byName: number; notes: string[]; asked: number; left: number }> {
+    const result = { edges: [] as CxAnalysisCall[], resolved: 0, byName: 0, notes: [] as string[], asked: 0, left: 0 };
+    const tooLarge: string[] = [];
+    const queue = [{ area: sharedFolder(files), files }];
+    while (queue.length && current()) {
+      const next = queue.shift()!;
+      if (result.asked >= KNOWLEDGE_AREA_ASKS) { result.left += 1; continue; }
+      result.asked += 1;
+      try {
+        const reply = await this.client.run<unknown>(['wm', 'knowledge', 'calls', ...(next.area ? ['--area', next.area] : []), '--json']);
+        const data = (reply && typeof reply === 'object' && 'data' in reply ? (reply as { data: unknown }).data : reply) as { edges?: CxAnalysisCall[]; counts?: { resolved?: number; byName?: number } } | null;
+        result.edges.push(...(Array.isArray(data?.edges) ? data.edges : []));
+        result.resolved += data?.counts?.resolved ?? 0;
+        result.byName += data?.counts?.byName ?? 0;
+      } catch (error) {
+        if (cliRefusalCode(error) !== 'KNOWLEDGE_SCOPE_TOO_LARGE') {
+          result.notes.push(`Singularity Flow's own call analysis was not available${next.area ? ` for ${next.area}` : ''}: ${error instanceof Error ? error.message : String(error)}`);
+          continue;
+        }
+        // Refused before anything is read, so it builds nothing; each subfolder is smaller, so this ends.
+        result.asked -= 1;
+        const parts = subfolderGroups(next.files, next.area);
+        if (parts.length) queue.push(...parts);
+        else tooLarge.push(next.area || 'the repository');
+      }
+    }
+    if (tooLarge.length) {
+      result.notes.push(`Singularity Flow's analysis read no calls for ${listWords(tooLarge)}: more code than one knowledge build reads. Choose a smaller folder in Map to see them.`);
+    }
+    return result;
   }
 
   private locate(symbolId: string | null): { file: string; line: number | null } | null {
@@ -1047,8 +1141,53 @@ export class CodeExplainerPanel {
   }
 }
 
+/** At most this many knowledge builds when a folder is split for `wm knowledge calls`: each can take half a minute cold. */
+const KNOWLEDGE_AREA_ASKS = 4;
+/** The analysis's calls kept for one function, each way: as many as the editor's call hierarchy is read for. */
+const ANALYSIS_CALLS_PER_FUNCTION = 40;
+
+function addStats(into: ServiceStats, from: ServiceStats): void {
+  into.asked += from.asked; into.answered += from.answered; into.empty += from.empty; into.failed += from.failed; into.timedOut += from.timedOut;
+  for (const error of from.errors) if (into.errors.length < 3 && !into.errors.includes(error)) into.errors.push(error);
+}
+
+/** "JavaScript", "JavaScript and Python", "Java, Python and Go". */
+function listWords(items: string[]): string {
+  return items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0] ?? '';
+}
+
+/**
+ * The files below `area`, grouped by the subfolder of it they are in, each group with the deepest folder its files share,
+ * most files first: the smaller areas a too-large one is asked as. A file directly in `area` cannot be asked for alone.
+ */
+export function subfolderGroups(files: readonly string[], area: string): Array<{ area: string; files: string[] }> {
+  const groups = new Map<string, string[]>();
+  for (const file of files) {
+    const rest = area ? (file.startsWith(`${area}/`) ? file.slice(area.length + 1) : null) : file;
+    if (!rest || !rest.includes('/')) continue;
+    const part = rest.slice(0, rest.indexOf('/'));
+    groups.set(part, [...(groups.get(part) ?? []), file]);
+  }
+  return [...groups.values()].map((group) => ({ area: sharedFolder(group), files: group }))
+    .sort((left, right) => right.files.length - left.files.length || left.area.localeCompare(right.area, 'en'));
+}
+
+/** At most `limit` calls into and out of each function, as the editor's call hierarchy is read: in the order found. */
+export function boundedCalls(calls: CxCallInput[], limit: number): CxCallInput[] {
+  const counts = new Map<string, number>();
+  const end = (direction: string, value: CxCallEnd) => `${direction}\0${symbolKey(value.path, value.selection.line, value.name)}`;
+  return calls.filter((call) => {
+    const into = end('in', call.to);
+    const out = end('out', call.from);
+    if ((counts.get(into) ?? 0) >= limit || (counts.get(out) ?? 0) >= limit) return false;
+    counts.set(into, (counts.get(into) ?? 0) + 1);
+    counts.set(out, (counts.get(out) ?? 0) + 1);
+    return true;
+  });
+}
+
 /** The deepest folder every file is in ('' when they share none): the area `wm knowledge calls --area` builds [WMR:REQ-010]. */
-function sharedFolder(files: string[]): string {
+export function sharedFolder(files: string[]): string {
   const [first = [], ...others] = files.map((file) => file.split('/').slice(0, -1));
   const shared: string[] = [];
   for (const [index, part] of first.entries()) {

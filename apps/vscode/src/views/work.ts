@@ -26,8 +26,8 @@ export interface WorkHost {
   bind(place: string): SingularityFlowClient;
   /** singularityFlow.startTask with the words: `/sf-task <words>` to the chat the person used last [REQ-004]. */
   startTask(words: string): Promise<void>;
-  /** A VS Code command by its ID: Start Work, the repository switcher, the Stories page, the intake, the explainer. */
-  command(id: string): Promise<void>;
+  /** A VS Code command by its ID, with its arguments: Start Work, the repository switcher, the Stories page, the intake, the explainer. */
+  command(id: string, ...args: unknown[]): Promise<void>;
   /** The chat the person used last (workbench.action.chat.open, isPartialQuery false). */
   sendChat(text: string): Promise<void>;
   /** After an SFlow change in this window (refreshAfterKnownMutation). */
@@ -247,7 +247,8 @@ export class WorkTaskPanel {
       } else if (act === 'intake' && row.route.here) {
         await this.host.command('singularityFlow.openStoryIntake');
       } else if (act === 'explain' && row.route.here) {
-        await this.host.command('singularityFlow.openCodeExplainer');
+        // "Explain the change" opens the Code Explainer in My change [FPL:REQ-006].
+        await this.host.command('singularityFlow.openCodeExplainer', { mode: 'change' });
       } else if (act === 'lessons') {
         await this.host.command('singularityFlow.lessons');
       }

@@ -13,7 +13,7 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 6,
-  "generic-route": 6208,
+  "generic-route": 6194,
   "jargon": 1347,
   "length": 647
  },
@@ -1887,7 +1887,6 @@
   "src/initiative-repositories.mjs": 56,
   "src/initiative-state.mjs": 35,
   "src/inject.mjs": 19,
-  "src/install-source-build.mjs": 14,
   "src/intake.mjs": 6,
   "src/intelligence-policy.mjs": 5,
   "src/jira-initiative.mjs": 47,

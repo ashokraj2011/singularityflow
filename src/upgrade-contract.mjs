@@ -47,6 +47,8 @@ export const UPGRADE_CONTRACT = Object.freeze({
   PRODUCT_ALIGNMENT_INSTALL_RECOVERY_PENDING: guided(),
   // A legacy installation receipt is upgraded only by a full source install with no recovery pending.
   INSTALL_RECEIPT_UPGRADE_NOT_ADMITTED: guided(),
+  // Installing from a source copy (install-source-build.mjs): its npm, Copilot and VS Code parts name different versions.
+  INSTALL_SOURCE_VERSIONS_DIFFER: development('A source copy caught mid-release, its parts naming different versions; no installed build or record is old or new. The refusal names a released copy to use.'),
   PRODUCT_ALIGNMENT_STEP_FAILED: guided(),
   PRODUCT_ALIGNMENT_VERIFICATION_FAILED: guided(),
   // A governance rebuild archived the Story on purpose; the refusal says what to do instead.

@@ -2088,6 +2088,9 @@ async function startCommandAtRoot(positionals, options) {
   if (laterTests.length) startReadiness = { ...startReadiness, warnings: [...(startReadiness.warnings ?? []), ...laterTests] };
   // A configuration that asks for state-ref while it is held back: one plain line with the advisories [SSB M2].
   if (storyStorage.held) startReadiness = { ...startReadiness, warnings: [...(startReadiness.warnings ?? []), { id: 'story-storage-held', message: storyStorage.notice }] };
+  // What its marketplace deprecated of what the workflow uses, as advisories; it runs as it is [OMK:REQ-041].
+  const inUse = config.marketplaces ? await (await import('../marketplace-in-use.mjs')).workflowStartWarnings(root, config, workflow.workItem?.workType ?? workType) : [];
+  if (inUse.length) startReadiness = { ...startReadiness, warnings: [...(startReadiness.warnings ?? []), ...inUse] };
   const startResult = commandResult({
     operation: { id: 'start', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },

@@ -1,0 +1,8 @@
+{
+  "name": "react-props",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "vite build", "test": "vitest run" },
+  "dependencies": { "react": "^18.3.1", "react-dom": "^18.3.1" },
+  "devDependencies": { "vite": "^5.4.0", "vitest": "^2.0.0" }
+}

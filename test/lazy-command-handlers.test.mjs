@@ -1135,7 +1135,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,947,276 (measured for start.mjs, +437, 2026-11-27 on ssb-m3 stage c; submit.mjs 9,944,410): the workspace drop
     // asks a clone's state-ref Stories whether the remote holds their records before it removes the clone, and accepts
     // their state refs (workspace.mjs; the check itself loads lazily) [SSB:REQ-008; M3]. No new eager file.
-    assert.ok(closure.bytes <= 9_947_276, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,934,063 (measured for start.mjs, +400 over 9,933,663 at 126eb798d, 2026-11-27 on omk-m3): a Story's start says
+    // what its marketplace deprecated or retired of what its workflow was made from or attaches (commands/start.mjs
+    // +400; the reading is marketplace-in-use.mjs, loaded lazily and only with a marketplace trusted) [OMK:REQ-041]. No
+    // new eager file.
+    // 9,947,676 (measured for start.mjs on ssb-m3 merged with main 4b925b87d, 2026-11-27; submit.mjs 9,944,410): the
+    // two rises above together. No new eager file.
+    assert.ok(closure.bytes <= 9_947_676, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

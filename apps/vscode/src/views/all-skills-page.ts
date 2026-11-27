@@ -24,7 +24,9 @@ export interface SkillCatalogRow {
   /** Who owns it, its lifecycle with who and when, its channel, and whether it is deprecated and used here (OMK §5.3). */
   owner: { name: string; words: string } | null;
   lifecycleRecord: { word: string | null; words: string; guardWords: string | null; notGuarded: boolean } | null;
-  channel: 'stable' | 'beta' | null; deprecatedInUse: { state: string; words: string } | null;
+  channel: 'stable' | 'beta' | null;
+  /** Deprecated or retired by its marketplace and still used here, with the replacement it offers (OMK §8). */
+  deprecatedInUse: { state: string; words: string; replacement: { id: string; reference: string } | null } | null;
   /** What SFlow's text checks found in the library's copy (OMK §7): refused, or lines to look at. */
   safety: { state: 'blocked' | 'look'; words: string } | null;
 }
@@ -52,6 +54,13 @@ const text = (value: unknown): string => (typeof value === 'string' ? value : ''
 const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value ? value : null);
 const record = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {});
 const records = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.map(record) : []);
+
+/** A replacement offered from the same marketplace (OMK §8): only a marketplace reference is ever previewed. */
+function replacementFrom(value: unknown): { id: string; reference: string } | null {
+  const replacement = record(value);
+  return replacement.offered === true && typeof replacement.id === 'string' && typeof replacement.reference === 'string' && /^market:[a-z0-9-]+\/[a-z0-9-]+$/.test(replacement.reference)
+    ? { id: replacement.id, reference: replacement.reference } : null;
+}
 
 /** The engine's answer, checked field by field: anything it does not say is empty, never guessed. */
 export function skillCatalogFrom(value: unknown): SkillCatalog | null {
@@ -88,7 +97,7 @@ export function skillCatalogFrom(value: unknown): SkillCatalog | null {
           guardWords: textOrNull(record(row.lifecycleRecord).guardWords), notGuarded: record(row.lifecycleRecord).notGuarded === true } : null,
         channel: row.channel === 'stable' || row.channel === 'beta' ? row.channel : null,
         deprecatedInUse: ['deprecated', 'retired'].includes(String(record(row.deprecatedInUse).state)) ? { state: String(record(row.deprecatedInUse).state),
-          words: text(record(row.deprecatedInUse).words) } : null,
+          words: text(record(row.deprecatedInUse).words), replacement: replacementFrom(record(row.deprecatedInUse).replacement) } : null,
         safety: ['blocked', 'look'].includes(String(record(row.safety).state)) && typeof record(row.safety).words === 'string'
           ? { state: record(row.safety).state as 'blocked' | 'look', words: text(record(row.safety).words) } : null
       };
@@ -181,6 +190,7 @@ function detailHtml(catalog: SkillCatalog, row: SkillCatalogRow): string {
   const actions = [
     row.actions.reference && !row.inLibrary ? `<button type="button" data-preview="${escape(row.key)}" title="Shows its exact text in Workflow Studio's Library, where you can add it">Preview and add</button>` : '',
     row.actions.reference && row.newerVersion ? `<button type="button" data-preview="${escape(row.key)}" title="Shows the newer version's text in Workflow Studio's Library">Preview the newer version</button>` : '',
+    row.deprecatedInUse?.replacement ? `<button type="button" data-replace="${escape(row.key)}" title="${escape(`Shows ${row.deprecatedInUse.replacement.id}'s exact text in Workflow Studio's Library, where you add it; then attach it where ${row.id} is attached`)}">Replace with…</button>` : '',
     row.inLibrary ? `<button type="button" class="secondary" data-open="${escape(row.key)}">Open in Skill master</button>` : ''
   ].filter(Boolean).join(' ');
   return `<dl class="ask-facts">${facts.map(([term, value]) => `<dt>${escape(term)}</dt><dd>${value}</dd>`).join('')}</dl>${actions ? `<div class="ask-actions">${actions}</div>` : ''}`;
@@ -388,7 +398,7 @@ export const ALL_SKILLS_SCRIPT = String.raw`
   document.addEventListener('input', function (event) { if (event.target && event.target.id && event.target.id.indexOf('ask-') === 0) { state.filters = readFilters(); apply(); } });
   document.addEventListener('change', function (event) { if (event.target && event.target.id && event.target.id.indexOf('ask-') === 0) { state.filters = readFilters(); apply(); } });
   document.addEventListener('click', function (event) {
-    var target = event.target.closest('[data-detail],[data-sort],[data-preview],[data-open],[data-refresh],[data-skill-master],[data-marketplace],[data-clear]');
+    var target = event.target.closest('[data-detail],[data-sort],[data-preview],[data-replace],[data-open],[data-refresh],[data-skill-master],[data-marketplace],[data-clear]');
     if (!target || target.disabled) return;
     if (target.dataset.detail) {
       var key = target.closest('tr').dataset.key;
@@ -399,6 +409,7 @@ export const ALL_SKILLS_SCRIPT = String.raw`
       state.sort = state.sort && state.sort.by === target.dataset.sort ? { by: target.dataset.sort, descending: !state.sort.descending } : { by: target.dataset.sort, descending: false };
       apply();
     } else if (target.dataset.preview) api.postMessage({ type: 'allSkills.preview', key: target.dataset.preview });
+    else if (target.dataset.replace) api.postMessage({ type: 'allSkills.replace', key: target.dataset.replace });
     else if (target.dataset.open) api.postMessage({ type: 'allSkills.open', key: target.dataset.open });
     else if (target.hasAttribute('data-refresh')) api.postMessage({ type: 'allSkills.refresh' });
     else if (target.hasAttribute('data-skill-master')) api.postMessage({ type: 'allSkills.skillMaster' });

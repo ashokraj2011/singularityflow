@@ -139,7 +139,10 @@ const FAMILIES = Object.freeze([
     'refactor-behaviour-decide.mjs', 'task-checks.mjs',
     // SFlow's text checks on the text installed here, which the skill chooser, both catalogs and `check` read (OMK §7).
     // Imported only dynamically; unclaimed, each of those reads loaded compatibility and models.
-    'installed-text-safety.mjs', 'import-safety.mjs']],
+    'installed-text-safety.mjs', 'import-safety.mjs',
+    // What is deprecated or retired and still used here (OMK §8), read by `check`, both catalogs, the task plan, Studio's
+    // model and a Story's start, each only dynamically; unclaimed, a start or a check loaded compatibility for it.
+    'marketplace-in-use.mjs']],
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs',
     // `skill catalog`, VS Code's All skills page: a broad read over the library, the trusted marketplaces and the task
     // chooser (intake, which this slot already imports). Unclaimed, each read loaded compatibility and models.

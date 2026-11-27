@@ -21,6 +21,11 @@ export const REINSTALL_SURFACES = Object.freeze({
   telemetryWrapper: '.singularity-flow/copilot-otel.sh'
 });
 
+/** The way on from a registry address the installer cannot use: the place to give a usable one. */
+const REGISTRY_ADDRESS_FIX = 'Give the registry\'s full address, such as https://registry.npmjs.org/, with --registry or with npm config set registry <address>.';
+/** The way on from a folder that is not Singularity Flow's source. */
+const CHOOSE_SOURCE_FOLDER = 'Use the folder that holds the Singularity Flow source, the one with install.sh and package.json; reinstall takes it with --checkout.';
+
 export const PRODUCT_READ_TIMEOUT_MS = 30_000;
 export const PRODUCT_MUTATION_TIMEOUT_MS = 300_000;
 
@@ -39,15 +44,21 @@ export function assertReinstallNodeVersion(version = process.versions.node, plat
 export function normalizeReinstallRegistry(value) {
   let registry;
   try { registry = new URL(String(value)); }
-  catch { throw new SingularityFlowError(`Invalid npm registry URL: ${value}`); }
+  catch {
+    throw new SingularityFlowError(`Invalid npm registry URL: ${value}`, { code: 'INSTALL_SOURCE_REGISTRY_INVALID', details: {
+      nextAction: REGISTRY_ADDRESS_FIX } });
+  }
   if (!['http:', 'https:'].includes(registry.protocol)) {
-    throw new SingularityFlowError('The npm registry must use http:// or https://.');
+    throw new SingularityFlowError('The npm registry must use http:// or https://.', { code: 'INSTALL_SOURCE_REGISTRY_NOT_WEB', details: {
+      nextAction: REGISTRY_ADDRESS_FIX } });
   }
   if (registry.username || registry.password) {
-    throw new SingularityFlowError('Do not place registry credentials in the URL; configure authentication in .npmrc.');
+    throw new SingularityFlowError('Do not place registry credentials in the URL; configure authentication in .npmrc.', { code: 'INSTALL_SOURCE_REGISTRY_LOGIN_IN_ADDRESS',
+      details: { nextAction: 'Take the user name and password out of the registry address and put the login in your .npmrc file instead.' } });
   }
   if (registry.search || registry.hash) {
-    throw new SingularityFlowError('The npm registry URL cannot contain a query string or fragment.');
+    throw new SingularityFlowError('The npm registry URL cannot contain a query string or fragment.', { code: 'INSTALL_SOURCE_REGISTRY_QUERY',
+      details: { nextAction: 'Take everything from the first ? or # out of the registry address, then run the same command again.' } });
   }
   if (!registry.pathname.endsWith('/')) registry.pathname += '/';
   return registry.toString();
@@ -56,7 +67,8 @@ export function normalizeReinstallRegistry(value) {
 export async function regularFile(file, label) {
   const info = await lstat(file).catch(() => null);
   if (!info?.isFile() || info.isSymbolicLink()) {
-    throw new SingularityFlowError(`The selected checkout does not contain a regular ${label}: ${file}`);
+    throw new SingularityFlowError(`The selected checkout does not contain a regular ${label}: ${file}`, { code: 'INSTALL_SOURCE_FILE_MISSING',
+      details: { file, nextAction: `Put an ordinary ${label} file (not a link) back at ${file}, from a complete copy of the source, then run the same command again.` } });
   }
 }
 
@@ -65,7 +77,8 @@ export async function validateReinstallCheckout(requestedCheckout) {
   const checkout = await realpath(requested).catch(() => requested);
   const info = await lstat(checkout).catch(() => null);
   if (!info?.isDirectory() || info.isSymbolicLink()) {
-    throw new SingularityFlowError(`Reinstall requires a Singularity Flow source checkout directory: ${checkout}`);
+    throw new SingularityFlowError(`Reinstall requires a Singularity Flow source checkout directory: ${checkout}`, { code: 'INSTALL_SOURCE_NOT_A_FOLDER',
+      details: { checkout, nextAction: CHOOSE_SOURCE_FOLDER } });
   }
   const packageFile = path.join(checkout, 'package.json');
   const installer = path.join(checkout, 'install.sh');
@@ -85,17 +98,21 @@ export async function validateReinstallCheckout(requestedCheckout) {
       readFile(vscodeFile, 'utf8').then(JSON.parse)
     ]);
   } catch (error) {
-    throw new SingularityFlowError(`Unable to read the checkout manifests: ${error.message}`);
+    throw new SingularityFlowError(`Unable to read the checkout manifests: ${error.message}`, { code: 'INSTALL_SOURCE_MANIFEST_UNREADABLE', details: { checkout,
+      nextAction: 'Restore package.json, plugin/plugin.json and apps/vscode/package.json in the source folder so each is valid JSON, then run the same command again.' } });
   }
   if (product.name !== REINSTALL_SURFACES.npmPackage) {
-    throw new SingularityFlowError(`The selected checkout is not the Singularity Flow package: ${checkout}`);
+    throw new SingularityFlowError(`The selected checkout is not the Singularity Flow package: ${checkout}`, { code: 'INSTALL_SOURCE_NOT_SFLOW',
+      details: { checkout, nextAction: CHOOSE_SOURCE_FOLDER } });
   }
   if (plugin.name !== 'singularity-flow' || vscode.publisher !== 'singularityflow' || vscode.name !== 'singularity-flow-vscode') {
-    throw new SingularityFlowError(`The selected checkout does not contain the expected Copilot plugin and VS Code extension: ${checkout}`);
+    throw new SingularityFlowError(`The selected checkout does not contain the expected Copilot plugin and VS Code extension: ${checkout}`, { code: 'INSTALL_SOURCE_PARTS_MISSING',
+      details: { checkout, nextAction: 'Use a complete copy of the Singularity Flow source, with its Copilot plugin in plugin/ and its VS Code extension in apps/vscode/.' } });
   }
   if (product.version !== plugin.version || product.version !== vscode.version) {
     throw new SingularityFlowError(
-      `Product versions do not match: npm ${product.version}, Copilot ${plugin.version}, VS Code ${vscode.version}.`
+      `Product versions do not match: npm ${product.version}, Copilot ${plugin.version}, VS Code ${vscode.version}.`,
+      { code: 'INSTALL_SOURCE_VERSIONS_DIFFER', details: { checkout, nextAction: 'Use a source copy whose package.json, plugin/plugin.json and apps/vscode/package.json name the same version, such as a released one.' } }
     );
   }
   return { checkout, version: product.version, product, plugin, vscode };
@@ -172,7 +189,8 @@ export function configuredReinstallRegistry(execute, environment, cwd) {
   });
   if (result.status !== 0 || result.timedOut || result.error) {
     throw new SingularityFlowError(
-      `Could not read the configured npm registry: ${String(result.stderr || result.error?.message || `exit ${result.status}`).trim()}`
+      `Could not read the configured npm registry: ${String(result.stderr || result.error?.message || `exit ${result.status}`).trim()}`,
+      { code: 'INSTALL_SOURCE_REGISTRY_UNREADABLE', details: { nextAction: 'Name the registry with --registry <address>, or fix npm here until npm config get registry prints it.' } }
     );
   }
   return normalizeReinstallRegistry(String(result.stdout ?? '').trim());
@@ -199,7 +217,10 @@ async function copyCheckout(checkout, target, excludeSource) {
 async function findPackedFile(directory, suffix) {
   const entries = await readdir(directory);
   const match = entries.filter((entry) => entry.endsWith(suffix)).sort().at(-1);
-  if (!match) throw new SingularityFlowError(`Packaging did not create a ${suffix} artifact under ${directory}.`);
+  if (!match) {
+    throw new SingularityFlowError(`Packaging did not create a ${suffix} artifact under ${directory}.`, { code: 'INSTALL_SOURCE_PACKAGE_MISSING',
+      details: { directory, nextAction: 'Read the packaging output above for what went wrong, fix it in the source folder, then run the same command again.' } });
+  }
   return path.join(directory, match);
 }
 
@@ -225,7 +246,8 @@ export async function buildReinstallBundle({
   const copiedSourceSha256 = await reinstallSourceDigest(source, { excludeSource });
   if (sourceSha256 && copiedSourceSha256 !== sourceSha256) {
     throw new SingularityFlowError(
-      'The reinstall checkout changed while its isolated package source was being copied. Preview the reinstall again.'
+      'The reinstall checkout changed while its isolated package source was being copied. Preview the reinstall again.',
+      { code: 'INSTALL_SOURCE_CHANGED_WHILE_COPIED', details: { checkout, nextAction: 'Wait until nothing is changing files in the source folder (an editor, a build or a Git command), then run the same command again.' } }
     );
   }
   // Validation is isolated from the user's npm cache as well as the checkout. A preview may
@@ -244,7 +266,8 @@ export async function buildReinstallBundle({
   const buildInfo = await lstat(buildInfoFile).catch(() => null);
   if (buildInfo) {
     if (!buildInfo.isFile() || buildInfo.isSymbolicLink()) {
-      throw new SingularityFlowError(`The selected checkout does not contain a regular build-information module: ${buildInfoFile}`);
+      throw new SingularityFlowError(`The selected checkout does not contain a regular build-information module: ${buildInfoFile}`, { code: 'INSTALL_SOURCE_BUILD_INFO_NOT_A_FILE',
+        details: { nextAction: `Make src/build-info.mjs in ${checkout} an ordinary file (not a link), or delete it, then run the same command again.` } });
     }
     // Reinstall intentionally runs no Git command. Its pre-existing source digest is stronger than
     // a guessed commit: it identifies the exact validated bytes that were copied into this isolated

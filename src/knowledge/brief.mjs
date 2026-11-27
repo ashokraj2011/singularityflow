@@ -257,8 +257,10 @@ const RULE_KIND_WEIGHT = { refusal: 6, threshold: 5, calculation: 5, message: 4,
 /**
  * The evidence the brief is written from: one entry per fact, each with a short ID, the view it
  * belongs to, a plain text and its source. Ranked by the focus (a Story's words) and bounded per view.
+ * `importersKnown(file)` is false for a file of a large area read only in part whose importers were not all read: its
+ * importers are not counted [WMR:§11].
  */
-export function briefEvidence(knowledge, documentation, { focus = null, limits = BRIEF_LIMITS, trust = () => true } = {}) {
+export function briefEvidence(knowledge, documentation, { focus = null, limits = BRIEF_LIMITS, trust = () => true, importersKnown = () => true } = {}) {
   const items = knowledge.items ?? [];
   const focusStems = stems(focus);
   const relevance = (text) => [...stems(text)].filter((stem) => focusStems.has(stem)).length;
@@ -273,7 +275,9 @@ export function briefEvidence(knowledge, documentation, { focus = null, limits =
   const repository = knowledge.repository ?? {};
   const languages = items.filter((item) => item.kind === 'language').map((item) => `${item.statement.language} (${item.statement.files} files)`);
   const counts = (kind) => items.filter((item) => item.kind === kind).length;
-  add('overview', 'repository', `${repository.name ?? 'This repository'}: ${repository.files ?? 0} code files${languages.length ? ` in ${languages.join(', ')}` : ''}${repository.frameworks?.length ? `; ${repository.frameworks.join(', ')}` : ''}; ${counts('entry-point')} entry points, ${counts('rule')} rules in code, ${counts('test-case')} tests.`, null, { weight: 100 });
+  // Counts of a part of the repository (its areas, or a part of a large area) are of what was read [WMR:§11].
+  const some = repository.partial || repository.area || repository.part || repository.parts?.length;
+  add('overview', 'repository', `${repository.name ?? 'This repository'}: ${repository.files ?? 0} code files${languages.length ? ` in ${languages.join(', ')}` : ''}${repository.frameworks?.length ? `; ${repository.frameworks.join(', ')}` : ''}; ${counts('entry-point')} entry points, ${counts('rule')} rules in code, ${counts('test-case')} tests${some ? ' in the part of the repository that was read' : ''}.`, null, { weight: 100 });
   if (documentation.overview) add('overview', 'doc-overview', documentation.overview.text, { path: documentation.overview.path, line: documentation.overview.line }, { weight: 90, heading: documentation.overview.heading });
   for (const command of items.filter((item) => item.kind === 'command').slice(0, 3)) {
     add('overview', 'command', `${command.statement.purpose}: \`${command.statement.command}\` (${command.statement.runs})`, itemSource(command), { weight: 10 });
@@ -330,7 +334,7 @@ export function briefEvidence(knowledge, documentation, { focus = null, limits =
         add('impact', 'co-change', `${statement.files?.[0]} and ${statement.files?.[1]} change together in ${statement.together} commits (${Math.round((statement.share ?? 0) * 100)}%)${statement.importLinked ? '' : ', with no import between them'}`, { path: statement.files?.[0], line: null }, { weight: 4 });
         break;
       case 'hotspot':
-        add('risks', 'hotspot', `${item.subject?.path}: changed ${statement.changes} ${statement.changes === 1 ? 'time' : 'times'}, complexity ${statement.complexity}, imported by ${statement.importedBy}`, { path: item.subject?.path, line: null }, { weight: Math.min(20, Math.round((statement.score ?? 0) / 10)) });
+        add('risks', 'hotspot', `${item.subject?.path}: changed ${statement.changes} ${statement.changes === 1 ? 'time' : 'times'}, complexity ${statement.complexity}${importersKnown(item.subject?.path) ? `, imported by ${statement.importedBy}` : ''}`, { path: item.subject?.path, line: null }, { weight: Math.min(20, Math.round((statement.score ?? 0) / 10)) });
         break;
       case 'untested-rule':
         if (!resolved) break;

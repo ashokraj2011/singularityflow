@@ -32,6 +32,20 @@ async function installedText(root) {
       what: installedWhat(entry), words: entry.flag.words })) } : null;
 }
 
+/**
+ * Marketplace items deprecated or retired and still used here (marketplace-in-use.mjs, OMK:REQ-041): one warning each,
+ * from each marketplace's listing kept at the commit it is trusted at; nothing is fetched, and a marketplace with no
+ * kept listing is "not checked". Never a stop: nothing is removed or blocked.
+ */
+async function marketplaceInUse(root) {
+  const [{ readInUse, inUseRoute, inUseWhat }, { withApprovedConfigurationRead }] = await Promise.all([
+    import('../marketplace-in-use.mjs'), import('../approved-configuration-reader.mjs')]);
+  const result = await withApprovedConfigurationRead(root, () => readInUse(root), { preferAuthority: true }).catch(() => null);
+  return result ? { items: result.items.map((item) => ({ key: item.key, kind: item.kind, id: item.id, marketplace: item.marketplace, state: item.state,
+    what: inUseWhat(item), words: item.words, route: inUseRoute(item) })),
+  notChecked: result.marketplaces.filter((entry) => entry.words).map((entry) => ({ marketplace: entry.id, words: entry.words })) } : null;
+}
+
 /** The way on from an installed text the checks refuse: its source's newer text, or the skill and who uses it. */
 const refusedTextRoute = (entry) => (entry.kind === 'library-skill'
   ? { command: `singularity-flow skill show ${entry.id}`, skill: '/sf-skill' }
@@ -53,7 +67,7 @@ export async function run(_argv, { positionals, options }) {
       return { schemaVersion: 1, resultType: 'sflow-repository-check', status: 'ready',
         repositoryPath: root, head: head(root), branch: branch(root), workId: null,
         repositoryChecks: { ...repositoryCheckSettings(root), source: 'fresh', checkedAt: new Date().toISOString(), ageMs: 0 },
-        customWorkflows: await customWorkflows(root), installedText: await installedText(root),
+        customWorkflows: await customWorkflows(root), installedText: await installedText(root), marketplaceInUse: await marketplaceInUse(root),
         effects: { testsRun: false, storyAdvanced: false, committed: false, pushed: false } };
     }
     if (entry.packet.paused) return entry.packet;
@@ -67,6 +81,7 @@ export async function run(_argv, { positionals, options }) {
       repositoryChecks: { ...repositoryCheckStatus(root), source: 'fresh',
         checkedAt: repositoryCheckStatus(root).checkedAt ?? new Date().toISOString() },
       findings: recovery.blockers, references, customWorkflows: await customWorkflows(root), installedText: await installedText(root),
+      marketplaceInUse: await marketplaceInUse(root),
       next: safeCommandGuidance({ argv: ['nextsteps', '--json'] }),
       effects: { testsRun: false, storyAdvanced: false, committed: false, pushed: false } };
   }));
@@ -85,6 +100,13 @@ export async function run(_argv, { positionals, options }) {
       command: entry.fix.shell, skill: '/sf-fix-workflow', kind: 'informational' })),
     // An installed text SFlow's text checks refuse: a warning with its way on; tasks do not offer it [OMK:REQ-032].
     ...(result.installedText?.blocked ?? []).map((entry) => action({ id: `installed-text.${entry.key}`,
-      label: `Warning: SFlow's text checks refuse ${entry.what}; tasks do not offer it`, ...refusedTextRoute(entry), kind: 'informational' }))]
+      label: `Warning: SFlow's text checks refuse ${entry.what}; tasks do not offer it`, ...refusedTextRoute(entry), kind: 'informational' })),
+    // A marketplace item deprecated or retired and still used here: one warning each, with the way to its replacement [OMK:REQ-041].
+    ...(result.marketplaceInUse?.items ?? []).map((entry) => action({ id: `marketplace-in-use.${entry.key}`,
+      label: `Warning: ${entry.kind} ${entry.id} is ${entry.state}, still used here`, command: entry.route.command, skill: entry.route.skill,
+      kind: 'informational' })),
+    ...(result.marketplaceInUse?.notChecked ?? []).map((entry) => action({ id: `marketplace-in-use.not-checked.${entry.marketplace}`,
+      label: `Not checked: what marketplace ${entry.marketplace} deprecated`, command: `singularity-flow marketplace catalog --marketplace ${entry.marketplace}`,
+      skill: '/sf-marketplace', kind: 'informational' }))]
   }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
 }

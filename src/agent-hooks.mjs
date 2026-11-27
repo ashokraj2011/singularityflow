@@ -140,12 +140,14 @@ export async function copilotAgentStartHook(root, payload = {}) {
 /**
  * The session's context, with what this SFlow found in the repository's own workflows: said once to the person at the
  * start, before a Story meets it [owner, 2026-11-22]. Read from what was kept; a stale or missing result is checked
- * within a few seconds, and when that runs longer the session starts without it and the next one says it.
+ * within a few seconds, and when that runs longer the session starts without it and the next one says it. An installed
+ * skill or agent SFlow's text checks refuse, or that has lines to look at, is said too [OMK §7], and so is a marketplace
+ * item its marketplace deprecated or retired that is still used here [OMK §8].
  */
 export async function sessionStartAgentHook(root, definition, workflow, payload = {}) {
   const result = await sessionStartContext(root, definition, workflow, payload);
   if (!result?.additionalContext) return result;
-  const words = await customWorkflowWords(root);
+  const words = (await Promise.all([customWorkflowWords(root), installedTextSessionWords(root), inUseSessionWords(root)])).filter(Boolean).join(' ');
   return words ? { ...result, additionalContext: `${result.additionalContext} ${words}` } : result;
 }
 
@@ -159,6 +161,35 @@ async function customWorkflowWords(root) {
     const health = await Promise.race([customWorkflowHealth(root), late]).finally(() => clearTimeout(timer));
     const words = healthWords(health);
     return words ? `Tell the person this once, in plain words, before other work, and offer the fix; never fix it yourself without their yes: ${words.replace(/\n/gu, ' ')}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What SFlow's text checks last found in the text installed here (installed-text-safety.mjs), read from what the last
+ * `check`, catalog or task plan kept: the checks never run here and no installed text is read, so a session start costs
+ * one small read. Nothing kept, nothing said.
+ */
+async function installedTextSessionWords(root) {
+  try {
+    const { installedTextWords, keptInstalledTextFlags } = await import('./installed-text-safety.mjs');
+    const words = installedTextWords(await keptInstalledTextFlags(root));
+    return words ? `Tell the person this once, in plain words, before other work; never change or remove what it names without their yes: ${words}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the last `check` or catalog found deprecated or retired and still used here (marketplace-in-use.mjs), read from what
+ * it kept: no marketplace is read and nothing is worked out again, so a session start costs one small read [OMK §8].
+ */
+async function inUseSessionWords(root) {
+  try {
+    const { inUseSessionWords: words, keptInUse } = await import('./marketplace-in-use.mjs');
+    const said = words(await keptInUse(root));
+    return said ? `Tell the person this once, in plain words, before other work; never change or remove what it names without their yes: ${said}` : null;
   } catch {
     return null;
   }

@@ -28,6 +28,10 @@
  * - A library skill whose text SFlow's text checks refuse (installed-text-safety.mjs) is never offered or used: the plan
  *   line names it where it would have fitted, or where the team's own workflow attaches it [OMK:REQ-032]. It stays in the
  *   library, and a running Story keeps its snapshot.
+ * - A library skill its marketplace deprecated or retired (at the commit trusted now) is never offered or used: the plan
+ *   line names it, with who deprecated it and its replacement, where it would have fitted, and a step it leaves bare is
+ *   offered the marketplace's skills, its replacement among them when that fits. The team's own workflow keeps a skill it
+ *   attaches, named the same way, and a note says when that workflow was made from a deprecated agent [OMK:REQ-041].
  * - At most two skills per step, ranked by what the task touches, then by ID: the same words and repository give the
  *   same skills.
  *
@@ -40,7 +44,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { AGENT_TASK_INTENTS } from './agent-task-intents.mjs';
-import { isLifecycleWord, lifecycleReadiness } from './marketplace-lifecycle.mjs';
+import { isLifecycleWord, lifecycleReadiness, lifecycleStateOf } from './marketplace-lifecycle.mjs';
 import { STEP_INTENTS } from './phase-roles.mjs';
 import { SOFTWARE_KINDS } from './software-kinds.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -118,6 +122,8 @@ export function librarySkillCandidate(skill, imported = null, { stepIntent = nul
   return { id: skill.id, label: skill.label ?? skill.id, source: 'library', marketplace: source?.marketplace ?? null, sha256: skill.sha256,
     owner: trusted?.owner?.name ?? source?.owner?.name ?? null, ...own,
     ...(source ? { lifecycleFrom: trusted ? 'trusted' : 'recorded' } : {}),
+    // Who replaces it, when its marketplace deprecated it [OMK:REQ-042]: what the plan line names.
+    ...(trusted?.lifecycleRecord?.deprecation?.replacedBy ? { replacedBy: trusted.lifecycleRecord.deprecation.replacedBy } : {}),
     // A library skill written here, with no mark, is used as it is [OMK §5.1].
     lifecycle: lifecycleReadiness(own.state, { unmarked: 'ready' }) };
 }
@@ -156,6 +162,20 @@ function why(candidate, step, { kinds, words }) {
   ].join('; ');
 }
 
+/** Whether a skill fits what the task touches: no kind of software, or one the task touches, and a kind or a word named. */
+function skillFits(candidate, touched, said) {
+  const kindHits = candidate.kinds.filter((kind) => touched.has(kind));
+  const wordHits = candidate.words.filter((word) => said.some((token) => sameWord(token, word)));
+  return (!candidate.kinds.length || kindHits.length > 0) && (kindHits.length > 0 || wordHits.length > 0);
+}
+
+/** A library skill its marketplace deprecated or retired, as the plan line names it: not used, or attached by the team's workflow. */
+const deprecatedEntry = (candidate, status) => ({ id: candidate.id, status, marketplace: null, state: lifecycleStateOf(candidate.state),
+  owner: candidate.owner ?? null, replacedBy: candidate.replacedBy ?? null });
+
+/** What a plan line's entry is when no step is given it: a skill the checks refuse, or one its marketplace deprecated. */
+export const NOT_GIVEN = Object.freeze(new Set(['withheld', 'deprecated', 'deprecated-attached']));
+
 /**
  * The skills for each step of `composition`: `{ skills, offers, byStep }`. `skills` are those the Story uses, each
  * `{ id, steps, sha256, why }` (and, for one of the repository's own, its `path` and `from`), recorded on its composition
@@ -180,6 +200,12 @@ export function chooseTaskSkills(composition, { candidates = [], kinds = [], wor
     // A skill SFlow's text checks refuse is never offered; where it would have fitted, the plan line says so [OMK:REQ-032].
     for (const candidate of candidates.filter((entry) => entry.safety === 'blocked' && !declined.has(entry.id) && entry.intents.includes(step.intent))) {
       if (!(byStep[step.id] ??= []).some((entry) => entry.id === candidate.id)) byStep[step.id].push({ id: candidate.id, status: 'withheld', marketplace: null, state: null, owner: null });
+    }
+    // A library skill its marketplace deprecated or retired is never offered; where it would have fitted, the plan line
+    // names it with its replacement [OMK:REQ-041], and a step it leaves bare is offered the replacement when that fits.
+    for (const candidate of candidates.filter((entry) => entry.source === 'library' && entry.lifecycle === 'retired' && entry.safety !== 'blocked'
+      && !declined.has(entry.id) && entry.intents.includes(step.intent) && skillFits(entry, touched, said))) {
+      if (!(byStep[step.id] ??= []).some((entry) => entry.id === candidate.id)) byStep[step.id].push(deprecatedEntry(candidate, 'deprecated'));
     }
     const fits = candidates
       .filter((candidate) => !declined.has(candidate.id) && candidate.lifecycle !== 'retired' && candidate.safety !== 'blocked' && candidate.intents.includes(step.intent))
@@ -249,7 +275,11 @@ export function planSkillWords(entries = []) {
   const parts = [];
   if (used.length) parts.push(`with ${used.length > 1 ? `${used.slice(0, -1).join(', ')} and ${used.at(-1)}` : used[0]}`);
   for (const entry of entries.filter((item) => item.status === 'withheld')) parts.push(`not ${entry.id}: SFlow's text checks refuse its text`);
-  for (const entry of entries.filter((item) => !['used', 'withheld'].includes(item.status))) {
+  // Deprecated or retired by its marketplace [OMK:REQ-041]: not used by a task's own steps; the team's workflow keeps it.
+  const by = (entry) => `${entry.state ?? 'deprecated'}${entry.owner ? ` by ${entry.owner}` : ''}`;
+  for (const entry of entries.filter((item) => item.status === 'deprecated')) parts.push(`not ${entry.id}: it is ${by(entry)}${entry.replacedBy ? `; ${entry.replacedBy} replaces it` : ''}`);
+  for (const entry of entries.filter((item) => item.status === 'deprecated-attached')) parts.push(`${entry.id} is ${by(entry)}${entry.replacedBy ? `: ${entry.replacedBy} replaces it` : ''}`);
+  for (const entry of entries.filter((item) => !['used', ...NOT_GIVEN].includes(item.status))) {
     const owner = entry.owner ? ` (${entry.owner})` : '';
     parts.push(entry.status === 'new'
       ? `with ${entry.id} from ${entry.marketplace}${owner}, ${entry.state ? `${entry.state} and ` : ''}new here: add it?`
@@ -486,6 +516,34 @@ export async function trustedMarketplaceAgents(root, marketplace) {
   return { agents, skills, channels: own.channels, marketplaceOwner: own.owner };
 }
 
+/**
+ * A trusted marketplace's listing as it was kept, never read from the marketplace [OMK:REQ-041]: `{ items, kinds }`,
+ * each item `{ kind, name, version, owner, lifecycleRecord, lifecycleState }`, or null when nothing is kept for the
+ * commit it is trusted at (a Git repository: its agents and skills, else its skills alone) or for its index (as last
+ * read, whatever its age). What `singularity-flow check` and a Story's start read, so neither fetches.
+ */
+export async function keptTrustedListing(root, marketplace) {
+  const item = (kind) => (entry) => ({ kind, name: entry.name, version: entry.version ?? null, owner: entry.owner ?? null, lifecycleRecord: entry.lifecycleRecord ?? null,
+    lifecycleState: entry.lifecycleState ?? null });
+  if (marketplace.repository && marketplace.commit) {
+    const agents = await keptListing(await listingFile(root, 'task-marketplace-agents', marketplace), AGENTS_FORMAT, marketplace, 'agents');
+    if (agents && Array.isArray(agents.skills)) return { kinds: ['agent', 'skill'], items: [...agents.agents.map(item('agent')), ...agents.skills.map(item('skill'))] };
+    const skills = await keptListing(await listingFile(root, 'task-marketplace-skills', marketplace), CATALOG_FORMAT, marketplace, 'skills');
+    return skills ? { kinds: ['skill'], items: skills.skills.map(item('skill')) } : null;
+  }
+  if (!marketplace.index) return null;
+  const { repositoryGitPath } = await import('./git-directory.mjs');
+  const origins = [...(marketplace.allowedOrigins ?? [])].sort();
+  const key = createHash('sha256').update(`${marketplace.index}\n${origins.join(' ')}`).digest('hex');
+  try {
+    const read = JSON.parse(await readFile(path.join(repositoryGitPath(root, 'singularity-flow', 'task-marketplace-skills'), `index-${key}.json`), 'utf8'));
+    if (read?.format === INDEX_LISTING_FORMAT && read.index === marketplace.index && JSON.stringify(read.allowedOrigins) === JSON.stringify(origins) && Array.isArray(read.skills)) {
+      return { kinds: ['skill'], items: read.skills.map(item('skill')) };
+    }
+  } catch { /* not kept yet */ }
+  return null;
+}
+
 /** The library skills whose text SFlow's text checks refuse (installed-text-safety.mjs), by ID; none when it cannot be read. */
 async function refusedLibrarySkills(root) {
   const { installedTextSafety } = await import('./installed-text-safety.mjs');
@@ -495,11 +553,13 @@ async function refusedLibrarySkills(root) {
 
 /**
  * The steps of the team's own workflow `composition.uses` with each library skill it attaches (skill-attachments, by the
- * workflow or by the agent that drafts the step) that SFlow's text checks refuse: `{ [step]: [{ id, status: 'withheld' }] }`.
+ * workflow or by the agent that drafts the step) that SFlow's text checks refuse, or that its marketplace deprecated or
+ * retired: `{ [step]: [{ id, status: 'withheld' | 'deprecated-attached', … }] }` [OMK:REQ-032, REQ-041]. The workflow runs
+ * as it is: the plan line only names them. `candidates` are the library's (libraryCandidates).
  */
-async function attachedWithheld(root, definition, composition) {
-  const refused = await refusedLibrarySkills(root);
-  if (!refused.size) return {};
+async function attachedFlags(root, definition, composition, candidates) {
+  const flagged = new Map(candidates.filter((candidate) => candidate.safety === 'blocked' || candidate.lifecycle === 'retired').map((candidate) => [candidate.id, candidate]));
+  if (!flagged.size) return {};
   const [{ configurationReadRoot }, { readSkillAttachments }] = await Promise.all([import('./configuration-read-scope.mjs'), import('./skill-library.mjs')]);
   const attachments = await readSkillAttachments(configurationReadRoot(root)).catch(() => []);
   const byStep = {};
@@ -507,11 +567,75 @@ async function attachedWithheld(root, definition, composition) {
     const agent = definition?.phases?.[step.id]?.agent ?? null;
     for (const entry of attachments) {
       const target = entry.workflow ? entry.workflow === composition.uses : Boolean(agent) && entry.agent === agent;
-      if (!target || !refused.has(entry.id) || (entry.phases.length && !entry.phases.includes(step.id))) continue;
-      if (!(byStep[step.id] ??= []).some((item) => item.id === entry.id)) byStep[step.id].push({ id: entry.id, status: 'withheld', marketplace: null, state: null, owner: null });
+      const candidate = flagged.get(entry.id);
+      if (!target || !candidate || (entry.phases.length && !entry.phases.includes(step.id))) continue;
+      if ((byStep[step.id] ??= []).some((item) => item.id === entry.id)) continue;
+      byStep[step.id].push(candidate.safety === 'blocked' ? { id: entry.id, status: 'withheld', marketplace: null, state: null, owner: null }
+        : deprecatedEntry(candidate, 'deprecated-attached'));
     }
   }
   return byStep;
+}
+
+/** The library skills the team's own workflow `composition.uses` attaches, by the workflow or the agent of one of its steps. */
+async function attachedSkillIds(root, definition, composition) {
+  const [{ configurationReadRoot }, { readSkillAttachments }] = await Promise.all([import('./configuration-read-scope.mjs'), import('./skill-library.mjs')]);
+  const agents = new Set(composition.steps.map((step) => definition?.phases?.[step.id]?.agent).filter(Boolean));
+  return new Set((await readSkillAttachments(configurationReadRoot(root)).catch(() => []))
+    .filter((entry) => (entry.workflow ? entry.workflow === composition.uses : agents.has(entry.agent))).map((entry) => entry.id));
+}
+
+/**
+ * The library's skills as a task reads them, with the lifecycle that counts for each one imported from a trusted
+ * marketplace: that marketplace's at the commit it is trusted at now [OMK:REQ-011], each read once (kept per commit, or
+ * for an index's hour); one that cannot be read keeps the lifecycle recorded at import, with a note. A skill SFlow's text
+ * checks refuse carries `safety: 'blocked'` [OMK:REQ-032]. `{ library, ledger, marketplaces, stepIntent, candidates }`.
+ */
+async function libraryCandidates(root, definition, { fetchImpl, notes, approvedOnce, only = null }) {
+  const [{ configurationReadRoot }, { loadSkillLibrary }, { loadImportsLedger }] = await Promise.all([
+    import('./configuration-read-scope.mjs'), import('./skill-library.mjs'), import('./imports-ledger.mjs')]);
+  const configRoot = configurationReadRoot(root);
+  const library = await loadSkillLibrary(configRoot).catch(() => ({ skills: new Map() }));
+  const refused = await refusedLibrarySkills(root);
+  const ledger = await loadImportsLedger(configRoot).catch(() => ({ imports: {} }));
+  const stepIntent = definitionStepIntent(definition);
+  const marketplaces = Object.values(definition.marketplaces ?? {}).filter((entry) => (entry?.repository && entry.commit) || entry?.index)
+    .sort((left, right) => (left.id < right.id ? -1 : 1));
+  const imported = (skill) => ledger.imports?.[`library-skill:${skill.id}`] ?? null;
+  const fromMarketplace = (skill) => (['marketplace-skill', 'marketplace'].includes(imported(skill)?.source?.kind) ? imported(skill).source.marketplace : null);
+  const trustedNow = new Map();
+  // `only`: the skills whose marketplace is read (a team's workflow reads those it attaches, and no other).
+  for (const id of [...new Set([...library.skills.values()].filter((skill) => !only || only.has(skill.id)).map(fromMarketplace).filter(Boolean))].sort()) {
+    const named = marketplaces.find((entry) => entry.id === id);
+    if (!named) continue;
+    const approved = await approvedOnce();
+    const marketplace = approved ? approved[id] ?? null : named;
+    if (!marketplace) continue;
+    try {
+      trustedNow.set(id, new Map((await trustedSkillsOf(root, marketplace, { fetchImpl })).map((entry) => [entry.name, entry])));
+    } catch (error) {
+      notes.push(`Marketplace ${id} could not be read, so the skills imported from it keep the lifecycle recorded when they were imported: ${String(error?.message ?? error).split('\n')[0]}`);
+    }
+  }
+  const candidates = [...library.skills.values()].map((skill) => librarySkillCandidate(skill, imported(skill), { stepIntent,
+    trusted: trustedNow.get(fromMarketplace(skill))?.get(imported(skill)?.source?.entry ?? skill.id) ?? null }))
+    .map((candidate) => (refused.has(candidate.id) ? { ...candidate, safety: 'blocked' } : candidate));
+  return { library, ledger, marketplaces, stepIntent, candidates };
+}
+
+/**
+ * The team's own workflow made from a marketplace agent that marketplace deprecated or retired [OMK:REQ-041]: a note for
+ * the plan, with the way to the replacement, read from what is kept (marketplace-in-use.mjs), never fetched.
+ */
+async function workflowInUseNotes(root, definition, workflow) {
+  if (!Object.keys(definition?.marketplaces ?? {}).length) return [];
+  try {
+    const { readInUse, workflowInUseWords } = await import('./marketplace-in-use.mjs');
+    const found = await readInUse(root, { definition, workflow, keep: false });
+    return found.items.filter((item) => item.kind === 'agent').map((item) => workflowInUseWords(definition.workTypes?.[workflow]?.label ?? workflow, item));
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -525,41 +649,17 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
   return async (composition) => {
     const notes = [];
     if (composition.agent) return { skills: [], offers: [], byStep: {}, notes };
-    // The team's own workflow runs as it is [ITW:REQ-020]; the plan line only names a skill it attaches that SFlow's text
-    // checks refuse [OMK:REQ-032].
-    if (composition.local) return { skills: [], offers: [], byStep: await attachedWithheld(root, definition, composition), notes };
-    const [{ configurationReadRoot }, { loadSkillLibrary }, { loadImportsLedger }] = await Promise.all([
-      import('./configuration-read-scope.mjs'), import('./skill-library.mjs'), import('./imports-ledger.mjs')]);
-    const configRoot = configurationReadRoot(root);
-    const library = await loadSkillLibrary(configRoot).catch(() => ({ skills: new Map() }));
-    const refused = await refusedLibrarySkills(root);
-    const ledger = await loadImportsLedger(configRoot).catch(() => ({ imports: {} }));
-    const stepIntent = definitionStepIntent(definition);
-    const marketplaces = Object.values(definition.marketplaces ?? {}).filter((entry) => (entry?.repository && entry.commit) || entry?.index)
-      .sort((left, right) => (left.id < right.id ? -1 : 1));
-    const imported = (skill) => ledger.imports?.[`library-skill:${skill.id}`] ?? null;
-    const fromMarketplace = (skill) => (['marketplace-skill', 'marketplace'].includes(imported(skill)?.source?.kind) ? imported(skill).source.marketplace : null);
     let approvedRead = null;
     const approvedOnce = () => (approvedRead ??= approvedMarketplaces(root).catch(() => null));
-    // The lifecycle that counts for an imported library skill is its marketplace's now [OMK:REQ-011]: each trusted one a
-    // library skill came from is read once (kept per commit, or for an index's hour), and one that cannot be read keeps
-    // the lifecycle recorded at import, with a note.
-    const trustedNow = new Map();
-    for (const id of [...new Set([...library.skills.values()].map(fromMarketplace).filter(Boolean))].sort()) {
-      const named = marketplaces.find((entry) => entry.id === id);
-      if (!named) continue;
-      const approved = await approvedOnce();
-      const marketplace = approved ? approved[id] ?? null : named;
-      if (!marketplace) continue;
-      try {
-        trustedNow.set(id, new Map((await trustedSkillsOf(root, marketplace, { fetchImpl })).map((entry) => [entry.name, entry])));
-      } catch (error) {
-        notes.push(`Marketplace ${id} could not be read, so the skills imported from it keep the lifecycle recorded when they were imported: ${String(error?.message ?? error).split('\n')[0]}`);
-      }
+    // The team's own workflow runs as it is [ITW:REQ-020]; the plan line only names a skill it attaches that SFlow's text
+    // checks refuse [OMK:REQ-032] or its marketplace deprecated, and a note says when it was made from a deprecated agent.
+    if (composition.local) {
+      const attached = await attachedSkillIds(root, definition, composition);
+      const { candidates: own } = await libraryCandidates(root, definition, { fetchImpl, notes, approvedOnce, only: attached });
+      notes.push(...await workflowInUseNotes(root, definition, composition.uses));
+      return { skills: [], offers: [], byStep: await attachedFlags(root, definition, composition, own), notes };
     }
-    const candidates = [...library.skills.values()].map((skill) => librarySkillCandidate(skill, imported(skill), { stepIntent,
-      trusted: trustedNow.get(fromMarketplace(skill))?.get(imported(skill)?.source?.entry ?? skill.id) ?? null }))
-      .map((candidate) => (refused.has(candidate.id) ? { ...candidate, safety: 'blocked' } : candidate));
+    const { library, marketplaces, stepIntent, candidates } = await libraryCandidates(root, definition, { fetchImpl, notes, approvedOnce });
     // The repository's own skills come after the library and before any marketplace [ITW:REQ-020].
     const here = await (await import('./task-local.mjs')).localSkills(root, { libraryIds: new Set(library.skills.keys()) });
     candidates.push(...here.skills.map((entry) => localSkillCandidate(entry.skill, entry)));
@@ -567,7 +667,7 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
     if (!candidates.some((candidate) => candidate.intents.length) && !marketplaces.length && !use.length) return { skills: [], offers: [], byStep: {}, notes };
     const kinds = await taskSoftwareKinds(root, touchedPaths);
     const fromLibrary = chooseTaskSkills(composition, { candidates, kinds, words, use: use.filter((id) => candidates.some((entry) => entry.id === id)), without });
-    const bare = composition.steps.filter((step) => !fromLibrary.byStep[step.id]?.some((entry) => entry.status !== 'withheld'));
+    const bare = composition.steps.filter((step) => !fromLibrary.byStep[step.id]?.some((entry) => !NOT_GIVEN.has(entry.status)));
     const namedElsewhere = use.some((id) => !candidates.some((entry) => entry.id === id));
     if ((bare.length || namedElsewhere) && marketplaces.length) {
       const approved = await approvedOnce();
@@ -593,6 +693,7 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
         { skill: named, marketplace: offered.marketplace });
     }
     const chosen = chooseTaskSkills(composition, { candidates, kinds, words, use, without });
-    return { ...chosen, ...(composition.uses ? { byStep: await attachedWithheld(root, definition, composition) } : {}), kinds, notes };
+    if (composition.uses) notes.push(...await workflowInUseNotes(root, definition, composition.uses));
+    return { ...chosen, ...(composition.uses ? { byStep: await attachedFlags(root, definition, composition, candidates.filter((entry) => entry.source === 'library')) } : {}), kinds, notes };
   };
 }

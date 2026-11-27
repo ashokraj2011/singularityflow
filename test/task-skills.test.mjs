@@ -16,7 +16,7 @@ import YAML from 'yaml';
 
 import { composeTask, planLine } from '../src/task-composition.mjs';
 import { taskPlan } from '../src/commands/work.mjs';
-import { chooseTaskSkills, librarySkillCandidate, marketplaceSkillCandidate, planSkillWords, TASK_SKILL_LIMIT } from '../src/task-skills.mjs';
+import { chooseTaskSkills, librarySkillCandidate, marketplaceSkillCandidate, NOT_GIVEN, planSkillWords, TASK_SKILL_LIMIT } from '../src/task-skills.mjs';
 import { journeyRepository, storyRecord } from './helpers/route-follower.mjs';
 import { seeded } from './helpers/story-fuzzer.mjs';
 import { TASK_KINDS } from '../src/task-composition.mjs';
@@ -137,10 +137,18 @@ test('ITW REQ-010: seeded libraries, marketplaces, kinds and words choose the sa
     }
     assert.deepEqual(chooseTaskSkills(composition, { candidates, kinds, words, use }), chosen, `${where}: the same skills twice`);
     const byId = new Map(candidates.map((candidate) => [`${candidate.source}:${candidate.id}`, candidate]));
-    for (const [stepId, entries] of Object.entries(chosen.byStep)) {
+    for (const [stepId, named] of Object.entries(chosen.byStep)) {
       const step = composition.steps.find((item) => item.id === stepId);
+      // A library skill its marketplace deprecated or retired is only named where it would have fitted, never given or
+      // offered (OMK §8): a retired library candidate for this step's intent.
+      for (const entry of named.filter((item) => NOT_GIVEN.has(item.status))) {
+        const candidate = byId.get(`library:${entry.id}`);
+        assert.ok(entry.status === 'deprecated' && candidate.lifecycle === 'retired' && candidate.intents.includes(step.intent), `${where}: ${entry.id} named, not given`);
+        assert.ok(![...chosen.skills, ...chosen.offers].some((item) => item.id === entry.id), `${where}: ${entry.id} is named, never used or offered`);
+      }
+      const entries = named.filter((item) => !NOT_GIVEN.has(item.status));
       assert.ok(entries.length <= TASK_SKILL_LIMIT + use.length, where);
-      assert.ok(new Set(entries.map((entry) => entry.marketplace ? 'marketplace' : 'library')).size === 1, `${where}: the library first, never mixed with a marketplace on a step`);
+      assert.ok(new Set(entries.map((entry) => entry.marketplace ? 'marketplace' : 'library')).size === (entries.length ? 1 : 0), `${where}: the library first, never mixed with a marketplace on a step`);
       for (const entry of entries) {
         const candidate = byId.get(`${entry.marketplace ? 'marketplace' : 'library'}:${entry.id}`);
         assert.ok(candidate.intents.includes(step.intent), `${where}: ${entry.id} fits ${stepId}`);

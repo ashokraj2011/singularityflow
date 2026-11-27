@@ -12,7 +12,7 @@
     "gitModules": 189,
     "directLocalGitSitesOutsideGitModules": 976,
     "localGitReadsOutsideGitModules": 593,
-    "writeSites": 1331,
+    "writeSites": 1333,
     "yamlReadModules": 137,
     "lifetimes": 69,
     "timeouts": 198,
@@ -39,7 +39,7 @@
         "writeSites": 96
       },
       "installation": {
-        "modules": 27,
+        "modules": 28,
         "gitSites": 30,
         "gitWrites": 5,
         "gitRemote": 6,
@@ -60,11 +60,11 @@
         "writeSites": 219
       },
       "projection": {
-        "modules": 42,
+        "modules": 43,
         "gitSites": 41,
         "gitWrites": 5,
         "gitRemote": 1,
-        "writeSites": 120
+        "writeSites": 122
       },
       "surface": {
         "modules": 51,
@@ -3149,6 +3149,25 @@
       "lifetimes": []
     },
     {
+      "module": "install-source-build.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "PRODUCT_READ_TIMEOUT_MS",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "PRODUCT_MUTATION_TIMEOUT_MS",
+          "value": 300000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
       "module": "installed-text-safety.mjs",
       "class": "installation",
       "git": {},
@@ -3546,6 +3565,14 @@
       "class": "local-operational",
       "git": {},
       "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "marketplace-in-use.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 2,
       "yamlReads": 0,
       "lifetimes": []
     },
@@ -4301,20 +4328,9 @@
       "module": "reinstall.mjs",
       "class": "installation",
       "git": {},
-      "writes": 45,
+      "writes": 42,
       "yamlReads": 0,
-      "lifetimes": [
-        {
-          "name": "PRODUCT_READ_TIMEOUT_MS",
-          "value": 30000,
-          "kind": "timeout"
-        },
-        {
-          "name": "PRODUCT_MUTATION_TIMEOUT_MS",
-          "value": 300000,
-          "kind": "timeout"
-        }
-      ]
+      "lifetimes": []
     },
     {
       "module": "release-artifact-receipt.mjs",

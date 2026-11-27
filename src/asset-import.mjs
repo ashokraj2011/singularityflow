@@ -390,14 +390,22 @@ async function previousSafety(root, source = {}) {
  * The checks' gate for an add of the staged text `sha256` as `as` [OMK:REQ-031]: a block, and the look lines `looked`
  * does not name and the import's earlier record (its `source.safety`, by `ledgerKey`) did not already look at. Null when
  * the kind is not checked or the text is not staged here (Workflow Studio's apply checks it again from the bytes it adds).
+ * An agent replaced with no `--id` is found as the replace finds it (workflow-studio.mjs importAgent): by the ID its own
+ * file gives, so the lines its record looked at ask nothing again.
  */
-export async function addSafetyGate(root, { sha256, as, looked = [], ledgerKey = null }) {
+export async function addSafetyGate(root, { sha256, as, looked = [], ledgerKey = null, replace = false }) {
   if (!SAFETY_KINDS.has(as)) return null;
   const staged = await readStagedImport(root, sha256);
   if (!staged) return null;
-  const result = importTextSafety(as, decodeUtf8(staged.bytes, 'Imported content'), staged.source);
-  const ledger = ledgerKey ? await loadImportsLedger(configurationReadRoot(root)).catch(() => ({ imports: {} })) : { imports: {} };
-  return { result, gate: safetyGate(result, { looked, previous: ledgerKey ? ledger.imports?.[ledgerKey]?.source?.safety ?? null : null }), source: staged.source };
+  const text = decodeUtf8(staged.bytes, 'Imported content');
+  const result = importTextSafety(as, text, staged.source);
+  let key = ledgerKey;
+  if (!key && replace && as === 'agent') {
+    // A file that is no usable agent is refused by the add itself, with its own words; here it only finds no record.
+    try { key = importLedgerKey('agent', { id: inspectImportContent('agent', text).id }); } catch { key = null; }
+  }
+  const ledger = key ? await loadImportsLedger(configurationReadRoot(root)).catch(() => ({ imports: {} })) : { imports: {} };
+  return { result, gate: safetyGate(result, { looked, previous: key ? ledger.imports?.[key]?.source?.safety ?? null : null }), source: staged.source };
 }
 
 /**

@@ -597,9 +597,9 @@ export async function addRuleStepsAfterCode(root, workId, phaseId) {
   // The rules that apply now: each `paths` rule whose files the code touched, and each `always` rule of the kind a fix
   // became that the fix's own rules did not already apply.
   const due = [
-    ...rules.paths.map((rule, index) => ({ rule, name: `paths[${index}]`, matched: files.filter((file) => rule.paths.some((glob) => composer.pathMatches(glob, file))) }))
+    ...rules.paths.map((rule, index) => ({ rule, name: rule.name ?? composer.taskRuleName(rule, 'paths', index), matched: files.filter((file) => rule.paths.some((glob) => composer.pathMatches(glob, file))) }))
       .filter((entry) => applies(entry.rule) && entry.matched.length),
-    ...(grown ? rules.always.map((rule, index) => ({ rule, name: `always[${index}]`, matched: grown.files }))
+    ...(grown ? rules.always.map((rule, index) => ({ rule, name: rule.name ?? composer.taskRuleName(rule, 'always', index), matched: grown.files }))
       .filter((entry) => applies(entry.rule) && !(entry.rule.kinds.includes('all') || entry.rule.kinds.includes(composition.kind))) : [])
   ];
   for (const { rule, name, matched } of due) {

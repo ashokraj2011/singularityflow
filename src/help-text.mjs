@@ -248,6 +248,8 @@ Usage:
   singularity-flow inbox [--offline] [--json]
   singularity-flow needs-you [--offline] [--refresh] [--all] [--json]
   singularity-flow needs-you show <KEY> [--offline] [--json]
+  singularity-flow rules [--offline] [--json]
+  singularity-flow rules preview --change-set <FILE|-> [--json]
   singularity-flow status [WORK-ID] [--git-shadow] [--submission-readiness] [--json]
   singularity-flow status <WORK-ID> --submission-readiness --json --submit-if-ready
   singularity-flow progress [WORK-ID] [--json|--markdown]

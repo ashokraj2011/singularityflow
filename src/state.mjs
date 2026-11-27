@@ -28,7 +28,7 @@ import {
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import { documentSuccessorRefusal, documentSuccessorUnopened } from './prepared-document-successor.mjs';
-import { approveRoute, returnRoute, versionQuestionRoute } from './action-command-map.mjs';
+import { approveRoute, returnRoute, setAsideCommand, versionQuestionRoute } from './action-command-map.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -3701,8 +3701,6 @@ export function codeStepAhead(workflow, phase) {
  * a change it never mentioned [gate parity].
  */
 export async function assertPhaseChangeScope(root, config, workflow, phase) {
-  // Recovery's view of this step: the diagnosis of a protected path, and the person's set-aside of another step's document.
-  const recoverStep = `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`;
   const changed = changedFiles(root);
   const untracked = new Set(untrackedFiles(root));
   const protectedPaths = [...new Set([
@@ -3721,7 +3719,7 @@ export async function assertPhaseChangeScope(root, config, workflow, phase) {
       // The code-delivery refusal's code and shape, so recovery routes both the same way.
       { code: 'CHANGE_SET_POLICY_VIOLATION', details: { violationKind: 'protected-process-path', workId: workflow.workItem.id,
         phase: phase.id, paths: [protectedChange],
-        diagnosticAction: { command: recoverStep } } });
+        diagnosticAction: { command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` } } });
   }
   if ((phase.writeScope ?? 'artifact-only') === 'artifact-only') {
     const allowed = storyLocation(null, config, workflow.workItem.id).record(`artifacts/${phase.id}/`);
@@ -3737,7 +3735,7 @@ export async function assertPhaseChangeScope(root, config, workflow, phase) {
     if (outside.length) {
       const change = await crossPhaseChange(root, config, workflow, phase, outside);
       const described = describeCrossPhaseChange(change, { code: 'PHASE_ARTIFACT_ONLY_CHANGES', gate: 'submission', workflow, phase,
-        setAside: recoverStep });
+        setAside: setAsideCommand(workflow.workItem.id, phase.id) });
       throw new SingularityFlowError(`Phase ${phase.id} is artifact-only, but files outside its artifacts changed: ${outside.join(', ')}. ${described.text}`
         + drafts.heldCodeChangedWords(held.changed),
         // With no return its way out is the person's set-aside: it waits on them, so it is never escalated as a repair (office, 2026-11-27).

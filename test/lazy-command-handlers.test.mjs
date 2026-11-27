@@ -1127,22 +1127,28 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // what its marketplace deprecated or retired of what its workflow was made from or attaches (commands/start.mjs
     // +400; the reading is marketplace-in-use.mjs, loaded lazily and only with a marketplace trusted) [OMK:REQ-041]. No
     // new eager file.
-    // 9,937,894 (measured for start.mjs, +3,831 over 9,934,063 at 4b925b87d, 2026-11-27 on fix-source-loop; submit.mjs
-    // 9,934,146): an editor's or IDE's own files (.vscode/, .idea/, Eclipse metadata) never stop a step: not a document step's submission, as its
-    // publication already said, nor a code step's start, plan question or approval (application-paths.mjs
-    // isEditorConfigurationPath +588, state.mjs +1,012, generation-boundary.mjs +302, candidate-scope.mjs +203,
-    // lifecycle-worktree.mjs +423, recovery-preparation-context.mjs +66, finding-escalation.mjs); with no return a refusal's
-    // route is the set-aside, never a plan decision, and it waits on the person, never escalated (cross-phase-change.mjs +760)
-    // [office loop, 2026-11-27]. No new eager file.
-    // 9,941,524 (measured for start.mjs, +3,630 over 9,937,894 at 96aa138eb, 2026-11-27 on watch-code-base; submit.mjs
-    // 9,937,776): a document step never stops for the code base and the code step takes it up [WCB M1]: one workspace-local
-    // rule for every gate (workspace-local-paths.mjs, 1,001, its own leaf so the Copilot edit guard loads none of it), a
+    // 9,934,141 (measured for start.mjs, +78 over 9,934,063 on the merge of fpl-m3 with main 4b925b87d, 2026-11-27;
+    // submit.mjs 9,930,393, +78): `rules` registered as a read with /sf-explain as its skill (command-registry.mjs +53,
+    // command-skills.mjs +25) [FPL:REQ-019, REQ-038]. No new eager file.
+    // 9,938,035 (measured for start.mjs, +3,894 over 9,934,141 on the merge of fix-source-loop with main f6353df44,
+    // 2026-11-27; submit.mjs 9,934,287): an editor's or IDE's own files (.vscode/, .idea/, Eclipse metadata) never stop
+    // a step: not a document step's submission, as its publication already said, nor a code step's start, plan question
+    // or approval (application-paths.mjs isEditorConfigurationPath +588, state.mjs +1,012, generation-boundary.mjs
+    // +302, candidate-scope.mjs +203, lifecycle-worktree.mjs +423, recovery-preparation-context.mjs +66,
+    // finding-escalation.mjs); with no return a refusal's route is the set-aside, never a plan decision, and it waits
+    // on the person, never escalated (cross-phase-change.mjs +760) [office loop, 2026-11-27]. No new eager file.
+    // 9,938,047 (measured for start.mjs, +12 over 9,938,035, 2026-11-27 on fix-source-loop; submit.mjs 9,934,299): the
+    // set-aside command is the map's own setAsideCommand (action-command-map.mjs +118), so state.mjs routes no command
+    // itself [OSA:AC-020]. No new eager file.
+    // 9,941,613 (measured for start.mjs, +3,566 over 9,938,047 on the merge of watch-code-base with main 29c9c43b9,
+    // 2026-11-27; submit.mjs 9,937,865; +3,630 over 9,937,894 at 96aa138eb before the merge): a document step never
+    // stops for the code base and the code step takes it up [WCB M1]: one workspace-local rule for every gate (workspace-local-paths.mjs, 1,001, its own leaf so the Copilot edit guard loads none of it), a
     // document step's checkout hold leaves code base files in place (lifecycle-worktree.mjs +1,248), the code step's first
     // interval reaches back to where code was last governed (work-intervals.mjs +410, the reading itself in
     // code-outside-plan.mjs, loaded lazily), and a document step's submission and approval never answer for the code base,
-    // while a Story with no code step stops for committed code (state.mjs +1,705; candidate-scope.mjs +89;
+    // while a Story with no code step stops for committed code (state.mjs +1,641; candidate-scope.mjs +89;
     // generation-boundary.mjs -823). One new eager file (workspace-local-paths.mjs).
-    assert.ok(closure.bytes <= 9_941_524, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_941_613, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1349,7 +1355,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 879,344 (+258, measured 2026-11-25 on vsc-agenthost-hooks): a command a Copilot chat runs says when SFlow's hooks never saw
   // the chat (cli-entry.mjs loads copilot-chat-hooks.mjs only then). No new eager file.
   // 894,560 (+258, measured 2026-11-27 on the merge of vsc-agenthost-hooks onto 5c682d8c1): the hooks note above. No new eager file.
-  assert.ok(root.bytes <= 894_560, `root dispatch loads ${root.bytes} source bytes`);
+  // 894,613 (+53, measured 2026-11-27 on fpl-m3 over 70131c215): `rules` registered as a read (command-registry.mjs)
+  // [FPL:REQ-019]. No new eager file.
+  assert.ok(root.bytes <= 894_613, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1809,13 +1817,15 @@ test('the common session projection does not import attach, state stores or publ
   // 4,391,469 (+2,131, measured 2026-11-27 on fix-suite-1127 over d99e2d11d): the source inspection facade's checkout
   // reads, which the state checkout now uses instead of starting Git itself (source-inspection.mjs) [SDA-AC-001]. No
   // new eager file.
-  // 4,393,085 (+1,616, measured 2026-11-27 on fix-source-loop over 4b925b87d): the editor-configuration rule and the
-  // set-aside route of a document step's refusal (application-paths.mjs +588, candidate-scope.mjs +203,
-  // cross-phase-change.mjs +760) [office loop]. No new eager file.
-  // 4,394,585 (+1,500, measured 2026-11-27 on watch-code-base over 96aa138eb): the workspace-local rule and the code step's
+  // 4,391,547 (+78, measured 2026-11-27 on fpl-m3 over 70131c215): `rules` registered as a read with /sf-explain as its skill
+  // (command-registry.mjs, command-skills.mjs) [FPL:REQ-019, REQ-038]. No new eager file.
+  // 4,393,163 (+1,616 over 4,391,547, measured 2026-11-27 on the merge of fix-source-loop with main f6353df44): the
+  // editor-configuration rule and the set-aside route of a document step's refusal (application-paths.mjs +588,
+  // candidate-scope.mjs +203, cross-phase-change.mjs +760) [office loop]. No new eager file.
+  // 4,394,663 (+1,500 over 4,393,163, measured 2026-11-27 on the merge of watch-code-base with main 29c9c43b9): the workspace-local rule and the code step's
   // reach-back baseline (workspace-local-paths.mjs, 1,001, work-intervals.mjs +410, candidate-scope.mjs +89) [WCB M1]. One
   // new eager file (workspace-local-paths.mjs).
-  assert.ok(current.bytes <= 4_394_585, `session current loads ${current.bytes} source bytes`);
+  assert.ok(current.bytes <= 4_394_663, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -911,6 +911,12 @@ async function unreadable([finding]) {
     answer: { kind: 'text' }, choices: [keep('Fix it by hand in Workflow Studio')] }] };
 }
 
+/** A team rule for tasks that does not hold (workflow check's CHECK_TASK_RULE_INVALID) [FPL:REQ-023]: what it should say is the team's. */
+async function taskRule([finding]) {
+  return { questions: [{ ask: `${finding.title} (${finding.subject?.field ?? 'tasks'})`, why: 'A rule says what the team adds to its tasks; what the broken one should say is the team\'s decision.',
+    answer: { kind: 'text' }, choices: [keep('Fix it in VS Code (Rules), or in workflow.yml')] }] };
+}
+
 /**
  * A step's questions setting (clarification), from the check's own `fix.data` (src/workflow-check.mjs,
  * above clarificationSetting): `edits` when the fixer decides, `question` when a person does. Each
@@ -1139,6 +1145,7 @@ export const WORKFLOW_FIXERS = Object.freeze({
   CHECK_BROWSER_TARGET_REQUIRED: question(70, 'Which live site a Story checks is chosen per Story by the person who starts it; no configuration can know it.', browserTarget),
   CHECK_WORKFLOW_UNREADABLE: question(72, 'The engine refused the workflow; what it should be instead is not written anywhere a fixer can read.', unreadable),
   CHECK_ROUTES_UNREADABLE: question(72, 'The engine refused the workflow\'s routes; what they should be instead is not written anywhere a fixer can read.', unreadable),
+  CHECK_TASK_RULE_INVALID: question(73, 'A rule says what the team adds to its tasks; what the broken one should say is the team\'s decision.', taskRule),
   // Questions: where each step asks, from the check's own fix data (fix.data, see clarificationFix).
   CHECK_CLARIFICATION_INVALID: either(6, 'The setting cannot be read and could mean several things; which one the team meant is its decision.', clarificationFix),
   CHECK_MARKERS_UNANSWERABLE: change(74, clarificationFix),

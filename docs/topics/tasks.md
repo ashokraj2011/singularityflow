@@ -5,11 +5,14 @@ aliases:
   - task
   - sf-task
   - intent-to-work
+  - team-rules
+  - task-rules
 commands:
   - work
+  - rules
 related:
   - starting-work
-version: 23
+version: 24
 ---
 Say what you want done and SFlow does the rest of the setting up: `/sf-task fix the login timeout on slow networks` in Copilot, or `sflow work "fix the login timeout on slow networks" --start` in a terminal. There is no base, workflow or Story ID to choose. The words name a kind of task, and the kind gives the steps, the same way every time:
 
@@ -47,10 +50,12 @@ tasks:
       personApproves: [test]
       because: Changes to sign-in are reviewed and their test results read by a person.
   use:
-    release: classic-delivery
+    change: classic-delivery
 ```
 
-`always` applies to every task of the kinds it names (or `all`); `paths` applies when the task touches those files (`sflow work "<words>" --path src/auth/login.js`); `use` sends a kind to one of the repository's workflows, unchanged. A step is one of intake, requirements, design, plan, code, test or review. Each rule needs a `because`, which the plan shows when the rule adds a step.
+`always` applies to every task of the kinds it names (or `all`); `paths` applies when the task touches those files (`sflow work "<words>" --path src/auth/login.js`); `use` sends one kind (fix, feature, change, refactor, tests, docs, investigate, review or chore) to one of the repository's workflows, which then runs exactly as it is. A step is one of intake, requirements, design, plan, code, test or review. Each rule needs a `because`, which the plan shows when the rule adds a step. A rule may have an `id`, so a Story names it by that and not by its place (`always[0]`); a `use` rule can be written `change: { workflow: classic-delivery, because: …, id: … }` to carry its own.
+
+**The team's rules in one list.** `sflow rules` lists them in plain words: the three SFlow keeps for every task (every code change gets tests; a person approves the code; a person approves a plan where there is one), then each rule as "When … : …" with its because and its ID, the ones waiting for review with who proposed them, the ID prefix ("Tasks are named TASK-<n>") and each kind's steps. It also says how many lessons the agents read as team guidance (they add no step), and how many tasks in flight keep the rules they started with: a rule change applies to tasks started after it is approved. `--offline` reads no proposals. In VS Code, the Rules place shows the same list and a form: When (any code changes, a task is of these kinds, or a task touches these files), Then (add a step, a person approves a step, or follow one of this repository's workflows, for one kind) and Why. Beside it, `sflow rules preview --change-set <FILE>` says for each kind of task the steps before and after ("A fix touching src/billing/x.ts: Intake → Code → Tests → Conformance review (added). You approve the plan in the intake and the code."), and every problem with where it is. **Propose this rule** sends one Workflow Studio change set (`tasks.rule.add`, `tasks.rule.change`, `tasks.rule.remove` or `tasks.idPrefix.set`) through `workflow studio apply --propose`, the reviewed path every configuration change takes; it is a Review item in the Needs you of each person who may approve it, and applies once approved. `workflow check`, a configuration save and `configuration approve` check the rules too: a problem in a rule a change adds or changes is refused with its field (`tasks.paths[1].because`); one already there in a rule it leaves alone is a warning.
 
 **Skills for each step.** Each step gets the skills that fit it, the same way every time. A skill fits a step when one of its tasks is what the step is for (the marketplace's task list, as `workflow from-agent` reads it: `e2e-testing` and `unit-testing` are a code step's, `test-case-creation` a requirements step's) and the task touches it: the skill is for the kind of software this repository is (web, backend, mobile and so on, as `sflow capability kind` shows them), or your words name one of its tags. A skill for another kind of software is never chosen. At most two per step.
 
@@ -92,8 +97,8 @@ Use this topic to start work by saying what you want done. The repository must u
 ## Use it from each surface
 
 - **Shell:** `sflow work "<what you want done>"` shows the plan; add `--start` to start it. Run `singularity-flow work --help` for every option.
-- **Copilot:** `/sf-task <what you want done>`. The agent names the kind of task from your words and starts it; `/sf-task` with no words then does whatever comes next.
-- **VS Code:** a task started in Copilot or the terminal appears in **My Work** like any Story.
+- **Copilot:** `/sf-task <what you want done>`. The agent names the kind of task from your words and starts it; `/sf-task` with no words then does whatever comes next. `/sf-explain team rules` explains the team's rules; `sflow rules` lists them as they are.
+- **VS Code:** a task started in Copilot or the terminal appears in **My Work** like any Story. The Rules place lists the team's rules and proposes a change to them.
 
 ## Guided workflow
 
@@ -174,7 +179,7 @@ An Ask SFlow task handoff carries the selected reviewed specification revision, 
 
 - If the words fit no kind, name one with `--kind`; the refusal lists the kinds.
 - If the repository's workflow has no step for a purpose the task needs, add one in Workflow Studio, or start the Story with `sflow start` and a workflow of your own.
-- If a `tasks:` rule is refused, fix the rule its words name; the plan is shown again once it is valid.
+- If a `tasks:` rule is refused, `sflow rules` lists every problem with where it is; fix those rules (in VS Code's Rules, or a proposed save of `singularity/workflow.yml`), and the plan is shown again once they are valid.
 - If the start says a skill needs your yes, read the skill (a marketplace one's text is shown), then start again with `--use-skill <ID>` or `--without-skill <ID>`.
 - If the start says a skill changed since the plan was shown, show the plan again: it chooses from the library as it is now.
 - If the start says an agent's workflow needs your yes, read its conversion review, then start again with `--use-agent <MARKETPLACE/AGENT>` or `--without-agent <MARKETPLACE/AGENT>`. If it says the workflow is not in the repository yet, import it through its conversion review, or start with `--without-agent` for now.

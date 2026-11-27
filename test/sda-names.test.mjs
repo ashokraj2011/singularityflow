@@ -75,8 +75,10 @@ export const SDA_NAMES = Object.freeze({
   'FND-[': ['src/finding-identity.mjs', 'src/phase-finding-dispute.mjs'],
   'code.delivery.generation-unchanged': ['src/delivery-evidence.mjs'],
   // M2: configuration inspection without a clone
-  // Ask SFlow's workspace search reads the approved configuration the same way (codex/spec-ask-r1, 2026-11-25).
-  INSPECTION_READ: ['src/approved-configuration-reader.mjs', 'src/ask/workspace-search.mjs', 'src/cli.mjs', 'src/editor.mjs', 'src/commands/workflow-list.mjs'],
+  // Ask SFlow's workspace search reads the approved configuration the same way (codex/spec-ask-r1, 2026-11-25), and so do
+  // the Rules place's read and preview (FPL M3, 2026-11-27).
+  INSPECTION_READ: ['src/approved-configuration-reader.mjs', 'src/ask/workspace-search.mjs', 'src/cli.mjs', 'src/editor.mjs', 'src/commands/workflow-list.mjs',
+    'src/commands/rules.mjs', 'src/task-rules.mjs'],
   'configuration.exact-object-transfer': ['src/configuration-branch.mjs'],
   // M3: configuration editing without a clone, with its typed intent
   CONFIGURATION_PROJECTION_BASE_UNAVAILABLE: ['src/configuration-people.mjs', 'src/configuration-projection.mjs', 'src/refusal-remediation.mjs'],

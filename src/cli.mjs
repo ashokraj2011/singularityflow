@@ -12023,6 +12023,7 @@ async function dispatch(command, positionals, options, argv) {
     "session": async () => (await import('./commands/session.mjs')).sessionCommand(positionals, options),
     inbox: async () => (await import('./commands/inbox.mjs')).inboxCommand(options),
     'needs-you': async () => (await import('./commands/needs-you.mjs')).run(argv, { positionals, options }),
+    rules: async () => (await import('./commands/rules.mjs')).run(argv, { positionals, options }),
     finalize: () => finalizeCommand(options),
     status: () => statusCommand(positionals, options),
     approvals: async () => (await import('./commands/approvals.mjs')).run(argv, { positionals, options }),

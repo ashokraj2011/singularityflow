@@ -38,6 +38,8 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'work', 'ask',
   // Needs you [FPL:REQ-008]: its --json is its own structured result (sflow-needs-you, sflow-needs-you-card).
   'needs-you',
+  // The Rules place [FPL:REQ-019, REQ-021]: sflow-rules and sflow-rules-preview.
+  'rules',
   // Returns another command's kept result as that command returned it, or why there is none.
   'result',
   // Runs the command a short confirmation code stands for: its result is that command's own, or why the code names none.

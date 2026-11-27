@@ -250,7 +250,7 @@ function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
 
 const READ_ONLY_COMMANDS = new Set([
   'ask',
-  'about', 'help', 'show', 'choices', 'inbox', 'needs-you', 'home', 'recommend', 'status', 'progress',
+  'about', 'help', 'show', 'choices', 'inbox', 'needs-you', 'rules', 'home', 'recommend', 'status', 'progress',
   'guide', 'logs', 'doctor', 'check', 'nextsteps', 'snapshot', 'validate', 'precheck', 'change', 'proof',
   'comprehension', 'outcome', 'result', 'prompts'
 ]);

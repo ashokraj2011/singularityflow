@@ -269,6 +269,8 @@ test('A12, A13, A15 through the CLI: a rule is proposed, waits for review, lands
     assert.equal(read.idPrefix.words, 'Tasks are named TASK-<n>.');
     assert.equal(read.compose.find((entry) => entry.kind === 'fix').words, 'A fix: Intake → Code → Tests');
     assert.match(flow(checkout, ['rules', '--offline']).stdout, /^Built in \(SFlow keeps these for every task\)/u);
+    // How a rule changes, for a reader with no Rules page (/sf-explain in Copilot CLI, REQ-038): a complete command.
+    assert.equal(read.change.command, 'singularity-flow configuration save singularity/workflow.yml --propose < singularity/workflow.yml');
     // A13: workflow check reports the broken rule at its line; today it did not.
     const check = JSON.parse(flow(checkout, ['workflow', 'check', '--json']).stdout);
     const finding = check.repository.findings.find((entry) => entry.code === 'CHECK_TASK_RULE_INVALID');

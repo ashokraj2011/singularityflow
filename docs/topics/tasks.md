@@ -101,7 +101,7 @@ Use this topic to start work by saying what you want done. The repository must u
 ## Use it from each surface
 
 - **Shell:** `sflow work "<what you want done>"` shows the plan; add `--start` to start it. Run `singularity-flow work --help` for every option.
-- **Copilot:** `/sf-task <what you want done>`. The agent names the kind of task from your words and starts it; `/sf-task` with no words then does whatever comes next. `/sf-explain team rules` explains the team's rules; `sflow rules` lists them as they are.
+- **Copilot:** `/sf-task <what you want done>`. The agent names the kind of task from your words and starts it; `/sf-task` with no words then does whatever comes next. `/sf-explain what are our team rules?` answers from `sflow rules --json`, the rules as they are now.
 - **VS Code:** a task started in Copilot or the terminal appears in **My Work** like any Story. The Rules place lists the team's rules and proposes a change to them.
 
 ## Guided workflow

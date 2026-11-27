@@ -536,6 +536,9 @@ export async function rulesRead(root, { offline = false, proposals = null } = {}
     links: { people: 'People and approval groups', constitution: 'The Constitution' },
     problems: problems.map(({ field, message }) => ({ field, message })),
     form: ruleForm(definition),
+    // How a rule changes, for a reader with no Rules page (`/sf-explain` in Copilot CLI) [FPL:REQ-038]: a complete command.
+    change: { words: 'Change a rule in VS Code (Rules), or edit singularity/workflow.yml and propose it for review:',
+      command: 'singularity-flow configuration save singularity/workflow.yml --propose < singularity/workflow.yml' },
     lines
   };
 }
@@ -561,8 +564,8 @@ export function rulesText(result) {
   const loose = result.problems.filter((problem) => !result.rules.some((rule) => (rule.problems ?? []).some((own) => own.field === problem.field)));
   if (loose.length) out.push('', 'Problems', ...loose.map((problem) => `  ${taskProblemLine(problem)}`));
   out.push(...result.lines.map((line) => `${line}`));
-  out.push('', 'Change a rule in VS Code (Rules), or edit singularity/workflow.yml and run:',
-    '  singularity-flow configuration save singularity/workflow.yml --propose < singularity/workflow.yml');
+  out.push('', result.change?.words ?? 'Change a rule in VS Code (Rules), or edit singularity/workflow.yml and propose it for review:',
+    `  ${result.change?.command ?? 'singularity-flow configuration save singularity/workflow.yml --propose < singularity/workflow.yml'}`);
   return `${out.join('\n')}\n`;
 }
 

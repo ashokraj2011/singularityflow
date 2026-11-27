@@ -1121,18 +1121,78 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // checkout's Git reads go through the source inspection facade (checkoutPlace, checkoutChanges, indexEntries,
     // sourceTree; source-inspection.mjs +2,131) [SDA-AC-001], and the state-ref publication is named beside the
     // adapter (story-publication-service.mjs +263). No new eager file.
+    // 9,934,309 (measured for start.mjs, +646 over 9,933,663 at 6c7b0ecbf, 2026-11-27 on ssb-m3; submit.mjs 9,930,939):
+    // a state-ref Story's state ref is its lifecycle authority behind the same adapter, which loads its unit of work and
+    // observes a state ref (sda/story-branch-authority.mjs +506), and sync's state-ref arm (state.mjs +218); the
+    // publication itself (story-state-publication.mjs) loads lazily [SSB M3]. No new eager file.
+    // 9,946,839 (measured for start.mjs, +12,530 over 9,934,309, 2026-11-27 on ssb-m3 stage b; submit.mjs 9,943,973): a
+    // state-ref Story's approvals, decisions and clarifications read its records on its state ref [SSB:REQ-004,
+    // REQ-009; M3]: documents named from the checkout and records from the state checkout (story-paths.mjs +3,536:
+    // recordIn, recordFileIn, recordsRootFor, gitPlaceOf, stateRelative, checkoutPath), a generation's publication, the
+    // review and its evidence found in the state ref's history with the code commit a state commit names (state.mjs
+    // +5,106, story-lineage.mjs, generation-publication-store.mjs, specifications.mjs, clarifications.mjs, inject.mjs).
+    // No new eager file.
+    // 9,947,276 (measured for start.mjs, +437, 2026-11-27 on ssb-m3 stage c; submit.mjs 9,944,410): the workspace drop
+    // asks a clone's state-ref Stories whether the remote holds their records before it removes the clone, and accepts
+    // their state refs (workspace.mjs; the check itself loads lazily) [SSB:REQ-008; M3]. No new eager file.
     // 9,934,063 (measured for start.mjs, +400 over 9,933,663 at 126eb798d, 2026-11-27 on omk-m3): a Story's start says
     // what its marketplace deprecated or retired of what its workflow was made from or attaches (commands/start.mjs
     // +400; the reading is marketplace-in-use.mjs, loaded lazily and only with a marketplace trusted) [OMK:REQ-041]. No
     // new eager file.
+    // 9,947,676 (measured for start.mjs on ssb-m3 merged with main 4b925b87d, 2026-11-27; submit.mjs 9,944,410): the
+    // two rises above together. No new eager file.
     // 9,934,141 (measured for start.mjs, +78 over 9,934,063 on the merge of fpl-m3 with main 4b925b87d, 2026-11-27;
     // submit.mjs 9,930,393, +78): `rules` registered as a read with /sf-explain as its skill (command-registry.mjs +53,
     // command-skills.mjs +25) [FPL:REQ-019, REQ-038]. No new eager file.
-    // 9,934,394 (measured for start.mjs, +253 over 9,934,141, 2026-11-27 on sf-task-v12; submit.mjs 9,931,439, +1,046): a
-    // sized task's requirement asks its approval with its shape (choices.mjs +235, task-shape.mjs loaded only for such a
-    // Story), its shape decided after its submission (submit.mjs +1,028, task-shape.mjs loaded only then) and `work shape`
-    // registered as a mutation (command-registry.mjs +18) [ITW v1.2 REQ-103]. No new eager file.
-    assert.ok(closure.bytes <= 9_934_394, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,938,035 (measured for start.mjs, +3,894 over 9,934,141 on the merge of fix-source-loop with main f6353df44,
+    // 2026-11-27; submit.mjs 9,934,287): an editor's or IDE's own files (.vscode/, .idea/, Eclipse metadata) never stop
+    // a step: not a document step's submission, as its publication already said, nor a code step's start, plan question
+    // or approval (application-paths.mjs isEditorConfigurationPath +588, state.mjs +1,012, generation-boundary.mjs
+    // +302, candidate-scope.mjs +203, lifecycle-worktree.mjs +423, recovery-preparation-context.mjs +66,
+    // finding-escalation.mjs); with no return a refusal's route is the set-aside, never a plan decision, and it waits
+    // on the person, never escalated (cross-phase-change.mjs +760) [office loop, 2026-11-27]. No new eager file.
+    // 9,938,047 (measured for start.mjs, +12 over 9,938,035, 2026-11-27 on fix-source-loop; submit.mjs 9,934,299): the
+    // set-aside command is the map's own setAsideCommand (action-command-map.mjs +118), so state.mjs routes no command
+    // itself [OSA:AC-020]. No new eager file.
+    // 9,947,754 (measured for start.mjs on ssb-m3 merged with main f6353df44, 2026-11-27; submit.mjs 9,944,488): the
+    // rises above together. No new eager file.
+    // 9,951,377 (measured for start.mjs, +3,623 over 9,947,754, 2026-11-27 on ssb-m3 stage e; submit.mjs 9,948,941): a
+    // state-ref Story's code step on its state ref [SSB:REQ-004, REQ-005; M3]: its test runs' records through recordPlace
+    // (verification/attempts.mjs, story-paths.mjs), the code read at the commit a state commit names
+    // (generation-publication-store.mjs lifecycleCodeCommit, delivery-evidence.mjs, specifications.mjs), its delivery
+    // and submission records in the state checkout (state.mjs, code-submission-evidence.mjs, work-intervals.mjs,
+    // governance.mjs). No new eager file.
+    // 9,955,283 (measured for start.mjs on ssb-m3 merged with main 29c9c43b9, 2026-11-27; submit.mjs 9,952,847): stage
+    // e and fix-source-loop's editor-configuration and set-aside rules (+3,906 on main's side) together. No new eager file.
+    // 9,939,106 (measured for start.mjs, +1,059 over 9,938,047, 2026-11-27 on change-story; submit.mjs 9,935,358): a code
+    // step's publication and submission, and every later step's, write the Story's "What this change does" page in their
+    // own commit (story-publication-service.mjs +635, its builder loaded from the CLI source only when it runs), the page's
+    // read outcome (narration/messages.mjs +237), a skill step accepts its optional notes file (skp-phase-evidence.mjs
+    // +123), and the Story's documents list the page (documents-read.mjs +64) [CSP:REQ-005, REQ-010, REQ-011]. No new
+    // eager file.
+    // 9,956,342 (measured for start.mjs, +1,059 over 9,955,283 on the merge of change-story with main 237ff13d3,
+    // 2026-11-27; submit.mjs 9,953,906): CSP's page above and SSB M3 stage e together. No new eager file.
+    // 9,957,545 (measured for start.mjs, +1,203 over 9,956,342, 2026-11-28 on ssb-m3 stage f; submit.mjs 9,955,818): a
+    // state-ref Story's convergence, verification and release on its state ref [SSB:REQ-004, REQ-005, REQ-009; M3]: the
+    // convergence context's records place (convergence-context.mjs +618), the tested code compared with the code commit
+    // a state commit names (delivery-evidence.mjs +369), the conformance report named from the checkout
+    // (conformance-readiness.mjs +127), the scope check's document folders (state.mjs +72), document() where M3 keeps
+    // documents (story-paths.mjs +17); submit.mjs also the final audit's records and state ref (governance.mjs +709). No
+    // new eager file.
+    // 9,937,179 (measured for start.mjs, +3,038 over 9,934,141 at f6353df44, 2026-11-27 on fpl-rules-followups; submit.mjs
+    // 9,932,924, +2,531): a team rule's `by:` group made a composed step's required approver (approval-authority.mjs
+    // withRuleApprovalGroups and ruleApprovalGroupIds +1,984, config.mjs +287), Story start's automatic enrollment and the
+    // Story's pinned groups never joining that group (configuration-people.mjs +507, state.mjs +235), and `lessons guidance`
+    // registered (command-registry.mjs +24) [FPL §11 questions 3 and 4]. No new eager file.
+    // 9,960,583 (measured for start.mjs, +3,038 over 9,957,545 on the merge of fpl-rules-followups with main 088970dfc,
+    // 2026-11-28; submit.mjs 9,958,349): the `by:` group above and SSB M3 together. No new eager file.
+    // 9,934,394 (measured for start.mjs, +253 over 9,934,141 at f6353df44, 2026-11-27 on sf-task-v12; submit.mjs 9,931,439,
+    // +1,046): a sized task's requirement asks its approval with its shape (choices.mjs +235, task-shape.mjs loaded only for
+    // such a Story), its shape decided after its submission (submit.mjs +1,028, task-shape.mjs loaded only then) and `work
+    // shape` registered as a mutation (command-registry.mjs +18) [ITW v1.2 REQ-103]. No new eager file.
+    // 9,960,836 (measured for start.mjs, +253 over 9,960,583 on the merge of sf-task-v12 with main 31f0c6c2a, 2026-11-28;
+    // submit.mjs 9,959,395): ITW v1.2's rises above and main's together. No new eager file.
+    assert.ok(closure.bytes <= 9_960_836, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1339,11 +1399,25 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 879,344 (+258, measured 2026-11-25 on vsc-agenthost-hooks): a command a Copilot chat runs says when SFlow's hooks never saw
   // the chat (cli-entry.mjs loads copilot-chat-hooks.mjs only then). No new eager file.
   // 894,560 (+258, measured 2026-11-27 on the merge of vsc-agenthost-hooks onto 5c682d8c1): the hooks note above. No new eager file.
+  // 898,096 (+3,536, measured 2026-11-27 on ssb-m3 stage b over 6c7b0ecbf): the resolver names a state-ref Story's
+  // documents from the checkout and its records from the state checkout, and a path in the state checkout as the state
+  // checkout and its commits have it (story-paths.mjs) [SSB:REQ-009; M3]. No new eager file.
   // 894,613 (+53, measured 2026-11-27 on fpl-m3 over 70131c215): `rules` registered as a read (command-registry.mjs)
   // [FPL:REQ-019]. No new eager file.
-  // 894,631 (+18, measured 2026-11-27 on sf-task-v12): `work shape` registered as a mutation (command-registry.mjs) [ITW v1.2
-  // REQ-103]. No new eager file.
-  assert.ok(root.bytes <= 894_631, `root dispatch loads ${root.bytes} source bytes`);
+  // 898,149 (measured on ssb-m3 merged with main f6353df44, 2026-11-27): the two rises above together. No new eager file.
+  // 898,667 (+518, measured 2026-11-27 on ssb-m3 stage e): recordPlace, where a caller's Story folder keeps its records
+  // (story-paths.mjs) [SSB M3]. No new eager file.
+  // 898,684 (+17, measured 2026-11-28 on ssb-m3 stage f): document() names a state-ref Story's documents where M3 keeps
+  // them, its state checkout (story-paths.mjs) [SSB:REQ-009; M3]. No new eager file.
+  // 894,637 (+24, measured 2026-11-27 on fpl-rules-followups over f6353df44): `lessons guidance`, the new name of `lessons
+  // rule`, registered (command-registry.mjs) [FPL §11 question 4]. No new eager file.
+  // 898,708 (+24 over 898,684, measured 2026-11-28 on the merge of fpl-rules-followups with main 088970dfc): `lessons
+  // guidance` above and SSB M3 together. No new eager file.
+  // 894,631 (+18, measured 2026-11-27 on sf-task-v12 over f6353df44): `work shape` registered as a mutation
+  // (command-registry.mjs) [ITW v1.2 REQ-103]. No new eager file.
+  // 898,726 (+18 over 898,708, measured 2026-11-28 on the merge of sf-task-v12 with main 31f0c6c2a): `work shape` above and
+  // main's rises together. No new eager file.
+  assert.ok(root.bytes <= 898_726, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1802,11 +1876,34 @@ test('the common session projection does not import attach, state stores or publ
   // 4,391,469 (+2,131, measured 2026-11-27 on fix-suite-1127 over d99e2d11d): the source inspection facade's checkout
   // reads, which the state checkout now uses instead of starting Git itself (source-inspection.mjs) [SDA-AC-001]. No
   // new eager file.
+  // 4,397,680 (+6,211, measured 2026-11-27 on ssb-m3 stage b over 6c7b0ecbf): the resolver's state-ref spellings
+  // (story-paths.mjs +3,536) and the clarification, prompt and publication records read from a state-ref Story's state
+  // checkout (clarifications.mjs, specifications.mjs, inject.mjs, generation-publication-store.mjs) [SSB M3]. No new
+  // eager file.
   // 4,391,547 (+78, measured 2026-11-27 on fpl-m3 over 70131c215): `rules` registered as a read with /sf-explain as its skill
   // (command-registry.mjs, command-skills.mjs) [FPL:REQ-019, REQ-038]. No new eager file.
-  // 4,391,565 (+18, measured 2026-11-27 on sf-task-v12): `work shape` registered as a mutation (command-registry.mjs)
-  // [ITW v1.2 REQ-103]. No new eager file.
-  assert.ok(current.bytes <= 4_391_565, `session current loads ${current.bytes} source bytes`);
+  // 4,393,163 (+1,616 over 4,391,547, measured 2026-11-27 on the merge of fix-source-loop with main f6353df44): the
+  // editor-configuration rule and the set-aside route of a document step's refusal (application-paths.mjs +588,
+  // candidate-scope.mjs +203, cross-phase-change.mjs +760) [office loop]. No new eager file.
+  // 4,397,758 (measured on ssb-m3 merged with main f6353df44, 2026-11-27): the two rises above together. No new eager
+  // file.
+  // 4,399,911 (+2,153, measured 2026-11-27 on ssb-m3 stage e): the resolver's recordPlace, the code commit a state commit
+  // names, and a code step's records read in the state checkout (story-paths.mjs, generation-publication-store.mjs,
+  // specifications.mjs, delivery-evidence.mjs, work-intervals.mjs) [SSB M3]. No new eager file.
+  // 4,401,527 (measured on ssb-m3 merged with main 29c9c43b9, 2026-11-27): stage e and fix-source-loop's rules
+  // (+1,616 on main's side) together. No new eager file.
+  // 4,401,913 (+386, measured 2026-11-28 on ssb-m3 stage f): the tested code compared with the code commit a state commit
+  // names (delivery-evidence.mjs +369) and document() (story-paths.mjs +17) [SSB M3]. No new eager file.
+  // 4,393,842 (+2,295, measured 2026-11-27 on fpl-rules-followups over f6353df44): a team rule's `by:` group made a composed
+  // step's required approver (approval-authority.mjs, config.mjs) and `lessons guidance` registered (command-registry.mjs)
+  // [FPL §11 questions 3 and 4]. No new eager file.
+  // 4,404,208 (+2,295 over 4,401,913, measured 2026-11-28 on the merge of fpl-rules-followups with main 088970dfc):
+  // the `by:` group above and SSB M3 together. No new eager file.
+  // 4,391,565 (+18, measured 2026-11-27 on sf-task-v12 over f6353df44): `work shape` registered as a mutation
+  // (command-registry.mjs) [ITW v1.2 REQ-103]. No new eager file.
+  // 4,404,226 (+18 over 4,404,208, measured 2026-11-28 on the merge of sf-task-v12 with main 31f0c6c2a): `work shape` above
+  // and main's rises together. No new eager file.
+  assert.ok(current.bytes <= 4_404_226, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

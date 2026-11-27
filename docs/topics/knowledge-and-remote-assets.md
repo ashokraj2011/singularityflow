@@ -13,7 +13,7 @@ related:
   - artifacts-and-generation
   - world-model
   - evidence-and-ledger
-version: 6
+version: 7
 ---
 Remote templates, generated artifacts, and knowledge are copied or pinned by exact content. Changed remote bytes require an explicit trust or replacement decision.
 
@@ -51,9 +51,10 @@ person overrode, failing tests that sent the work back, a file outside the plan 
 `Learnings to carry forward`. They are knowledge records with a lesson part, committed with the approval, and copied
 on this machine so this person's other Stories get them too. Each later step's prompt carries the ones for the files it
 names or touches (at most 10 and 2 KB), as quoted data, never as instructions; nothing blocks or approves because of a
-lesson. `singularity-flow lessons` lists them, and `lessons drop`, `keep` and `edit` change one. `lessons rule` makes one
-a team rule, first for every step on its files; SFlow offers it when a mistake happens again twice although its lesson
-was given. A missing test command's refusal puts first the suggestion an earlier Story ran on those folders.
+lesson. `singularity-flow lessons` lists them, and `lessons drop`, `keep` and `edit` change one. `lessons guidance`
+(once `lessons rule`, which still works) makes one team guidance, first for every step on its files; SFlow offers it when
+a mistake happens again twice although its lesson was given. Team guidance adds no step: the team's rules that add steps
+are `singularity-flow rules`. A missing test command's refusal puts first the suggestion an earlier Story ran on those folders.
 
 ## State and safety
 

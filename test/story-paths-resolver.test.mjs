@@ -106,10 +106,11 @@ test('the plan\'s table: Story W-1 in /r with the default Stories folder, on bot
   assert.equal(state.recordsRoot, '/r/.sflow-state');
   assert.equal(path.join(state.recordsRoot, state.record('evidence', 'a.json')), state.file('evidence', 'a.json'));
   assert.equal(state.owns('singularity/work-items/W-1/gdp/x.json'), false);
+  // M3 keeps a state-ref Story's documents in its state checkout, named from the checkout; M4 moves them to docs/stories.
   assert.deepEqual(state.document('artifacts/design/design.md'),
-    { relative: 'docs/stories/W-1/design/design.md', absolute: '/r/docs/stories/W-1/design/design.md' });
-  assert.equal(state.isDocument('docs/stories/W-1/design/design.md'), true);
-  assert.equal(state.isDocument('docs/stories/W-10/design/design.md'), false);
+    { relative: '.sflow-state/artifacts/design/design.md', absolute: '/r/.sflow-state/artifacts/design/design.md' });
+  assert.equal(state.isDocument('.sflow-state/artifacts/design/design.md'), true);
+  assert.equal(state.isDocument('.sflow-state/context/a.json'), false);
   // The pin stays inside the pinned copy, at its usual path, so every reader of a pinned copy finds it (M2).
   assert.deepEqual(state.configurationSource, { relative: 'configuration/singularity/configuration-source.json',
     absolute: '/r/.sflow-state/configuration/singularity/configuration-source.json' });
@@ -185,7 +186,7 @@ test('both layouts agree with themselves: records, files, membership, documents 
         const document = at.document('artifacts/design/design.md');
         assert.equal(at.isDocument(document.relative), true);
         assert.equal(document.absolute, path.join('/r', document.relative));
-        if (layout === 'state-ref') assert.equal(document.relative.startsWith(`docs/stories/${id}/`), true);
+        if (layout === 'state-ref') assert.equal(document.relative, at.checkoutPath('artifacts/design/design.md'));
       }
     }
   }

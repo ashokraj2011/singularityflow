@@ -26,7 +26,7 @@ export function approvalAgentResult(result) {
     // The lessons the step left [LRN:REQ-014]: said to the person in one line, numbered, with how to drop one.
     ...(Array.isArray(result.data?.lessons) && result.data.lessons.length ? { lessons: result.data.lessons } : {}),
     ...(result.data?.lessonsUse?.line ? { lessonsUse: result.data.lessonsUse.line } : {}),
-    // A mistake repeated twice although its lesson was given: offered to the person as a team rule, never made one here.
+    // A mistake repeated twice although its lesson was given: offered to the person as team guidance, never made so here.
     ...(Array.isArray(result.data?.ruleOffers) && result.data.ruleOffers.length ? { ruleOffers: result.data.ruleOffers } : {}),
     // Said plainly: "recorded under quality-reviewers, but self-approved" read as a fault (anu-bin, 2026-11-11).
     warnings: result.data?.selfApproval === true ? ['You approved a step you also worked on. This Story allows it, but it is not independent review.'] : [],

@@ -116,6 +116,9 @@ test('journey ITW v1.2, B1: a small change is its requirement, one step that imp
   assert.equal(status.done, true);
   assert.equal(status.shape, 'small');
   assert.match(status.words, /^TASK-1 is done: Requirement, Implement and test, Tests, on branch TASK-1\. Checks that ran: npm test/u);
+  // The change's own page, "What this change does", is written for the step that implements and tests [CSP].
+  assert.match(story.git('show', `TASK-1:${story.item}/CHANGE-STORY.md`), /\S/u);
+  assert.equal(status.changeStory?.path, `${story.item}/CHANGE-STORY.md`, JSON.stringify(Object.keys(status)));
   assert.deepEqual(personActions(walk.trail), { words: 1, typed: 0, answers: 2, own: 0, total: 3 }, formatTrail(walk.trail));
 });
 

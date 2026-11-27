@@ -9,7 +9,7 @@ import { exists, nowIso, snapshot, writeJson } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { listTelemetryLaunches, telemetryPreferenceStatus, telemetryRawPath, telemetryWorktreeId } from './telemetry-provision.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
-import { storyLocation } from './story-paths.mjs';
+import { recordIn, storyLocation } from './story-paths.mjs';
 
 const CURSOR_SCHEMA = currentSchemaVersion('telemetry-cursor');
 const RECORD_SCHEMA = currentSchemaVersion('phase-telemetry');
@@ -623,7 +623,7 @@ export function pendingTelemetryNote(captureGap) {
 }
 
 export async function recordPhaseTelemetry(root, workflow, phase, usage, capture, { itemDirectory, itemRelative }) {
-  const relative = path.posix.join(itemRelative, 'telemetry', `${phase.id}-gen${phase.generation}.json`);
+  const relative = recordIn(itemRelative, 'telemetry', `${phase.id}-gen${phase.generation}.json`);
   const absolute = path.join(itemDirectory, 'telemetry', `${phase.id}-gen${phase.generation}.json`);
   // A phase authored without a model sent no prompt, whatever was composed beforehand.
   const prompt = capture.source === 'not-invoked' ? null : await composedPromptSummary(workflow, phase, itemDirectory);

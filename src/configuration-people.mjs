@@ -8,7 +8,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { normalizeApprovalSecurity } from './approval-authority.mjs';
+import { normalizeApprovalSecurity, ruleApprovalGroupIds } from './approval-authority.mjs';
 import {
   CONFIGURATION_BRANCH, configurationBranchHead, resolveConfigurationRemote,
   takeStoryConfigurationCheckout, captureEnrolledConfigurationSnapshot, withRetainedConfigurationSnapshot
@@ -55,6 +55,13 @@ function authorityRows(document, scope) {
   const value = document.toJS()?.approvalAuthorities;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
   return Object.entries(value).map(([id, authority]) => ({ id, scope, authority }));
+}
+
+/** Automatic enrollment never joins a group a team rule names in `by:` (FPL §11, question 3): that is a change to People. */
+function automaticallyJoined(selected, workflow, automatic) {
+  if (!automatic) return selected;
+  const named = ruleApprovalGroupIds(workflow.toJS()?.tasks);
+  return named.size ? selected.filter((entry) => !(entry.scope === 'story' && named.has(entry.id))) : selected;
 }
 
 function selectedAuthorities(story, initiative, requestedTarget) {
@@ -194,9 +201,9 @@ function snapshotEnrollmentResult(snapshot, actor, member, {
     );
   }
   const portfolio = snapshotDocument(snapshot, PORTFOLIO_PATH, PORTFOLIO_PATH);
-  const selected = selectedAuthorities(
+  const selected = automaticallyJoined(selectedAuthorities(
     authorityRows(workflow, 'story'), portfolio ? authorityRows(portfolio, 'initiative') : [], target
-  );
+  ), workflow, automatic);
   const membershipChanged = selected.some((entry) =>
     mergeMember(entry.authority?.members, actor, entry.scope).changed);
   const desiredSelfApproval = allowSelfApproval == null ? (solo ? true : null) : Boolean(allowSelfApproval);
@@ -417,7 +424,7 @@ export async function publishCurrentIdentityToConfiguration(root, {
     const portfolio = portfolioText == null ? null : parseDocument(portfolioText, PORTFOLIO_PATH);
     const story = authorityRows(workflow, 'story');
     const initiative = portfolio ? authorityRows(portfolio, 'initiative') : [];
-    const selected = selectedAuthorities(story, initiative, target);
+    const selected = automaticallyJoined(selectedAuthorities(story, initiative, target), workflow, automatic);
     const changedGroups = [];
     // A group a reviewed change removed this person from is one they are never added back to by their own
     // approval [SCF:REQ-012, finding ER-F3]. Story start leaves those groups alone; an explicit request still

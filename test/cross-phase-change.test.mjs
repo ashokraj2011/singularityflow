@@ -69,14 +69,16 @@ test('a change in a step that delivers no code maps to its obligations and the c
   assert.equal(gate.actions.length, 2);
 });
 
-test('an unplanned path is accounted for first, and the returns follow where the Story stands', async () => {
+test('a permitted return leads, the plan accounting follows, and the returns follow where the Story stands', async () => {
   const open = story();
   const unplanned = await crossPhaseChange('/unused', {}, open, open.phases.review, ['src/helper.mjs', 'package-lock.json'], { records });
   assert.deepEqual(unplanned.unplanned, ['src/helper.mjs'], 'a planned supporting change is not unplanned');
   assert.deepEqual(unplanned.owners, ['frontend'], 'an unplanned path goes to the closest earlier code step');
   const text = describeCrossPhaseChange(unplanned, { code: 'X', gate: 'submission', workflow: open, phase: open.phases.review });
   assert.match(text.text, /No plan row names src\/helper\.mjs: account for each with singularity-flow decision plan/);
-  assert.equal(text.gate.actions[0].command, 'singularity-flow decision plan --add-location <clause>=<path> --reason <reason>');
+  // The return is what clears this step; the plan's accounting is the code step's after it (office, 2026-11-27).
+  assert.deepEqual(text.gate.actions.map((entry) => entry.command), ['singularity-flow reject review --to frontend --repair --reason <REASON>',
+    'singularity-flow decision plan --add-location <clause>=<path> --reason <reason>']);
 
   const awaiting = story({ reviewStatus: 'awaiting_approval', rejectTo: ['frontend', 'review'] });
   const submitted = await crossPhaseChange('/unused', {}, awaiting, awaiting.phases.review, ['src/api.mjs', 'web/view.mjs'], { records });
@@ -111,9 +113,9 @@ test('the same refusal reaches the CLI recovery plan and the VS Code card with t
   const envelope = refusalEnvelope(error, ['phase', 'publish', 'review', '--json']);
   const gateCommands = envelope.error.details.gate.actions.map((entry) => entry.command);
   assert.deepEqual(gateCommands, [
-    'singularity-flow decision plan --add-location <clause>=<path> --reason <reason>',
     'singularity-flow reject review --to backend --repair --reason <REASON>',
-    'singularity-flow reject review --to frontend --repair --reason <REASON>'
+    'singularity-flow reject review --to frontend --repair --reason <REASON>',
+    'singularity-flow decision plan --add-location <clause>=<path> --reason <reason>'
   ]);
   const planned = envelope.remediationPlan.steps.map((entry) => entry.command).filter(Boolean);
   assert.deepEqual(planned.slice(0, gateCommands.length), gateCommands, 'the recovery plan leads with the gate\'s actions');
@@ -190,6 +192,17 @@ test('a refusal printed for people still reaches the VS Code card as its structu
   assert.equal(fidelity, 'refusal-plan-v1');
   assert.equal(view.actions[0].command, 'singularity-flow reject review --to backend --repair --reason <REASON>');
   assert.ok(view.why.some((entry) => entry.label === 'Responsible step: backend'));
+});
+
+test('a document step with no return sets the files aside, never a plan decision the Decide page has no row for (office, 2026-11-27)', async () => {
+  const workflow = story();
+  const change = await crossPhaseChange('/unused', {}, workflow, workflow.phases.plan, ['src/api.mjs', 'config/settings.json'], { records });
+  assert.deepEqual([change.returns, change.unplanned], [[], ['config/settings.json']]);
+  const setAside = 'singularity-flow recover XPC-1 --phase plan --json';
+  const described = describeCrossPhaseChange(change, { code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', gate: 'submission', workflow, phase: workflow.phases.plan, setAside });
+  assert.deepEqual(described.gate.actions.map((entry) => entry.command), [setAside]);
+  assert.match(described.text, /Nothing before plan can take them, so set them aside: singularity-flow recover XPC-1 --phase plan --json shows the person's command/u);
+  assert.doesNotMatch(described.text, /decision plan/u);
 });
 
 test('a document step before every code step names the clauses it changed and no owner, never an empty one', async () => {

@@ -9,7 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   assertNoStateCheckoutGitlink, commitStoryState, createStateRef, detectStateCheckout, ensureStateCheckout, excludeStateCheckout, fetchStoryState,
-  listStoryStates, openStoryState, refTip, removeStateCheckout, restoreStateCheckout, stateCheckoutChanges,
+  listStoryStates, openStoryState, refTip, removeStateCheckout, restoreStateCheckout, setUnfinishedRecordsAside, stateCheckoutChanges,
   stateCheckoutExcluded, storyStateRef
 } from '../src/story-state-ref.mjs';
 import { forgetStoryLayouts, storyLocation } from '../src/story-paths.mjs';
@@ -161,11 +161,14 @@ test('the state checkout follows its ref, but never moves over uncommitted recor
   git(root, 'update-ref', opened.ref, later, next);
   await record(root, 'decisions/pending.json', { n: 1 });
   await assert.rejects(ensureStateCheckout(root, 'WRK-1'), (error) => error.code === 'STORY_STATE_CHECKOUT_CHANGED'
-    && /^git -C ".+\.sflow-state" stash push --include-untracked /u.test(error.details.nextAction.command));
-  // Its command sets the records aside, kept in the clone's stash; then the checkout follows its ref again.
-  spawnSync('git', ['-C', path.join(root, '.sflow-state'), 'stash', 'push', '--include-untracked', '-m', 'unfinished SFlow records'], { encoding: 'utf8' });
+    && error.details.nextAction.argv.join(' ') === 'sync WRK-1 --set-aside');
+  // Its command keeps the records in a commit on a ref of their own, never the stash [SSB M3]; then the checkout
+  // follows its ref again.
+  const aside = setUnfinishedRecordsAside(root, 'WRK-1');
+  assert.equal(aside.setAside, true);
+  assert.equal(git(root, 'show', `${aside.aside}:decisions/pending.json`), '{"n":1}');
   assert.equal((await ensureStateCheckout(root, 'WRK-1')).moved, true);
-  assert.match(git(root, 'stash', 'list'), /unfinished SFlow records/u);
+  assert.equal(git(root, 'stash', 'list'), '');
   // A Story whose records are not in this clone names the command that fetches them.
   await assert.rejects(ensureStateCheckout(root, 'WRK-9'), (error) => error.code === 'STORY_STATE_REF_MISSING'
     && error.details.nextAction.argv.join(' ') === 'resume WRK-9 --fetch');
@@ -176,7 +179,7 @@ test('removing a Story checkout removes its state checkout first, and refuses wh
   await openStoryState(root, 'WRK-1');
   await record(root, 'workflow.json', { workItem: { id: 'WRK-1' } });
   assert.throws(() => removeStateCheckout(root, { id: 'WRK-1' }), (error) => error.code === 'STORY_STATE_CHECKOUT_UNSAVED'
-    && error.details.changes.length === 1 && /stash push --include-untracked/u.test(error.details.nextAction.command));
+    && error.details.changes.length === 1 && error.details.nextAction.argv.join(' ') === 'sync WRK-1 --set-aside');
   assert.equal(existsSync(path.join(root, '.sflow-state', 'workflow.json')), true);
   commitStoryState(root, 'WRK-1', 'start');
   assert.deepEqual(removeStateCheckout(root, { id: 'WRK-1' }), { removed: true });

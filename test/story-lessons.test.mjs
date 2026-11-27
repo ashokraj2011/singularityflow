@@ -282,7 +282,7 @@ test('a person\'s approval commits the step\'s lessons with it, says them in one
   assert.equal(JSON.parse(cli('lessons', '--json').stdout).lessons.length, 0);
 });
 
-test('a mistake repeated twice is offered as a team rule; a team rule comes first and is never marked out of date', async () => {
+test('a mistake repeated twice is offered as team guidance; team guidance comes first and is never marked out of date', async () => {
   const root = await repository();
   await noticeStepLessons(root, CONFIG, workflow(), 'implementation');
   for (const story of ['LRN-2', 'LRN-3']) {
@@ -293,20 +293,30 @@ test('a mistake repeated twice is offered as a team rule; a team rule comes firs
   const after = await lessonsAfterApproval(root, 'LRN-3', 'implementation');
   assert.equal(after.ruleOffers.length, 1);
   assert.match(after.line, /This happened again 2 times although its lesson was given: "Test "imports keep the trusted commit"/u);
-  assert.match(after.line, /Make it a team rule, first for every step on these files: singularity-flow lessons rule K-[0-9a-f]{12}$/u);
+  // "Team guidance", never "team rule": rules are only the team's tasks: rules that add steps [FPL §11, question 4].
+  assert.match(after.line, /Make it team guidance, first for every step on these files: singularity-flow lessons guidance K-[0-9a-f]{12}$/u);
+  assert.doesNotMatch(after.line, /team rule|lessons rule/iu);
   assert.equal(await lessonsAfterApproval(root, 'LRN-2', 'implementation'), null, 'the first repeat offers nothing yet');
-  const ruled = await ruleLesson(root, after.ruleOffers[0].id);
-  assert.equal(ruled.result.record.lesson.trust, 'rule');
+  const { lessonsCommand } = await import('../src/commands/lessons.mjs');
+  const made = await lessonsCommand(['lessons', 'guidance', after.ruleOffers[0].id], {}, { cwd: root });
+  assert.match(made.words, /^Lesson K-[0-9a-f]{12} is team guidance now: it comes first for every step on its files/u);
+  const ruled = await ruleLesson(root, made.now);
+  assert.equal(ruled.result.record.lesson.trust, 'rule', 'the record keeps its trust, so lessons already made so read the same');
   assert.equal(ruled.result.record.lesson.pinned, true);
-  assert.equal((await lessonsAfterApproval(root, 'LRN-3', 'implementation')), null, 'a team rule is not offered again');
+  // `lessons rule` is its earlier name, kept for scripts: the same change, said in the new words.
+  const again = await lessonsCommand(['lessons', 'rule', made.now], {}, { cwd: root });
+  assert.equal(again.committed, false);
+  assert.match(again.words, /is team guidance now/u);
+  assert.equal((await lessonsAfterApproval(root, 'LRN-3', 'implementation')), null, 'team guidance is not offered again');
   const { entries } = await readAllLessons(root, { base: false });
   const chosen = lessonsFor(entries, { paths: ['src/transfer.mjs'], step: 'code' });
-  assert.equal(chosen[0].record.lesson.trust, 'rule', 'a team rule comes first');
-  assert.match(lessonsPromptText(chosen), /"teamRule":true/u);
+  assert.equal(chosen[0].record.lesson.trust, 'rule', 'team guidance comes first');
+  assert.match(lessonsPromptText(chosen), /"teamGuidance":true/u);
+  assert.match(lessonsPromptText(chosen), /Team guidance is a lesson the team agreed to keep; it comes first\./u);
   await writeFile(path.join(root, 'src', 'transfer.mjs'), 'export const rewritten = true;\n');
-  assert.ok(!staleLessons(root, chosen).has(chosen[0].sha256), 'a rewrite never marks a team rule out of date');
+  assert.ok(!staleLessons(root, chosen).has(chosen[0].sha256), 'a rewrite never marks team guidance out of date');
   const kept = await keepLesson(root, ruled.result.record.id);
-  assert.equal(kept.result.created, false, 'keeping a team rule never makes it less');
+  assert.equal(kept.result.created, false, 'keeping team guidance never makes it less');
 });
 
 test('a missing test command puts first the suggestion an earlier Story ran here, and names one it cannot offer', async () => {

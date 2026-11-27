@@ -5,7 +5,9 @@
 **Status:** Open questions decided by the owner on 2026-11-26 (§10). M0's local probes ran on 2026-11-26 (§11); the
 real-host and real-app probes are still to run. M1 (the resolver, [SSB-M1-PLAN](plans/SSB-M1-PLAN.md)) is on main. M2
 (the state ref and its checkout, created at Story start) is built on branch `ssb-m2` (2026-11-26), behind
-`story.storage` and held back by a preview gate until M5, with today's layout unchanged (§12). M3 to M6 are not built. On the roadmap as
+`story.storage` and held back by a preview gate until M5, with today's layout unchanged (§12). M3 is being built on
+`ssb-m3` ([SSB-M3-PLAN](plans/SSB-M3-PLAN.md)): the state ref's atomic publication and recovery under the lifecycle
+contract are built; M4 to M6 are not. On the roadmap as
 [`SSB-001`](PENDING-WORK-ROADMAP.md#story-storage-off-the-code-branch-ssb). Decision record:
 [ADR 0019](adr/0019-story-state-off-the-code-branch.md).
 
@@ -541,11 +543,12 @@ before, and today's tests pass unchanged.
 
 ### Left for M3 and later
 
-- **M3:** publication of the state ref with the branch, the ledger and the pin in one atomic push (REQ-005), and its
-  recovery; approvals, decisions and clarifications on a state-ref Story (the sites past Story start still refuse with
-  `STORY_STATE_REF_PATH_UNAVAILABLE`: 126 `prefix` uses in 60 files, and the five state readers with no Story in scope,
-  M1 plan §9 B12); retention and the workspace drop checking unpublished state commits; WMR REQ-022 (lessons on the
-  state ref).
+- **M3:** built on `ssb-m3` (2026-11-27, [SSB-M3-PLAN](plans/SSB-M3-PLAN.md) §5): publication of the state ref with
+  the branch, the ledger and the pin in one atomic push (REQ-005), and its recovery; approvals, decisions and
+  clarifications of the document steps on a state-ref Story, and the five state readers with no Story in scope;
+  retention and the workspace drop checking unpublished state commits, with unfinished records set aside on a ref of
+  their own instead of a stash; WMR REQ-022 (lessons on the state ref). Left: the code steps' sites (101 `prefix` uses
+  in 52 files, past the walk, still refuse with `STORY_STATE_REF_PATH_UNAVAILABLE`).
 - **M4:** documents in `docs/stories/<ID>/` (M2 keeps a state-ref Story's step documents in its state checkout); the
   edit guard; WMR REQ-020 and REQ-021.
 - **M5:** discovery from `refs/singularity/state/*` (session discovery and takeover find a state-ref Story only by its

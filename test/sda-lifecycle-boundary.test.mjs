@@ -53,6 +53,8 @@ async function occurrences(pattern) {
 
 test('only the lifecycle authority adapter runs the publication unit of work (SDA M4)', async () => {
   assert.deepEqual(await occurrences(/new GitPublicationUnitOfWork\(/gu), { [ADAPTER]: 1 });
+  // A state-ref Story's state ref is its lifecycle authority, behind the same adapter (SSB M3).
+  assert.deepEqual(await occurrences(/new StoryStateUnitOfWork\(/gu), { [ADAPTER]: 1 });
   assert.deepEqual(await occurrences(/\bpublishLifecycleChange\b/gu), {});
 });
 
@@ -65,13 +67,10 @@ test('a lifecycle branch is observed on the remote only through the adapter; the
 });
 
 /**
- * The one lifecycle publication beside the adapter, with its reason: a state-ref Story's records are committed on its
- * own state ref by that ref's adapter, local only, behind a preview the person cannot turn on (SSB M2). SSB M3
- * publishes the ref and brings that adapter under the lifecycle contract, and then this list is empty.
+ * Lifecycle publications beside the adapter, each with its reason. Empty since SSB M3: a state-ref Story's records,
+ * committed on its own state ref, publish through the adapter too (its state ref's unit of work).
  */
-const OTHER_PUBLICATIONS = Object.freeze({
-  'story-publication-service.mjs': { count: 1, reason: 'a state-ref Story\'s records on its state ref (SSB M2, local, preview only)' }
-});
+const OTHER_PUBLICATIONS = Object.freeze({});
 
 test('every publishing workflow family reaches lifecycle authority through the adapter', async () => {
   for (const [family, module] of Object.entries(PUBLISHING_FAMILIES)) {

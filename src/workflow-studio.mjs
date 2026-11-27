@@ -1421,7 +1421,8 @@ class StudioCandidate {
    */
   async changeTaskRules(change) {
     const { applyTaskRuleChange } = await import('./task-rules.mjs');
-    this.summary.push(applyTaskRuleChange(this.document, change, { labelOf: (id) => this.content.workTypes?.[id]?.label ?? id }));
+    this.summary.push(applyTaskRuleChange(this.document, change, { labelOf: (id) => this.content.workTypes?.[id]?.label ?? id,
+      groupLabelOf: (id) => this.content.approvalAuthorities?.[id]?.label ?? id }));
   }
 
   // -------------------------------------------------------------------------------------------

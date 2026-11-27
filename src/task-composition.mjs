@@ -24,6 +24,7 @@
  * (investigate, review, docs) is SFlow's to approve. A refactor keeps the kind's own steps, and a team may keep them for
  * every kind (`tasks.sizing: kind`).
  */
+import { DEFAULT_APPROVAL_AUTHORITY } from './approval-authority.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const TASK_KINDS = Object.freeze(['fix', 'feature', 'change', 'refactor', 'tests', 'docs', 'investigate', 'review', 'chore']);
@@ -131,7 +132,10 @@ export function taskStepFor(definition, intent) {
 export const taskRuleName = (rule, section, index) => (typeof rule?.id === 'string' && rule.id ? rule.id : `${section}[${index}]`);
 /** A rule's `id`: lower-case words joined by hyphens, as the Rules place makes it from the rule's when and then. */
 export const TASK_RULE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-const TASK_RULE_KEYS = Object.freeze(['id', 'kinds', 'paths', 'steps', 'personApproves', 'because']);
+const TASK_RULE_KEYS = Object.freeze(['id', 'kinds', 'paths', 'steps', 'personApproves', 'by', 'because']);
+/** The approval groups a rule's `by:` may name: the repository's approvalAuthorities, or the one group a repository without them has. */
+export const taskApprovalGroups = (definition) => (definition?.approvalAuthorities && typeof definition.approvalAuthorities === 'object'
+  && !Array.isArray(definition.approvalAuthorities) ? Object.keys(definition.approvalAuthorities) : [DEFAULT_APPROVAL_AUTHORITY]);
 
 /**
  * The team's rules for tasks [ITW:REQ-004], every problem collected with where it is [FPL:REQ-023]: `rules` holds the rules
@@ -161,7 +165,7 @@ export function checkTaskRules(definition) {
     const before = problems.length;
     const fail = (key, message) => add(`tasks.${label}${key ? `.${key}` : ''}`, message, where);
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) { fail(null, `${label} must be a mapping.`); return null; }
-    for (const key of Object.keys(entry)) if (!TASK_RULE_KEYS.includes(key)) fail(key, `${label} has '${key}'; a rule has id, kinds, paths, steps, personApproves and because.`);
+    for (const key of Object.keys(entry)) if (!TASK_RULE_KEYS.includes(key)) fail(key, `${label} has '${key}'; a rule has id, kinds, paths, steps, personApproves, by and because.`);
     if (entry.id !== undefined) {
       if (typeof entry.id !== 'string' || !TASK_RULE_ID.test(entry.id) || entry.id.length > 64) fail('id', `${label} id must be lower-case words joined by hyphens, like billing-review.`);
       else if (ids.has(entry.id)) fail('id', `${label} id '${entry.id}' is the id of another rule; each rule's id is its own.`);
@@ -177,6 +181,12 @@ export function checkTaskRules(definition) {
     };
     const steps = intents('steps');
     const personApproves = intents('personApproves');
+    // `by`: one of the repository's approval groups, which must also approve the steps the rule gives a person [FPL §11, question 3].
+    if (entry.by !== undefined) {
+      const groups = taskApprovalGroups(definition);
+      if (typeof entry.by !== 'string' || !groups.includes(entry.by)) fail('by', `${label} by names '${entry.by}', which is not one of this repository's approval groups (${groups.join(', ')}).`);
+      else if (!personApproves.length) fail('by', `${label} by names who also approves, so it needs personApproves: the steps ${entry.by} approves.`);
+    }
     if (typeof entry.because !== 'string' || !entry.because.trim()) fail('because', `${label} needs a because: the team's reason, shown when the rule adds a step.`);
     let globs = null;
     if (section === 'paths') {
@@ -184,7 +194,8 @@ export function checkTaskRules(definition) {
       if (!globs.length || globs.some((glob) => typeof glob !== 'string' || !glob.trim())) fail('paths', `${label} needs paths: the files it is about.`);
     }
     if (problems.length > before) return null;
-    return { id: typeof entry.id === 'string' ? entry.id : null, kinds, steps, personApproves, because: entry.because.trim(), ...(globs ? { paths: globs } : {}) };
+    return { id: typeof entry.id === 'string' ? entry.id : null, kinds, steps, personApproves, because: entry.because.trim(), ...(globs ? { paths: globs } : {}),
+      ...(entry.by !== undefined ? { by: entry.by } : {}) };
   };
   for (const section of ['always', 'paths']) {
     const list = raw[section] ?? [];
@@ -263,6 +274,46 @@ export function rulePersonApproves(definition, kind, touchedPaths = []) {
   return [...given].sort();
 }
 
+/**
+ * The approval groups the team's rules add on a task of `kind` (`by:`, FPL §11 question 3), found as rulePersonApproves finds
+ * its steps: each `{ intent, group, label, rule, because }`, once per intent and group.
+ */
+export function ruleGroupApproves(definition, kind, touchedPaths = []) {
+  const rules = taskRules(definition);
+  const applies = (rule) => rule.kinds.includes('all') || rule.kinds.includes(kind);
+  const touched = [...new Set(touchedPaths.map(String))];
+  const found = [];
+  const take = (rule, name) => { if (rule.by) for (const intent of rule.personApproves) found.push({ intent, group: rule.by, rule: name, because: rule.because }); };
+  rules.always.forEach((rule, index) => { if (applies(rule)) take(rule, rule.name ?? taskRuleName(rule, 'always', index)); });
+  rules.paths.forEach((rule, index) => {
+    if (applies(rule) && touched.some((file) => rule.paths.some((glob) => pathMatches(glob, file)))) take(rule, rule.name ?? taskRuleName(rule, 'paths', index));
+  });
+  return groupsAdded(definition, found, () => true).groupApproves ?? [];
+}
+
+/** `groupApproves` for a composition: each group a rule adds, once per step intent the task has, with the group's label. */
+function groupsAdded(definition, entries, has) {
+  const seen = new Set();
+  const groupApproves = [];
+  for (const entry of entries) {
+    const key = `${entry.intent}\u0000${entry.group}`;
+    if (!has(entry.intent) || seen.has(key)) continue;
+    seen.add(key);
+    groupApproves.push({ ...entry, label: String(definition?.approvalAuthorities?.[entry.group]?.label ?? entry.group) });
+  }
+  return groupApproves.length ? { groupApproves } : {};
+}
+
+/** The groups each step's approval must also have (config.mjs resolveWorkType adds them), from the composition's `groupApproves`. */
+function ruleApproversOf(composition) {
+  const byStep = {};
+  for (const step of composition.steps) {
+    const groups = [...new Set((composition.groupApproves ?? []).filter((entry) => entry.intent === step.intent).map((entry) => entry.group))];
+    if (groups.length) byStep[step.id] = groups;
+  }
+  return Object.keys(byStep).length ? { ruleApprovers: byStep } : {};
+}
+
 /** The steps a person may add to a task, or take out of it before it starts, by intent [ITW:REQ-009]. */
 export const ADDABLE = Object.freeze(['requirements', 'design', 'plan', 'review']);
 
@@ -299,7 +350,7 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
     // The team's rules add to the workflow a `use` rule picks [ITW:REQ-107]; with nothing to add it runs exactly as it is.
     const ruled = composeOnWorkflow(definition, rules, { kind, workflowId: used, touchedPaths, add, skip,
       words: `the ${definition.workTypes[used].label ?? used} workflow`, record: { local: { workflow: used, label: definition.workTypes[used].label ?? used, by: 'use' } }, lead: rule });
-    if (ruled.added.length || ruled.personApproves.length || (ruled.changes ?? []).length) return ruled;
+    if (ruled.added.length || ruled.personApproves.length || ruled.groupApproves?.length || (ruled.changes ?? []).length) return ruled;
     return { schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: used, uses: used, steps: (definition.workTypes[used].phases ?? []).map((id) => ({
       id, intent: definition.phases?.[id]?.intent ?? null, label: definition.phases?.[id]?.label ?? id })), added: [], personApproves: [], rules: [rule] };
   }
@@ -340,6 +391,7 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
   }
   const added = [];
   const personApproves = new Set();
+  const groups = [];
   const applied = [];
   const apply = (rule, name) => {
     for (const intent of rule.steps) {
@@ -352,6 +404,7 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
       if (!intents.includes(intent)) { intents.push(intent); added.push({ intent, rule: name, because: rule.because }); }
     }
     for (const intent of rule.personApproves) personApproves.add(intent);
+    if (rule.by) for (const intent of rule.personApproves) groups.push({ intent, group: rule.by, rule: name, because: rule.because });
     applied.push({ rule: name, because: rule.because });
   };
   rules.always.forEach((rule, index) => {
@@ -381,6 +434,7 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
   return {
     schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: taskWorkTypeId(kind), steps,
     added, personApproves: [...personApproves].filter((intent) => intents.includes(intent)).sort(), rules: applied,
+    ...groupsAdded(definition, groups, (intent) => intents.includes(intent)),
     ...(changes.length ? { changes } : {}),
     ...(touched.length ? { touchedPaths: touched } : {}),
     ...(sized ? { sizing: 'requirement' } : {})
@@ -405,7 +459,7 @@ function composeLocalTask(definition, rules, { kind, workflow, skip, touchedPath
   const ruled = composeOnWorkflow(definition, rules, { kind, workflowId: workflow.workflow, touchedPaths, add, skip, words: `your team's workflow ${label}`,
     record: { local }, lead, skipAction: { command: `singularity-flow work "<what you want done>" --kind ${kind} --without-workflow ${workflow.workflow}`,
       label: 'Plan the task with its own steps, which a step can be taken out of.' } });
-  if (ruled.added.length || ruled.personApproves.length || (ruled.changes ?? []).length) return ruled;
+  if (ruled.added.length || ruled.personApproves.length || ruled.groupApproves?.length || (ruled.changes ?? []).length) return ruled;
   const steps = own.phases.map((id) => ({ id, intent: definition.phases?.[id]?.intent ?? null, label: definition.phases?.[id]?.label ?? id }));
   for (const intent of new Set(skip)) {
     if (!steps.some((step) => step.intent === intent)) continue;
@@ -481,6 +535,7 @@ function composeOnWorkflow(definition, rules, { kind, workflowId, touchedPaths =
   }
   const added = [];
   const personApproves = new Set();
+  const groups = [];
   const applied = lead ? [lead] : [];
   const apply = (rule, name) => {
     for (const intent of rule.steps) {
@@ -488,6 +543,7 @@ function composeOnWorkflow(definition, rules, { kind, workflowId, touchedPaths =
       if (!has(intent)) { insert(intent); added.push({ intent, rule: name, because: rule.because }); }
     }
     for (const intent of rule.personApproves) personApproves.add(intent);
+    if (rule.by) for (const intent of rule.personApproves) groups.push({ intent, group: rule.by, rule: name, because: rule.because });
     applied.push({ rule: name, because: rule.because });
   };
   rules.always.forEach((rule, index) => { if (rule.kinds.includes('all') || rule.kinds.includes(kind)) apply(rule, rule.name ?? taskRuleName(rule, 'always', index)); });
@@ -499,6 +555,7 @@ function composeOnWorkflow(definition, rules, { kind, workflowId, touchedPaths =
   return {
     schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: taskWorkTypeId(kind), steps,
     added, personApproves: [...personApproves].filter((intent) => has(intent)).sort(), rules: applied,
+    ...groupsAdded(definition, groups, has),
     ...structuredClone(record),
     ...(changes.length ? { changes } : {}),
     ...(touched.length ? { touchedPaths: touched } : {})
@@ -548,7 +605,8 @@ function agentWorkType(definition, composition) {
       ? `Composed by /sf-task from ${agentWords(composition.agent)}${composition.agent.version ? ` ${composition.agent.version}` : ''}: ${composition.steps.map((step) => step.label).join(' → ')}.`
       : `Composed by /sf-task from your team's workflow ${composition.local.label ?? workflowId} and the team's rules: ${composition.steps.map((step) => step.label).join(' → ')}.`,
     phases: ids,
-    phaseOverrides
+    phaseOverrides,
+    ...ruleApproversOf(composition)
   };
 }
 
@@ -610,7 +668,8 @@ export function composedWorkType(definition, composition) {
     label: `${KIND_WORDS[composition.kind]} (task)`,
     description: `Composed by /sf-task from the kind ${composition.kind}: ${composition.steps.map((step) => step.label).join(' → ')}.`,
     phases: ids,
-    phaseOverrides
+    phaseOverrides,
+    ...ruleApproversOf(composition)
   };
 }
 
@@ -688,6 +747,20 @@ export function approvalWords(composition, approvals = {}) {
   return approved.length ? ` You approve ${approved.length > 1 ? `${approved.slice(0, -1).join(', ')} and ${approved.at(-1)}` : approved[0]}.` : '';
 }
 
+/** What each approval group a team's rule adds also approves, as the plan line says it (" Security approves the code."). */
+export function groupApprovalWords(composition) {
+  const byGroup = new Map();
+  for (const entry of composition.groupApproves ?? []) {
+    const step = composition.steps.find((candidate) => candidate.intent === entry.intent);
+    if (!step) continue;
+    const words = byGroup.get(entry.label ?? entry.group) ?? [];
+    const word = approvedWord(composition.kind, step, composition);
+    if (!words.includes(word)) words.push(word);
+    byGroup.set(entry.label ?? entry.group, words);
+  }
+  return [...byGroup].map(([label, words]) => ` ${label} approves ${words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0]}.`).join('');
+}
+
 /** Each kind's steps by intent, as a task of that kind is composed before the team's rules [ITW:REQ-003]. */
 export const kindSteps = (kind) => [...(KIND_STEPS[kind] ?? [])];
 
@@ -705,7 +778,7 @@ export function planLine(composition, { approvals = {}, pullRequest = false, ski
   if (composition.kind === 'investigate') words.push('report');
   if (composition.kind === 'review') words.push('findings');
   if (pullRequest) words.push('pull request');
-  const who = approvalWords(composition, approvals);
+  const who = `${approvalWords(composition, approvals)}${groupApprovalWords(composition)}`;
   // A marketplace agent's workflow, or the team's own, as the plan says whose it is [ITW:REQ-011, REQ-020].
   const whose = composition.agent ? `, from ${agentWords(composition.agent)}` : composition.local ? `, from your team's workflow ${composition.local.label}` : '';
   // A sized code task says its shape: small until its requirement says big [ITW:REQ-101, REQ-103].

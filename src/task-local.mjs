@@ -151,16 +151,17 @@ const approvalOf = (phase) => (phase.approval?.mode === 'none' ? 'none' : phase.
 
 /**
  * A workflow of the team's own as a task's plan reads it [ITW:REQ-020]: `{ id, source: 'workflow', workflow, label, steps,
- * ready, lifecycle, kinds }`, each step `{ id, intent, label, tasks, approvedBy }`. `approvals` and `tasks` map a step to
- * who approves it and the tasks of the skills attached to it; `from` is the agent of this repository it was made from.
+ * ready, lifecycle, kinds }`, each step `{ id, intent, label, tasks, approvedBy, groups? }`. `approvals`, `tasks` and `groups` map
+ * a step to who approves it, the tasks of the skills attached to it and the approval groups it requires; `from` is the
+ * agent of this repository it was made from.
  */
-export function localWorkflowCandidate(definition, id, { approvals = {}, tasks = {}, from = null } = {}) {
+export function localWorkflowCandidate(definition, id, { approvals = {}, tasks = {}, from = null, groups = {} } = {}) {
   const own = definition.workTypes[id];
   return {
     id, source: 'workflow', workflow: id, label: own.label ?? id, agent: null, marketplace: null, version: null, state: null, owner: null,
     lifecycle: 'ready', kinds: [], ready: true, imported: { workflow: id },
     steps: own.phases.map((step) => ({ id: step, intent: definition.phases?.[step]?.intent ?? null, label: definition.phases?.[step]?.label ?? step,
-      tasks: [...new Set(tasks[step] ?? [])].sort(), approvedBy: approvals[step] ?? 'person' })),
+      tasks: [...new Set(tasks[step] ?? [])].sort(), approvedBy: approvals[step] ?? 'person', ...(groups[step]?.length ? { groups: [...groups[step]] } : {}) })),
     ...(from ? { from } : {})
   };
 }
@@ -256,7 +257,13 @@ export async function localPlanCandidates(root, definition, { kindsOf = () => []
   for (const id of ids) {
     const own = definition.workTypes[id];
     let approvals;
-    try { approvals = Object.fromEntries(resolveWorkType(definition, id).phases.map((phase) => [phase.id, approvalOf(phase)])); } catch (error) {
+    // The groups each step requires, so a rule's `by:` group is never lost to a workflow run as it is.
+    let groups;
+    try {
+      const { phases } = resolveWorkType(definition, id);
+      approvals = Object.fromEntries(phases.map((phase) => [phase.id, approvalOf(phase)]));
+      groups = Object.fromEntries(phases.map((phase) => [phase.id, phase.approval?.requiredAuthorities ?? []]));
+    } catch (error) {
       notes.push(`Your team's workflow ${own.label ?? id} is not offered: it cannot start as it is (${firstLine(error)}).`);
       continue;
     }
@@ -266,7 +273,7 @@ export async function localPlanCandidates(root, definition, { kindsOf = () => []
     // Made from an agent this repository still has: what its conversion says each step's skills do counts too.
     const made = agents.find((agent) => agent.workflow === id && sameSteps(agent.steps, own.phases)) ?? null;
     for (const step of made?.steps ?? []) tasks[step.id] = [...tasks[step.id], ...step.tasks];
-    candidates.push(localWorkflowCandidate(definition, id, { approvals, tasks, from: made ? { agent: made.agent, path: made.path } : null }));
+    candidates.push(localWorkflowCandidate(definition, id, { approvals, tasks, groups, from: made ? { agent: made.agent, path: made.path } : null }));
   }
   for (const agent of agents) {
     if (packaged.has(agent.workflow)) {

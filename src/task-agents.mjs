@@ -113,7 +113,7 @@ const asItIs = (candidate) => candidate.source === 'workflow' || candidate.sourc
  */
 export function planCoverage(composition, candidate) {
   // v1.2 [ITW:REQ-107]: the team's rules add to any workflow a task runs, so every candidate covers the task's own steps
-  // and the rules' steps and approvals are added to it.
+  // and the rules' steps, approvals and approval groups (`by:`) are added to it.
   return agentCoverage(composition.kind, neededIntents(composition), candidate);
 }
 

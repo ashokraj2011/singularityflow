@@ -237,6 +237,11 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         const file = stringField(message, 'path');
         // A row offered beside the list opens its file too: a convergence answer someone may change names the file it is about [SCS:REQ-034].
         if (!file || !packet.repositoryPath || !(decideRows(packet).some((item) => item.details?.path === file) || evidencePaths(packet).includes(file))) return;
+        // The page of what the change does reads as a page: its Markdown preview, beside the card [CSP:REQ-007].
+        if (file.endsWith('/CHANGE-STORY.md')) {
+          await vscode.commands.executeCommand('markdown.showPreviewToSide', vscode.Uri.file(path.join(packet.repositoryPath, file))).then(undefined, () => undefined);
+          return;
+        }
         await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path.join(packet.repositoryPath, file)), { viewColumn: vscode.ViewColumn.Beside, preview: true })
           .then(undefined, () => vscode.window.showInformationMessage(`${file} is not in this checkout now; it may have been removed.`));
       },

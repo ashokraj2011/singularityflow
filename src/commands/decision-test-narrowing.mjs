@@ -45,7 +45,7 @@ function chooseAttempt(latest, commandId, phaseId) {
  */
 export async function recordTestNarrowingDecision(root, config, workflow, { phaseId, revoke = null, commandId = null, reason = '', expires = null }, { actor, agent = null }) {
   const id = workflow.workItem.id;
-  const attempt = revoke ? null : chooseAttempt(await latestStepAttempts(root, storyLocation(null, config, id).prefix, id, phaseId), commandId, phaseId);
+  const attempt = revoke ? null : chooseAttempt(await latestStepAttempts(root, storyLocation(null, config, id).checkoutPath(), id, phaseId), commandId, phaseId);
   const groups = testRunRiskAuthorities(workflow, phaseId);
   if (!groups.length) fail(`Step ${phaseId} has no approval group, so nobody can accept a narrowed run of its tests.`, 'RISK_AUTHORITY_UNAVAILABLE');
   const authority = requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,

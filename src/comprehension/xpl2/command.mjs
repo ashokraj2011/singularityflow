@@ -32,7 +32,8 @@ const MAXIMUM_BYTES = 8 * 1024 * 1024;
 const USAGE = 'Usage: singularity-flow explain --subject change|clause|test|line|gap|generation '
   + '[--id ID] [--path PATH --line N [--side before|after]] [--phase PHASE --gen N] '
   + '[--since REVISION] [--work-id ID] [--for reviewer|auditor|developer] [--max-bytes N] [--compare previous|SNAPSHOT-ID] '
-  + '[--narrate [--length brief|standard|long] [--commentary]] [--json]';
+  + '[--narrate [--length brief|standard|long] [--commentary]] [--json]; '
+  + 'singularity-flow explain --subject change --page [--work-id ID] [--json]';
 const NARRATION_LENGTHS = ['brief', 'standard', 'long'];
 
 /** The exact follow-up that asks for optional narration of this same question. */
@@ -155,8 +156,41 @@ function boundedModel(input, query, extra, maximumBytes) {
   return { model, bytes: Buffer.byteLength(JSON.stringify(model), 'utf8') };
 }
 
+/**
+ * `explain --subject change --page` [CSP:REQ-010]: the Story's "What this change does" page, as SFlow wrote it at a code step's
+ * last publication or submission, or, when none is written yet, built now from the records at HEAD (nothing is written).
+ * `--page ID` names the Story too. A read: no capture, no model, no stop.
+ */
+async function runChangeStoryPage(options, operation) {
+  const root = repoRoot();
+  const named = optionString(options, 'work-id') ?? (typeof options.page === 'string' ? options.page : null);
+  const [{ loadAcceptedStoryExecution }, read] = await Promise.all([import('../../accepted-story-execution.mjs'), import('../../change-story-read.mjs')]);
+  const { config, workflow } = await loadAcceptedStoryExecution(root, named);
+  const workId = workflow.workItem.id;
+  const written = await read.readChangeStoryPage(root, config, workflow);
+  let page = written ? { status: 'written', path: written.path, summary: written.summary, markdown: read.changeStoryBody(written.text) } : null;
+  if (!page) {
+    const [builder, { head }] = await Promise.all([import('../../change-story-page.mjs'), import('../../git.mjs')]);
+    const model = await builder.buildChangeStory(root, config, workflow, { revision: head(root) });
+    page = model ? { status: 'built', path: null, summary: builder.changeStorySummary(model), markdown: read.changeStoryBody(builder.renderChangeStory(model)) }
+      : { status: 'not-yet', path: null, summary: null, markdown: null };
+  }
+  await import('../../narration/render-explanation-subject.mjs');
+  return emitCommandResult(commandResult({
+    operation,
+    subject: { kind: 'story', id: workId },
+    outcome: succeeded('explanation.change-page-reported', { workId, summary: page.summary }),
+    effects: noEffects(),
+    next: [action({ id: 'explanation.change', label: 'Explain the change part by part, with cited records', command: `singularity-flow explain --subject change --work-id ${workId} --json`,
+      kind: 'informational' })],
+    restState: 'informational',
+    data: { mode: 'observe-only', page: { workId, ...page, command: read.changeStoryCommand(workId) } }
+  }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+}
+
 export async function runExplanationSubject(_argv, { positionals, options, operation }) {
   const subject = optionString(options, 'subject');
+  if (subject === 'change' && options.page != null && options.page !== false) return runChangeStoryPage(options, operation);
   const words = positionals.slice(1);
   if (!XPL2_SUBJECTS.includes(subject)) {
     throw unknownXpl2Subject(subject, { actions: await documentationActions([subject, ...words]) });

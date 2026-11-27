@@ -150,7 +150,7 @@ export async function preflightRepositoryTests(root, config, workflow, phase, ke
   const configured = await resolveDeliveryQualityCommands(root, phase, { executionMode: storyTestScope(workflow) });
   const added = await verificationRepositoryTests(root, config, workflow, phase, configured);
   if (!added.commands.length) return null;
-  const itemRelative = storyLocation(null, config, workflow.workItem.id).prefix;
+  const itemRelative = storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath();
   const fields = { purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase) };
   const checks = await kernel.qualityChecks(root, phase, config, workflow, added.commands, {
     commandProvenance: new Map(added.commands.map((command) => [command, testCommandProvenance(phase, command)])),

@@ -517,6 +517,19 @@ function specificationSectionsOf(definition, phase, resolvedPhase, template) {
   return { scenarioCoverage, verificationIntent: scenarioCoverage || has('verification intent') };
 }
 
+/**
+ * The code step's one optional line for the Story's "What this change does" page [CSP:REQ-002]: Copilot's plain English, in
+ * a file beside the step's document. Nothing checks that it is written, and nothing waits for it.
+ */
+function changeExplanationLines(workflow, phase) {
+  const document = phase?.requiredArtifact?.path;
+  if (!document || !workflow?.workItem?.id) return [];
+  let file;
+  try { file = storyLocation(null, [workflow], workflow.workItem.id).document(path.posix.join(path.posix.dirname(document), 'change-explanation.json')).relative; }
+  catch { return []; }
+  return [`- Optional, for the Story's "What this change does" page: in \`${file}\` write JSON in plain English, no code, markup or links: \`how\` (about five sentences on how the change works), \`functions\` (\`{ "<file>": { "<function>": { "does", "needs", "gives", "changed" } } }\` for every function you added, changed or removed; \`changed\` says before and now) and \`reasons\` (the choices the plan did not decide, and why). Nothing waits for it.`];
+}
+
 export function phasePromptExecutionContract(definition, workflow, phase, { template = null } = {}) {
   const resolvedPhase = workflow?.resolution?.phases?.find((candidate) => candidate.id === phase.id);
   const generationPolicy = normalizeGenerationPolicy(
@@ -545,7 +558,8 @@ export function phasePromptExecutionContract(definition, workflow, phase, { temp
       `- Code-edit prerequisite: ${mutation.policy.openGeneration ? 'the exact generation is open; verify the entry mutationContract before edits' : `follow \`${mutation.next[0].command}\` before any application edit, then refresh phase entry once. Review any adoption/confirmation or successor boundary; never infer or auto-accept it`}. Binding \`ready\` is not code-edit permission.`,
       deterministicCode
         ? `- Code completion: preserve existing implementation and tests on resume. Write the planned code and tests and reconcile exact planned source/test paths and traceability; then run \`singularity-flow prepare ${phase.id}\`, which rebuilds the summary from what changed, and prepublish. Passing a manual test command does not publish the phase or justify ending with no next action.`
-        : '- Code completion: preserve existing implementation and tests on resume. Complete the configured implementation summary and Agent brief, reconcile exact planned source/test paths and traceability, then prepublish. Passing a manual test command does not publish the phase or justify ending with no next action.'
+        : '- Code completion: preserve existing implementation and tests on resume. Complete the configured implementation summary and Agent brief, reconcile exact planned source/test paths and traceability, then prepublish. Passing a manual test command does not publish the phase or justify ending with no next action.',
+      ...changeExplanationLines(workflow, phase)
     ] : []),
     ...((workflow?.resolution?.repositoryCommitPolicy ?? definition.git?.commitPolicy)?.mode === 'enforce' ? [
       '- Repository commit policy: use the returned kernel publication/repair route. The shared writer resolves this destination’s canonical work key, complete message and approved hook profile; do not run a separate Git commit, invent a prefix/timestamp, install a guessed tool or disable a hook. Format only during authorized authoring before candidate/review freeze. If returned effects change source, capture a new candidate and rerun the affected checks and application review. Retained objects are retried unchanged. Policy checks never grant human approval or trigger All good/screenshots.'
@@ -652,7 +666,7 @@ export function renderFinalClarificationGuard(phaseId, clarificationPolicy, { de
 async function workflowPromptContext(root, definition, workflow, phase, workItemRoot, executionContext = null, requestedOutcome = null) {
   if (!workflow || !phase) return { contract: '', inputResult: { mode: 'off', records: [] }, inputRecords: [], evidence: '', evidenceFiles: [], evidenceEntries: [], warnings: [] };
   const itemDirectory = storyLocation(root, [workflow, { workItemRoot }], workflow.workItem.id).directory;
-  const itemRelative = storyLocation(null, [workflow, { workItemRoot }], workflow.workItem.id).record();
+  const itemRelative = storyLocation(null, [workflow, { workItemRoot }], workflow.workItem.id).checkoutPath();
   const requiredArtifact = phase.requiredArtifact?.path
     ? posix(path.join(itemRelative, phase.requiredArtifact.path))
     : 'not configured';
@@ -932,7 +946,7 @@ export async function compose(root, options, {
       ? await pendingEvidenceDrift(root, definition, workflow, phase, existing.record) : null;
     const inputDrift = existing
       ? await pendingInputDrift(root, definition, workflow, phase, existing.record, {
-        itemDirectory: expectedPrompt.workDir, itemRelative: storyLocation(null, [workflow, { workItemRoot }], workflow.workItem.id).record()
+        itemDirectory: expectedPrompt.workDir, itemRelative: storyLocation(null, [workflow, { workItemRoot }], workflow.workItem.id).checkoutPath()
       }) : null;
     // A change request a stakeholder opened (or closed) after composition is part of what to author.
     const requestDrift = existing ? stakeholderRequestDrift(existing.record.promptBudget?.stakeholderProjection,

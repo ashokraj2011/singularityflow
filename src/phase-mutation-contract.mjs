@@ -138,8 +138,9 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   const workId = workflow?.workItem?.id ?? null;
   const repositoryRoot = root ? realpathSync.native(root) : null;
   const ownership = applicationPathContext(definition, workflow);
-  // String(): a contract without a Story still names `<Stories folder>/null`, as it always has.
-  const item = storyLocation(null, [workflow, definition], String(workId)).prefix;
+  // String(): a contract without a Story still names `<Stories folder>/null`, as it always has. The step's documents are
+  // named from the checkout: a state-ref Story's are in its state checkout until M4 [SSB M3].
+  const item = storyLocation(null, [workflow, definition], String(workId)).checkoutPath();
   const code = phaseRequiresCodeDelivery(phase);
   // One decision owner: the kernel decides the step's state, what an authoring turn may write and its next action
   // [OSA:REQ-001, REQ-010]; this module renders it and keeps the path checks.

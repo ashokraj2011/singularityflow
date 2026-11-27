@@ -14,11 +14,13 @@
  * - a missing or damaged checkout is made again from the ref; only work never committed to the ref is lost;
  * - a fetch lands in a tracking ref of its own, so it never overwrites local state commits not published yet.
  *
- * Publication of the ref (one atomic push with the Story branch, the ledger and its pin) is M3. Loaded only for a
- * state-ref Story, so today's layout never loads it.
+ * Publication of the ref (one atomic push with the Story branch, the ledger and its pin) is story-state-publication.mjs
+ * (SSB M3). Loaded only for a state-ref Story, so today's layout never loads it.
  */
+import { randomUUID } from 'node:crypto';
 import { constants as fsConstants, existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { appendFile, lstat, mkdir, readFile, rename } from 'node:fs/promises';
+import { appendFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { SingularityFlowError, run } from './util.mjs';
 import {
@@ -161,13 +163,13 @@ function healthyCheckout(root, folder) {
 }
 
 /**
- * The way past records an unfinished command left in the state checkout: set them aside in its stash, which Git keeps
- * in the clone (so it outlives the checkout), then run the same command again. Nothing is deleted.
+ * The way past records an unfinished command left in the state checkout [SSB M3]: `sync <ID> --set-aside` keeps them in
+ * a commit on a ref of their own (`refs/singularity/state-aside/<ID>/…`, in the clone, so it outlives the checkout) and
+ * puts the checkout back to its ref, as the set-aside of unpublished state commits does. Nothing is deleted.
  */
-function setAsideUnfinished(root) {
-  const folder = stateCheckoutPath(root);
-  return { owner: 'person', command: `git -C ${JSON.stringify(folder)} stash push --include-untracked -m "unfinished SFlow records"`,
-    label: 'Set the unfinished records aside, then run the command again' };
+function setAsideUnfinished(id) {
+  return { executable: 'singularity-flow', argv: ['sync', ...(id ? [id] : []), '--set-aside'],
+    label: 'Keep the unfinished records aside, then run the command again' };
 }
 
 /** Uncommitted changes in the state checkout, as porcelain lines; [] when it is clean or absent. */
@@ -220,13 +222,17 @@ export async function ensureStateCheckout(root, id, { definition = null } = {}) 
     created = true;
     if (registered || setAside) repaired.push('rebuilt');
   }
-  const head = gitOut(folder, ['rev-parse', 'HEAD'], 'Reading the state checkout');
+  let head = gitOut(folder, ['rev-parse', 'HEAD'], 'Reading the state checkout');
   let moved = false;
+  // A state write whose process died after its ref moved left the checkout's HEAD behind: finish it [SSB M3].
+  if (head !== tip && stateCheckoutChanges(root).length && (await recoverInterruptedStateWrite(root, id, { definition })).recovered) {
+    head = gitOut(folder, ['rev-parse', 'HEAD'], 'Reading the state checkout');
+  }
   if (head !== tip) {
     if (stateCheckoutChanges(root).length) {
       throw new SingularityFlowError(`The state checkout ${STATE_CHECKOUT}/ holds changes that are not on ${ref}, so SFlow did not move it. Nothing was changed.`, {
         code: 'STORY_STATE_CHECKOUT_CHANGED', details: { ref, head, tip, changes: stateCheckoutChanges(root),
-          nextAction: setAsideUnfinished(root) }
+          nextAction: setAsideUnfinished(id) }
       });
     }
     gitOut(folder, ['checkout', '--quiet', '--detach', tip], 'Moving the state checkout to its ref');
@@ -241,7 +247,16 @@ export async function ensureStateCheckout(root, id, { definition = null } = {}) 
  * Nothing to commit returns the ref's commit unchanged. The checkout's own HEAD moves last, so a refused move leaves
  * the ref and the checkout where they were, with the changes still in the checkout.
  */
-export function commitStoryState(root, id, message, { definition = null, expected = undefined } = {}) {
+export function commitStoryState(root, id, message, { definition = null, expected = undefined, paths = null } = {}) {
+  const prepared = prepareStoryStateCommit(root, id, message, { definition, expected, paths });
+  return prepared.committed ? advanceStoryState(root, id, prepared, message) : prepared;
+}
+
+/**
+ * The first half of a state commit [SSB M3]: the records staged and their commit object made, on the ref's commit, with
+ * no ref moved. So a publication can record the commit it is about to make the ref's before it does.
+ */
+export function prepareStoryStateCommit(root, id, message, { definition = null, expected = undefined, paths = null } = {}) {
   const folder = stateCheckoutPath(root);
   const ref = storyStateRef(id, definition);
   const parent = gitOut(folder, ['rev-parse', 'HEAD'], 'Reading the state checkout');
@@ -253,19 +268,74 @@ export function commitStoryState(root, id, message, { definition = null, expecte
         nextAction: { executable: 'singularity-flow', argv: ['resume', id], label: 'Open the Story again from its records' } }
     });
   }
-  gitOut(folder, ['add', '--all', '--', '.'], 'Staging the Story\'s records');
+  // `paths`: only these records (a person's lesson change), leaving any other unfinished record where it is.
+  gitOut(folder, ['add', '--all', '--', ...(paths ?? ['.'])], 'Staging the Story\'s records');
   const tree = gitOut(folder, ['write-tree'], 'Writing the state tree');
   // The staged records are the ref's own when their tree is the parent's: nothing to commit.
   if (sourceTree(folder, parent, reading()).value === tree) return { committed: false, ref, commit: parent };
   const commit = gitOut(folder, ['commit-tree', tree, '-p', parent, '-m', message], 'Writing the state commit');
+  return { committed: true, ref, commit, parent, tree };
+}
+
+/** The second half: the ref moves to the prepared commit under its parent, then the checkout's HEAD follows. */
+export function advanceStoryState(root, id, prepared, message, { afterRef = null } = {}) {
+  const { ref, commit, parent } = prepared;
   const moved = git(root, ['update-ref', '-m', message, ref, commit, parent]);
   if (moved.status !== 0) {
     throw new SingularityFlowError(`${ref} moved while SFlow was writing Story '${id}' records. Nothing was committed; the records stay in ${STATE_CHECKOUT}/.`, {
-      code: 'STORY_STATE_REF_MOVED', details: { ref, expected: parent, found: refTip(root, ref), nextAction: setAsideUnfinished(root) }
+      code: 'STORY_STATE_REF_MOVED', details: { ref, expected: parent, found: refTip(root, ref), nextAction: setAsideUnfinished(id) }
     });
   }
-  gitOut(folder, ['update-ref', '--no-deref', '-m', message, 'HEAD', commit, parent], 'Moving the state checkout');
-  return { committed: true, ref, commit, parent, tree };
+  // Between the two moves: what a process stopped here leaves (the ref moved, its checkout's HEAD behind) is finished by
+  // recoverInterruptedStateWrite at the next command (tests stop a process here).
+  afterRef?.();
+  gitOut(stateCheckoutPath(root), ['update-ref', '--no-deref', '-m', message, 'HEAD', commit, parent], 'Moving the state checkout');
+  return { ...prepared, committed: true };
+}
+
+/**
+ * Take back a code commit a transition made on the Story branch before its state commit, when the transition does not go
+ * on [SSB M3]: the branch and its index go back to `previous`, the working files stay as they are.
+ */
+export function undoCodeCommit(root, branch, commit, previous) {
+  gitOut(root, ['update-ref', '-m', 'take back an unfinished transition', `refs/heads/${branch}`, previous, commit], 'Putting the Story branch back');
+  gitOut(root, ['reset', '--quiet', '--mixed', previous], 'Putting the Story branch back');
+}
+
+/** Whether `older` is `newer` or one of its ancestors, in this clone; false when either is not here. */
+export function stateContains(root, older, newer) { return Boolean(older && newer) && isAncestor(root, older, newer); }
+
+/** The last state the remote is known to hold: its tracking ref, or null when this clone never fetched or pushed it. */
+export function publishedStateTip(root, id, remote = 'origin') { return refTip(root, stateTrackingRefName(remote, id)); }
+
+/** After a push landed: the tracking ref names what the remote now holds. */
+export function recordStatePublished(root, id, remote, commit) {
+  git(root, ['update-ref', '-m', `[${id}][state] published to ${remote}`, stateTrackingRefName(remote, id), commit]);
+}
+
+/**
+ * Set a state-ref Story's unpublished local records aside [SSB M3]: the local commits stay on
+ * `refs/singularity/state-aside/<ID>/<time>`, the local ref and the checkout move to what the remote holds (its tracking
+ * ref), so the Story goes on from the published records. Refused while the checkout holds uncommitted records.
+ */
+export function setStoryStateAside(root, id, { definition = null, remote = 'origin' } = {}) {
+  const ref = storyStateRef(id, definition);
+  const local = refTip(root, ref);
+  const published = publishedStateTip(root, id, remote);
+  if (!published) return { setAside: false, reason: 'unpublished', ref, local };
+  if (!local || local === published || isAncestor(root, local, published)) return { setAside: false, reason: 'nothing-local', ref, local, published };
+  if (stateCheckoutChanges(root).length) {
+    throw new SingularityFlowError(`The state checkout ${STATE_CHECKOUT}/ holds records not committed yet, so nothing was set aside. Nothing was changed.`, {
+      code: 'STORY_STATE_CHECKOUT_CHANGED', details: { ref, nextAction: setAsideUnfinished(id) }
+    });
+  }
+  const stamp = new Date().toISOString().replace(/[-:]/gu, '').replace(/\.\d+Z$/u, 'Z');
+  const aside = `refs/singularity/state-aside/${id}/${stamp}`;
+  gitOut(root, ['update-ref', '-m', `[${id}][state] set aside`, aside, local, zeroId(root)], 'Keeping the local records aside');
+  gitOut(root, ['update-ref', '-m', `[${id}][state] set aside; now at ${remote}`, ref, published, local], 'Moving the state ref to the published records');
+  const folder = stateCheckoutPath(root);
+  if (existsSync(path.join(folder, '.git'))) gitOut(folder, ['checkout', '--quiet', '--detach', published], 'Moving the state checkout');
+  return { setAside: true, ref, aside, local, published };
 }
 
 /** Put the state checkout back to its HEAD: what an unfinished state write left is removed [REQ-006]. */
@@ -277,22 +347,162 @@ export function restoreStateCheckout(root) {
   return { restored: true };
 }
 
+const safeFileId = (id) => encodeURIComponent(String(id ?? '').trim()).replace(/%/gu, '_');
+
+/** Whether a publication of the Story waits in this clone (publication-pending.mjs keeps it there). */
+function publicationWaits(root, id) {
+  return existsSync(path.join(commonDirectory(root), 'singularity-flow', 'pending-publication', `story--${safeFileId(id)}.json`));
+}
+
 /**
- * Remove a Story checkout's state checkout, before the Story checkout itself is removed (spec §11.2 item 5). Refused
- * while it holds records not committed to the state ref: removing it would lose them.
+ * The state commits of a Story the remote has not got [SSB:REQ-008]: a publication waits for them, or the local state ref
+ * is ahead of what the remote is known to hold. null when there are none, or this clone never published the Story (its
+ * publication is off: the records stay with the clone, as a local branch does).
  */
-export function removeStateCheckout(root, { id = null } = {}) {
-  const folder = stateCheckoutPath(root);
-  if (!existsSync(folder)) { git(root, ['worktree', 'prune']); return { removed: false }; }
+export function unpublishedStoryState(root, id, { definition = null, remote = 'origin' } = {}) {
+  // With no definition, either transport's ref: the hidden one, else the branch where the ledger pins as branches.
+  const ref = [storyStateRef(id, definition), ...(definition ? [] : [storyStateRef(id, { ledger: { pinTransport: 'branches' } })])]
+    .find((candidate) => refTip(root, candidate)) ?? null;
+  const local = ref ? refTip(root, ref) : null;
+  if (!local) return null;
+  const published = publishedStateTip(root, id, remote);
+  const pending = publicationWaits(root, id);
+  if (!pending && (!published || local === published || stateContains(root, local, published))) return null;
+  return { id, ref, local, published, pending };
+}
+
+/**
+ * Refuse, with the way out, while a Story checkout's state checkout holds what removing it would lose [SSB:REQ-008]:
+ * records not committed to the state ref (`sync <ID> --set-aside` keeps them on a ref of their own), or state commits the
+ * remote has not got (`sync <ID>` publishes them). The Story is read from the state checkout when not named.
+ */
+export function assertStateRecordsSaved(root, { id = null, definition = null, remote = 'origin' } = {}) {
+  const story = id ?? detectStateCheckout(root)?.id ?? null;
   const changes = stateCheckoutChanges(root);
   if (changes.length) {
     throw new SingularityFlowError(`${STATE_CHECKOUT}/ in ${root} holds ${changes.length} record change(s) not saved on the Story's state ref, so the checkout was kept. Nothing was removed.`, {
-      code: 'STORY_STATE_CHECKOUT_UNSAVED', details: { root, id, changes,
-        nextAction: setAsideUnfinished(root) }
+      code: 'STORY_STATE_CHECKOUT_UNSAVED', details: { root, id: story, changes, nextAction: setAsideUnfinished(story) }
     });
   }
+  const unpublished = story ? unpublishedStoryState(root, story, { definition, remote }) : null;
+  if (unpublished) {
+    throw new SingularityFlowError(`Story '${story}' has records in this clone that '${remote}' has not got yet, so its checkout was kept. Nothing was removed.`, {
+      code: 'STORY_STATE_UNPUBLISHED', details: { root, ...unpublished,
+        nextAction: { executable: 'singularity-flow', argv: ['sync', story], label: 'Publish the Story\'s waiting records, then remove it again' } }
+    });
+  }
+}
+
+/**
+ * Before a clone's checkout is dropped with the clone [SSB:REQ-008]: every Story whose records it keeps on a state ref
+ * has them on the remote, and the checkout's state checkout holds nothing uncommitted. Refuses with the way out.
+ * Unlike a checkout's removal (the refs stay in the clone), the drop loses a state ref the remote never got.
+ */
+export async function assertStoryStatesKept(root, { remote = 'origin' } = {}) {
+  if (!keepsStateRefStories(root)) return { checked: 0 };
+  if (existsSync(stateCheckoutPath(root))) assertStateRecordsSaved(root, { remote });
+  let checked = 0;
+  for (const definition of [null, { ledger: { pinTransport: 'branches' } }]) {
+    for (const { id, ref, commit } of await listStoryStates(root, { definition })) {
+      checked += 1;
+      const published = publishedStateTip(root, id, remote);
+      if (published && (published === commit || stateContains(root, commit, published))) continue;
+      const waits = publicationWaits(root, id);
+      throw new SingularityFlowError(`Story '${id}' has records in this clone that '${remote}' has not got, so nothing was dropped.`, {
+        code: 'STORY_STATE_UNPUBLISHED', details: { id, ref, local: commit, published,
+          nextAction: waits || published ? { executable: 'singularity-flow', argv: ['sync', id], label: 'Publish the Story\'s waiting records, then drop the checkout' }
+            : { owner: 'person', command: `git push ${remote} ${ref}:${ref}`, label: 'Send the Story\'s records to the remote, then drop the checkout' } }
+      });
+    }
+  }
+  return { checked };
+}
+
+/**
+ * Remove a Story checkout's state checkout, before the Story checkout itself is removed (spec §11.2 item 5). Refused
+ * while it holds records not committed to the state ref, or the state ref holds commits the remote has not got
+ * (assertStateRecordsSaved): removing it would lose them.
+ */
+export function removeStateCheckout(root, { id = null, definition = null, remote = 'origin' } = {}) {
+  const folder = stateCheckoutPath(root);
+  if (!existsSync(folder)) { git(root, ['worktree', 'prune']); return { removed: false }; }
+  assertStateRecordsSaved(root, { id, definition, remote });
   gitOut(root, ['worktree', 'remove', folder], `Removing ${STATE_CHECKOUT}/`);
   return { removed: true };
+}
+
+/**
+ * Keep the records an unfinished command left in the state checkout in a commit on a ref of their own, then put the
+ * checkout back to its ref [SSB M3]: `refs/singularity/state-aside/<ID>/<time>-unfinished`, whose parent is the
+ * checkout's commit, so `git show` on it shows what was set aside. Nothing is deleted.
+ */
+export function setUnfinishedRecordsAside(root, id) {
+  const changes = stateCheckoutChanges(root);
+  if (!changes.length) return { setAside: false, changes };
+  const folder = stateCheckoutPath(root);
+  const head = sourceRevision(folder, 'HEAD', reading()).value;
+  gitOut(folder, ['add', '--all', '--', '.'], 'Keeping the unfinished records');
+  const tree = gitOut(folder, ['write-tree'], 'Writing the unfinished records');
+  const commit = gitOut(folder, ['commit-tree', tree, '-p', head, '-m', `[${id}][state] unfinished records set aside`], 'Keeping the unfinished records');
+  const stamp = new Date().toISOString().replace(/[-:]/gu, '').replace(/\.\d+Z$/u, 'Z');
+  const aside = `refs/singularity/state-aside/${id}/${stamp}-unfinished`;
+  gitOut(root, ['update-ref', '-m', `[${id}][state] unfinished records set aside`, aside, commit, zeroId(root)], 'Keeping the unfinished records aside');
+  restoreStateCheckout(root);
+  return { setAside: true, aside, commit, head, changes };
+}
+
+// ---- A state write a process did not finish [SSB M3; plan §2.4] -------------------------------------------------------
+
+const PROCESS_MARK = randomUUID();
+const stateWriteFile = (root, id) => path.join(commonDirectory(root), 'singularity-flow', 'state-write', `story--${safeFileId(id)}.json`);
+
+/** Saved before a state write begins: the files as they were (their bytes are in the machine's store), and the ref's commit. */
+export async function saveStateWrite(root, id, { transactionId, parent, preimage }) {
+  const file = stateWriteFile(root, id);
+  await mkdir(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.tmp`;
+  await writeFile(temporary, `${JSON.stringify({ kind: 'story-state-write', id, transactionId, parent, preimage,
+    owner: { pid: process.pid, host: os.hostname(), mark: PROCESS_MARK }, at: new Date().toISOString() })}\n`, { mode: 0o600 });
+  await rename(temporary, file);
+}
+
+/** The write ended: committed, or put back by the process itself. */
+export async function clearStateWrite(root, id) { await rm(stateWriteFile(root, id), { force: true }); }
+
+function ownerRuns(owner) {
+  if (!owner?.pid) return false;
+  if (owner.host !== os.hostname()) return true;
+  if (owner.pid === process.pid) return owner.mark === PROCESS_MARK;
+  try { process.kill(owner.pid, 0); return true; } catch (error) { return error?.code === 'EPERM'; }
+}
+
+/**
+ * Finish what a process that died during a state write left [plan §2.4]. Before its ref moved, the state checkout is put
+ * back to the files as they were (the interrupted bytes are kept, as today's layout keeps them), so the next transition
+ * never commits them with its own. After its ref moved, only the checkout's HEAD is brought to it. `locked`: the caller
+ * holds the Story's lock, so a write no live transition of this process owns is a dead one's.
+ */
+export async function recoverInterruptedStateWrite(root, id, { definition = null, locked = false } = {}) {
+  const file = stateWriteFile(root, id);
+  if (!existsSync(file)) return { recovered: false };
+  let journal;
+  try { journal = JSON.parse(await readFile(file, 'utf8')); } catch { return { recovered: false, unreadable: true } }
+  const ours = journal?.owner?.pid === process.pid && journal.owner.mark === PROCESS_MARK;
+  if (ours || (!locked && ownerRuns(journal?.owner))) return { recovered: false, running: true };
+  const tip = refTip(root, storyStateRef(id, definition));
+  const folder = stateCheckoutPath(root);
+  const head = existsSync(path.join(folder, '.git')) ? sourceRevision(folder, 'HEAD', reading()).value ?? null : null;
+  let restored = null;
+  if (tip === journal.parent && journal.preimage) {
+    const { restorePublicationPreimage } = await import('./publication-recovery.mjs');
+    restored = await restorePublicationPreimage(root, journal.preimage, { subject: { kind: 'story', id }, preserveCurrent: true });
+    if (head) gitOut(folder, ['reset', '--quiet'], 'Putting the state checkout back');
+  } else if (head && head === journal.parent && tip && stateContains(root, head, tip)) {
+    gitOut(folder, ['update-ref', '--no-deref', '-m', `[${id}][state] finished`, 'HEAD', tip, head], 'Moving the state checkout');
+    gitOut(folder, ['reset', '--quiet'], 'Moving the state checkout');
+  }
+  await rm(file, { force: true });
+  return { recovered: true, restored: restored?.restored === true, rescuePath: restored?.rescuePath ?? null, transactionId: journal.transactionId ?? null };
 }
 
 /**
@@ -389,46 +599,6 @@ export async function listStoryStates(root, { remote = null, definition = null }
   }
   return lines.map(({ commit, ref }) => ({ id: listedId(ref, prefix), ref, commit }))
     .filter((entry) => entry.id && !entry.id.includes('/')).sort((a, b) => a.id.localeCompare(b.id));
-}
-
-/**
- * The lifecycle authority of a state-ref Story [REQ-002, 006; M2]: a transition writes its records in the state
- * checkout and commits everything there on the state ref, under the ref's expected value. Nothing is committed on the
- * Story branch, so an approval or a decision starts no CI. A refused transition puts the state checkout back as it was
- * when the transition began (drafts written before it included), through the transition's own rollback. Publication
- * of the ref, with the Story branch, the ledger and the pin in one atomic push, is M3 [REQ-005]: until then the result
- * says `pushed: false`.
- */
-export function storyStateAuthority(root, id, { definition = null } = {}) {
-  const ref = storyStateRef(id, definition);
-  return Object.freeze({
-    descriptor: Object.freeze({ id: 'story-state-ref', qualification: 'local-only', ref }),
-    async publish(transition) {
-      const { event, commit: commitSpec, state = null, beforeCommit = null, afterOwnedWrites = null, fault = null } = transition;
-      await ensureStateCheckout(root, id, { definition });
-      const expected = refTip(root, ref);
-      const { capturePublicationPreimage } = await import('./publication-recovery.mjs');
-      const preimage = await capturePublicationPreimage(root, [STATE_CHECKOUT]);
-      let envelope = event;
-      try {
-        if (state?.write) {
-          const written = await state.write(envelope, { transactionId: transition.transactionId ?? null, expectedHead: expected, branch: ref });
-          if (written?.event) envelope = written.event;
-        }
-        if (fault) await fault('after-state-write', { envelope });
-        if (state?.validate) await state.validate(envelope);
-        if (beforeCommit) await beforeCommit(envelope);
-        if (afterOwnedWrites) await afterOwnedWrites(envelope, { ledgerIntentPath: null });
-        const committed = commitStoryState(root, id, commitSpec?.message ?? `[${id}][state] records`, { definition, expected });
-        return { sha: committed.commit, pushed: false, replayed: false, event: envelope, ledger: null,
-          state: { ref, commit: committed.commit, parent: expected, committed: committed.committed, published: false } };
-      } catch (error) {
-        if (state?.rollback) await state.rollback(preimage);
-        throw error;
-      }
-    },
-    async pending() { return null; }
-  });
 }
 
 /** The pinned configuration copy in a checkout's state checkout, when it has one at its usual paths [REQ-003]. */

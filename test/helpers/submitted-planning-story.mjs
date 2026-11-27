@@ -53,7 +53,7 @@ export function specification(WORK, value) {
  * Story here as a new repository would, to compare the two routes.
  */
 export async function startedSpecificationStory(t, WORK, { configure = null, beforeStart = null, startArguments = [],
-  changeImpact = process.env.SINGULARITY_FLOW_TEST_CHANGE_IMPACT ?? 'off' } = {}) {
+  changeImpact = process.env.SINGULARITY_FLOW_TEST_CHANGE_IMPACT ?? 'off', description = 'Return an approved value.' } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-approval-history-'));
   const root = path.join(directory, 'repository');
   const remote = path.join(directory, 'origin.git');
@@ -89,7 +89,7 @@ export async function startedSpecificationStory(t, WORK, { configure = null, bef
   await beforeStart?.({ directory, root, remote, run, git, cli });
 
   cli('start', WORK, '--from-branch', 'main', '--work-type', 'spec-driven-standard',
-    '--title', 'Validate a value', '--description', 'Return an approved value.', ...startArguments);
+    '--title', 'Validate a value', '--description', description, ...startArguments);
   const item = path.join(root, 'singularity/work-items', WORK);
   return { directory, root, remote, run, git, cli, item };
 }

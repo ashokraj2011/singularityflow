@@ -10,6 +10,7 @@ import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { attemptLocalIntegrationLabel, testReceiptPassing } from './code-delivery-tests.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
+import path from 'node:path';
 import { storyLocation } from './story-paths.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
@@ -96,7 +97,8 @@ export function projectExecutionPacket(packet, phase, current, { checkLimit = CH
 export function reusedExecutionDetails(root, packet, testPolicy, itemRelative, listed = [], receipts = null) {
   return (packet.checks ?? []).filter(check => check?.kind === 'test' && check.reusedFrom?.attemptId && !listed.includes(check.id)).slice(0, CHECK_LIMIT).flatMap(check => {
     const source = check.reusedFrom;
-    const relative = source.receiptPath ?? `${itemRelative}/context/code-delivery/tests/attempts/${source.phase}/${source.attemptId}.json`;
+    // A record at the evidence commit, spelled from the Story's records ('.' at a state commit's root) [SSB M3].
+    const relative = source.receiptPath ?? path.posix.join(itemRelative, 'context', 'code-delivery', 'tests', 'attempts', source.phase, `${source.attemptId}.json`);
     let bytes = null;
     try { bytes = exactFileAtObject(root, packet.evidenceCommit, relative, { regularOnly: true, maximumBytes: 8 * 1024 * 1024 }); } catch { return []; }
     if (!bytes) return [];
@@ -213,7 +215,7 @@ export async function phaseExecutionEvidence(root, definition, workflow, phase) 
       }
       const receipts = new Map();
       packets.push({ ...candidate, packet, epochVerified, receipts,
-        executions: executionDetails(root, packet, workflow.resolution?.codeDelivery?.tests, storyLocation(null, definition, workflow.workItem.id).prefix, receipts) });
+        executions: executionDetails(root, packet, workflow.resolution?.codeDelivery?.tests, storyLocation(null, [definition, workflow], workflow.workItem.id).record(), receipts) });
     } catch (error) {
       // A missing/shallow history is evidence unavailable, never a new gate on draft repair.
       diagnostics.push({ phase: candidate.phase.id, generation: candidate.entry.generation,

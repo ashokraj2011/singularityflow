@@ -57,7 +57,8 @@ export async function verifyAutomaticApproval(root, config, workflow, phase, { p
         || (packet.checks ?? []).some((check) => check?.status !== 'passed')) {
       throw new Error('the submitted checks differ from the step\'s, or did not all pass');
     }
-    const commit = head(root);
+    // The records it names are committed where the Story keeps them: a state-ref Story's on its state ref [SSB M3].
+    const commit = head(storyLocation(root, [config, workflow], workflow.workItem.id).recordsRoot);
     if (isConvergencePhase(pinned) || isConvergencePhase(phase)) {
       // Convergence has no reviewer: its own check, the sealed record it names, is what SFlow approved it by.
       const named = record.convergence;

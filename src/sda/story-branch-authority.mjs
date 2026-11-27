@@ -14,6 +14,7 @@
  *
  * The unit of work loads on the first transition only, so a command that only observes (recovery,
  * test-recovery admission, promotion) never loads the publication writer.
+ * A state-ref Story's authority is its state ref (story-state-publication.mjs, SSB M3).
  *
  * No module but this one calls the unit of work or observes a lifecycle branch on the remote
  * (test/sda-lifecycle-boundary.test.mjs).
@@ -42,9 +43,10 @@ export function createStoryBranchAuthority(root) {
       id: 'subject-branch', qualification: 'production', capabilities: LIFECYCLE_AUTHORITY_CAPABILITIES
     }),
 
-    /** The authority's exact revision of `branch` at `remote` (a remote name or its exact URL). */
-    async observe({ branch, remote }, { signal = null, allowPrefetched = false } = {}) {
+    /** The authority's exact revision of `branch` (or a state `ref`) at `remote` (a remote name or its exact URL). */
+    async observe({ branch, ref = null, remote }, { signal = null, allowPrefetched = false } = {}) {
       assertNotCancelled(signal, 'observation');
+      if (ref) return (await import('../story-state-publication.mjs')).observeStoryStateRef(root, { ref, remote }, { signal });
       const url = observedRemote(root, remote);
       const observed = (allowPrefetched ? await takeRemoteBranchObservation(root, url, branch) : null)
         ?? await exactRemoteBranchObservationAsync(root, url, branch, { signal });
@@ -54,6 +56,10 @@ export function createStoryBranchAuthority(root) {
 
     async publish(transition, { signal = null } = {}) {
       assertNotCancelled(signal, 'transition');
+      if (transition?.storage?.layout === 'state-ref') {
+        const { StoryStateUnitOfWork } = await import('../story-state-publication.mjs');
+        return new StoryStateUnitOfWork(root).execute(signal ? { ...transition, signal } : transition);
+      }
       const { GitPublicationUnitOfWork } = await import('../publication-unit-of-work.mjs');
       return new GitPublicationUnitOfWork(root).execute(signal ? { ...transition, signal } : transition);
     },

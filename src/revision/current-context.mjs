@@ -164,7 +164,7 @@ export async function probeRevisionSavedState(root, { config, workflow } = {}) {
   }
   const sourceTreeSha256 = await sourceTreeHash(canonicalRoot, config, workflow);
   const context = applicationPathContext(config, workflow);
-  const prefix = `${storyLocation(null, config, workflow.workItem.id).prefix.replace(/\/$/, '')}/`;
+  const prefix = `${storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath().replace(/\/$/, '')}/`;
   const applicationChangedPaths = changedPaths.filter((relative) => isApplicationChangePath(relative, {
     ...context, untracked: untracked.has(relative)
   }));

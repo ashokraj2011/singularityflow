@@ -112,6 +112,9 @@ Everything below is about what is *not* a stop.
 - **WCB:REQ-014** The code approval lists every out-of-plan file of that step, each marked `by Copilot: <reason>` or
   `by you`: the Decide card's approval row (`details.outsidePlan` and one line each in `details.lines`), the approval
   focus page ("Changed outside the plan", at the file), and `Settled for you` (one group, "changed outside the plan").
+  The Story's "What this change does" page (SPEC-CSP, section 6 "Outside the plan") reads the same records, the
+  `plan-accounting` settlements of class `out-of-plan` not undone: `effect.file`, `effect.writer` (`copilot` or
+  `person`) and `effect.reason`, so it shows the same "by Copilot: <reason>" or "by you".
 - **WCB:REQ-015** Undo is returning the step. While the code step is still open, undoing a settlement hands that file
   back as a question, as for any settled file; once the step awaits approval, its approver returns it first; once
   approved, it is history.
@@ -185,6 +188,10 @@ governs it), and another step's own document changed under the Story's `artifact
   as not part of it and stops for a commit of code until the Decide page's take-out step clears it (REQ-017).
 - `test/document-step-files.test.mjs` (updated): a document step's application files no longer refuse or show a row.
 - Unit: `test/code-outside-plan.test.mjs` for attribution (each basis), reason parsing and the workspace-local predicate.
+- After main's SSB M3 and CSP merged in: `test/watch-code-base.test.mjs` checks the change page's section 6 lines;
+  `test/story-state-ref-approvals.test.mjs` (A4) and `test/workflow.test.mjs` (two artifact-only cases) now expect a
+  document step to go ahead and leave code to the code step; `test/source-review-fastpath.test.mjs` counts the one new
+  leaf (workspace-local-paths.mjs).
 - Updated to the rule: the CIC, base-move, AST, generation-boundary, approval-hold, step-sheet, choices, phase-entry, OAP,
   dead-end, publication-preflight and candidate tests (M1); the CQF departure, appeal, upstream-discrepancy, plugin,
   plan-amendment and candidate-isolation tests, and the settled-advice, settled-decisions and SCS asked-for tests, which

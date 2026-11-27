@@ -209,6 +209,13 @@ test('code changed outside the plan, by Copilot or by you, early or late, commit
       'src/helper.mjs: by you']);
     assert.ok(approval.details.lines.includes('Changed outside the plan: src/format.mjs: by Copilot: the summary page shows the value with two decimals.'));
     assert.deepEqual(approval.details.heldBy, []);
+    // The Story's "What this change does" page, written in the code step's own commits, reads the same records: each file
+    // by Copilot with its reason, or by you [CSP section 6, WCB:REQ-014].
+    const page = await readFile(path.join(item, 'CHANGE-STORY.md'), 'utf8');
+    const section = page.slice(page.indexOf('## 6. Outside the plan'));
+    assert.ok(page.includes('## 6. Outside the plan'), page.slice(0, 3000));
+    assert.match(section, /^- `src\/format\.mjs`: by Copilot: the summary page shows the value with two decimals\.?$/mu, section.slice(0, 1500));
+    for (const file of ['.eslintrc.json', 'src/early.mjs', 'src/helper.mjs']) assert.ok(section.includes(`- \`${file}\`: by you`), `${file}: ${section.slice(0, 1500)}`);
 
     const approvedCode = flow(root, ['approve', 'implementation', '--yes'], { allowFailure: true });
     assert.equal(approvedCode.status, 0, approvedCode.stdout + approvedCode.stderr);

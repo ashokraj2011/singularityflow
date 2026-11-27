@@ -204,6 +204,10 @@ async function taskStepChange(root, definition, workflow, { intent, rule = null,
       && !(nextComposition.personApproves ?? []).includes(intent)) {
     nextComposition.personApproves = [...(nextComposition.personApproves ?? []), intent].sort();
   }
+  // So does an approval group such a rule adds (`by:`): it must also approve the added step [FPL §11, question 3].
+  const groups = composer.ruleGroupApproves(definition, kind, [...(composition.touchedPaths ?? []), ...changedPaths, ...files])
+    .filter((entry) => entry.intent === intent && !(nextComposition.groupApproves ?? []).some((held) => held.intent === intent && held.group === entry.group));
+  if (groups.length) nextComposition.groupApproves = [...(nextComposition.groupApproves ?? []), ...groups];
   // The work type with the step, resolved as the Story's start resolved its own. A step the change would hand from a
   // person to SFlow (an intake that was the plan, once a design step plans) stays a person's: the composition says so
   // (personKeeps), so a change only ever adds approvals and every later reader resolves the same steps. A step that wrote
@@ -367,9 +371,12 @@ async function changeWords(change, workflow) {
   const why = change.decision.change.because ? `: ${change.decision.change.because.replace(/[.\s]+$/u, '')}` : '';
   // A step whose approval the team's rules give a person says so: it is one more yes [ITW:REQ-005].
   const yours = approvals[change.step.id] === 'person' && (change.composition.personApproves ?? []).includes(change.step.intent) ? ' You approve it.' : '';
+  // And each approval group a rule adds to it (`by:`) [FPL §11, question 3].
+  const groups = [...new Set((change.composition.groupApproves ?? []).filter((entry) => entry.intent === change.step.intent).map((entry) => entry.label ?? entry.group))]
+    .map((label) => ` ${label} approves it too.`).join('');
   return {
     plan: planLine(change.composition, { approvals, pullRequest: change.composition.pullRequest === true }),
-    words: `Added a ${change.noun} step ${neighbour}${why}.${yours}`,
+    words: `Added a ${change.noun} step ${neighbour}${why}.${yours}${groups}`,
     approvedBy: approvals[change.step.id],
     current: workflow.phases[workflow.currentPhase]?.label ?? workflow.currentPhase
   };

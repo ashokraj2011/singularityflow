@@ -183,6 +183,31 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId, securi
   };
 }
 
+/**
+ * A step's approval with the groups a team's task rule adds (`by:`) [FPL §11, question 3]: each becomes required, with one
+ * more person for each group the step did not have, so its own approvers still approve; nothing is taken out, and it is
+ * never approved automatically or waived by a policy.
+ */
+export function withRuleApprovalGroups(policy, groups, authorities, phaseId) {
+  const added = [...new Set(Array.isArray(groups) ? groups : [])];
+  if (!added.length) return policy;
+  const registry = normalizeApprovalAuthorities(authorities);
+  const unknown = added.find((id) => !Object.hasOwn(registry, id));
+  if (unknown) {
+    throw new SingularityFlowError(`Phase '${phaseId}': a team rule names the approval group '${unknown}', which this repository does not have.`, {
+      code: 'TASK_RULE_GROUP_UNKNOWN', details: { phase: phaseId, group: unknown,
+        nextAction: { command: 'singularity-flow rules', label: 'See the team\'s rules and each problem with where it is.' } } });
+  }
+  if (policy.mode === 'none') {
+    return normalizeApprovalPolicy({ authorities: added, requiredAuthorities: added, minimum: added.length, rejectTo: policy.rejectTo }, authorities, phaseId);
+  }
+  const fresh = added.filter((id) => !policy.authorities.includes(id));
+  const required = [...new Set([...policy.requiredAuthorities, ...added])];
+  const { automatic: _automatic, ...kept } = policy;
+  return { ...kept, mode: 'required', policy: null, maximumChangedPaths: null, authorities: [...policy.authorities, ...fresh],
+    requiredAuthorities: required, minimum: Math.max(policy.minimum + fresh.length, required.length) };
+}
+
 function assertAutomaticApproval(value, phaseId) {
   if (value.automatic === AUTOMATIC_APPROVAL) return;
   throw new SingularityFlowError(`Phase '${phaseId}' cannot be approved automatically: approval.automatic must be ${AUTOMATIC_APPROVAL}.`, { code: 'AUTOMATIC_APPROVAL_NOT_ALLOWED', details: { phase: phaseId,

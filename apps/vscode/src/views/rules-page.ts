@@ -8,7 +8,8 @@
  */
 import { escape } from './webview.ts';
 
-export type RuleFields = { kinds: string[]; paths: string[]; steps: string[]; personApproves: string[]; workflow: string | null };
+/** `by`: an approval group that must also approve the steps the rule gives a person [FPL §11, question 3]. */
+export type RuleFields = { kinds: string[]; paths: string[]; steps: string[]; personApproves: string[]; workflow: string | null; by: string | null };
 export type RuleProblem = { field: string; message: string };
 export type RuleRow = {
   id: string; section: 'always' | 'paths' | 'use'; when: string; then: string; because: string; words: string; fields: RuleFields;
@@ -23,7 +24,7 @@ export type RulesList = {
   builtIn: BuiltInRule[]; rules: RuleRow[]; waiting: WaitingRule[]; idPrefix: { value: string; words: string };
   compose: Array<{ kind: string; words: string }>; workflowsWords: string; guidance: { count: number; words: string } | null;
   inFlight: { count: number; words: string | null } | null; problems: RuleProblem[];
-  form: { kinds: FormChoice[]; steps: FormChoice[]; approves: FormChoice[]; workflows: Array<{ id: string; label: string }> };
+  form: { kinds: FormChoice[]; steps: FormChoice[]; approves: FormChoice[]; workflows: Array<{ id: string; label: string }>; groups: Array<{ id: string; label: string }> };
   lines: string[];
 };
 export type RulesPreview = {
@@ -31,7 +32,7 @@ export type RulesPreview = {
   lines: Array<{ kind: string; touching: string | null; words: string; added: string[]; removed: string[] }>;
 };
 /** What the form sends: the rule as the `tasks.*` operations take it. */
-export type RuleInput = { kinds: string[]; paths: string[]; steps: string[]; personApproves: string[]; workflow: string | null; because: string };
+export type RuleInput = { kinds: string[]; paths: string[]; steps: string[]; personApproves: string[]; workflow: string | null; by: string | null; because: string };
 
 const object = (value: unknown): Record<string, unknown> | null => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null);
 const text = (value: unknown, limit = 600): string | null => (typeof value === 'string' && value.trim() ? value.slice(0, limit) : null);
@@ -39,6 +40,8 @@ const strings = (value: unknown, limit = 40, size = 300): string[] => (Array.isA
   .map((entry) => text(entry, size)).filter((entry): entry is string => Boolean(entry));
 const RULE_REF = /^[A-Za-z0-9._[\]-]{1,128}$/u;
 const WORD = /^[a-z][a-z-]{0,39}$/u;
+/** An approval group's ID, as approvalAuthorities names it. */
+const GROUP = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const SECTIONS = new Set(['always', 'paths', 'use']);
 
 function problemsOf(value: unknown): RuleProblem[] {
@@ -57,6 +60,8 @@ function choicesOf(value: unknown): FormChoice[] {
   });
 }
 
+const groupOf = (value: unknown): string | null => { const id = text(value, 64); return id && GROUP.test(id) ? id : null; };
+
 /** One rule from untrusted CLI output, bounded; null when it is not a rule. */
 export function ruleRowFrom(value: unknown): RuleRow | null {
   const row = object(value);
@@ -69,7 +74,7 @@ export function ruleRowFrom(value: unknown): RuleRow | null {
     id, section: section as RuleRow['section'], when: text(row.when, 400) ?? '', then: text(row.then, 400) ?? '', because: text(row.because, 600) ?? '',
     words: text(row.words, 800) ?? '', problems: problemsOf(row.problems),
     fields: { kinds: words('kinds'), paths: strings(fields?.paths, 20, 300), steps: words('steps'), personApproves: words('personApproves'),
-      workflow: text(fields?.workflow, 128) }
+      workflow: text(fields?.workflow, 128), by: groupOf(fields?.by) }
   };
 }
 
@@ -106,6 +111,10 @@ export function rulesListFrom(value: unknown): RulesList | null {
       workflows: (Array.isArray(form?.workflows) ? form.workflows : []).slice(0, 200).map(object).flatMap((entry) => {
         const id = text(entry?.id, 128);
         return id && /^[a-z0-9][a-z0-9-]{0,127}$/u.test(id) ? [{ id, label: text(entry?.label, 200) ?? id }] : [];
+      }),
+      groups: (Array.isArray(form?.groups) ? form.groups : []).slice(0, 50).map(object).flatMap((entry) => {
+        const id = groupOf(entry?.id);
+        return id ? [{ id, label: text(entry?.label, 120) ?? id }] : [];
       }) },
     lines: strings(result.lines, 20, 300)
   };
@@ -134,12 +143,14 @@ export function ruleInputFrom(value: unknown, list: RulesList | null): RuleInput
   const kinds = when === 'any' ? ['all'] : known(raw.kinds, list.form.kinds);
   const paths = when === 'paths' ? String(raw.paths ?? '').split(/\r?\n|,/u).map((entry) => entry.trim()).filter(Boolean).slice(0, 20) : [];
   const workflow = then === 'workflow' && list.form.workflows.some((entry) => entry.id === raw.workflow) ? String(raw.workflow) : null;
+  // Who approves: the step's own approvers, or one of the repository's groups as well; only with "a person approves a step".
+  const by = then === 'approves' && list.form.groups.some((entry) => entry.id === raw.by) ? String(raw.by) : null;
   return {
     // "These kinds" with none ticked stays empty, so the preview names the field; files alone are about every kind.
     kinds: kinds.length || when === 'kinds' ? kinds : ['all'], paths,
     steps: then === 'step' ? known([raw.step], list.form.steps) : [],
     personApproves: then === 'approves' ? known([raw.approves], list.form.approves) : [],
-    workflow, because: String(raw.because ?? '').replace(/\s+/gu, ' ').trim().slice(0, 400)
+    workflow, by, because: String(raw.because ?? '').replace(/\s+/gu, ' ').trim().slice(0, 400)
   };
 }
 
@@ -211,8 +222,9 @@ export const RULES_SCRIPT = `
 // ---------------------------------------------------------------------------------------------------- the page
 
 /** Where a problem's field is on the form: its `aria-describedby` target [FPL:REQ-037]. */
-export function formFieldOf(field: string): 'kinds' | 'paths' | 'then' | 'workflow' | 'why' | 'form' {
+export function formFieldOf(field: string): 'kinds' | 'paths' | 'then' | 'by' | 'workflow' | 'why' | 'form' {
   if (/\.because$/u.test(field)) return 'why';
+  if (/\.by$/u.test(field)) return 'by';
   if (/\.(?:steps|personApproves)$/u.test(field)) return 'then';
   if (/\.kinds$/u.test(field)) return 'kinds';
   if (/\.paths$/u.test(field)) return 'paths';
@@ -244,7 +256,7 @@ function select(id: string, choices: Array<{ id: string; words?: string; label?:
  * person approves a step, follow a workflow) and Why, which is required. Every field has a label; problems are linked to it.
  */
 export function ruleFormHtml(list: RulesList, editing: RuleRow | null = null): string {
-  const fields = editing?.fields ?? { kinds: [], paths: [], steps: [], personApproves: [], workflow: null };
+  const fields = editing?.fields ?? { kinds: [], paths: [], steps: [], personApproves: [], workflow: null, by: null };
   const when = editing ? (editing.section === 'paths' ? 'paths' : fields.kinds.length && !fields.kinds.includes('all') ? 'kinds' : 'any') : 'any';
   const then = fields.workflow ? 'workflow' : fields.personApproves.length && !fields.steps.length ? 'approves' : 'step';
   const radio = (name: string, value: string, label: string, chosen: string) => `<label class="rules-radio"><input type="radio" name="${name}" value="${value}"${value === chosen ? ' checked' : ''}> ${escape(label)}</label>`;
@@ -261,6 +273,9 @@ export function ruleFormHtml(list: RulesList, editing: RuleRow | null = null): s
 <fieldset id="rule-then"><legend>Then</legend>
   ${radio('then', 'step', 'add a step', then)} <label class="rules-inline" for="rule-step">Step</label>${select('rule-step', list.form.steps, fields.steps[0] ?? null)}
   ${radio('then', 'approves', 'a person approves a step', then)} <label class="rules-inline" for="rule-approves">Step</label>${select('rule-approves', list.form.approves, fields.personApproves[0] ?? 'code')}
+  <label class="rules-inline" for="rule-by">Who approves</label>${select('rule-by', [{ id: '', words: 'The step\'s own approvers' },
+    ...list.form.groups.map((group) => ({ id: group.id, words: `The step's own approvers, and ${group.label} too` }))], fields.by ?? '')}
+  <button type="button" class="link rules-inline" data-act="people">People and approval groups</button>
   ${radio('then', 'workflow', 'follow a workflow (one kind of task only)', then)} <label class="rules-inline" for="rule-workflow">Workflow</label>${select('rule-workflow', list.form.workflows, fields.workflow)}
 </fieldset>
 <label for="rule-why">Why (required: it is what a refused "skip the tests" says)</label>
@@ -335,7 +350,7 @@ const rule = () => ({
   kinds: [...form.querySelectorAll('input[name="kind"]:checked')].map((input) => input.value),
   paths: value('rule-paths'),
   then: form.querySelector('input[name="then"]:checked')?.value || 'step',
-  step: value('rule-step'), approves: value('rule-approves'), workflow: value('rule-workflow'), because: value('rule-why')
+  step: value('rule-step'), approves: value('rule-approves'), by: value('rule-by'), workflow: value('rule-workflow'), because: value('rule-why')
 });
 let timer = null;
 const ask = () => { clearTimeout(timer); timer = setTimeout(() => vscode.postMessage({ type: 'preview', rule: rule(), editing: form.dataset.editing || null }), 600); };
@@ -346,7 +361,7 @@ form?.addEventListener('submit', (event) => {
   clearTimeout(timer);
   vscode.postMessage({ type: 'propose', rule: rule(), editing: form.dataset.editing || null });
 });
-const FIELDS = { kinds: 'rule-kinds', paths: 'rule-paths', then: 'rule-then', workflow: 'rule-workflow', why: 'rule-why' };
+const FIELDS = { kinds: 'rule-kinds', paths: 'rule-paths', then: 'rule-then', by: 'rule-by', workflow: 'rule-workflow', why: 'rule-why' };
 window.addEventListener('message', (event) => {
   const message = event.data;
   if (!message || message.type !== 'rules-preview') return;

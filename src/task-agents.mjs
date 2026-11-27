@@ -114,7 +114,10 @@ export function planCoverage(composition, candidate) {
   const coverage = agentCoverage(composition.kind, ownIntents(composition), candidate);
   const personal = composition.personApproves ?? [];
   const kept = candidate.source !== 'workflow' || candidate.steps.filter((step) => personal.includes(step.intent)).every((step) => step.approvedBy === 'person');
-  return coverage.covers && kept ? coverage : { covers: false, extra: 0 };
+  // Each approval group a rule adds (`by:`) must already be required on its steps there: nothing is added to it [FPL §11, question 3].
+  const grouped = candidate.source !== 'workflow' || (composition.groupApproves ?? []).every((entry) => candidate.steps
+    .filter((step) => step.intent === entry.intent).every((step) => (step.groups ?? []).includes(entry.group)));
+  return coverage.covers && kept && grouped ? coverage : { covers: false, extra: 0 };
 }
 
 const list = (items) => (items.length <= 2 ? items.join(' and ') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);

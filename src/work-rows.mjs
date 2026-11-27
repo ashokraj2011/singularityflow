@@ -164,7 +164,9 @@ export function planNote(workflow) {
   else if (composition.agent) sentences.push(`Its steps are ${agentWords(composition.agent)}'s workflow, for ${KIND_ARTICLE[composition.kind] ?? 'a task'}.`);
   else sentences.push(`Composed from your words: ${KIND_ARTICLE[composition.kind] ?? 'a task'}.`);
   const byRules = [...new Set((composition.added ?? []).map((entry) => `the ${labelOf(entry.intent)}`)),
-    ...(composition.personApproves ?? []).map((intent) => approvalWords(composition, intent))];
+    ...(composition.personApproves ?? []).map((intent) => approvalWords(composition, intent)),
+    // An approval group a rule adds (`by:`): "Security's approval of the code" [FPL §11, question 3].
+    ...(composition.groupApproves ?? []).map((entry) => `${entry.label ?? entry.group}'s approval of the ${labelOf(entry.intent)}`)];
   if (byRules.length) sentences.push(`The team's rules added ${listWords(byRules)}.`);
   const byPerson = (composition.changes ?? []).filter((entry) => entry.change === 'add').map((entry) => `the ${labelOf(entry.intent)}`);
   if (byPerson.length) sentences.push(`You added ${listWords(byPerson)}.`);

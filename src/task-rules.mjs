@@ -21,8 +21,8 @@
 import YAML from 'yaml';
 
 import {
-  approvalWords, checkTaskRules, composeTask, INTENT_ORDER, isTaskWorkType, kindSteps, pathMatches, TASK_KINDS, TASK_RULE_ID, taskDefinition, taskRuleName,
-  taskStepLabel
+  approvalWords, checkTaskRules, composeTask, groupApprovalWords, INTENT_ORDER, isTaskWorkType, kindSteps, pathMatches, TASK_KINDS, TASK_RULE_ID,
+  taskApprovalGroups, taskDefinition, taskRuleName, taskStepLabel
 } from './task-composition.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -61,12 +61,18 @@ export function whenWords({ section, kinds = ['all'], paths = [], kind = null })
   return all ? 'any code changes' : `a task is ${who}`;
 }
 
-/** What a rule does: "add a review", "a person approves the code", "follow the workflow Classic delivery". */
-export function thenWords({ section, steps = [], personApproves = [], workflow = null }, labelOf = (id) => id) {
+/**
+ * What a rule does: "add a review", "a person approves the code", "follow the workflow Classic delivery"; with `by`, the
+ * group that must also approve: "a person approves the code, and Security approves it too" [FPL §11, question 3].
+ */
+export function thenWords({ section, steps = [], personApproves = [], workflow = null, by = null }, labelOf = (id) => id, groupLabelOf = (id) => id) {
   if (section === 'use') return `follow the workflow ${labelOf(workflow)}`;
   const parts = [];
   if (steps.length) parts.push(`add ${joined(steps.map((intent) => STEP_NOUN[intent] ?? intent), 'and')}`);
-  if (personApproves.length) parts.push(`a person approves ${joined(personApproves.map((intent) => APPROVES_NOUN[intent] ?? intent), 'and')}`);
+  if (personApproves.length) {
+    parts.push(`a person approves ${joined(personApproves.map((intent) => APPROVES_NOUN[intent] ?? intent), 'and')}${by
+      ? `, and ${groupLabelOf(by)} approves ${personApproves.length > 1 || personApproves[0] === 'requirements' || personApproves[0] === 'test' ? 'them' : 'it'} too` : ''}`);
+  }
   return parts.length ? parts.join(', and ') : 'add nothing';
 }
 
@@ -78,11 +84,11 @@ export const BUILT_IN_RULES = Object.freeze([
 ].map((rule) => Object.freeze({ ...rule, builtIn: true, words: `When ${rule.when}: ${rule.then}.` })));
 
 /** One rule as written, in plain when and then, with what the form needs to change it. */
-function ruleView(entry, { section, index = null, kind = null, labelOf }) {
+function ruleView(entry, { section, index = null, kind = null, labelOf, groupLabelOf }) {
   if (section === 'use') {
     const spelled = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : { workflow: entry };
     const name = typeof spelled.id === 'string' && spelled.id ? spelled.id : `use.${kind}`;
-    const fields = { kinds: [kind], paths: [], steps: [], personApproves: [], workflow: spelled.workflow ?? null };
+    const fields = { kinds: [kind], paths: [], steps: [], personApproves: [], workflow: spelled.workflow ?? null, by: null };
     const because = typeof spelled.because === 'string' && spelled.because.trim() ? spelled.because.trim()
       : `This team runs every ${kind} task as the ${labelOf(spelled.workflow)} workflow.`;
     const when = whenWords({ section, kind });
@@ -90,23 +96,24 @@ function ruleView(entry, { section, index = null, kind = null, labelOf }) {
     return { id: name, ruleId: spelled.id ?? null, section, kind, when, then, because, words: `When ${when}: ${then}.`, fields };
   }
   const fields = { kinds: listOf(entry?.kinds, ['all']).map(String), paths: section === 'paths' ? listOf(entry?.paths).map(String) : [],
-    steps: listOf(entry?.steps).map(String), personApproves: listOf(entry?.personApproves).map(String), workflow: null };
+    steps: listOf(entry?.steps).map(String), personApproves: listOf(entry?.personApproves).map(String), workflow: null,
+    by: typeof entry?.by === 'string' ? entry.by : null };
   const when = whenWords({ section, ...fields });
-  const then = thenWords({ section, ...fields });
+  const then = thenWords({ section, ...fields }, labelOf, groupLabelOf);
   return { id: taskRuleName(entry, section, index), ruleId: typeof entry?.id === 'string' ? entry.id : null, section, index, when, then,
     because: typeof entry?.because === 'string' ? entry.because.trim() : '', words: `When ${when}: ${then}.`, fields };
 }
 
-/** Every rule of a `tasks:` section as written, broken ones too (each with its problems). */
-export function ruleViews(tasks, { labelOf = (id) => id, problems = [] } = {}) {
+/** Every rule of a `tasks:` section as written, broken ones too (each with its problems). `groupLabelOf` names an approval group. */
+export function ruleViews(tasks, { labelOf = (id) => id, groupLabelOf = (id) => id, problems = [] } = {}) {
   const views = [];
   if (!tasks || typeof tasks !== 'object' || Array.isArray(tasks)) return views;
   for (const section of ['always', 'paths']) {
     const list = Array.isArray(tasks[section]) ? tasks[section] : [];
-    list.forEach((entry, index) => views.push(ruleView(entry, { section, index, labelOf })));
+    list.forEach((entry, index) => views.push(ruleView(entry, { section, index, labelOf, groupLabelOf })));
   }
   if (tasks.use && typeof tasks.use === 'object' && !Array.isArray(tasks.use)) {
-    for (const [kind, value] of Object.entries(tasks.use)) views.push(ruleView(value, { section: 'use', kind, labelOf }));
+    for (const [kind, value] of Object.entries(tasks.use)) views.push(ruleView(value, { section: 'use', kind, labelOf, groupLabelOf }));
   }
   return views.map((view) => ({ ...view, problems: problems.filter((problem) => problemOf(problem, view)).map(({ field, message }) => ({ field, message })) }));
 }
@@ -125,12 +132,14 @@ function ruleInput(value) {
     kinds: listOf(value.kinds, ['all']).map(String), paths: listOf(value.paths).map((glob) => String(glob).trim()).filter(Boolean),
     steps: listOf(value.steps).map(String), personApproves: listOf(value.personApproves).map(String),
     workflow: value.workflow == null || value.workflow === '' ? null : String(value.workflow), because: String(value.because ?? '').replace(/\s+/gu, ' ').trim(),
-    id: value.id == null || value.id === '' ? null : String(value.id)
+    id: value.id == null || value.id === '' ? null : String(value.id),
+    // Who also approves the steps the rule gives a person: one of the repository's approval groups, checked with the rest.
+    by: value.by == null || value.by === '' ? null : String(value.by)
   };
   const section = rule.workflow ? 'use' : rule.paths.length ? 'paths' : 'always';
   if (section === 'use') {
     const kinds = rule.kinds.filter((kind) => kind !== 'all');
-    if (kinds.length !== 1 || rule.kinds.length !== 1 || rule.paths.length || rule.steps.length || rule.personApproves.length) {
+    if (kinds.length !== 1 || rule.kinds.length !== 1 || rule.paths.length || rule.steps.length || rule.personApproves.length || rule.by) {
       throw refusal('TASK_RULE_CHANGE_INVALID', 'A rule that follows a workflow is about one kind of task, and adds nothing else: choose one kind, and the workflow.');
     }
   }
@@ -143,7 +152,7 @@ function ruleNode(document, rule, section) {
   const all = rule.kinds.length === 1 && rule.kinds[0] === 'all';
   const node = document.createNode({ ...(rule.id ? { id: rule.id } : {}), ...(all ? {} : { kinds: rule.kinds }),
     ...(section === 'paths' ? { paths: rule.paths } : {}), ...(rule.steps.length ? { steps: rule.steps } : {}),
-    ...(rule.personApproves.length ? { personApproves: rule.personApproves } : {}), because: rule.because });
+    ...(rule.personApproves.length ? { personApproves: rule.personApproves } : {}), ...(rule.by ? { by: rule.by } : {}), because: rule.because });
   for (const pair of node.items) if (YAML.isSeq(pair.value)) pair.value.flow = true;
   return node;
 }
@@ -165,6 +174,7 @@ export function ruleSlug(rule, taken = new Set()) {
   if (rule.workflow) words.push('follows', rule.workflow);
   if (rule.steps.length) words.push('adds', ...rule.steps);
   if (rule.personApproves.length) words.push('person', 'approves', ...rule.personApproves);
+  if (rule.by) words.push('by', rule.by);
   const base = (words.join('-').toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '') || 'rule').slice(0, 56).replace(/-+$/u, '');
   let id = base;
   for (let number = 2; taken.has(id); number += 1) id = `${base}-${number}`;
@@ -220,7 +230,7 @@ function addAt(document, rule, section, tasks) {
  * Returns the summary line. A problem in what it writes is the check's to name with its field (taskRuleChecks), so a form's
  * every problem is said at once; this refuses only what it cannot write.
  */
-export function applyTaskRuleChange(document, change, { labelOf = (id) => id } = {}) {
+export function applyTaskRuleChange(document, change, { labelOf = (id) => id, groupLabelOf = (id) => id } = {}) {
   const tasks = document.toJS()?.tasks;
   if (change.op === 'tasks.idPrefix.set') {
     const value = String(change.idPrefix ?? '').trim();
@@ -231,7 +241,7 @@ export function applyTaskRuleChange(document, change, { labelOf = (id) => id } =
     const { rule, section } = ruleInput(change.rule);
     rule.id ??= ruleSlug(rule, ruleIds(tasks));
     addAt(document, rule, section, tasks);
-    return `Rule ${rule.id} added: when ${whenWords({ section, ...rule, kind: rule.kinds[0] })}, ${thenWords({ section, ...rule }, labelOf)}.`;
+    return `Rule ${rule.id} added: when ${whenWords({ section, ...rule, kind: rule.kinds[0] })}, ${thenWords({ section, ...rule }, labelOf, groupLabelOf)}.`;
   }
   const place = findTaskRule(tasks, change.id);
   if (!place) {
@@ -249,7 +259,7 @@ export function applyTaskRuleChange(document, change, { labelOf = (id) => id } =
     if (section === place.section && section !== 'use') document.setIn(['tasks', section, place.index], ruleNode(document, rule, section));
     else if (section === 'use' && place.section === 'use' && place.kind === rule.kinds[0]) document.setIn(['tasks', 'use', place.kind], ruleNode(document, rule, section));
     else { removeAt(document, place); addAt(document, rule, section, document.toJS()?.tasks); }
-    return `Rule ${rule.id} changed: when ${whenWords({ section, ...rule, kind: rule.kinds[0] })}, ${thenWords({ section, ...rule }, labelOf)}.`;
+    return `Rule ${rule.id} changed: when ${whenWords({ section, ...rule, kind: rule.kinds[0] })}, ${thenWords({ section, ...rule }, labelOf, groupLabelOf)}.`;
   }
   throw refusal('STUDIO_CHANGE_UNKNOWN', `Unknown task rule change '${change.op}'. A rule change is one of ${TASK_RULE_OPERATIONS.join(', ')}.`);
 }
@@ -307,8 +317,9 @@ function composed(definition, rules, kind, touchedPaths) {
 }
 
 const intentsOf = (composition) => (composition.error ? null : composition.steps.map((step) => step.intent));
-const sameComposition = (left, right) => stable([left.error ?? null, left.workType, intentsOf(left), left.personApproves])
-  === stable([right.error ?? null, right.workType, intentsOf(right), right.personApproves]);
+const groupsOf = (composition) => (composition.groupApproves ?? []).map((entry) => [entry.intent, entry.group]);
+const sameComposition = (left, right) => stable([left.error ?? null, left.workType, intentsOf(left), left.personApproves, groupsOf(left)])
+  === stable([right.error ?? null, right.workType, intentsOf(right), right.personApproves, groupsOf(right)]);
 
 /** Who approves each step of a composition, as the plan line says it; '' when SFlow cannot resolve it here. */
 async function approvalSentence(definition, composition) {
@@ -317,7 +328,7 @@ async function approvalSentence(definition, composition) {
     const resolved = resolveWorkType(validateDefinition(structuredClone(taskDefinition(definition, composition))), composition.workType);
     const approvals = Object.fromEntries(resolved.phases.map((phase) => [phase.id,
       phase.approval?.mode === 'none' ? 'none' : phase.approval?.automatic === 'when-ready' ? 'sflow' : 'person']));
-    return approvalWords(composition, approvals);
+    return `${approvalWords(composition, approvals)}${groupApprovalWords(composition)}`;
   } catch { return ''; }
 }
 
@@ -371,13 +382,14 @@ export async function previewRuleChanges(definition, text, changeSet) {
   }
   const document = YAML.parseDocument(String(text ?? ''));
   const labelOf = (id) => definition.workTypes?.[id]?.label ?? id;
+  const groupLabelOf = groupLabel(definition);
   const summary = [];
   for (const change of changeSet.changes) {
     if (!TASK_RULE_OPERATIONS.includes(change?.op)) {
       problems.push({ code: 'TASK_RULE_CHANGE_INVALID', field: 'changes', message: `A rules preview takes only ${TASK_RULE_OPERATIONS.join(', ')}; '${change?.op}' is Workflow Studio's to preview.` });
       continue;
     }
-    try { summary.push(applyTaskRuleChange(document, change, { labelOf })); }
+    try { summary.push(applyTaskRuleChange(document, change, { labelOf, groupLabelOf })); }
     catch (error) { problems.push({ code: error.code ?? 'TASK_RULE_CHANGE_INVALID', field: change.id ? String(change.id) : 'tasks', message: error.message }); }
   }
   const afterTasks = document.toJS()?.tasks;
@@ -399,8 +411,9 @@ export function taskRulesChange(beforeRaw, afterRaw) {
   const tasksAfter = afterRaw?.tasks ?? null;
   if (stable(tasksBefore) === stable(tasksAfter)) return null;
   const labelOf = (id) => afterRaw?.workTypes?.[id]?.label ?? beforeRaw?.workTypes?.[id]?.label ?? id;
-  const viewsBefore = ruleViews(tasksBefore, { labelOf });
-  const viewsAfter = ruleViews(tasksAfter, { labelOf });
+  const groupLabelOf = (id) => (groupLabel(afterRaw)(id) !== id ? groupLabel(afterRaw)(id) : groupLabel(beforeRaw)(id));
+  const viewsBefore = ruleViews(tasksBefore, { labelOf, groupLabelOf });
+  const viewsAfter = ruleViews(tasksAfter, { labelOf, groupLabelOf });
   const content = (view) => stable([view.section, view.fields, view.because]);
   const changes = [];
   for (const view of viewsAfter) {
@@ -442,7 +455,7 @@ async function tasksInFlight(root, definition) {
   } catch { return null; }
 }
 
-/** The lessons the team made team guidance (LRN `lessons rule`): agents read them; they add no step [FPL:REQ-026]. */
+/** The lessons the team made team guidance (LRN `lessons guidance`): agents read them; they add no step [FPL:REQ-026]. */
 async function guidanceCount(root) {
   try {
     const { activeLessons, isLesson, readAllLessons } = await import('./story-lessons.mjs');
@@ -452,12 +465,22 @@ async function guidanceCount(root) {
   } catch { return null; }
 }
 
-/** The form's lists [FPL:REQ-020]: only what `taskRules` accepts, and only this repository's workflows. */
+/** An approval group's name as a person reads it: its label, else its ID. */
+const groupLabel = (definition) => (id) => {
+  const authority = definition?.approvalAuthorities?.[id];
+  return typeof authority?.label === 'string' && authority.label.trim() ? authority.label.trim() : id;
+};
+
+/**
+ * The form's lists [FPL:REQ-020]: only what `taskRules` accepts, and only this repository's workflows and approval groups
+ * (the "Who approves" choice, `by`) [FPL §11, question 3].
+ */
 export function ruleForm(definition) {
   return {
     kinds: TASK_KINDS.map((kind) => ({ id: kind, words: KIND_NOUN[kind] })),
     steps: RULE_STEPS.map((intent) => ({ id: intent, words: STEP_NOUN[intent] })),
     approves: INTENT_ORDER.map((intent) => ({ id: intent, words: APPROVES_NOUN[intent] })),
+    groups: taskApprovalGroups(definition).map((id) => ({ id, label: groupLabel(definition)(id) })),
     workflows: Object.entries(definition?.workTypes ?? {}).filter(([id, type]) => !isTaskWorkType(id) && !type?.composedTask)
       .map(([id, type]) => ({ id, label: String(type?.label ?? id) })).sort((left, right) => left.label.localeCompare(right.label))
   };
@@ -503,7 +526,7 @@ export async function rulesRead(root, { offline = false, proposals = null } = {}
       remoteFingerprint: authority?.remoteFingerprint ?? null, sourceCommit: authority?.sourceCommit ?? null },
     base: { workflowSha256: createHash('sha256').update(text).digest('hex') },
     builtIn: BUILT_IN_RULES.map((rule) => ({ ...rule })),
-    rules: ruleViews(raw.tasks, { labelOf, problems }),
+    rules: ruleViews(raw.tasks, { labelOf, groupLabelOf: groupLabel(definition), problems }),
     waiting,
     idPrefix: { value: idPrefix, words: `Tasks are named ${idPrefix}-<n>.` },
     compose: composeWords(),

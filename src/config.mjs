@@ -27,7 +27,7 @@ import { isAgentTemplateReference, parseAgentTemplateReference } from './agent-d
 import { loadPortfolio, normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
-import { normalizeApprovalAuthorities, normalizeApprovalPolicy, normalizeApprovalSecurity } from './approval-authority.mjs';
+import { normalizeApprovalAuthorities, normalizeApprovalPolicy, normalizeApprovalSecurity, withRuleApprovalGroups } from './approval-authority.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { specificationQualityPolicy } from './specification-quality.mjs';
@@ -2152,8 +2152,10 @@ export function resolveWorkType(definition, workTypeId, { intentProfile = null }
     const template = phase.kind === 'skill' ? null
       : resolvedTemplate?.source === 'catalog' ? resolvedTemplate.path : declaredTemplate;
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
-    const approval = normalizeApprovalPolicy(approvalAsWritten(merged.approval ?? {}),
-      definition.approvalAuthorities, id, definition.approvalSecurity);
+    // A composed task's step also needs the approval groups the team's rules add (`by:`), never in place of its own.
+    const approval = withRuleApprovalGroups(normalizeApprovalPolicy(approvalAsWritten(merged.approval ?? {}),
+      definition.approvalAuthorities, id, definition.approvalSecurity),
+    workType.composedTask ? declaredCatalogValue(workType.ruleApprovers, id) : null, definition.approvalAuthorities, id);
     const loopTargets = reworkLoops.filter((loop) => loop.from === id).map((loop) => loop.to);
     if (loopTargets.length && approval.mode === 'none') {
       throw new SingularityFlowError(`Work type '${workTypeId}' loop source '${id}' requires human approval.`);

@@ -41,7 +41,9 @@ test('each kind of row offers what it really is: a choice, the sign-off, a step 
   assert.match(html, /data-open="a\.js"/u);
   assert.match(html, /data-needs="reason cause expires"/u);
   assert.match(html, /data-witness="witness-1"/u);
-  assert.match(html, /Do this now runs this step for you with what you wrote here[\s\S]*singularity-flow recover PAY-1 --json[\s\S]*data-run="route">Do this now<\/button>[\s\S]*data-terminal="route"/u);
+  // A preview is typed into a terminal, never run as if it were the step: no Do this now beside it [owner, 2026-11-28].
+  assert.match(html, /This shows what it would do first: Put it in a terminal types it in for you to run\.[\s\S]*singularity-flow recover PAY-1 --json[\s\S]*data-terminal="route"/u);
+  assert.equal(html.includes('data-run="route"'), false);
   assert.doesNotMatch(html.slice(html.indexOf('data-other="d6"')), /data-choice/u, 'no control on what is not theirs');
   // Someone else's: who decides, and one button that copies the words to send them [owner, 2026-11-28].
   assert.match(html, /The Leads decide this; ask them\.[\s\S]*data-share="d6">Copy what to send them<\/button>/u);

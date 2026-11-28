@@ -209,14 +209,16 @@ test('journey ITW, A13: a refactor that changes the order of two errors stops at
   assert.deepEqual(personActions(walk.trail), { words: 1, typed: 0, answers: 3, own: 1, total: 5 }, formatTrail(walk.trail));
 });
 
-test('journey ITW: a refactor whose new behaviour the person accepts at its code step becomes a change with a revised plan, and ends', slowLane({ timeout: 2_400_000 }), async (t) => {
+test('journey ITW: a refactor whose new behaviour the person accepts on the decisions card at its code step becomes a change with a revised plan, and ends', slowLane({ timeout: 2_400_000 }), async (t) => {
   const { story, walk } = await walkTask(t, 'tidy the validator in the value module', 'refactor', { files: REFACTOR_FILES,
-    agent: refactorAgent, person: behaviourPerson('accept') });
+    agent: refactorAgent, person: behaviourPerson('accept', { card: true }) });
   assert.equal(walk.reached, true, formatTrail(walk.trail));
   assert.deepEqual(walk.findings, [], JSON.stringify(walk.findings));
   const stop = stopAtCode(walk.trail);
   assert.ok(stop > 0, formatTrail(walk.trail));
-  assert.match(walk.trail[stop + 1].ran ?? '', /^singularity-flow work behaviour accept --work-id TASK-1/u, formatTrail(walk.trail));
+  // On the decisions card, as keeping it is: the person's own step, never the agent's [owner, 2026-11-28].
+  assert.match(walk.trail[stop + 1].ran ?? '', /^singularity-flow decisions record TASK-1 --choose d1=accept-behaviour /u, formatTrail(walk.trail));
+  assert.equal(walk.trail[stop + 1].turn, 'person');
   const record = storyRecord(story);
   assert.equal(record.resolution.composition.kind, 'change');
   const grown = record.resolution.composition.changes.at(-1);
@@ -233,9 +235,11 @@ test('journey ITW: a refactor whose new behaviour the person accepts at its code
   assert.equal(status.kind, 'change');
   assert.match(status.words, /^TASK-1 is done: .* Checks that ran: npm test \(2 tests, all passed\)\.$/u, 'a change has no list of what must not change');
   assert.deepEqual(status.steps.map((step) => step.label), ['Intake', 'Plan', 'Code', 'Tests'], 'the plan is the change\'s own plan now');
-  // The person: the words, the intake's answer, a Yes to the plan, accepting the new behaviour at their terminal, /sf-task
-  // again, and a Yes to the revised plan and one to the code.
-  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 1, answers: 4, own: 1, total: 7 }, formatTrail(walk.trail));
+  // The person: the words, the intake's answer, a Yes to the plan, accepting the new behaviour on the card, and a Yes to the
+  // revised plan and one to the code. Before 2026-11-28 they accepted it at their terminal and typed /sf-task again: typed 1,
+  // total 7. On the card nothing is typed again: VS Code sends /sf-task to the chat, as after a page approval.
+  assert.ok(walk.trail.some((entry) => /VS Code sends \/sf-task to the chat the person used last/u.test(entry.did ?? '')), formatTrail(walk.trail));
+  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 0, answers: 4, own: 1, total: 6 }, formatTrail(walk.trail));
 });
 
 test('journey ITW: a refactor whose author edits an existing test to expect the new order stops though no run fails; kept, SFlow puts back what the test expected', slowLane({ timeout: 2_400_000 }), async (t) => {

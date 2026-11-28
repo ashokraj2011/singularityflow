@@ -30,7 +30,7 @@ import { guardCardDecisionsArgv, guardCardFrom, guardCardText, presenceCardArgs,
 import { approvalElsewhereWords, approvalFocus, approvalPageWords, approvalRows, chatNext, shareText, checkNames, checkOf, DECIDE_SCRIPT, filledCommand, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows,
   decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS, guardRoute, joinedWords, openRows, othersApproval, othersApprovalWords, approveInChat, approversNext, readyApproval,
   selectStoryNext, type DecideDraft } from './decide-card-page.ts';
-import { OWN_TERMINAL_REFUSALS, ownStepArgv, ownTerminalWords, runMissingWords } from './decide-card-page.ts';
+import { OWN_TERMINAL_REFUSALS, ownStepArgv, ownTerminalWords, runMissingWords, runnableStep } from './decide-card-page.ts';
 
 // How long the page's first read checks before it asks, and how long "Check first" waits (src/decision-probes.mjs).
 const CHECK_SECONDS = 60;
@@ -296,7 +296,8 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         if (busy) return;
         draft = decideDraftFrom(message);
         const shown = commandOf(message);
-        if (!shown) return;
+        // A preview is typed into a terminal, never run here as if it were the step.
+        if (!shown || !runnableStep(shown)) return;
         const given = { reason: stringField(message, 'reason'), expires: stringField(message, 'expires') };
         const planned = ownStepArgv(shown, given);
         if ('missing' in planned) return render(runMissingWords(planned.missing));

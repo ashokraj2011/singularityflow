@@ -26,6 +26,10 @@ const REASON_SLOT = /"<(?:REASON|reason|why|TEXT|why [^<>"]*)>"|<(?:REASON|reaso
 const DATE_SLOT = /<YYYY-MM-DD>/u;
 /** What "Do this now" does, beside every own step on the card: it runs here, and only a step that must ask in a terminal goes there. */
 export const RUN_WORDS = 'Do this now runs this step for you with what you wrote here; Put it in a terminal types it in for you to run.';
+/** Beside a step that is only a preview (it shows a plan and changes nothing): it is typed into a terminal, never run as if done. */
+export const PREVIEW_WORDS = 'This shows what it would do first: Put it in a terminal types it in for you to run.';
+/** Whether the card runs a step on Do this now: a step that changes something, never a preview (`--json`, `--dry-run`). */
+export const runnableStep = (command: string) => !/\s--(?:json|dry-run)(?=\s|$)/u.test(String(command ?? ''));
 /**
  * What another person decides: one button that copies the exact words to send them, with their own route, never a command
  * shown with nothing to press [owner, 2026-11-28]. The host copies the text it holds for that row (shareText).
@@ -349,10 +353,10 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   // A drafted amendment is written in the editor before its command runs [SCS:REQ-021]: the page opens the engine's own file.
   // "Do this now" runs the row's own step for the person, from the list as read; only a step that must ask in their own terminal
   // goes there, typed in [owner, 2026-11-28].
-  const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label.replace(/[.!?]+$/u, ''))}.</span> <span class="muted">${escape(RUN_WORDS)}</span>
+  const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label.replace(/[.!?]+$/u, ''))}.</span> <span class="muted">${escape(runnableStep(option.action!.command!) ? RUN_WORDS : PREVIEW_WORDS)}</span>
       ${option.action?.file ? `<span class="muted">${escape(option.words ?? '')}</span><button type="button" data-draft="${escape(option.id)}">Open the draft</button>` : ''}
       <code>${escape(option.action!.command!)}</code>${slotFields(option.action!.command!, option.id, option.label)}
-      <button type="button" data-run="${escape(option.id)}">Do this now</button>
+      ${runnableStep(option.action!.command!) ? `<button type="button" data-run="${escape(option.id)}">Do this now</button>` : ''}
       <button type="button" class="secondary" data-terminal="${escape(option.id)}">Put it in a terminal</button>
       <button type="button" class="secondary" data-copy="${escape(option.id)}">Copy</button></div>`).join('');
   // A choice recorded here may also be made in the person's own terminal, with its exact command (SF Guard signs it there).
@@ -411,9 +415,9 @@ export function evidenceHtml(packet: DecisionPacket): string {
   const holdStep = (entry: NonNullable<typeof hold>['entries'][number], index: number) => (!entry.allowed
     ? shareButton(`hold-${index}`)
     : offered.has(entry.command) ? '<span class="muted">Its command is on the hold\'s row above.</span>'
-      : `<div class="dc-own"><span>Accept it with your reason and an expiry of at most 90 days.</span> <span class="muted">${escape(RUN_WORDS)}</span>
+      : `<div class="dc-own"><span>Accept it with your reason and an expiry of at most 90 days.</span> <span class="muted">${escape(runnableStep(entry.command) ? RUN_WORDS : PREVIEW_WORDS)}</span>
       <code>${escape(entry.command)}</code>${slotFields(entry.command, `hold-${index}`, 'the held package')}
-      <button type="button" data-hold-run="${index}">Do this now</button>
+      ${runnableStep(entry.command) ? `<button type="button" data-hold-run="${index}">Do this now</button>` : ''}
       <button type="button" class="secondary" data-hold-terminal="${index}">Put it in a terminal</button>
       <button type="button" class="secondary" data-hold-copy="${index}">Copy</button></div>`);
   const parts = [

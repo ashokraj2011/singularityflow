@@ -141,7 +141,8 @@ export async function codeStepBehaviourHold(root, config, workflow, phase, { ref
   const what = found.failing.length ? `${named(found.failing)} passed before the change and ${found.failing.length === 1 ? 'fails' : 'fail'} now`
     : `it changes ${named(found.tests.map(testEditWords))}`;
   return new SingularityFlowError(`The refactor changed behaviour: ${what}. `
-    + `Change nothing for it: the person runs ${keep} to keep it, or ${accept} to take the new one.`, {
+    // The person keeps or accepts it on the Decide card, one choice there; their own terminal takes the same command [owner, 2026-11-28].
+    + `Change nothing for it: the person keeps it or takes the new one on the Decide card (/sf-decide ${id}), or runs ${keep} or ${accept}.`, {
     code: BEHAVIOUR_CHANGED,
     details: { workId: id, phase: phase.id, generation: found.generation, changed: found.changed, checks: found.undecided, choices,
       nextAction: { command: keep, label: choices[0].label }, recoveryCommands: [{ command: accept, label: choices[1].label }] }

@@ -1458,6 +1458,11 @@
         "icon": "$(comment-discussion)"
       },
       {
+        "command": "singularityFlow.continueStory",
+        "title": "Singularity Flow: Continue",
+        "icon": "$(debug-continue)"
+      },
+      {
         "command": "singularityFlow.approve",
         "title": "Singularity Flow: Approve\u2026",
         "icon": "$(check)"

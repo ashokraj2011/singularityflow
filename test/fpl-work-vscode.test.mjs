@@ -91,7 +91,7 @@ test('REQ-006: the task page: header, buttons, the plan with Add a step, the pla
   const page = workTaskHtml(workListFrom(list([row('TASK-12')])).inProgress[0], workTaskFrom(statusResult()), { lessons: 2 });
   assert.match(page, /<h1 id="task-title" tabindex="-1">Title TASK-12<\/h1>/u);
   assert.match(page, /TASK-12 · Fix · from main · shop-web · started by Reviewer Monday/u);
-  assert.match(page, /data-act="intake">Intake<\/button> <button type="button" class="primary" data-act="chat">Open in Copilot chat<\/button> <button type="button" class="secondary" data-act="stop">Stop the task<\/button>/u);
+  assert.match(page, /data-act="intake">Intake<\/button> <button type="button" class="primary" data-act="chat">Continue<\/button> <button type="button" class="secondary" data-act="stop">Stop the task<\/button>/u);
   assert.match(page, /<label for="task-add-step">Add a step<\/label>\s*<select id="task-add-step"><option value="design">Design<\/option><option value="review">Conformance review<\/option><\/select>/u);
   assert.match(page, /Composed from your words: a fix\. The team&#39;s rules added the tests and your approval of the code\./u);
   assert.match(page, /<h2 id="happening-title">What is happening<\/h2><ol class="task-events"><li><span class="muted">Monday<\/span> Started<\/li>/u);
@@ -112,9 +112,9 @@ test('REQ-006: the task page: header, buttons, the plan with Add a step, the pla
   assert.match(elsewhere, /TASK-11 is not open in this window\. Open it with: <code>singularity-flow session open TASK-11 --workspace shop --repository shop-api<\/code>/u);
   const finished = workTaskHtml(workListFrom(list([row('TASK-9', { status: 'closed' })])).inProgress[0], workTaskFrom(statusResult({ status: 'closed', done: true, addable: [] })));
   assert.doesNotMatch(finished, /data-act="stop"|task-add-step/u);
-  // Open in Copilot chat: /sf-task for a task, the Journey's route for a classic Story, the route to it from elsewhere [A10].
+  // Continue: the one way on, /sf-task for a task and /sf-next for a classic Story (owner, 2026-11-28), the route to it from elsewhere [A10].
   assert.deepEqual(chatRouteOf({ task: true, route: { here: true, elsewhere: [] } }), { kind: 'task', text: '/sf-task' });
-  assert.deepEqual(chatRouteOf({ task: false, route: { here: true, elsewhere: [] } }), { kind: 'journey', text: 'singularityFlow.prefillNextCommand' });
+  assert.deepEqual(chatRouteOf({ task: false, route: { here: true, elsewhere: [] } }), { kind: 'next', text: '/sf-next' });
   assert.equal(chatRouteOf({ task: true, route: { here: false, elsewhere: ['singularity-flow session open TASK-11'] } }).kind, 'elsewhere');
 });
 
@@ -252,13 +252,13 @@ test('A10: the task page adds a step through work add with its refusal\'s words,
   assert.deepEqual(host.calls.filter((call) => call[0] === 'runText').map((call) => call.slice(1)),
     [['/work/shop-web', 'cancel', 'TASK-12', '--reason', 'Not needed any more', '--confirm', 'TASK-12']]);
 
-  // Open in Copilot chat: /sf-task for a task here; the Journey's route (the chat's next command) for a classic Story.
+  // Continue: /sf-task for a task here; /sf-next, the one way on, for a classic Story (owner, 2026-11-28).
   await panel.send({ type: 'act', act: 'chat' }); await settle();
   assert.deepEqual(host.sent, ['/sf-task']);
   place.receive({ action: 'work-open', key: 'shop-web:TASK-10' });
   await tick(); await tick();
   await panel.send({ type: 'act', act: 'chat' }); await settle();
-  assert.deepEqual(host.calls.at(-1), ['command', 'singularityFlow.prefillNextCommand']);
+  assert.deepEqual(host.sent, ['/sf-task', '/sf-next']);
   // Its card: a Needs-you key opens the card page.
   await panel.send({ type: 'card', key: 'shop-web:TASK-12:approve:plan:1' }); await settle();
   assert.deepEqual(host.cards, ['shop-web:TASK-12:approve:plan:1']);

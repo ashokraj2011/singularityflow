@@ -68,7 +68,7 @@ function optionHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
 
 function itemHtml(item: DecisionItemRow): string {
   // Who decides it only when that is news: someone else, or only some of its choices.
-  const who = !item.settled && (!item.allowed || !/^You may decide this\b/u.test(item.who));
+  const who = !item.settled && (!item.allowed || !/^You (?:may )?decide this\b/u.test(item.who));
   const heading = `<header class="dl-item-head"><span class="dl-id">${escape(item.id)}</span><h2>${escape(item.question)}</h2></header>
     ${item.why ? `<p class="dl-why">${escape(item.why)}</p>` : ''}${item.facts?.length ? `<ul class="dl-why">${item.facts.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}
     ${item.evidence.length ? `<details class="dl-detail"><summary>What it rests on</summary><ul class="dl-why dl-evidence">${item.evidence.map((line) => `<li>${escape(line)}</li>`).join('')}</ul></details>` : ''}

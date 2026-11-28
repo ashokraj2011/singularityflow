@@ -43,7 +43,7 @@ import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedA
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import { buildJourney } from './views/journey-model.ts';
-import { CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING, removeOldCopilotTurns, taskChatContinuation, taskDecisionContinuation } from './chat-prefill.ts';
+import { CHAT_INPUT_SCHEMES, ChatPrefill, CONTINUE_COMMAND, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING, removeOldCopilotTurns, taskChatContinuation, taskDecisionContinuation } from './chat-prefill.ts';
 import { copilotTurnDirectory } from '../../../src/copilot-mode.mjs';
 import {
   phaseGenerationChatPrefill, startsFreshChat, submissionCommandArgv
@@ -153,7 +153,7 @@ import {
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
 import { formatCommandRouteLines } from '../../../src/model-free-commands.mjs';
-import { isTaskStory, TASK_ROUTE } from '../../../src/safe-command-guidance.mjs';
+import { carryRoute, TASK_ROUTE } from '../../../src/safe-command-guidance.mjs';
 import { vscodeVersionLimits, vscodeVersionWarning } from '../../../src/vscode-host-version.mjs';
 import { createTerminalIn } from './terminal-start.ts';
 import { idleMinutesSetting, noteLaptopActivity, watchLaptopActivity } from './laptop-activity.ts';
@@ -1301,7 +1301,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.openPhaseArtifacts', 'singularityFlow.openStoryIntake', 'singularityFlow.runAction',
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
-    'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration', 'singularityFlow.prefillNextCommand',
+    'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration', 'singularityFlow.prefillNextCommand', 'singularityFlow.continueStory',
     'singularityFlow.reviewStoryTestRecovery', 'singularityFlow.changeTestScope', 'singularityFlow.resolvePhaseIssues',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
     'singularityFlow.openInvestigation', 'singularityFlow.openContextReceipt', 'singularityFlow.openHandoff', 'singularityFlow.openProgress',
@@ -6179,6 +6179,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push(chatPrefill);
   handlers.set(PREFILL_COMMAND, () => chatPrefill.fillNow());
+  /**
+   * Continue [owner, 2026-11-28: one way on that always works]: sends the Story's one way on (`/sf-next`, or `/sf-task` on a
+   * task) to the chat the person used last, as they would type it. Its turn says where the Story is, why it waits and the
+   * one thing to do, and does it when it is SFlow's; a person's approval or decision is asked there or on its page.
+   */
+  const continueStatus = vscode.window.createStatusBarItem('singularityFlow.continueStory', vscode.StatusBarAlignment.Left, 99.4);
+  continueStatus.name = 'Singularity Flow: Continue';
+  continueStatus.command = CONTINUE_COMMAND;
+  context.subscriptions.push(continueStatus);
+  const showContinue = (): void => {
+    const workflow = store.current.snapshot?.workflow;
+    if (!workflow?.workItem?.id || workflow.status !== 'in_progress') { continueStatus.hide(); return; }
+    continueStatus.text = '$(debug-continue) Continue';
+    continueStatus.tooltip = `Carry ${workflow.workItem.id} on: sends ${carryRoute(workflow)} to the Copilot chat you used last. It says why the Story waits and does what is SFlow's.`;
+    continueStatus.show();
+  };
+  handlers.set(CONTINUE_COMMAND, async () => {
+    const workflow = store.current.snapshot?.workflow;
+    if (!workflow?.workItem?.id) { void showCompactInformationMessage('No Story is open in this window: start one from Work, or open one.'); return; }
+    await sendTaskRoute(carryRoute(workflow));
+  });
+  context.subscriptions.push(store.onDidChange(() => showContinue()));
+  showContinue();
   context.subscriptions.push(store.onDidChange((state, change) => {
     if (state.error) { nextCommandStatus.hide(); return; }
     if (change.kind === 'snapshot' && state.snapshot && !state.stale) chatPrefill.observe();
@@ -8121,13 +8144,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * the Story session.
   */
   /**
-   * After a person approves a step of a task's Story on the approval page, the chat goes on with the task's next action
-   * [ITW:REQ-008]: `/sf-task` is sent as the person would type it, so its turn is the next step's, under that step's rules.
-   * Only for a task (its work type `task-<kind>`), only once the step reads approved.
+   * After a person approves a step on the approval page, the chat goes on with the Story's next action [ITW:REQ-008; owner,
+   * 2026-11-28: every Story carries on]: its one way on (`/sf-task` on a task, `/sf-next` on any other) is sent as the person
+   * would type it, so its turn is the next step's, under that step's rules. Only once the step reads approved.
    */
   const continueTaskInChat = async (workId: string, phaseId: string): Promise<void> => {
     const workflow = store.current.snapshot?.workflow;
-    if (!workflow || workflow.workItem?.id !== workId || !isTaskStory(workflow)) return;
+    if (!workflow || workflow.workItem?.id !== workId) return;
     // The view may not have read the approval yet: then one read of the Story itself says whether the step reads approved.
     const route = taskChatContinuation(workflow, workId, phaseId)
       ?? taskChatContinuation(await client.run<unknown>(['status', workId, '--json']).catch(() => null), workId, phaseId);

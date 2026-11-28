@@ -178,7 +178,8 @@ export function needsYouListHtml(list: NeedsYouList | null, { reading = false, e
   }
   if (group !== null) rows.push('</ul>');
   const more = !all && list.more ? `<button type="button" class="needs-you-more" data-more="1">Show ${list.more} more</button>` : '';
-  const empty = list.items.length ? '' : '<p class="needs-you-empty">Nothing waits on you now.</p>';
+  // Nothing waits on the person: Continue carries the open Story on, saying why it waits (the one way on, /sf-next).
+  const empty = list.items.length ? '' : '<p class="needs-you-empty">Nothing waits on you now. <button type="button" class="needs-you-more" data-continue="1">Continue</button></p>';
   const head = `<p class="needs-you-checked">${escape(list.checked?.words ?? (reading ? 'Reading…' : 'Not read yet'))}${reading ? ' · reading' : ''}</p>`;
   const lines = list.lines.map((line) => `<p class="needs-you-line">${escape(line)}</p>`).join('');
   return `${head}${error ? `<p class="needs-you-line" role="status">${escape(error)}</p>` : ''}${empty}${rows.join('')}${more}${lines}`;
@@ -226,10 +227,11 @@ export const NEEDS_YOU_SCRIPT = `
 const vscode = acquireVsCodeApi();
 ${PLACES_TABS_SCRIPT}
 document.addEventListener('click', (event) => {
-  const target = event.target.closest('[data-key],[data-more]');
+  const target = event.target.closest('[data-key],[data-more],[data-continue]');
   if (!target) return;
   if (target.dataset.key) vscode.postMessage({ type: 'places', action: 'open', key: target.dataset.key });
   else if (target.dataset.more) vscode.postMessage({ type: 'places', action: 'more' });
+  else if (target.dataset.continue) vscode.postMessage({ type: 'places', action: 'continue' });
 });
 `;
 

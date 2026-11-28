@@ -30,13 +30,15 @@ import { readdir, readFile, realpath, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { routedCommandGuidance } from './copilot-command.ts';
-import { isTaskStory, TASK_ROUTE, withTaskRoute } from '../../../src/safe-command-guidance.mjs';
+import { carryRoute, isTaskStory, TASK_ROUTE, withTaskRoute } from '../../../src/safe-command-guidance.mjs';
 import { buildJourney } from './views/journey-model.ts';
 import { startsFreshChat } from './views/submission-presentation.ts';
 
 /** The setting that turns the automatic fill off; the status-bar button keeps working. */
 export const PREFILL_SETTING = 'chat.prefillNextCommand';
 export const PREFILL_COMMAND = 'singularityFlow.prefillNextCommand';
+/** Continue: sends the Story's one way on to the chat the person used last [owner, 2026-11-28]. */
+export const CONTINUE_COMMAND = 'singularityFlow.continueStory';
 /** The documents VS Code gives extensions for chat inputs: a window's chats, and the Agents window's. */
 export const CHAT_INPUT_SCHEMES: readonly string[] = Object.freeze(['chatSessionInput', 'sessions-chat']);
 const FILLED_KEY = 'singularityFlow.chatPrefill.filled';
@@ -124,14 +126,15 @@ export function nextChatPrefill(snapshot: RepositorySnapshot | null | undefined)
 }
 
 /**
- * What the chat is sent once a person approved a step of a task's Story on a page (the approval page the chat's own approve
- * flow opened, the Approvals list, the Journey, the tree) [ITW:REQ-008]: `/sf-task`, in the chat the person used last, never
- * a new one, and only once that step reads approved. Null for any other Story, which goes on as before.
+ * What the chat is sent once a person approved a step on a page (the approval page the chat's own approve flow opened, the
+ * Approvals list, the Journey, the tree) [ITW:REQ-008; owner, 2026-11-28: every Story carries on like a task]: the Story's
+ * one way on, `/sf-task` on a task and `/sf-next` on any other, in the chat the person used last, never a new one, and only
+ * once that step reads approved. A closed Story has nothing to carry on.
  */
 export function taskChatContinuation(workflow: unknown, workId: string, phaseId: string): string | null {
-  const story = workflow as { workItem?: { id?: unknown }; phases?: Record<string, { status?: unknown } | undefined> } | null | undefined;
-  if (!story || !workId || story.workItem?.id !== workId || !isTaskStory(story)) return null;
-  return story.phases?.[phaseId]?.status === 'approved' ? TASK_ROUTE : null;
+  const story = workflow as { workItem?: { id?: unknown }; status?: unknown; phases?: Record<string, { status?: unknown } | undefined> } | null | undefined;
+  if (!story || !workId || story.workItem?.id !== workId || story.status === 'closed') return null;
+  return story.phases?.[phaseId]?.status === 'approved' ? carryRoute(story) : null;
 }
 
 /**

@@ -1611,7 +1611,7 @@
   "evidence-recorded": "review-safe",
   "external-synchronized": "stales-submission",
   "branch-linked": "stales-submission",
-  "telemetry-recorded": "stales-submission",
+  "telemetry-recorded": "review-safe",
   "projection-reconciled": "stales-submission",
   "impact-classified": "stales-submission",
   "impact-opted-out": "stales-submission",

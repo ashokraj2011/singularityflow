@@ -318,8 +318,9 @@ export function workTaskHtml(row: WorkRow, task: WorkTask | null, { result = nul
     ? `<ul class="task-files">${task.changed.files.map((file) => `<li><span>${escape(file.path)}</span> <span class="muted">${escape(lineCount(file))}</span></li>`).join('')}</ul>${task.changed.total > task.changed.files.length ? `<p class="muted">${task.changed.total - task.changed.files.length} more</p>` : ''}`
     : `<p class="muted">No files changed against ${escape(task.changed.base)} yet.</p>`}${row.route.here ? '<p><button type="button" class="secondary" data-act="explain">Explain the change</button></p>' : ''}</section>` : '';
   const rules = task?.rules.length ? `<section aria-labelledby="rules-title"><h2 id="rules-title">Rules applied</h2><ul>${task.rules.map((because) => `<li>${escape(because)}</li>`).join('')}</ul></section>` : '';
-  const away = !row.route.here && row.route.elsewhere.length
-    ? `<p class="muted">${escape(row.id)} is not open in this window. Open it with: ${row.route.elsewhere.map((command) => `<code>${escape(command)}</code>`).join(' then ')}</p>` : '';
+  // Not open here: one button that opens it, its folder in a new window or its own commands in a terminal [owner, 2026-11-28].
+  const away = !row.route.here && (row.route.checkout || row.route.elsewhere.length)
+    ? `<p class="muted">${escape(row.id)} is not open in this window. <button type="button" class="secondary" data-act="open-elsewhere">${row.route.checkout ? 'Open its folder in a new window' : 'Open it in a terminal'}</button></p>` : '';
   return `<main class="work-task">
 <h1 id="task-title" tabindex="-1">${escape(row.title)}</h1>
 <p class="muted">${escape(header)}</p>

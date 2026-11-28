@@ -71,7 +71,9 @@ test('recover on an approved phase explains how it changes and offers only the r
   const blocked = await inspectPhaseRecovery(packageRoot, {}, authoring, authoring.phases.implementation);
   // No reject from an in-progress phase or to a disallowed target; raising the issue stays open.
   assert.deepEqual(blocked.actions.slice(1).map(action => action.id), ['upstream-issue:implementation']);
-  assert.match(blocked.actions[0].detail, /conformance may not return work to implementation; its allowed return targets are conformance/);
+  // Never "a workflow maintainer decides": the issue goes to the producer's own approvers [owner, 2026-11-28].
+  assert.match(blocked.actions[0].detail, /conformance may not return work to implementation \(it returns to conformance\), so raise the problem for implementation's approvers/);
+  assert.doesNotMatch(blocked.actions[0].detail, /maintainer/u);
   assert.match(raiseUpstreamIssueRoute(authoring, 'implementation', 'conformance').command,
     /^singularity-flow upstream-issue raise --work-id DEAD-1 --phase implementation /);
   assert.equal(raiseUpstreamIssueRoute(authoring, 'conformance', 'implementation'), null, 'a later phase is not upstream');
@@ -119,7 +121,9 @@ test('a closed Story whose policy forbids reopening offers no reopen route, and 
   const [finding] = classifyStoryGateFailures(closed, [coded('gate.acceptance-criteria.unbound', 'AC coverage gap')]);
   assert.equal(finding.recovery.requiresReopen, false);
   assert.equal(finding.recovery.command, null);
-  assert.match(finding.recovery.detail, /does not allow completed work to be reopened/);
+  // A new task corrects it, never "have a workflow maintainer change the policy" [owner, 2026-11-28].
+  assert.match(finding.recovery.detail, /policy keeps completed work closed, so implementation is corrected in a new task: ask \/sf-task/);
+  assert.equal(finding.recovery.skill, '/sf-task');
   const plan = gateRecoveryReopenPlan(packageRoot, closed, [{ ...finding, recovery: { ...finding.recovery, requiresReopen: true } }], 'implementation');
   assert.equal(plan.allowed, false);
   assert.equal(plan.blockedBy, 'reopen-disallowed');

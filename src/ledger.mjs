@@ -1,6 +1,6 @@
 import { repositoryCommitPolicyModule } from './util.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import {commitPolicyEnforcedHint, retainedRepositoryCommitPolicy, withAdmittedCommitGit, commitGitRequestDigest} from './util.mjs';
+import {commitPolicyEnforcedHint, retainedRepositoryCommitPolicy, withPrivateGitRef} from './util.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -232,7 +232,7 @@ async function updateDirectLocalStateRef(root, config, commit, expectedCommit, e
   // Choosing an admission needs the remote ref; a repository with no commit policy needs neither.
   const updated = !hasCommitPolicy(root) ? action()
     : optionalDirectStateRef(root, config, remoteRef(config), env) === commit
-      ? await withAdmittedCommitGit(root,{kind:'private-ref',requestSha256:commitGitRequestDigest(args,{env})},action)
+      ? await withPrivateGitRef(root,args,{env},action)
       : await (await repositoryCommitPolicyModule('runtime', root)).withRetainedPolicyRefAdmission(root,commit,ref,action,{env});
   const after = directRefObservation(root, ref, env);
   // A lost process acknowledgement is safe only when the exact named direct ref contains the
@@ -299,7 +299,7 @@ async function synchronizeLocalStateRefAfterRemotePush(root, config, commit, env
   // The caller has just reconciled the remote CAS and installed that exact tracking ref.
   // Mirror only that observed object; this grants no commit validation or publication authority.
   if (hasCommitPolicy(root) && optionalDirectStateRef(root, config, remoteRef(config), env) !== commit) return;
-  withAdmittedCommitGit(root, {kind:'private-ref',requestSha256:commitGitRequestDigest(args,{env})}, () => git(root,args,{allowFailure:true,env}));
+  withPrivateGitRef(root, args, {env}, () => git(root,args,{allowFailure:true,env}));
 }
 
 function localStateConcurrencyError(config, expectedLocalSha, observedLocalSha) {

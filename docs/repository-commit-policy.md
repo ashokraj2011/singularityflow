@@ -110,6 +110,8 @@ RCP never records an application's human **All good** or triggers its final scre
 - Reviewed authoring and the normal configuration proposal/membership bridges validate before advancing their owner ref.
 - Ledger object writes use their destination's approved metadata/ordinary policy. Detached state projections advance only their private HEAD before the existing state owner publishes them.
 - Incoming state convenience refs mirror exact reconciled remote objects; they do not mint a policy receipt or lifecycle approval.
+- SFlow's own refs (the configuration cache's retention refs in `.git/singularity-flow/`, the state branch mirroring what its remote holds, this policy's own retention refs) take one rule, `withPrivateGitRef` in `src/util.mjs`: an exact ref update, never a commit, merge or push, and no commit policy is asked for it. Before 2026-11-28 the cache's refs were judged as the person's, so workspace setup in a repository that enforces commits stopped. `test/sflow-private-refs.test.mjs` fails when a new ref update in `src` takes neither this rule nor the policy's check.
+- A policy SFlow cannot read (Git cannot read the approved ref, the repository's `.git/HEAD` is gone, the definition is not YAML) is not an adopted one. The refusal says in one line what failed and how to fix it, with `details.reason: 'policy-unreadable'`; nothing is written.
 - The central Git boundary fences other commit/ref writers. The asynchronous push boundary revalidates retained exact objects and leases. Unsupported legacy/direct writer forms remain refused rather than gaining an exemption.
 - Discovery and non-enforced repositories preserve compatibility behavior. Unsupported or uncovered paths do not establish universal compliance.
 

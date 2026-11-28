@@ -1248,13 +1248,27 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-publication-readiness.mjs +964) [owner, 2026-11-28]. No new eager file.
     // 9,978,583 (measured for submit.mjs, +3,164 over 9,975,419 on the merge of never-stuck-approval with main 8c74e5a3b,
     // 2026-11-28; start.mjs 9,978,078): both sides' rises above together. No new eager file.
-    // 9,979,061 (measured for submit.mjs, +480 over 9,978,581, 2026-11-28 on carry-on merged with main 9df4aa9af; start.mjs
-    // 9,978,546): every Story carries on like a task and has one way on (owner, 2026-11-28): /sf-next as any Story's route
-    // (safe-command-guidance.mjs +217 NEXT_ROUTE, carryRoute), an approval that says the turn goes on
-    // (approval-agent-result.mjs +116), every Story keeps its chat and a new chat right after an approval keeps the Story
-    // (context-policy.mjs +144 openedByApproval). The way out itself (way-out.mjs) loads only for a nextsteps read. No new
-    // eager file.
-    assert.ok(closure.bytes <= 9_979_061, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,987,435 (measured for submit.mjs, +480 over 9,986,955, 2026-11-28 on carry-on merged with main 38f37deda): every Story
+    // carries on like a task and has one way on (owner, 2026-11-28): /sf-next as any Story's route (safe-command-guidance.mjs
+    // NEXT_ROUTE, carryRoute), an approval that says the turn goes on (approval-agent-result.mjs), every Story keeps its chat
+    // and a new chat right after an approval keeps the Story (context-policy.mjs openedByApproval). The way out itself
+    // (way-out.mjs) loads only for a nextsteps read. No new eager file.
+    // 9,986,955 (measured for submit.mjs on the merge of rcp-private-refs with main 6fcac38b8, 2026-11-28; start.mjs 9,984,483,
+    // approve.mjs 9,893,481): never-stuck-2 and the private-ref rule together. No new eager file.
+    // 9,984,148 (measured for submit.mjs, +5,567 over 9,978,581 on never-stuck-2, 2026-11-28; start.mjs 9,981,676, approve.mjs
+    // 9,890,674): the browser gate offers a person's sign-off on SFlow's saved screenshot (mcp-evidence.mjs +1,173; the
+    // sign-off reader loads lazily, browser-sign-off.mjs), every final-gate escalation has its route (gate-recovery.mjs
+    // +1,269, upstream-routes.mjs +177), a missing decision value gets filled submits (commands/submit.mjs +556), the
+    // sign-off, pull-request and route forms in the map (action-command-map.mjs +868), the sign-off at submission
+    // (state.mjs +479, phase-publication-readiness.mjs +741), write access names the words to send (transport-intents.mjs
+    // +160) and `--sign-off` among the boolean flags (util.mjs +12) [owner, 2026-11-28]. No new eager file.
+    // 9,978,226 (measured for submit.mjs, +2,807 over 9,975,419 on rcp-private-refs over main b63148851, 2026-11-28; start.mjs
+    // 9,977,721): SFlow's own refs take one private-ref rule, and a commit policy SFlow cannot read says why and how to fix
+    // it instead of "a policy is adopted" (util.mjs withPrivateGitRef and the reasons +2,960; ledger.mjs -153 now using the
+    // rule) [owner, 2026-11-28: no one gets stuck]. No new eager file.
+    // 9,981,388 (measured for submit.mjs, +2,805 over 9,978,583 on the merge of rcp-private-refs with main b77673be5,
+    // 2026-11-28; start.mjs 9,980,873): both sides' rises above together. No new eager file.
+    assert.ok(closure.bytes <= 9_987_435, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1481,7 +1495,12 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // main's rises together. No new eager file.
   // 898,739 (+13 over 898,726, measured 2026-11-28 on ask-once merged with main 0233340d8): `--sent-back`, the next version
   // on a person's send-back, among the boolean flags (util.mjs BOOLEAN_OPTIONS) [ask once, owner 2026-11-28]. No new eager file.
-  assert.ok(root.bytes <= 898_739, `root dispatch loads ${root.bytes} source bytes`);
+  // 901,711 (measured 2026-11-28 on the merge of rcp-private-refs with main 6fcac38b8): both sides together.
+  // 898,751 (+12 over 898,739, measured 2026-11-28 on never-stuck-2): `--sign-off`, a person's sign-off on SFlow's saved
+  // screenshot, among the boolean flags (util.mjs BOOLEAN_OPTIONS) [owner, 2026-11-28]. No new eager file.
+  // 901,699 (+2,960 over 898,739, measured 2026-11-28 on rcp-private-refs over main b63148851): the private-ref rule and the
+  // plain reasons for a commit policy SFlow cannot read (util.mjs) [owner, 2026-11-28]. No new eager file.
+  assert.ok(root.bytes <= 901_711, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1989,9 +2008,17 @@ test('the common session projection does not import attach, state stores or publ
   // (mcp-evidence.mjs) [owner, 2026-11-28]. No new eager file.
   // 4,412,967 (+582 over 4,412,385, measured 2026-11-28 on the merge of never-stuck-approval with main 1d2f4aaf2): both
   // sides' rises above together. No new eager file.
-  // 4,413,319 (+364 over 4,412,955, measured 2026-11-28 on carry-on merged with main 9df4aa9af): any Story's one way on
-  // (safe-command-guidance.mjs +217) and every Story keeping its chat (context-policy.mjs +144). No new eager file.
-  assert.ok(current.bytes <= 4_413_319, `session current loads ${current.bytes} source bytes`);
+  // 4,417,464 (+364 over 4,417,100, measured 2026-11-28 on carry-on merged with main 38f37deda): any Story's one way on
+  // (safe-command-guidance.mjs) and every Story keeping its chat (context-policy.mjs). No new eager file.
+  // 4,417,100 (measured 2026-11-28 on the merge of rcp-private-refs with main 6fcac38b8): both sides together.
+  // 4,414,140 (+1,185 over 4,412,955, measured 2026-11-28 on never-stuck-2): the browser gate offers a person's sign-off on
+  // SFlow's saved screenshot (mcp-evidence.mjs +1,173; its reader loads lazily, browser-sign-off.mjs) and `--sign-off`
+  // among the boolean flags (util.mjs +12) [owner, 2026-11-28]. No new eager file.
+  // 4,415,345 (+2,960 over 4,412,385, measured 2026-11-28 on rcp-private-refs over main b63148851): the private-ref rule and
+  // the plain reasons for a commit policy SFlow cannot read (util.mjs) [owner, 2026-11-28]. No new eager file.
+  // 4,415,915 (+2,948 over 4,412,967, measured 2026-11-28 on the merge of rcp-private-refs with main b77673be5): both
+  // sides' rises above together. No new eager file.
+  assert.ok(current.bytes <= 4_417_464, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

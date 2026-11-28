@@ -14,7 +14,7 @@ import { repositoryCommitPolicyBinding } from './context.mjs';
 import { rcpDigest, rcpFailure } from './policy.mjs';
 import { captureCommitEffects, compareCommitEffects } from './effects.mjs';
 import { retainCommitPolicyRecord, readCommitPolicyOperation, writeCommitPolicyOperation } from './records.mjs';
-import { withAdmittedCommitGit, commitGitRequestDigest } from './gate.mjs';
+import { withAdmittedCommitGit, withPrivateGitRef, commitGitRequestDigest } from './gate.mjs';
 
 function local(root, args, env) { return run('git', args, { cwd: root, env, timeoutMs: 15000 }); }
 function plain(value) { return value.endsWith('\n') ? value : `${value}\n`; }
@@ -67,7 +67,7 @@ async function createNativePolicyObjectOnce(root, plan, { operationId, identity,
   local(directory, [...base, 'symbolic-ref', 'HEAD', plan.ref], environment);
   if (plan.parents[0]) {
     const initialRef = [...base, 'update-ref', plan.ref, plan.parents[0]];
-    withAdmittedCommitGit(directory, {kind: 'private-ref', requestSha256: commitGitRequestDigest(initialRef, {env: environment})}, () => local(directory, initialRef, environment));
+    withPrivateGitRef(directory, initialRef, {env: environment}, () => local(directory, initialRef, environment));
   }
   local(directory, [...base, 'read-tree', plan.prospectiveTree], environment);
   await writeFile(messageFile, plan.proposedMessage, { mode: 0o600 });
@@ -117,7 +117,7 @@ async function createNativePolicyObjectOnce(root, plan, { operationId, identity,
     local(root, ['-c', 'protocol.file.allow=always', 'fetch', '--no-tags', '--no-write-fetch-head', '--no-auto-maintenance', '--no-recurse-submodules', gitDirectory, commit], environment);
     const retainedRef = `refs/sflow/rcp/objects/${operationId.slice(7)}`;
     const retention = ['update-ref', retainedRef, commit];
-    withAdmittedCommitGit(root, { kind: 'private-ref', requestSha256: commitGitRequestDigest(retention, { env: environment }) }, () => local(root, retention, environment));
+    withPrivateGitRef(root, retention, { env: environment }, () => local(root, retention, environment));
   }
   if (effects.changedPaths.length) await writeCommitPolicyOperation(root, budgetId, {...budget, changedNormalizationAttempts: consumed + 1, stage: 'candidate-changed', lastOperation: operationId});
   if (effects.outOfScope.length) rcpFailure('RCP_HOOK_EFFECT_OUT_OF_SCOPE', 'Native hooks changed files or Git control data outside the admitted commit scope. Actual files and any private object were retained.', { operationId, commit, effects, validation });

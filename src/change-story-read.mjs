@@ -62,7 +62,12 @@ export async function changeStoryFacts(root, config, workflow, phase) {
 
 /** The page as a pull request's section [CSP:REQ-009]: without its title and banner, its headings one level down. Pure. */
 export function changeStoryForPullRequest(text) {
-  return changeStoryBody(text).split('\n').filter((line, index) => !(index === 0 && /^# /u.test(line)))
+  // The pull request has its own section for what a person decided (pull-request.mjs), read from the Story as it is now.
+  let personSection = false;
+  return changeStoryBody(text).split('\n').filter((line) => {
+    if (/^## /u.test(line)) personSection = line.startsWith('## Decided by a person, not checked by SFlow');
+    return !personSection;
+  }).filter((line, index) => !(index === 0 && /^# /u.test(line)))
     .filter((line) => !/^> Written by SFlow from its records/u.test(line))
     .map((line) => (/^#{1,4} /u.test(line) ? `##${line}` : line)).join('\n').replace(/^\s+/u, '').trimEnd();
 }

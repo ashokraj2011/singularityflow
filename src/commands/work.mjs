@@ -421,12 +421,12 @@ export const TASK_START_OPTIONS = Object.freeze(['ref', 'from-branch', 'document
   'github', 'jira', 'isolated-worktree']);
 
 export async function launchTask(id, { words, title = titleOf(words), description = words, preview, base, documents = [], json, admission = null, isolated = false,
-  passOn = {}, source = null, notes = null }) {
+  startOptions = {}, source = null, notes = null }) {
   const { startTaskStory } = await import('./start.mjs');
   // An issue is the Story's source as it is, so the words and the title are its own; what SFlow asks of the task goes with it.
   return startTaskStory(['start', id], {
-    json, ...(source ? {} : { title, description }), ...(passOn['from-branch'] ? {} : { base }), 'work-type': preview.composition.workType, yes: true,
-    ...(documents.length ? { document: documents } : {}), ...(isolated ? { 'isolated-worktree': true } : {}), ...passOn
+    json, ...(source ? {} : { title, description }), ...(startOptions['from-branch'] ? {} : { base }), 'work-type': preview.composition.workType, yes: true,
+    ...(documents.length ? { document: documents } : {}), ...(isolated ? { 'isolated-worktree': true } : {}), ...startOptions
   }, preview.composition, { plan: preview.plan, admission, source, notes });
 }
 
@@ -708,9 +708,9 @@ export async function workCommand(positionals = [], options = {}) {
   const guidance = preview.composition.sizing ? (await import('../task-shape.mjs')).taskIntakeGuidance(preview.composition) : null;
   const description = [finding ? `${typed}\n\n${finding}` : report ? `${typed}\n\n## Starts from ${from}'s report (${report.artifact})\n\n${report.text}` : typed, guidance].filter(Boolean).join('\n\n');
   // An issue's own text is its Story's; the words typed beside it and what SFlow asks go in its notes [ITW:REQ-115].
-  const passOn = Object.fromEntries(TASK_START_OPTIONS.filter((name) => Object.hasOwn(options, name)).map((name) => [name, options[name]]));
+  const startOptions = Object.fromEntries(TASK_START_OPTIONS.filter((name) => Object.hasOwn(options, name)).map((name) => [name, options[name]]));
   return launchTask(id, { words: typed || words, title: optionString(options, 'title') ?? titleOf(typed || words), preview, base, documents,
-    json: optionBoolean(options, 'json'), description, passOn, source: issue, notes: issue ? description || null : null }).catch((error) => {
+    json: optionBoolean(options, 'json'), description, startOptions, source: issue, notes: issue ? description || null : null }).catch((error) => {
     // The plan read a skill this checkout has but the Story's base does not, or has otherwise: started without it.
     if (error?.code === 'TASK_SKILL_CHANGED' && error.details?.skill) {
       error.details.nextAction = { command: startCommand(typed, kind, { ...options, 'use-skill': use.filter((skill) => skill !== error.details.skill),

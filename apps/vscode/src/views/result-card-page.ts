@@ -564,7 +564,7 @@ export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now
   const warnings = view.warnings.length
     ? `<ul class="sf-card-why">${view.warnings.map((entry) =>
       `<li>${icon('statusWarning', { size: 14 })} ${escape(entry.label)}${
-        entry.detail ? ` — ${escape(entry.detail)}` : ''}</li>`).join('')}</ul>`
+        entry.detail ? ` — ${escape(entry.detail)}` : ''}${entry.copy ? ` <button type="button" data-copy-route="${escape(entry.copy)}">Copy what to send them</button>` : ''}</li>`).join('')}</ul>`
     : '';
 
   const gates = view.checklist.length

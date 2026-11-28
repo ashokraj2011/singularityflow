@@ -7051,6 +7051,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
       const releaseAction = release?.ready ? 'Preserve changes & return to base' : null;
+      // Not a cancelled Story's: set them aside in a Git stash, which Source Control's Pop Stash undoes [owner, 2026-11-28].
+      const setAside = release ? null : 'Set them aside (undo: Pop Stash)';
       const open = await showCompactWarningMessage(
         `Cannot start work in ${target} on ${branchName}: ${changedPaths.length} uncommitted path(s) (${sample}${remaining ? `, +${remaining} more` : ''}).`,
         {
@@ -7059,11 +7061,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             + `${changedPaths.join('\n')}\n\n`
             + (release
               ? `This Story is cancelled. Singularity Flow can preserve these edits in a named Git stash and return to ${release.baseBranch}; the archived branch and history remain intact.`
-              : 'Commit or stash these changes before starting work.')
+              : 'Set them aside to start now: SFlow keeps them in a Git stash, and Source Control\'s Pop Stash puts them back. Or commit them first.')
         },
         ...(releaseAction ? [releaseAction] : []),
+        ...(setAside ? [setAside] : []),
         'Open Source Control'
       );
+      if (setAside && open === setAside) {
+        await vscode.commands.executeCommand('git.stashIncludeUntracked');
+        client.invalidateReads();
+        await store.refresh().catch(() => undefined);
+        if ((store.current.snapshot?.repository?.changes ?? []).length) {
+          void showCompactInformationMessage('The changes are still there, so nothing was set aside. Commit them, or set them aside from Source Control.');
+          return;
+        }
+        void showCompactInformationMessage('Your changes are set aside in a Git stash: Source Control\'s Pop Stash puts them back.');
+        return startWork(defaults);
+      }
       if (releaseAction && open === releaseAction && cancelled) {
         try {
           const result = await client.run<{
@@ -7745,6 +7759,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (approval.workId) await lazyPanels().reviewDecisions(client, { workId: approval.workId }, refreshAfterKnownMutation);
       return;
     }
+    // The one fix for a reason nobody can approve now [owner, 2026-11-28]: People & approvals, or the person's own Git
+    // name and email, asked here and set in this repository's terminal for them to see.
+    if (message.type === 'fix') {
+      if (approval.fix === 'people') return void vscode.commands.executeCommand('singularityFlow.configurePeople');
+      const name = await vscode.window.showInputBox({ title: 'Your Git name', prompt: 'The name your approvals are signed with in this repository.', ignoreFocusOut: true,
+        validateInput: (value) => (value.trim() ? null : 'Your name is needed.') });
+      if (!name?.trim()) return;
+      const email = await vscode.window.showInputBox({ title: 'Your Git email', prompt: 'The email your approvals are signed with in this repository.', ignoreFocusOut: true,
+        validateInput: (value) => (/^[^\s@]+@[^\s@]+$/u.test(value.trim()) ? null : 'An email address is needed.') });
+      if (!email?.trim()) return;
+      const quote = (value: string) => (process.platform === 'win32' ? `'${value.replaceAll("'", "''")}'` : `'${value.replaceAll("'", `'"'"'`)}'`);
+      const terminal = vscode.window.createTerminal({ name: 'SFlow: Git identity', cwd: repository });
+      terminal.show();
+      terminal.sendText(`git config user.name ${quote(name.trim())}${process.platform === 'win32' ? ';' : ' &&'} git config user.email ${quote(email.trim())}`, true);
+      return void refreshAfterKnownMutation();
+    }
     // A hold's own route, pressed on its card: the Decide card for the decision list, else the exact command, run here.
     if (message.type === 'run-hold') {
       const argv = message.command.replace(/^singularity-flow\s+/u, '').split(/\s+/u).filter(Boolean);
@@ -7814,6 +7844,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** The inbox reuses the exact approval transaction and adds all-phase document navigation. */
   const onInboxMessage = async (message: InboxMessage): Promise<void> => {
+    // A hold's own route: the same as on the Approvals card.
+    if (message.type === 'run-hold') return onApprovalsMessage({ type: 'run-hold', approval: message.approval, command: message.command });
     if (message.type === 'clone-story') {
       const story = buildInbox(store.current.snapshot, workspaceStoryCatalog, repository, inboxRepositoryBinding).stories
         .find(item => item.workId === message.workId && item.repositoryId === message.repositoryId && item.attachable);

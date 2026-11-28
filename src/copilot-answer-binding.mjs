@@ -170,6 +170,8 @@ export const REASON_RULES = Object.freeze({
 function reasonLengthProblem(positionals, options) {
   // The recommended answer takes no reason: the command records the recommendation's own, after checking it is one [C10].
   if (recommendedAnswer(options)) return null;
+  // A sign-off on SFlow's saved screenshot is the person's own look: it takes no reason [owner, 2026-11-28].
+  if (positionals[0] === 'decision' && positionals[1] === 'override-finding' && options['sign-off'] === true && options.reason === undefined) return null;
   for (const [flag, [minimum, maximum]] of Object.entries(REASON_RULES[positionals.slice(0, 2).join(' ')] ?? {})) {
     if (flag === 'supporting-reason' && options['add-supporting'] === undefined) continue;
     const length = String(typeof options[flag] === 'string' ? options[flag] : '').trim().length;
@@ -208,7 +210,8 @@ function yesNoCommand([command, sub, third, fourth], options, version = null) {
   }
   // Overriding a check's finding: only on a Yes to the question naming it, with the person's own reason [owner, 2026-11-23].
   if (command === 'decision' && sub === 'override-finding') {
-    return { records: 'yes', only: true, asked: true, row: `override ${text('finding')[0]}`, names: text('finding'), yes: ['override', 'override it', 'override this finding'], no: [] };
+    return { records: 'yes', only: true, asked: true, row: `override ${text('finding')[0]}`, names: text('finding'),
+      yes: options['sign-off'] === true ? ['sign off', 'sign it off', 'sign off the screenshot'] : ['override', 'override it', 'override this finding', 'the check is wrong'], no: [] };
   }
   if (command === 'story' && sub === 'intent-amendment' && third === 'acknowledge') {
     return { records: 'yes', only: true, asked: true, row: `acknowledge ${fourth}`, names: [fourth].filter(Boolean), yes: ['acknowledge', 'acknowledge it'], no: [] };

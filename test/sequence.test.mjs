@@ -212,7 +212,8 @@ test('soft gates require confirmation but cannot override immutable review histo
   });
   assert.notEqual(approved.status, 0);
   assert.match(approved.stderr, /Continuing after confirmed soft gate 'phaseStatus'/);
-  assert.match(approved.stderr, /repository history changed after its immutable review evidence/i);
+  // A commit that is not SFlow's own record still counts as a change after review, said plainly [never-stuck-approval, owner 2026-11-28].
+  assert.match(approved.stderr, /Intake changed after it was reviewed\. SFlow's own records never count; these commits are other changes, so this is not what was reviewed\./u);
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'intake');
   assert.equal(workflow.phases.intake.status, 'in_progress');

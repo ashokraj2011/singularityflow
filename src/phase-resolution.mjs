@@ -6,6 +6,8 @@ import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { correctionPlan, planCorrectsFirst, coverageScopeReviewPaths, repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding, activeRepairPhase, openScopeAppeal, phaseCorrectionTargets, phaseRepairActionAdmission } from './phase-finding-policy.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';
+import { checkReportText, checkWrongBar, PROTECTED_WHY } from './finding-overrides.mjs';
+import { stepAdvice, stepIntentOf } from './step-advice.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapDecisions, upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
 import { latestStepBefore } from './phase-roles.mjs';
@@ -79,9 +81,11 @@ function testFindingRoute(workflow, phase, finding, code, author) {
   // A test that did not run or failed is the step's own repair: no recovery beside it (owner, 2026-11-17) [OSA:REQ-003].
   const recheck = ['phase', 'prepublish', phase.id, '--for-agent', '--json', '--publish-if-ready'];
   if (finding.details?.requiredTestExecution?.failure?.kind === 'model-policy-skipped') {
-    return route('test-rerun', phase.id, recheck,
+    // The same check with models on is a changed run, never the same one again [dead end 10]: Copilot chat runs it with them on.
+    return { ...route('test-rerun', phase.id, recheck,
       'A required test command was not run. When it declares no modelPolicy it is skipped while models are disabled: rerun with the model enabled, '
-      + 'or have approved configuration declare modelPolicy: never for it and adopt it with story test-policy amend --reason <why>.', author());
+      + 'or have approved configuration declare modelPolicy: never for it and adopt it with story test-policy amend --reason <why>.', author()),
+    changes: 'models are on for the run' };
   }
   return route('test-repair', phase.id, recheck,
     'Read the saved test output (singularity-flow logs --level error --tail 20), repair the failing test, the implementation or the repository-owned test reporter within this step, then recheck. '
@@ -418,8 +422,8 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     'When every listed item is delivered and the finding still returns unchanged, the check is misreading the work: stop repairing and prepare a dispute with the evidence (test output, the test file). One of the step\'s approvers reviews it live and may accept it as an exception for this exact candidate; it is recorded as an exception, never a pass, and tests still run.',
     '/sf-appeal') : null;
   // A finding its gate lets a person override (finding-overrides.mjs): their way past it when the check is wrong [owner, 2026-11-23].
-  const override = finding.override?.key ? route('override', 'phase-approval-authority',
-    ['decision', 'override-finding', workId, '--phase', phase.id, '--finding', finding.override.key, '--reason', '<why>'],
+  const overrideArgv = finding.override?.key ? ['decision', 'override-finding', workId, '--phase', phase.id, '--finding', finding.override.key, '--reason', '<why>'] : null;
+  const override = overrideArgv && (finding.override.kind ?? 'override') === 'override' ? route('override', 'phase-approval-authority', overrideArgv,
     `If the check is wrong, a person ${phase.id}'s approval rules name overrides it with their reason; it then shows as overridden, never passed. Never the agent's decision.`, '/sf-decide') : null;
   // A finding no rule names leads with the person's override when its gate offers one.
   const unnamed = resolution.kind === 'author-correction' && resolution.detail.startsWith('No rule names this finding');
@@ -431,11 +435,21 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     'An authorized human may carry this exact document-quality shortfall through the selected transitions. It remains unmet, not passed; tests, trust and phase approval remain required.', '/sf-appeal'));
   // No finding may route only back to its own author [recoverable-findings M4]: when the author
   // cannot fix it because the check misreads correct work, someone else must be named.
-  // The one case that is truly someone else's: the check itself is wrong and its gate offers no override. Its entry is the
-  // exact text to send them, printed by SFlow, and the work is kept; nothing else waits on it [owner, 2026-11-28].
-  if (!choices.some((choice) => choice.owner !== phase.id)) choices.push(route('check-defect', 'sflow-maintainer',
-    findingDocumentation(finding).argv ?? ['explain', 'findings'],
-    'If your draft is right and this check still names it, the check is wrong: this prints the exact text to send SFlow\'s maintainer. Your work is kept.'));
+  // When nobody but the author is named, the check itself may be wrong: "This check is wrong here" with the person's reason
+  // moves the Story on, recorded as overridden and shown at the approval and in the pull request, with the report for
+  // SFlow's maintainer to copy [owner, 2026-11-28: "a wrong SFlow check: override with a reason"]. Only SFlow's own hooks,
+  // governance files and secrets, and where the Story stands, have none: the report, with why in one line.
+  if (!choices.some((choice) => choice.owner !== phase.id)) {
+    const report = checkReportText(workId, phase.id, finding);
+    const { stops } = stepAdvice(stepIntentOf(workflow, phase.id), { step: phase.label ?? phase.id });
+    const bar = checkWrongBar(finding);
+    choices.push(finding.override?.kind === 'check-wrong'
+      ? { ...route('check-wrong', 'phase-approval-authority', overrideArgv,
+        `This check is wrong here: ${stops.wrongCheck} A person ${phase.id}'s approval rules name gives the reason; it shows at the approval and in the pull request. Copy the report to SFlow's maintainer too.`,
+        '/sf-decide'), report }
+      : { ...route('check-report', 'sflow-maintainer', findingDocumentation(finding).argv ?? ['explain', 'findings'],
+        `${bar === PROTECTED_WHY ? stops.protected : bar ?? 'Its gate keeps no override.'} If your draft is right and this check still names it, copy the report to SFlow's maintainer. Your work is kept.`), report });
+  }
   if (activeRepairPhase(workflow, phase)) choices.push(preserve);
   // A gap's return routes run once this step is submitted. They say so, and their admission says not yet.
   const admitted = choices.filter(choice => gapRoutes.includes(choice) || !routeRefusedForStory(workflow, choice, phase))

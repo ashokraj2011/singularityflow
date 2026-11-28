@@ -13,9 +13,9 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 6,
-  "generic-route": 6195,
-  "jargon": 1342,
-  "length": 642
+  "generic-route": 6189,
+  "jargon": 1340,
+  "length": 639
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -1921,7 +1921,6 @@
   "src/publication-pending.mjs": 3,
   "src/publication-recovery.mjs": 32,
   "src/publication-unit-of-work.mjs": 5,
-  "src/pull-request.mjs": 6,
   "src/regression-analysis.mjs": 3,
   "src/reinstall.mjs": 118,
   "src/remote-fetch.mjs": 18,
@@ -3376,12 +3375,10 @@
   },
   "src/gate-recovery.mjs": {
    "1802461f0493": "jargon:generation",
-   "191f07a64185": "length",
    "1a019128430e": "jargon:digest length",
    "49458c8b3924": "jargon:retained length",
    "6b167864a729": "jargon:retained",
    "77478545642a": "jargon:retained length",
-   "86f314ba4f06": "length",
    "fd6c88a79c96": "jargon:retained length"
   },
   "src/gateway/planners/work-handoff.mjs": {
@@ -3969,13 +3966,11 @@
    "97aabe1fa2f4": "length",
    "9b8a8b37d98e": "jargon:digest",
    "9e6de17169b1": "jargon:generation",
-   "9f75b4b8bde7": "jargon:retained",
    "a888e884c3c5": "jargon:retained",
    "acfd21e08b14": "length",
    "b1ba60e70dff": "length",
    "b29110119ab8": "jargon:transport length",
    "b4289fa7708e": "length",
-   "b5809b4f1567": "jargon:ledger length",
    "c6a749d00720": "length",
    "c8fbdeed9c7f": "jargon:generation",
    "c9e42db37dc4": "jargon:digest length",

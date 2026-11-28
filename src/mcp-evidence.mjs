@@ -564,12 +564,16 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
   targetGeneration = nextPhaseGeneration(phase)
 } = {}) {
   const requirements = phase?.mcp?.evidence ?? [];
-  if (!requirements.length) return { errors: [], passes: [], records: [], routes: [] };
+  if (!requirements.length) return { errors: [], passes: [], records: [], routes: [], signOffs: [], signed: [] };
   const integrity = await verifyMcpEvidence(root, workflow, { itemDirectory });
   const errors = [...integrity.errors];
   const passes = [];
-  // A page no browser check saw: the setup commands, in order, then a new capture [owner, 2026-11-28].
+  // A page no browser check saw: the setup commands, in order, then a new capture; and when SFlow still cannot capture it,
+  // the person's sign-off on its saved screenshot (signOffs), recorded as signed off, not captured [owner, 2026-11-28].
   const routes = [];
+  const signOffs = [];
+  const signed = [];
+  const signedOff = new Set();
   const records = integrity.records.filter((record) =>
     record.phase === phase.id && Number(record.targetGeneration) === Number(targetGeneration)
   );
@@ -585,17 +589,24 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
         candidate.captureId === record.captureId && candidate.tool === 'browser_snapshot'
         && candidate.captureSource === 'observed-by-mcp-host')
     );
-    if (!observedNavigation) {
-      errors.push(
-        `Phase '${phase.id}' generation ${targetGeneration} requires a live, host-observed navigation receipt for origin-bound browser evidence from '${server}'. `
-        + 'Way on: set up the browser check (SFlow runs each command), then capture this version\'s page again with it.'
-      );
-      for (const command of mcpServerSetupCommands(server, workflow.resolution?.mcpServers?.[server], { origin: authorizedMcpOrigins(workflow, server)[0] ?? null })) {
-        if (!routes.includes(command)) routes.push(command);
-      }
-    } else passes.push(`${server}/origin: ${observedNavigation.observedFinalOrigin}`);
+    if (observedNavigation) { passes.push(`${server}/origin: ${observedNavigation.observedFinalOrigin}`); continue; }
+    // A person's sign-off on SFlow's saved screenshot, loaded only for a page no browser check saw (browser-sign-off.mjs).
+    const signOff = await (await import('./browser-sign-off.mjs')).browserSignOff(workflow, phase, targetGeneration, server, records);
+    // The workflow's gate stays: a person's sign-off is its way out, said as what it is wherever the evidence is read.
+    if (signOff.signed) { signedOff.add(server); signed.push(signOff.signed); passes.push(`${server}: ${signOff.words}`); continue; }
+    errors.push(
+      `Phase '${phase.id}' generation ${targetGeneration} requires a live, host-observed navigation receipt for origin-bound browser evidence from '${server}'. `
+      + 'Way on: set up the browser check (SFlow runs each command), then capture this version\'s page again with it.'
+      + (signOff.offer ? ' If SFlow still cannot capture it, a person who approves the step may sign off on SFlow\'s saved screenshot instead.' : '')
+    );
+    for (const command of mcpServerSetupCommands(server, workflow.resolution?.mcpServers?.[server], { origin: authorizedMcpOrigins(workflow, server)[0] ?? null })) {
+      if (!routes.includes(command)) routes.push(command);
+    }
+    if (signOff.offer) signOffs.push(signOff.offer);
   }
   for (const requirement of requirements) {
+    // A signed-off page stands for its server's browser records this version; they are never counted as captured.
+    if (signedOff.has(requirement.server) && requirement.tool.startsWith('browser_')) continue;
     const originBoundBrowser = requirement.tool.startsWith('browser_')
       && authorizedMcpOrigins(workflow, requirement.server).length > 0;
     const matches = records.filter((record) =>
@@ -614,7 +625,7 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
       );
     } else passes.push(`${requirement.server}/${requirement.tool}: ${matches.length}/${requirement.minimum}`);
   }
-  return { errors, passes, records, routes };
+  return { errors, passes, records, routes, signOffs, signed };
 }
 
 export async function listMcpEvidence(root, workflow, options = {}) {

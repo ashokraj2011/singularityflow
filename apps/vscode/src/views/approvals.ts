@@ -87,6 +87,7 @@ function cardHtml(approval: PendingApproval, standing: StoryStanding | null = nu
     ? '<p class="muted">You generated this. Approving it will be recorded as not independent.</p>'
     : ''}
     ${approval.reason ? `<p class="muted">${escape(approval.reason)}</p>` : ''}
+    ${approval.fix ? `<p><button class="secondary" data-fix="${escape(approval.id)}">${approval.fix === 'people' ? 'Add me as its approver' : 'Set my Git name and email'}</button></p>` : ''}
     <div class="card-foot">
     ${approval.heldBy ? `<p class="muted">${escape(approval.heldBy.headline)}</p>` : ''}
     ${!approval.heldBy && approval.approvalHolds?.length ? approvalHoldsHtml(approval.approvalHolds, { placeOf: (command) => holdRoutes(approval).indexOf(command) })
@@ -159,12 +160,13 @@ const SCRIPT = `
   const vscode = window.__sfVscode;
   document.querySelector('[data-focus]')?.scrollIntoView({ block: 'center' });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-approve],[data-reject],[data-open],[data-decide-list],[data-show-story],[data-hold-run]');
+    const target = event.target.closest('[data-approve],[data-reject],[data-open],[data-decide-list],[data-show-story],[data-hold-run],[data-fix]');
     if (!target) return;
     if (target.hasAttribute('data-show-story')) vscode.postMessage({ type: 'show-story' });
     else if (target.dataset.holdRun) vscode.postMessage({ type: 'run-hold', id: target.dataset.holdApproval, route: Number(target.dataset.holdRun) });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.decideList) vscode.postMessage({ type: 'decide-list', id: target.dataset.decideList });
+    else if (target.dataset.fix) vscode.postMessage({ type: 'fix', id: target.dataset.fix });
     else if (target.dataset.reject) vscode.postMessage({ type: 'reject', id: target.dataset.reject });
     else if (target.dataset.open) vscode.postMessage({ type: 'open', id: target.dataset.open });
   });
@@ -176,7 +178,9 @@ export type ApprovalsMessage =
   | { type: 'open'; approval: PendingApproval }
   | { type: 'decide-list'; approval: PendingApproval }
   // A hold's own route, pressed on its card: the command is the card's, found by its place (holdRoutes).
-  | { type: 'run-hold'; approval: PendingApproval; command: string };
+  | { type: 'run-hold'; approval: PendingApproval; command: string }
+  // The one fix for a reason nobody can approve now: People & approvals, or the person's Git identity [owner, 2026-11-28].
+  | { type: 'fix'; approval: PendingApproval };
 
 export class ApprovalsPanel {
   private static current: ApprovalsPanel | null = null;
@@ -233,6 +237,7 @@ export class ApprovalsPanel {
       reject: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'reject', approval }); },
       open: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open', approval }); },
       'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy || approval?.decideNext) onMessage({ type: 'decide-list', approval }); },
+      fix: (message) => { const approval = approvalFor(message); if (approval?.fix) onMessage({ type: 'fix', approval }); },
       'run-hold': (message) => {
         const approval = approvalFor(message);
         const route = (message as unknown as { route?: unknown }).route;

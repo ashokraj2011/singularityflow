@@ -1248,7 +1248,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-publication-readiness.mjs +964) [owner, 2026-11-28]. No new eager file.
     // 9,978,583 (measured for submit.mjs, +3,164 over 9,975,419 on the merge of never-stuck-approval with main 8c74e5a3b,
     // 2026-11-28; start.mjs 9,978,078): both sides' rises above together. No new eager file.
-    assert.ok(closure.bytes <= 9_978_583, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,979,042 (measured for submit.mjs, +461 over 9,978,581 on main 9df4aa9af, 2026-11-28 on no-typing; start.mjs 9,978,527): the
+    // Decide card's routes for a forward amendment, a lapsed exception and a finding's risk (model-free-commands.mjs +282), the
+    // records SF Guard signs on the card (person-step-catalog.mjs +75), one Yes for a soft gate (sequence.mjs +80), and the
+    // forward amendment's card route (forward-amendments.mjs +12, upstream-routes.mjs +12) [owner, 2026-11-28]. No new eager file.
+    assert.ok(closure.bytes <= 9_979_042, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1983,7 +1987,9 @@ test('the common session projection does not import attach, state stores or publ
   // (mcp-evidence.mjs) [owner, 2026-11-28]. No new eager file.
   // 4,412,967 (+582 over 4,412,385, measured 2026-11-28 on the merge of never-stuck-approval with main 1d2f4aaf2): both
   // sides' rises above together. No new eager file.
-  assert.ok(current.bytes <= 4_412_967, `session current loads ${current.bytes} source bytes`);
+  // 4,413,312 (+357 over 4,412,955 on main 9df4aa9af, measured 2026-11-28 on no-typing): the Decide card's routes for the steps
+  // moved to it (model-free-commands.mjs +282) and the records SF Guard signs there (person-step-catalog.mjs +75). No new eager file.
+  assert.ok(current.bytes <= 4_413_312, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

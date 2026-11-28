@@ -1,6 +1,5 @@
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { isTaskStory } from './safe-command-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const CONTEXT_BOUNDARY_MODES = new Set(['keep', 'compact', 'new']);
@@ -42,13 +41,11 @@ export function normalizeContextPolicy(value = {}, { phaseIds = null, label = 'c
 }
 
 /**
- * The context policy a Story's boundaries follow: its pinned one, except a task's. A task's steps run one after another in
- * the same chat, and /sf-task carries it on there [ITW:REQ-008]: no /clear or new chat between them.
+ * Every Story keeps its chat between steps and its turn carries on (task-turn.mjs) [owner, 2026-11-28; ITW:REQ-008]: no
+ * /clear or new chat. SFlow composes each step's prompt fresh, so going on needs nothing said earlier in the chat.
  */
-const TASK_CONTEXT_POLICY = Object.freeze({ onApproval: 'keep', onRejection: 'keep', phaseOverrides: Object.freeze({}) });
-export function storyContextPolicy(workflow) {
-  return isTaskStory(workflow) ? TASK_CONTEXT_POLICY : workflow?.resolution?.contextPolicy ?? {};
-}
+const CARRY_ON_CONTEXT_POLICY = Object.freeze({ onApproval: 'keep', onRejection: 'keep', phaseOverrides: Object.freeze({}) });
+export const storyContextPolicy = () => CARRY_ON_CONTEXT_POLICY;
 
 export function contextBoundaryMode(policy, phaseId, event = 'approval') {
   const normalized = normalizeContextPolicy(policy);

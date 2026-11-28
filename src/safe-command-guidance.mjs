@@ -254,6 +254,9 @@ function normalizedSkill(value) {
  * work type is a composed task's (`task-<kind>`).
  */
 export const TASK_ROUTE = '/sf-task';
+// Any Story's one way on, as /sf-task is a task's (task-turn.mjs) [owner, 2026-11-28].
+export const NEXT_ROUTE = '/sf-next';
+export const carryRoute = (workflow) => (isTaskStory(workflow) ? TASK_ROUTE : NEXT_ROUTE);
 export function isTaskStory(workflow) {
   const composition = workflow?.resolution?.composition;
   return /^task-[a-z]+$/u.test(String(workflow?.workItem?.workType ?? ''))

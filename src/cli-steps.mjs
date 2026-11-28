@@ -153,9 +153,9 @@ export function stop(result, label, code = 'CLI_STEP_FAILED') {
  * step was itself the next action. An agent that read the long result from the top reported
  * "published" and ended without offering what follows, so callers put this first.
  */
-// Review, submission and approval read their own packets, so the authoring chat only makes each of
-// their calls dearer: 40% of a recorded Story's cost, 17% less replayed from a fresh chat (2026-11-05).
-const FRESH_CHAT_ROUTE = /^\/sf(?:low)?-(?:review-source|submit|approve)(?:\s|$)/u;
+// A review reads its own packet and stays independent of the chat that wrote the step: with no sub-agent tool it runs in a
+// new chat. A submission and an approval go on in this same chat (owner, 2026-11-28: every Story carries on like a task).
+const FRESH_CHAT_ROUTE = /^\/sf(?:low)?-review-source(?:\s|$)/u;
 // A task's Story goes on with /sf-task in the same chat (safe-command-guidance.mjs withTaskRoute) [ITW:REQ-008].
 const TASK_CHAT_ROUTE = /^\/sf-task$/u;
 
@@ -165,11 +165,13 @@ export function nextAfterStep(review, done) {
   const route = continuation?.copilotCommand ?? '';
   const task = TASK_CHAT_ROUTE.test(route);
   const chat = task ? ' Say the person types /sf-task in this chat to carry the task on.'
-    : FRESH_CHAT_ROUTE.test(route) ? ' Say to run it in a new chat: it needs nothing from this one.' : '';
-  // A task's /sf-task turn goes on after a submission that waits for the person's approval (task-turn.mjs) [ITW:REQ-008].
-  const goesOn = task ? ' When SFlow\'s note after this command says this /sf-task turn goes on, do /sf-task\'s step 1 again now. Otherwise' : '';
+    : FRESH_CHAT_ROUTE.test(route) ? ' With no sub-agent tool, say to run it in a new chat: it needs nothing from this one.' : ' Say that /sf-next carries it on in this chat.';
+  // The turn goes on after a submission that waits for the person's approval (task-turn.mjs), on a task [ITW:REQ-008] and
+  // on every other Story [owner, 2026-11-28].
+  const goesOn = task ? ' When SFlow\'s note after this command says this /sf-task turn goes on, do /sf-task\'s step 1 again now. Otherwise'
+    : ' When SFlow\'s note after this command says this turn goes on, do what it says now. Otherwise';
   return {
-    instruction: `${done}${goesOn} ${task ? 'end' : 'End'} the reply with this next action: its reason, then its Copilot, Shell and VS Code (model-free) routes in that order, saying "not available for this action" for a missing one.${chat} Fields after this one describe the check before the step ran.`,
+    instruction: `${done}${goesOn} end the reply with this next action in one plain line: what happens next, and where a person decides it.${chat} Fields after this one describe the check before the step ran.`,
     ...(continuation?.contextBoundary ? { contextBoundary: continuation.contextBoundary } : {}),
     reason: action?.reason ?? null,
     commandGuidance: action ? { copilotCommand: continuation.copilotCommand ?? null,

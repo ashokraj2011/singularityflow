@@ -980,11 +980,15 @@ test('a repeated entry with the same prompt names the same prompt file', async (
   assert.equal(completeAgentResult(second).context.text, text);
 });
 
-test('the next step after publishing or submitting says when it starts in a new chat', async () => {
+test('the next step after publishing or submitting goes on in this chat; only a review with no sub-agent tool takes a new one', async () => {
   const { nextAfterStep } = await import('../src/cli-steps.mjs');
   const after = (copilotCommand) => nextAfterStep({ continuation: { nextAction: { reason: 'Go.' }, copilotCommand, nextCommand: 'singularity-flow status' } }, 'Done.').instruction;
-  for (const route of ['/sf-review-source planning', '/sf-submit', '/sf-approve planning --work-id W']) assert.match(after(route), /Say to run it in a new chat/u, route);
-  for (const route of ['/sf-code', '/sf-phase', '/sf-next', '/sf-outcome W', '/sf-review-decide planning']) assert.doesNotMatch(after(route), /new chat/u, route);
+  assert.match(after('/sf-review-source planning'), /With no sub-agent tool, say to run it in a new chat/u);
+  // Every Story carries on like a task (owner, 2026-11-28): a submission and an approval go on in the same chat.
+  for (const route of ['/sf-submit', '/sf-approve planning --work-id W', '/sf-code', '/sf-phase', '/sf-next', '/sf-outcome W', '/sf-review-decide planning']) {
+    assert.doesNotMatch(after(route), /new chat/u, route);
+    assert.match(after(route), /When SFlow's note after this command says this turn goes on, do what it says now\./u, route);
+  }
 });
 
 test('every range a kept result names comes back from the read guard, whatever the field sizes', async t => {

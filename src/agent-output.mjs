@@ -22,7 +22,7 @@ import path from 'node:path';
 import { AGENT_OUTPUT_FOLDER, agentOutputDirectory, excludeAgentOutput, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { observeFindingStreak } from './finding-escalation.mjs';
 import { gitCommonDir, repoRoot } from './git-execution.mjs';
-import { CLI_PATH_REFERENCE, safeCommandGuidance, TASK_ROUTE, validateSafeSflowCommand } from './safe-command-guidance.mjs';
+import { CLI_PATH_REFERENCE, NEXT_ROUTE, safeCommandGuidance, TASK_ROUTE, validateSafeSflowCommand } from './safe-command-guidance.mjs';
 import { ownTerminalStep } from './command-skills.mjs';
 import { blockingHolds, sheetForAgent } from './step-sheet-route.mjs';
 import { validateAgentEntryRequest } from './agent-entry-options.mjs';
@@ -353,8 +353,10 @@ export function agentAct(result) {
   // A step approved here ends the turn with one next step, the clean-chat boundary. Its act also said "next:
   // /sf-nextsteps", so the person saw three competing next steps (Story anu-bin verification, 2026-11-11).
   // A task's step approved in the chat: its /sf-task turn goes on [ITW:REQ-008, A17].
-  if (result.resultType === 'sflow-approval-agent-result' && result.outcome?.status === 'succeeded' && result.turnBoundary === 'task') {
-    return { state: 'next', do: { reason: 'The task goes on in this chat.', copilot: TASK_ROUTE, shell: null, vscode: null },
+  // Any other Story's goes on the same way, by /sf-next [owner, 2026-11-28].
+  if (result.resultType === 'sflow-approval-agent-result' && result.outcome?.status === 'succeeded' && ['task', 'carry'].includes(result.turnBoundary)) {
+    return { state: 'next', do: { reason: result.turnBoundary === 'task' ? 'The task goes on in this chat.' : 'The Story goes on in this chat.',
+      copilot: result.turnBoundary === 'task' ? TASK_ROUTE : NEXT_ROUTE, shell: null, vscode: null },
       read: ['outcome', 'decision', 'warnings', 'nextStep', ...LESSON_FIELDS.filter((field) => result[field])],
       said: `${result.instruction}${approvalLessonWords(result)}` };
   }
@@ -563,10 +565,10 @@ export function agentAct(result) {
   if (result.data?.outcome?.resultType === 'sflow-outcome-review') return {
     state: 'read', do: null, read: ['data.outcome'], ...(result.data.outcome.validation?.line ? { show: result.data.outcome.validation.line } : {}),
     said: 'Show the actual retained test results, diagnostic runs separately, application readiness and outstanding human checks, then act.show as one line of optional choices. Ask nothing: run a choice\'s route only when the person picks one (a Start in the terminal tool\'s background mode, as its how says). Never accept, submit or approve from it.' };
-  // A submission that completed its step (nobody approves it) moved the Story on: the turn ends there and names the next step
-  // for the person, never starts it [decision 7, OSA:REQ-050; owner, 2026-11-19]. A task's goes on (below; owner, 2026-11-26).
-  // So did a test step whose tests failed: SFlow returned it to its code step and started that step's next version (D1); its
-  // fix is the code step's own work, in a new turn.
+  // A submission that completed its step (nobody approves it, or SFlow approved it) moved the Story on, and so did a test step
+  // whose tests failed: SFlow returned it to its code step and started that step's next version (D1). The turn goes on with
+  // what is next when SFlow's note says so (task-turn.mjs), for a task (owner, 2026-11-26) and for every other Story (owner,
+  // 2026-11-28, replacing decision 7 and the 11-19 new-chat rule); the route is the way on if no note came.
   const returned = result.submitIfReady?.result?.status === 'returned';
   // A fix whose code changes the data or a public interface is a change now: its code waits for the plan [ITW:REQ-014].
   const grown = result.submitIfReady?.result?.status === 'grown';
@@ -583,11 +585,11 @@ export function agentAct(result) {
     { commandGuidance: done.commandGuidance, reason: done.reason, turn: 'new-turn' });
   }
   if (result.submitIfReady?.submitted && (result.submitIfReady.result?.status === 'completed' || returned || grown) && done) {
-    const reset = done.contextBoundary?.commands?.length ? done.contextBoundary.commands.join(', then ') : null;
-    return withRoute({ state: 'end-turn', do: null, read: ['submitIfReady.next', 'submitIfReady.result'],
+    const route = done.commandGuidance?.copilotCommand === TASK_ROUTE ? TASK_ROUTE : NEXT_ROUTE;
+    return withRoute({ state: 'next', do: null, read: ['submitIfReady.next', 'submitIfReady.result'],
       said: oneLine(`${returned ? `Submitted ${result.submitIfReady.result.phase ?? 'the step'}; its tests failed, so SFlow returned it to the code step and started that step's next version to fix them, with nothing for the person to answer.`
         : grown ? `Submitted ${result.submitIfReady.result.phase ?? 'the code'}; say submitIfReady.result.taskSteps' line: the fix is a change now, and its code waits for the plan SFlow added before it.`
-        : `Submitted, and that completed ${result.submitIfReady.result.phase ?? 'the step'}.`} End this turn. Name the next step for the person: ${reset ?? (done.commandGuidance ? 'do.copilot' : 'as submitIfReady.next says')}, in a new turn; never start it here.`) },
+        : `Submitted, and that completed ${result.submitIfReady.result.phase ?? 'the step'}.`} When SFlow's note after this command says this turn goes on, do what it says now, in this turn; otherwise say in one line that ${route} carries it on. Offer no other route.`) },
     done.commandGuidance ? { commandGuidance: done.commandGuidance, reason: done.reason, turn: 'new-turn' } : null);
   }
   // The commit, hashes and artifact list. The review packet below them is the person's, and /sf-approve reads it.
@@ -827,7 +829,7 @@ export function agentAct(result) {
   const said = oneLine(`${result.reason ?? result.agentInstruction ?? result.data?.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')}${convergence
     ? ' Run do.shell once; when it says the report is ready, run its --submit command once in this same turn: it sends the report for approval: SFlow approves a clean one itself, otherwise the person approves it there with one Yes. Never ask them to confirm it first.' : ''}`) || null;
   const nextsteps = result.resultType === 'sflow-nextsteps'
-    ? { read: ['contextBoundary', 'actions', 'pending', ...(/^\/sf(?:low)?-inputs(?:\s|$)/u.test(action?.commandGuidance?.copilotCommand ?? action?.copilotCommand ?? '') ? ['inputs'] : [])] } : {};
+    ? { read: [...(result.wayOut ? ['wayOut'] : []), 'contextBoundary', 'actions', 'pending', ...(/^\/sf(?:low)?-inputs(?:\s|$)/u.test(action?.commandGuidance?.copilotCommand ?? action?.copilotCommand ?? '') ? ['inputs'] : [])] } : {};
   const act = withRoute({ state: action ? state : 'read', said, do: null, ...nextsteps }, action);
   // A successor's preview carries the one question the person answers, with its actual numbers [OSA §7.1]: asked as it
   // is, so the hook can bind their yes to exactly that version.

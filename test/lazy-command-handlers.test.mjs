@@ -1227,7 +1227,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,969,029 (measured for start.mjs, +729 over 9,968,300 on the merge of sf-task-v12 with main db5bfb141, 2026-11-28;
     // submit.mjs 9,967,112, approve.mjs 9,877,353): ITW v1.2's rises above (choices.mjs +711, command-registry.mjs +18) and
     // WCB's together. No new eager file.
-    assert.ok(closure.bytes <= 9_969_029, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,969,239 (measured for start.mjs, +210 over 9,969,029, 2026-11-28 on carry-on; submit.mjs 9,967,322): every Story carries
+    // on like a task and has one way on (owner, 2026-11-28): /sf-next as any Story's route (safe-command-guidance.mjs +217
+    // NEXT_ROUTE, carryRoute), an approval that says the turn goes on (approval-agent-result.mjs +116), every Story keeps its
+    // chat (context-policy.mjs -126). The way out itself (way-out.mjs) loads only for a nextsteps read. No new eager file.
+    assert.ok(closure.bytes <= 9_969_239, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1953,7 +1957,9 @@ test('the common session projection does not import attach, state stores or publ
   // plan (plan-amendments.mjs outsidePlanSettled) [owner, 2026-11-28; WCB:REQ-014]. No new eager file.
   // 4,409,379 (+18 over 4,409,361, measured 2026-11-28 on the merge of sf-task-v12 with main db5bfb141): `work shape`
   // above (command-registry.mjs) and WCB's rises together. No new eager file.
-  assert.ok(current.bytes <= 4_409_379, `session current loads ${current.bytes} source bytes`);
+  // 4,409,473 (+94 over 4,409,379, measured 2026-11-28 on carry-on): any Story's one way on (safe-command-guidance.mjs +217)
+  // and every Story keeping its chat (context-policy.mjs -126). No new eager file.
+  assert.ok(current.bytes <= 4_409_473, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

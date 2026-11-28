@@ -224,14 +224,15 @@ test('a submission that records decision values is never run in the author\'s tu
   assert.match(act.show, /- Copilot: `\/sf-submit/u);
 });
 
-test('a submission that completes its step ends the turn and names the next step for the person, never starts it', () => {
+test('a submission that completes its step goes on in the same turn when SFlow says so, its route the way on otherwise', () => {
+  // Every Story carries on like a task (owner, 2026-11-28, replacing decision 7 and the 11-19 new-chat rule).
   const next = { instruction: 'Submitted. End the reply with this next action.', reason: 'Write the Verify.',
-    contextBoundary: { mode: 'new', commands: ['/clear', '/sf-phase'] },
     commandGuidance: { copilotCommand: '/sf-phase verify', command: 'singularity-flow prepare verify', modelFreeCommand: null } };
   const act = agentAct({ resultType: 'sflow-submission-readiness', classification: 'ready-to-attempt',
     submitIfReady: { submitted: true, next, result: { phase: 'implement', generation: 2, status: 'completed' } } });
-  assert.equal(act.state, 'end-turn');
-  assert.match(act.said, /^Submitted, and that completed implement\. End this turn\. Name the next step for the person: \/clear, then \/sf-phase, in a new turn; never start it here\.$/u);
+  assert.equal(act.state, 'next');
+  assert.match(act.said, /^Submitted, and that completed implement\. When SFlow's note after this command says this turn goes on, do what it says now, in this turn; otherwise say in one line that \/sf-next carries it on\. Offer no other route\.$/u);
+  assert.doesNotMatch(act.said, /End this turn|\/clear|new turn/u);
   assert.deepEqual([act.do.copilot, act.do.shell, act.do.turn], ['/sf-phase verify', 'singularity-flow prepare verify', 'new-turn']);
   // Submitted for approval: the approval is a person's, as before.
   const awaiting = agentAct({ resultType: 'sflow-submission-readiness', classification: 'ready-to-attempt',
@@ -258,22 +259,20 @@ test('the review\'s findings on an unseen version: the entry runs the start itse
   assert.match(opened.said, /fix the review's findings in this same turn; ask the person nothing about it/u);
 });
 
-test('the shipped policy keeps /clear; a team that keeps the chat gets the next step named for the person, never run', () => {
-  // `new` (shipped): the approval's boundary, /clear then the next step's own command.
+test('every Story keeps the chat after an approval: the turn goes on with the next step when SFlow says so', () => {
+  // A boundary that still asks a reset (an initiative's `new`): /clear then the next step's own command, as before.
   const fresh = approvalAgentResult({ outcome: { status: 'succeeded' }, data: { contextBoundary: { mode: 'new', commands: ['/clear', '/sf-phase'], nextPhase: 'requirements', complete: false } } });
   assert.deepEqual(fresh.contextBoundary.commands, ['/clear', '/sf-phase']);
   assert.equal(fresh.nextStep, undefined);
   assert.equal(fresh.turnBoundary, 'end');
-  // `keep` (a team's own): the approval turn still ends; it only names the next step [the 11-17 approval-turn rule].
+  // A Story's (`keep` for every Story, owner 2026-11-28): the turn goes on, its way on /sf-next [replaces the 11-17 rule].
   const kept = approvalAgentResult({ outcome: { status: 'succeeded' }, data: { contextBoundary: { mode: 'keep', commands: ['/sf-phase'], nextPhase: 'requirements', complete: false } } });
-  assert.equal(kept.turnBoundary, 'end');
-  assert.equal(kept.instruction, 'End this turn. Name the next step for the person: /sf-phase. Do not repeat approval or author the next phase here.');
-  const act = agentAct({ resultType: 'sflow-approval-agent-result', outcome: { status: 'succeeded' }, turnBoundary: 'end',
-    nextStep: { copilotCommand: '/sf-phase', phase: 'requirements' } });
-  assert.equal(act.state, 'end-turn');
-  assert.equal(act.do, null);
-  assert.equal(act.said, 'Approved. End this turn. Name the next step for the person: /sf-phase (requirements). Offer no other route.');
-  assert.doesNotMatch(act.said, /same chat|one Enter/u);
+  assert.equal(kept.turnBoundary, 'carry');
+  assert.equal(kept.instruction, 'Approved; requirements is next. When SFlow\'s note after this command says this turn goes on, do what it says now, in this turn; otherwise say in one line that /sf-next carries it on. Offer no other route; do not repeat the approval.');
+  assert.deepEqual(kept.nextStep, { copilotCommand: '/sf-next', phase: 'requirements' });
+  const act = agentAct({ ...kept, resultType: 'sflow-approval-agent-result' });
+  assert.deepEqual([act.state, act.do.copilot], ['next', '/sf-next']);
+  assert.doesNotMatch(act.said, /End this turn|\/clear/u);
 });
 
 test('intake clarification is required and never stalls: with nothing open, one question names the assumptions, "Go ahead" recommended', () => {

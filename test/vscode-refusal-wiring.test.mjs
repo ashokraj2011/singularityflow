@@ -350,7 +350,8 @@ test('missing Story configuration has exact-repository recovery actions and a ma
   assert.match(intake, /this\.disposed \|\| this\.client\.repository !== startRepository/u);
   // Recovery names the checkout the Story start ran in, which may be a branch-named workspace
   // checkout rather than the window's repository (8f58d079).
-  assert.match(intake, /showRefusal\(failure, \{\s*headline: 'Story intake needs recovery', repositoryRoot: executionClient\.repository/su);
+  // A task's refusal is headed by what did not happen [ITW:REQ-114]; a workflow Story's as before.
+  assert.match(intake, /showRefusal\(failure, \{\s*headline: task \? 'The task did not start' : 'Story intake needs recovery', repositoryRoot: executionClient\.repository/su);
 });
 
 test('manual recovery instructions render without crowding safe actions out of the VS Code card', () => {

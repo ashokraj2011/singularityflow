@@ -1773,12 +1773,12 @@
         },
         {
           "command": "singularityFlow.askSFlow",
-          "when": "view == singularityFlow.navigation && singularityFlow.fourPlaces",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive && singularityFlow.fourPlaces",
           "group": "navigation@1"
         },
         {
           "command": "singularityFlow.places.advanced",
-          "when": "view == singularityFlow.navigation && singularityFlow.fourPlaces",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive && singularityFlow.fourPlaces",
           "group": "navigation@2"
         },
         {

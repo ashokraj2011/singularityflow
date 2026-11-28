@@ -55,10 +55,17 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
   assert.deepEqual(navigator.map((entry) => [entry.command, entry.group.split('@')[0]]), [
     // Refresh shows the Story selected in Copilot or a terminal [office, 2026-11-12].
     ['singularityFlow.refresh', 'navigation'],
-    // Start a task: the person's words go to Copilot as /sf-task [ITW, 2026-11-25].
+    // With the four places on, the title holds Refresh, Ask SFlow and Advanced [FPL:REQ-002].
+    ['singularityFlow.askSFlow', 'navigation'],
+    ['singularityFlow.places.advanced', 'navigation'],
+    // Start a task: the person's words go to Copilot as /sf-task [ITW, 2026-11-25]. With classic, as before; with the
+    // places, Work's box starts it, and the explainers move to the title's "…" menu (below).
     ['singularityFlow.startTask', 'navigation'],
     ['singularityFlow.openChangeExplorer', 'navigation'],
     ['singularityFlow.openCodeExplainer', 'navigation'],
+    ['singularityFlow.openChangeExplorer', '1_explain'],
+    ['singularityFlow.openCodeExplainer', '1_explain'],
+    ['singularityFlow.openRepositoryKnowledge', '1_explain'],
     ['singularityFlow.openCodeExplanation', '1_explain'],
     ['singularityFlow.openComprehensionCenter', '1_explain'],
     ['singularityFlow.updateSflow', '2_maintain'],

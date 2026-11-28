@@ -47,8 +47,10 @@ document.addEventListener('click', (event) => {
 export class LibraryPlace {
   readonly style = LIBRARY_STYLE;
   readonly script = LIBRARY_SCRIPT;
+  private readonly host: LibraryHost;
 
-  constructor(private readonly host: LibraryHost) {}
+  // A plain field, not a parameter property, so Node's type stripping reads this module as it is.
+  constructor(host: LibraryHost) { this.host = host; }
 
   panel(): string { return libraryPanelHtml(); }
 

@@ -1227,6 +1227,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,969,029 (measured for start.mjs, +729 over 9,968,300 on the merge of sf-task-v12 with main db5bfb141, 2026-11-28;
     // submit.mjs 9,967,112, approve.mjs 9,877,353): ITW v1.2's rises above (choices.mjs +711, command-registry.mjs +18) and
     // WCB's together. No new eager file.
+    // 9,975,419 kept (measured 2026-11-28 on the merge of sf-task-start-form with main 1d2f4aaf2): submit.mjs 9,975,419 is the
+    // largest; start.mjs 9,974,914 (+595, Start a task's issue hand-off, over ask once's 9,974,319).
     // 9,975,419 (measured for submit.mjs, +8,307 over 9,967,112 on ask-once merged with main 0233340d8, 2026-11-28; start.mjs
     // 9,974,319): ask once [owner, 2026-11-28]. A person's send-back is the answer to its next version, read by every surface
     // that names the step's route (phase-generation-need.mjs sentBackAnswer +1,780, step-decision.mjs +938,
@@ -1235,13 +1237,17 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // reuse what the person answered in the Story (clarifications.mjs +1,213, the reading itself in answered-questions.mjs,
     // loaded lazily from the CLI source, as is the start on a send-back, sent-back-opening.mjs); `--sent-back` among the boolean
     // flags (util.mjs +13). No new eager file.
+    // 9,969,624 (measured for start.mjs, +595 over 9,969,029 on the merge of sf-task-start-form with main 0233340d8,
+    // 2026-11-28; submit.mjs 9,967,112 and approve.mjs 9,877,353 unchanged; +595 over 9,961,312 on sf-task-start-form before
+    // the merge): a task from VS Code's Start Story whose source is a GitHub Issue or Jira issue hands start the issue `work`
+    // read and keeps SFlow's sizing words as the issue's notes (commands/start.mjs +595) [ITW REQ-115]. No new eager file.
     // 9,972,143 (measured for start.mjs, +3,114 over 9,969,029, 2026-11-28 on never-stuck-approval; submit.mjs 9,970,226): a
     // commit classifier reads a long Story's state past 1 MB and SFlow's own records stay review-safe (state.mjs +1,230,
     // test-recovery-runtime.mjs +137; the record-writer check loads lazily, record-writer-commit.mjs), the send-back route
     // (action-command-map.mjs +251), and the browser check's setup as its gate's way on (mcp-evidence.mjs +582,
     // phase-publication-readiness.mjs +964) [owner, 2026-11-28]. No new eager file.
-    // 9,978,583 (measured for submit.mjs, +3,164 over 9,975,419 on the merge of never-stuck-approval with main 1d2f4aaf2,
-    // 2026-11-28; start.mjs 9,977,483): both sides' rises above together. No new eager file.
+    // 9,978,583 (measured for submit.mjs, +3,164 over 9,975,419 on the merge of never-stuck-approval with main 8c74e5a3b,
+    // 2026-11-28; start.mjs 9,978,078): both sides' rises above together. No new eager file.
     assert.ok(closure.bytes <= 9_978_583, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }

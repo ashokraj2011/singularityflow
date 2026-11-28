@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 import { readFile, realpath, rm } from 'node:fs/promises';
 import YAML from 'yaml';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
-import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 // Obsolete: no version, or one below the oldest this build reads (phase-roles.mjs WORKFLOW_FILE_VERSIONS starts at 2;
 // test/workflow-file-versions.test.mjs holds the two to the same rule). Inline, so the VS Code bundles that read the
@@ -281,6 +280,7 @@ export async function resolveWorkspaceReference(registryFile, reference) {
 
 async function detectedStory(repositoryPath, branchName) {
   if (!branchName) return null;
+  const { buildRepositorySubjectIndex, resolveContext } = await import('./repository-subject-index.mjs');
   const index = await buildRepositorySubjectIndex(repositoryPath);
   const resolved = resolveContext(index, { reference: branchName, kind: 'story', required: false });
   return resolved ? portableStoryId(resolved.id) : null;

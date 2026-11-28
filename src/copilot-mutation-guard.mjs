@@ -3003,6 +3003,14 @@ export async function mutationPostToolGuard(payload = {}) {
       `PHASE_MUTATION_SHELL_CHANGE_DETECTED: preserve bytes; stop authoring and inspect recovery${hooks ? `; ${COPILOT_HOOKS_PROTECTED}` : ''}`, forbidden);
     return postFinding(denial);
   }
+  // What this terminal command changed, kept as Copilot's [WCB:REQ-011]: the out-of-plan list names Copilot, not "you".
+  const wrote = changed.filter(file => !disposableOutputChange(file, value.baseline, after, value.contract.repositoryRoot));
+  if (wrote.length && value.binding?.gitDir) {
+    // A literal specifier: the hook bundle loads this module from source (scripts/build-cold-cli-bundle.mjs).
+    await import('./comprehension/xpl2/observed-write-recorder.mjs').then(recorder => recorder.recordShellWrites({ root: value.contract.repositoryRoot,
+      gitDirectory: value.binding.gitDir, files: wrote, subject: { workId: value.contract.workId, phase: value.contract.phaseId, generation: value.openGeneration ?? null },
+      writer: { kind: 'copilot-turn', session: key(payload).slice(0, 16), turn: value.turnId ?? record.turnId, skill: value.skill ?? record.skill, agent: null } })).catch(() => {});
+  }
   value.baseline = after;
   await settled((current) => ({ ...current, baseline: after }));
   return {};

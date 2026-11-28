@@ -113,6 +113,7 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
 
 // What a settled file may be listed as (out-of-plan-classes.mjs) [C3, 2026-11-19].
 const SETTLED_SUPPORTING = new Set(['test-support', 'documentation', 'repository-metadata']);
+const WRITERS = ['copilot', 'person', 'base'];
 
 /** Settlements none undid, read without loading settled-decisions.mjs. */
 function standingSettlements(workflow) {
@@ -192,11 +193,11 @@ export function departureCandidatePaths(workflow, phaseId = null) {
  */
 export function outsidePlanSettled(workflow, phaseId = null) {
   return standingSettlements(workflow).filter((entry) => entry.kind === 'plan-accounting' && entry.effect?.file
-    && (entry.effect.class === 'out-of-plan' || (SETTLED_SUPPORTING.has(entry.effect.class) && ['copilot', 'person'].includes(entry.effect.writer)))
+    && (entry.effect.class === 'out-of-plan' || (SETTLED_SUPPORTING.has(entry.effect.class) && WRITERS.includes(entry.effect.writer)))
     && (!phaseId || entry.phase === phaseId))
-    .map(({ id, phase, at, effect }) => ({ id, phase: phase ?? null, file: effect.file, writer: effect.writer === 'copilot' ? 'copilot' : 'person',
+    .map(({ id, phase, at, effect }) => ({ id, phase: phase ?? null, file: effect.file, writer: WRITERS.includes(effect.writer) ? effect.writer : 'person',
       basis: effect.basis ?? null, reason: effect.reason ?? null, kind: effect.kind ?? null,
-      supporting: effect.class === 'out-of-plan' ? null : effect.class, at }));
+      supporting: effect.class === 'out-of-plan' ? null : effect.class, ...(effect.branch ? { branch: effect.branch } : {}), at }));
 }
 
 /** Every path an amendment accounted for, across the planned records given. */

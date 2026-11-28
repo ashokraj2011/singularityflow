@@ -21,7 +21,7 @@ import { countedRecords, presenceRequires } from './presence/counted.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, outsidePlanSettled, planAuthorities } from './plan-amendments.mjs';
 import { clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, rowChangeWords, rowTakesPaths } from './plan-row-fit.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
-import { personClass } from './person-change-class.mjs';
+import { outsidePlanWho, personClass } from './person-change-class.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
 import { acknowledgementWhy, otherPeopleOnStory } from './amendment-acknowledgement.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
@@ -1916,7 +1916,8 @@ const SETTLED_SHOWN = 20;
 // How a group of settled files reads in one line [owner, 2026-11-19, C3].
 const SETTLED_GROUP_WORDS = Object.freeze({ 'test-support': ['test-support file', 'listed as supporting changes'], documentation: ['documentation file', 'listed as supporting changes'],
   'repository-metadata': ['ignore file', 'listed as supporting changes'], row: ['file', 'added to the row of the file beside it'],
-  'out-of-plan': ['file', 'changed outside the plan, taken up with the step'] });
+  'out-of-plan': ['file', 'changed outside the plan, taken up with the step'],
+  'from-base': ['file', 'from the base branch, merged in, taken up with the step'] });
 
 /**
  * One file taken up because it changed outside the plan, as the code approval lists it [WCB:REQ-014]: who changed it, and
@@ -1924,10 +1925,7 @@ const SETTLED_GROUP_WORDS = Object.freeze({ 'test-support': ['test-support file'
  */
 export function outsidePlanWords(entry) {
   // A supporting change (a scratch note, a test helper) is committed as one; Copilot owes no reason for it [owner, 2026-11-28].
-  if (entry.supporting) {
-    return entry.writer === 'copilot' ? `${entry.file}: by Copilot${entry.reason ? `: ${entry.reason}` : ''}, as a supporting change` : `${entry.file}: by you, as a supporting change`;
-  }
-  return entry.writer === 'copilot' ? `${entry.file}: by Copilot: ${entry.reason ?? 'no reason written'}` : `${entry.file}: by you`;
+  return `${entry.file}: ${outsidePlanWho(entry)}`;
 }
 
 /**
@@ -1938,7 +1936,8 @@ export function outsidePlanWords(entry) {
 export function settledLedger(workflow, phaseId = null) {
   const groups = new Map();
   for (const entry of settledDecisions(workflow).filter((item) => !item.undone && item.kind === 'plan-accounting' && (!phaseId || item.phase === phaseId))) {
-    const key = entry.effect?.class ?? 'row';
+    // A file that holds what the base branch has is its own group: not this Story's change [WCB].
+    const key = entry.effect?.writer === 'base' ? 'from-base' : entry.effect?.class ?? 'row';
     const group = groups.get(key) ?? { kind: key, settled: [] };
     group.settled.push({ id: entry.id, file: entry.effect?.path ?? entry.effect?.file ?? String(entry.subject).replace(/^file:/u, ''), answer: entry.answer,
       undo: `singularity-flow decisions undo ${workflow.workItem.id} --settled ${entry.id}` });
@@ -2174,8 +2173,13 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
     && Number(entry.generation) === Number(phase.generation) && !entry.withdrawnAt)
     .map(overrideLine);
   // Every file taken up because it changed outside the plan, one line each, with who changed it and why [WCB:REQ-014].
-  const outside = outsidePlanSettled(workflow, phase.id).map((entry) => ({ file: entry.file, by: entry.writer, reason: entry.reason,
-    ...(entry.kind ? { kind: entry.kind } : {}), ...(entry.supporting ? { supporting: entry.supporting } : {}), settled: entry.id, words: outsidePlanWords(entry) }));
+  const listed = outsidePlanSettled(workflow, phase.id).map((entry) => ({ file: entry.file, by: entry.writer, reason: entry.reason,
+    ...(entry.kind ? { kind: entry.kind } : {}), ...(entry.supporting ? { supporting: entry.supporting } : {}), ...(entry.branch ? { branch: entry.branch } : {}),
+    settled: entry.id, words: outsidePlanWords(entry) }));
+  // The base branch's own files, merged in, are one line: they hold what it has, so nobody changed them in this Story [WCB].
+  const outside = listed.filter((entry) => entry.by !== 'base');
+  const merged = listed.filter((entry) => entry.by === 'base');
+  const branch = merged[0]?.branch ?? 'the base branch';
   // A Story with no code step: the code base files left in its checkout, which nothing delivers [WCB:REQ-017].
   const leftOut = context.facts?.noCodeStep?.uncommitted ?? [];
   const reviewed = [...(leftOut.length ? [`Not part of this task: ${listWords(leftOut.slice(0, 8))}${leftOut.length > 8 ? ` and ${leftOut.length - 8} more` : ''}, left in your checkout; nothing delivers ${leftOut.length === 1 ? 'it' : 'them'}.`] : []),
@@ -2183,6 +2187,7 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
     // Why they are shown and the way on, in one line before them: nothing stopped for them, and a return drops one [owner, 2026-11-28].
     ...(outside.length ? [`No row of the approved plan names ${outside.length === 1 ? 'the file below' : `the ${outside.length} files below`}; SFlow committed ${outside.length === 1 ? 'it' : 'them'} with ${name} so nothing stopped. Approving keeps ${outside.length === 1 ? 'it' : 'them'}; to drop one, return ${name} on the approval page.`] : []),
     ...outside.map((entry) => `Changed outside the plan: ${entry.words.replace(/[.\s]+$/u, '')}.`),
+    ...(merged.length ? [`From ${branch}, merged in: ${listWords(merged.slice(0, 8).map((entry) => entry.file))}${merged.length > 8 ? ` and ${merged.length - 8} more` : ''}. ${merged.length === 1 ? 'It holds' : 'They hold'} what ${branch} has, not a change made in this Story, so there is nothing to decide.`] : []),
     ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : []),
     ...disputes.map((entry) => entry.words), ...overrides];
   // Why the person is asked and what each choice does, by what the step is for, never by its workflow (step-advice.mjs).
@@ -2200,7 +2205,7 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
       sendBack: sendBackCommand(workId, phase.id),
       ...(reviewed.length ? { ledger: { settled: ledger, issues: raised }, lines: reviewed } : {}),
       ...(leftOut.length ? { notPartOfTask: leftOut } : {}),
-      ...(outside.length ? { outsidePlan: outside } : {}),
+      ...(outside.length ? { outsidePlan: outside } : {}), ...(merged.length ? { fromBase: merged } : {}),
       ...(disputes.length ? { disputes } : {}),
       // The one approval screen opens its documents, and those of the steps SFlow approved since the last approval (approve twice).
       documents: [...new Set((phase.artifacts ?? []).map((artifact) => artifact?.path).filter((file) => typeof file === 'string' && file))],

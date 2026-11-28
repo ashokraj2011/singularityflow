@@ -317,18 +317,24 @@ async function testRun(root, workflow, steps) {
   return { ran: false, next: next ? next.label ?? next.id : null };
 }
 
-/** WCB's record of files changed outside the plan, on a code step: `{ file, writer, reason }`; null when there is none. */
+/**
+ * WCB's record of files changed outside the plan, on a code step: `{ file, writer, reason, who }`, `who` in the words the
+ * approval uses (person-change-class.mjs outsidePlanWho); null when there is none.
+ */
 async function outsidePlan(workflow, steps) {
   try {
     // WCB's one reader of its record: the out-of-plan settlements and the supporting changes that say who made them.
-    const { outsidePlanSettled } = await import('./plan-amendments.mjs');
+    const [{ outsidePlanSettled }, { outsidePlanWho }] = await Promise.all([import('./plan-amendments.mjs'), import('./person-change-class.mjs')]);
     const ids = new Set(steps.map((step) => step.id));
     const entries = outsidePlanSettled(workflow).filter((entry) => typeof entry.file === 'string' && (!entry.phase || ids.has(entry.phase)));
     if (!entries.length) return null;
     const seen = new Map();
-    for (const entry of entries) seen.set(entry.file, { file: entry.file, writer: entry.writer,
-      reason: entry.writer === 'copilot' ? plain(entry.reason ?? '', CHANGE_STORY_LIMITS.reasonCharacters) || null : null,
-      ...(entry.supporting ? { supporting: entry.supporting } : {}) });
+    for (const entry of entries) {
+      const reason = entry.writer === 'copilot' ? plain(entry.reason ?? '', CHANGE_STORY_LIMITS.reasonCharacters) || null : null;
+      seen.set(entry.file, { file: entry.file, writer: entry.writer, reason, ...(entry.supporting ? { supporting: entry.supporting } : {}),
+        ...(entry.branch ? { branch: plain(entry.branch, 80) } : {}),
+        who: outsidePlanWho({ ...entry, reason, branch: entry.branch ? plain(entry.branch, 80) : null }) });
+    }
     return [...seen.values()].sort((left, right) => left.file.localeCompare(right.file));
   } catch { return null; }
 }
@@ -455,9 +461,10 @@ export function renderChangeStory(model) {
     ? `SFlow ran them on the delivered code (${model.tests.step} version ${model.tests.generation}): ${model.tests.passed} passed${model.tests.failed ? `, ${model.tests.failed} failed` : ''}${model.tests.skipped ? `, ${model.tests.skipped} skipped` : ''}.`
     : `Tests not run yet: SFlow runs them${model.tests.next ? ` when ${model.tests.next} is published` : ' at the next step that runs tests'}, and this page says what it found.`, '');
   if (model.outsidePlan?.length) {
-    out.push('## 6. Outside the plan', '', ...model.outsidePlan.map((entry) => `- ${code(entry.file)}: ${entry.supporting
-      ? `${entry.writer === 'copilot' ? `by Copilot${entry.reason ? `: ${entry.reason}` : ''}` : 'by you'}, as a supporting change`
-      : entry.writer === 'copilot' ? `by Copilot: ${entry.reason ?? 'no reason written'}` : 'by you'}`), '');
+    // The base branch's own files, merged in, are one line: they hold what it has, so no one changed them in this Story.
+    const merged = model.outsidePlan.filter((entry) => entry.writer === 'base');
+    out.push('## 6. Outside the plan', '', ...model.outsidePlan.filter((entry) => entry.writer !== 'base').map((entry) => `- ${code(entry.file)}: ${entry.who}`),
+      ...(merged.length ? [`- From ${code(merged[0].branch ?? 'the base branch')}, merged in: ${list([...merged.slice(0, 12).map((entry) => code(entry.file)), ...(merged.length > 12 ? [`${merged.length - 12} more`] : [])])}. ${merged.length === 1 ? 'It holds' : 'They hold'} what that branch has, not a change made in this Story.`] : []), '');
   }
   if (model.personDecisions?.length) {
     out.push(PERSON_DECISIONS_SECTION, '', ...model.personDecisions.map((entry) => `- ${entry.step} version ${entry.generation}: ${entry.words}`), '');

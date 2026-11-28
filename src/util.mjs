@@ -1164,20 +1164,6 @@ export function refuseUnreadableRepository(cwd, { env = process.env } = {}) {
   if (!outsideRepository(probe)) gitReadOutput(probe, 'This repository');
 }
 
-/**
- * The shell a configured runner command should be handed to.
- *
- * The world-model runner is a command line a repository configures, so it genuinely needs a shell to
- * interpret. It was always `bash`, which simply is not present on a stock Windows machine — the
- * build failed there with a spawn error rather than anything explaining why. `cmd.exe` is the
- * equivalent, and `/c` is its `-c`.
- */
-export function platformShell({ platform = process.platform, environment = process.env } = {}) {
-  return platform === 'win32'
-    ? { command: resolveWindowsSystemTool(environment, 'cmd.exe'), flag: '/c' }
-    : { command: 'bash', flag: '-c' };
-}
-
 export function commandExists(command, {
   platform = process.platform,
   environment = process.env,

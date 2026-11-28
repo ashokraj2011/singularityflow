@@ -198,6 +198,21 @@ test('files changed outside the plan are listed from WCB\'s record, by Copilot w
   assert.match(page, /^## 6\. Outside the plan\n\n- `README\.md`: by you\n- `src\/axis\.mjs`: by Copilot: the labels needed their own module$/mu);
 });
 
+test('section 6 says who changed each file as the approval does: a terminal command of Copilot\'s, no hooks through a link, and main\'s merged files on one line [WCB]', async (t) => {
+  const entry = (id, file, effect) => ({ id, kind: 'plan-accounting', by: 'sflow', phase: 'implementation', subject: `file:${file}`,
+    effect: { file, class: 'out-of-plan', ...effect } });
+  const settled = [
+    entry('S-1', 'src/axis.mjs', { writer: 'copilot', basis: 'shell-write', reason: 'the labels are generated' }),
+    entry('S-2', 'README.md', { writer: 'person', basis: 'linked-folder' }),
+    entry('S-3', 'src/feature.mjs', { writer: 'base', basis: 'merged-from-base', branch: 'main', commit: 'a'.repeat(40) }),
+    entry('S-4', 'src/flags.mjs', { writer: 'base', basis: 'merged-from-base', branch: 'main', commit: 'a'.repeat(40) })];
+  const { root, workflow } = await story(t, { settled });
+  const page = renderChangeStory(await buildChangeStory(root, {}, workflow));
+  const section = page.slice(page.indexOf('## 6. Outside the plan'));
+  assert.match(section, /^## 6\. Outside the plan\n\n- `README\.md`: by you \(no SFlow hooks ran here: VS Code opened this folder through a link\)\n- `src\/axis\.mjs`: by Copilot, through a terminal command: the labels are generated\n- From `main`, merged in: `src\/feature\.mjs` and `src\/flags\.mjs`\. They hold what that branch has, not a change made in this Story\.$/mu, section);
+  assert.doesNotMatch(section, /feature\.mjs`: by you/u);
+});
+
 test('the page is written in the Story\'s folder with its summary line, and read back [CSP:REQ-005]', async (t) => {
   const { root, workflow, item } = await story(t, { explanation: GOOD });
   const written = await writeChangeStoryPage(root, {}, workflow);

@@ -425,13 +425,17 @@ function riskItems(workflow, phase, review, documents) {
 /** What SFlow settled for the person on this step, each with its undo. */
 async function settledItems(workflow, phase) {
   try {
-    const { settledDecisions, settlementMatters } = await import('./settled-decisions.mjs');
+    const [{ settledDecisions, settlementMatters }, { outsidePlanWho }] = await Promise.all([import('./settled-decisions.mjs'), import('./person-change-class.mjs')]);
     return settledDecisions(workflow).filter((entry) => !entry.undone && settlementMatters(workflow, entry) && (!entry.phase || entry.phase === phase.id))
       // A file changed outside the plan, taken up with the step: who changed it and why, at the file [WCB:REQ-014].
-      // A supporting change that says who made it (a scratch note) reads the same, as one [owner, 2026-11-28].
-      .map((entry) => (entry.effect?.file && (entry.effect.class === 'out-of-plan' || ['copilot', 'person'].includes(entry.effect.writer)) ? { kind: 'outside-plan',
-        words: `Changed outside the plan: ${entry.effect.file}, ${entry.effect.writer === 'copilot'
-          ? `by Copilot${entry.effect.reason ? `: ${String(entry.effect.reason).replace(/[.\s]+$/u, '')}` : entry.effect.class === 'out-of-plan' ? ': no reason written' : ''}` : 'by you'}${entry.effect.class === 'out-of-plan' ? '' : ', as a supporting change'}. Return the step if it does not belong.`,
+      // A supporting change that says who made it (a scratch note) reads the same, as one [owner, 2026-11-28]. A file that
+      // holds what the base branch has came in with a merge of it: nobody changed it in this Story, so nothing to return.
+      .map((entry) => (entry.effect?.file && (entry.effect.class === 'out-of-plan' || ['copilot', 'person', 'base'].includes(entry.effect.writer)) ? { kind: 'outside-plan',
+        words: entry.effect.writer === 'base'
+          ? `From ${entry.effect.branch ?? 'the base branch'}, merged in: ${entry.effect.file} holds what that branch has, not a change made in this Story.`
+          : `Changed outside the plan: ${entry.effect.file}, ${outsidePlanWho({ writer: entry.effect.writer, basis: entry.effect.basis,
+            reason: entry.effect.reason ? String(entry.effect.reason).replace(/[.\s]+$/u, '') : null,
+            supporting: entry.effect.class === 'out-of-plan' ? null : entry.effect.class })}. Return the step if it does not belong.`,
         at: at(entry.effect.file, null, { settled: entry.id }) }
         : { kind: 'settled', words: `Settled for you: ${entry.subject}: ${entry.answer} Undo it with singularity-flow decisions undo ${workflow.workItem.id} --settled ${entry.id} if you disagree.`,
           at: at(entry.evidence?.[0]?.where && !/\s/u.test(entry.evidence[0].where) ? entry.evidence[0].where : null, null, { settled: entry.id }) }));

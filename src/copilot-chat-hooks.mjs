@@ -12,28 +12,28 @@
  *   noteHookSession        SFlow's prompt hook and guard leave one small file per chat they see (copilot-hook-sessions.mjs)
  *   copilotChatHookGap     a command run by a Copilot chat (which carries COPILOT_AGENT_SESSION_ID) in a chat no SFlow
  *                          hook saw: what is off, why, and the command that fixes it; null when nothing is wrong
- *   vscodeLinkedOpenings   the VS Code windows that opened a folder through a link (VS Code's workspaceStorage)
+ *   vscodeLinkedOpenings   the VS Code windows that opened a folder through a link (vscode-linked-openings.mjs)
  *   linkedTerminalFolder   the folder a terminal stands in, when its shell reached it through a link (PWD)
  *
  * Node built-ins only; never Git, network or a child process. Every reader fails quietly: a check that cannot read
  * says nothing rather than something wrong.
  */
-import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { copilotHome } from './copilot-home.mjs';
 import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
 import { hookSessionSeen, latestHookAt } from './copilot-hook-sessions.mjs';
 import { linkedFolderNotice, shellPath } from './linked-folder-notice.mjs';
 import { GENERIC_INTENT, stopAdvice } from './step-advice.mjs';
+import { vscodeLinkedOpenings } from './vscode-linked-openings.mjs';
 
 export { HOOK_SESSIONS_DIRECTORY, hookSessionsDirectory, noteHookSession } from './copilot-hook-sessions.mjs';
 export { linkedFolderNotice, shellPath };
+export { vscodeLinkedOpenings, vscodeUserDataDirectories } from './vscode-linked-openings.mjs';
 
 // Any SFlow hook within this long: a sub-agent's call can carry an id other than the one its hooks name.
 const RECENT_HOOK_MS = 30_000;
-const VSCODE_STORAGE_LIMIT = 2000;
 export const VSCODE_AGENT_HOST_CLIENT = 'vscode-agent-host';
 
 const validId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 256
@@ -74,51 +74,6 @@ function hooksExpected(folder, env) {
     directory = parent;
   }
   return false;
-}
-
-/** VS Code's user-data folders whose workspaceStorage names the folders its windows opened. */
-export function vscodeUserDataDirectories({ env = process.env, home = os.homedir(), platform = process.platform } = {}) {
-  if (env.SINGULARITY_FLOW_VSCODE_USER_DATA) return [path.resolve(env.SINGULARITY_FLOW_VSCODE_USER_DATA)];
-  const base = platform === 'darwin' ? path.join(home, 'Library', 'Application Support')
-    : platform === 'win32' ? (env.APPDATA ? path.resolve(env.APPDATA) : path.join(home, 'AppData', 'Roaming'))
-      : (env.XDG_CONFIG_HOME ? path.resolve(env.XDG_CONFIG_HOME) : path.join(home, '.config'));
-  return ['Code', 'Code - Insiders'].map((name) => path.join(base, name));
-}
-
-/**
- * The VS Code windows that opened `folder`, or a folder holding it (a Story's worktree sits inside its repository),
- * through a link: `{ opened, real, lastUsedMs }`, most recent first, `real` being the opened folder's real path. Read
- * from each window's workspaceStorage/<id>/workspace.json (`"folder": "file:///tmp/x"`); a multi-root workspace is not.
- */
-export function vscodeLinkedOpenings(folder, { env = process.env, home = os.homedir(), platform = process.platform,
-  since = 0 } = {}) {
-  const target = folder ? real(folder) : null;
-  if (!target) return [];
-  const found = new Map();
-  for (const userData of vscodeUserDataDirectories({ env, home, platform })) {
-    const storage = path.join(userData, 'User', 'workspaceStorage');
-    let names = [];
-    try { names = readdirSync(storage).slice(0, VSCODE_STORAGE_LIMIT); } catch { continue; }
-    for (const name of names) {
-      const file = path.join(storage, name, 'workspace.json');
-      const text = small(file, 16 * 1024);
-      if (!text) continue;
-      let opened = null;
-      try {
-        const uri = JSON.parse(text)?.folder;
-        if (typeof uri === 'string' && uri.startsWith('file:')) opened = fileURLToPath(uri);
-      } catch { continue; }
-      const openedReal = opened ? real(opened) : null;
-      if (!openedReal || path.resolve(opened) === openedReal) continue;
-      if (target !== openedReal && !target.startsWith(`${openedReal}${path.sep}`)) continue;
-      let lastUsedMs = 0;
-      try { lastUsedMs = statSync(path.join(storage, name)).mtimeMs; } catch { /* unknown */ }
-      if (lastUsedMs < since) continue;
-      const previous = found.get(opened);
-      if (!previous || previous.lastUsedMs < lastUsedMs) found.set(opened, { opened, real: openedReal, lastUsedMs });
-    }
-  }
-  return [...found.values()].sort((a, b) => b.lastUsedMs - a.lastUsedMs);
 }
 
 /** The folder a shell stands in as it reached it (PWD), when that is a link to `cwd`; null otherwise. */

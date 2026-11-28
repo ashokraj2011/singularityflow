@@ -1289,7 +1289,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // probe command classifies (command-registry.mjs +62), routes to /sf-doctor (command-skills.mjs +24) and reads
     // --host-questions as a flag (util.mjs +18); the office checks load only for probe office (commands/probe.mjs, office-probe/).
     // No new eager file.
-    assert.ok(closure.bytes <= 9_992_274, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,991,725 (measured for submit.mjs, -549 under main's 9,992,274 on gaps-writers-bundle merged with main e2d820022, 2026-11-28;
+    // start.mjs 9,988,043, approve.mjs 9,897,041): platformShell moves from util.mjs to doctor.mjs, its one reader (-655); the
+    // base branch's merged files keep their writer in WCB's record (plan-amendments.mjs +94); the Story index loads lazily where a
+    // workspace finds a branch's Story (workspace-context.mjs +12). Who changed a file, and its words, load lazily
+    // (code-outside-plan.mjs, person-change-class.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_991_725, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1526,7 +1531,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 902,221 (+89, measured 2026-11-28 on office-probes merged with main e4a1ea217): the probe command classifies
   // (command-registry.mjs +62), runs in the folder it was started from (cli-entry.mjs +9) and reads --host-questions as a
   // flag (util.mjs +18). No new eager file.
-  assert.ok(root.bytes <= 902_221, `root dispatch loads ${root.bytes} source bytes`);
+  // 901,566 (-655 under main's 902,221, measured 2026-11-28 on gaps-writers-bundle merged with main e2d820022): platformShell, which only doctor runs, moves from
+  // util.mjs to doctor.mjs. No new eager file.
+  assert.ok(root.bytes <= 901_566, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -2055,7 +2062,10 @@ test('the common session projection does not import attach, state stores or publ
   // (model-free-commands.mjs +487, copilot-guidance.mjs +161) [owner, 2026-11-28]. No new eager file.
   // 4,420,315 (+104 over 4,420,211, measured 2026-11-28 on office-probes merged with main ea5f16c55): the probe command's
   // classification, route and flag, as for submit above. No new eager file.
-  assert.ok(current.bytes <= 4_420_315, `session current loads ${current.bytes} source bytes`);
+  // 4,419,766 (-549 under main's 4,420,315, measured 2026-11-28 on gaps-writers-bundle merged with main e2d820022): platformShell
+  // leaves util.mjs for doctor.mjs (-655); the base branch's writer in WCB's record (plan-amendments.mjs +94) and the Story index
+  // loaded lazily (workspace-context.mjs +12). No new eager file.
+  assert.ok(current.bytes <= 4_419_766, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

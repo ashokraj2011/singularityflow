@@ -16,6 +16,9 @@ import { STEP_INTENTS } from '../src/phase-roles.mjs';
 import { JARGON } from '../scripts/plain-language-check.mjs';
 import { approvalReviewPage } from './helpers/approval-review-page.mjs';
 
+// The page runs in its own context (approval-review-page.mjs): its objects compare by their values.
+const plain = (value) => JSON.parse(JSON.stringify(value));
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('every intent has every field, and every stop its way forward, in plain short words', () => {
@@ -92,7 +95,7 @@ const SURFACES = Object.freeze({
   'src/refusal-remediation.mjs': /stopAdvice\(stepIntentOf\(null, phase\), 'changed'/u,
   'src/finding-escalation.mjs': /stopAdvice\(stepIntentOf\(null, phaseId\), 'repeated'/u,
   'src/task-shape.mjs': /stepAdvice\(step\.intent, /u,
-  'src/phase-publication-readiness.mjs': /stopAdvice\(stepIntentOf\(workflow, phase\.id\), 'browser'/u,
+  'src/phase-publication-readiness.mjs': /stopAdvice\(advice\.stepIntentOf\(workflow, phase\.id\), 'browser'/u,
   'apps/vscode/src/views/approval-review.ts': /const advice = approvalAdvice\(request\);/u,
   'apps/vscode/src/actions.ts': /advice = \(await import\('\.\/views\/approval-review\.ts'\)\)\.adviceOf\(listed\)/u,
   'plugin/skills/sflow-approve/SKILL.md': /Say `act\.ask\.why`\. Ask `act\.ask\.question`/u
@@ -145,7 +148,7 @@ test('the approval page says why the person is asked and what each button does, 
   assert.doesNotMatch(page.approvalReviewBody(request), /Why you are asked/u);
   assert.match(await readFile(path.join(ROOT, 'apps/vscode/src/actions.ts'), 'utf8'), /\?\? \(await import\('\.\.\/\.\.\/\.\.\/src\/step-advice\.mjs'\)\)\.stepAdvice\('generic'/u);
   // The decision list's approval item carries the advice the page reads.
-  assert.deepEqual(page.adviceOf({ items: [{ kind: 'approval', details: { advice } }] }), { decides: advice.decides, yes: advice.yes,
+  assert.deepEqual(plain(page.adviceOf({ items: [{ kind: 'approval', details: { advice } }] })), { decides: advice.decides, yes: advice.yes,
     sendBack: advice.sendBack, notNow: advice.notNow, settles: advice.settles, stops: advice.stops });
   assert.equal(page.adviceOf({ items: [{ kind: 'approval', details: {} }] }), null);
 });

@@ -315,7 +315,8 @@ test('the extension wires the page: a palette command, the lazy panel, and the a
   assert.match(panel, /mkdtemp\(path\.join\(os\.tmpdir\(\), 'sflow-decisions-'\)\)[\s\S]*mode: 0o600, flag: 'wx'[\s\S]*finally \{\s*await rm\(directory, \{ recursive: true, force: true \}\);/u,
     'the answers file is private and removed after the one command');
   const approval = await readFile(source('views/approval-review.ts'), 'utf8');
-  assert.match(approval, /'approval\.decide': \(\) => \{\s*if \(!request\.pendingDecisions\?\.count\) return;\s*finish\(null\);\s*void vscode\.commands\.executeCommand\('singularityFlow\.decisions', \{ workId: request\.workId, phase: request\.phaseId \}\);/u);
+  // The Decide card in place, then the approval page again (actions.ts), never the older list [owner, 2026-11-28].
+  assert.match(approval, /'approval\.decide': \(\) => \{\s*if \(!request\.pendingDecisions\?\.count\) return;\s*finish\(\{ action: 'decide' \}\);/u);
   assert.match(approval, /<button type="button" data-decide>Decide what blocks this step<\/button>/u);
   const actions = await readFile(source('actions.ts'), 'utf8');
   assert.match(actions, /\['decisions', request\.workId, '--phase', request\.phaseId, '--json'\]\)\.catch\(\(\) => null\)/u, 'a failed read adds nothing; the gate still decides');

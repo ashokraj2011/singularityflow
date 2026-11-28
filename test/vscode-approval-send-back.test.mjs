@@ -12,6 +12,9 @@ import test from 'node:test';
 import { adviceForStep } from '../src/step-advice.mjs';
 import { approvalReviewPage } from './helpers/approval-review-page.mjs';
 
+// The page runs in its own context (approval-review-page.mjs): its objects compare by their values.
+const plain = (value) => JSON.parse(JSON.stringify(value));
+
 const page = await approvalReviewPage();
 const W = 'NSB-1';
 const SEND_BACK = `singularity-flow reject planning --work-id ${W} --fetch --to planning --reason <reason>`;
@@ -36,7 +39,7 @@ test('Send back: a button with one reason field, whose words say why the reason 
   assert.equal(page.sendBackReason({ type: 'approval.sendBack', reason: ' The plan misses the error case. ' }).reason, 'The plan misses the error case.');
   const listed = { items: [{ kind: 'approval', details: { sendBack: SEND_BACK } }] };
   assert.equal(page.sendBackOf(listed), SEND_BACK);
-  assert.deepEqual(page.sendBackArgv(page.sendBackOf(listed), 'The plan misses the error case.'),
+  assert.deepEqual(plain(page.sendBackArgv(page.sendBackOf(listed), 'The plan misses the error case.')),
     ['reject', 'planning', '--work-id', W, '--fetch', '--to', 'planning', '--reason', 'The plan misses the error case.']);
   assert.equal(page.sendBackOf({ items: [{ kind: 'approval', details: { sendBack: 'rm -rf /' } }] }), null, 'only the engine\'s reject route');
   assert.equal(page.sendBackArgv(null, 'x'), null);
@@ -56,7 +59,7 @@ test('Approve stays off while a decision on the page is undecided: one line says
   assert.match(undecided.errors.join(' '), /Decide 'AC-001: a problem reported in Specification' first\. Approve stays off until each item below is decided/u);
   const decided = page.validateApprovalReviewSubmission(request, { confirmation: 'planning', decisions: [], witnessDecisions: [],
     inApprovalDecisions: [{ item: 'd1', option: 'dismiss', reason: 'It is covered by the plan.' }] });
-  assert.deepEqual(decided.errors, []);
+  assert.deepEqual(plain(decided.errors), []);
   // A decision the page cannot answer: Approve stays off too, and the button that decides it returns here.
   const held = { ...base, pendingDecisions: { count: 2, headline: 'Planning has 2 decisions.' } };
   assert.match(page.approvalReviewBody(held), /The button opens them on one card, then brings you back to this page\./u);
@@ -68,7 +71,7 @@ test('"Approval would be refused" has something to press: its route by place, ru
   const approvalCheck = { ready: false, holds: [{ code: 'APPROVAL_INTENT_AMENDMENT_PENDING', owner: 'someone-decides', who: 'An approver of Specification',
     summary: 'Approving planning waits for intent amendment AMD-001 to be decided.', action: { label: 'Decide it on the card.', command: `singularity-flow decisions ${W}` } }] };
   const request = { ...base, approvalCheck };
-  assert.deepEqual(page.approvalPageRoutes(request), [`singularity-flow decisions ${W}`]);
+  assert.deepEqual(plain(page.approvalPageRoutes(request)), [`singularity-flow decisions ${W}`]);
   const html = page.approvalReviewBody(request);
   assert.match(html, /<button type="button" class="secondary" data-hold-run="0">Do this now<\/button>/u);
   assert.doesNotMatch(html.slice(html.indexOf('Holds on this approval')), /<pre><code>singularity-flow decisions/u, 'no raw command to copy');

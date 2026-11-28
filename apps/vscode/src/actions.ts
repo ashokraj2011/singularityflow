@@ -599,7 +599,9 @@ export async function approveWithReceipt(
     // A hold's own route, from the page's request: run it, then this approval page again, read fresh.
     if (review.action === 'run') {
       if (!(await stillCurrent())) return false;
-      const argv = review.command.replace(/^singularity-flow\s+/u, '').split(/\s+/u).filter(Boolean);
+      // A value the route leaves open is asked for here, by its name, never typed into a terminal [owner, 2026-11-28].
+      const argv = await resolvePlaceholders(review.command.replace(/^singularity-flow\s+/u, '').split(/\s+/u).filter(Boolean), client.repository);
+      if (!argv) return false;
       if (argv[0] === 'decisions' && argv[1] === request.workId && argv.length === 2) {
         await Promise.resolve(vscode.commands.executeCommand('singularityFlow.decide', { workId: request.workId, forApproval: true })).catch((error: unknown) => { showRefusal(error); });
       } else if (!(await runGovernedAction(client, { command: argv, title: 'Doing what the approval waits for' }, output))) return false;

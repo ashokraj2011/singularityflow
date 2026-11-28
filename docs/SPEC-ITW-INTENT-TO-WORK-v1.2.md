@@ -4,7 +4,8 @@
 
 **Status:** Built 2026-11-27 on branch sf-task-v12 (M1 to M5 built together, in src/task-shape.mjs, src/task-followups.mjs,
 src/task-history.mjs, with src/task-composition.mjs, src/task-amendment.mjs, src/task-change-contracts.mjs,
-src/task-agents.mjs, src/task-turn.mjs and `work`), walked by test/journey-tasks-shapes.test.mjs. Builds on [ITW v1.1](SPEC-ITW-INTENT-TO-WORK-v1.1.md) and replaces its composition
+src/task-agents.mjs, src/task-turn.mjs and `work`), walked by test/journey-tasks-shapes.test.mjs; M6 (REQ-113, a task from
+VS Code's Start Story) built 2026-11-28 on branch sf-task-start-form, walked by test/journey-start-story-task.test.mjs. Builds on [ITW v1.1](SPEC-ITW-INTENT-TO-WORK-v1.1.md) and replaces its composition
 (REQ-003, the default approvals of REQ-004 and REQ-005, and the offer of the team's own workflow in REQ-020). Everything
 else in v1.1 stays as it is: the front door, the Story, carrying the turn on, adding a step, skills, a marketplace agent
 as the plan, investigating, refactoring, documents and the last message.
@@ -212,6 +213,43 @@ count a person's actions through the real CLI:
 - a small change that grows: 4 (the words, the requirement, the plan, the code);
 - nothing typed again between them (v1.1 REQ-019).
 
+**ITW:REQ-113, Start a task from VS Code's Start Story.** Owner, 2026-11-28: "we may need to add start task option in the
+vscode start story also ..it will just ask for story details ,documents,branch ..no workflow". Built 2026-11-28 on branch
+sf-task-start-form (apps/vscode/src/views/intake-form.ts, intake-panel.ts, extension.ts; `work --start` in
+src/commands/work.mjs).
+- **The choice.** Start Story's first question is "How should this Story run?": "Choose a workflow: you pick the exact steps
+  your team defined" (the default, unchanged) or "Start a task: SFlow picks the steps from what you describe: the requirement
+  first, then the code and its tests". The person's last choice is kept for the next Start Story. A clone, a Story from a
+  reviewed specification and an Epic or Initiative keep the workflow. The Work place's "Start with a workflow…" opens the
+  workflow choice.
+- **What it asks.** The Story's details: its ID, title and "What do you want done?" (and its acceptance criteria, optional),
+  or its Jira key or GitHub Issue as today; its documents, each with its name and where it is kept (Git or this machine, as
+  the task's workflow allows); its base branch and Story branch. Each field says what it is for.
+- **What it hides.** The workflow picker, the phases a document is used in (every step of the task reads it), the target
+  URL, reference repositories and the testing and quality-gate choices: a task uses start's own (hard gates, SFlow runs the
+  tests itself), and the review step says so.
+- **The likely plan.** One line under the words, read with `work --plan-only --json` (the title and the words) after typing
+  pauses, in the Work place's words ("Likely plan: requirement → implement and test → SFlow runs the tests. …"). When the
+  words do not say the kind, the form shows the kinds with "A change" chosen, and the line says so. An issue's words are
+  read on Start: the line says so.
+- **Start.** `work --start --json --isolated-worktree --work-id ID` with `--title`/`--description` (or `--jira`, or
+  `--github ISSUE`, whose words are the issue's own), `--from-branch`, `--ref`, and each `--document` with its
+  `--document-name` and `--document-store`. `work --start` hands each to `start` as start's own option (TASK_START_OPTIONS),
+  so start reads and checks them as for any Story; with an issue, what SFlow asks of the requirement is the issue's notes.
+  The readiness check before Start checks the branch and base with no workflow named.
+- **SFlow's questions.** The kind, when an issue does not say it, and a yes or no to a marketplace agent or skill that could
+  do the task (REQ-010, REQ-011) are asked on the form; one click answers and starts the task. One whose workflow needs its
+  review first has no Yes on the form: the task starts with SFlow's own steps.
+- **After Start.** The task carries on exactly as after /sf-task's start: the window that opens the task's own checkout
+  sends `/sf-task` to the chat, once (a record the starting window leaves, `singularityFlow.storyStartTaskTurn.v1`), and its
+  turn does the requirement. Nothing is typed.
+- **Where a task cannot start.** A workspace of several repositories ("A task works in one repository, and this workspace
+  has N. Use a workflow to change them together."): SFlow sizes a task from the files of its one repository. A repository
+  that asks a decision about tests failing before work starts ("A workflow's form asks it."). Each says why in one line,
+  with "Choose a workflow" beside it.
+- **Counted** (test/journey-start-story-task.test.mjs): a small change from the form takes 3 person actions, Start, the
+  requirement's Yes and the code's Yes, as /sf-task's B1; the form adds none beyond filling in the details.
+
 ## 4. Stories already in flight
 
 A Story records its composition when it starts. One started under v1.1 has no `sizing` and keeps its steps, its
@@ -253,6 +291,8 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
 - **B9:** With no live turn record, a task's results say `taskTurn.carriedBy: skill`, and a journey walked with the hooks
   off reaches the end with the same person actions.
 - **B10:** A Story started before this version keeps its steps and its approval words.
+- **B11:** Start Story in task mode starts a small change with the form's details, branch and document, no workflow
+  chosen; the window that opens its checkout sends /sf-task once; the walk ends with 3 person actions (REQ-113).
 
 ## 7. Open questions for the owner, with the default built (7 and 8 decided 2026-11-28)
 
@@ -275,6 +315,10 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
 8. **One step for implement and test, with nothing after it.** Decided (owner, 2026-11-28: "Hidden step is fine"): the
    tests step stays SFlow's own (no person, no question), because the final evaluation reads each clause's test evidence
    from it. The evidence model is not changed.
+9. **Start a task from Start Story (REQ-113).** Defaults built: a task works in one repository (its sizing reads that one
+   repository's files), so a workspace of several says so and offers the workflow; an agent or skill offer whose workflow
+   needs its review first is not proposed for review from the form (the task starts with SFlow's steps, as the chat's Yes
+   also does); the tracker choice stays inside "change work type or source".
 
 ## 8. Milestones
 
@@ -285,3 +329,4 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
 | M3 | An analysis with no approval, and its follow-ups (REQ-109) |
 | M4 | The agent used for similar changes before, and the lessons (REQ-110) |
 | M5 | The turn without hooks; the skill text, help and topics (REQ-111) |
+| M6 | Start a task from VS Code's Start Story (REQ-113) |

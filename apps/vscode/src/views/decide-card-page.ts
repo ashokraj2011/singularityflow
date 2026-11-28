@@ -414,9 +414,9 @@ function changeStoryHtml(story: { summary: string; path: string } | null): strin
 function approvalHtml(packet: DecisionPacket, { forApproval = false } = {}): string {
   // Opened from the approval page: the approval is that page's, and this card brings the person back to it [owner, 2026-11-28].
   if (forApproval) {
-    return approvalRows(packet).length ? `<section class="dc-approval" aria-label="Back to the approval page"><div class="dc-own">
+    return `<section class="dc-approval" aria-label="Back to the approval page"><div class="dc-own">
       <button type="button" data-approval>Back to the approval page</button>
-      <span class="muted">Record what you decided first; the approval page then opens again with it.</span></div></section>` : '';
+      <span class="muted">Record what you decided first; the approval page then opens again with it.</span></div></section>`;
   }
   return approvalRows(packet).map((item) => ({ item, plain: plainWords(item) })).map(({ item, plain }) => `<section class="dc-approval" aria-label="${escape(item.title)}"><h2>${escape(plain.question ?? item.title)}</h2>
     ${plain.why ? `<p class="muted dc-why">${escape(plain.why)}</p>` : ''}${plain.recommended ? `<p class="dc-rec">${escape(plain.recommended)}</p>` : ''}

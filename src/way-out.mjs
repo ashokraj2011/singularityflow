@@ -13,6 +13,11 @@
  * built and the Story's own record. Generic: it reads what each step's state and next action are, never its workflow.
  */
 
+import { adviceForStep } from './step-advice.mjs';
+
+/** The step's advice by what it is for, never by its workflow (step-advice.mjs); its generic lines when unknown. */
+const advice = (workflow, phaseId) => adviceForStep(workflow, phaseId);
+
 const oneLine = (value, limit = 240) => {
   const text = String(value ?? '').replace(/\s+/gu, ' ').trim();
   if (!text) return '';
@@ -63,7 +68,7 @@ function nextOf(action, snapshot, workflow) {
   if (/^singularity-flow (?:sync|push)\b/u.test(command ?? '')) return { by: 'sflow', kind: 'push', command, words: 'SFlow sends the commits it saved here, then goes on.' };
   // A recovery is the kernel's own route, run as returned (never one built here).
   if (/^singularity-flow recover\b/u.test(command ?? '')) return { by: 'sflow', kind: 'recover', command, words: 'SFlow checks what is left over and repairs what it safely can, then goes on.' };
-  if (/^singularity-flow (?:resume|session attach)\b/u.test(command ?? '')) return { by: 'sflow', kind: 'attach', command, words: 'SFlow opens the Story in this chat, then goes on.' };
+  if (/^singularity-flow (?:resume|session (?:attach|open))\b/u.test(command ?? '')) return { by: 'sflow', kind: 'attach', command, words: 'SFlow opens the Story in this chat, then goes on; it asks which one only when several are open.' };
   if (/^singularity-flow (?:init|start)\b/u.test(command ?? '') || ['/sf-init', '/sf-start', '/sf-story-start'].includes(skill)) {
     return { by: 'person', kind: 'start', words: 'Say what you want done with /sf-task and your words; SFlow starts the Story.' };
   }
@@ -79,7 +84,8 @@ function whyLine(snapshot, workflow, next) {
   if (workflow.status === 'closed') return 'Nothing is open, so nothing waits.';
   const phase = workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
   if (workflow.pendingDecision) return oneLine(workflow.pendingDecision.question ?? workflow.pendingDecision.title ?? '') || 'A decision is open before the Story goes on.';
-  if (next?.kind === 'approval') return 'A person approves it before the next step starts.';
+  // What the person decides at this step and why they are asked: the per-intent advice every approval surface reads.
+  if (next?.kind === 'approval' && phase) return advice(workflow, phase.id).decides;
   if (next?.kind === 'decision') return oneLine(next.reason ?? '') || 'A choice is open that only a person makes.';
   if (next?.by === 'agent') return phase?.status === 'in_progress' && Number(phase.generation ?? 0) > 0
     ? 'Its work is not finished: what is left is SFlow\'s agent\'s.' : 'Its work is SFlow\'s agent\'s, and nothing waits for a person.';

@@ -17,6 +17,7 @@ import test from 'node:test';
 import { completeAgentResult } from '../src/agent-output.mjs';
 import { nextStepsSnapshot } from '../src/nextsteps.mjs';
 import { storyWayOut, wayOutLine } from '../src/way-out.mjs';
+import { adviceForStep } from '../src/step-advice.mjs';
 import { storyContextPolicy, contextBoundaryHandoff } from '../src/context-policy.mjs';
 import { carryRoute, NEXT_ROUTE, TASK_ROUTE } from '../src/safe-command-guidance.mjs';
 import { NEXT_ACTION_SKILLS, STEP_WORK_SKILLS } from '../src/task-turn.mjs';
@@ -208,8 +209,11 @@ test('the way on names who does what, in plain words, from any snapshot', () => 
   const workflow = { workItem: { id: 'W-1' }, status: 'in_progress', currentPhase: 'planning',
     phases: { planning: { id: 'planning', label: 'Planning', status: 'awaiting_approval', generation: 2 } } };
   const approval = storyWayOut({ workId: 'W-1', state: 'in_progress', actions: [{ timing: 'now', skill: '/sf-approve', copilotCommand: '/sf-approve planning --work-id W-1', command: 'singularity-flow approve planning --work-id W-1 --fetch', label: 'Review and approve Planning' }] }, workflow);
-  assert.deepEqual(approval, { where: 'W-1 is at Planning (version 2): submitted, waiting for approval.', why: 'A person approves it before the next step starts.',
+  // Why: what the person decides at this step, from the per-intent advice every approval surface reads (step-advice.mjs).
+  assert.deepEqual(approval, { where: 'W-1 is at Planning (version 2): submitted, waiting for approval.',
+    why: adviceForStep(workflow, 'planning').decides,
     next: { by: 'person', kind: 'approval', words: 'Review and approve Planning: SFlow asks you here; in VS Code it opens the approval page.' } });
+  assert.match(approval.why, /^You decide if Planning /u);
   const none = storyWayOut(nextStepsSnapshot({ initialized: true }), null);
   assert.equal(none.where, 'No Story is open in this chat.');
   assert.equal(none.next.by, 'person');
@@ -227,6 +231,11 @@ test('VS Code: Continue sends the one way on from the status bar, the Work page 
   const status = extension.slice(extension.indexOf("createStatusBarItem('singularityFlow.continueStory'"), extension.indexOf('showContinue();'));
   assert.match(status, /continueStatus\.text = '\$\(debug-continue\) Continue'/u);
   assert.match(status, /handlers\.set\(CONTINUE_COMMAND, async \(\) => \{[^]*sendTaskRoute\(carryRoute\(workflow\)\)/u, 'it sends /sf-next, or /sf-task on a task, as typed');
+  // With the chat's hooks off (a folder opened through a link, or Copilot's disableAllHooks), Continue says why in one line
+  // and offers that one fix (reopen at the real path, or Diagnostics) instead of sending a turn SFlow cannot guard.
+  assert.match(status, /if \(hooksOff\) \{[^]*showCompactWarningMessage\(off\.line, off\.action\)[^]*return;\s*\}\s*await sendTaskRoute/u);
+  assert.match(extension, /hooksOff = \{ line: prompt\.message, action: prompt\.action, command: reopen \};/u);
+  assert.match(extension, /hooksOff = \{ line: `Copilot hooks are off here \(disableAllHooks in /u);
   const { needsYouListHtml } = await import('../apps/vscode/src/views/needs-you-page.ts');
   assert.match(needsYouListHtml({ items: [], lines: [], more: 0, checked: { words: 'Checked now' } }), /Nothing waits on you now\. <button type="button" class="needs-you-more" data-continue="1">Continue<\/button>/u);
 });

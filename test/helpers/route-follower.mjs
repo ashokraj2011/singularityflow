@@ -103,9 +103,11 @@ export function skillEntries(skillsRoot = SKILLS) {
     const finish = commands(body).find((command) => /^singularity-flow phase prepublish\b.*--publish-if-ready/u.test(command)) ?? null;
     // An alias hands the turn to its canonical skill ("Run `/sflow-code` once", "Delegate once to `/sf-code`").
     // The delegation sentence names it; another skill the text mentions first (/sf-call's `/sf-start … --agent`) is not it.
+    // The one way on's older names hand their turn to /sf-next ("This is the one way on, `/sf-next`, under an older name").
     const delegate = /<!-- sflow-output-contract: canonical-delegation -->/u.test(body)
       ? (/(?:Delegate once to|Run) `\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n'))
-        ?? /`\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n')))?.[1] ?? null : null;
+        ?? /`\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n')))?.[1] ?? null
+      : /This is the one way on, `\/sf-next`, under an older name: run `\/sflow-next` once/u.test(body) ? 'next' : null;
     // A skill whose first step picks among subcommands (`spec analyze|coverage|trace`) has no single entry.
     const choice = !entry && commands(own.join('\n')).some((command) => !PAUSE_CHECK.test(command) && command.includes('|'));
     // "Successful begin: refresh entry once": opening a code version is followed by the skill's entry again.
@@ -520,10 +522,22 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     // Any other Story's turn carried on into the next step's own work: that work is this same turn's, nothing typed; its
     // work command's steps run in it (the hook bound the turn to the new step).
     else if (carried && carried.task === false && taken.next?.copilot && !taken.next.inTurn && guard.skill) {
-      // SFlow's note says how: `phase enter --compose`, the work command's own entry (task-turn.mjs carryOnWords), whatever
-      // route the result named (/sf-next as the way on, or the step's work command).
-      const work = /^\/sf(?:low)?-next(?:\s|$)/u.test(taken.next.copilot) ? [...entries.values()].find((known) => known.oneWorkCommand)?.skill ?? null : null;
-      taken.next = { ...taken.next, ...(work ? { copilot: work } : {}), inTurn: false, within: guard.skill, carried: true, source: `${taken.next.source ?? 'route'} (carried on)` };
+      // SFlow's note says how: `phase enter --compose`, the work command's own entry (task-turn.mjs carryOnWords). The way on
+      // the result named (/sf-next) is the step's own route as the person's views name it: the work command's goes on in this
+      // turn; a step whose own skill is another (the kernel-built /sf-converge) is handed to it, as the work command's text
+      // says, and the person types it.
+      let route = taken.next;
+      let handed = false;
+      if (/^\/sf(?:low)?-next(?:\s|$)/u.test(route.copilot)) {
+        const read = story.raw(['nextsteps', story.workId, '--json']);
+        let own = null;
+        try { own = (JSON.parse(read.stdout).actions ?? []).find((entry) => entry?.timing === 'now') ?? null; } catch { own = null; }
+        const skill = skillOf(own?.skill ?? own?.copilotCommand);
+        route = skill ? { ...route, copilot: own.copilotCommand && skillOf(own.copilotCommand) === skill ? own.copilotCommand : skill, shell: own.command ?? route.shell } : route;
+        handed = Boolean(skill) && (!WORK_ROUTE.test(route.copilot) || /^\/sf(?:low)?-converge\b/u.test(route.copilot));
+      }
+      taken.next = handed ? { ...route, inTurn: false }
+        : { ...route, inTurn: false, within: guard.skill, carried: true, source: `${route.source ?? 'route'} (carried on)` };
     }
     if (task?.stepWork && !isPersonRoute({ ...taken.next, inTurn: false }) && !/^singularity-flow work\b/u.test(taken.next.shell ?? '') && current()) {
       const work = [...entries.values()].find((known) => known.oneWorkCommand && known.entry === task.stepWork)?.skill ?? null;

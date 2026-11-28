@@ -402,6 +402,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // window says so in the status bar and once per folder in a warning, whose button reopens the folder at its real path.
   // The item exists only once there is something to say, so the window's other status items keep their places.
   let linkedFolderStatus: vscode.StatusBarItem | undefined;
+  // Why Copilot's chat runs no SFlow hook in this window, when VS Code can tell, and its one fix: Continue says it in one
+  // line and offers that fix instead of sending a turn SFlow cannot guard [owner, 2026-11-28: one way on that always works].
+  let hooksOff: { line: string; action: string; command: vscode.Command } | null = null;
   context.subscriptions.push({ dispose: () => linkedFolderStatus?.dispose() });
   const warnedLinkedFolders = new Set<string>();
   const checkLinkedFolders = async (): Promise<void> => {
@@ -413,10 +416,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (await usesSflowFolder(entry.real, exists)) linked.push(entry);
     }
     const first = linked[0];
-    if (!first) { linkedFolderStatus?.hide(); return; }
+    if (!first) { linkedFolderStatus?.hide(); if (hooksOff?.command.command === 'vscode.openFolder') hooksOff = null; return; }
     const prompt = linkedFolderPrompt(first, { multiRoot: folders.length > 1 || Boolean(vscode.workspace.workspaceFile) });
     const reopen: vscode.Command = { command: 'vscode.openFolder', title: prompt.action,
       arguments: [vscode.Uri.file(first.real), prompt.newWindow ? { forceNewWindow: true } : { forceReuseWindow: true }] };
+    hooksOff = { line: prompt.message, action: prompt.action, command: reopen };
     linkedFolderStatus ??= vscode.window.createStatusBarItem('singularityFlow.linkedFolder', vscode.StatusBarAlignment.Left, 98);
     linkedFolderStatus.name = 'Singularity Flow: folder opened through a link';
     linkedFolderStatus.text = prompt.status;
@@ -6008,6 +6012,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (/"disableAllHooks"\s*:\s*true/u.test(text)) disabled.push(relative);
       }
       if (repository !== target) return;
+      // Copilot's own setting turns every hook off: Continue says so and opens Diagnostics, whose doctor names the file.
+      if (disabled.length) hooksOff = { line: `Copilot hooks are off here (disableAllHooks in ${disabled.join(' and ')}), so SFlow cannot guard a chat: turn them on, then press Continue again.`,
+        action: 'Open Diagnostics', command: { command: 'singularityFlow.doctor', title: 'Open Diagnostics' } };
+      else if (hooksOff?.command.command === 'singularityFlow.doctor') hooksOff = null;
       if (present && !disabled.length) { hooksStatus?.hide(); return; }
       hooksStatus ??= vscode.window.createStatusBarItem('singularityFlow.copilotHooks', vscode.StatusBarAlignment.Left, 99);
       hooksStatus.name = 'Singularity Flow: Copilot hooks';
@@ -6193,12 +6201,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const workflow = store.current.snapshot?.workflow;
     if (!workflow?.workItem?.id || workflow.status !== 'in_progress') { continueStatus.hide(); return; }
     continueStatus.text = '$(debug-continue) Continue';
-    continueStatus.tooltip = `Carry ${workflow.workItem.id} on: sends ${carryRoute(workflow)} to the Copilot chat you used last. It says why the Story waits and does what is SFlow's.`;
+    continueStatus.tooltip = `Carry ${workflow.workItem.id} on: sends ${carryRoute(workflow)} to the Copilot chat you used last. It says why the Story waits and does what is SFlow's.`
+      + ' If the chat says SFlow\'s guard is off, reload the window (Developer: Reload Window), start a new chat and press Continue again.';
     continueStatus.show();
   };
   handlers.set(CONTINUE_COMMAND, async () => {
     const workflow = store.current.snapshot?.workflow;
     if (!workflow?.workItem?.id) { void showCompactInformationMessage('No Story is open in this window: start one from Work, or open one.'); return; }
+    // With the chat's hooks off, a turn would run unguarded: say why in one line and offer the one fix instead.
+    if (hooksOff) {
+      const off = hooksOff;
+      if (await showCompactWarningMessage(off.line, off.action) === off.action) await vscode.commands.executeCommand(off.command.command, ...(off.command.arguments ?? []));
+      return;
+    }
     await sendTaskRoute(carryRoute(workflow));
   });
   context.subscriptions.push(store.onDidChange(() => showContinue()));

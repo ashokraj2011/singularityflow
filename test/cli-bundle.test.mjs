@@ -130,7 +130,7 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // imported agent-output-folder.mjs, which the hooks claimed, so every agent result loaded cold-hooks.mjs (307,172), which
   // loads cold-status.mjs; workspace-context.mjs imported the Story index (cold-status.mjs, 169,269) only to find a branch's
   // Story. The folder leaf (Node built-ins only) is now the startup chunk's (cold-core +~2.3 KB) and the index loads lazily:
-  // measured 1,632,389 bytes (-474,299 on the same build). Behaviour is the same; the two chunks named last below hold it.
+  // measured 1,632,686 bytes (-474,002 on the same build). Behaviour is the same; the two chunks named last below hold it.
   assert.ok(presentationBytes < 2 * 1024 * 1024,
     `small output helpers must not shift policy loading into every agent response: ${presentationBytes} bytes`);
   for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs', 'cold-hooks.mjs', 'cold-status.mjs']) {

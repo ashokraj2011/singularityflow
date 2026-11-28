@@ -319,12 +319,12 @@ async function testRun(root, workflow, steps) {
 
 /**
  * WCB's record of files changed outside the plan, on a code step: `{ file, writer, reason, who }`, `who` in the words the
- * approval uses (outside-plan-words.mjs); null when there is none.
+ * approval uses (person-change-class.mjs outsidePlanWho); null when there is none.
  */
 async function outsidePlan(workflow, steps) {
   try {
     // WCB's one reader of its record: the out-of-plan settlements and the supporting changes that say who made them.
-    const [{ outsidePlanSettled }, { outsidePlanWho }] = await Promise.all([import('./plan-amendments.mjs'), import('./outside-plan-words.mjs')]);
+    const [{ outsidePlanSettled }, { outsidePlanWho }] = await Promise.all([import('./plan-amendments.mjs'), import('./person-change-class.mjs')]);
     const ids = new Set(steps.map((step) => step.id));
     const entries = outsidePlanSettled(workflow).filter((entry) => typeof entry.file === 'string' && (!entry.phase || ids.has(entry.phase)));
     if (!entries.length) return null;

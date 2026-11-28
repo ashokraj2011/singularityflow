@@ -16,14 +16,14 @@
  *
  * Nothing here refuses, asks or holds. Records are evidence, never proof: a file no record explains is "by you".
  */
-import { lstat, readFile, realpath } from 'node:fs/promises';
+import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
 import { isWorkspaceLocalPath } from './workspace-local-paths.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { openScopeAppeal } from './phase-finding-policy.mjs';
-import { outsidePlanWho } from './outside-plan-words.mjs';
+import { outsidePlanWho } from './person-change-class.mjs';
 import { posix } from './util.mjs';
 
 /**
@@ -135,17 +135,28 @@ async function copilotShellCalls(root, workflow, since) {
  * Story here (a recorded write, a terminal command or a prompt), else `linked-folder` when VS Code opened this checkout
  * through a link, where Copilot runs no hooks (copilot-chat-hooks.mjs), else `no-hook-records`.
  */
-async function noRecordBasis(repository, read, shells, workflow) {
+async function noRecordBasis(repository, read, shells, workflow, since) {
   if (read?.status === 'available' || shells.length) return 'not-recorded';
+  if (repository && workflow?.workItem?.id && await promptedHere(repository.commonDir, workflow.workItem.id, since)) return 'not-recorded';
   try {
-    const { readPromptLog } = await import('./plain-chat-prompts.mjs');
-    if (repository && workflow?.workItem?.id && (await readPromptLog(repository.commonDir, { workId: workflow.workItem.id, limit: 1 })).length) return 'not-recorded';
-  } catch { /* No prompt log: no prompt hook ran. */ }
-  try {
-    const { vscodeLinkedOpenings } = await import('./copilot-chat-hooks.mjs');
+    const { vscodeLinkedOpenings } = await import('./vscode-linked-openings.mjs');
     if (repository && vscodeLinkedOpenings(repository.root).length) return 'linked-folder';
   } catch { /* Unknown: said plainly as no hook records. */ }
   return 'no-hook-records';
+}
+
+/**
+ * Whether the prompt hook kept a prompt for this Story since it began: its log is one JSON line per prompt, per UTC day
+ * (plain-chat-prompts.mjs, under the Git common directory), each naming the Story its checkout held.
+ */
+async function promptedHere(commonDir, workId, since) {
+  const directory = path.join(commonDir, 'singularity-flow', 'prompts');
+  const from = Number.isFinite(since) ? new Date(since).toISOString().slice(0, 10) : '';
+  const named = `"workId":${JSON.stringify(workId)}`;
+  for (const day of (await readdir(directory).catch(() => [])).filter((name) => /^\d{4}-\d{2}-\d{2}\.jsonl$/u.test(name) && name.slice(0, 10) >= from)) {
+    if ((await readFile(path.join(directory, day), 'utf8').catch(() => '')).includes(named)) return true;
+  }
+  return false;
 }
 
 /**
@@ -197,7 +208,7 @@ export async function codeWriters(root, workflow, files, { config = null } = {})
       writers.set(file, { writer: 'copilot', basis: 'shell-call', ...agentOf(call.writer), recordedAt: new Date(call.ended).toISOString() });
       continue;
     }
-    if (!writes.length) unrecorded ??= await noRecordBasis(repository, read, shells, workflow);
+    if (!writes.length) unrecorded ??= await noRecordBasis(repository, read, shells, workflow, since);
     writers.set(file, { writer: 'person', basis: writes.length ? 'changed-after-copilot' : unrecorded });
   }
   return writers;

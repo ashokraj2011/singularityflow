@@ -21,7 +21,7 @@ import { readSfGuardShellRecords, sfGuardNotePrompt, sfGuardNoteToolCall, sfGuar
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { captureMutationTurn, mutationPostToolGuard, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { outsidePlanSettled } from '../src/plan-amendments.mjs';
-import { outsidePlanWho } from '../src/outside-plan-words.mjs';
+import { outsidePlanWho } from '../src/person-change-class.mjs';
 import { outsidePlanWords } from '../src/decision-list.mjs';
 
 const sha = (text) => createHash('sha256').update(text).digest('hex');

@@ -1293,7 +1293,7 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // start.mjs 9,988,043, approve.mjs 9,897,041): platformShell moves from util.mjs to doctor.mjs, its one reader (-655); the
     // base branch's merged files keep their writer in WCB's record (plan-amendments.mjs +94); the Story index loads lazily where a
     // workspace finds a branch's Story (workspace-context.mjs +12). Who changed a file, and its words, load lazily
-    // (code-outside-plan.mjs, outside-plan-words.mjs). No new eager file.
+    // (code-outside-plan.mjs, person-change-class.mjs). No new eager file.
     assert.ok(closure.bytes <= 9_991_725, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }

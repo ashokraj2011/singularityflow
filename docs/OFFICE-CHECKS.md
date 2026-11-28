@@ -19,8 +19,8 @@ in one report that you send back.
    - Only if IntelliJ or Android Studio with Copilot is used here: send one message with each of its two
      agents. This uses two premium requests.
    - Optional: one Jira issue key. Only the length of its title is reported.
-5. Send back `sflow-office-checks-<date>.md` and the `.json` file beside it. They are written in the
-   repository folder, and the last message says where.
+5. Send back `sflow-office-checks-<date>.md` and the `.json` file beside it. They are written to your
+   Downloads folder (or your home folder), never into the repository, and the last message says where.
 
 ## What it checks
 

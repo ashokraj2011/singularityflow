@@ -55,7 +55,7 @@ async function finished(done: ProbeDone | null): Promise<void> {
   }
   const file = vscode.Uri.file(done.markdown);
   const choice = await vscode.window.showInformationMessage(
-    `Office checks written to ${path.basename(done.markdown)} in this folder. Send this file back.`, 'Open report', 'Reveal in folder');
+    `Office checks written to ${path.basename(done.markdown)} in ${path.dirname(done.markdown)}. Send this file back.`, 'Open report', 'Reveal in folder');
   if (choice === 'Open report') await vscode.window.showTextDocument(file);
   else if (choice === 'Reveal in folder') await vscode.commands.executeCommand('revealFileInOS', file);
 }

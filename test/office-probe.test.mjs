@@ -339,10 +339,16 @@ test('probe office refuses other probes and options, and names its report by dat
   await assert.rejects(probeCommand(['probe', 'office'], { force: true }), /does not accept --force/u);
   await assert.rejects(probeCommand(['probe', 'office'], { push: 'maybe' }), /--push takes yes or no/u);
   const cwd = folder('names');
-  assert.deepEqual(reportFileNames('2026-11-28T10:00:00.000Z', null, cwd),
+  const home = folder('names-home');
+  // With no --out the report goes to the person's home, never the repository, so no Story's code step takes it up.
+  assert.deepEqual(reportFileNames('2026-11-28T10:00:00.000Z', null, cwd, home),
+    { markdown: path.join(home, 'sflow-office-checks-2026-11-28.md'), json: path.join(home, 'sflow-office-checks-2026-11-28.json') });
+  mkdirSync(path.join(home, 'Downloads'));
+  assert.deepEqual(reportFileNames('2026-11-28T10:00:00.000Z', null, cwd, home),
+    { markdown: path.join(home, 'Downloads', 'sflow-office-checks-2026-11-28.md'), json: path.join(home, 'Downloads', 'sflow-office-checks-2026-11-28.json') });
+  assert.deepEqual(reportFileNames('2026-11-28T10:00:00.000Z', 'out/r.md', cwd, home), { markdown: path.join(cwd, 'out', 'r.md'), json: path.join(cwd, 'out', 'r.json') });
+  assert.deepEqual(reportFileNames('2026-11-28T10:00:00.000Z', cwd, '/', home),
     { markdown: path.join(cwd, 'sflow-office-checks-2026-11-28.md'), json: path.join(cwd, 'sflow-office-checks-2026-11-28.json') });
-  assert.deepEqual(reportFileNames('2026-11-28T10:00:00.000Z', 'out/r.md', cwd), { markdown: path.join(cwd, 'out', 'r.md'), json: path.join(cwd, 'out', 'r.json') });
-  assert.deepEqual(reportFileNames('2026-11-28T10:00:00.000Z', cwd, '/'), reportFileNames('2026-11-28T10:00:00.000Z', null, cwd));
 });
 
 test('every write but the report stays under the run\'s temporary folder, which is removed at the end', async () => {

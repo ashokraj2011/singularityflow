@@ -43,7 +43,17 @@ function systemLine(platform, arch) {
   return `${name} (${arch})`;
 }
 
-export function reportFileNames(createdAt, out, cwd) {
+/**
+ * Where the report goes: --out when given; otherwise the person's Downloads folder (or home), never the repository,
+ * so no Story's code step takes the report up as a note left in the code base.
+ */
+export function reportFolder(home) {
+  const downloads = path.join(home, 'Downloads');
+  try { if (statSync(downloads).isDirectory()) return downloads; } catch {}
+  return home;
+}
+
+export function reportFileNames(createdAt, out, cwd, home = os.homedir()) {
   const day = createdAt.slice(0, 10);
   if (out) {
     const target = path.resolve(cwd, out);
@@ -53,7 +63,8 @@ export function reportFileNames(createdAt, out, cwd) {
     const base = target.replace(/\.(?:md|json)$/iu, '');
     return { markdown: `${base}.md`, json: `${base}.json` };
   }
-  return { markdown: path.join(cwd, `${REPORT_PREFIX}-${day}.md`), json: path.join(cwd, `${REPORT_PREFIX}-${day}.json`) };
+  const folder = reportFolder(home);
+  return { markdown: path.join(folder, `${REPORT_PREFIX}-${day}.md`), json: path.join(folder, `${REPORT_PREFIX}-${day}.json`) };
 }
 
 /** What every probe reads: the machine, the run's own temporary folder, the tool runner and the person's answers. */
@@ -132,7 +143,7 @@ export async function runOfficeChecks({
     markdown = again(markdown);
     json = `${JSON.stringify(scrubDeep(report, again), null, 2)}\n`;
   }
-  const files = reportFileNames(createdAt, out, ctx.cwd);
+  const files = reportFileNames(createdAt, out, ctx.cwd, ctx.home);
   mkdirSync(path.dirname(files.markdown), { recursive: true });
   writeFileSync(files.markdown, markdown);
   writeFileSync(files.json, json);

@@ -574,7 +574,9 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       const agentWords = commandWords(taken.next.shell).join(' ');
       for (const view of await personViews(story)) {
         // The same skill, or the same command (a person's confirmation of the step's own command names /sf-confirm).
-        const differs = view.skill && agentSkill && view.skill !== agentSkill && !(agentWords && commandWords(view.command).join(' ') === agentWords);
+        // /sf-code and /sf-phase are one work command (D1): a turn carried on as either names the other's step rightly.
+        const oneWork = entries.get(view.skill)?.oneWorkCommand && entries.get(agentSkill)?.oneWorkCommand;
+        const differs = view.skill && agentSkill && view.skill !== agentSkill && !oneWork && !(agentWords && commandWords(view.command).join(' ') === agentWords);
         if (differs || view.completeWhileWriting) {
           views.push({ step, agent: agentSkill, agentCommand: short(taken.next.shell), view: view.view, skill: view.skill, command: short(view.command),
             ...(view.completeWhileWriting ? { said: 'complete while the step is being written' } : {}) });

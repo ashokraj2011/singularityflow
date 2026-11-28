@@ -607,13 +607,15 @@ export function taskPlanKey(form: IntakeForm): string {
   return JSON.stringify([form.tracker, typed ? form.title.trim() : '', typed ? form.description.trim() : '', form.taskKind]);
 }
 
-/** `work --plan-only` for the words as they are; an issue's words are read on Start, so only where documents go is asked. */
+/**
+ * `work --plan-only` for the words as they are. With no words yet, or an issue's (read on Start), it still says where the
+ * task's documents may be kept.
+ */
 export function taskPlanCommand(form: IntakeForm): string[] | null {
   if (!taskMode(form)) return null;
-  const typed = form.tracker === 'none';
-  if (typed && !form.description.trim()) return null;
-  return ['work', '--plan-only', '--json', ...(typed && form.title.trim() ? ['--title', form.title.trim()] : []),
-    ...(typed ? ['--description', form.description.trim()] : []), ...(form.taskKind ? ['--kind', form.taskKind] : [])];
+  const words = form.tracker === 'none' ? form.description.trim() : '';
+  return ['work', '--plan-only', '--json', ...(words && form.title.trim() ? ['--title', form.title.trim()] : []),
+    ...(words ? ['--description', words] : []), ...(words && form.taskKind ? ['--kind', form.taskKind] : [])];
 }
 
 const record = (value: unknown): Record<string, unknown> | null =>
@@ -2084,7 +2086,8 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
       : task ? `Starts task <code>${escape(intakeIdentifier(form))}</code> in a checkout of its own; Copilot chat then carries it on.`
       : `Starts ${escape(noun)} <code>${escape(intakeIdentifier(form))}</code> and commits its first state.`}</p>`}
     ${form.taskQuestion && task ? taskQuestionHtml(form.taskQuestion, form.busy) : ''}
-    ${form.error ? `<div class="notice error" role="alert">${escape(form.error)}</div>` : ''}
+    ${form.error ? `<div class="notice error" role="alert">${escape(form.error)}${task && problemTarget(form.error)
+      ? ` <button type="button" class="link" data-focus-field="${escape(problemTarget(form.error)!)}">Show where to fix it</button>` : ''}</div>` : ''}
     ${form.recoveryCommand && recoveryRoute ? `<div class="notice warning" role="status" aria-live="polite"><strong>Continue safely</strong>
       <p>The command is bound to this repository and preserves every argument exactly.</p>
       ${commandRouteListHtml(recoveryRoute, [

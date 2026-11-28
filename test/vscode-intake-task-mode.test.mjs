@@ -87,7 +87,7 @@ test('ITW REQ-114: the likely plan is one line under the words, in the Work plac
   const draft = form();
   assert.deepEqual(taskPlanCommand(draft), ['work', '--plan-only', '--json', '--title', 'Make the value module return 2', '--description', 'The value module returns 1; its callers want 2.']);
   assert.equal(taskPlanCommand(form({ startMode: 'workflow' })), null, 'a workflow Story reads no plan');
-  assert.equal(taskPlanCommand(form({ description: '  ' })), null, 'no words, no plan');
+  assert.deepEqual(taskPlanCommand(form({ description: '  ' })), ['work', '--plan-only', '--json'], 'no words: only where documents may be kept');
   assert.deepEqual(taskPlanCommand(form({ tracker: 'github', key: 'acme/shop#12' })), ['work', '--plan-only', '--json'],
     'an issue\'s words are read on Start; only where its documents may be kept is asked');
   assert.notEqual(taskPlanKey(form({ description: 'other words' })), taskPlanKey(draft), 'other words, another plan');
@@ -202,6 +202,9 @@ test('ITW REQ-114: SFlow\'s questions before a task starts are answered on the f
   assert.equal(taskStartAnswer({ error: { code: 'TASK_SKILL_YES_NEEDED', details: { offers: [{ ask: 'x?', yes: '--use-skill a b', no: '--force' }] } } }), null);
   assert.equal(taskStartAnswer({ error: { code: 'STORY_BRANCH_EXISTS' } }), null);
   assert.equal(taskStartAnswer(null), null);
+  // A refusal Start could not get past says where it is fixed, beside its own words.
+  assert.match(intakeHtml({ ...planned(), error: 'Document 1 (brief.md) could not be read.' }),
+    /could not be read\. <button type="button" class="link" data-focus-field="region:attachments">Show where to fix it<\/button>/u);
 });
 
 test('ITW REQ-114: the task goes on in the chat of the window that opens its checkout, once', () => {

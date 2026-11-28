@@ -88,9 +88,11 @@ export function publicationPushRefusal({
         retryCommand && { command: retryCommand,
           label: 'Only after the provider accepts this exact commit: send it again.' }
       ];
+  // Write access is someone else's call: the exact words to send the repository owner, to copy [owner, 2026-11-28, dead end 20].
+  const share = remoteFailure.classification === 'authorization-denied' ? writeAccessRequest({ branch, remote, commit, subject }) : null;
   const guidance = retryable
     ? remoteFailure.advice ?? 'Restore remote access, then retry.'
-    : repair;
+    : `${repair}${share ? ` Send the repository owner: "${share}"` : ''}`;
   return new SingularityFlowError(
     `${prefix}${diagnostic ? `: ${diagnostic}` : ''}. ${guidance}`,
     {
@@ -105,10 +107,18 @@ export function publicationPushRefusal({
         retryable,
         remoteFailure,
         recoveryCommands: recoveryCommands.filter(Boolean),
-        ...(repair ? { actions: [{ label: repair }] } : {})
+        ...(repair ? { actions: [{ label: repair }] } : {}),
+        ...(share ? { share: { text: share, label: 'Copy what to send the repository owner' } } : {})
       }
     }
   );
+}
+
+/** The words a person sends the repository owner to ask for write access, naming only the branch and the commit waiting. */
+export function writeAccessRequest({ branch = null, remote = null, commit = null, subject = null } = {}) {
+  const where = branch ? `the ${branch} branch${remote ? ` on ${remote}` : ''}` : 'this repository';
+  const what = subject?.id ? `Story ${subject.id}'s` : 'my';
+  return `Please give my Git account write access to ${where}. SFlow could not push ${what} commit${commit ? ` ${String(commit).slice(0, 12)}` : ''}; it will send the same commit unchanged once I can write.`;
 }
 
 function configuredRemoteNames(root) {

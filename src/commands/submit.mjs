@@ -64,9 +64,13 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     }
     if (fedDecision && Object.keys(decisionValues).length) normalizeDecisionInputValues(fedDecision, decisionValues);
     else if (fedDecision && !recordedDecisionValues(initialPhase, fedDecision)) {
+      // One filled submission per value, never the Decide card, which holds no decision inputs [owner, 2026-11-28].
+      const [{ decisionInputChoiceRoutes }, { actionCommandLine }] = await Promise.all([import('../story-value-answers.mjs'), import('../action-command-map.mjs')]);
+      const routes = decisionInputChoiceRoutes(actionCommandLine, workflow, initialPhase, fedDecision, decisionValues);
       throw new SingularityFlowError(
         `Decision '${fedDecision.label}' after '${initialPhase.id}' reads values this submission must record. Submit with ${decisionInputsHint(fedDecision)}.`,
-        { code: 'DECISION_INPUTS_MISSING', details: { decision: fedDecision.id, inputs: fedDecision.inputs } }
+        { code: 'DECISION_INPUTS_MISSING', details: { workId: workflow.workItem.id, phase: initialPhase.id, decision: fedDecision.id, inputs: fedDecision.inputs,
+          ...(routes.recoveryCommands.length ? { recoveryCommands: routes.recoveryCommands } : {}) } }
       );
     }
   } else if (Object.keys(decisionValues).length) {

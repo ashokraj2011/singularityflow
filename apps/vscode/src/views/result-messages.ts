@@ -14,6 +14,7 @@ import { RESULT_MESSAGES, fill, message } from '../../../../src/gateway/messages
 export type Slots = Readonly<Record<string, string | number>>;
 
 /** A short label for a row or button, and the longer sentence that explains it. */
-export type Message = { readonly label: string; readonly detail?: string };
+/** `copy`: words the person sends someone else, copied as they are by the card's Copy button [owner, 2026-11-28]. */
+export type Message = { readonly label: string; readonly detail?: string; readonly copy?: string };
 
 export { RESULT_MESSAGES, fill, message };

@@ -61,7 +61,7 @@ export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
   'about', 'help', 'guide', 'show', 'quickstart', 'home', 'pause',
   'init', 'precheck', 'bootstrap', 'onboard', 'authority', 'cache',
   'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall', 'product',
-  'workspace', 'session', 'inbox', 'needs-you', 'repositories', 'plugin', 'goal', 'journal', 'push', 'local'
+  'workspace', 'session', 'inbox', 'needs-you', 'repositories', 'plugin', 'goal', 'journal', 'push', 'local', 'probe'
 ]);
 
 /** Commands with a Work ID operand; story-routing.mjs says where it sits. */

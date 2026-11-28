@@ -765,6 +765,30 @@ function plannedActionArgv(positionals, options, value) {
 }
 
 /** The argv a typed `confirm <CODE>` stands for, as the CLI entry expands it, or null when it names none here. */
+/**
+ * No code to type [owner, 2026-11-28]: in a turn that keeps the person's answers, a code's command this turn would not run
+ * itself runs as a /sf-confirm turn runs it, held there (answerBoundDenial) to the person's Yes to a question naming the code.
+ * A step's next version keeps its own question; an approval and another Story's command stay refused, as with /sf-confirm.
+ */
+function codeYesAllowed(confirmed, mode, value) {
+  if (mode === 'confirm' || !answerLedgerTurn(value)) return false;
+  const { positionals, options } = parseCli(confirmed);
+  if (positionals[0] === 'phase' && positionals[1] === 'rollover') return false;
+  const digest = [options.confirm, options['confirm-plan']].find((entry) => typeof entry === 'string');
+  return Boolean(digest) && argvAllowed(confirmed, 'confirm', { ...value, confirmDigest: digest });
+}
+/** The code of a `confirm <CODE>` call this turn runs only on the person's Yes to a question naming it, or null. */
+function codeYesCall(call, record) {
+  const safe = verifiedShellForm(call, record);
+  const { positionals, options } = safe ? parseCli(safe.argv) : { positionals: [] };
+  if (positionals[0] !== 'confirm') return null;
+  const confirmed = confirmCodeArgv(positionals, options);
+  // A turn whose mode is not recorded holds every code to the Yes: holding only tightens.
+  const mode = record.contract?.turnMode ?? null;
+  if (!confirmed || (mode && (argvAllowed(confirmed, mode, record) || !codeYesAllowed(confirmed, mode, record)))) return null;
+  return normalizeConfirmCode(positionals[1]);
+}
+
 /** An invocation with `confirm <CODE>` read as the command its code stands for; any other as it is. */
 function confirmedInvocation(invocation) {
   const { positionals, options } = parseCli(invocation.argv);
@@ -814,7 +838,7 @@ export function argvAllowed(argv, mode, value) {
   // when it would admit that command, so a code carries no step past the guard that its command would not.
   if (positionals[0] === 'confirm') {
     const confirmed = confirmCodeArgv(positionals, options);
-    return Boolean(confirmed) && confirmed[0] !== 'confirm' && argvAllowed(confirmed, mode, value);
+    return Boolean(confirmed) && confirmed[0] !== 'confirm' && (argvAllowed(confirmed, mode, value) || codeYesAllowed(confirmed, mode, value));
   }
   // Installing agent packages changes which agents run, and publishing them what other teams run:
   // the person's own steps, in no turn [APM A2/A4].
@@ -915,7 +939,10 @@ export function argvAllowed(argv, mode, value) {
         && typeof options.about === 'string' && typeof options.problem === 'string'
       || positionals[1] === 'revalidate' && positionals.length === 3 && /^(?:FAM|AMD)-\d{3,}$/u.test(options.amendment ?? '')
         // Its recommended answer takes no reason: --recommended, which the command checks and the binding holds to a Yes [C10].
-        && ['unchanged', 'return'].includes(options.outcome) && (typeof options.reason === 'string' || options.recommended === true))
+        && ['unchanged', 'return'].includes(options.outcome) && (typeof options.reason === 'string' || options.recommended === true)
+      // A forward amendment's approval or rejection, on the person's own yes or no to the question naming it [owner, 2026-11-28].
+      || positionals[1] === 'decide-amendment' && positionals.length === 3 && /^FAM-\d{3,}$/u.test(positionals[2] ?? '') && options.confirm === positionals[2]
+        && /^(?:approve|reject)$/u.test(String(options.decision ?? '')) && typeof options.reason === 'string')
     && options['work-id'] === value.contract.workId;
   // Overriding a check's blocking finding, on the person's own yes to its question and in their own words [owner, 2026-11-23].
   // A sign-off on SFlow's saved screenshot of a page it could not capture takes the person's yes and no reason [owner, 2026-11-28].
@@ -923,6 +950,11 @@ export function argvAllowed(argv, mode, value) {
     && positionals.length === 3 && positionals[2] === value.contract.workId && typeof options.finding === 'string'
     && (typeof options.reason === 'string' || (options['sign-off'] === true && options.reason === undefined))
     && Object.keys(options).every((key) => ['phase', 'finding', 'reason', 'sign-off', 'json'].includes(key));
+  // A step the Decide card records, on the person's own yes to the question that showed it, for the bound Story: a lapsed witness
+  // exception's renewal, or a test run's or finding's accepted risk (never its revocation) [owner, 2026-11-28].
+  if (mode === 'decision-only' && positionals[0] === 'decision' && CARD_CHAT_DECISIONS.includes(positionals[1])) return !value.decisionEnded
+    && positionals.length <= 3 && (positionals[2] ?? options['work-id']) === value.contract.workId && (!options['work-id'] || options['work-id'] === value.contract.workId)
+    && options.revoke === undefined && typeof options.reason === 'string';
   if (mode === 'decision-only') return !value.decisionEnded && positionals[0] === 'decision'
     && DECIDE_SKILL_MUTATIONS.includes(positionals[1]) && positionals.length <= 3
     // A plan row correction too, held to the person's own answer to the question that showed its rows [owner, 2026-11-19].
@@ -1251,9 +1283,11 @@ const OWN_STEP_DENIALS = Object.freeze({
   'apm-install': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: installing or updating agent packages changes which agents run in this repository; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'apm-organisation': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing agents, or changing the organisation\'s marketplace or policy, changes what other teams run; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   // On the Decide card since 2026-11-28 [owner]: each is a row there, and /sf-decide opens it; a turn never records it.
-  'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step is decided by that step\'s approvers, not by this turn: /sf-decide opens the Decide card, where approving and rejecting it are each one choice; their own terminal takes the same command. Tell them it waits there and keep working; do not retry it',
-  'witness-exception-renewal': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: renewing a witness exception whose date passed is the word of a person who approves the step that accepted it, not this turn\'s: /sf-decide opens the Decide card, whose row renews it with their date and reason; their own terminal takes the same command. Tell them it waits there and keep working; do not retry it',
-  'test-run-risk': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting a test run\'s or a finding\'s risk is the word of a person who approves the step, not this turn\'s: /sf-decide opens the Decide card, which records it or runs it from its row; their own terminal takes the same command. Tell them it waits there and keep working; do not retry it',
+  // A /sf-decide turn's bound yes, or the Decide card's row [owner, 2026-11-28]; never another turn's.
+  'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step is decided by that step\'s approvers, not by this turn: /sf-decide asks them yes or no, or opens the Decide card where each is one choice; their own terminal takes the same command. Tell them it waits there and keep working; do not retry it',
+  'witness-exception-renewal': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: renewing a witness exception whose date passed is the word of a person who approves the step that accepted it, not this turn\'s: /sf-decide asks them, or opens the Decide card whose row renews it; their own terminal takes the same command. Tell them it waits there and keep working; do not retry it',
+  'test-run-risk': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting a test run\'s or a finding\'s risk is the word of a person who approves the step, not this turn\'s: /sf-decide asks them, or opens the Decide card which records it; their own terminal takes the same command. Tell them it waits there and keep working; do not retry it',
+  'test-run-risk-revocation': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: revoking an accepted test-run or finding risk is the person\'s own step, in their own terminal, where it says what goes back to failing; no chat takes it. Show the user the command and keep working; do not retry it',
   'spec-library-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: taking or turning down Copilot\'s proposals, deciding, deferring or reopening a specification gap, settling its checklist, publishing a revision to the shared library and discarding a draft are the person\'s own steps; no agent takes them. Show the user the command and stop; do not retry it',
   'spec-slice-change': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: dropping a clause of a Story\'s specification slice changes what the Story was asked to deliver; that is the person\'s own step. Show the user the command and stop; do not retry it',
   'spec-split-publication': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing a split divides a specification revision among child specifications and Story slices for everyone who takes them; that is the person\'s own step (proposing one with --propose may run here). Show the user the command and stop; do not retry it',
@@ -1264,6 +1298,8 @@ const OWN_STEP_DENIALS = Object.freeze({
   // What was settled for the person is theirs to hand back [owner, 2026-11-13]: the card's undo, never a turn's.
   'settled-undo': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: undoing a settled decision hands its question back to the person, so only they undo it, on the decisions card (/sf-decide <WORK-ID> opens it) or with this exact command in their own terminal. Tell them what was settled and that its undo is on the card; keep working, and do not retry it'
 });
+/** The `decision` steps the Decide card records that a /sf-decide turn also takes on the person's bound yes. */
+const CARD_CHAT_DECISIONS = Object.freeze(['witness-exception', 'test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'visual-profile']);
 const OWN_STEP_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this is the person\'s own step; they run this exact command in their own terminal and no turn runs it. Show the user the command and stop; do not retry it';
 const LOCK_RELEASE_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: ending a lock another process holds is the person\'s own step: they check that the process the refusal named no longer works on it (`singularity-flow lock show` or `lock show-file` reads it), then run this exact release in their own terminal. Show the user who holds the lock and the command, and stop; do not retry it or wait for the lock';
 
@@ -1826,14 +1862,14 @@ function softwareKindConfirmationCall(call, value) {
   return softwareKindConfirmation(positionals, options);
 }
 const SOFTWARE_KIND_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: what kind of software a project is is the person\'s word: '
-  + 'they confirm the line `capability kind` shows by typing its short code (/sf-confirm <CODE> in chat, or singularity-flow confirm <CODE> in a terminal), never this turn. '
-  + 'Show them the line and its code from the read below, and go on with the work; nothing waits on it';
+  + 'they confirm the line `capability kind` shows with one Yes, never this turn. Show them the line from the read below, ask its question (it names the line\'s code) '
+  + 'with your question tool, and only on their Yes run its code (singularity-flow confirm <CODE>); then go on with the work, as nothing waits on it';
 const SOFTWARE_KIND_READ = Object.freeze({ command: 'singularity-flow capability kind --json', skill: null, copilotCommand: null,
   label: 'Show the kinds and the line the person confirms.' });
 
 const TARGET_ORIGIN_PIN_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a Story\'s authorized browser target origin is a security boundary; '
-  + 'a person who approves the step that smoke-checks it confirms the pin in their own terminal, never this turn. '
-  + 'Show the user the preview (story target-origin <WORK-ID> --url <URL>, which is allowed) and its plan digest; do not retry it';
+  + 'a person who approves the step that smoke-checks it confirms the pin on its Decide card row (/sf-decide opens it) or in their own terminal, never this turn. '
+  + 'Tell them it waits there and keep working; the preview (story target-origin <WORK-ID> --url <URL>) is allowed; do not retry it';
 
 /** The SFlow command a piped, chained or redirected shell call wraps, as it runs alone; null when there is none to name. */
 function standaloneSflowCommand(call, value) {
@@ -2283,6 +2319,13 @@ async function answerBoundDenial(payload, record) {
     await consent.grantConsent(proposed.commonDir, { record: proposed.record, surface: 'question-tool',
       question: reply?.asked, session: payload.sessionId ?? payload.session_id ?? null, turnId: record.turnId ?? null,
       host: typeof payload.tool_name === 'string' ? 'vscode' : 'copilot-cli' }).catch(() => null);
+  }
+  // A code's command this turn would not run itself: only on the person's Yes to the question naming its code [owner, 2026-11-28].
+  for (const call of toolCalls) {
+    const code = codeYesCall(call, record);
+    if (!code) continue;
+    const reason = await (await answerBinding()).unboundAnswerReason(file, record, {}, { localChat: typeof payload.tool_name === 'string', positionals: ['confirm', code] }).catch(() => null);
+    if (reason) return { ...mutationDenial(null, reason, [], { alone: true, turn: record.skill }), recoverable: true };
   }
   // One approval with a Yes (owner, 2026-11-19): a chat approves only on the person's own Yes, in this turn, to the
   // question its review asks ("Approve <Step> v<N>?"); VS Code's own chat sends them to the approval page instead.

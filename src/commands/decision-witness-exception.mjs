@@ -48,8 +48,12 @@ export async function decisionWitnessExceptionCommand(positionals, options) {
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { record, publication } = await commitWitnessExceptionRenewal(root, config, workflow,
-    { phaseId, mappingSha256, expires: optionString(options, 'expires'), reason: optionString(options, 'reason') ?? '' }, { actor, agent });
+  // The answer it records and the row it was to, kept with the commit: a chat's bound yes says so [owner, 2026-11-28].
+  const { chatAnswer, withChatAdvice } = await import('../recommended-answer.mjs');
+  const answer = await chatAnswer(root, config, workflow, { reason: optionString(options, 'reason') ?? '', what: `${phaseId}'s witness exception`,
+    matches: (item) => item.kind === 'witness-exception' && item.details?.mappingSha256 === mappingSha256, optionOf: () => 'renew-exception' });
+  const { record, publication } = await withChatAdvice(answer.advice, () => commitWitnessExceptionRenewal(root, config, workflow,
+    { phaseId, mappingSha256, expires: optionString(options, 'expires'), reason: optionString(options, 'reason') ?? '' }, { actor, agent }));
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded ${record.id}: ${phaseId}'s witness exception for ${record.clauseId} now expires ${record.expiresAt.slice(0, 10)}, decided through ${record.authorityGroup}.`);
     console.log(publication.pushed

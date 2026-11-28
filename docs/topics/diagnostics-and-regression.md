@@ -8,6 +8,7 @@ aliases:
   - hooks
 commands:
   - doctor
+  - probe
   - harness
   - regression
   - hook
@@ -15,7 +16,7 @@ related:
   - getting-started
   - recovery
   - repository-state-and-snapshots
-version: 4
+version: 5
 ---
 Diagnostics report facts and bounded host coverage. Regression investigation gathers reproducible evidence; hooks enforce local policy without becoming an approval authority.
 
@@ -38,6 +39,8 @@ Use this topic when the current goal matches **diagnostics and regression**. Sta
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
 
 For a large repository, `doctor --performance` measures cold and warm `git status`, cold and warm content-aware world-model fingerprints, total/scoped tracked files, sparse checkout, partial-clone filter, object counts, FSMonitor, and untracked-cache settings. It is opt-in because benchmarking should never add latency to Home or routine diagnostics. The command is read-only and emits recommendations; it does not change local Git configuration.
+
+On an office laptop, `sflow probe office` (VS Code: **SFlow: Run office checks**, also in Diagnostics) checks what that machine, its editors, Copilot and its Git host allow, and writes one report to send back, `sflow-office-checks-<date>.md`, with no names, hosts, paths or tokens. It asks before its one push and before any step that uses a premium request; see docs/OFFICE-CHECKS.md.
 
 Every doctor run also performs a bounded, read-only durable-schema census. JSON output includes the observed version distribution for each registered record family and identifies records outside this build's readable range. Older readable records are migrated only in memory; their stored bytes and content hashes do not change. A future record is refused with an upgrade remedy, while a record older than the declared range names the archival-reader or republication path.
 

@@ -141,7 +141,7 @@ export function diagnosticsBody(tab: Tab, repository: DoctorResult | null, capab
           : tab === 'delivery' ? deliveryHealth(delivery) : shadowPassportHealth(passport, proof);
   return `<header><p class="eyebrow">Help</p><h1>${icon('statusCurrent', { size: 24 })} Diagnostics</h1><p class="meta">Repository, capability, workspace-reliability, schema compatibility, and optional shadow Passport checks in one read-only view.</p></header>
     <nav class="tabs" aria-label="Diagnostic scopes">${tabs.map(([id, label]) => `<button class="${id === tab ? 'active' : ''}" data-message="tab" data-tab="${id}">${label}</button>`).join('')}</nav>
-    <p class="card-foot"><button class="secondary" data-message="refresh">Run diagnostics again</button></p>${error ? `<section class="warning"><strong>${escape(tab)} diagnostics unavailable</strong><p>${escape(error)}</p></section>` : ''}${body}`;
+    <p class="card-foot"><button class="secondary" data-message="refresh">Run diagnostics again</button> <button class="secondary" data-message="officeChecks">Run office checks</button></p>${error ? `<section class="warning"><strong>${escape(tab)} diagnostics unavailable</strong><p>${escape(error)}</p></section>` : ''}${body}`;
 }
 
 export class DiagnosticsPanel {
@@ -165,7 +165,8 @@ export class DiagnosticsPanel {
   static refreshCurrent(): void { if (DiagnosticsPanel.current) void DiagnosticsPanel.current.refresh(); }
   private router = registerMessageRouter('singularityFlow.diagnostics', {
     tab: (m) => { const tab = enumField(m, 'tab', ['repository', 'capabilities', 'workspace', 'schema', 'passport', 'delivery'] as const); if (tab) { this.tab = tab; this.render(); } },
-    refresh: () => { void this.refresh(); }
+    refresh: () => { void this.refresh(); },
+    officeChecks: () => { void vscode.commands.executeCommand('singularityFlow.runOfficeChecks'); }
   });
   async refresh(): Promise<void> {
     this.errors = {};

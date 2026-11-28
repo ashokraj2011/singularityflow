@@ -78,6 +78,8 @@ const COMMANDS = Object.freeze({
     'singularity-flow decision evidence-reuse PMC-1 --phase custom-step --from-attempt TA-001 --reason "Decided by the approver."',
     'singularity-flow decision visual-profile PMC-1 --phase custom-step --profile tablet --not-applicable --reason "Decided by the approver."',
     'singularity-flow decision finding-risk PMC-1 --phase custom-step --finding F-0123456789abcdef --expires 2099-01-01 --reason "The nested branches mirror the table."'],
+  // Revoking an accepted risk: still the person's own terminal step, no row and no question [owner, 2026-11-28].
+  'test-run-risk-revocation': ['singularity-flow decision test-risk PMC-1 --phase custom-step --revoke TRK-001 --reason "The device lab is back."'],
   'test-command-decision': ['singularity-flow decision test-command PMC-1 --accept TCD-001', 'singularity-flow decision test-command PMC-1 --revoke TCD-001 --reason "The repository configures this runner now."'],
   'decision-list-record': ['singularity-flow decisions record PMC-1 --answers /tmp/card-answers.json --json', `singularity-flow decisions record PMC-1 --choose d1=accept-test-command --confirm ${digest}`,
     `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=accept-test-command --confirm ${digest}`, 'singularity-flow decisions record PMC-1'],

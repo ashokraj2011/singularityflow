@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "9dfff19544fc9c98d2d174129e5fc749e4e32966",
+  "sourceCommit": "8b81cb856c556c8ae81f1e5f02c7c1e12e329da4",
   "topicCount": 96,
-  "contentSha256": "c3e7dca0f94715343d3e04f421bcab55fae8c1dac727dcd5d1b69c125eef5ea1",
+  "contentSha256": "f2ada347fe632d0f7437a1059315d02bc5ec989a04f0ce5829503892179a17b6",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -192,9 +192,9 @@
     {
       "id": "diagnostics-and-regression",
       "title": "Diagnostics, regression investigation, and hooks",
-      "version": 4,
-      "sha256": "bf2a44b67ac2003cc67827b176b0e07eafd9be8ff81eef0c6eb04cf55b6ed75f",
-      "routingSha256": "76ae2d7d5ea6d171289a78938a37c1c9a822cd56dbf581809b7f59c81560b424",
+      "version": 5,
+      "sha256": "85eb11e0481aaaa213f7adc536d34b1ba4a694e4871a683a392488931505aa2f",
+      "routingSha256": "3cacbbc7ab8bd0e8eab082c16009f502fdc25db343db8ec3ce81a17f4423fc56",
       "file": "diagnostics-and-regression.md"
     },
     {

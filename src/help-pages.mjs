@@ -1694,6 +1694,31 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['approve', 'configuration', 'decisions', 'governance']
   },
+  probe: {
+    summary: 'The office checks: one report of what this machine, its editors and its Git host allow SFlow to do.',
+    description: [
+      'probe office checks the machine (system, shells, Node.js, Git settings, commit signing, proxy set or not, npm and',
+      'the Git host reachable, the temporary folder), VS Code, Copilot CLI and IntelliJ with their Copilot versions, whether',
+      'SFlow\'s Copilot hooks run (free, with a stand-in model on this machine), what the Git host takes for clean pull',
+      'requests, how this Git treats the state checkout, the repository\'s commit rules, and Jira. It writes',
+      'sflow-office-checks-<date>.md and .json in the folder it was run from, with no names, emails, hostnames, paths,',
+      'addresses or tokens. Every write goes to a temporary folder that is removed at the end. It asks before the one push',
+      '(two throwaway refs, deleted right after) and before any step that uses a premium request; No skips that check.'
+    ],
+    options: [
+      ['--out FILE', 'Write the report to FILE (and its .json beside it), or into the folder FILE names.'],
+      ['--push', 'Without a terminal to ask in: Yes to the push check. --no-push answers No.'],
+      ['--chat', 'Without a terminal: Yes to the guided VS Code chat check (one premium request).'],
+      ['--intellij', 'Without a terminal: Yes to the guided IntelliJ check (two premium requests).'],
+      ['--jira KEY', 'Check that SFlow can read this one Jira issue (only its title\'s length is reported).'],
+      ['--json', 'Machine-readable output (sflow-office-checks).']
+    ],
+    examples: [
+      ['singularity-flow probe office', 'Run every office check here, answering its questions, and write the report.'],
+      ['singularity-flow probe office --no-push --out ~/Desktop/', 'The same, without the push, with the report on the Desktop.']
+    ],
+    seeAlso: ['doctor', 'plugin', 'git-policy']
+  },
   prompts: {
     summary: 'What was asked of Copilot in this clone: each prompt in a repository that uses SFlow, redacted.',
     description: [

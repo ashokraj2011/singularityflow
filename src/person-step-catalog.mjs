@@ -63,6 +63,8 @@ const confirming = (options) => options.confirm !== undefined;
 // run's set-aside and a lock release (the agent may be that process), the browser grant, another approver's clarification
 // answer, an environment binding (secrets), APM (supply chain), configuration approval and activation (signed), SF Guard's
 // own steps (keys), and test-policy attest and approvers refresh (governance). The rest wait for SF Guard to sign on the card.
+/** The test-run and finding risk decisions a step's approvers take: on the Decide card, or a /sf-decide turn's bound yes. */
+const TEST_RUN_RISKS = Object.freeze(['test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'visual-profile']);
 export const OWN_TERMINAL_STEPS = Object.freeze([
   ['witness', ([command, sub]) => command === 'decision' && sub === 'witness'],
   // A card records a person's answers from outside chat; no chat writes the file for them.
@@ -70,13 +72,13 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   // The whole table asks a person at their own terminal, and no turn answers it. Naming an item stays /sf-converge's.
   ['adjudication-table', adjudicationTableStep],
   ['risk', ([command, sub]) => command === 'decision' && sub === 'risk'],
-  ['witness-exception-renewal', ([command, sub]) => command === 'decision' && sub === 'witness-exception'],
   // A later step gives a sign-off the delivering step's approvers deferred to it [PHR:REQ-007].
   ['witness-deferral', ([command, sub]) => command === 'decision' && sub === 'witness-defer'],
   ['visual-risk', ([command, sub]) => command === 'decision' && sub === 'visual-risk'],
   // The screen a visual sign-off is about, brought up and captured by the person at SFlow's browser [owner, 2026-11-18].
   ['visual-screenshot', ([command, sub]) => command === 'decision' && sub === 'screenshot'],
-  ['test-run-risk', ([command, sub]) => command === 'decision' && ['test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'visual-profile'].includes(sub)],
+  // Revoking an accepted test-run or finding risk has no row on the Decide card and no question in chat: the person's own terminal.
+  ['test-run-risk-revocation', ([command, sub], options) => command === 'decision' && TEST_RUN_RISKS.includes(sub) && options.revoke !== undefined],
   ['test-command-decision', ([command, sub], options) => command === 'decision' && sub === 'test-command'
     && (options.accept !== undefined || options.revoke !== undefined)],
   // A /sf-decide turn records only chat options; any other choice, an answers file or the
@@ -119,7 +121,6 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   // that list, and its Copilot route dropped the flag and looped (2026-10-29).
   ['approval-evidence-confirmation', ([command], options) => command === 'approve' && options['confirm-evidence'] === true],
   // `upstream-issue decide` and `revalidate` (a "still holds" yes or no) for the bound Story are a /sf-decide turn's own; an amendment is not [owner, 2026-11-14].
-  ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && sub === 'decide-amendment'],
   ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)],
   // Which agents a repository runs; APM's own --dry-run preview stays open to a turn [APM A2].
   ['apm-install', ([command, sub], options) => command === 'apm' && ['install', 'update'].includes(sub) && options['dry-run'] !== true],
@@ -154,7 +155,7 @@ export const ANSWER_BOUND_TURNS = Object.freeze(['decide', 'converge', 'reject',
 // The turns that write an intent amendment's proposal, without a yes: its decision is the person's (owner, 2026-11-28).
 export const PROPOSAL_BOUND_TURNS = Object.freeze(['reject', 'amend']);
 export const ANSWER_BOUND_STEPS = Object.freeze(['story-decision', 'convergence-adjudication', 'upstream-issue-decision', 'decision-list-record',
-  'settled-undo', 'intent-amendment-acknowledgement', 'review-dispute', 'finding-override']);
+  'settled-undo', 'intent-amendment-acknowledgement', 'review-dispute', 'finding-override', 'witness-exception-renewal', 'test-run-risk', 'upstream-amendment-decision']);
 
 const EPIC_COMMANDS = new Set(['initiative', 'epic']);
 const HOST_POLICY_ASSERTIONS = ['confirm-protected', 'confirm-push-policy', 'confirm-pin-retention'];
@@ -177,6 +178,11 @@ export const PERSON_DECISIONS = Object.freeze([
   ['review-dispute', ([command, sub]) => command === 'review-source' && sub === 'dispute', ['decide']],
   // Overriding a check's blocking finding: a bound yes in /sf-decide with the person's own reason [owner, 2026-11-23].
   ['finding-override', ([command, sub]) => command === 'decision' && sub === 'override-finding', ['decide']],
+  // The steps the Decide card records are also a /sf-decide turn's bound yes to the question that showed them, with the
+  // person's own reason; never under SF Guard, whose Touch ID only the card or their terminal takes [owner, 2026-11-28].
+  ['witness-exception-renewal', ([command, sub]) => command === 'decision' && sub === 'witness-exception', ['decide']],
+  ['test-run-risk', ([command, sub], options) => command === 'decision' && TEST_RUN_RISKS.includes(sub) && options.revoke === undefined, ['decide']],
+  ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && sub === 'decide-amendment', ['decide']],
   ['constitution-exception', ([command, sub]) => command === 'constitution' && sub === 'except', ['constitution']],
   ['repair-authorization', ([command, sub]) => command === 'repair' && sub === 'authorize', ['fix']],
   ['telemetry-consent', ([command, sub]) => command === 'telemetry' && sub === 'enable', ['telemetry']],
@@ -212,23 +218,23 @@ export const PERSON_STEPS = Object.freeze([
     // It changes what the submitted review ran (TEST_COMMAND_DECISION_DURING_REVIEW names returning the step).
     review: { kind: 'test-command', entry: 'refused-during-review' },
     family: { list: 'testCommandDecisions', action: 'decision.test-command', label: 'Test command decision', isPerson: (entry) => Boolean(entry?.accepts || entry?.revokes) } },
-  { id: 'test-narrowing', guard: 'own:test-run-risk', effect: 'test-narrowing',
+  { id: 'test-narrowing', guard: 'decision:test-run-risk', effect: 'test-narrowing',
     // A step approver's acceptance of a narrowed test run, or its revocation (`decision test-narrowing`).
     review: { kind: 'test-narrowing', entry: safe({ testNarrowings: 'narrowing_decided' }) },
     family: { list: 'testNarrowings', action: 'decision.test-narrowing', label: 'Test narrowing decision', isPerson: always } },
-  { id: 'test-run-risk', guard: 'own:test-run-risk', effect: 'test-run-risk', inApproval: true,
+  { id: 'test-run-risk', guard: 'decision:test-run-risk', effect: 'test-run-risk', inApproval: true,
     // A step approver's test-run risk decision, revocation or renewal (`decision test-risk`).
     review: { kind: 'test-risk', entry: safe({ testRunRisks: 'risk_decided' }) },
     family: { list: 'testRunRisks', action: 'decision.test-risk', label: 'Test-run risk decision', isPerson: always } },
-  { id: 'finding-risk', guard: 'own:test-run-risk', effect: 'finding-risk',
+  { id: 'finding-risk', guard: 'decision:test-run-risk', effect: 'finding-risk',
     // A person's acceptance of one lint, static-analysis or security finding, or its revocation (`decision finding-risk`) [CQF:REQ-047].
     review: { kind: 'finding-risk', entry: safe({ findingRisks: 'risk_decided' }) },
     family: { list: 'findingRisks', action: 'decision.finding-risk', label: 'Finding risk decision', isPerson: always } },
-  { id: 'evidence-reuse', guard: 'own:test-run-risk', effect: 'evidence-reuse', inApproval: true,
+  { id: 'evidence-reuse', guard: 'decision:test-run-risk', effect: 'evidence-reuse', inApproval: true,
     // A step approver's reuse of an earlier step's recorded test run, or its revocation (`decision evidence-reuse`).
     review: { kind: 'evidence-reuse', entry: safe({ evidenceReuses: 'evidence_reuse_decided' }) },
     family: { list: 'evidenceReuses', action: 'decision.evidence-reuse', label: 'Evidence reuse decision', isPerson: always } },
-  { id: 'visual-profile', guard: 'own:test-run-risk', effect: 'visual-profile', inApproval: true,
+  { id: 'visual-profile', guard: 'decision:test-run-risk', effect: 'visual-profile', inApproval: true,
     // A visual step approver's decision that one of its screen sizes does not apply, or its revocation (`decision visual-profile`).
     review: { kind: 'visual-profile', entry: safe({ visualProfileDecisions: 'visual_profile_decided' }) },
     family: { list: 'visualProfileDecisions', action: 'decision.visual-profile', label: 'Visual profile decision', isPerson: always } },
@@ -249,7 +255,7 @@ export const PERSON_STEPS = Object.freeze([
   // A visual step approver's accepted risk on one failed comparison, which nothing else clears [PHR:REQ-006].
   { id: 'visual-risk', guard: 'own:visual-risk', review: { kind: 'visual-risk', entry: safe({ visualRiskDecisions: 'visual_risk_accepted' }) },
     family: { list: 'visualRiskDecisions', action: 'decision.visual-risk', label: 'Visual risk', isPerson: always } },
-  { id: 'witness-exception', guard: 'own:witness-exception-renewal', effect: 'witness-exception-renewal', review: { kind: 'witness-exception', entry: safe({ witnessExceptionRenewals: 'witness_exception_renewed' }) },
+  { id: 'witness-exception', guard: 'decision:witness-exception-renewal', effect: 'witness-exception-renewal', review: { kind: 'witness-exception', entry: safe({ witnessExceptionRenewals: 'witness_exception_renewed' }) },
     family: { list: 'witnessExceptionRenewals', action: 'decision.witness-exception', label: 'Witness exception renewal', isPerson: always } },
   { id: 'scope', guard: 'decision:story-decision', effect: 'scope-disposition', review: { kind: 'scope', entry: safe({ scopeDispositions: 'scope_decided' }) },
     family: { list: 'scopeDispositions', action: 'decision.scope', label: 'Scope disposition', isPerson: always } },
@@ -260,7 +266,7 @@ export const PERSON_STEPS = Object.freeze([
   { id: 'upstream-issue', guard: 'turn:upstream-issue-decision', effect: ['upstream-issue', 'upstream-issue-decision'], inApproval: true,
     review: { kind: 'upstream-issue', entry: safe({ upstreamIssues: 'upstream_issue_raised', upstreamIssueDecisions: 'upstream_issue_decided' }) },
     family: { list: 'upstreamIssueDecisions', action: 'decision.upstream-issue', label: 'Upstream issue decision', isPerson: always } },
-  { id: 'forward-amendment', guard: 'own:upstream-amendment-decision', effect: 'forward-amendment-decision',
+  { id: 'forward-amendment', guard: 'decision:upstream-amendment-decision', effect: 'forward-amendment-decision',
     family: { list: 'forwardAmendmentDecisions', action: 'decision.forward-amendment', label: 'Forward amendment decision', isPerson: always } },
   { id: 'plan-amendment', guard: 'decision:story-decision', effect: ['plan-amendment', 'node-pin'], review: { kind: 'plan', entry: safe({ planAmendments: 'plan_amended' }) },
     family: { list: 'planAmendments', action: 'decision.plan', label: 'Plan amendment', isPerson: always } },

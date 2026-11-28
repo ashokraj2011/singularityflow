@@ -1543,6 +1543,10 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "singularityFlow.runOfficeChecks",
+        "title": "SFlow: Run office checks"
+      },
+      {
         "command": "singularityFlow.openChangeExplorer",
         "category": "Singularity Flow",
         "title": "Explain Changes",

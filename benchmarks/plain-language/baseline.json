@@ -14,7 +14,7 @@
   "count-without-name": 27,
   "draft-for-version": 6,
   "generic-route": 6195,
-  "jargon": 1343,
+  "jargon": 1342,
   "length": 642
  },
  "unroutedCodes": [
@@ -4051,7 +4051,6 @@
    "a9793d5ca57c": "jargon:canonical"
   },
   "src/requested-successor.mjs": {
-   "41909f1ea329": "jargon:generation",
    "562147324f2a": "jargon:generation",
    "65607d0c886d": "jargon:generation length",
    "c159c117355d": "jargon:generation length",

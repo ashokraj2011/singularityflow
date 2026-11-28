@@ -26,6 +26,31 @@ export function consentQuestion(proposal) {
   return `Start version ${proposal.version} of ${proposal.step}${purpose}? ${kept}`;
 }
 
+/**
+ * Why the version question is asked at all, and what each answer does, one plain line each (ask once, owner 2026-11-28:
+ * "every decision should be easy for people to understand why they are making that decision"). The question stays only
+ * where SFlow cannot settle it itself; `because` is the hold that made it the person's (the reviewer's rounds, a finding
+ * back after a fix). The same for every step, by the reason its next version is proposed, never by its workflow.
+ */
+export function versionQuestionWhy(proposal, { because = null } = {}) {
+  const from = Number(proposal?.from?.published ?? 0);
+  const step = proposal?.step ?? 'this step';
+  const kept = from >= 1 ? `version ${from} stays as published` : 'nothing published changes';
+  const why = because ?? ({
+    'review-corrections': `Someone besides the reviewer has seen version ${from} of ${step}, so whether to write another for its review is yours to say.`,
+    'requested-change': `You asked for a change after version ${from} of ${step} was published: only you can say whether it is a change to make now.`,
+    'changed-after-publication': `Files changed after version ${from} of ${step} was published: only you know whether they belong in its next version.`,
+    'own-correction': `The author found its own mistake in version ${from} of ${step} before anyone reviewed it.`,
+    amendment: `An approved change to the Story's intent reopened ${step}.`
+  })[proposal?.reason] ?? `${step} needs another version, and SFlow cannot tell on its own whether to start it now.`;
+  const no = ({
+    'review-corrections': `No keeps version ${from}: its review still asks for changes, so ${step} waits until you start it or dispute a finding.`,
+    'requested-change': `No keeps version ${from} as it is and goes on without the change.`,
+    'changed-after-publication': `No starts nothing: version ${from} stays, and the changed files wait until you set them aside or start it.`
+  })[proposal?.reason] ?? `No starts nothing: ${kept}, and ${step} waits for you.`;
+  return { why, yes: `Yes starts version ${proposal?.version ?? from + 1} and writes it now; ${kept}.`, no };
+}
+
 /** The digest of a published version as its publication recorded it, or null. */
 function publicationDigest(phase, published) {
   return published < 1 ? null : (phase.generationPublications ?? []).find((entry) => Number(entry.generation) === published)?.resultDigest ?? null;
@@ -64,5 +89,5 @@ export function versionProposal(workflow, phase, { reason, confirmation = null, 
     evidence: { testsRecorded: testsRecorded(phase, numbers.published) },
     confirmation: confirmation ?? null, adoption: adoption ?? null,
     configurationRevision: workflow.resolution?.configSha256 ?? null, lifecycleRevision: lifecycleRevision ?? null };
-  return { proposal, digest: `sha256:${recordSha256(proposal)}`, question: consentQuestion(proposal) };
+  return { proposal, digest: `sha256:${recordSha256(proposal)}`, question: consentQuestion(proposal), asked: versionQuestionWhy(proposal) };
 }

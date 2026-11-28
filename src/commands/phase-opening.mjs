@@ -331,7 +331,8 @@ export async function changedFilesSuccessor(root, config, workflow, phase, plan,
   const changeSetDigest = plan.blocker.details.changeSetDigest ?? null;
   const proposed = await proposalNow(root, workflow, phase, { reason: 'changed-after-publication', confirmation: expected, adoption: changeSetDigest });
   const preview = { schemaVersion: 1, workId: workflow.workItem.id, phase: phase.id, fromGeneration: phase.generation,
-    toGeneration: proposed.proposal.version, question: proposed.question, confirmation: expected, changeSetDigest,
+    toGeneration: proposed.proposal.version, question: proposed.question, why: proposed.asked.why, does: { Yes: proposed.asked.yes, No: proposed.asked.no },
+    confirmation: expected, changeSetDigest,
     currentResultDigest: plan.blocker.details.currentResultDigest, command: route.command, executable: route.executable, argv: route.argv,
     skill: route.skill, copilotCommand: route.copilotCommand, platformCommands: route.platformCommands, mutates: Boolean(supplied) };
   let typed = false;
@@ -379,19 +380,19 @@ export async function returnedSuccessorRollover(root, config, workflow, phase, o
   // The value the person confirms is this proposal's own digest: the step, its numbers and the Story revision it is made on.
   const unbound = await proposalNow(root, workflow, phase, { reason });
   const confirmation = unbound.digest;
-  const { proposal, digest, question } = await proposalNow(root, workflow, phase, { reason, confirmation });
+  const { proposal, digest, question, asked } = await proposalNow(root, workflow, phase, { reason, confirmation });
   const code = phaseRequiresCodeDelivery(phase);
   // The step's own work command asks it (the kernel's open-version route for this step).
   const skill = own?.skill ?? null;
   const confirmArgv = ['phase', 'rollover', phase.id, '--confirm', confirmation];
   const route = safeCommandGuidance({ argv: confirmArgv, skill });
   const preview = { schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: 'returned', reason, workId: workflow.workItem.id, phase: phase.id,
-    fromGeneration: proposal.from.published, toGeneration: proposal.version, question, confirmation,
+    fromGeneration: proposal.from.published, toGeneration: proposal.version, question, why: asked.why, does: { Yes: asked.yes, No: asked.no }, confirmation,
     preserved: proposal.from.published ? `Version ${proposal.from.published} stays as published.` : 'Nothing published changes.',
     command: route?.command ?? null, executable: route?.executable ?? null, argv: route?.argv ?? null, skill: route?.skill ?? null,
     copilotCommand: route?.copilotCommand ?? null, platformCommands: route?.platformCommands ?? null,
     nextAction: route ? { command: route.command, copilotCommand: route.copilotCommand,
-      reason: `Ask the person "${question}" with your question tool; only on their Yes run this confirmation.` } : null, mutates: false };
+      reason: `Ask the person "${question}" once with your question tool; run this on their Yes. A Yes in this turn counts: never ask twice.` } : null, mutates: false };
   let supplied = optionString(options, 'confirm');
   let typed = false;
   if (!supplied) {

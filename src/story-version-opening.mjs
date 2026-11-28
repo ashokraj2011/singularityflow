@@ -48,13 +48,15 @@ export const OPENING_REASONS = Object.freeze(['initial', 'watermark', 'rework', 
  */
 export const SETTLED_OPENINGS = Object.freeze({ 'review-corrections': Object.freeze(['review-corrections']),
   'failing-tests': Object.freeze(['rework', 'rejected']), 'tests-rerun': Object.freeze(['rework', 'rejected']),
-  'person-change': Object.freeze(['rework', 'rejected']), 'task-grown': Object.freeze(['rework', 'rejected']) });
+  'person-change': Object.freeze(['rework', 'rejected']), 'task-grown': Object.freeze(['rework', 'rejected']),
+  // A person's own send-back, which already said to write the next version (ask once, owner 2026-11-28; sent-back-opening.mjs).
+  'sent-back': Object.freeze(['rework', 'rejected']) });
 /** Whether `settled` stands in for the person's yes to `proposal`. */
 export const settledOpening = (settled, proposal) => Boolean(settled?.settlement) && (SETTLED_OPENINGS[settled.kind] ?? []).includes(proposal?.reason);
 const SETTLED_WORDS = Object.freeze({ 'review-corrections': (proposal) => `only the reviewer had seen version ${proposal.from?.published ?? proposal.version - 1}`,
   'failing-tests': () => 'the tests of the step after it failed', 'tests-rerun': () => 'the code step\'s fix for its failing tests was approved',
   'person-change': () => 'the person said yes to going back to it for their change',
-  'task-grown': () => 'the fix became a change and its plan was approved' });
+  'task-grown': () => 'the fix became a change and its plan was approved', 'sent-back': () => 'the person sent it back, which already asked for it' });
 const OPERATION_ID = /^v[ot]-[0-9a-f]{32}$/u;
 
 const refuse = (message, code, details = {}) => new SingularityFlowError(message, { code, details });

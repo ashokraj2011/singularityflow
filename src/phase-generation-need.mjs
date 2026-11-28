@@ -52,3 +52,25 @@ export const requiresProspectivePhaseInspection = stepBeingWritten;
 
 export const phaseInspectionGeneration = (workflow, phase) => stepBeingWritten(workflow, phase)
   ? versionNumbers(counters(phase)).next : Number(phase.generation ?? 0);
+
+/**
+ * Ask once (owner, 2026-11-28): a person who sent this step back already said its next version should be written, and why.
+ * The send-back that reopened it, as SFlow uses it instead of asking "Start version N?": the open change request a person
+ * made for it, or the one whose return reopened it with the steps after its target (the same moment), its reason in their
+ * words; SFlow's own returns are not one. Null when a person undid an earlier such start of this step, which makes that
+ * question theirs again, and otherwise. For every step, whatever its workflow.
+ */
+export function sentBackAnswer(workflow, phase) {
+  if (!phase || workflow?.currentPhase !== phase.id || phase.status !== 'in_progress') return null;
+  const requests = workflow.changeRequests ?? [];
+  const reopenedAt = phase.reworkRevalidation?.invalidatedAt ?? null;
+  const request = requests.findLast((entry) => entry?.status === 'open' && entry.targetPhase === phase.id)
+    ?? (reopenedAt ? requests.findLast((entry) => entry?.requestedAt === reopenedAt && entry.status !== 'abandoned') : null);
+  if (!request?.id || request.automatic || request.identityAssurance === 'automatic' || request.requestedBy?.automatic === true) return null;
+  const settled = workflow.settledDecisions ?? [];
+  const undone = new Set(settled.map((entry) => entry?.undoes).filter(Boolean));
+  if (settled.some((entry) => entry?.kind === 'sent-back' && entry.phase === phase.id && undone.has(entry.id))) return null;
+  const words = String(request.comment ?? '').replace(/\s+/gu, ' ').trim();
+  return { changeRequest: request.id, from: { phase: request.sourcePhase ?? phase.id, version: Number(request.sourceGeneration ?? 0) },
+    reason: words && words !== 'Changes requested.' ? words.slice(0, 600) : null };
+}

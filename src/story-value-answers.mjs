@@ -16,10 +16,15 @@ export async function clarifiedDecisionValues(root, config, workflow, phase, dec
   const open = decision.inputs.filter((input) => asked.has(input.name) && !Object.hasOwn(given, input.name));
   if (!open.length) return given;
   const { readClarificationRecord } = await import('./clarifications.mjs');
-  const record = await readClarificationRecord(root, config, workflow, phase, Number(phase.generation)).catch(() => null);
+  // This version's answer, else the latest earlier version's: a value answered once is never asked again, and a later
+  // version's author is told not to ask it (ask once, owner 2026-11-28).
+  const generations = [...new Set([Number(phase.generation), ...(phase.clarifications ?? []).map((entry) => Number(entry?.generation))
+    .filter((generation) => Number.isSafeInteger(generation)).sort((left, right) => right - left)])];
+  const records = [];
+  for (const generation of generations) records.push(await readClarificationRecord(root, config, workflow, phase, generation).catch(() => null));
   const values = { ...given };
   for (const input of open) {
-    const choice = answeredChoice(asked.get(input.name), record?.responses ?? []);
+    const choice = records.map((record) => answeredChoice(asked.get(input.name), record?.responses ?? [])).find(Boolean);
     if (choice) values[input.name] = choice;
   }
   const unanswered = open.find((input) => !Object.hasOwn(values, input.name));

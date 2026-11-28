@@ -6,8 +6,8 @@ import { reviewAsksForCorrection, reviewCorrection, reviewFindingsHold, sourceRe
 import { copilotAction } from './copilot-guidance.mjs';
 import { versionFactsOf } from './phase-generation-need.mjs';
 import { consumedOpeningMismatch, versionNeed, versionNumbers } from './kernel/step-versions.mjs';
-import { versionProposal } from './story-version-proposal.mjs';
-import { ACTION_SKILLS, actionCommandLine, reviewFindingsOpenCommand } from './action-command-map.mjs';
+import { versionProposal, versionQuestionWhy } from './story-version-proposal.mjs';
+import { ACTION_SKILLS, actionCommandLine, reviewFindingsOpenCommand, sentBackOpenCommand } from './action-command-map.mjs';
 
 const NEED_REASONS = Object.freeze({ REWORK: 'rework', REJECTED: 'rejected', AMENDMENT: 'amendment', AUTHOR_CONFLICT: 'author-conflict' });
 
@@ -17,11 +17,15 @@ const NEED_REASONS = Object.freeze({ REWORK: 'rework', REJECTED: 'rejected', AME
  */
 export function successorAsk(workflow, phase, { reason, findings = [], requests = [], route, because = null }) {
   const { proposal, question } = versionProposal(workflow, phase, { reason });
+  // Why it is asked and what each answer does, one line each, shown with the question (ask once, owner 2026-11-28).
+  const { why, yes, no } = versionQuestionWhy(proposal, { because });
   // The step's own preview route (its continuation's, with its work command), asked with the proposal's question.
-  const preview = { ...route, reason: `Ask the person "${question}"; on their yes this preview, then its confirmation, opens version ${proposal.version} of ${phase.id}.` };
+  // One question, one Yes: the preview, then the confirmation it returns, run on that same Yes; never asked a second time
+  // ("The rollover preview is ready. Start version 3?", d-story 2026-11-23; ask once, owner 2026-11-28).
+  const preview = { ...route, reason: `Ask the person "${question}" once; on their Yes run this preview, then the confirmation it returns, without asking again: that one Yes opens version ${proposal.version} of ${phase.id}.` };
   // `requests`: the person's typed words, as data.
   return { status: 'successor-confirmation-required', reason: reason === 'review-corrections' ? 'retained-review-correction' : reason,
-    targetGeneration: proposal.version, successor: { question, choices: ['Yes', 'No'], preview, findings, ...(requests.length ? { requests } : {}),
+    targetGeneration: proposal.version, successor: { question, why, choices: ['Yes', 'No'], does: { Yes: yes, No: no }, preview, findings, ...(requests.length ? { requests } : {}),
       // Why SFlow asks, when it would have started the version itself: 2 starts in a row, or a finding back (owner, 2026-11-19).
       ...(because ? { because } : {}) }, actions: [preview] };
 }
@@ -63,6 +67,8 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
       const settles = !legacy && review ? sourceReviewContinuation(workflow, phase, review) : null;
       if (settles?.nextCommand === reviewFindingsOpenCommand(phase.id)) return { status: 'retained-generation', reason: 'review-findings-settle', actions: settles.actions };
       const route = legacy ? copilotAction({ command: actionCommandLine('open-version', 'preview', { step: phase.id }) }) : sourceReviewContinuation(workflow, phase).actions[0];
+      // A person's own send-back is the answer to "Start version N?": it opens on it, asked nothing (ask once, owner 2026-11-28).
+      if (!legacy && route?.command === sentBackOpenCommand(phase.id)) return { status: 'retained-generation', reason: 'sent-back-settle', actions: [route] };
       return successorAsk(workflow, phase, { route, reason: legacy ? 'legacy-promotion' : NEED_REASONS[versionNeed(versionFactsOf(workflow, phase))] ?? 'requested-change',
         because: !legacy && reviewAsksForCorrection(review) ? reviewFindingsHold(workflow, phase, review)?.words ?? null : null });
     }

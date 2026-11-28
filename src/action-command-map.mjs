@@ -128,6 +128,8 @@ export const stepEntryCommand = (step, workId) => actionCommandLine('author-vers
 const fixed = (skill, operation, form, workflow, phase, to) => ({ skill, command: actionCommandLine(operation, form, { step: phase.id, workId: workflow.workItem.id, to }) });
 export const approveRoute = (workflow, phase) => fixed(ACTION_SKILLS.approve, 'approve-step', 'approve', workflow, phase);
 export const returnRoute = (workflow, phase, to = phase.id) => fixed(ACTION_SKILLS.reject, 'approve-step', 'reject', workflow, phase, to);
+/** Send `step` back to its own author with the person's reason, where `<reason>` stands, from a refusal that knows only IDs. */
+export const sendBackCommand = (workId, step) => actionCommandLine('approve-step', 'reject', { step, workId, to: step });
 /** The Story's decisions card, where a person decides what is theirs (an accepted risk among them). */
 export const setAsideCommand = (workId, step) => actionCommandLine('recover-operation', 'recover', { workId, step });
 export const decideRoute = (workflow) => ({ skill: ACTION_SKILLS.decide, command: actionCommandLine('decide', 'card', { workId: workflow.workItem.id }) });

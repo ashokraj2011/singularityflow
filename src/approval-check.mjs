@@ -593,9 +593,9 @@ export function interveningCommitRefusal(root, workflow, phase, {
 }) {
   const facts = blockingCommitFacts(root, workflow, phase, blocking, evidenceCommit);
   const [first] = facts.pendingIntentAmendments;
+  // In plain words: what changed is not SFlow's own record (sflowRecordCommit), so it was never reviewed [owner, 2026-11-28].
   return new SingularityFlowError([
-    `Phase '${phase.id}' repository history changed after its immutable review evidence was recorded. `
-      + 'Only prior approvals, recorded decisions, intent-amendment proposals, rejections and acknowledgements, or an exact Auto human-boundary checkpoint for this submitted phase may precede another approval; submit fresh evidence for every other commit.',
+    `${phase.label ?? phase.id} changed after it was reviewed. SFlow's own records never count; these commits are other changes, so this is not what was reviewed.`,
     ...facts.lines
   ].join('\n'), {
     code: 'STORY_REVIEW_INTERVENING_COMMIT',

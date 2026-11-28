@@ -18,7 +18,8 @@ import {
 } from './safe-command-guidance.mjs';
 import { projectGateRefusal } from './evidence/gate-refusal.mjs';
 import { nearestNames, parseArgs } from './util.mjs';
-import { actionCommandLine, authorCommand, returnRoute, showCommand, storyNextCommand, versionQuestionRoute } from './action-command-map.mjs';
+import { actionCommandLine, authorCommand, returnRoute, sendBackCommand, showCommand, storyNextCommand, versionQuestionRoute } from './action-command-map.mjs';
+import { stepIntentOf, stopAdvice } from './step-advice.mjs';
 import { WORK_COMMANDS } from './command-skills.mjs';
 import { modelFreeCommandForArgv, vscodeDecideCardChat } from './model-free-commands.mjs';
 import { limitRetryLabel, limitRouteSteps } from './limit-remediation.mjs';
@@ -1367,7 +1368,17 @@ const KNOWN = Object.freeze({
     retry && step('preview-again', 'Then preview adding the folder again.', retry.command, 'diagnostic')].filter(Boolean);
   },
   // Commits after a submission: an undecided intent amendment among them is decided first.
-  STORY_REVIEW_INTERVENING_COMMIT: pendingAmendmentSteps,
+  // Real changes after the review (SFlow's own records never count): an undecided amendment first, else Send back, so the
+  // change is reviewed in the next version [owner, 2026-11-28].
+  STORY_REVIEW_INTERVENING_COMMIT: (argv, error) => {
+    const amendment = pendingAmendmentSteps(argv, error);
+    if (amendment.length) return amendment;
+    const details = error?.details ?? {};
+    const workId = safeWorkId(details.workId);
+    const phase = lowerKebab(details.phase);
+    return workId && phase ? [step('send-back-changed-step', `${stopAdvice(stepIntentOf(null, phase), 'changed', { step: phase })} Your reason goes to the next version.`,
+      sendBackCommand(workId, phase), 'remediation', '/sf-reject')] : [];
+  },
   // An amendment proposed after the submission holds the approval until a person decides it [SPEC-OAP M2].
   APPROVAL_INTENT_AMENDMENT_PENDING: pendingAmendmentSteps,
   APPROVAL_CHECKLIST_INCOMPLETE: approvalChecklistSteps,
@@ -2509,6 +2520,8 @@ function remediationPlanFor(error, argv = []) {
   const amendmentPending = ['STORY_REVIEW_INTERVENING_COMMIT', 'APPROVAL_INTENT_AMENDMENT_PENDING'].includes(code)
     && pendingAmendmentSteps(argv, error).length > 0;
   const conformanceGapBlocked = gapSteps.length > 0;
+  // Changed after the review (not SFlow's own records): Send back leads the approval turn's steps [owner, 2026-11-28].
+  const changedAfterReview = code === 'STORY_REVIEW_INTERVENING_COMMIT' && !amendmentPending;
   // A source statement nobody dispositioned waits for the scope step's approvers, in this turn [PHR:REQ-002]: the
   // decision list and the statement's own routes, never "repair the phase" or a rejection.
   const scopeSteps = code === 'SCOPE_ITEMS_UNRESOLVED' ? scopeDispositionSteps(error) : [];
@@ -2602,7 +2615,9 @@ function remediationPlanFor(error, argv = []) {
     : phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
-      ? riskReviewBlocked || upstreamInputBlocked || worktreeHeld
+      ? changedAfterReview && known.length
+        ? [known[0], ...phaseSteps.filter(entry => entry.id === 'leave-approval-turn'), ...phaseSteps.filter(entry => entry.id !== 'leave-approval-turn'), ...known.slice(1)]
+      : riskReviewBlocked || upstreamInputBlocked || worktreeHeld
         ? [known[0], ...phaseSteps.filter(entry => entry.id === 'leave-approval-turn'), ...known.slice(1)]
         // A lapsed test-run risk is renewed by the step's approvers, not rejected: name that first.
         : nonDuplicateExplicit.some(testRunRiskRoute)

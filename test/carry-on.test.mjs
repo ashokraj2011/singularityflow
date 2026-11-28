@@ -16,7 +16,7 @@ import test from 'node:test';
 
 import { completeAgentResult } from '../src/agent-output.mjs';
 import { nextStepsSnapshot } from '../src/nextsteps.mjs';
-import { storyWayOut, wayOutLine } from '../src/way-out.mjs';
+import { initiativeWayOut, storyWayOut, wayOutLine } from '../src/way-out.mjs';
 import { adviceForStep } from '../src/step-advice.mjs';
 import { storyContextPolicy, contextBoundaryHandoff } from '../src/context-policy.mjs';
 import { carryRoute, NEXT_ROUTE, TASK_ROUTE } from '../src/safe-command-guidance.mjs';
@@ -221,6 +221,70 @@ test('the way on names who does what, in plain words, from any snapshot', () => 
   assert.deepEqual([done.where, done.next.kind], ['W-1 is done: every step is decided.', 'done']);
   // No line asks a person to type a command to go on, except the one start of new work.
   for (const way of [approval, done]) assert.doesNotMatch(way.next.words, /singularity-flow|\/sf-(?!task)/u);
+});
+
+test('an Epic\'s next, status and resume are /sf-next too: its read answers with the Epic\'s way on', async (t) => {
+  // Pure: an approval is a person's, on its card; any other step is named with the skill that does it, never the one way on's
+  // own older name (/sf-initiative-next falls back to itself).
+  const approve = initiativeWayOut({ initiativeId: 'E-1', currentPhase: 'define', actions: [{ command: 'singularity-flow initiative approve define --initiative E-1', reason: 'All define outputs are ready for approval.', skill: '/sf-initiative-approve' }] });
+  assert.deepEqual(approve, { where: 'E-1 is at its define step.', why: 'All define outputs are ready for approval.',
+    next: { by: 'person', kind: 'sign-off', words: 'A person approves its outputs: on the Needs-you card in VS Code, or with /sf-initiative-approve.' } });
+  const step = initiativeWayOut({ initiativeId: 'E-1', currentPhase: 'epic-intake', actions: [{ command: 'singularity-flow epic requirements prepare', reason: 'Prepare the requirements.', skill: '/sf-epic-requirements' }] });
+  assert.deepEqual(step.next, { by: 'person', kind: 'epic-step', words: 'Prepare the requirements. /sf-epic-requirements does it.' });
+  const self = initiativeWayOut({ initiativeId: 'E-1', currentPhase: 'define', actions: [{ command: 'singularity-flow initiative unknown', reason: 'Look at it.', skill: '/sf-initiative-next' }] });
+  assert.equal(self.next.words, 'Look at it.');
+  assert.equal(initiativeWayOut({ initiativeId: 'E-1', actions: [] }).next.kind, 'done');
+  // The older names hand to /sf-next with the Epic key; /sf-next reads `nextsteps <ID>` for it.
+  const skill = (name) => readFileSync(path.join(import.meta.dirname, '..', 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
+  for (const name of ['sflow-epic-next', 'sflow-epic-status', 'sflow-epic-resume', 'sflow-initiative-next', 'sflow-initiative-status']) {
+    assert.match(skill(name), /This is the one way on, `\/sf-next`, under an older name: run `\/sflow-next` once with the supplied (?:Epic key|Initiative ID)/u, name);
+  }
+  assert.match(skill('sflow-epic-resume'), /singularity-flow epic resume <EPIC-KEY> --fetch/u, 'resume still opens an Epic this checkout does not hold');
+  assert.match(skill('sflow-next'), /Given an Epic key or Initiative ID, the read is `singularity-flow nextsteps <ID> --for-agent --json`/u);
+  // Its read, on an Epic's own checkout where no Story is: the Epic's actions and its way on, read only.
+  const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises');
+  const os = await import('node:os');
+  const YAML = (await import('yaml')).default;
+  const { initializeDefinition } = await import('../src/config.mjs');
+  const { createInitiative } = await import('../src/initiative-state.mjs');
+  const { run } = await import('../src/util.mjs');
+  const { nextStepsAgentPacket } = await import('../src/commands/nextsteps.mjs');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-epic-way-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Epic Way Owner'], { cwd: root });
+  run('git', ['config', 'user.email', 'epic-way@example.invalid'], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# Epic way\n');
+  await initializeDefinition(root);
+  const file = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(file, 'utf8'));
+  for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: 'Epic Way Owner', email: 'epic-way@example.invalid' }];
+  portfolio.git.publish = 'off';
+  await writeFile(file, YAML.stringify(portfolio));
+  run('git', ['add', '-A'], { cwd: root });
+  run('git', ['commit', '-q', '-m', 'Initialize portfolio'], { cwd: root });
+  run('git', ['switch', '-q', '-c', 'INIT-WAY'], { cwd: root });
+  await createInitiative(root, { id: 'INIT-WAY', title: 'One way on', profile: 'initiative-lite', agent: 'product-owner' });
+  for (const reference of [null, 'INIT-WAY']) {
+    const read = await nextStepsAgentPacket(reference, { cwd: root });
+    assert.equal(read.resultType, 'sflow-nextsteps', JSON.stringify(read).slice(0, 600));
+    assert.equal(read.initiativeId, 'INIT-WAY');
+    assert.match(read.wayOut.where, /^INIT-WAY is at its \S+ step\.$/u, JSON.stringify(read.wayOut));
+    assert.equal(read.wayOut.next.by, 'person');
+    assert.ok(read.wayOut.why && read.wayOut.next.words, JSON.stringify(read.wayOut));
+  }
+});
+
+test('a host that runs no SFlow hook (IntelliJ): every skill ends a turn no note carries on with the one thing to type, /sf-next', async () => {
+  // No hook runs there, so no note carries a turn on: the person types /sf-next between steps, and every step's last line
+  // says exactly that. That is the limit there (model-free-commands.mjs COMMAND_PRESENTATION_CONTRACT).
+  const { readdirSync } = await import('node:fs');
+  const { COMMAND_PRESENTATION_CONTRACT } = await import('../src/model-free-commands.mjs');
+  assert.match(COMMAND_PRESENTATION_CONTRACT, /Every turn that no SFlow note carries on ends with "\/sf-next carries it on" \(or press Continue\)\.$/u);
+  const skills = path.join(import.meta.dirname, '..', 'plugin', 'skills');
+  const names = readdirSync(skills, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  assert.ok(names.length > 150, `${names.length} skills`);
+  for (const name of names) assert.ok(readFileSync(path.join(skills, name, 'SKILL.md'), 'utf8').includes(COMMAND_PRESENTATION_CONTRACT), name);
 });
 
 test('VS Code: Continue sends the one way on from the status bar, the Work page and an empty Needs-you list', async () => {

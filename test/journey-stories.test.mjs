@@ -90,9 +90,10 @@ const personActions = (trail) => {
 // chat's first /sf-phase, then /sf-phase, /sf-code, /sf-converge, /sf-submit, /sf-phase and /sf-phase typed between steps
 // (each after a /clear in a real chat), the intake's one answer and the two approvals in the person's terminal.
 const JOURNEY_A_BEFORE = Object.freeze({ start: 1, typed: 7, answers: 1, own: 2, total: 11 });
-// Measured on carry-on, 2026-11-28: the chat's first /sf-phase and /sf-converge, the kernel-built check after the code
-// approval, which the work command hands to its own skill; the answer and both Yeses asked in the chat.
-const JOURNEY_A_AFTER = Object.freeze({ start: 1, typed: 2, answers: 3, own: 0, total: 6 });
+// Measured on carry-on-2, 2026-11-28: only the chat's first /sf-phase, after the start in the terminal; nothing typed between
+// steps, the kernel-built check after the code approval included, which the work command now builds in the same turn (on
+// carry-on it handed it to /sf-converge, typed: 2 typed, 6 in all); the answer and both Yeses asked in the chat.
+const JOURNEY_A_AFTER = Object.freeze({ start: 1, typed: 1, answers: 3, own: 0, total: 5 });
 
 /**
  * The spec-versus-code check the code step's approval carries while it waits (approval evidence `convergence`, read as the
@@ -168,6 +169,13 @@ test('journey A: a spec-driven Story from its start to its release, every step w
     assert.ok(counted.typed <= JOURNEY_A_AFTER.typed, `${JSON.stringify(counted)}\n${report(walk)}`);
     // The approvals are asked in the chat the turn carried on in, never typed again or run in the person's terminal.
     assert.equal(walk.trail.filter((entry) => /the person answered Yes to "Approve /u.test(entry.did ?? '')).length, 2, report(walk));
+  });
+  // The last typed command is gone (owner, 2026-11-28): the code step's kernel-built check is built in the turn the code's
+  // approval carried on, by the work command, so only the chat's first command is typed.
+  await check(t, 'nothing is typed between steps: the kernel-built check is built in the carried turn', {}, () => {
+    assert.equal(walk.trail.filter((entry) => entry.typed).length, 1, report(walk));
+    const built = walk.trail.find((entry) => /\bprepare convergence\b/u.test(entry.ran ?? ''));
+    assert.ok(built && !built.typed, report(walk));
   });
   await check(t, 'every authored step was reviewed before it was submitted', {}, () => {
     const record = storyRecord(story);

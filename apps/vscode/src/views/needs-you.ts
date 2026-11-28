@@ -42,7 +42,7 @@ export interface NeedsYouHost {
   decide(client: SingularityFlowClient, workId: string): Promise<{ status?: string; message?: string; continueTask?: unknown } | null>;
   /** After an SFlow change in this window (refreshAfterKnownMutation). */
   refresh(): Promise<void>;
-  /** A task's chat carries on after an approval, only when its checkout is this window's (continueTaskInChat). */
+  /** The Story's chat carries on after an approval or a send-back, only when its checkout is this window's (continueTaskInChat). */
   continueTask(workId: string, phaseId: string): Promise<void>;
   continueAfterDecision(workId: string, result: { continueTask?: unknown } | null): Promise<void>;
   /** The chat the person used last (workbench.action.chat.open, isPartialQuery false). */
@@ -302,6 +302,8 @@ export class NeedsYouCardPanel {
         if (words[0] !== 'singularity-flow' || !words.includes('<reason>')) return this.reopen(card.key, 'This card was read before its send-back route; it is read again below, so choose Send back once more.');
         await bound.runText(words.slice(1).map((word) => (word === '<reason>' ? reason.trim() : word)));
         await this.done(`${item.step.label} was sent back with your note.`);
+        // Its chat then writes the next version, as after an approval here (owner, 2026-11-28).
+        await this.host.continueTask(workId, item.step.id);
       } else if (item.kind === 'workflow-decision') {
         await this.chooseRoute(bound, item, choice.id);
       } else if (item.kind === 'decision' || item.kind === 'next-version') {

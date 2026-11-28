@@ -118,11 +118,13 @@ export function skillEntries(skillsRoot = SKILLS) {
     const worksInTurn = /The current step's own agent work is this turn's/u.test(body);
     // "`/sf-code` and `/sf-phase` are one work command": a route naming either is the turn's own work (D1).
     const oneWorkCommand = /`\/sf-code` and `\/sf-phase` are one work command/u.test(body);
+    // "`/sf-converge` (SFlow builds it) is this turn's too": the work command does the kernel-built check in its own turn.
+    const buildsConverge = /`\/sf-converge` \(SFlow builds it\) is this turn's too/u.test(body);
     // /sf-task on an open task: "anything else: do the current step's own work in this turn, from `<entry>`" [ITW:REQ-008].
     const stepWork = /anything else: do the current step's own work in this turn, from `(singularity-flow [^`]+)`/u.exec(own.join('\n'))?.[1] ?? null;
     // /sf-task: "A refactor: run `data.task.before` once now, before any edit" [ITW:REQ-015].
     const runsBefore = /run `data\.task\.before` once now, before any edit/u.test(body);
-    map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint, refreshAfterBegin, worksInTurn, oneWorkCommand,
+    map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint, refreshAfterBegin, worksInTurn, oneWorkCommand, buildsConverge,
       ...(stepWork ? { stepWork } : {}), ...(runsBefore ? { runsBefore } : {}),
       ...(delegate && (!entry || oneWayAlias) ? { delegate: `/sf-${delegate}` } : {}), ...(choice ? { choice: true } : {}) });
   }
@@ -526,8 +528,9 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     else if (carried && carried.task === false && taken.next?.copilot && !taken.next.inTurn && guard.skill) {
       // SFlow's note says how: `phase enter --compose`, the work command's own entry (task-turn.mjs carryOnWords). The way on
       // the result named (/sf-next) is the step's own route as the person's views name it: the work command's goes on in this
-      // turn; a step whose own skill is another (the kernel-built /sf-converge) is handed to it, as the work command's text
-      // says, and the person types it.
+      // turn, the kernel-built /sf-converge too when the work command's text does it (its step 1, owner 2026-11-28); a step
+      // whose own skill is another (a configured author) is handed to it, as the work command's text says, and the person
+      // types it.
       let route = taken.next;
       let handed = false;
       if (/^\/sf(?:low)?-next(?:\s|$)/u.test(route.copilot)) {
@@ -536,6 +539,10 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
         try { own = (JSON.parse(read.stdout).actions ?? []).find((entry) => entry?.timing === 'now') ?? null; } catch { own = null; }
         const skill = skillOf(own?.skill ?? own?.copilotCommand);
         route = skill ? { ...route, copilot: own.copilotCommand && skillOf(own.copilotCommand) === skill ? own.copilotCommand : skill, shell: own.command ?? route.shell } : route;
+        // The work command builds the kernel-built check in this turn: its own name goes on (the typed one when it is one).
+        const builder = /^\/sf(?:low)?-converge\b/u.test(route.copilot)
+          ? (entries.get(guard.skill)?.buildsConverge ? guard.skill : [...entries.values()].find((known) => known.buildsConverge)?.skill ?? null) : null;
+        if (builder) route = { ...route, copilot: builder, builds: skill };
         handed = Boolean(skill) && (!WORK_ROUTE.test(route.copilot) || /^\/sf(?:low)?-converge\b/u.test(route.copilot));
         // /sf-code and /sf-phase are one work command (D1): the turn's own name goes on, its entry writing the step.
         if (!handed && entries.get(guard.skill)?.oneWorkCommand && entries.get(skillOf(route.copilot))?.oneWorkCommand) route = { ...route, copilot: guard.skill };
@@ -558,8 +565,11 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     }
     // D1: in a turn of the work command, a route naming its other name is this turn's own work, run here by its command;
     // never a route the result says is for a new turn (a submission that completed the step ends the turn, decision 7).
+    // So is a route naming the kernel-built /sf-converge (its publication after its generator) when the work command's
+    // text builds it in its turn (its step 1, owner 2026-11-28).
     const named = taken.next?.copilot ? skillOf(taken.next.copilot) : null;
-    if (named && named !== turn && entries.get(turn)?.oneWorkCommand && entries.get(named)?.oneWorkCommand && !taken.next.inTurn && taken.next.turn !== 'new-turn'
+    const built = /^\/sf(?:low)?-converge$/u.test(named ?? '') && entries.get(turn)?.buildsConverge;
+    if (named && named !== turn && entries.get(turn)?.oneWorkCommand && (entries.get(named)?.oneWorkCommand || built) && !taken.next.inTurn && taken.next.turn !== 'new-turn'
         && taken.next.shell && (taken.next.copilot.trim().split(/\s+/u)[1] ?? current()) === current()) {
       taken.next = { ...taken.next, inTurn: true, source: `${taken.next.source ?? 'route'} (one work command)` };
     }
@@ -577,7 +587,9 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       for (const view of await personViews(story)) {
         // The same skill, or the same command (a person's confirmation of the step's own command names /sf-confirm).
         // /sf-code and /sf-phase are one work command (D1): a turn carried on as either names the other's step rightly.
-        const oneWork = entries.get(view.skill)?.oneWorkCommand && entries.get(agentSkill)?.oneWorkCommand;
+        // A view naming the kernel-built /sf-converge names the work command's own work when that command builds it.
+        const oneWork = (entries.get(view.skill)?.oneWorkCommand || (/^\/sf(?:low)?-converge$/u.test(view.skill ?? '') && entries.get(agentSkill)?.buildsConverge))
+          && entries.get(agentSkill)?.oneWorkCommand;
         const differs = view.skill && agentSkill && view.skill !== agentSkill && !oneWork && !(agentWords && commandWords(view.command).join(' ') === agentWords);
         if (differs || view.completeWhileWriting) {
           views.push({ step, agent: agentSkill, agentCommand: short(taken.next.shell), view: view.view, skill: view.skill, command: short(view.command),

@@ -60,19 +60,35 @@ function evidenceSummary(workflow) {
 }
 
 async function initiativeSnapshot(root, selected) {
-  const { initiativeNextActions } = await import('../initiative-report.mjs');
+  const [{ initiativeNextActions }, { initiativeWayOut }] = await Promise.all([import('../initiative-report.mjs'), import('../way-out.mjs')]);
   const initiative = selected.state;
+  const listed = await initiativeNextActions(root, selected.id);
+  const currentPhase = initiative.currentPhase ?? null;
   return {
     schemaVersion: 1,
     state: initiative.status ?? 'active',
     subject: { kind: 'initiative', id: selected.id },
     initiativeId: selected.id,
-    currentPhase: initiative.currentPhase ?? null,
-    actions: (await initiativeNextActions(root, selected.id)).map((item) => ({
+    currentPhase,
+    actions: listed.map((item) => ({
       timing: 'now', skill: null, command: item.command, reason: item.reason
     })),
-    evidence: evidenceSummary(initiative)
+    evidence: evidenceSummary(initiative),
+    // The one way on for an Epic or Initiative too: /sf-next and its older Epic and Initiative names read it.
+    wayOut: initiativeWayOut({ initiativeId: selected.id, currentPhase, actions: listed })
   };
+}
+
+/**
+ * `nextsteps --for-agent` on an Epic's or Initiative's checkout, or with its ID, where no Story is [owner, 2026-11-28]:
+ * its next actions and way on, read only; null when the reference is none. An Epic key is an Initiative ID.
+ */
+async function initiativeAgentPacket(reference, cwd) {
+  const root = path.resolve(repoRoot(cwd));
+  const { buildRepositorySubjectIndex, resolveContext } = await import('../repository-subject-index.mjs');
+  const selected = resolveContext(await buildRepositorySubjectIndex(root), { reference: reference ?? branch(root), kind: 'initiative', required: false });
+  if (selected?.kind !== 'initiative') return null;
+  return agentPacketPresentation({ ...await initiativeSnapshot(root, selected), resultType: 'sflow-nextsteps', repositoryPath: root });
 }
 
 export async function storyPrerequisites(root, workflow, selected, modelMode = { enabled: true }, {
@@ -379,7 +395,14 @@ export function snapshotContinuation(workflow, snapshot) {
 
 export async function nextStepsAgentPacket(workId = null, { cwd = process.cwd() } = {}) {
   const { phaseEntryContext } = await import('../phase-entry-context.mjs');
-  const entry = await phaseEntryContext({ cwd, workId, allowTerminal: true, turnMode: 'kernel-only' });
+  let entry;
+  try { entry = await phaseEntryContext({ cwd, workId, allowTerminal: true, turnMode: 'kernel-only' }); }
+  catch (error) {
+    // No Story here: an Epic or Initiative this checkout holds answers instead, with its own way on.
+    const initiative = error?.code === 'STORY_NOT_FOUND' ? await initiativeAgentPacket(workId, cwd).catch(() => null) : null;
+    if (initiative) return initiative;
+    throw error;
+  }
   const { packet } = entry;
   if (packet.paused) return packet;
   // The one way on, from a chat SFlow cannot bind yet or whose hooks did not run (way-out.mjs) [owner, 2026-11-28].

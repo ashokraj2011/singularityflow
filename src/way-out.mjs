@@ -5,8 +5,8 @@
  *
  *   by: 'sflow'   SFlow's own action (a saved push, a recovery it can make safely): the turn runs `command` itself;
  *   by: 'agent'   the step's own work: the turn does it now, as /sf-next does;
- *   by: 'person'  a person decides (`kind`: approval, decision, return, answer, terminal, reload, start, done): `words` say
- *                 what and where, never a command for them to type.
+ *   by: 'person'  a person decides (`kind`: approval, decision, return, answer, terminal, reload, start, done; on an Epic,
+ *                 sign-off and epic-step): `words` say what and where, never a command for them to type.
  *
  * nextsteps returns it beside its actions (nextsteps.mjs), so /sf-next and every older name that now does the same, the
  * VS Code Continue button and a refusal's last line read one answer. Pure: it reads only the snapshot nextsteps already
@@ -102,6 +102,27 @@ export function storyWayOut(snapshot, workflow = null, { gap = null } = {}) {
       : { by: 'person', kind: 'answer', words: 'Nothing can go on yet; the Story says why above.' });
   const why = whyLine(snapshot, workflow, { ...next, reason: now?.reason });
   return { where, why, next };
+}
+
+/**
+ * The way on for an Epic or an Initiative (an Epic is one), read from its own next actions (initiative-report.mjs
+ * initiativeNextActions) [owner, 2026-11-28: its next, status and resume are /sf-next too]: where it is, why it waits
+ * (its first action's reason), and that action, a person's: an approval on its card, any other step by the skill that
+ * does it. No Story binds an Epic's checkout, so no turn of /sf-next writes it. `actions` keep each action's `skill`.
+ */
+export function initiativeWayOut({ initiativeId = null, currentPhase = null, actions = [] } = {}) {
+  const id = initiativeId ?? 'The Epic';
+  const where = currentPhase ? `${id} is at its ${currentPhase} step.` : `${id} has no step open.`;
+  const now = actions.find((entry) => entry?.command) ?? null;
+  const why = oneLine(now?.reason ?? '') || 'Nothing waits.';
+  if (!now) return { where, why, next: { by: 'person', kind: 'done', words: `Nothing is needed on ${id} now.` } };
+  // Its own fallback skill is the one way on itself (/sf-initiative-next is /sf-next's older name): no skill to name.
+  const skill = /^\/sf-(?:initiative|epic)-next$/u.test(SKILL(now.skill)) ? null : SKILL(now.skill) || null;
+  const does = (skill ?? '') && ` ${skill} does it.`;
+  if (/^singularity-flow (?:initiative|epic) approve\b/u.test(now.command)) {
+    return { where, why, next: { by: 'person', kind: 'sign-off', words: `A person approves its outputs: on the Needs-you card in VS Code${skill ? `, or with ${skill}` : ''}.` } };
+  }
+  return { where, why, next: { by: 'person', kind: 'epic-step', words: `${oneLine(now.reason ?? '').replace(/[.\s]+$/u, '') || 'Its next step'}.${does}` } };
 }
 
 /** The way on as one plain paragraph: where, why, and what happens next. */

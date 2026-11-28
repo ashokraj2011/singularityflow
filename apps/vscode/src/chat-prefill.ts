@@ -129,12 +129,19 @@ export function nextChatPrefill(snapshot: RepositorySnapshot | null | undefined)
  * What the chat is sent once a person approved a step on a page (the approval page the chat's own approve flow opened, the
  * Approvals list, the Journey, the tree) [ITW:REQ-008; owner, 2026-11-28: every Story carries on like a task]: the Story's
  * one way on, `/sf-task` on a task and `/sf-next` on any other, in the chat the person used last, never a new one, and only
- * once that step reads approved. A closed Story has nothing to carry on.
+ * once that step reads approved, or reads sent back by the person (owner, 2026-11-28: a page's Send back carries the chat on
+ * as its approval does): their open send-back from that step, never SFlow's own, whose target is now the Story's step, so the
+ * chat writes its next version. A closed Story has nothing to carry on.
  */
 export function taskChatContinuation(workflow: unknown, workId: string, phaseId: string): string | null {
-  const story = workflow as { workItem?: { id?: unknown }; status?: unknown; phases?: Record<string, { status?: unknown } | undefined> } | null | undefined;
+  type SendBack = { automatic?: unknown; status?: unknown; sourcePhase?: unknown; targetPhase?: unknown };
+  const story = workflow as { workItem?: { id?: unknown }; status?: unknown; currentPhase?: unknown;
+    phases?: Record<string, { status?: unknown } | undefined>; changeRequests?: SendBack[] } | null | undefined;
   if (!story || !workId || story.workItem?.id !== workId || story.status === 'closed') return null;
-  return story.phases?.[phaseId]?.status === 'approved' ? carryRoute(story) : null;
+  if (story.phases?.[phaseId]?.status === 'approved') return carryRoute(story);
+  const sentBack = (Array.isArray(story.changeRequests) ? story.changeRequests : []).some((entry) => entry && !entry.automatic
+    && entry.status === 'open' && entry.sourcePhase === phaseId && entry.targetPhase === story.currentPhase);
+  return sentBack ? carryRoute(story) : null;
 }
 
 /**

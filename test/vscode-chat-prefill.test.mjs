@@ -145,11 +145,27 @@ test('ITW REQ-008: a person\'s approval on any page sends the Story\'s one way o
   assert.equal(taskChatContinuation(record('approved', 'quick-fix'), 'TASK-1', 'code'), '/sf-next', 'a classic Story goes on too');
   assert.equal(taskChatContinuation({ ...record('approved', 'quick-fix'), status: 'closed' }, 'TASK-1', 'code'), null, 'a closed Story has nothing to carry on');
   assert.equal(taskChatContinuation(null, 'TASK-1', 'code'), null);
+  // A send-back on the page carries the chat on as its approval does (owner, 2026-11-28): the person's open send-back from
+  // that step, whose target is now the Story's step, so the chat writes its next version. Never SFlow's own, nor an old one.
+  const sentBack = (entry, currentPhase = 'plan') => ({ ...record('in_progress', 'quick-fix'), currentPhase,
+    changeRequests: [{ status: 'open', sourcePhase: 'code', targetPhase: 'plan', ...entry }] });
+  assert.equal(taskChatContinuation(sentBack({}), 'TASK-1', 'code'), '/sf-next', 'the page\'s send-back carries on');
+  assert.equal(taskChatContinuation({ ...sentBack({}), workItem: { id: 'TASK-1', workType: 'task-fix' } }, 'TASK-1', 'code'), '/sf-task');
+  assert.equal(taskChatContinuation(sentBack({ automatic: { kind: 'tests-failed' } }), 'TASK-1', 'code'), null, 'SFlow\'s own return is carried by its turn');
+  assert.equal(taskChatContinuation(sentBack({ status: 'resolved' }), 'TASK-1', 'code'), null, 'an answered send-back');
+  assert.equal(taskChatContinuation(sentBack({}, 'code'), 'TASK-1', 'code'), null, 'the Story moved on past its target');
   // Every page approval goes through runNode's approve branch, which continues the task's chat there, in the chat the person
   // used last (no new chat), and nowhere else.
   const extension = await readFile(path.join(packageRoot, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
   const approve = extension.slice(extension.indexOf('const runNode = async'), extension.indexOf('if (!node?.command) return;', extension.indexOf('const runNode = async')));
   assert.match(approve, /approveWithReceipt\(client, node\.approve, output\)[^]*refreshAfterKnownMutation\(\)[^]*continueTaskInChat\(node\.approve\.workId, node\.approve\.phaseId\)/u);
+  // The page's send-back answers true once recorded, as its approval does, so the same branch carries it on.
+  const actions = await readFile(path.join(packageRoot, 'apps', 'vscode', 'src', 'actions.ts'), 'utf8');
+  const sendBackBranch = actions.slice(actions.indexOf("if (review.action === 'send-back')"), actions.indexOf("if (review.action === 'decide')"));
+  assert.match(sendBackBranch, /const sent = await runGovernedAction\([^]*return sent;/u);
+  const needsYou = await readFile(path.join(packageRoot, 'apps', 'vscode', 'src', 'views', 'needs-you.ts'), 'utf8');
+  const cardReturn = needsYou.slice(needsYou.indexOf("choice.id === 'return'"), needsYou.indexOf("item.kind === 'workflow-decision'"));
+  assert.match(cardReturn, /sent back with your note[^]*await this\.host\.continueTask\(workId, item\.step\.id\)/u, 'and the Needs-you card\'s Send back');
   const continuation = extension.slice(extension.indexOf('const continueTaskInChat = async'), extension.indexOf('const openGovernedCopilot = async'));
   assert.match(continuation, /taskChatContinuation\(/u);
   assert.doesNotMatch(continuation, /newChat/u, 'the same chat, never a new one');

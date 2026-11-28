@@ -54,12 +54,16 @@ export const ACTION_COMMANDS = Object.freeze({
     // A reviewer's blocking finding a person disputes (`<input>`: the finding's ID), with their own reason [owner, 2026-11-20].
     dispute: 'review-source dispute <step> --work-id <W> --finding <input> --reason "<REASON>"',
     // A check's blocking finding a person overrides (`<input>`: its CHK- key), with their own reason [owner, 2026-11-23].
-    override: 'decision override-finding <W> --phase <step> --finding <input> --reason "<REASON>"' }),
+    override: 'decision override-finding <W> --phase <step> --finding <input> --reason "<REASON>"',
+    // A page SFlow could not capture, signed off by a person on SFlow's saved screenshot (`<input>`: its CHK- key) [owner, 2026-11-28].
+    'sign-off': 'decision override-finding <W> --phase <step> --finding <input> --sign-off' }),
   'recover-operation': entry('work', { reconcile: 'phase opening <step> --reconcile --json', recover: 'recover <W> --phase <step> --json' }),
   'takeover-writer': entry(ACTION_SKILLS.takeover, { takeover: 'session takeover <W> --json' }),
   'refresh-authority': entry('by-command', { branch: 'refresh-branch', session: 'session current --for-agent --json' }),
   inspect: entry('by-command', { show: 'phase show <step> --json', session: 'session current --for-agent --json' }),
   'provide-input': entry('by-command', { readiness: 'documents readiness --phase <step> --work-id <W> --json' }),
+  // A pull request SFlow could not open: its reviewed description to copy, or its publication first [owner, 2026-11-28].
+  'open-pull-request': entry('/sf-pr', { describe: 'pr describe <W> --clipboard', sync: 'sync <W>', create: 'pr <W> --create --yes' }),
   none: entry('by-command', { nextsteps: 'nextsteps --json', story: 'nextsteps <W>' })
 });
 
@@ -139,6 +143,9 @@ export const inTurnSubmitCommand = (workId) => actionCommandLine('submit-version
 /** "Dispute this finding": the person's own reason goes where `<REASON>` stands (review-finding-dispute.mjs). */
 export const reviewDisputeCommand = (workId, step, finding) => actionCommandLine('decide', 'dispute', { step, workId, input: finding });
 export const findingOverrideCommand = (workId, step, key) => actionCommandLine('decide', 'override', { step, workId, input: key });
+export const browserSignOffCommand = (workId, step, key) => actionCommandLine('decide', 'sign-off', { step, workId, input: key });
+/** A pull request SFlow could not open: its reviewed description to copy (`describe`), or its waiting commit sent first (`sync`). */
+export const pullRequestRouteCommand = (workId, form) => actionCommandLine('open-pull-request', form, { workId });
 export const handoffSubmitRoute = (workflow, phase) => {
   const route = fixed(ACTION_SKILLS.readiness, 'submit-version', 'step', workflow, phase);
   return { ...route, command: route.command + decisionSubmitArguments(workflow, phase.id) };

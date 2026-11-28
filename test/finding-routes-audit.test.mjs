@@ -61,17 +61,19 @@ test('the dispute route names the canonical gate whatever case the finding used,
     const dispute = phaseResolutionChoices(workflow, phase, { code }).choices.find((choice) => choice.kind === 'dispute');
     assert.equal(dispute.owner, 'phase-approval-authority');
     assert.equal(dispute.argv[dispute.argv.indexOf('--finding') + 1], 'CODE_DELIVERY_EVIDENCE_REQUIRED', code);
-    assert.ok(!phaseResolutionChoices(workflow, phase, { code }).choices.some((choice) => choice.kind === 'check-defect'),
+    assert.ok(!phaseResolutionChoices(workflow, phase, { code }).choices.some((choice) => choice.kind === 'check-report'),
       'a disputable finding already has its approvers');
   }
   const brief = phaseResolutionChoices(workflow, phase, { code: 'AGENT_BRIEF_SUMMARY_REQUIRED' }).choices;
-  // Only a check that is itself wrong names SFlow's maintainer, with the exact text to send printed by SFlow [owner, 2026-11-28].
-  assert.deepEqual(brief.map((choice) => choice.kind), ['author-correction', 'inspect', 'check-defect', 'preserve-checkpoint']);
+  // A check whose gate keeps no override offers the report for SFlow's maintainer to copy; one whose gate keeps it, "This
+  // check is wrong here" (test/never-stuck-2.test.mjs) [owner, 2026-11-28].
+  assert.deepEqual(brief.map((choice) => choice.kind), ['author-correction', 'inspect', 'check-report', 'preserve-checkpoint']);
   assert.match(brief[2].command, /explain findings --section ["']Agent brief findings["']/u);
+  assert.match(brief[2].report, /^SFlow check AGENT_BRIEF_SUMMARY_REQUIRED looks wrong\./u);
   assert.notEqual(brief[2].skill, '/sf-doctor');
   const unclaimed = phaseResolutionChoices(workflow, phase, { code: 'SPEC_COVERAGE_INCOMPLETE',
     details: { coverage: { unclaimedChangedPaths: ['src/extra.mjs'] } } }).choices;
-  assert.ok(!unclaimed.some((choice) => choice.kind === 'check-defect'), 'the plan approvers are already named');
+  assert.ok(!unclaimed.some((choice) => choice.kind === 'check-report'), 'the plan approvers are already named');
 });
 
 /**

@@ -109,7 +109,13 @@ test('REQ-006: the task page: header, buttons, the plan with Add a step, the pla
   const away = row('TASK-11', { route: { checkout: null, clone: '/work/shop-api', here: false, elsewhere: { commands: ['singularity-flow session open TASK-11 --workspace shop --repository shop-api'] } } });
   const elsewhere = workTaskHtml(workListFrom(list([away])).inProgress[0], workTaskFrom(statusResult({ id: 'TASK-11' })));
   assert.doesNotMatch(elsewhere, /data-act="intake"|data-act="explain"|data-document=/u);
-  assert.match(elsewhere, /TASK-11 is not open in this window\. Open it with: <code>singularity-flow session open TASK-11 --workspace shop --repository shop-api<\/code>/u);
+  // One button that opens it, never a command to read and type [owner, 2026-11-28, dead end 21]: its own commands in a
+  // terminal when it has no checkout here, else its folder in a new window.
+  assert.match(elsewhere, /TASK-11 is not open in this window\. <button type="button" class="secondary" data-act="open-elsewhere">Open it in a terminal<\/button>/u);
+  assert.doesNotMatch(elsewhere, /<code>singularity-flow session open/u);
+  const checkedOut = workTaskHtml(workListFrom(list([row('TASK-12', { route: { checkout: '/work/task-12', clone: null, here: false, elsewhere: { commands: ['singularity-flow session open TASK-12'] } } })])).inProgress[0],
+    workTaskFrom(statusResult({ id: 'TASK-12' })));
+  assert.match(checkedOut, /data-act="open-elsewhere">Open its folder in a new window<\/button>/u);
   const finished = workTaskHtml(workListFrom(list([row('TASK-9', { status: 'closed' })])).inProgress[0], workTaskFrom(statusResult({ status: 'closed', done: true, addable: [] })));
   assert.doesNotMatch(finished, /data-act="stop"|task-add-step/u);
   // Continue: the one way on, /sf-task for a task and /sf-next for a classic Story (owner, 2026-11-28), the route to it from elsewhere [A10].

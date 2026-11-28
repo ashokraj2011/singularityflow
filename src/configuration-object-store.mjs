@@ -8,7 +8,7 @@ import { ConfigurationObjectReader } from './configuration-object-reader.mjs';
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { safePrivateSidecarDirectory, readPrivateSidecar } from './private-sidecar.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
-import { run, SingularityFlowError } from './util.mjs';
+import { run, SingularityFlowError, withPrivateGitRef } from './util.mjs';
 
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const MAXIMUM_BYTES = 64 * 1024 * 1024;
@@ -113,6 +113,10 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
   let local, store, lease;
   const git = (cwd, args, extra = {}) => run('git', args, { cwd, env: transport.env,
     timeoutMs: 15_000, maxBuffer: 4 * 1024 * 1024, ...extra });
+  // The pool's refs, and its disposable checkout's, are SFlow's own retention, never a person's history: they take SFlow's
+  // private-ref rule, so the commit policy of the repository holding this .git never stops a read [owner, 2026-11-28].
+  const retain = (cwd, args, input = null) => withPrivateGitRef(cwd, args, { env: transport.env, input },
+    () => git(cwd, args, input == null ? {} : { input }));
   try {
     // Capability validation materializes ordinary worktrees. Its pool must contain complete
     // objects, never borrow missing blobs from the filtered workflow-reader pool implicitly.
@@ -230,18 +234,18 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
     if (!entries.length) return;
     await includeCommits([...new Set(entries.map(entry => entry.proposalCommit))]);
     // One transaction per page, not two Git processes per retained proposal on Windows.
-    git(store, ['update-ref', '--stdin'], { input: entries.map(entry =>
-      `update refs/heads/${entry.branch} ${entry.proposalCommit}\n`).join('') });
-    if (checkout) git(scratch, ['update-ref', '--stdin'], { input: entries.map(entry =>
-      `update refs/remotes/origin/${entry.branch} ${entry.proposalCommit}\n`).join('') });
+    retain(store, ['update-ref', '--stdin'], entries.map(entry =>
+      `update refs/heads/${entry.branch} ${entry.proposalCommit}\n`).join(''));
+    if (checkout) retain(scratch, ['update-ref', '--stdin'], entries.map(entry =>
+      `update refs/remotes/origin/${entry.branch} ${entry.proposalCommit}\n`).join(''));
   };
   try {
     await includeCommits([...new Set([authorityCommit, ...branches.map(entry => entry.proposalCommit)])]);
     // Private refs are retention, never authority. Every checkout ref below is bound to this
     // invocation's fresh advertisement, including deletion/movement of a pending proposal.
-    git(store, ['update-ref', 'refs/heads/sflow/config', authorityCommit]);
+    retain(store, ['update-ref', 'refs/heads/sflow/config', authorityCommit]);
     git(store, ['symbolic-ref', 'HEAD', 'refs/heads/sflow/config']);
-    for (const entry of branches) git(store, ['update-ref', `refs/heads/${entry.branch}`, entry.proposalCommit]);
+    for (const entry of branches) retain(store, ['update-ref', `refs/heads/${entry.branch}`, entry.proposalCommit]);
     // Git for Windows' local-clone ref iterator can reject a deep loose ref even though update-ref
     // created it successfully with longpaths enabled. Compact only our leased, bounded private
     // retention refs; application refs, objects, hooks and remote authority are untouched.

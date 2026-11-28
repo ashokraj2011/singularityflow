@@ -379,8 +379,11 @@ export class OutcomeReviewPanel {
     const file = this.repositoryPath(relative);
     if (!criterion || !this.view || !file || !relative) return;
     if (!(await stat(file).then((info) => info.isFile(), () => false))) {
-      void showCompactInformationMessage(`No screenshot at ${relative} yet. Attach one first, then sign off.`);
-      return;
+      // One button that attaches it, then the sign-off goes on [owner, 2026-11-28, dead end 21].
+      const attach = 'Attach screenshot';
+      if (await showCompactInformationMessage(`No screenshot at ${relative} yet: attach one, then sign off.`, attach) !== attach) return;
+      await this.attach(relative);
+      if (!(await stat(file).then((info) => info.isFile(), () => false))) return;
     }
     await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(file));
     const answers: Array<[string, boolean]> = [];
@@ -427,9 +430,9 @@ export class OutcomeReviewPanel {
       await vscode.workspace.fs.stat(file);
       await vscode.commands.executeCommand('vscode.open', file);
     } catch {
-      void showCompactInformationMessage(screenshot
-        ? `No screenshot yet. Save one of the running screen as ${relative}, then open it here.`
-        : `${relative} is not in this checkout.`);
+      if (!screenshot || !relative) return void showCompactInformationMessage(`${relative} is not in this checkout.`);
+      const attach = 'Attach screenshot';
+      if (await showCompactInformationMessage(`No screenshot at ${relative} yet: attach one of the running screen.`, attach) === attach) await this.attach(relative);
     }
   }
 

@@ -6,6 +6,7 @@ import { canonicalJson } from './records.mjs';
 import { raiseUpstreamIssueRoute, reopenAuthorityStep } from './upstream-routes.mjs';
 import { run } from './util.mjs';
 import { stepRoute } from './step-decision.mjs';
+import { returnRoute } from './action-command-map.mjs';
 
 /**
  * Deterministic gate-to-recovery classification.
@@ -148,11 +149,23 @@ function openStoryRecovery(workflow, code, ownerPhase, openStory, about = null) 
   // on the refusal that followed (2026-10-29).
   if (raised) return { mode: 'guided', ownerPhase, requiresReopen: false,
     command: about ? raised.command.replace('<clause-or-section>', about) : raised.command, detail: raised.label };
+  // No return reaches the owner from here: the final step's own way on now, never "a workflow maintainer decides"
+  // [owner, 2026-11-28]. Submitted, it goes back to the allowed step nearest the owner; in progress, its own next action.
+  const order = workflow.phaseOrder ?? [];
+  const at = (id) => order.indexOf(id);
+  const nearest = submitted ? [...allowed].filter((id) => workflow.phases?.[id] && at(id) >= 0)
+    .sort((left, right) => Math.abs(at(left) - at(ownerPhase)) - Math.abs(at(right) - at(ownerPhase)) || at(left) - at(right))[0] ?? null : null;
+  if (nearest) return {
+    mode: 'guided', ownerPhase, requiresReopen: false,
+    command: returnRoute(workflow, final ?? { id: finalId }, nearest).command,
+    detail: `${ownerPhase} owns this evidence, and ${finalId} returns work only to ${allowed.join(', ')}: an approver returns ${finalId} to ${nearest}, the nearest of them, and the steps after it correct it.`
+  };
+  const own = !submitted && finalPhaseRoute(workflow, finalId);
+  if (own) return { mode: 'guided', ownerPhase, requiresReopen: false, command: own.command, skill: own.skill,
+    detail: `${ownerPhase} owns this evidence. Finish and submit ${finalId}: once it waits for approval, an approver returns it${allowed.includes(ownerPhase) ? ` to ${ownerPhase}` : ` to the allowed step nearest ${ownerPhase}`}.` };
   return {
     mode: 'manual', ownerPhase, requiresReopen: false, command: null,
-    detail: allowed.includes(ownerPhase)
-      ? `${ownerPhase} owns this evidence. ${finalId} must be returned to ${ownerPhase} once it is submitted (singularity-flow reject ${finalId} --to ${ownerPhase}); no route reaches ${ownerPhase} while ${finalId} is ${openStory.status.replaceAll('_', ' ')}.`
-      : `${ownerPhase} owns this evidence, but ${finalId} may not return work to it (allowed: ${allowed.join(', ') || 'none'}). A workflow maintainer decides how ${ownerPhase} is corrected; an open Story cannot be reopened.`
+    detail: `${ownerPhase} owns this evidence. ${finalId} is ${openStory.status.replaceAll('_', ' ')}; once it is submitted, an approver returns it${allowed.includes(ownerPhase) ? ` to ${ownerPhase}` : ` to the allowed step nearest ${ownerPhase}`}.`
   };
 }
 
@@ -228,9 +241,10 @@ function storyRecovery(workflow, code, ownerPhase, path, openStory = null, conte
     const completion = completionPhaseOf(workflow);
     const allowed = completion?.approvalPolicy?.rejectTo ?? [completion?.id].filter(Boolean);
     // reopenWorkflow refuses every reopen under this policy, gate recovery included.
+    // Never "have a workflow maintainer change the policy": the correction is a new task, from the branch as it is [owner, 2026-11-28].
     if (!reopenAllowed(completion)) return {
-      mode: 'manual', ownerPhase, requiresReopen: false, command: null,
-      detail: `${completion?.id ?? 'The final phase'} policy does not allow completed work to be reopened, so ${ownerPhase} cannot be returned to in this Story. Correct it in a follow-up Story, or have a workflow maintainer change the policy.`
+      mode: 'guided', ownerPhase, requiresReopen: false, command: null, skill: '/sf-task',
+      detail: `${completion?.id ?? 'The final phase'} policy keeps completed work closed, so ${ownerPhase} is corrected in a new task: ask /sf-task to correct ${ownerPhase} of ${workId} (${code}); it starts from the branch as it is.`
     };
     // Who reopens: the final step's approvers, or the nearest earlier step's when it has none.
     const reopener = completion ? reopenAuthorityStep(workflow, completion.id) : null;

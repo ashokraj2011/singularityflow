@@ -147,7 +147,8 @@ export interface ApprovalReviewRequest {
 
 /** The lines the page reads from the step's advice (src/step-advice.mjs): one plain line each. */
 export type ApprovalAdvice = { decides: string; yes: string; sendBack: string; notNow: string; settles: string;
-  stops: { undecided: string; changed: string; review: string; approver: string; repeated: string; browser: string } };
+  stops: { undecided: string; changed: string; review: string; approver: string; repeated: string; browser: string;
+    signOff?: string; wrongCheck?: string; protected?: string; hooks?: string } };
 
 /** The approval item's advice from the decision list (`details.advice`), or null when it carries none in that shape. */
 export function adviceOf(listed: unknown): ApprovalAdvice | null {
@@ -157,9 +158,11 @@ export function adviceOf(listed: unknown): ApprovalAdvice | null {
   const stops = advice?.stops as Record<string, unknown> | undefined;
   const fields = ['decides', 'yes', 'sendBack', 'notNow', 'settles'] as const;
   const kinds = ['undecided', 'changed', 'review', 'approver', 'repeated', 'browser'] as const;
+  // Lines a newer engine adds come along when present; an older one's six are enough [owner, 2026-11-28].
+  const later = ['signOff', 'wrongCheck', 'protected', 'hooks'] as const;
   if (!advice || fields.some((field) => !text(advice[field])) || !stops || kinds.some((kind) => !text(stops[kind]))) return null;
   return { ...Object.fromEntries(fields.map((field) => [field, text(advice[field])])) as Omit<ApprovalAdvice, 'stops'>,
-    stops: Object.fromEntries(kinds.map((kind) => [kind, text(stops[kind])])) as ApprovalAdvice['stops'] };
+    stops: Object.fromEntries([...kinds, ...later.filter((kind) => text(stops[kind]))].map((kind) => [kind, text(stops[kind])])) as ApprovalAdvice['stops'] };
 }
 
 /** A line of the advice after the button it starts with: "Yes: …" under the Approve button's own label shows only "…". */

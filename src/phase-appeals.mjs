@@ -21,6 +21,7 @@ import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specification
 import { storyLocation } from './story-paths.mjs';
 import { actorKey, assertNoPendingPublication, sourceTreeHash, testInputTreeHash, transactStory } from './state-stores.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
+import { submitRoute } from './action-command-map.mjs';
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
 import { consumeAndRetainHumanReview, humanReviewOriginPresent } from './human-review-origin.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -29,6 +30,17 @@ import { nowIso, secureRepositoryPath, SingularityFlowError, writeText } from '.
 const hash = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const bytesHash = value => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 const fail = (message, code = 'PHASE_APPEAL_INVALID', details = {}) => { throw new SingularityFlowError(message, { code, details }); };
+/**
+ * No step of the Story approves a plan, so no plan approver accounts for these paths: SFlow carries code changed outside
+ * the plan with the step and lists each file at its approval, so the step's own submission is the way on, never "ask the
+ * workflow owner to configure one" [owner, 2026-11-28].
+ */
+function noPlanApprover(workflow, phase) {
+  const workId = workflow.workItem.id;
+  const { command } = submitRoute(workflow, phase);
+  fail(`No step of this Story approves a plan, so no plan approver accounts for these paths. SFlow commits code changed outside the plan with ${phase.label ?? phase.id} and lists each file at its approval: submit it, and its approver sees them there.`,
+    'PHASE_APPEAL_AUTHORITY_UNAVAILABLE', { workId, phase: phase.id, nextAction: { command, label: `Submit ${phase.label ?? phase.id}: its approver sees each file changed outside the plan` } });
+}
 const SHA = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
 const text = z.string().trim().min(20).max(2000).refine(value => !/[\x00-\x1f\x7f]/u.test(value), { message: 'must be one line, with no line breaks or control characters' });
 const portablePath = z.string().max(512).refine(value => value.length > 0 && value === value.trim()
@@ -171,7 +183,7 @@ export async function preparePhaseAppeal(root, config, workflow, { phaseId = wor
   changes = parsed.data.changes; reason = parsed.data.reason;
   if (new Set(changes.map(entry => entry.path)).size !== changes.length) fail('An appeal cannot list a path twice.');
   const plan = await activePlan(root, config, workflow);
-  if (!planAuthorities(workflow).length) fail('No pinned plan approval authority can account for these paths. Ask the workflow owner to configure one.', 'PHASE_APPEAL_AUTHORITY_UNAVAILABLE');
+  if (!planAuthorities(workflow).length) noPlanApprover(workflow, phase);
   // The existing closed amendment policy validates clause identities and supporting classes.
   recordPlanAmendment(structuredClone(workflow), { changes, reason, actor: actorKey(identity(root)), authorityGroup: 'preview', at: nowIso(), plan });
   const intent = await verifyOpenGenerationIntent(root, workflow, phase);
@@ -357,7 +369,7 @@ export async function decidePhaseAppeal(root, config, workflow, { id, decision, 
   }
   const actor = identity(root);
   const groups = planAuthorities(workflow);
-  if (!groups.length) fail('This Story has no pinned plan authority. Preserve the appeal and ask the configuration owner.', 'PHASE_APPEAL_AUTHORITY_UNAVAILABLE');
+  if (!groups.length) noPlanApprover(workflow, phase);
   const authority = requireApprovalAuthority(workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,
     { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 }, actor);
   const card = { plan: { planId: id, planHash: hash({ packet: packet.packetSha256, decision, reason, actor, authority }),

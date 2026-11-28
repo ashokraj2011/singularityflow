@@ -96,10 +96,11 @@ async function reviewAdvisories(root, config, workflow, phase, includeSheet) {
 async function findingOverridesOf(workflow, phase) {
   try {
     if (!workflow?.findingOverrides?.length) return {};
-    const { activeFindingOverrides, overriddenWords } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'finding-overrides.mjs')).href);
+    const { activeFindingOverrides, overriddenWords, overrideSummary } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'finding-overrides.mjs')).href);
+    // A page a person signed off and a check a person said is wrong here say so [owner, 2026-11-28].
     const overrides = activeFindingOverrides(workflow, phase, Number(phase.generation)).map((entry) => ({ id: entry.id, finding: entry.finding,
-      code: entry.code, path: entry.path, message: entry.message, by: entry.actor, reason: entry.reason,
-      words: overriddenWords({ code: entry.code, path: entry.path, value: entry.value }, { by: entry.actor, reason: entry.reason }) }));
+      code: entry.code, path: entry.path, message: entry.message, by: entry.actor, reason: entry.reason, kind: entry.kind ?? 'override',
+      words: overriddenWords({ code: entry.code, path: entry.path, value: entry.value }, overrideSummary(entry)) }));
     return overrides.length ? { findingOverrides: overrides } : {};
   } catch { return {}; }
 }

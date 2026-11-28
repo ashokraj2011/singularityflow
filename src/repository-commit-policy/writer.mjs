@@ -52,7 +52,7 @@ export async function commitPolicyDetachedIndex(root,message,{ref,subject,purpos
  if(tree.status!==0)rcpFailure('RCP_VALIDATION_INCOMPLETE','The exact metadata tree could not be captured.');
  const built=await createRepositoryPolicyCommit(root,{ref,subject,purpose,tree:tree.stdout.trim(),parents:parent.status===0?[parent.stdout.trim()]:[],message,allowedPaths},{env,commitIdentity:identity,sign});
  const args=['update-ref','HEAD',built.commit,parent.status===0?parent.stdout.trim():'0'.repeat(built.commit.length)];
- const {withAdmittedCommitGit,commitGitRequestDigest}=await import('./gate.mjs');
- withAdmittedCommitGit(root,{kind:'private-ref',requestSha256:commitGitRequestDigest(args,{env})},()=>run('git',args,{cwd:root,env}));
+ const {withPrivateGitRef}=await import('./gate.mjs');
+ withPrivateGitRef(root,args,{env},()=>run('git',args,{cwd:root,env}));
  return built.commit;
 }

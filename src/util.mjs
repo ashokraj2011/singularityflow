@@ -227,7 +227,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'mint-intake-receipt', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
   'opt-out', 'optional', 'parallel', 'planned', 'polish', 'portable-discovery', 'prefetch', 'preview', 'probe', 'propose', 'publish', 'push',
   'changes', 'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'retention', 'for-person', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'risk-status', 'run',
-  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'replay', 'resume', 'set', 'sign', 'solo',
+  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'replay', 'resume', 'set', 'sign', 'sign-off', 'solo',
   'refresh-readiness', 'saved-buffers-confirmed', 'search-known', 'selected-base-only', 'semantic', 'settings', 'shadow', 'skip-checks', 'skip-tests', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'terminal', 'timings', 'today', 'update', 'write',
   'yes',
   // Presentation flags introduced with the narration and output work. They are parsed here before
@@ -1622,25 +1622,50 @@ export function withAdmittedCommitGit(root, request, action) {
   if (!request || !['commit-object', 'private-ref', 'verified-ref', 'verified-push'].includes(request.kind)) throw new TypeError('A closed RCP Git request is required.');
   return rcpState.contexts.run({ root: rcpRootKey(root), request }, action);
 }
+// The one rule for a ref SFlow keeps for itself (a cache's retention refs, a state branch mirroring its remote): no commit
+// policy is asked. Only a ref update; commits and pushes stay checked [owner, 2026-11-28; test/sflow-private-refs.test.mjs].
+export function withPrivateGitRef(root, args, { env = process.env, input = null } = {}, action) {
+  if (commitPolicyGitVerb(args) !== 'update-ref') throw new TypeError('Only a ref update is SFlow-private.');
+  return withAdmittedCommitGit(root, { kind: 'private-ref', requestSha256: commitGitRequestDigest(args, { env, input }) }, action);
+}
 const RCP_MARKER='singularity-flow/repository-commit-policy/enforced.json';
+// Why a policy could not be read, for the refusal to say with its fix: unread is not adopted.
+function rcpUnread(root, why, fix = 'Run git status there: it names what Git cannot read. Repair that, then run this again.') {
+  let where = path.resolve(root); try {where = rcpGitLayout(root)?.directory ?? where;} catch {/* the folder as given */}
+  (rcpState.unread ??= new Map()).set(rcpRootKey(root), {where, why, fix});
+}
 function rcpHintedRead(root) {
+  rcpState.unread?.delete(rcpRootKey(root));
   const observedStamp = rcpPolicyStamp(root);
   const known = rcpState.repositories.get(rcpRootKey(root));
   if (known?.stamp === observedStamp) return known.mode === 'enforce';
   // Null: .git changed during this read.
   const settled = hinted => observedStamp === rcpPolicyStamp(root) ? hinted : null;
-  const plain = bytes => {try {return ['off','discover','absent'].includes(rcpModeIn(bytes));} catch {return false;}};
+  const mode = bytes => {try {return rcpModeIn(bytes);} catch {return null;}};
+  const plain = bytes => ['off','discover','absent'].includes(mode(bytes));
   const git = rcpGitLayout(root);
   if (!git) return false;
   if (git.link) return true;
   for (const file of [git.gitDirectory,git.common].map(directory => path.join(directory,RCP_MARKER))) if (existsSync(file)) return true;
+  const yaml = where => rcpUnread(root, `${where} is not readable YAML of at most 4 MiB`, 'Correct it, then run this again.');
   const definition = path.join(git.directory,'singularity/workflow.yml');
   if (existsSync(definition)) {
-    const info = lstatSync(definition); if (!info.isFile() || info.size > 4 * 1024 * 1024) return true;
-    if (!plain(readFileSync(definition,'utf8'))) return settled(true);
+    const info = lstatSync(definition);
+    if (!info.isFile() || info.size > 4 * 1024 * 1024) {yaml(definition); return true;}
+    const bytes = readFileSync(definition,'utf8');
+    if (!plain(bytes)) {if (mode(bytes) === null) yaml(definition); return settled(true);}
   }
   const approved = inspectApprovedCommitPolicyHint(git.directory,git.common);
-  if (approved.uncertain || approved.definitions.some(bytes => !plain(bytes))) return settled(true);
+  const head = path.join(git.common, 'HEAD');
+  if (approved.uncertain) {
+    if (existsSync(head)) rcpUnread(root, approved.uncertain, approved.fix);
+    else rcpUnread(root, `${head} is missing, so Git sees no repository there`, 'Put that file back (one line, such as ref: refs/heads/main), then run this again.');
+    return settled(true);
+  }
+  if (approved.definitions.some(bytes => !plain(bytes))) {
+    if (approved.definitions.some(bytes => mode(bytes) === null)) yaml('the singularity/workflow.yml on its sflow/config');
+    return settled(true);
+  }
   for (const object of approved.objects) rcpState.plainApproved.add(object);
   if (settled(false) === null) return null;
   rcpState.repositories.set(rcpRootKey(root),{mode:'off',stamp:observedStamp});
@@ -1652,6 +1677,7 @@ export function commitPolicyEnforcedHint(root) {
     try {const hinted = rcpHintedRead(root); if (hinted !== null) return hinted;}
     catch (error) {if (error.code !== 'ENOENT') throw error;}
   }
+  rcpUnread(root, 'its .git kept changing while SFlow read it', 'Run this again once the other Git work there has finished.');
   return true;
 }
 export function retainedRepositoryCommitPolicy(root) {
@@ -1675,16 +1701,20 @@ export function assertCommitGitAdmission(root, args, options = {}) {
   const verb = commitPolicyGitVerb(args);
   if (!['commit', 'commit-tree', 'update-ref', 'push', 'merge', 'cherry-pick', 'rebase', 'am'].includes(verb)) return;
   if (verb === 'update-ref' && !args.includes('--stdin') && !args.slice(rcpVerbAt(args) + 1).some(value => value === 'HEAD' || value.startsWith('refs/heads/'))) return;
-  if (!rcpSelectedRoots(root,args,options).some(selected => commitPolicyEnforcedHint(selected))) return;
+  const enforced = rcpSelectedRoots(root,args,options).find(selected => commitPolicyEnforcedHint(selected));
+  if (!enforced) return;
   const scope = rcpState.contexts.getStore();
   const permitted = scope?.root === rcpRootKey(root) && scope.request.requestSha256 === commitGitRequestDigest(args, options) && (
     ['commit', 'commit-tree'].includes(verb) && scope.request.kind === 'commit-object'
     || verb === 'update-ref' && ['private-ref', 'verified-ref'].includes(scope.request.kind)
     || verb === 'push' && scope.request.kind === 'verified-push');
   if (!permitted) {
-    const error = new Error('This Git write needs an exact owner-issued plan and verified object: a commit policy is adopted, or none could be confirmed absent. Preserve work and inspect singularity-flow git-policy show --json.');
+    const unread = rcpState.unread?.get(rcpRootKey(enforced));
+    const error = new Error(unread ? `SFlow wrote nothing in ${unread.where}: it could not tell whether a commit policy applies there, because ${unread.why}. ${unread.fix}`
+      : 'This Git write needs an exact owner-issued plan and verified object: a commit policy is adopted, or none could be confirmed absent. Preserve work and inspect singularity-flow git-policy show --json.');
     error.name = 'SingularityFlowError'; error.code = 'RCP_OWNER_ADMISSION_REQUIRED';
-    error.details = { verb, nextAction: { copilot: '/sf-git-policy show', shell: 'singularity-flow git-policy show --json', vscode: '@sflow /git-policy', command: 'singularity-flow git-policy show --json', copilotCommand: '/sf-git-policy show', modelFreeCommand: '@sflow /git-policy' } };
+    error.details = unread ? { verb, reason: 'policy-unreadable', ...unread, nextAction: { shell: 'git status', command: 'git status', cwd: unread.where } }
+      : { verb, nextAction: { copilot: '/sf-git-policy show', shell: 'singularity-flow git-policy show --json', vscode: '@sflow /git-policy', command: 'singularity-flow git-policy show --json', copilotCommand: '/sf-git-policy show', modelFreeCommand: '@sflow /git-policy' } };
     throw error;
   }
 }
@@ -1729,6 +1759,7 @@ function rcpStoredConfigurationRefs(common) {
   }
   return [...refs.values()];
 }
+const rcpFirstLine = result => String(result.stderr || result.error?.message || `exit ${result.status}`).trim().split(/\r?\n/u)[0].slice(0, 160);
 // Only reached for a Git mutation with no bound policy/marker. Inspect the exact local approved
 // configuration ref; never scan application branches or history, and never execute repository code.
 function inspectApprovedCommitPolicyHint(root, common) {
@@ -1737,23 +1768,23 @@ function inspectApprovedCommitPolicyHint(root, common) {
   let stored=rcpStoredConfigurationRefs(common);
   if(!stored){
     const listed=run('git',['for-each-ref','--format=%(objectname)','refs/remotes/*/sflow/config','refs/heads/sflow/config'],settings);
-    if(listed.status!==0)return {uncertain:true};
+    if(listed.status!==0)return {uncertain:`Git could not list its sflow/config refs (${rcpFirstLine(listed)})`};
     stored=listed.stdout.trim().split(/\r?\n/u).filter(Boolean);
   }
   const refs=[...new Set(stored)];
-  if(refs.length>8)return {uncertain:true};
+  if(refs.length>8)return {uncertain:`it has ${refs.length} sflow/config refs, one per remote, more than the 8 SFlow reads`,fix:'Remove the remotes it no longer uses (git remote shows them), then run this again.'};
   const blobs=new Set();
   // An object read before says the same, whichever clone holds it.
   for(const ref of refs){
     if(rcpState.plainApproved.has(ref))continue;
-    if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(ref))return {uncertain:true};
+    if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(ref))return {uncertain:'one of its sflow/config refs holds no commit'};
     // An existing configuration branch may legitimately have no SFlow definition. Establish
     // that absence from its exact tree; an unreadable tree/blob remains an actual failure.
     const tree=run('git',['ls-tree','-z',ref,'--','singularity/workflow.yml'],settings);
-    if(tree.status!==0)return {uncertain:true};
+    if(tree.status!==0)return {uncertain:`Git could not read its sflow/config commit ${ref.slice(0,12)} (${rcpFirstLine(tree)})`};
     if(tree.stdout){
       const entry=/^100(?:644|755) blob ([a-f0-9]{40}(?:[a-f0-9]{24})?)\tsingularity\/workflow\.yml\0$/u.exec(tree.stdout);
-      if(!entry)return {uncertain:true};
+      if(!entry)return {uncertain:'the singularity/workflow.yml on its sflow/config is not a plain file'};
       if(!rcpState.plainApproved.has(entry[1]))blobs.add(entry[1]);
     }
   }
@@ -1761,7 +1792,7 @@ function inspectApprovedCommitPolicyHint(root, common) {
   // One document per revision: concatenated, ordinary duplicate keys would look unreadable.
   for(const blob of blobs){
     const inspected=run('git',['cat-file','blob',blob],settings);
-    if(inspected.status!==0)return {uncertain:true};
+    if(inspected.status!==0)return {uncertain:`Git could not read the singularity/workflow.yml on its sflow/config (${rcpFirstLine(inspected)})`};
     definitions.push(inspected.stdout);
   }
   return {definitions,objects:[...refs,...blobs]};

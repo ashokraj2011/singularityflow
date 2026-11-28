@@ -192,6 +192,13 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   }, { code: mcpEvidence.sourceCode ?? 'MCP_EVIDENCE_REQUIRED', details: setup ? { nextAction: { command: setup, label: 'Set up the browser check' }, recoveryCommands: [setup, ...moreSetup].map((command) => ({ command })) } : null });
   actions.push(...moreSetup.map((command, index) => ({ id: `resolve-mcp-evidence:${phase.id}:${index + 2}`, safe: true, automatic: false,
     mode: 'guided', confirmation: 'none', skill: null, command, detail: 'Next, to set up the browser check.' })));
+  // When SFlow still cannot capture the page, a person signs off on its saved screenshot: the gate's way out [owner, 2026-11-28].
+  for (const offer of mcpEvidence.errors?.length ? (mcpEvidence.signOffs ?? []) : []) {
+    const [{ browserSignOffCommand }, advice] = await Promise.all([import('./action-command-map.mjs'), import('./step-advice.mjs')]);
+    actions.push({ id: `sign-off-browser:${phase.id}:${offer.value}`, safe: false, automatic: false, mode: 'guided', confirmation: 'human-authority',
+      skill: '/sf-decide', command: browserSignOffCommand(workflow.workItem.id, phase.id, offer.override.key),
+      detail: advice.stopAdvice(advice.stepIntentOf(workflow, phase.id), 'signOff', { step: phase.label ?? phase.id }) });
+  }
 
   // The design source and the visual captures are bound to the generation this publication creates,
   // and the transaction or submission refuses without them: name them here first [gate parity].

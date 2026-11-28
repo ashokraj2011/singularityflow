@@ -366,6 +366,9 @@ export function itemRecommendation(workflow, item) {
     // An override goes against the check, so it is never recommended either [owner, 2026-11-23].
     case 'check-finding':
       return lean('override it only if the check is wrong; otherwise its author fixes it, and nothing needs your answer.');
+    // A sign-off stands in for SFlow's own capture, so it is never recommended [owner, 2026-11-28].
+    case 'browser-sign-off':
+      return lean('sign it off only when SFlow cannot capture the page after setting up its browser check, and its screenshot shows what the step needs.');
     case 'generation-rollover':
       // Code committed on a Story with no code step: taking the commit out is the one way on [WCB:REQ-017].
       if (details.committedCode) return rec(item, 'take-out', 'No step of this Story checks code against a clause and a test; a task with a code step delivers it.');

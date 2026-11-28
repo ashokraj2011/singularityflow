@@ -28,6 +28,9 @@ export interface ChainStep {
   open: boolean;
 }
 
+/** What the Approvals card offers to press for a reason nobody can approve now. */
+export type ApprovalFix = 'people' | 'git-identity';
+
 export interface PendingApproval {
   source: 'initiative' | 'story';
   id: string;
@@ -43,6 +46,8 @@ export interface PendingApproval {
   standing: Standing;
   /** Why this is not yours to sign, when it is not. */
   reason: string | null;
+  /** The one button that clears `reason` when this person can [owner, 2026-11-28]: add an approver, or set their Git identity. */
+  fix?: ApprovalFix | null;
   /** True when you generated what you would be approving. */
   selfApproval: boolean;
   chain: ChainStep[];
@@ -125,7 +130,7 @@ function standingFor(
   actor: string | null,
   policy: ApprovalPolicy | undefined,
   chain: ChainStep[]
-): { standing: Standing; reason: string | null; authorities: string[] } {
+): { standing: Standing; reason: string | null; authorities: string[]; fix?: ApprovalFix } {
   if (policy?.mode === 'none') {
     return { standing: 'blocked', reason: 'This subject is not approved individually.', authorities: [] };
   }
@@ -137,14 +142,14 @@ function standingFor(
     // No authority named is a configuration gap, not a decision anybody can take.
     return {
       standing: 'blocked',
-      reason: 'No approval group is configured for this subject.',
-      authorities: []
+      reason: 'No approval group is configured for this subject: add yourself as its approver in People & approvals, then approve it here.',
+      authorities: [], fix: 'people'
     };
   }
   const person = personOf(snapshot);
   if (!actor && !person.login) {
     // Without an identity nothing can be attributed, so nothing is claimed to be actionable.
-    return { standing: 'others', reason: 'No Git identity is configured for this repository.', authorities };
+    return { standing: 'others', reason: 'No Git identity is configured for this repository, so nothing can be signed with your name: set your Git name and email, then approve it here.', authorities, fix: 'git-identity' };
   }
 
   const permitted = authorities.some((authority) => authorityAdmits(snapshot, authority, person));
@@ -332,6 +337,7 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
       expected: phase.id,
       standing,
       reason,
+      ...(decided.fix && !blockedSelf ? { fix: decided.fix } : {}),
       selfApproval,
       chain: [],
       authorities,

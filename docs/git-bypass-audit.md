@@ -46,6 +46,13 @@ updates application refs, contacts a remote, or disables publication hooks. Exis
 admission, ACL checks, fresh remote bindings and borrow/cleanup leases remain unchanged.
 Only these two reviewed call sites change this owner's frozen count/digest.
 
+The same owner's four retention-ref updates (the pool's `sflow/config`, its proposal refs, and its
+disposable checkout's remote-tracking proposal refs) now go through one local `retain` helper, which
+runs the same bounded `git` launcher inside SFlow's private-ref rule (`withPrivateGitRef`, util.mjs).
+Four `git(...)` sites become one: 11 to 8. The arguments, ref names, inputs and leases are unchanged;
+only the commit policy of the repository that holds the pool no longer judges SFlow's own cache refs
+(owner, 2026-11-28; test/sflow-private-refs.test.mjs).
+
 Git Bash recovery normalizes native Windows path separators only in rendered shell argv, before
 quoting. Receipt bytes, commit/tree identities and recovery ownership are unchanged. This changes
 the reviewed installer command fingerprint, not its 43 process sites or Git permissions.

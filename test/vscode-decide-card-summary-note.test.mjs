@@ -161,14 +161,9 @@ test('the Decide card returns the summary note to the chat after recording a pin
   assert.ok(card, 'the card opened');
   assert.match(card.webview.html, /Pin Node 22: create \.nvmrc and amend the plan/u);
   card.post({ type: 'decide.review', rows: [{ item: 'd1', option: 'pin-node', reason: REASON, title: 'The tests failed on Node 26.1.0' }] });
-  // The card writes the answers file and reads SF Guard's card for it before it asks (presence/card-channel.mjs).
-  for (const started = Date.now(); Date.now() - started < 5_000 && !panels.some((panel) => panel.viewType === 'singularityFlow.reviewConfirmation');) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  const confirmation = panels.find((panel) => panel.viewType === 'singularityFlow.reviewConfirmation');
-  assert.ok(confirmation, 'the person confirms what is recorded');
-  confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  // One press records: no page after it where SF Guard does not sign [owner, 2026-11-28].
   const answer = await result;
+  assert.equal(panels.some((panel) => panel.viewType === 'singularityFlow.reviewConfirmation'), false, 'no second page');
   assert.ok(cli.runs.some((argv) => argv.includes('record')), 'recorded through the CLI');
   assert.equal(answer.status, 'recorded');
   assert.equal(answer.summaryUpdate, update.words, 'the chat\'s agent is told to update the summary');
@@ -324,13 +319,9 @@ test('ratchet: once a chat-opened card records the last decision, the approval p
   const card = panels.find((panel) => panel.viewType === 'singularityFlow.decide');
   assert.ok(card, 'the card opened for the decision before the approval');
   card.post({ type: 'decide.review', rows: [{ item: 'd1', option: 'pin-node', reason: REASON, title: row.title }] });
-  for (const started = Date.now(); Date.now() - started < 5_000 && !panels.some((panel) => panel.viewType === 'singularityFlow.reviewConfirmation');) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  const confirmation = panels.find((panel) => panel.viewType === 'singularityFlow.reviewConfirmation');
-  assert.ok(confirmation, 'the person confirms what is recorded');
-  confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  // One press records: no page after it where SF Guard does not sign [owner, 2026-11-28].
   const answer = await result;
+  assert.equal(panels.some((panel) => panel.viewType === 'singularityFlow.reviewConfirmation'), false, 'no second page');
   assert.ok(cli.runs.some((argv) => argv.includes('record')), 'recorded through the CLI');
   assert.equal(answer.status, 'approval-open');
   assert.deepEqual(answer.next, PERSON_APPROVE);

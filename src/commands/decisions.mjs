@@ -702,6 +702,18 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     Object.assign(workflow, fresh);
     return { id: decided.decision ?? decided.changeId ?? null, choice: decided.choice, words: decided.words };
   }
+  if (effect.kind === 'forward-amendment-decision') {
+    // Approve or reject a forward amendment: the same function as `upstream-issue decide-amendment`, for the amendment the list showed.
+    const { commitForwardAmendmentDecision } = await import('./upstream-issue.mjs');
+    const value = await commitForwardAmendmentDecision(root, config, workflow, { amendmentId: effect.amendment, decision: effect.decision, reason: step.values.reason, actor, agent });
+    return { id: effect.amendment, decision: value.decision?.decision ?? effect.decision, applied: value.applied === true };
+  }
+  if (effect.kind === 'witness-exception-renewal') {
+    // Renew a lapsed witness exception: the same function as `decision witness-exception`, for the exception the list showed.
+    const { commitWitnessExceptionRenewal } = await import('./decision-witness-exception.mjs');
+    return (await commitWitnessExceptionRenewal(root, config, workflow, { phaseId: effect.phase, mappingSha256: effect.mappingSha256,
+      expires: step.values.expires, reason: step.values.reason }, { actor, agent })).record;
+  }
   if (effect.kind === 'asked-for-note') {
     // "That was not a request": the person's words kept as a note, so nothing waits for them [owner, 2026-11-18].
     const { accountAsNote } = await import('../asked-for-records.mjs');
@@ -798,6 +810,7 @@ function recordId(kind, record) {
   if (kind === 'review-dispute') return `the reviewer's finding ${record?.finding} disputed`;
   if (kind === 'finding-override') return `the check's finding ${record?.finding} overridden`;
   if (kind === 'refactor-behaviour') return record?.choice === 'keep' ? 'the old behaviour kept' : 'the new behaviour accepted';
+  if (kind === 'forward-amendment-decision') return `${record?.id} ${record?.decision}`;
   if (kind === 'amendment-revalidation') return `${record?.phase} ${record?.outcome} after ${record?.amendment}${record?.link ? ` (${record.link})` : ''}`;
   if (kind === 'upstream-issue-decision') return `${record?.issue} ${record?.outcome}`;
   if (kind === 'scope-disposition') return `${record?.item} ${record?.disposition}`;

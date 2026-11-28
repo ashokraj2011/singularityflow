@@ -45,15 +45,41 @@ export async function decisionWitnessExceptionCommand(positionals, options) {
   if (!witnessException(workflow, phaseId, mappingSha256)) {
     throw new SingularityFlowError(`${phaseId}'s current approval recorded no witness exception for ${mappingSha256}.`, { code: 'WITNESS_EXCEPTION_UNKNOWN' });
   }
+  const actor = actionActor(root);
+  const loadedSession = await loadSession(root, { required: false });
+  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
+  const { record, publication } = await commitWitnessExceptionRenewal(root, config, workflow,
+    { phaseId, mappingSha256, expires: optionString(options, 'expires'), reason: optionString(options, 'reason') ?? '' }, { actor, agent });
+  if (!optionBoolean(options, 'json')) {
+    console.log(`Recorded ${record.id}: ${phaseId}'s witness exception for ${record.clauseId} now expires ${record.expiresAt.slice(0, 10)}, decided through ${record.authorityGroup}.`);
+    console.log(publication.pushed
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
+  }
+  emitCommandResult(commandResult({
+    operation: { id: 'decision.witness-exception', classification: 'mutation' },
+    subject: { kind: 'story', id },
+    outcome: succeeded('decision.witness-exception.succeeded', { record: record.id }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    data: { commit: publication.sha, pushed: publication.pushed, record }
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
+}
+
+/**
+ * The one write of a renewal: `decision witness-exception` and the Decide card's choice both come here, so the authority
+ * check, the record and its commit are the same [owner, 2026-11-28].
+ */
+export async function commitWitnessExceptionRenewal(root, config, workflow, { phaseId, mappingSha256, expires, reason }, { actor, agent = null }) {
+  const id = workflow.workItem.id;
+  if (!witnessException(workflow, phaseId, mappingSha256)) {
+    throw new SingularityFlowError(`${phaseId}'s current approval recorded no witness exception for ${mappingSha256}.`, { code: 'WITNESS_EXCEPTION_UNKNOWN' });
+  }
   // The groups that approve the step that recorded it; a step nobody approves is answered for by the nearest one that has approvers.
   const groups = stepGroups(workflow, phaseId).length ? [...new Set(stepGroups(workflow, phaseId))] : fallbackAuthorities(workflow, [phaseId]);
   if (!groups.length) throw new SingularityFlowError(`No step of Story ${id} has an approval group, so nobody can renew this exception.`, { code: 'WITNESS_EXCEPTION_AUTHORITY_UNAVAILABLE' });
-  const actor = actionActor(root);
   const authority = requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 }, actor);
-  const loadedSession = await loadSession(root, { required: false });
-  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const request = { phaseId, mappingSha256, expires: optionString(options, 'expires'), reason: optionString(options, 'reason') ?? '',
+  const request = { phaseId, mappingSha256, expires, reason: reason ?? '',
     actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null };
   // Checked before anything is written, so a refusal changes nothing.
   recordWitnessExceptionRenewal(structuredClone(workflow), { ...request, at: nowIso() });
@@ -71,17 +97,5 @@ export async function decisionWitnessExceptionCommand(positionals, options) {
     eventFromResult: (recorded) => ({ actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
       payload: { decision: 'witness-exception', record: recorded.id, reviewPacketSha256: null } })
   });
-  if (!optionBoolean(options, 'json')) {
-    console.log(`Recorded ${record.id}: ${phaseId}'s witness exception for ${record.clauseId} now expires ${record.expiresAt.slice(0, 10)}, decided through ${record.authorityGroup}.`);
-    console.log(publication.pushed
-      ? `Decision committed and pushed.`
-      : `Decision committed locally; push is disabled by git.publish: off.`);
-  }
-  emitCommandResult(commandResult({
-    operation: { id: 'decision.witness-exception', classification: 'mutation' },
-    subject: { kind: 'story', id },
-    outcome: succeeded('decision.witness-exception.succeeded', { record: record.id }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { commit: publication.sha, pushed: publication.pushed, record }
-  }), { json: optionBoolean(options, 'json'), postState: workflow });
+  return { record, publication };
 }

@@ -24,6 +24,8 @@ const decidable = (option: DecisionOptionPacket) => optionRow(option).choosable;
 // "Put it in a terminal" types the whole command, never one with a blank to fill in [owner, 2026-11-19].
 const REASON_SLOT = /"<(?:REASON|reason|why|TEXT|why [^<>"]*)>"|<(?:REASON|reason|why|TEXT)>/u;
 const DATE_SLOT = /<YYYY-MM-DD>/u;
+/** What "Do it now" does, beside every own step on the card: it runs here, and only a step that must ask in a terminal goes there. */
+export const RUN_WORDS = 'Do it now runs this step for you with what you wrote here; Put it in a terminal types it in for you to run.';
 /** The values a command's own step asks for in its row: a reason, a date, or neither. */
 export const commandSlots = (command: string) => ({ reason: REASON_SLOT.test(command), expires: DATE_SLOT.test(command) });
 const quoted = (value: string, windows: boolean) => (windows ? `'${value.replaceAll("'", "''")}'` : `'${value.replaceAll("'", `'"'"'`)}'`);
@@ -41,6 +43,61 @@ export function filledCommand(command: string, given: { reason?: string | null; 
   const filled = command.replace(new RegExp(REASON_SLOT.source, 'gu'), () => quoted(reason, windows)).replace(new RegExp(DATE_SLOT.source, 'gu'), expires);
   return /<[^<>\s]+>/u.test(filled) ? { missing: 'value' } : { command: filled };
 }
+
+/**
+ * A row's own step as the argv the card runs for the person on "Do it now" [owner, 2026-11-28: terminal-only steps move to the
+ * card]: the reason and date they gave in the row go in as values of their own, never through a shell, so nothing they type is
+ * read as a command. Only a whole `singularity-flow` command, as the list wrote it; anything with a blank the row cannot fill,
+ * or a shell character outside quotes (the forward amendment's old `approve|reject`), is not run and says what is missing.
+ */
+export function ownStepArgv(command: string, given: { reason?: string | null; expires?: string | null }): { argv: string[] } | { missing: 'reason' | 'expires' | 'value' } {
+  const reason = String(given.reason ?? '').trim();
+  const expires = String(given.expires ?? '').trim();
+  const tokens: Array<{ text: string; raw: string; shell: boolean }> = [];
+  let text = ''; let raw = ''; let quote: string | null = null; let shell = false; let open = false;
+  for (const char of String(command ?? '')) {
+    if (quote) { if (char === quote) quote = null; else text += char; raw += char; continue; }
+    if (/\s/u.test(char)) { if (open) tokens.push({ text, raw, shell }); text = ''; raw = ''; shell = false; open = false; continue; }
+    open = true; raw += char;
+    if (char === '"' || char === "'") { quote = char; continue; }
+    if (/[|;&$`\\(){}]/u.test(char)) shell = true;
+    text += char;
+  }
+  if (quote) return { missing: 'value' };
+  if (open) tokens.push({ text, raw, shell });
+  if (!tokens.length || !['singularity-flow', 'sflow'].includes(tokens[0].text)) return { missing: 'value' };
+  const whole = new RegExp(`^(?:${REASON_SLOT.source})$`, 'u');
+  const argv: string[] = [];
+  for (const token of tokens.slice(1)) {
+    if (whole.test(token.raw)) {
+      if (!reason) return { missing: 'reason' };
+      argv.push(reason);
+    } else if (DATE_SLOT.test(token.raw)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/u.test(expires)) return { missing: 'expires' };
+      argv.push(token.text.replace(DATE_SLOT, expires));
+    } else if (token.shell || /<[^<>\s]+>/u.test(token.text)) return { missing: 'value' };
+    else argv.push(token.text);
+  }
+  return { argv };
+}
+
+/**
+ * The refusals that mean only the person's own terminal can take this step, and why, in one line each: SF Guard's Touch ID,
+ * a step whose own command shows its card there, an adjudication table, a reviewed Jira plan. The card then opens that terminal
+ * with the whole command typed in, and the person presses Enter.
+ */
+export const OWN_TERMINAL_REFUSALS: Readonly<Record<string, string>> = Object.freeze({
+  PSS_CARD_NOT_SHOWN: 'SF Guard signs this with your Touch ID, which only your own terminal can ask for',
+  ACTION_TERMINAL_PRESENTATION_REQUIRED: 'its command shows you its exact card and asks you there',
+  ADJUDICATION_TERMINAL_REQUIRED: 'its table asks you each row there',
+  JIRA_PLAN_CURRENT_NEEDS_TERMINAL: 'it shows the reviewed Jira plan again and asks you there',
+  DEPARTURE_OWN_TERMINAL: 'its command asks you there'
+});
+/** What the card says when a step must go to the person's own terminal: why, and that it is typed in for them. */
+export const ownTerminalWords = (code: string) => `This one runs in your own terminal: ${OWN_TERMINAL_REFUSALS[code] ?? 'its command asks you there'}. It is typed in there for you; press Enter.`;
+/** What a row still needs before "Do it now" can run its step. */
+export const runMissingWords = (missing: 'reason' | 'expires' | 'value') => (missing === 'reason' ? 'Write your reason in the row first: it goes into the step as you wrote it.'
+  : missing === 'expires' ? 'Choose the date in the row first: it goes into the step.' : 'This step needs a value the row cannot fill in, so nothing ran. Put it in a terminal: it is typed in there for you to finish.');
 
 /** The fields an own step's command needs, in its row: shown only where the command takes them. */
 const slotFields = (command: string, key: string, name: string) => {
@@ -277,9 +334,12 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   const reviews = witnesses(item).map((option) => `<button type="button" class="secondary" data-witness="${escape(option.id)}">${escape(option.label)}</button>`).join('');
   // A label that already ends a sentence (a hold's route often does) gets no second full stop.
   // A drafted amendment is written in the editor before its command runs [SCS:REQ-021]: the page opens the engine's own file.
-  const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label.replace(/[.!?]+$/u, ''))}.</span> <span class="muted">This one stays in your terminal.</span>
+  // "Do it now" runs the row's own step for the person, from the list as read; only a step that must ask in their own terminal
+  // goes there, typed in [owner, 2026-11-28].
+  const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label.replace(/[.!?]+$/u, ''))}.</span> <span class="muted">${escape(RUN_WORDS)}</span>
       ${option.action?.file ? `<span class="muted">${escape(option.words ?? '')}</span><button type="button" data-draft="${escape(option.id)}">Open the draft</button>` : ''}
       <code>${escape(option.action!.command!)}</code>${slotFields(option.action!.command!, option.id, option.label)}
+      <button type="button" data-run="${escape(option.id)}">Do it now</button>
       <button type="button" class="secondary" data-terminal="${escape(option.id)}">Put it in a terminal</button>
       <button type="button" class="secondary" data-copy="${escape(option.id)}">Copy</button></div>`).join('');
   // A choice recorded here may also be made in the person's own terminal, with its exact command (SF Guard signs it there).
@@ -338,8 +398,9 @@ export function evidenceHtml(packet: DecisionPacket): string {
   const holdStep = (entry: NonNullable<typeof hold>['entries'][number], index: number) => (!entry.allowed
     ? `<span class="muted">Share this with them: <code>/sf-decide ${escape(packet.workId)}</code></span>`
     : offered.has(entry.command) ? '<span class="muted">Its command is on the hold\'s row above.</span>'
-      : `<div class="dc-own"><span>Accept it with your reason and an expiry of at most 90 days.</span> <span class="muted">This one stays in your terminal.</span>
+      : `<div class="dc-own"><span>Accept it with your reason and an expiry of at most 90 days.</span> <span class="muted">${escape(RUN_WORDS)}</span>
       <code>${escape(entry.command)}</code>${slotFields(entry.command, `hold-${index}`, 'the held package')}
+      <button type="button" data-hold-run="${index}">Do it now</button>
       <button type="button" class="secondary" data-hold-terminal="${index}">Put it in a terminal</button>
       <button type="button" class="secondary" data-hold-copy="${index}">Copy</button></div>`);
   const parts = [
@@ -423,7 +484,7 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
   const yours = [...rows, ...settled].some((item) => item.decidedBy?.allowed && item.options.some(decidable));
   return `<main class="dc" data-digest="${escape(packet.packetSha256)}">
     <header><h1>Decide · ${escape(packet.workId)} · ${escape(packet.phaseLabel)}</h1>
-      <p class="muted">${escape(packet.plain?.headline ?? packet.headline)} Nothing is recorded until you review the list and confirm it.</p></header>
+      <p class="muted">${escape(packet.plain?.headline ?? packet.headline)} Nothing is recorded until you press Record what I chose; Not now records nothing.</p></header>
     ${error ? `<p class="dc-error" role="alert">${escape(error)}</p>` : ''}
     ${notice ? `<p class="dc-notice" role="status">${escape(notice)}</p>` : ''}
     ${route ? `<div class="dc-own"><code>${escape(route)}</code><button type="button" data-route>Put it in a terminal</button></div>` : ''}
@@ -446,7 +507,7 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
       ? `<button type="button" class="secondary" data-next>Put it in a terminal</button>` : ''}</div>`
     : packet.plain?.afterAnswer ? `<p class="dc-next" role="status"><strong>Next: ${escape(packet.plain.afterAnswer)}</strong></p>` : ''}
     <footer><button type="button" class="secondary" data-cancel>Not now</button>
-      ${yours ? `<button type="button" data-review${busy ? ' disabled' : ''}>Review and record</button>`
+      ${yours ? `<button type="button" data-review${busy ? ' disabled' : ''}>Record what I chose</button>`
     // Nothing here is theirs to record: the card says why on itself, never a button that does nothing [owner, 2026-11-18].
     : packet.plain?.nothingToRecord ? `<p class="muted" role="status">${escape(packet.plain.nothingToRecord)}</p>` : ''}</footer>
   </main>`;
@@ -601,18 +662,21 @@ document.addEventListener('click', (event) => {
   const open = event.target.closest('[data-open]');
   if (open) return vscode.postMessage({ type: 'decide.open', path: open.dataset.open });
   // A held package's own command, by its place in the evidence: the extension reads the command from the list itself.
-  const held = event.target.closest('[data-hold-terminal],[data-hold-copy]');
+  const held = event.target.closest('[data-hold-terminal],[data-hold-copy],[data-hold-run]');
   // The reason and date typed beside a step go with it, so the terminal gets the whole command.
   const typed = (key) => ({ reason: document.querySelector('[data-own-reason="' + key + '"]')?.value ?? '', expires: document.querySelector('[data-own-expires="' + key + '"]')?.value ?? '' });
-  if (held) return vscode.postMessage({ type: held.dataset.holdTerminal !== undefined ? 'decide.terminal' : 'decide.copy', hold: held.dataset.holdTerminal ?? held.dataset.holdCopy,
-    ...typed('hold-' + (held.dataset.holdTerminal ?? held.dataset.holdCopy)) });
+  if (held) {
+    const index = held.dataset.holdRun ?? held.dataset.holdTerminal ?? held.dataset.holdCopy;
+    return vscode.postMessage({ type: held.dataset.holdRun !== undefined ? 'decide.run' : held.dataset.holdTerminal !== undefined ? 'decide.terminal' : 'decide.copy', hold: index,
+      ...typed('hold-' + index) });
+  }
   const drafted = event.target.closest('[data-draft]');
   if (drafted) return vscode.postMessage({ type: 'decide.draft', item: drafted.closest('tr[data-item]').dataset.item, option: drafted.dataset.draft });
-  const step = event.target.closest('[data-terminal],[data-copy],[data-witness]');
+  const step = event.target.closest('[data-run],[data-terminal],[data-copy],[data-witness]');
   if (step) {
     const row = step.closest('tr[data-item]');
-    const type = step.dataset.terminal ? 'decide.terminal' : step.dataset.copy ? 'decide.copy' : 'decide.witness';
-    const id = step.dataset.terminal ?? step.dataset.copy ?? step.dataset.witness;
+    const type = step.dataset.run ? 'decide.run' : step.dataset.terminal ? 'decide.terminal' : step.dataset.copy ? 'decide.copy' : 'decide.witness';
+    const id = step.dataset.run ?? step.dataset.terminal ?? step.dataset.copy ?? step.dataset.witness;
     const own = row.querySelector('[data-own-reason="' + id + '"],[data-own-expires="' + id + '"]') ? { reason: row.querySelector('[data-own-reason="' + id + '"]')?.value ?? '',
       expires: row.querySelector('[data-own-expires="' + id + '"]')?.value ?? '' } : {};
     return vscode.postMessage({ type, item: row.dataset.item, option: id, rows: answers(), ...own });

@@ -275,6 +275,18 @@ test('an Epic\'s next, status and resume are /sf-next too: its read answers with
   }
 });
 
+test('a host that runs no SFlow hook (IntelliJ): every skill ends a turn no note carries on with the one thing to type, /sf-next', async () => {
+  // No hook runs there, so no note carries a turn on: the person types /sf-next between steps, and every step's last line
+  // says exactly that. That is the limit there (model-free-commands.mjs COMMAND_PRESENTATION_CONTRACT).
+  const { readdirSync } = await import('node:fs');
+  const { COMMAND_PRESENTATION_CONTRACT } = await import('../src/model-free-commands.mjs');
+  assert.match(COMMAND_PRESENTATION_CONTRACT, /Every turn that no SFlow note carries on ends with "\/sf-next carries it on" \(or press Continue\)\.$/u);
+  const skills = path.join(import.meta.dirname, '..', 'plugin', 'skills');
+  const names = readdirSync(skills, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  assert.ok(names.length > 150, `${names.length} skills`);
+  for (const name of names) assert.ok(readFileSync(path.join(skills, name, 'SKILL.md'), 'utf8').includes(COMMAND_PRESENTATION_CONTRACT), name);
+});
+
 test('VS Code: Continue sends the one way on from the status bar, the Work page and an empty Needs-you list', async () => {
   const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
   const manifest = JSON.parse(readFileSync(path.join(root, 'apps/vscode/package.json'), 'utf8'));

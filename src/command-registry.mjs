@@ -5,8 +5,8 @@ const UI_ACTIONS = ['open', 'serve', 'status', 'stop'];
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 import { REMOVED_KNOWLEDGE_SUBCOMMANDS, REMOVED_WORLD_MODEL_SUBCOMMANDS, removedKnowledgeError, removedWorldModelError } from './removed-features.mjs';
 
-const READ_ONLY = new Set(['ask', 'outcome', 'result', 'specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'needs-you', 'rules', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'gate', 'explain', 'comprehension', 'precheck', 'index', 'prompts']);
-const STRUCTURED = new Set(['ask', 'git-policy', 'outcome', 'result', 'confirm', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock', 'backup', 'guard', 'findings', 'prompts', 'update', 'lessons', 'work']);
+const READ_ONLY = new Set(['ask', 'outcome', 'result', 'specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'needs-you', 'rules', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'gate', 'explain', 'comprehension', 'precheck', 'index', 'probe', 'prompts']);
+const STRUCTURED = new Set(['ask', 'git-policy', 'outcome', 'result', 'confirm', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock', 'backup', 'guard', 'findings', 'prompts', 'update', 'lessons', 'work', 'probe']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
@@ -189,6 +189,7 @@ const LAZY_MODULES = Object.freeze({
   backup: './commands/backup.mjs',
   guard: './commands/guard.mjs',
   findings: './commands/findings.mjs',
+  probe: './commands/probe.mjs',
   prompts: './commands/prompts.mjs',
   // Story lessons: a person's view, Drop, Keep and Edit [LRN:REQ-014].
   lessons: './commands/lessons.mjs',
@@ -284,7 +285,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   // What was asked of Copilot in this clone, from its own log (PCR P1).
   ['prompts'],
   // A short code a person types to confirm a reviewed action, for the exact command it was issued for (confirm-code.mjs).
-  ['confirm']
+  ['confirm'], ['probe']
 ].map(command));
 
 const canonical = new Map(COMMAND_REGISTRY.flatMap((entry) => [

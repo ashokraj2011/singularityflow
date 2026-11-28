@@ -130,8 +130,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // question, model-mode.mjs --models-on, the policy honouring the answer) [owner, 2026-11-28]. Output still reaches none of
   // the chunks named below. 2,101,446 (+816, measured 2026-11-28 on no-typing merged with main 133ab54dc): the moved person
   // steps' routes and effects (model-free-commands.mjs, person-step-catalog.mjs) [owner, 2026-11-28]. To fall back under
-  // 2 MB: util.mjs and refusal-remediation.mjs grew ~4.6 KB on 11-28.
-  assert.ok(presentationBytes <= 2_101_446,
+  // 2 MB: util.mjs and refusal-remediation.mjs grew ~4.6 KB on 11-28. 2,101,677 (+231, measured 2026-11-28 on office-probes
+  // merged with main e4a1ea217): the probe command's classification, route, flag and narration entry (command-registry.mjs,
+  // command-skills.mjs, util.mjs, narration/migration-status.mjs); the office checks stay in their own lazy modules.
+  assert.ok(presentationBytes <= 2_101_677,
     `small output helpers must not shift policy loading into every agent response: ${presentationBytes} bytes`);
   for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs']) {
     assert.ok(!presentationClosure.some(item => item.file === name), `output must not statically reach ${name}`);

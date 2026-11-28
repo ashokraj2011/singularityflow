@@ -19,6 +19,7 @@ export { TeamImportPanel } from './views/team-import-panel.ts';
 export { addUserAgentFolder } from './user-agent-folder.ts';
 export { collectReviewConfirmation } from './views/review-confirmation.ts';
 export { DiagnosticsPanel } from './views/diagnostics.ts';
+export { runOfficeChecks } from './office-checks.ts';
 export { ComprehensionCenterPanel } from './views/comprehension-center.ts';
 export { CodeExplainerPanel, codeExplainerMode } from './views/code-explainer.ts';
 export { RepositoryBriefPanel } from './views/repository-brief.ts';

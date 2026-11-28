@@ -1278,7 +1278,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (model-free-commands.mjs +282), the records SF Guard signs on the card (person-step-catalog.mjs +75), one Yes for a soft
     // gate (sequence.mjs +80) and the forward amendment's card route (forward-amendments.mjs, upstream-routes.mjs +12 each)
     // [owner, 2026-11-28]. No new eager file.
-    assert.ok(closure.bytes <= 9_989_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,989,454 (+104, measured 2026-11-28 on office-probes merged with main e4a1ea217, commands/submit.mjs): the probe command
+    // classifies (command-registry.mjs +62), routes to /sf-doctor (command-skills.mjs +24) and reads --host-questions as a flag
+    // (util.mjs +18); the office checks themselves load only for probe office (commands/probe.mjs, office-probe/). No new eager file.
+    assert.ok(closure.bytes <= 9_989_454, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1512,7 +1515,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // plain reasons for a commit policy SFlow cannot read (util.mjs) [owner, 2026-11-28]. No new eager file.
   // 902,132 (+421 over 901,711, measured 2026-11-28 on never-stuck-3): `--models-on`, the person's models on for one run
   // (model-mode.mjs +408), and `tests model-use` (command-registry.mjs +13) [owner, 2026-11-28]. No new eager file.
-  assert.ok(root.bytes <= 902_132, `root dispatch loads ${root.bytes} source bytes`);
+  // 902,221 (+89, measured 2026-11-28 on office-probes merged with main e4a1ea217): the probe command classifies
+  // (command-registry.mjs +62), runs in the folder it was started from (cli-entry.mjs +9) and reads --host-questions as a
+  // flag (util.mjs +18). No new eager file.
+  assert.ok(root.bytes <= 902_221, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -2034,7 +2040,9 @@ test('the common session projection does not import attach, state stores or publ
   // remembered (external-command-policy.mjs +767, command-registry.mjs +13) [owner, 2026-11-28]. No new eager file.
   // 4,418,601 (+357 over 4,418,244, measured 2026-11-28 on no-typing merged with main f30b2ffa1): the Decide card's routes for the
   // steps moved to it (model-free-commands.mjs +282) and the records SF Guard signs there (person-step-catalog.mjs +75). No new eager file.
-  assert.ok(current.bytes <= 4_418_601, `session current loads ${current.bytes} source bytes`);
+  // 4,418,705 (+104, measured 2026-11-28 on office-probes merged with main e4a1ea217): the probe command's classification,
+  // route and flag, as for submit above. No new eager file.
+  assert.ok(current.bytes <= 4_418_705, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

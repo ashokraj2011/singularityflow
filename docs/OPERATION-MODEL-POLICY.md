@@ -651,6 +651,7 @@ Every public operation is classified before its implementation module is importe
 | precheck.run.execute | mutation | never | — | — |
 | precheck.run.plan | read | never | — | — |
 | prepare | mutation | never | — | — |
+| probe | read | never | — | — |
 | process.archive | mutation | never | — | — |
 | process.fork | mutation | never | — | — |
 | process.fork.plan | mutation | never | — | — |

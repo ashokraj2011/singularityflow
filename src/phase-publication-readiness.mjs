@@ -180,10 +180,18 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   const mcpEvidence = await capture(() => verifyPhaseMcpRequirements(root, workflow, phase, {
     itemDirectory, targetGeneration: generation
   }));
-  add('mcp-evidence', 'external-evidence', mcpEvidence.errors, {
+  // A page no browser check saw: its setup leads, and the step's advice says why [owner, 2026-11-28].
+  const [setup, ...moreSetup] = mcpEvidence.routes ?? [];
+  const browser = setup ? await import('./step-advice.mjs').then((advice) => advice.stopAdvice(advice.stepIntentOf(workflow, phase.id), 'browser',
+    { step: phase.label ?? phase.id }), () => '') : '';
+  add('mcp-evidence', 'external-evidence', mcpEvidence.errors, setup ? {
+    command: setup, detail: `${browser} Set up the browser check: SFlow runs ${moreSetup.length + 1} command(s) in order, then the page is captured again.`.trim()
+  } : {
     command: `singularity-flow phase show ${phase.id} --json`,
     detail: 'Run the required tools for this version through the allowed MCP host and save what they return. A missing or invalid record cannot be replaced by a written claim or by another version\'s evidence.'
-  }, { code: mcpEvidence.sourceCode ?? 'MCP_EVIDENCE_REQUIRED' });
+  }, { code: mcpEvidence.sourceCode ?? 'MCP_EVIDENCE_REQUIRED', details: setup ? { nextAction: { command: setup, label: 'Set up the browser check' }, recoveryCommands: [setup, ...moreSetup].map((command) => ({ command })) } : null });
+  actions.push(...moreSetup.map((command, index) => ({ id: `resolve-mcp-evidence:${phase.id}:${index + 2}`, safe: true, automatic: false,
+    mode: 'guided', confirmation: 'none', skill: null, command, detail: 'Next, to set up the browser check.' })));
 
   // The design source and the visual captures are bound to the generation this publication creates,
   // and the transaction or submission refuses without them: name them here first [gate parity].

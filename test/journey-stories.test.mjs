@@ -346,10 +346,11 @@ test('journey B: a code review asks for corrections three times: versions 2 and 
     assert.equal(storyRecord(story).phases.implement.generation, 4);
     assert.ok(fourth.trail.some((entry) => /reviewer wrote.*ready/u.test(entry.did ?? '')), report(fourth));
   });
-  await check(t, 'the submission that completes the code step ends the author\'s turn and names the next step for a new one', {}, () => {
+  await check(t, 'the submission that completes the code step says the turn goes on when SFlow says so, its route the way on otherwise', {}, () => {
+    // Every Story carries on like a task (owner, 2026-11-28): never "End this turn" after a completed submission.
     const submitted = fourth.trail.findLast((entry) => /--submit-if-ready/u.test(entry.ran ?? ''));
     assert.ok(submitted, report(fourth));
-    assert.equal(submitted.act, 'end-turn', report(fourth));
+    assert.equal(submitted.act, 'next', report(fourth));
     assert.ok(!/^singularity-flow (?:prepare|phase begin) verify\b/u.test(fourth.trail.at(-1)?.ran ?? ''), report(fourth));
   });
 

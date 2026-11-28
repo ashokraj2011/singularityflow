@@ -298,6 +298,11 @@ export async function recordClarificationResponses(root, definition, workflow, p
   return { record, path: relative, sha256: info.sha256 };
 }
 
+const answeredQuestions = async () => {
+  const [{ PACKAGE_ROOT }, { pathToFileURL }] = await Promise.all([import('./package-root.mjs'), import('node:url')]);
+  return import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'answered-questions.mjs')).href);
+};
+
 export async function verifyClarificationRecord(root, definition, workflow, phase, {
   generation = nextPhaseGeneration(phase), groundingRecord = null, answered = false
 } = {}) {
@@ -309,8 +314,9 @@ export async function verifyClarificationRecord(root, definition, workflow, phas
   const slices = result.recordState === 'missing' ? await pinnedSpecificationSlices(root, definition, workflow) : [];
   // `answered` (the step's entry): what the person already answered anywhere in the Story, while questions may be asked, so
   // none is asked again (ask once, owner 2026-11-28; answered-questions.mjs).
+  // From the CLI source, out of the VS Code bundles: the reading reaches the review records' readers.
   const earlier = answered && result.mode !== 'off' && result.recordState === 'missing'
-    ? await (await import('./answered-questions.mjs')).answeredEarlier(root, definition, workflow).catch(() => []) : [];
+    ? await answeredQuestions().then((module) => module.answeredEarlier(root, definition, workflow)).catch(() => []) : [];
   return { checkpoint: clarificationCheckpoint(resolvedPolicy(definition, workflow, phase), result, { slices, answered: earlier.length }), ...result,
     ...(earlier.length ? { answered: earlier } : {}),
     ...(composition ? { composition: { status: composition.status,

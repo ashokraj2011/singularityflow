@@ -31,7 +31,7 @@ export interface Confirmation {
   expected: string;
   /** What is being approved, in the reviewer's terms. */
   summary: string;
-  /** What typing it does, when it is not approving the current hash (a soft-gate override). */
+  /** What the Yes does, when it is not approving the current hash (a soft-gate override). */
   consequence?: string;
 }
 
@@ -145,10 +145,8 @@ export interface ActionRequest {
 }
 
 /**
- * Ask for the exact confirmation string.
- *
- * Pre-filling it would defeat the purpose, so the box starts empty and validates as you type. The
- * expected value is shown in the prompt: the point is deliberateness, not recall.
+ * One Yes for the exact confirmation: the review page shows what changes, and its one button carries the exact value
+ * the engine expects, which the page accepts only as it was opened [owner, 2026-11-28: no typed values]. Nothing is typed.
  */
 async function askConfirmation(confirmation: Confirmation): Promise<string | null> {
   const { collectReviewConfirmation } = await import('./views/review-confirmation.ts');
@@ -163,20 +161,12 @@ async function askConfirmation(confirmation: Confirmation): Promise<string | nul
 }
 
 /**
- * Self-approval is allowed by the engine but must be said out loud.
- *
- * The scrollable review requires an explicit unchecked acknowledgement; a warning alone is not a
- * safeguard. Returns whether to add `--acknowledge-self-approval`.
+ * Self-approval is allowed by the engine and said once, on the page the person already confirmed, never asked again on a
+ * second page [owner, 2026-11-28]: approving your own work records that it was your own approval, and the engine keeps
+ * the acknowledgement it needs (`--acknowledge-self-approval`) with it.
  */
-async function askSelfApproval(): Promise<boolean> {
-  const { collectReviewConfirmation } = await import('./views/review-confirmation.ts');
-  return collectReviewConfirmation({
-    title: 'Acknowledge self-approval',
-    summary: 'This is a self-approval and is not independent review.',
-    detail: 'You generated one or more of the artifacts you are approving. The approval will record that it was not independent.',
-    confirmLabel: 'Approve anyway'
-  });
-}
+export const SELF_APPROVAL_NOTE = 'If you made any of what you approve, it is recorded as your own approval, not an independent review.';
+const SELF_APPROVED = 'Recorded as your own approval: you made some of what you approved.';
 
 /** Whether the CLI refused because the actor generated what they are approving. */
 function isSelfApprovalRefusal(error: unknown): boolean {
@@ -297,15 +287,13 @@ export async function runGovernedAction(
       showRefusal(failure);
       return false;
     }
-    // The engine refuses a self-approval rather than silently recording one. Ask, then retry with the
-    // acknowledgement — the second attempt is a different, explicitly weaker act, and says so.
+    // The engine refuses a self-approval rather than silently recording one: the person's Yes on the page that said so is
+    // the acknowledgement, recorded as a self-approval, and the result says it once.
     if (isSelfApprovalRefusal(error)) {
-      if (!(await askSelfApproval())) {
-        void vscode.window.setStatusBarMessage('$(circle-slash) Self-approval declined.', 4_000);
-        return false;
-      }
       try {
-        return await run([...args, '--acknowledge-self-approval']);
+        const done = await run([...args, '--acknowledge-self-approval']);
+        if (done) void vscode.window.setStatusBarMessage(`$(info) ${SELF_APPROVED}`, 6_000);
+        return done;
       } catch (retryError) {
         output.appendLine(`  failed: ${(retryError as Error).message}`);
         showRefusal(retryError);
@@ -579,7 +567,7 @@ export async function approveWithReceipt(
     witnessDecisions = review.witnessDecisions;
     answered = review.inApprovalDecisions ?? [];
   } else {
-    confirmed = await askConfirmation({ expected: request.expected, summary: request.summary });
+    confirmed = await askConfirmation({ expected: request.expected, summary: request.summary, consequence: `This approves the exact current version. ${SELF_APPROVAL_NOTE}` });
   }
   if (!(await stillCurrent())) return false;
   if (!confirmed || confirmed !== request.expected) {
@@ -624,12 +612,10 @@ export async function approveWithReceipt(
     return await run();
   } catch (error) {
     if (isSelfApprovalRefusal(error)) {
-      if (!(await askSelfApproval())) {
-        void vscode.window.setStatusBarMessage('$(circle-slash) Self-approval declined.', 4_000);
-        return false;
-      }
       try {
-        return await run(['--acknowledge-self-approval']);
+        const done = await run(['--acknowledge-self-approval']);
+        if (done) void vscode.window.setStatusBarMessage(`$(info) ${SELF_APPROVED}`, 6_000);
+        return done;
       } catch (retryError) {
         output.appendLine(`  failed: ${(retryError as Error).message}`);
         showRefusal(retryError);

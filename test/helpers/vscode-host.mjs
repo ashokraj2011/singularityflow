@@ -23,6 +23,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { build } from 'esbuild';
 
+/** What the confirmation page's one button posts: the value its form was opened with, else a plain Yes. */
+const reviewConfirmationYes = (html = '') => {
+  const bound = /data-bound="true"/u.test(html);
+  const expected = (html.match(/data-expected="([^"]*)"/u)?.[1] ?? '').replaceAll('&quot;', '"').replaceAll('&#39;', "'").replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+  return bound ? { type: 'confirmation.accept', confirmation: expected } : { type: 'confirmation.accept', acknowledged: true };
+};
+
 const REPOSITORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const STUB = '__sflowVscodeJourneyHost';
 
@@ -198,7 +205,8 @@ export async function vscodeHost(story, { person = {}, windowStory = undefined, 
         if (!panel.visible || acted.has(panel)) continue;
         if (panel.viewType === 'singularityFlow.decide' && panel.webview.html) { acted.add(panel); await host.onDecideCard(panel); }
         if (panel.viewType === 'singularityFlow.adjudicate' && panel.webview.html) { acted.add(panel); await host.onAdjudication(panel); }
-        if (panel.viewType === 'singularityFlow.reviewConfirmation') { acted.add(panel); panel.post({ type: 'confirmation.accept', acknowledged: true }); }
+        // The page's one button: it sends back the value the page was opened with, or a plain Yes (review-confirmation-page.ts).
+        if (panel.viewType === 'singularityFlow.reviewConfirmation') { acted.add(panel); panel.post(reviewConfirmationYes(panel.webview.html)); }
       }
     },
     /** The person on the Decide card: answers its open rows as `person.decide` says, or closes it. */

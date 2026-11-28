@@ -52,9 +52,10 @@ test('large confirmation details are complete, escaped and independently scrolla
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /class="confirmation-content" tabindex="0"/);
-  assert.match(html, /type="submit" disabled/);
-  assert.match(html, /type="checkbox" data-acknowledged>/);
-  assert.doesNotMatch(html, /\bchecked\b/);
+  // One Yes: the button, enabled, with nothing to tick or type first [owner, 2026-11-28].
+  assert.match(html, /<button type="submit">Apply reviewed upgrade<\/button>/);
+  assert.doesNotMatch(html, /type="checkbox"|data-acknowledged|<input/);
+  assert.match(html, /Nothing changes until you press Apply reviewed upgrade, which does what is shown above once\./);
   assert.match(presentation.REVIEW_CONFIRMATION_STYLE, /height:100dvh/);
   assert.match(presentation.REVIEW_CONFIRMATION_STYLE, /grid-template-rows:auto minmax\(0,1fr\) auto/);
   assert.match(presentation.REVIEW_CONFIRMATION_STYLE, /\.confirmation-content[^}]*overflow:auto/);
@@ -62,20 +63,23 @@ test('large confirmation details are complete, escaped and independently scrolla
   assert.match(presentation.REVIEW_CONFIRMATION_STYLE, /\.confirmation-actions[^}]*position:sticky/);
 });
 
-test('long exact confirmations are visible in full but never prefilled or weakened', () => {
+test('a bound confirmation is one button carrying the value the page was opened with; nothing is typed, and only that value is accepted', () => {
   const expected = `wrip-${'a'.repeat(24)}-${'b'.repeat(64)}`;
   const model = request({ expected });
   const html = presentation.reviewConfirmationBody(model);
-  assert.match(html, new RegExp(`<code>${expected}</code>`));
-  assert.match(html, /<input id="review-confirmation"[^>]*required>/);
-  assert.doesNotMatch(html, /<input[^>]*\bvalue=/);
-  assert.doesNotMatch(html, /data-acknowledged/);
+  // Never typed, never shown as text: the form holds it and the button sends it.
+  assert.match(html, new RegExp(`data-expected="${expected}"\\s+data-bound="true"`));
+  assert.doesNotMatch(html, /<input|<code>|Type this exact value/);
+  assert.match(html, /<button type="submit">Apply reviewed upgrade<\/button>/);
+  assert.match(presentation.REVIEW_CONFIRMATION_SCRIPT, /confirmation:form\.dataset\.expected/);
   for (const confirmation of [undefined, '', expected.slice(0, 24), `${expected} `, expected.toUpperCase()]) {
     assert.equal(presentation.reviewConfirmationAccepted(model,
       { type: 'confirmation.accept', confirmation, acknowledged: true }), false);
   }
   assert.equal(presentation.reviewConfirmationAccepted(model,
     { type: 'confirmation.accept', confirmation: expected }), true);
+  // An empty value confirms nothing: its button is disabled and the host refuses it.
+  assert.match(presentation.reviewConfirmationBody(request({ expected: '' })), /<button type="submit" disabled>/);
   assert.equal(presentation.reviewConfirmationAccepted(request({ expected: '' }),
     { type: 'confirmation.accept', confirmation: '' }), false);
 });
@@ -137,7 +141,7 @@ test('migration and long approval callers use the scrollable review and retain s
   assert.match(bootstrap, /collectReviewConfirmation\([\s\S]*Not carried forward/);
   assert.match(bootstrap, /if \(!confirmed\) return;[\s\S]*revision !== this\.inspectionRevision/);
   const workspace = await source('views/workspaces-panel.ts');
-  assert.match(workspace, /collectReviewConfirmation\([\s\S]*expected: 'UPGRADE'/, 'a person types a word, never the plan ID');
+  assert.match(workspace, /collectReviewConfirmation\([\s\S]*expected: 'UPGRADE'/, 'the button carries a word, never the plan ID');
   assert.match(workspace, /dryRun: false,\s*planId,/, 'the apply still carries the exact reviewed plan');
   assert.match(workspace, /if \(!confirmation \|\| this\.disposed \|\| this\.configuration\.result !== reviewedResult/);
   const actions = await source('actions.ts');

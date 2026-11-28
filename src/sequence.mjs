@@ -295,8 +295,9 @@ async function askToContinue(message, gate, next = null) {
   console.warn(`\n${message}`);
   const io = readline.createInterface({ input, output });
   try {
-    const answer = await io.question('\nDo you want to continue anyway? Type continue to proceed: ');
-    return answer.trim().toLowerCase() === 'continue';
+    // One Yes, never a typed word [owner, 2026-11-28]; the override is recorded with it.
+    const answer = await io.question('\nGo on anyway? The override is recorded. [y/N] ');
+    return /^(?:y|yes|continue)$/iu.test(answer.trim());
   } finally {
     io.close();
   }

@@ -19,8 +19,8 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 1. Require the exact initiative ID from the invocation or ask the contributor for it. Never infer or autocomplete it.
 2. Run `singularity-flow initiative materialize --initiative <INIT-ID> --dry-run --json`; continue only when its review `phaseStatus` is `approved`, otherwise relay it and stop.
 3. Show every Epic, story, repository, branch, blocking flag, dependency, contract and Jira operation (`singularity-flow initiative breakdown --initiative <INIT-ID> --json` with `--probe` adds reachability).
-4. Ask the contributor to type the exact initiative ID as mutation confirmation. Never infer, autocomplete, or submit it on their behalf.
-5. Only after that exact confirmation, run `singularity-flow initiative materialize --initiative <INIT-ID> --confirm <INIT-ID> --json`. A persistent terminal is not required; never supply or infer the confirmation before the contributor provides it.
+4. Ask once with your question tool (ask_user; in VS Code, vscode_askQuestions): "Create everything shown above for <INIT-ID>?" (Create it; Not now), saying it writes the branches and Jira items listed. Nothing is typed; never answer it for them.
+5. Only after their Create it, run `singularity-flow initiative materialize --initiative <INIT-ID> --confirm <INIT-ID> --json`. A persistent terminal is not required; never supply or infer the confirmation before the contributor provides it.
 6. Report each repository/branch receipt, Jira receipt when enabled, partial failure, retry status, commit, and push.
 
 Never force-push, overwrite an unrelated branch, or describe a partial result as complete.

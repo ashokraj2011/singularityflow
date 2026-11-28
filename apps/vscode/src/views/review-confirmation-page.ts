@@ -1,4 +1,9 @@
-/** Scrollable, plain-text human confirmation. Presentation never supplies consent. */
+/**
+ * Scrollable, plain-text human confirmation: one Yes, the button, on the page that shows the exact change [owner,
+ * 2026-11-28: no typed values and no second confirmations]. Nothing is typed and nothing is ticked first. A confirmation
+ * value the action needs is the one this page was opened with: the button sends it back and the host accepts it only
+ * when it is that frozen value, so the Yes stays bound to what the person saw. Presentation never supplies consent.
+ */
 import { escape } from './webview.ts';
 import { booleanField, stringField, type InboundMessage } from './messages.ts';
 
@@ -7,7 +12,7 @@ export interface ReviewConfirmationRequest {
   summary: string;
   detail: string;
   confirmLabel: string;
-  /** When present, the human must type these exact bytes; never prefilled or shortened. */
+  /** When present, the exact value this Yes confirms: the button carries it, and the host accepts only that value. */
   expected?: string;
 }
 
@@ -23,17 +28,11 @@ export function reviewConfirmationBody(request: ReviewConfirmationRequest): stri
       <p class="meta">${escape(request.summary)}</p></header>
     <main class="confirmation-content" tabindex="0" aria-label="Exact change to review">
       <pre>${escape(request.detail)}</pre>
-      <p class="muted">No changes are made until you confirm. Cancel or close this page to leave things unchanged.</p>
+      <p class="muted">Nothing changes until you press ${escape(request.confirmLabel)}, which does what is shown above once. Cancel, or closing this page, leaves everything as it is.</p>
     </main>
     <form class="confirmation-controls" data-expected="${escape(request.expected ?? '')}"
-      data-typed="${request.expected !== undefined}">
-      ${request.expected !== undefined
-        ? `<label for="review-confirmation">Type this exact value: <code>${escape(request.expected)}</code></label>
-          <input id="review-confirmation" data-confirmation autocomplete="off" spellcheck="false" required>
-          <small class="muted">The confirmation is intentionally empty. Do not enter a command.</small>`
-        : `<label class="confirmation-ack"><input type="checkbox" data-acknowledged>
-          I reviewed this exact change and want to proceed.</label>`}
-      <div class="confirmation-actions"><button type="submit" disabled>${escape(request.confirmLabel)}</button>
+      data-bound="${request.expected !== undefined}">
+      <div class="confirmation-actions"><button type="submit"${request.expected !== undefined && !request.expected ? ' disabled' : ''}>${escape(request.confirmLabel)}</button>
         <button type="button" class="secondary" data-cancel>Cancel</button></div>
     </form>
   </div>`;
@@ -50,8 +49,6 @@ body { height:100vh; height:100dvh; padding:0 .75rem; display:flex; flex-directi
 .confirmation-content pre { white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font:inherit; margin:0 0 1rem; }
 .confirmation-controls { min-width:0; max-height:48vh; overflow:auto; padding:.75rem 0 0; display:grid; gap:.4rem; }
 .confirmation-controls label, .confirmation-controls code { overflow-wrap:anywhere; white-space:pre-wrap; }
-.confirmation-controls input:not([type=checkbox]) { min-width:0; width:100%; padding:.45rem; font:inherit; color:var(--vscode-input-foreground); background:var(--vscode-input-background); border:var(--sf-border); }
-.confirmation-ack { display:flex; align-items:flex-start; gap:.5rem; }
 .confirmation-actions { position:sticky; bottom:0; display:flex; flex-wrap:wrap; gap:.5rem; padding:.5rem 0; background:var(--vscode-editor-background); }
 body > .page-nav { flex:none; flex-wrap:nowrap; overflow-x:auto; margin-top:.4rem; padding-block:.4rem; }
 body > .page-nav button { flex:none; white-space:nowrap; }
@@ -62,12 +59,8 @@ export const REVIEW_CONFIRMATION_SCRIPT = `
 (() => {
   const form = document.querySelector('.confirmation-controls');
   const submit = form.querySelector('button[type=submit]');
-  const valid = () => form.dataset.typed === 'true'
-    ? Boolean(form.dataset.expected) && form.querySelector('[data-confirmation]').value === form.dataset.expected
-    : form.querySelector('[data-acknowledged]').checked;
-  const sync = () => { submit.disabled = !valid(); };
-  form.addEventListener('input', sync);
-  form.addEventListener('change', sync);
+  // One Yes: the button. A bound page sends back the value it was opened with; nothing is typed or ticked.
+  const valid = () => form.dataset.bound !== 'true' || Boolean(form.dataset.expected);
   form.querySelector('[data-cancel]').addEventListener('click', () => window.__sfVscode.postMessage({ type:'confirmation.cancel' }));
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') window.__sfVscode.postMessage({ type:'confirmation.cancel' });
@@ -76,10 +69,9 @@ export const REVIEW_CONFIRMATION_SCRIPT = `
     event.preventDefault();
     if (!valid()) return;
     submit.disabled = true;
-    window.__sfVscode.postMessage({ type:'confirmation.accept',
-      confirmation:form.querySelector('[data-confirmation]')?.value ?? '',
-      acknowledged:Boolean(form.querySelector('[data-acknowledged]')?.checked) });
+    window.__sfVscode.postMessage(form.dataset.bound === 'true'
+      ? { type:'confirmation.accept', confirmation:form.dataset.expected }
+      : { type:'confirmation.accept', acknowledged:true });
   });
-  sync();
 })();
 `;

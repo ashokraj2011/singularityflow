@@ -2346,17 +2346,17 @@ const PAGES = Object.freeze({
       'Builds the pull-request body entirely from lifecycle state — the approved artifacts and the',
       'hashes they were approved at — and targets the Epic branch when the Story belongs to one.',
       '',
-      'Preview is the default. Opening it requires --create and a typed confirmation, because it is',
-      'an outward action. Requires the GitHub CLI.'
+      'It shows the preview first and opens nothing without your one Yes to it, because it is an outward',
+      'action: in your own terminal the preview asks it; --create asks it too. Requires the GitHub CLI.'
     ],
     options: [
-      ['--create', 'Actually open the pull request.'],
-      ['--yes', 'Skip the typed confirmation.'],
+      ['--create', 'Open it after the Yes, even where the preview cannot ask (a script asks it first).'],
+      ['--yes', 'The Yes was already given (Copilot asked it in chat).'],
       ['--json', 'Emit the plan as JSON.']
     ],
     examples: [
-      ['singularity-flow pr PAY-1', 'Preview the pull request without opening it.'],
-      ['singularity-flow pr PAY-1 --create', 'Open it, after confirming.']
+      ['singularity-flow pr PAY-1', 'Show the pull request, then open it on your Yes.'],
+      ['singularity-flow pr PAY-1 --create', 'Open it, after your Yes.']
     ],
     seeAlso: ['submit', 'epic', 'stack']
   },

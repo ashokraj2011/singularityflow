@@ -1241,7 +1241,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 2026-11-28; submit.mjs 9,967,112 and approve.mjs 9,877,353 unchanged; +595 over 9,961,312 on sf-task-start-form before
     // the merge): a task from VS Code's Start Story whose source is a GitHub Issue or Jira issue hands start the issue `work`
     // read and keeps SFlow's sizing words as the issue's notes (commands/start.mjs +595) [ITW REQ-115]. No new eager file.
-    assert.ok(closure.bytes <= 9_975_419, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,978,226 (measured for submit.mjs, +2,807 over 9,975,419 on rcp-private-refs over main b63148851, 2026-11-28; start.mjs
+    // 9,977,721): SFlow's own refs take one private-ref rule, and a commit policy SFlow cannot read says why and how to fix
+    // it instead of "a policy is adopted" (util.mjs withPrivateGitRef and the reasons +2,960; ledger.mjs -153 now using the
+    // rule) [owner, 2026-11-28: no one gets stuck]. No new eager file.
+    assert.ok(closure.bytes <= 9_978_226, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1468,7 +1472,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // main's rises together. No new eager file.
   // 898,739 (+13 over 898,726, measured 2026-11-28 on ask-once merged with main 0233340d8): `--sent-back`, the next version
   // on a person's send-back, among the boolean flags (util.mjs BOOLEAN_OPTIONS) [ask once, owner 2026-11-28]. No new eager file.
-  assert.ok(root.bytes <= 898_739, `root dispatch loads ${root.bytes} source bytes`);
+  // 901,699 (+2,960 over 898,739, measured 2026-11-28 on rcp-private-refs over main b63148851): the private-ref rule and the
+  // plain reasons for a commit policy SFlow cannot read (util.mjs) [owner, 2026-11-28]. No new eager file.
+  assert.ok(root.bytes <= 901_699, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1972,7 +1978,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,412,385 (+3,006 over 4,409,379, measured 2026-11-28 on ask-once merged with main 0233340d8): ask once, the send-back
   // reader (phase-generation-need.mjs +1,780) and a step's questions reusing the Story's answers (clarifications.mjs +1,213, `--sent-back` in util.mjs +13;
   // answered-questions.mjs loads lazily). No new eager file.
-  assert.ok(current.bytes <= 4_412_385, `session current loads ${current.bytes} source bytes`);
+  // 4,415,345 (+2,960 over 4,412,385, measured 2026-11-28 on rcp-private-refs over main b63148851): the private-ref rule and
+  // the plain reasons for a commit policy SFlow cannot read (util.mjs) [owner, 2026-11-28]. No new eager file.
+  assert.ok(current.bytes <= 4_415_345, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

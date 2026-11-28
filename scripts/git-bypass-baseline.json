@@ -903,10 +903,10 @@
     },
     "src/configuration-object-store.mjs": {
       "counts": {
-        "command-git": 11,
+        "command-git": 8,
         "command-run": 1
       },
-      "digest": "4bea4c8b12afb0a50aa5be3fadfedd9f84db362b2cc2b34307267ae4081db8c9"
+      "digest": "5155c30e92f11bcc4826cc573071a8fcd323f3f807c8c8459b9d87a47da68759"
     },
     "src/configuration-projection.mjs": {
       "counts": {

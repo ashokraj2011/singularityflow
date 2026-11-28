@@ -433,7 +433,7 @@ test('no two skills send VS Code\'s chat round between each other: /sf-approve a
   // reads its list again, whose approval branch is /sf-approve, only when the card did not open that page.
   const approve = skills.get('sflow-approve');
   const decide = skills.get('sflow-decide');
-  assert.match(approve, /In VS Code's own chat never ask: the person approves on the approval page, which `#sflowDecide` with `workId` opens\./u);
+  assert.match(approve, /In VS Code's own chat never ask: the person approves or sends it back on the approval page, which `#sflowDecide` with `workId` opens; once open, end with only that, no command\./u);
   assert.doesNotMatch(approve, /approval (?:page|row)[^.]*`\/sf-decide/u);
   const step1 = decide.slice(decide.indexOf('\n1. '), decide.indexOf('\n2. '));
   // `approval-*`: the page opened on this Story (`approval-open`), or on a window that shows another (`approval-elsewhere`,
@@ -443,6 +443,6 @@ test('no two skills send VS Code\'s chat round between each other: /sf-approve a
   // The card says `approval-open` when it opened the page, and its tool tells the agent the turn ends there.
   const tool = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8')).contributes.languageModelTools
     .find((entry) => entry.name === 'singularityFlow_decide');
-  assert.match(tool.modelDescription, /status approval-open\): end the turn there; its next is @sflow \/approve, which the person may type in the chat box to approve with no model: relay it as their own, and no other approve route/u);
+  assert.match(tool.modelDescription, /status approval-open\): end the turn there with no approve route at all, neither \/sf-approve, approve nor @sflow \/approve\. Only when it says the page could not open is its next @sflow \/approve/u);
   assert.match(tool.modelDescription, /\(status approval-elsewhere\), relay its next, which selects that Story there, and end the turn the same way/u);
 });

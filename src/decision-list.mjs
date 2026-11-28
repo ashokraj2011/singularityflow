@@ -39,6 +39,7 @@ import { advisedItem, reopenWords } from './decision-advice.mjs';
 import { findingOverrideCommand, returnRoute, reviewDisputeCommand } from './action-command-map.mjs';
 import { disputedFindingWords } from './review-dispute-words.mjs';
 import { behaviourCommands, testEditWords } from './refactor-behaviour.mjs';
+import { adviceForStep } from './step-advice.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
 export const DECISION_LIST_REVISION = 'decision-list-v1';
@@ -2040,14 +2041,17 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
     ...outside.map((entry) => `Changed outside the plan: ${entry.words.replace(/[.\s]+$/u, '')}.`),
     ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : []),
     ...disputes.map((entry) => entry.words), ...overrides];
+  // Why the person is asked and what each choice does, by what the step is for, never by its workflow (step-advice.mjs).
+  const advice = adviceForStep(workflow, phase.id, context.facts?.stepIntent ?? null);
+  const standing = `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}${ownTerminal ? ' It takes your signature, in your own terminal.' : ''}`;
   return {
     kind: 'approval', title: `Approve ${name}`,
-    why: `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}${ownTerminal ? ' It takes your signature, in your own terminal.' : ''}`,
+    why: `${advice.decides} ${standing}`,
     options: [{ ...personalStep({ id: 'approve', label: heldBy.length ? `Approve ${name} once ${listWords(heldBy)} ${heldBy.length === 1 ? 'is' : 'are'} done` : `Review and approve ${name}`,
       command: `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, words: `You read its documents and say Yes to "Approve ${name} v${Number(phase.generation ?? 0)}?" once: on the approval page, with /sf-approve or in your own terminal.`,
-      does: `Records your approval of ${name} version ${Number(phase.generation ?? 0)} once you reviewed its documents; the Story moves on when ${minimum} approval${minimum === 1 ? ' is' : 's are'} recorded.` }),
+      does: `${advice.yes}${minimum > 1 ? ` The Story moves on when ${minimum} approvals are recorded.` : ''}` }),
     decidedBy: stepDecidedBy(workflow, context, approvers(workflow, phase.id), 'You read its documents and say Yes once.') }],
-    details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length,
+    details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length, advice,
       ...(reviewed.length ? { ledger: { settled: ledger, issues: raised }, lines: reviewed } : {}),
       ...(leftOut.length ? { notPartOfTask: leftOut } : {}),
       ...(outside.length ? { outsidePlan: outside } : {}),

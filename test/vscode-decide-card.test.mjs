@@ -200,7 +200,9 @@ test('a held package shows who may accept it and its own command, which stays in
   assert.ok(pageText(mine).includes(HOLD_COMMAND));
   const theirs = evidenceHtml(packet({ approvalEvidence: approvalEvidence({ allowed: false }) }));
   assert.doesNotMatch(theirs, /data-hold-terminal|data-hold-copy/u, 'no command to run for someone who may not accept it');
-  assert.match(theirs, /Share this with them: <code>\/sf-decide PAY-1<\/code>/u);
+  // Someone else's: one button that copies the words to send them, never a command with nothing to press [owner, 2026-11-28].
+  assert.match(theirs, /data-share="hold-0">Copy what to send them<\/button>/u);
+  assert.doesNotMatch(theirs, /Share this with them/u);
   // The hold's own row already offers its command: the evidence names the package and who, and points there.
   const holdRow = { id: 'd2', kind: 'approval-hold', title: 'Code waits for a person', why: 'A vulnerable package.', decidedBy: allowed,
     options: [{ id: 'route', label: 'A person who may decide accepts it, or it is upgraded.', recommended: false, recordable: false, effects: [], needs: {}, decidedBy: allowed, action: { command: HOLD_COMMAND } }] };

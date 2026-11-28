@@ -18,6 +18,7 @@ import { approvalBlockingCommits, approvalBlockingCommitsHtml, approvalHoldsHtml
 import { approvalHolds } from './approvals-model.ts';
 import { APPROVAL_STATE_PILL, guardCardText, type ApprovalStanding, type GuardCardRead } from './sf-guard-model.ts';
 import { TRY_IT_STYLE, tryItCopyText, tryItHtml, tryItOpenUrl, type TryItView } from './try-it.ts';
+import { stepAdvice } from '../../../../src/step-advice.mjs';
 
 export const APPROVAL_DECISIONS = ['satisfied', 'exception', 'not-applicable'] as const;
 export type ApprovalChecklistDecision = {
@@ -138,6 +139,44 @@ export interface ApprovalReviewRequest {
   focus?: ApprovalFocus | null;
   /** The checkout the focus's paths are relative to, so an item opens its file at its line beside the review. */
   repository?: string | null;
+  /**
+   * Why the person is asked and what each button does, by what the step is for (the decision list's approval item
+   * `details.advice`, src/step-advice.mjs). Without one, the table's generic lines.
+   */
+  advice?: ApprovalAdvice | null;
+}
+
+/** The lines the page reads from the step's advice (src/step-advice.mjs): one plain line each. */
+export type ApprovalAdvice = { decides: string; yes: string; sendBack: string; notNow: string; settles: string;
+  stops: { undecided: string; changed: string; review: string; approver: string; repeated: string; browser: string } };
+
+/** The approval item's advice from the decision list (`details.advice`), or null when it carries none in that shape. */
+export function adviceOf(listed: unknown): ApprovalAdvice | null {
+  const items = (listed as { items?: Array<{ kind?: string; details?: { advice?: unknown } }> } | null)?.items;
+  const advice = Array.isArray(items) ? items.find((item) => item?.kind === 'approval')?.details?.advice as Record<string, unknown> | undefined : undefined;
+  const text = (value: unknown) => typeof value === 'string' && value.trim() ? value.slice(0, 400) : null;
+  const stops = advice?.stops as Record<string, unknown> | undefined;
+  const fields = ['decides', 'yes', 'sendBack', 'notNow', 'settles'] as const;
+  const kinds = ['undecided', 'changed', 'review', 'approver', 'repeated', 'browser'] as const;
+  if (!advice || fields.some((field) => !text(advice[field])) || !stops || kinds.some((kind) => !text(stops[kind]))) return null;
+  return { ...Object.fromEntries(fields.map((field) => [field, text(advice[field])])) as Omit<ApprovalAdvice, 'stops'>,
+    stops: Object.fromEntries(kinds.map((kind) => [kind, text(stops[kind])])) as ApprovalAdvice['stops'] };
+}
+
+/** The page's lines: the step's own advice, else the table's generic lines for this step's name. */
+export function approvalAdvice(request: Pick<ApprovalReviewRequest, 'advice' | 'phaseLabel'>): ApprovalAdvice {
+  return request.advice ?? stepAdvice('generic', { step: request.phaseLabel }) as ApprovalAdvice;
+}
+
+/**
+ * The commands the page may run for a hold, by their place in this list: the holds' own routes and the blocking commits'
+ * actions, as the request carries them. A button names only its place; the host runs the command found here, never text
+ * the page sends.
+ */
+export function approvalPageRoutes(request: Pick<ApprovalReviewRequest, 'approvalCheck' | 'blockingCommits'>): string[] {
+  const routes = [...approvalHolds(request.approvalCheck).filter((hold) => hold.code !== 'STORY_REVIEW_INTERVENING_COMMIT').map((hold) => hold.action?.command),
+    ...(approvalBlockingCommits(request.blockingCommits)?.actions ?? []).map((action) => action.command)];
+  return [...new Set(routes.filter((command): command is string => typeof command === 'string' && command.startsWith('singularity-flow ')))];
 }
 
 type FocusAt = { path?: string; line?: number; section?: string; requirement?: string };
@@ -298,6 +337,24 @@ export interface ApprovalReviewSubmission {
   inApprovalDecisions?: InApprovalDecision[];
 }
 
+/**
+ * What the person chose on the page: Approve with their answers; Send back with their reason (the step returns to its
+ * author, who writes the next version to answer it); Decide what blocks it on the Decide card, then back to this page;
+ * or run one hold's own route, then back to this page. Null is Not now: nothing is recorded.
+ */
+export type ApprovalPageChoice =
+  | ({ action: 'approve' } & ApprovalReviewSubmission)
+  | { action: 'send-back'; reason: string }
+  | { action: 'decide' }
+  | { action: 'run'; command: string };
+
+/** The reason a Send back carries, checked host-side: the person's own words, never empty. */
+export function sendBackReason(raw: InboundMessage): { reason: string | null; error: string | null } {
+  const reason = (stringField(raw, 'reason') ?? '').trim();
+  if (!reason) return { reason: null, error: 'Write why you send it back: your reason goes to the next version, which is written to answer it.' };
+  return { reason: reason.slice(0, 2000), error: null };
+}
+
 /** The answered in-approval decisions, checked against the request; a blank value takes its default. */
 function inApprovalDecisions(request: ApprovalReviewRequest, raw: InboundMessage, errors: string[]): InApprovalDecision[] {
   const items = new Map((request.inApproval?.items ?? []).map((item) => [item.id, item]));
@@ -441,6 +498,13 @@ export function validateApprovalReviewSubmission(
   // The person's choice of "Approve <Step> v<N>" is the one deliberate act; a self-approval is stated, as the CLI and
   // Copilot do, and recorded as self-approval by the engine. A second tick the engine never read added nothing.
   const answered = inApprovalDecisions(request, raw, errors);
+  // Every decision that holds the step is decided here first: the engine refuses an approval while one stays open.
+  for (const item of request.inApproval?.items ?? []) {
+    if (!answered.some((decision) => decision.item === item.id)) errors.push(`Decide '${item.title}' first. ${approvalAdvice(request).stops.undecided}`);
+  }
+  if (request.pendingDecisions && request.pendingDecisions.count > (request.inApproval?.items?.length ?? 0)) {
+    errors.push(`${request.pendingDecisions.headline} Choose Decide what blocks this step: it opens them, then brings you back here.`);
+  }
   if (confirmation !== request.expected) errors.push(`Choose ${approvalChoice(request)} to approve it.`);
   return {
     value: errors.length ? null : { confirmation, decisions, witnessDecisions, ...(answered.length ? { inApprovalDecisions: answered } : {}) },
@@ -501,7 +565,7 @@ function inApprovalItemHtml(item: InApprovalItem): string {
     <legend>${escape(item.title)}</legend>
     ${item.why ? `<p>${escape(item.why)}</p>` : ''}
     <label>Your decision
-      <select data-choice aria-label="${escape(item.title)} decision"><option value="">Not now</option>${item.options.map(option).join('')}</select>
+      <select data-choice aria-label="${escape(item.title)} decision"><option value="">Choose a decision…</option>${item.options.map(option).join('')}</select>
     </label>
     <label class="approval-reason" data-need="expires" hidden>Until <input type="date" data-value="expires"></label>
     <label class="approval-reason" data-need="cause" hidden>What stops the tests <textarea data-value="cause"></textarea></label>
@@ -573,6 +637,8 @@ function witnessMappingHtml(mapping: WitnessMappingReview): string {
 }
 
 export function approvalReviewBody(request: ApprovalReviewRequest, errors: string[] = []): string {
+  const advice = approvalAdvice(request);
+  const routes = approvalPageRoutes(request);
   const binding = [
     `<strong>Story</strong><code>${escape(request.workId)}</code>`,
     `<strong>Phase</strong><code>${escape(request.phaseId)}</code>`,
@@ -619,14 +685,14 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
   const answerable = request.inApproval?.items ?? [];
   const decideHere = answerable.length ? `<section aria-label="Decide in this approval">
       <h2>Decide in this approval</h2>
-      <p class="muted">${answerable.length === 1 ? 'This decision holds' : 'These decisions hold'} the step. What you choose is recorded with the approval, in the same commit; the approval is refused while one stays undecided.</p>
+      <p class="muted">${escape(advice.stops.undecided)} What you choose is recorded with your approval, in the same commit.</p>
       <div class="approval-checklist">${answerable.map(inApprovalItemHtml).join('')}</div></section>` : '';
   // Only what the approval cannot answer still sends the person to the decision list first.
   const pending = request.pendingDecisions;
   const held = pending && pending.count > answerable.length ? `<section class="approval-held" aria-label="Decisions needed first">
     <h2>Decide what blocks this step first</h2>
     <p>${escape(pending.headline)}</p>
-    <p class="muted">Approval is refused until each one is decided. They are listed in one place, in plain words with their choices.</p>
+    <p class="muted">${escape(advice.stops.undecided)} The button opens them on one card, then brings you back to this page.</p>
     <button type="button" data-decide>Decide what blocks this step</button>
   </section>` : '';
   // Never silent: what counts on a person's word instead of a run.
@@ -639,25 +705,38 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
     <span class="muted">Every test case of this step's run, opened beside this review.</span>
   </section>` : '';
   const tryIt = tryItHtml(request.tryIt, (action, way, entry) => `data-try="${action}" data-try-way="${way}" data-try-entry="${entry}"`);
-  return `<form class="approval-form" data-expected="${escape(request.expected)}">
+  return `<form class="approval-form" data-expected="${escape(request.expected)}" data-undecided="${escape(advice.stops.undecided)}" data-step="${escape(approvalChoice(request).replace(/^Approve /u, ''))}">
     <div class="approval-review-content" tabindex="0" aria-label="Approval review details"><header>
       <h1>${escape(approvalChoice(request))}?</h1>
+      <p class="approval-why"><strong>Why you are asked:</strong> ${escape(advice.decides)}</p>
       <p class="meta">${escape(request.title)}. Review this version and answer any decision below, then choose ${escape(approvalChoice(request))}. Nothing is approved until you do.</p>
     </header>
     ${approvalChangeStoryHtml(request.changeStory)}${approvalFocusHtml(request.focus)}
     <div class="review-binding approval-binding">${binding}</div>
     ${approvalCoversHtml(request.covers)}${approvalDisputesHtml(request.disputes)}
-    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${carried}${tests}${tryIt}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
+    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'], run: (command) => routes.indexOf(command) })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits), { run: (command) => routes.indexOf(command), stop: advice.stops.changed })}${carried}${tests}${tryIt}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${decideHere}${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>${escape(approvalChoice(request))}?</h2>
         <p class="muted">${escape(approvalChoice(request))} records your approval of this exact version, with your answers above. Nothing is chosen for you.</p>
+        <ul class="approval-choices">
+          <li><strong>${escape(approvalChoice(request))}:</strong> ${escape(advice.yes)}</li>
+          <li><strong>Send back:</strong> ${escape(advice.sendBack)}</li>
+          <li><strong>Not now:</strong> ${escape(advice.notNow)}</li>
+        </ul>
+        <p class="muted">${escape(advice.settles)}</p>
       </section>
       <div class="approval-errors" role="alert">${errors.map((error) => `<p>${escape(error)}</p>`).join('')}</div>
     </div>
       <div class="form-actions">
         <p class="approval-progress muted" data-progress aria-live="polite"></p>
+        <div class="approval-send-back" data-send-back hidden>
+          <label>Why send it back? <span>${escape(advice.sendBack)}</span>
+            <textarea data-send-back-reason aria-label="Why send ${escape(request.phaseLabel)} back"></textarea>
+          </label>
+        </div>
         <button type="submit" disabled>${escape(approvalChoice(request))}</button>
+        <button type="button" class="secondary" data-send-back-button>Send back</button>
         <button type="button" class="secondary" data-cancel>Not now</button>
       </div>
     </form>`;
@@ -694,6 +773,15 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .approval-held h2 { margin-top:0; }
 .approval-held pre { white-space:pre-wrap; overflow-wrap:anywhere; }
 .approval-errors { min-height:1.2rem; color:var(--sf-bad); }
+.approval-why { margin:.4rem 0; }
+.approval-choices { margin:.5rem 0; padding-left:1.1rem; }
+.approval-choices li { margin:.2rem 0; }
+.approval-send-back { flex-basis:100%; }
+.approval-send-back[hidden] { display:none; }
+.approval-send-back label { display:grid; gap:.3rem; font-weight:600; }
+.approval-send-back span { color:var(--sf-dim); font-weight:400; font-size:.85rem; }
+.approval-send-back textarea { width:100%; min-height:4rem; padding:.48rem .6rem; color:var(--vscode-input-foreground); background:var(--vscode-input-background); border:1px solid var(--vscode-input-border,var(--sf-border-color)); border-radius:3px; font:inherit; resize:vertical; }
+.approval-goto { margin:0 .3rem; padding:.05rem .45rem; }
 .approval-errors p { margin:.2rem 0; }
 .form-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:0; padding:.6rem 0; border-top:var(--sf-border); background:var(--vscode-editor-background); }
 .approval-progress { flex-basis:100%; margin:0; font-size:.85rem; }
@@ -799,11 +887,15 @@ export const REVIEW_SCRIPT = `
       inadequate: facets(row)
     }));
   }
+  // Decided elsewhere first: the Decide card opens from this page and brings the person back.
+  const heldElsewhere = Boolean(form.querySelector('[data-decide]'));
+  function undecidedRows() { return decisionRows.filter((row) => !row.querySelector('[data-choice]').value); }
   function valid() {
     const complete = [...decisions(), ...witnessDecisions()].every((entry) => entry.decision
       && (entry.decision === 'satisfied' || entry.reason)
       && (entry.decision !== 'exception' || !('expiresAt' in entry) || (entry.expiresAt && entry.inadequate.length)));
-    return complete;
+    // Approve stays off while a decision that holds the step is open: the engine would refuse it after the page closed.
+    return complete && !undecidedRows().length && !heldElsewhere;
   }
   function sync(event) {
     for (const row of rows) {
@@ -847,13 +939,56 @@ export const REVIEW_SCRIPT = `
     if (reasons) missing.push(count(reasons, 'reason', 'reasons'));
     if (expiries) missing.push(count(expiries, 'expiry date', 'expiry dates'));
     if (shortfalls) missing.push(count(shortfalls, 'choice of what falls short', 'choices of what falls short'));
-    const text = missing.length ? 'Still needed: ' + missing.join(', ') + '.' : 'Ready when you are.';
-    if (progress && progress.textContent !== text) progress.textContent = text;
+    const open = undecidedRows();
+    const names = open.map((row) => row.querySelector('legend').textContent);
+    if (open.length) missing.unshift('decide ' + names.map((name) => '"' + name + '"').join(', '));
+    if (heldElsewhere) missing.unshift('the decisions under "Decide what blocks this step first"');
+    const why = open.length || heldElsewhere ? ' ' + form.dataset.undecided : '';
+    const text = missing.length ? 'Still needed: ' + missing.join(', ') + '.' + why : 'Ready when you are.';
+    if (!progress || progress.dataset.text === text) return;
+    progress.dataset.text = text;
+    progress.textContent = text;
+    // The button that decides each one, right there: it brings its row into view with its choices open.
+    for (const row of open) {
+      const go = document.createElement('button');
+      go.type = 'button';
+      go.className = 'secondary approval-goto';
+      go.textContent = 'Decide ' + row.querySelector('legend').textContent;
+      go.addEventListener('click', function () { row.scrollIntoView({ block: 'center' }); row.querySelector('[data-choice]').focus(); });
+      progress.appendChild(go);
+    }
   }
   form.addEventListener('input', sync);
   form.addEventListener('change', sync);
   form.querySelector('[data-cancel]').addEventListener('click', function () {
     window.__sfVscode.postMessage({ type: 'approval.cancel' });
+  });
+  // Send back: one field for the person's reason, which goes to the next version; pressed again with it, it sends.
+  const sendBack = form.querySelector('[data-send-back-button]');
+  const sendBackBox = form.querySelector('[data-send-back]');
+  const sendBackReason = form.querySelector('[data-send-back-reason]');
+  function syncSendBack() {
+    if (sendBackBox.hidden) return;
+    sendBack.textContent = 'Send back ' + form.dataset.step;
+    sendBack.disabled = !sendBackReason.value.trim();
+  }
+  sendBackReason.addEventListener('input', syncSendBack);
+  sendBack.addEventListener('click', function () {
+    if (sendBackBox.hidden) {
+      sendBackBox.hidden = false;
+      syncSendBack();
+      sendBackReason.focus();
+      return;
+    }
+    const reason = sendBackReason.value.trim();
+    if (!reason) return;
+    sendBack.disabled = true;
+    submit.disabled = true;
+    window.__sfVscode.postMessage({ type: 'approval.sendBack', reason: reason });
+  });
+  // A hold's own route: the page names its place in the list the host holds, never the command.
+  for (const run of form.querySelectorAll('[data-hold-run]')) run.addEventListener('click', function () {
+    window.__sfVscode.postMessage({ type: 'approval.run', route: Number(run.dataset.holdRun) });
   });
   const decide = form.querySelector('[data-decide]');
   if (decide) decide.addEventListener('click', function () { window.__sfVscode.postMessage({ type: 'approval.decide' }); });
@@ -894,10 +1029,13 @@ export const REVIEW_SCRIPT = `
 
 let activePanel: vscode.WebviewPanel | null = null;
 
-/** Open one review form and resolve only after a validated human submission. */
+/**
+ * Open one review form and resolve with what the person chose: a validated approval, a send-back with their reason, the
+ * Decide card for what blocks it, or one hold's own route; null for Not now.
+ */
 export function collectApprovalReview(
   request: ApprovalReviewRequest
-): Promise<ApprovalReviewSubmission | null> {
+): Promise<ApprovalPageChoice | null> {
   activePanel?.dispose();
   return new Promise((resolve) => {
     const panel = vscode.window.createWebviewPanel(
@@ -918,7 +1056,7 @@ export function collectApprovalReview(
         REVIEW_SCRIPT
       );
     };
-    const finish = (value: ApprovalReviewSubmission | null) => {
+    const finish = (value: ApprovalPageChoice | null) => {
       if (settled) return;
       settled = true;
       resolve(value);
@@ -926,11 +1064,22 @@ export function collectApprovalReview(
     };
     const router = registerMessageRouter('singularityFlow.approvalReview', {
       'approval.cancel': () => finish(null),
-      // Held by pending decisions: close this review and open the decision list for the same step.
+      // Held by pending decisions: the Decide card for the same Story opens in place, and this page comes back after it.
       'approval.decide': () => {
         if (!request.pendingDecisions?.count) return;
-        finish(null);
-        void vscode.commands.executeCommand('singularityFlow.decisions', { workId: request.workId, phase: request.phaseId });
+        finish({ action: 'decide' });
+      },
+      // The person's own reason, checked here: the step goes back to its author, who writes the next version to answer it.
+      'approval.sendBack': (message) => {
+        const checked = sendBackReason(message);
+        if (!checked.reason) return render([checked.error ?? '']);
+        finish({ action: 'send-back', reason: checked.reason });
+      },
+      // A hold's route, found by its place in the request's own list: run, then this page again.
+      'approval.run': (message) => {
+        const index = typeof (message as { route?: unknown }).route === 'number' ? (message as { route: number }).route : -1;
+        const command = approvalPageRoutes(request)[index];
+        if (command) finish({ action: 'run', command });
       },
       // The review stays open: the summary opens beside it, for the same Story step.
       'approval.testSummary': () => {
@@ -969,7 +1118,7 @@ export function collectApprovalReview(
       'approval.submit': (message) => {
         const checked = validateApprovalReviewSubmission(request, message);
         if (!checked.value) return render(checked.errors);
-        finish(checked.value);
+        finish({ action: 'approve', ...checked.value });
       }
     });
     panel.webview.onDidReceiveMessage((raw: unknown) => {

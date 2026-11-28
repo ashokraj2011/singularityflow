@@ -2678,7 +2678,8 @@ function remediationPlanFor(error, argv = []) {
       ? 'Nothing was changed. Follow the step above when you are ready.'
     : authoringIncomplete
       ? 'Retry the original command only after the author has corrected every finding and the same read-only prepublish check reports ready.'
-      : 'Retry the original command only after the blocking condition is resolved.';
+      // With nothing more specific, the one way on [owner, 2026-11-28]: it reads where the Story is and does SFlow's part.
+      : 'Nothing was changed. Once the blocking condition is resolved, /sf-next carries the Story on (in VS Code, the Continue button).';
   // A finding the catalog documents names its entry: what it means, its causes and who can act.
   const documentation = specificFindingDocumentation(code);
   return Object.freeze({

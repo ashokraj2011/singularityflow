@@ -755,9 +755,10 @@ test('lifecycle, review and repair skills name the route each stop leaves the pe
   assert.match(version, /Never confirm it yourself; Copilot-generated assent is not human authorization/);
   assert.doesNotMatch(version, /full digest/);
   assert.doesNotMatch(version, /typed digest by itself is not human authorization/);
+  // /sf-resume is the one way on under an older name (owner, 2026-11-28): it hands to /sf-next, which reads no file.
   const resume = await skill('sflow-resume');
-  assert.match(resume, /never read `workflow\.json`, `STATUS\.md` or earlier artifacts/);
-  assert.match(resume, /`data\.contextBoundary`: relay its `commands` in order[\s\S]*stop before any authoring/);
+  assert.match(resume, /This is the one way on, `\/sf-next`, under an older name: run `\/sflow-next` once/);
+  assert.doesNotMatch(resume, /contextBoundary|\/clear/);
   const cancel = await skill('sflow-cancel');
   assert.match(cancel, /Pending publication: `singularity-flow sync <WORK-ID>`; stale or diverged branch: `\/sf-recover`; the person reruns `\/sf-cancel` after it/);
   assert.match(cancel, /or in `\/sf-stories` for Copilot CLI users/);
@@ -1126,9 +1127,10 @@ test('approval skill reuses only an exact complete review and accepts a human ph
   assert.match(content, /approval CLI is the sole permitted lifecycle mutation/i);
   assert.match(content, /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i);
   assert.match(content, /failed approval ends this turn/i);
-  assert.match(content, /Relay `contextBoundary`/);
+  assert.doesNotMatch(content, /Relay `contextBoundary`|\/clear/);
   assert.match(content, /approval CLI advances and activates the next phase when the threshold is met/i);
-  assert.match(content, /end this turn before next-phase authoring/i);
+  // Every Story carries on (owner, 2026-11-28): the next step is this turn's only once SFlow's note says so.
+  assert.match(content, /When SFlow's note says this turn goes on, do what it says now: the turn is then the next step's, under its rules; otherwise say in one line that `\/sf-next` carries it on/);
 });
 
 test('submit skill links generated documents without treating a summary as approval review', async () => {
@@ -1195,7 +1197,8 @@ test('source review follows the returned schema and a bounded read-only format c
   // review's route in that same chat (agent-text audit, 2026-11-11). Whether it is one is SFlow's word, not the model's
   // guess: a person's /sf-review-source ended on its findings alone (owner, 2026-11-16).
   assert.match(skill, /SFlow's turn context says `reviewDispatch: author-turn`: end with the retained status and findings only; the author's turn follows `continuation`\. Otherwise always end/u);
-  assert.match(skill, /three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code \(model-free\): `<modelFreeCommand>`"/);
+  // One plain next line (owner, 2026-11-28), in place of the three bullets.
+  assert.match(skill, /Say what happens next in one plain line \("Next: <what happens>"\), never as a list of commands/);
   assert.match(agent, /do not search for, create, or persistently select an\s+agent/);
   for (const instructions of [skill, agent]) {
     assert.match(instructions, /clarificationsReviewed/);
@@ -1263,12 +1266,13 @@ test('report skill is read-only and preserves unavailable usage disclosure', asy
   assert.match(content, /disable-model-invocation:\s*true/);
 });
 
-test('nextsteps skill delegates to the read-only deterministic action planner', async () => {
-  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-nextsteps', 'SKILL.md'), 'utf8');
-  assert.match(content, /singularity-flow nextsteps <WORK-ID> --utility-entry --for-agent --json[\s\S]*otherwise omit the ID/);
-  assert.match(content, /Present returned actions in order, preserving labels, routes and reasons/);
-  assert.match(content, /never add one the CLI did not return/);
-  assert.match(content, /Keep this operation read-only/);
+test('the older entries are thin aliases of the one way on, /sf-next', async () => {
+  // One way on that always works (owner, 2026-11-28): /sf-nextsteps, /sf-status, /sf-resume and /sf-continue hand to it.
+  for (const name of ['sflow-nextsteps', 'sflow-status', 'sflow-resume', 'sflow-continue']) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /This is the one way on, `\/sf-next`, under an older name: run `\/sflow-next` once with the supplied Work ID; its result is this one's\./, name);
+    assert.doesNotMatch(content, /contextBoundary|\/clear/, name);
+  }
 });
 
 test('next skill executes one action and preserves explicit approval controls', async () => {
@@ -1294,10 +1298,13 @@ test('next skill executes one action and preserves explicit approval controls', 
     'pending-publication state must be verified before the one-shot sync');
   assert.match(content, /never waive grounding or rebuild/);
   assert.doesNotMatch(content, /singularity-flow wm ensure/);
-  // A returned decision route (`/sf-confirm` carries a reviewed digest) is the person's to type:
-  // running it from /sf-next would confirm or decide what nobody typed.
-  assert.match(content, /Relay, never run, human-decision routes \(`\/sf-approve`, `\/sf-confirm`, `\/sf-decide`, `\/sf-review-decide`/);
-  assert.match(content, /the person types them; a route's arguments are never their answer/);
+  // A human-decision route (`/sf-confirm` carries a reviewed digest) is the person's to answer: the one way on asks them in
+  // its turn (owner, 2026-11-28) and never answers it for them.
+  assert.match(content, /Never answer a human-decision route \(`\/sf-approve`, `\/sf-confirm`, `\/sf-decide`, `\/sf-review-decide`/);
+  assert.match(content, /step 1 asks them; a route's arguments are never their answer/);
+  assert.match(content, /Say `wayOut\.where` and `wayOut\.why`, one line each, then do `wayOut\.next` in this turn/);
+  assert.match(content, /only on the person's own Yes its `onYes`/);
+  assert.doesNotMatch(content, /contextBoundary|chat resets/);
   assert.doesNotMatch(content, /Before approval run|require the exact phase name/);
   // A ready version is submitted in the turn that wrote it (owner, 2026-11-19).
   assert.match(content, /Work step 10 submits a ready version here\./);
@@ -1483,19 +1490,17 @@ test('interactive lifecycle skills ask only for durable human choices', async ()
   assert.doesNotMatch(approve, /Choose governed agent/);
   assert.doesNotMatch(reject, /Choose governed agent/);
   const resume = await readFile(path.join(pluginRoot, 'skills', 'sflow-resume', 'SKILL.md'), 'utf8');
-  assert.match(resume, /activates the current phase's default governed agent automatically/);
+  assert.match(resume, /run `\/sflow-next` once/, 'resume hands to the one way on, which selects no agent by asking');
   assert.doesNotMatch(resume, /ask_user/);
 });
 
-test('resume treats the Repository brief as guidance and never runs a removed World Model check or rebuild', async () => {
+test('resume never runs a removed World Model check or rebuild', async () => {
   const resume = await readFile(path.join(pluginRoot, 'skills', 'sflow-resume', 'SKILL.md'), 'utf8');
-  // `wm check`, `wm availability` and `wm ensure` refuse with WMB_REMOVED; a skill naming them stops the Story.
-  assert.match(resume, /The Repository brief is guidance; it is built for you and never blocks/);
+  // `wm check`, `wm availability` and `wm ensure` refuse with WMB_REMOVED; a skill naming them stops the Story. /sf-resume
+  // now hands to /sf-next (owner, 2026-11-28), whose step's entry composes the brief.
   assert.doesNotMatch(resume, /World Model check or rebuild/);
-  assert.match(resume, /singularity-flow wm brief --phase <ACTIVE-PHASE>/);
   assert.doesNotMatch(resume, /singularity-flow wm (?:check|availability|ensure|build)\b/);
-  assert.doesNotMatch(resume, /If stale, rebuild for the active phase/);
-  assert.match(resume, /Continue only in the active phase with the drafting route resume returned/);
+  assert.match(resume, /run `\/sflow-next` once/);
 });
 
 test('shipped skills, agents and templates name no feature of the removed registered World Model', async () => {

@@ -155,7 +155,8 @@ function decidedBy(workflow, effects, { authorities, actor }) {
     ? `Nobody can decide this here: ${stepName(workflow, stuck)} has no approval group.${instead
       ? ` Raise the same problem against ${stepName(workflow, instead)} with --supersedes; its approvers decide it.` : ''}`
     : !labels.length ? 'Anyone working on this Story may decide this.'
-      : allowed ? `You may decide this (${listWords(labels)}).`
+      // The person holds every group this needs: the group names only made a one-person Story's agent hold back (R12).
+      : allowed ? 'You decide this.'
         : `The ${listWords(who)} decide this.`;
   return { groups, labels, allowed, words, ...(allowed ? {} : { share: `/sf-decide ${workId}` }) };
 }

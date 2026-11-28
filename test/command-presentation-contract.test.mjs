@@ -40,9 +40,13 @@ test('phase document display has a read-only Copilot route with the exact phase 
   }), null, 'the generative phase skill cannot stand in for a document read');
 });
 
-test('all bundled and direct Copilot skills require command pairs or an explicit absence', async () => {
-  assert.match(COMMAND_PRESENTATION_CONTRACT, /three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code \(model-free\): `<modelFreeCommand>`"/);
-  assert.match(COMMAND_PRESENTATION_CONTRACT, /never apart from their label, on one line or in a table/);
+test('all bundled and direct Copilot skills say what happens next in one plain line, never three commands', async () => {
+  // One plain next line (owner, 2026-11-28): a person read three ways to do one thing, and typed the printed command again.
+  assert.match(COMMAND_PRESENTATION_CONTRACT, /^Say what happens next in one plain line \("Next: <what happens>"\), never as a list of commands;/u);
+  assert.match(COMMAND_PRESENTATION_CONTRACT, /run returned routes exactly, never invent one/u);
+  assert.match(COMMAND_PRESENTATION_CONTRACT, /When SFlow's note says this turn goes on, do it in this same turn\./u);
+  assert.match(COMMAND_PRESENTATION_CONTRACT, /ends with "\/sf-next carries it on" \(VS Code: Continue\)\.$/u);
+  assert.doesNotMatch(COMMAND_PRESENTATION_CONTRACT, /three separate|Shell: `<command>`/u);
   const root = new URL('../plugin/skills/', import.meta.url);
   for (const entry of await readdir(root, { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith('sflow-')) continue;

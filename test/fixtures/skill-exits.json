@@ -8,8 +8,7 @@
   "sflow-approve": [
     "stop without choices or generic recovery.",
     "missing/mismatched bindings stop.",
-    "stop.",
-    "End this turn before next-phase authoring."
+    "stop."
   ],
   "sflow-auto": [
     "argument-hint: \"plan <requirement> [--until <phase>] | plan --story <STORY-ID> | --goal <GOAL-ID> | adopt --from-adhoc <AHS-ID> | start <PLAN-ID> | list | continue <STORY-ID> | status|report|compare|needs-you|repair|respond|switch-unit|pause|stop|takeover|resume|discard <FLIGHT-ID>\"",
@@ -92,7 +91,7 @@
     "Not admitted: relay blockers/next, stop.",
     "Unavailable: show questions and stop;",
     "absent: relay `commands.next`, stop.",
-    "Relay each `handoff`: `Next in Copilot: /sf-…` from `copilotCommand`, then `Terminal equivalent: singularity-flow …` from `command`."
+    "Relay each `handoff`, its `copilotCommand` and `command` in one plain line."
   ],
   "sflow-document-intake": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
@@ -102,7 +101,7 @@
     "Not admitted: relay blockers/next, stop.",
     "Stop for human confirmation or protected/unowned edits.",
     "absent: relay `commands.next`, stop.",
-    "Relay each `handoff` using its `copilotCommand` and `command`."
+    "Relay each `handoff`, its `copilotCommand` and `command` in one plain line."
   ],
   "sflow-documents": [
     "Stop on `Out of sequence`;"
@@ -221,15 +220,12 @@
     "- `copilot.turn-complete` carries the stop reason."
   ],
   "sflow-next": [
-    "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
-    "Read `contextBoundary` first: an earlier-phase chat relays its ordered reset commands and stops;",
-    "Load one returned SFlow skill route (any `/sf-*` or `/sflow-*` route), use its configured producer/channel, complete its preflight, execute at most its one authorized action (the current step's own work is one action: step 4), and stop.",
+    "Load one returned SFlow skill route (any `/sf-*` or `/sflow-*` route), use its configured producer/channel, complete its preflight, execute at most its one authorized action (the current step's own work is one action: step 5), and stop.",
     "Run `singularity-flow sync <WORK-ID>` once in the verified cwd, then stop;",
     "`ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and correction handoff, not a retry loop."
   ],
   "sflow-nextsteps": [
-    "If unsupported, stop with the compatibility error, never retry blindly.",
-    "If this chat already worked on an earlier phase, show its ordered `commands` (`/clear`, then `/sf-phase`, or `/compact`, then `/sf-code`) and stop;"
+    "If unsupported, stop with the compatibility error, never retry blindly."
   ],
   "sflow-outcome": [
     "Only when the person picks one: run the selected returned app start/stop or tests route."
@@ -295,7 +291,7 @@
     "stop for protected/unowned edits or required human decisions.",
     "Not admitted: relay blockers/next, stop.",
     "absent: relay `commands.next`, stop.",
-    "Relay each `handoff`: `Next in Copilot: /sf-…` from `copilotCommand`, then `Terminal equivalent: singularity-flow …` from `command`."
+    "Relay each `handoff`, its `copilotCommand` and `command` in one plain line."
   ],
   "sflow-repositories": [
     "Stop after listing or preparing a selected action."
@@ -308,13 +304,10 @@
     "Not admitted: relay blockers/next, stop.",
     "Unavailable: show questions and stop;",
     "absent: relay `commands.next`, stop.",
-    "End with each returned `handoff`: `Next in Copilot: /sf-…` from its `copilotCommand`, then `Terminal equivalent: singularity-flow …` from its `command`;"
+    "End with each returned `handoff`, its `copilotCommand` and `command` in one plain line;"
   ],
   "sflow-reset-all": [
     "Stop for explicit confirmation."
-  ],
-  "sflow-resume": [
-    "A returned `data.contextBoundary`: relay its `commands` in order (such as `/clear`, then `/sf-phase`) and stop before any authoring in this chat."
   ],
   "sflow-return": [
     "If it is dirty, stop;"
@@ -370,7 +363,7 @@
     "blocked for unavailable/inconclusive evidence, a verdict to record and publish, not a stop (then name the missing tool/environment and offer `/sf-test-setup`);",
     "Stop for confirmation/protected edits.",
     "absent: relay `commands.next`, stop.",
-    "Relay each `handoff` with its `copilotCommand` and `command`;"
+    "Relay each `handoff`, its `copilotCommand` and `command` in one plain line."
   ],
   "sflow-scenario-repair": [
     "**Output contract:** Run the canonical skill once and preserve its result and handoff;",
@@ -450,7 +443,7 @@
     "stop.",
     "If `effectiveAuthoringSkill` is not `/sf-phase` (a release step returns `/sf-release`), relay it and stop.",
     "absent: relay `commands.next`, stop.",
-    "End with each `handoff` from step 11: `Next in Copilot: /sf-…` from its `copilotCommand`, then `Terminal equivalent: singularity-flow …` from its `command`."
+    "End with each `handoff` from step 11, its `copilotCommand` and `command` in one plain line."
   ],
   "sflow-work-interval": [
     "Hand off to `/sf-start` for a new Story whose workflow is the plan's `toWorkType`."

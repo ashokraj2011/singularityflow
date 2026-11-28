@@ -108,7 +108,8 @@ export function modelFreeCommandForCommand(command) {
 }
 
 /** Layout only: callers still validate untrusted routes and retain their existing execution gates. */
-export const COMMAND_PRESENTATION_CONTRACT = 'Each action: "<timing> — <label>", then its three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code (model-free): `<modelFreeCommand>`". Keep returned routes exact; never apart from their label, on one line or in a table. Missing Copilot: "no verified equivalent"; missing Shell or model-free: "not available for this action". Never invent routes or make more calls for formatting.';
+// One plain next line [owner, 2026-11-28].
+export const COMMAND_PRESENTATION_CONTRACT = 'Say what happens next in one plain line ("Next: <what happens>"), never as a list of commands; run returned routes exactly, never invent one. When SFlow\'s note says this turn goes on, do it in this same turn. Where a person decides, say what, why and where (this question, the page or the card). A turn that ends with nothing left for SFlow ends with "/sf-next carries it on" (VS Code: Continue).';
 
 export function commandRouteRows(guidance = {}) {
   guidance ??= {};

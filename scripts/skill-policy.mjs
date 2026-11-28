@@ -401,7 +401,8 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i,
       /failed approval ends this turn/i,
       /approval CLI advances and activates the next phase when the threshold is met/i,
-      /end this turn before next-phase authoring/i
+      // The turn goes on with the next step only when SFlow's note carries it there (owner, 2026-11-28).
+      /When SFlow's note says this turn goes on, do what it says now: the turn is then the next step's, under its rules/i
     ]
   },
   'sflow-converge': {
@@ -430,7 +431,9 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /state=publication_pending[^.]*first `NOW` command equals `singularity-flow sync`/i,
       /singularity-flow sync <WORK-ID>[^.]*once in the verified cwd/i,
       /never follow `THEN`, invoke `\/sf-nextsteps` or `\/sf-next`, or retry/i,
-      /Relay, never run, human-decision routes \(`\/sf-approve`, `\/sf-confirm`, `\/sf-decide`, `\/sf-review-decide`[^)]*\): the person types them/i,
+      // The one way on asks a person's approval in its turn, never answers it for them (owner, 2026-11-28).
+      /Never answer a human-decision route \(`\/sf-approve`, `\/sf-confirm`, `\/sf-decide`, `\/sf-review-decide`[^)]*\) for the person: step 1 asks them/i,
+      /Say `wayOut\.where` and `wayOut\.why`/,
       /On failure follow `remediationPlan`'s first read-only step/i,
       /copy the first `NOW` action's `copilotCommand` and `command` from that same action object/i,
       /never pair `\/sf-phase` with `singularity-flow next`/i,

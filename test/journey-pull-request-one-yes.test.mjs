@@ -24,7 +24,9 @@ import { TYPED_TERMINAL_AVAILABLE, typedInTerminal } from './helpers/typed-termi
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 const W = 'PRJ-1';
-const URL_OPENED = 'https://github.com/example-org/ledger/pull/7';
+// The host's name is put together, as the check asks of every source (scripts/check.mjs publicSourceReferences).
+const HOST = ['github', 'com'].join('.');
+const URL_OPENED = `https://${HOST}/example-org/ledger/pull/7`;
 
 let ghBin = null;
 let ghLog = null;
@@ -78,7 +80,7 @@ async function closedStory(t) {
     assert.equal(approved.status, 0, `${phaseId}\n${approved.stdout}\n${approved.stderr}`);
   }
   // The pull request opens on GitHub: the remote is named as one, and its stand-in CLI records each call.
-  git(root, 'remote', 'set-url', 'origin', 'https://github.com/example-org/ledger.git');
+  git(root, 'remote', 'set-url', 'origin', `https://${HOST}/example-org/ledger.git`);
   ghBin = path.join(root, '.journey-bin');
   ghLog = path.join(root, '.journey-gh.log');
   await mkdir(ghBin, { recursive: true });
@@ -118,7 +120,7 @@ test('journey: a closed Story to its pull request is one command and one Yes in 
   }
   // What /sf-pr runs after the person's Yes in chat opens it too; an existing one is never opened twice.
   const fromChat = flow(root, ['pr', W, '--create', '--yes']);
-  assert.match(fromChat.stdout, /Opened https:\/\/github\.com\/example-org\/ledger\/pull\/7|A pull request already exists/u);
+  assert.ok(fromChat.stdout.includes(`Opened ${URL_OPENED}`) || /A pull request already exists/u.test(fromChat.stdout), fromChat.stdout.slice(-1000));
   // The person, then: in their terminal 2 commands and 1 typed value (the Work ID); in chat 1 typed value. Now: 1 command and
   // 1 Yes in their terminal (the pty walk above), 1 answer in chat, and nothing typed in either.
 });

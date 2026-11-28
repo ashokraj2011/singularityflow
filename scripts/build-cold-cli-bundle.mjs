@@ -71,7 +71,11 @@ const FAMILIES = Object.freeze([
     'step-intent-settings.mjs',
     // A state-ref Story's state checkout [SSB M2]: made right at a command's entry in a clone that keeps one, and on
     // a read that finds no Story (story-workflow-read.mjs). Unclaimed, nextsteps without a Story loaded compatibility.
-    'story-state-ref.mjs']],
+    'story-state-ref.mjs',
+    // The one way on that nextsteps returns (way-out.mjs) and the carry-on the hooks read after a submission or an approval
+    // (task-turn.mjs), both imported only dynamically [owner, 2026-11-28]. Unclaimed, each fell into compatibility, so every
+    // nextsteps read and every carried hook call loaded it; here, beside the Story read they need, outside the output closure.
+    'way-out.mjs', 'task-turn.mjs']],
   ['light', ['commands/about.mjs', 'commands/ui.mjs', 'commands/update.mjs', 'commands/pause.mjs', 'commands/workspace.mjs', 'commands/capability.mjs',
     // Optional exact context/provenance reads must not fall through to compatibility. Keep their
     // dynamic ownership out of every hook/output helper's static closure and its existing ceiling.

@@ -80,6 +80,17 @@ function testFindingRoute(workflow, phase, finding, code, author) {
   }
   // A test that did not run or failed is the step's own repair: no recovery beside it (owner, 2026-11-17) [OSA:REQ-003].
   const recheck = ['phase', 'prepublish', phase.id, '--for-agent', '--json', '--publish-if-ready'];
+  // Models off: the person's one question for the command, remembered for the repository, or models on for one run once
+  // they said it calls one; never the same skipped check again [owner, 2026-11-28: "ask once, remember"].
+  const modelUse = finding.details?.requiredTestExecution?.failure?.kind === 'model-policy-skipped' ? finding.details.requiredTestExecution.modelUse : null;
+  if (modelUse?.answer === 'unknown' && /^[a-f0-9]{64}$/u.test(String(modelUse.argvSha256 ?? ''))) {
+    return route('model-use-question', 'person', ['tests', 'model-use', '--command', modelUse.commandId, '--argv-sha256', modelUse.argvSha256, '--calls', 'no'],
+      `${modelUse.question} ${modelUse.why} The person answers it in VS Code or their own terminal (--calls no or --calls yes); an agent never does.`);
+  }
+  if (modelUse?.answer === 'yes') {
+    return { ...route('models-on-for-run', 'person', [...recheck, '--models-on'],
+      `Models are off, and ${modelUse.commandId} calls an AI model, as the person said. They turn models on for this run: the same check runs it once.`), changes: 'models are on for this run' };
+  }
   if (finding.details?.requiredTestExecution?.failure?.kind === 'model-policy-skipped') {
     // The same check with models on is a changed run, never the same one again [dead end 10]: Copilot chat runs it with them on.
     return { ...route('test-rerun', phase.id, recheck,

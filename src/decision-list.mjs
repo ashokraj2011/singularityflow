@@ -23,6 +23,7 @@ import { clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, r
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { personClass } from './person-change-class.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
+import { acknowledgementWhy, otherPeopleOnStory } from './amendment-acknowledgement.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { recordSha256 } from './records.mjs';
@@ -929,7 +930,9 @@ function intentAmendmentItem(workflow, context, amendment) {
     return {
       kind: 'intent-amendment', title: `Acknowledge intent amendment ${id}`,
       // Which steps, and what acknowledging lets them do, in plain words [owner, 2026-11-18: "the reopened step can revalidate"].
-      why: `${id} was approved and changed ${clauses}, so ${listWords((amendment.affectedPhases ?? []).map((phaseId) => stepName(workflow, phaseId))) || 'the steps it reopened'} can be submitted again once someone acknowledges it.`,
+      why: `${id} was approved and changed ${clauses}, so ${listWords((amendment.affectedPhases ?? []).map((phaseId) => stepName(workflow, phaseId))) || 'the steps it reopened'} can be submitted again once someone acknowledges it.`
+        // Why someone is asked at all: an approver alone on the Story has it acknowledged at approval (ask once, 2026-11-28).
+        + `${(() => { const others = otherPeopleOnStory(workflow, amendment.decision?.actor ?? context.actor); return others ? ` ${acknowledgementWhy(id, others)}` : ''; })()}`,
       // A bound yes in chat too, unless SF Guard signs it [owner, 2026-11-19].
       options: [{ ...option(workflow, context, { id: 'acknowledge', label: `I read ${id}: acknowledge it`,
         words: 'Anyone working on this Story may acknowledge it, here or in their own terminal, once they have read what it changed.',

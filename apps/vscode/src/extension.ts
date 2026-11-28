@@ -6535,7 +6535,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (node?.approve) {
       if (!(await approveWithReceipt(client, node.approve, output))) return;
       await refreshAfterKnownMutation();
-      // A task's Story carries on in the chat once its person approves on any page [ITW:REQ-008]: nothing to type.
+      // The Story carries on in the chat once its person approves on any page, or sends the step back there [ITW:REQ-008;
+      // owner, 2026-11-28]: nothing to type. The page's send-back returns true once recorded, as its approval does.
       if (node.approve.kind === 'story') await continueTaskInChat(node.approve.workId, node.approve.phaseId);
       return;
     }
@@ -8203,7 +8204,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /**
    * After a person approves a step on the approval page, the chat goes on with the Story's next action [ITW:REQ-008; owner,
    * 2026-11-28: every Story carries on]: its one way on (`/sf-task` on a task, `/sf-next` on any other) is sent as the person
-   * would type it, so its turn is the next step's, under that step's rules. Only once the step reads approved.
+   * would type it, so its turn is the next step's, under that step's rules. Only once the step reads approved, or sent back
+   * by its person on the page: then the turn writes its next version (taskChatContinuation).
    */
   const continueTaskInChat = async (workId: string, phaseId: string): Promise<void> => {
     const workflow = store.current.snapshot?.workflow;

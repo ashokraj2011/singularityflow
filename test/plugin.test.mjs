@@ -779,7 +779,8 @@ test('Epic Story drafting stops for UI review before Jira publication', async ()
 
 test('Epic command parity skills cover navigation, review decisions, checks, drift, telemetry, agents, and grounding', async () => {
   const expectations = {
-    'sflow-epic-next': /singularity-flow epic next/,
+    // /sf-epic-next is the one way on's older name (owner, 2026-11-28): /sf-next reads the Epic's next actions.
+    'sflow-epic-next': /This is the one way on, `\/sf-next`, under an older name: run `\/sflow-next` once with the supplied Epic key/,
     'sflow-epic-sync': /singularity-flow epic sync/,
     'sflow-epic-drift': /singularity-flow epic drift observe/,
     'sflow-epic-resume': /singularity-flow epic resume/,
@@ -1593,8 +1594,6 @@ test('initiative Copilot skills expose orchestration without agent authority sho
   const names = [
     'sflow-initiative-start',
     'sflow-initiative-phase',
-    'sflow-initiative-next',
-    'sflow-initiative-status',
     'sflow-initiative-checklist',
     'sflow-initiative-documents',
     'sflow-initiative-evidence',
@@ -1606,6 +1605,11 @@ test('initiative Copilot skills expose orchestration without agent authority sho
     assert.match(content, /GitHub Copilot|Copilot/, `${name} must target Copilot`);
     assert.match(content, /singularity-flow initiative/, `${name} must use the initiative CLI`);
     assert.doesNotMatch(content, /\bCodex\b/, `${name} must not describe a Codex integration`);
+  }
+  // Its next and status are the one way on's older names (owner, 2026-11-28): /sf-next reads `nextsteps <ID>`, whose way on is the Initiative's.
+  for (const name of ['sflow-initiative-next', 'sflow-initiative-status']) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /This is the one way on, `\/sf-next`, under an older name: run `\/sflow-next` once with the supplied Initiative ID/u, name);
   }
   const start = await readFile(path.join(pluginRoot, 'skills', 'sflow-initiative-start', 'SKILL.md'), 'utf8');
   assert.match(start, /initiative choices begin start <INIT-ID> --json/);

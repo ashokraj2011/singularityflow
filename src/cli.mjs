@@ -2777,7 +2777,8 @@ async function specCommand(positionals, options) {
   // Dropping a sliced clause is a scope decision on its item (src/commands/spec-attach.mjs).
   if (positionals[1] === 'attach') {
     const drop = await (await import('./commands/spec-attach.mjs')).specSliceDrop(positionals, options);
-    return decisionScopeCommand(['decision', 'scope', drop.workId], { ...options, fetch: false, drop: undefined, item: drop.item, as: 'excluded' });
+    return decisionScopeCommand(['decision', 'scope', drop.workId], { ...options, fetch: false, drop: undefined, 'bring-back': undefined, item: drop.item,
+      ...(drop.keep ? { as: 'unresolved', [SCOPE_WITHDRAW]: true } : { as: 'excluded' }) });
   }
   const root = repoRoot();
   const subcommand = positionals[1] ?? 'trace';
@@ -4354,6 +4355,8 @@ async function decisionApplicabilityCommand(positionals, options) {
  * `decision scope`: a person in the group that approves the scope step disposes of one item of the
  * Story's accepted-scope inventory [E2G-006].
  */
+// Only `spec attach --bring-back` takes a scope decision back: no command line can set this key.
+const SCOPE_WITHDRAW = Symbol('scope-withdraw');
 async function decisionScopeCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
@@ -4377,9 +4380,11 @@ async function decisionScopeCommand(positionals, options) {
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
   const { commitScopeDecision } = await import('./commands/decision-story-records.mjs');
-  const { decision, publication } = await commitScopeDecision(root, config, workflow, { item, disposition, clauseIds, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
+  const withdraw = options[SCOPE_WITHDRAW] === true;
+  const { decision, publication } = await commitScopeDecision(root, config, workflow, { item, disposition, clauseIds, reason: optionString(options, 'reason') ?? '', withdraw }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
-    console.log(`Recorded that ${item} is ${disposition} for ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
+    console.log(withdraw ? `${item} is to be decided again for ${id}, taken back by ${decision.actor} through ${decision.authorityGroup}.`
+      : `Recorded that ${item} is ${disposition} for ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
     console.log(publication.pushed
       ? `Decision committed and pushed.`
       : `Decision committed locally; push is disabled by git.publish: off.`);

@@ -15,17 +15,34 @@ const display = (value: unknown): string => value == null || value === '' ? 'Not
   : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 const row = (label: string, value: unknown): string => `<tr><th scope="row">${escape(label)}</th><td class="intake-value">${escape(display(value))}</td></tr>`;
 
+/**
+ * The sliced clauses a person dropped from this Story, from its scope read (`evidence scope W --json`): a specification item
+ * whose standing decision leaves it out. Null when the read did not come.
+ */
+export function droppedSliceClauses(scope: unknown): Set<string> | null {
+  const items = object(object(object(object(scope).data).scope)).items;
+  if (!Array.isArray(items)) return null;
+  return new Set(items.map(object).filter((item) => item.field === 'specification' && ['excluded', 'deferred'].includes(String(item.disposition)))
+    .map((item) => /^\[([^\]\s]+)\]/u.exec(String(item.text ?? ''))?.[1]).filter((id): id is string => Boolean(id)));
+}
+/** What dropping a sliced clause does, and its undo, beside its button [owner, 2026-11-28]. */
+export const SLICE_DROP_WORDS = 'Dropping a clause takes it out of what this Story delivers: no step must cover it, and Bring it back undoes that.';
+
 /** The specification slices the Story started with (start --spec), each opened in the Spec Studio at its clauses. */
-function specificationSlicesHtml(source: Record<string, unknown> | null): string {
+function specificationSlicesHtml(source: Record<string, unknown> | null, dropped: Set<string> | null = null): string {
   const listed = source?.specification;
   const slices = Array.isArray(listed) ? listed.map(object)
     .filter(slice => typeof slice.revision === 'string' && /^SPEC-[A-Z0-9-]+@[1-9]\d*$/u.test(slice.revision)) : [];
   if (!slices.length) return '';
   return `<section><h2>Specification slices</h2><table><thead><tr><th>Revision</th><th>Clauses</th><th></th></tr></thead><tbody>${slices.map(slice => {
     const clauses = (Array.isArray(slice.clauses) ? slice.clauses : []).map(object).map(clause => String(clause.anchor ?? '').replace(/^\[|\]$/gu, '')).filter(Boolean);
-    return `<tr><td>${escape(slice.revision)}${slice.title ? ` · ${escape(slice.title)}` : ''}</td><td>${escape(clauses.join(', '))}</td>
+    // Each clause drops from this Story, or comes back, with the person's reason; only once its scope read says which it is.
+    const rows = dropped ? clauses.map((clause) => `<div class="slice-clause"><code>${escape(clause)}</code> ${dropped.has(clause) ? '<span class="pill">Dropped</span>' : ''}
+      <input data-slice-reason="${escape(clause)}" aria-label="Your reason, for ${escape(clause)}" placeholder="Your reason" maxlength="1000">
+      <button class="secondary" data-action="slice-change" data-clause="${escape(clause)}" data-back="${dropped.has(clause) ? 'yes' : 'no'}">${dropped.has(clause) ? 'Bring it back' : 'Drop from this Story'}</button></div>`).join('') : escape(clauses.join(', '));
+    return `<tr><td>${escape(slice.revision)}${slice.title ? ` · ${escape(slice.title)}` : ''}</td><td>${rows}</td>
       <td><button class="secondary" data-action="spec-studio" data-revision="${escape(slice.revision)}" data-clauses="${escape(clauses.join(' '))}">Open in Spec Studio</button></td></tr>`;
-  }).join('')}</tbody></table></section>`;
+  }).join('')}</tbody></table>${dropped ? `<p class="muted">${escape(SLICE_DROP_WORDS)}</p>` : ''}</section>`;
 }
 
 /** Render retained repository facts without resolving paths or consulting today's branch defaults. */
@@ -53,7 +70,7 @@ function repositoryBasesHtml(workflow: StoryWorkflow): string {
 }
 
 /** Saved intake is data, never executable Markdown, HTML, URLs or command selectors. */
-export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocumentPreview, documents: StoryArtifact[] = []): string {
+export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocumentPreview, documents: StoryArtifact[] = [], dropped: Set<string> | null = null): string {
   if (preview.record?.id !== 'SYS-SOURCE' || preview.binary || typeof preview.content !== 'string') {
     throw new Error('The engine did not return the selected Story source document.');
   }
@@ -93,7 +110,7 @@ export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocument
       : `<p class="warning">${preview.truncated ? 'The source preview is truncated; not all intake details are available.' : 'The saved source could not be interpreted as a JSON object. The returned text is shown below.'}</p>`}
       <details><summary>Saved source record${preview.truncated ? ' (truncated)' : ''}</summary><pre class="intake-value">${escape(preview.content)}</pre></details>
       <p class="muted">${escape(preview.record.path ?? '')}${preview.verifiedSha256 ? ' · read and verified' : ''}</p></section>
-    ${specificationSlicesHtml(source)}
+    ${specificationSlicesHtml(source, dropped)}
     <section><h2>Recorded reference repositories</h2>${references.length ? `<table><thead><tr><th>Repository</th><th>Branch</th><th>Pinned</th></tr></thead><tbody>${references.map(reference => `<tr><td>${escape(display(reference.id))}</td><td>${escape(display(reference.requestedBranch ?? reference.branch))}</td><td>${reference.commit ? 'to its exact commit' : 'not pinned'}</td></tr>`).join('')}</tbody></table>` : '<p>No reference repository was recorded.</p>'}</section>
     <section><h2>Currently attached evidence</h2><p class="muted">This catalog includes later uploads. It is not presented as the original attachment history.</p>${evidence.length ? `<table><thead><tr><th>Document</th><th>Type</th><th>Status</th></tr></thead><tbody>${evidence.map(document => `<tr><td>${escape(document.name ?? document.label ?? document.id ?? 'Document')}</td><td>${escape(document.type ?? '')}</td><td>${escape(document.availability ?? document.status ?? 'Recorded')}</td></tr>`).join('')}</tbody></table>` : '<p>No supporting evidence is reported in the current catalog.</p>'}</section>
     <button class="secondary" data-action="evidence">View evidence &amp; designs</button>

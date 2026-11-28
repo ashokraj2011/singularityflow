@@ -1,6 +1,8 @@
 /**
  * `singularity-flow spec attach WORK-ID --drop CLAUSE-ID --reason TEXT`: take one clause of a Story's
  * specification slice out of what it delivers, with the reason (SPEC-SPA v1.3 §6.3).
+ * `singularity-flow spec attach WORK-ID --bring-back CLAUSE-ID --reason TEXT`: its undo, the clause back in what this Story delivers
+ * (the drop taken back: its scope item is to be decided again) [owner, 2026-11-28: the Story's specification view drops it and brings it back].
  *
  * A slice is attached when the Story starts (`start --spec`). It is part of the Story's pinned source,
  * which the Story's creation commit makes immutable with the rest of its resolved policy, so it is
@@ -38,18 +40,20 @@ export async function specSliceDrop(positionals, options) {
   const root = repoRoot();
   const workId = positionals[2];
   const reference = positionals[3] ?? null;
-  const drops = optionStrings(options, 'drop');
+  const keeps = optionStrings(options, 'bring-back');
+  const drops = keeps.length ? keeps : optionStrings(options, 'drop');
+  const flag = keeps.length ? 'bring-back' : 'drop';
   if (workId && reference && !drops.length) {
     fail(`A Story's specification slice is attached when it starts, as part of its pinned source, which never changes afterwards; nothing was attached to ${workId}. Start the Story that delivers ${reference} with --spec, or take clauses out of ${workId}'s slice with --drop CLAUSE-ID --reason TEXT.`,
       'SPEC_SLICE_ATTACH_AT_START', { workId, nextAction: `singularity-flow start <WORK-ID> --spec ${reference} --from-branch <BRANCH>` });
   }
-  if (!workId || reference || drops.length !== 1) {
-    fail('Usage: singularity-flow spec attach WORK-ID --drop CLAUSE-ID --reason TEXT (one clause at a time).', 'SPEC_SLICE_REQUEST_INVALID',
+  if (!workId || reference || drops.length !== 1 || (keeps.length && optionStrings(options, 'drop').length)) {
+    fail('Usage: singularity-flow spec attach WORK-ID (--drop | --bring-back) CLAUSE-ID --reason TEXT (one clause at a time).', 'SPEC_SLICE_REQUEST_INVALID',
       { nextAction: 'singularity-flow help spec' });
   }
   if (!String(optionString(options, 'reason') ?? '').trim()) {
-    fail('Dropping a sliced clause needs the reason it leaves this Story: --reason TEXT.', 'SPEC_SLICE_REASON_MISSING',
-      { workId, nextAction: `singularity-flow spec attach ${workId} --drop ${drops[0]} --reason TEXT` });
+    fail(flag === 'bring-back' ? 'Bringing a dropped clause back needs the reason it is back in this Story: --reason TEXT.' : 'Dropping a sliced clause needs the reason it leaves this Story: --reason TEXT.', 'SPEC_SLICE_REASON_MISSING',
+      { workId, nextAction: `singularity-flow spec attach ${workId} --${flag} ${drops[0]} --reason TEXT` });
   }
   const [{ loadConfig }, { checkoutStoryBranch }] = await Promise.all([import('../state-stores.mjs'), import('../story-branch-name.mjs')]);
   const config = await loadConfig(root);
@@ -62,5 +66,5 @@ export async function specSliceDrop(positionals, options) {
       { workId, nextAction: `singularity-flow evidence scope ${workId}` });
   }
   const target = dropTarget(slices, drops[0]);
-  return { workId, clause: target.id, item: sliceClauseItem(target.clause) };
+  return { workId, clause: target.id, item: sliceClauseItem(target.clause), keep: flag === 'bring-back' };
 }

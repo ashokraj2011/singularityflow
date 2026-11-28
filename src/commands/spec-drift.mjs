@@ -63,7 +63,11 @@ export async function specDriftCommand(positionals, options) {
   const ref = optionString(options, 'ref') ?? null;
   if (ref && !refHead(root, ref)) throw new SingularityFlowError(`--ref ${ref} names no commit in this clone.`, { code: 'SPEC_DRIFT_REF_UNKNOWN' });
   const workId = optionString(options, 'work-id') ?? positionals[2] ?? null;
-  const report = evaluateSpecDrift(root, { workItemRoot: storiesRoot(config), workId, ref });
+  const stories = recordedStories(root, storiesRoot(config));
+  const report = evaluateSpecDrift(root, { workItemRoot: storiesRoot(config), workId, ref, stories });
+  // The Stories in progress here, which a fix can name: Spec Studio offers them, so nobody types a Work ID [owner, 2026-11-28].
+  const openStories = stories.filter((story) => !story.unreadable && story.status === 'in_progress')
+    .map((story) => ({ workId: story.workItem.id, title: story.workItem.title ?? null }));
   if (workId && !report.stories.length) {
     throw new SingularityFlowError(`No Story ${workId} is recorded in this checkout.`, { code: 'SPEC_DRIFT_STORY_UNKNOWN' });
   }
@@ -78,7 +82,7 @@ export async function specDriftCommand(positionals, options) {
     effects: noEffects(),
     why: [because('spec.drift.from-approved-receipts', 'evidence', { ref: report.target })],
     restState: 'informational',
-    data: { drift: report }
+    data: { drift: report, openStories }
   }), { json: true, restStateWhenIdle: 'informational' });
 }
 

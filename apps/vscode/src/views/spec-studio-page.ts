@@ -7,7 +7,7 @@ import { brandLockup, escape, icon } from './webview.ts';
 import {
   CHECKLIST_DECISIONS, copilotPrompt, FINDING_OUTCOMES, gapPipeline, GAP_KINDS, MAXIMUM_OPTIONS, nextRevision, shortClause, sliceOption,
   SPEC_STUDIO_STEPS, specBlocks, specClauses, startCommand,
-  type SpecCoverage, type SpecGap, type SpecGapImpact, type SpecLibrary, type SpecProposal, type SpecResearchItem, type SpecRevision, type SpecStatus,
+  type SpecCoverage, type SpecDrift, type SpecGap, type SpecGapImpact, type SpecLibrary, type SpecProposal, type SpecResearchItem, type SpecRevision, type SpecStatus,
   type SpecStudioStep, type SpecStudioTarget
 } from './spec-studio-model.ts';
 import { splitSectionHtml, type SpecSplitPlan, type SpecSplitView } from './spec-studio-split.ts';
@@ -37,6 +37,8 @@ export interface SpecStudioPageState {
   workingDraft?: { text: string; sequence: number; title?: string; kind?: string | null };
   /** Why sharing has not happened: kept here so it outlives the next render, until sharing succeeds. */
   sharing?: { message: string; next: string | null } | null;
+  /** Finished Stories' clauses that drifted from their code, on the library page [owner, 2026-11-28]. */
+  drift?: SpecDrift | null;
   saveState?: string; syncState?: string; shared?: Record<string, unknown> | null; history?: Array<{ sequence: number; savedAt: string; operation: string }>; sourceViews?: Array<Record<string, unknown>>;
 }
 
@@ -67,6 +69,23 @@ function notices(state: SpecStudioPageState): string {
 }
 
 // ---- The library ---------------------------------------------------------------------------
+
+/** The drift list: each clause a finished Story delivered that no longer matches its code, decided with one press and a reason. */
+export function driftHtml(drift: SpecDrift | null | undefined): string {
+  if (!drift?.rows.length) return '';
+  const stories = drift.openStories;
+  return `<section class="ss-library ss-drift" aria-label="Clauses that drifted" data-drift><h2>Clauses that drifted <span class="pill">${drift.rows.length}</span></h2>
+    <p class="muted">These clauses no longer match the code and tests their finished Story delivered. Accept the difference, or fix it in a Story in progress, with your reason.</p>
+    ${drift.rows.map((row) => `<form class="ss-form" data-form="spec.drift"><input type="hidden" name="clause" value="${escape(row.clauseId)}">
+      <h3><code>${escape(row.clauseId)}</code> <span class="pill">${row.status === 'orphaned' ? 'its code is gone' : 'drifted'}</span> <span class="muted">${escape(row.workId)}${row.title ? ` · ${escape(row.title)}` : ''}</span></h3>
+      ${row.findings.length ? `<ul class="muted">${row.findings.map((finding) => `<li>${escape(finding)}</li>`).join('')}</ul>` : ''}
+      <label class="field"><span>Your reason</span><input name="reason" minlength="20" maxlength="1000" required placeholder="Why, in a sentence"></label>
+      <div class="ss-controls"><button type="submit" name="outcome" value="accept">Accept the difference</button>
+      ${stories.length ? `<select name="story" aria-label="The Story that fixes it">${stories.map((story) => `<option value="${escape(story.workId)}">${escape(story.workId)}${story.title ? ` · ${escape(story.title)}` : ''}</option>`).join('')}</select>
+        <select name="direction" aria-label="How it is fixed"><option value="restore">The code goes back to the clause</option><option value="adopt">The clause follows the code</option></select>
+        <button type="submit" name="outcome" value="fix" class="secondary">Fix it in that Story</button>`
+        : '<span class="muted">To fix it instead, start a Story that changes it: it is offered here then.</span>'}</div></form>`).join('')}</section>`;
+}
 
 function libraryHtml(state: SpecStudioPageState): string {
   const library = state.library;
@@ -103,6 +122,7 @@ function libraryHtml(state: SpecStudioPageState): string {
         ${library?.unreadable?.length ? `<div class="notice warning" role="status" data-library-unreadable><span>Some entries could not be read, so they are not listed. Everything else is here, and your drafts are unchanged.</span><ul>${library.unreadable.map(entry => `<li><code>${escape(entry.specId)}</code> (${escape(entry.record)}): ${escape(entry.message)}</li>`).join('')}</ul></div>` : ''}
         ${library?.status === 'not-fetched' ? '<p class="muted" role="status">Shared specifications have not been loaded on this laptop. <button type="button" class="secondary" data-message="spec.refresh">Load shared specifications</button> Your local drafts are available.</p>' : ''}
         <p class="muted" data-search-empty hidden>No specifications match your search.</p>
+        ${driftHtml(state.drift)}
         ${library ? `<details class="ss-details"><summary>Library details</summary><p class="muted">${library.status === 'not-fetched' ? 'The state branch has not been fetched on this clone.' : library.status === 'absent' ? 'No published library on the state branch yet.' : `Read from the state branch: ${library.specs.length} specification${library.specs.length === 1 ? '' : 's'}.`}</p></details>` : ''}
       </div>
     </div></section>`;

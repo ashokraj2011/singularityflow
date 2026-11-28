@@ -18,7 +18,8 @@
 import { NODE_PIN_CLASS } from './node-pin-names.mjs';
 import { ISSUE_ONLY_OPTIONS, PERSON_STEPS } from './person-step-catalog.mjs';
 import { countedRecords, presenceRequires } from './presence/counted.mjs';
-import { MAX_PLAN_AMENDMENT_CHANGES, outsidePlanSettled, outsidePlanWho, planAuthorities } from './plan-amendments.mjs';
+import { MAX_PLAN_AMENDMENT_CHANGES, outsidePlanSettled, planAuthorities } from './plan-amendments.mjs';
+import { outsidePlanWho } from './outside-plan-words.mjs';
 import { clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, rowChangeWords, rowTakesPaths } from './plan-row-fit.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { personClass } from './person-change-class.mjs';

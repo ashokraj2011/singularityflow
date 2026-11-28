@@ -299,20 +299,25 @@ export async function settleToolWrites(pendingFile, { final = false, now = Date.
  * (copilot-mutation-guard.mjs, its before and after snapshot) [WCB:REQ-011]: one `tool: 'shell'` record of what each
  * file holds now (`after`, or `absent`), so who left it as it is can be read later. Never `verified` and with no line
  * steps: a line is never credited from it (writer-attribution.mjs reads only well-formed steps). `files` are
- * repository-relative; at most LIMIT.files, each read once.
+ * repository-relative; at most eight records of LIMIT.files each, every file read once.
  */
 export async function recordShellWrites({ root, gitDirectory, files = [], writer, subject = null, now = Date.now() }) {
   const repo = await realpath(root);
   const recorded = [];
-  for (const file of [...new Set(files)].slice(0, LIMIT.files)) {
+  for (const file of [...new Set(files)].slice(0, LIMIT.files * 8)) {
     if (typeof file !== 'string' || !file || file.includes('\0') || path.isAbsolute(file) || file.split('/').includes('..') || /^\.git(?:\/|$)/iu.test(file)) continue;
     let bytes;
     try { bytes = await bytesOf(path.join(repo, file)); } catch { continue; }
     recorded.push({ path: file, verified: false, after: bytes ? hash(bytes) : 'absent' });
   }
-  if (!recorded.length) return null;
+  if (!recorded.length) return [];
   const { head, branch } = await headOf(gitDirectory).catch(() => ({ head: null, branch: null }));
-  return recordObservedWrite(gitDirectory, { source: 'copilot-hook', tool: 'shell', writer, subject, head, branch, files: recorded }, { now });
+  const ids = [];
+  for (let at = 0; at < recorded.length; at += LIMIT.files) {
+    ids.push(await recordObservedWrite(gitDirectory, { source: 'copilot-hook', tool: 'shell', writer, subject, head, branch,
+      files: recorded.slice(at, at + LIMIT.files) }, { now }));
+  }
+  return ids;
 }
 
 /**

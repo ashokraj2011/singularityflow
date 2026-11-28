@@ -90,12 +90,27 @@ Everything below is about what is *not* a stop.
 ### Who changed it, and why
 
 - **WCB:REQ-011** Attribution is per file, from SFlow's own hook records (the XPL2 observed-write store in the
-  checkout's Git directory, written by the Copilot mutation guard in SFlow turns and by SF Guard in plain prompts):
+  checkout's Git directory, written by the Copilot mutation guard in SFlow turns and by SF Guard in plain prompts, and
+  SF Guard's terminal-command records):
   - `copilot`: a recorded Copilot write left the bytes the file holds now (its `after` digest, or `absent` for a
-    deleted file, equals the file's current SHA-256);
+    deleted file, equals the file's current SHA-256): an edit (`recorded-write`), or a terminal command in an SFlow
+    turn (`shell-write`: the turn's guard snapshots the checkout around every changing command, and keeps the files it
+    saw change as one `tool: 'shell'` record, never verified and with no line steps, so no line is credited from it).
+    With SF Guard on, also a Copilot terminal command of this Story its pre- and post-tool hooks recorded running when
+    the file last changed (`shell-call`: the file's modification time inside the call's start and end, two seconds
+    either side, as SF Guard's own reconciliation reads it);
+  - `base`: the file holds exactly what the Story's base branch has at a commit merged or pulled in since the Story
+    began (`merged-from-base`, git `mergedBaseChanges`): the base branch's change, not this Story's. It is still taken
+    up (its settlement says `writer: 'base'`, `branch`, `commit`), so the step's tests run on what it delivers and spec
+    coverage counts it; no reason is asked of anyone, and it is shown as "from main, merged in: not changed in this
+    Story", never "by you";
   - `person`: anything else. Its `basis` says which: `changed-after-copilot` (a Copilot write is recorded, but someone
-    changed the file since), `not-recorded` (hooks recorded other writes, not this file's), `no-hook-records` (no hook
-    ran in this checkout: IntelliJ's local agent, a symlinked folder, a terminal).
+    changed the file since), `not-recorded` (SFlow's hooks ran for this Story here, a write, a terminal command or a
+    prompt, and none recorded Copilot changing this file), `linked-folder` (no hooks ran here: VS Code opened the
+    folder through a link, where Copilot runs no hooks; shown as "by you (no SFlow hooks ran here: VS Code opened this
+    folder through a link)"), `no-hook-records` (no hooks ran here: IntelliJ's local agent, a terminal).
+  A checkout reached through a link is read at its real path: SF Guard's recorder and its readers resolve it, so the
+  records a hook wrote from the link (Copilot CLI runs hooks there) are found from either spelling.
   Unknown is "by you": no reason is demanded, and nothing waits. Records are evidence, never proof; the approver sees
   the basis.
 - **WCB:REQ-012** Copilot writes the reason in its step's document, under a heading `Changes outside the plan` (any
@@ -211,11 +226,13 @@ governs it), and another step's own document changed under the Story's `artifact
 
 ## Gaps
 
-- A Copilot write made through a shell command (`sed -i`, a generator) leaves no observed write, so it reads "by you".
-  SF Guard's shell records say a shell call changed the checkout, not which file.
-- A hook that ran in another checkout (a symlinked folder, VS Code's linked-folder case) wrote its records there.
-- A commit that merges upstream into the Story branch during a document step changes application files too; the code
-  step then lists upstream's files as "by you". A merge base is not yet subtracted.
+- Closed 2026-11-28 (branch `gaps-writers-bundle`): a Copilot terminal command's writes (REQ-011 `shell-write`,
+  `shell-call`), the base branch merged in (`base`), and a checkout reached through a link (real paths, `linked-folder`).
+  Tests: `test/code-outside-plan.test.mjs` (one case each), `test/change-story-page.test.mjs` (section 6's words) and
+  `test/watch-code-base.test.mjs` (main merged in while Intake is open, through the real CLI).
+- Still "by you": a terminal command Copilot runs in a plain prompt with SF Guard off (no hook keeps a record of it),
+  a file a Copilot terminal command deleted while SF Guard alone watched (a deleted file has no modification time), and
+  a base-branch file the Story changed again after the merge (it is the Story's change then).
 - A commit on a Story with no code step that touches both code and the Story's own document is taken out whole by the
   revert; the person makes the document change again.
 - Publication takes up a person's scratch note or unrelated edit too (a supporting change, or "by you"). When it breaks

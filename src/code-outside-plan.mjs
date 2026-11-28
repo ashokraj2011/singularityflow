@@ -23,7 +23,7 @@ import { applicationPathContext, isApplicationChangePath } from './application-p
 import { isWorkspaceLocalPath } from './workspace-local-paths.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { openScopeAppeal } from './phase-finding-policy.mjs';
-import { outsidePlanWho } from './plan-amendments.mjs';
+import { outsidePlanWho } from './outside-plan-words.mjs';
 import { posix } from './util.mjs';
 
 /**

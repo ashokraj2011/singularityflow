@@ -425,7 +425,7 @@ function riskItems(workflow, phase, review, documents) {
 /** What SFlow settled for the person on this step, each with its undo. */
 async function settledItems(workflow, phase) {
   try {
-    const [{ settledDecisions, settlementMatters }, { outsidePlanWho }] = await Promise.all([import('./settled-decisions.mjs'), import('./plan-amendments.mjs')]);
+    const [{ settledDecisions, settlementMatters }, { outsidePlanWho }] = await Promise.all([import('./settled-decisions.mjs'), import('./outside-plan-words.mjs')]);
     return settledDecisions(workflow).filter((entry) => !entry.undone && settlementMatters(workflow, entry) && (!entry.phase || entry.phase === phase.id))
       // A file changed outside the plan, taken up with the step: who changed it and why, at the file [WCB:REQ-014].
       // A supporting change that says who made it (a scratch note) reads the same, as one [owner, 2026-11-28]. A file that

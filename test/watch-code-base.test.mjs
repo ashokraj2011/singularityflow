@@ -234,6 +234,51 @@ test('code changed outside the plan, by Copilot or by you, early or late, commit
     assert.equal(await readFile(path.join(root, '.env.local'), 'utf8'), 'LEDGER_REGION=local\n');
   });
 
+test('main merged in while Intake is open: its file reaches the code step as main\'s, never "by you", on the approval and the change page [WCB]',
+  slowLane({ timeout: 900_000 }), async (t) => {
+    const W = 'WCB-4';
+    const { root, item, write, read } = await story(t, W);
+    // main moves on in a checkout of its own, and the Story branch merges it in while Intake waits.
+    const other = `${root}-main`;
+    git(root, 'worktree', 'add', '-q', other, 'main');
+    await writeFile(path.join(other, 'src/feature.mjs'), 'export const feature = true;\n');
+    git(other, 'add', 'src/feature.mjs');
+    git(other, 'commit', '-q', '-m', 'main adds a feature');
+    git(other, 'push', '-q', 'origin', 'main');
+    git(root, 'worktree', 'remove', '--force', other);
+    git(root, 'fetch', '-q', 'origin');
+    git(root, 'merge', '-q', '--no-edit', 'origin/main');
+    for (const args of [['submit', 'intake', '--json'], ['approve', 'intake', '--yes']]) {
+      const done = flow(root, args, { allowFailure: true });
+      assert.equal(done.status, 0, done.stdout + done.stderr);
+    }
+    const prepared = flow(root, ['prepare', 'implementation'], { allowFailure: true });
+    assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
+    await write('src/value.mjs', `// @clause:${W}:AC-001 returns the approved value\nexport const value = 2;\n`);
+    await write('test/value.test.mjs', valueTest(W, 2));
+    await writeFile(path.join(item, 'artifacts/implementation/implementation-summary.md'), summary(item, W));
+    const published = flow(root, ['phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json'], { allowFailure: true });
+    assert.equal(published.status, 0, published.stdout + published.stderr);
+    const taken = (await read()).settledDecisions.find((entry) => entry.effect?.file === 'src/feature.mjs' && !entry.undone);
+    assert.deepEqual([taken?.effect?.class, taken?.effect?.writer, taken?.effect?.basis, taken?.effect?.branch], ['out-of-plan', 'base', 'merged-from-base', 'main'], JSON.stringify(taken));
+    assert.equal(taken.answer, 'Took src/feature.mjs up with Code: it came from main, merged in: not changed in this Story.');
+
+    const submitted = flow(root, ['submit', 'implementation', '--json'], { allowFailure: true });
+    assert.equal(submitted.status, 0, submitted.stdout + submitted.stderr);
+    const approval = json(flow(root, ['decisions', W, '--json'])).data.items.find((entry) => entry.kind === 'approval');
+    assert.ok(approval);
+    assert.deepEqual(approval.details.fromBase.map((entry) => entry.words), ['src/feature.mjs: from main, merged in: not changed in this Story']);
+    assert.equal(approval.details.outsidePlan, undefined, 'nothing of this Story changed outside the plan');
+    assert.ok(approval.details.lines.includes('From main, merged in: src/feature.mjs. It holds what main has, not a change made in this Story, so there is nothing to decide.'),
+      JSON.stringify(approval.details.lines));
+    assert.ok(!approval.details.lines.some((line) => /feature\.mjs: by you/u.test(line)), JSON.stringify(approval.details.lines));
+    const page = await readFile(path.join(item, 'CHANGE-STORY.md'), 'utf8');
+    const section = page.slice(page.indexOf('## 6. Outside the plan'));
+    assert.ok(section.includes('- From `main`, merged in: `src/feature.mjs`. It holds what that branch has, not a change made in this Story.'), section.slice(0, 1500));
+    const approved = flow(root, ['approve', 'implementation', '--yes'], { allowFailure: true });
+    assert.equal(approved.status, 0, approved.stdout + approved.stderr);
+  });
+
 test('the hard stops stay: a clause with no test is refused even when everything else outside the plan is taken up [WCB:REQ-001]',
   slowLane({ timeout: 900_000 }), async (t) => {
     const W = 'WCB-2';

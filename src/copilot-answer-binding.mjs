@@ -164,7 +164,10 @@ export const REASON_RULES = Object.freeze({
   'upstream-issue revalidate': { reason: [20, 1000] }, 'upstream-issue decide': { reason: [20, 1000] },
   'decision applicability': { reason: [20, 1000] }, 'decision departure': { reason: [20, 1000] },
   'decision plan': { reason: [20, 1000], 'supporting-reason': [10, 500] }, 'decision scope': { reason: [20, 1000] },
-  'decision completeness': { reason: [20, 1000] }, 'review-source dispute': { reason: [20, 1000] }, 'decision override-finding': { reason: [20, 1000] }
+  'decision completeness': { reason: [20, 1000] }, 'review-source dispute': { reason: [20, 1000] }, 'decision override-finding': { reason: [20, 1000] },
+  // The Decide card's steps a chat takes on a bound yes, at each command's own limits [owner, 2026-11-28].
+  'upstream-issue decide-amendment': { reason: [20, 1000] }, 'decision witness-exception': { reason: [10, 1000] },
+  'decision test-risk': { reason: [20, 1000] }, 'decision test-narrowing': { reason: [20, 1000] }
 });
 
 function reasonLengthProblem(positionals, options) {
@@ -202,6 +205,24 @@ function yesNoCommand([command, sub, third, fourth], options, version = null) {
       yes: ['accept', 'keep', 'keep it'], no: ['reject'], typed: { yes: /\bd\d{1,3}=accept[\w-]*/u, no: /\bd\d{1,3}=reject\b/u } } : null;
   }
   if (command === 'decision' && sub === 'applicability') return { records: 'yes', only: true, row: `applicability ${text('responsibility')[0]}`, names: text('responsibility'), yes: [], no: [] };
+  // A forward amendment: approve is its yes and reject its no, each only on the person's answer to the question naming it
+  // [owner, 2026-11-28]. Renewing a lapsed witness exception and accepting a test run's or a finding's risk: only on a Yes to the
+  // question that showed the date it lasts until (and the test command it covers), never another row's.
+  if (command === 'upstream-issue' && sub === 'decide-amendment') {
+    const records = { approve: 'yes', reject: 'no' }[options.decision];
+    return records ? { records, row: `amendment ${third}`, names: [third].filter(Boolean), ids: /\bfam \d{3,}\b/u, yes: ['approve it', 'approve'], no: ['reject it', 'reject'],
+      typed: { yes: /\bd\d{1,3}=approve-amendment\b/u, no: /\bd\d{1,3}=reject-amendment\b/u } } : null;
+  }
+  if (command === 'decision' && ['witness-exception', 'test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'visual-profile'].includes(sub) && options.revoke === undefined) {
+    const names = [...text('expires'), ...text('command'), ...text('profile')];
+    return { records: 'yes', only: true, asked: true, row: `${sub} ${[...text('mapping'), ...text('finding'), ...text('command'), ...text('from-attempt'), ...text('profile')].join(' ') || third}`,
+      names, yes: ['renew', 'renew it', 'accept', 'accept it'], no: [] };
+  }
+  // A code's command a turn would not run itself (copilot-mutation-guard.mjs codeYesAllowed): only on a Yes to the question
+  // naming the code, in place of the person typing it [owner, 2026-11-28].
+  if (command === 'confirm' && /^[0-9A-Z]{4}-[0-9A-Z]{4}$/u.test(sub ?? '')) {
+    return { records: 'yes', only: true, asked: true, code: sub, row: `confirm ${sub}`, names: [sub], yes: ['go ahead', 'run it', 'do it', 'confirm', 'confirm it'], no: [] };
+  }
   // An undo of what was settled, and an intent amendment's acknowledgement: each only on a Yes to the question naming it [owner, 2026-11-19].
   if (command === 'decisions' && sub === 'undo') return { records: 'yes', only: true, asked: true, row: `undo ${text('settled')[0]}`, names: text('settled'), yes: ['undo', 'undo it'], no: [] };
   // Disputing the reviewer's finding: only on a Yes to the question naming it, with the person's own reason [owner, 2026-11-20].
@@ -321,6 +342,12 @@ function yesNoProblem(ledger, yesNo, { localChat = false } = {}) {
   if (yesNo.proposal) return successorProblem(found, ledger, yesNo, { localChat });
   const records = yesNo.records === 'yes' ? 'Yes' : 'No';
   // VS Code's own chat may never hand this hook the answer: asking again would meet this refusal again.
+  if (found.problem === 'none' && localChat && !ledger.delivered && yesNo.code) {
+    return `${REFUSAL} This chat's answers do not reach SFlow, so the person's Yes to ${yesNo.code} cannot be read here; do not ask again in this chat. Give them /sf-confirm ${yesNo.code} to send as their next message: it runs this once.`;
+  }
+  if (found.problem === 'none' && yesNo.code) {
+    return `${REFUSAL} This runs only on the person's Yes, and they gave none for ${yesNo.code} in this turn. Show them what it does in plain words, ask "Go ahead with this (${yesNo.code})?" with your question tool (ask_user; in VS Code, vscode_askQuestions), its choices Yes and Not now, and run it only after their Yes.`;
+  }
   if (found.problem === 'none' && localChat && !ledger.delivered) {
     return `${REFUSAL} This chat's answers do not reach SFlow, so a yes or no for this row cannot be recorded here; do not ask again in this chat. The person answers it on the decisions card (sflowDecide or sflow_decide with the Story ID) or in their own terminal (singularity-flow decisions record <WORK-ID>); go on to the next item.`;
   }

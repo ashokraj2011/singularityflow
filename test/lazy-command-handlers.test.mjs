@@ -1281,11 +1281,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,989,418 (measured for submit.mjs, +68 over 9,989,350, 2026-11-28 on carry-on-2 merged with main 9dfff1954): every
     // turn no note carries on ends with /sf-next, and a host with no hook types it between steps (model-free-commands.mjs,
     // its one-line note). No new eager file.
-    // 9,989,522 (+104 over 9,989,418, measured 2026-11-28 on office-probes merged with main 3284009d4, commands/submit.mjs): the
+    // 9,992,170 (measured for submit.mjs, +2,752 over main's 9,989,418 on no-typing-2 merged with main 3284009d4, 2026-11-28;
+    // start.mjs 9,988,488, approve.mjs 9,897,486): a copied value with a slip offers the same command with the exact value
+    // (text-lines.mjs +1,210), the steps a /sf-decide turn takes on the person's bound Yes (person-step-catalog.mjs +894), and the
+    // card's rows and their Story in the route (model-free-commands.mjs +487, copilot-guidance.mjs +161) [owner, 2026-11-28]. No new eager file.
+    // 9,992,274 (+104 over 9,992,170, measured 2026-11-28 on office-probes merged with main ea5f16c55, commands/submit.mjs): the
     // probe command classifies (command-registry.mjs +62), routes to /sf-doctor (command-skills.mjs +24) and reads
     // --host-questions as a flag (util.mjs +18); the office checks load only for probe office (commands/probe.mjs, office-probe/).
     // No new eager file.
-    assert.ok(closure.bytes <= 9_989_522, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_992_274, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -2046,9 +2050,12 @@ test('the common session projection does not import attach, state stores or publ
   // steps moved to it (model-free-commands.mjs +282) and the records SF Guard signs there (person-step-catalog.mjs +75). No new eager file.
   // 4,418,669 (+68 over 4,418,601, measured 2026-11-28 on carry-on-2 merged with main 9dfff1954): the presentation
   // contract's line for a host with no hook (model-free-commands.mjs). No new eager file.
-  // 4,418,773 (+104 over 4,418,669, measured 2026-11-28 on office-probes merged with main 3284009d4): the probe command's
+  // 4,420,211 (+1,542 over main's 4,418,669, measured 2026-11-28 on no-typing-2 merged with main 3284009d4): the steps a /sf-decide
+  // turn takes on the person's bound Yes (person-step-catalog.mjs +894) and the card's rows and their Story in the route
+  // (model-free-commands.mjs +487, copilot-guidance.mjs +161) [owner, 2026-11-28]. No new eager file.
+  // 4,420,315 (+104 over 4,420,211, measured 2026-11-28 on office-probes merged with main ea5f16c55): the probe command's
   // classification, route and flag, as for submit above. No new eager file.
-  assert.ok(current.bytes <= 4_418_773, `session current loads ${current.bytes} source bytes`);
+  assert.ok(current.bytes <= 4_420_315, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

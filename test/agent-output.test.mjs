@@ -176,8 +176,12 @@ test('a returned confirmation becomes an ask with its exact value, and its Copil
     nextCommand: `singularity-flow story advance --work-id W --confirm ${digest}`, nextSkill: '/sf-submit' });
   assert.equal(act.state, 'confirm');
   assert.equal(act.ask.value, digest);
-  // The agent runs it by its code, so the digest is never retyped [owner, 2026-11-20].
-  assert.match(act.ask.how, /ask the person in this chat, and only on an explicit yes run do\.confirm \(do\.shell by its code\) once/u);
+  // The agent runs it by its code, so the digest is never retyped [owner, 2026-11-20]; the person answers one Yes to a question
+  // naming the code, never types it [owner, 2026-11-28].
+  const code = confirmCode(`singularity-flow story advance --work-id W --confirm ${digest}`);
+  assert.equal(act.ask.question, `Go ahead with this (${code})?`);
+  assert.deepEqual(act.ask.choices.map((choice) => choice.label), ['Yes', 'Not now']);
+  assert.match(act.ask.how, /ask ask\.question exactly, once, with your question tool \(ask_user; in VS Code, vscode_askQuestions\)\. Only on their Yes run do\.confirm \(do\.shell by its code\) once/u);
   // The route a person types names the code that stands for this exact command, never the digest.
   assert.equal(act.do.copilot, `/sf-confirm ${confirmCode(`singularity-flow story advance --work-id W --confirm ${digest}`)}`);
   assert.equal(act.do.confirm, `singularity-flow confirm ${confirmCode(`singularity-flow story advance --work-id W --confirm ${digest}`)}`);

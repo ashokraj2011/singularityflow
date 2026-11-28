@@ -50,19 +50,20 @@ test('legacy, disabled and unsupported-version engines keep existing intake unch
   }
 });
 
-test('default selections do not authorize Start, and a digest is sent only after exact confirmation', () => {
+test('Start Story is the one Yes to the plan shown: no box to tick, the digest goes with Start only, never with a read [owner, 2026-11-28]', () => {
   const form = story({ testRecovery: capability() });
   assert.equal(testRecoveryCanConfirm(form), true);
-  assert.match(intakeProblems(form).join(' '), /Explicitly confirm/);
-  assert.ok(!intakeCommand(form).includes('--test-policy-confirm'));
-  assert.match(intakeHtml(form), /data-test-recovery-confirm="sha256:[a-f0-9]{64}">/);
-  assert.match(intakeHtml(form), /data-submit="start" disabled/);
-  const confirmed = { ...form, testRecoveryConfirmedDigest: digest };
-  assert.deepEqual(intakeProblems(confirmed), []);
-  const argv = intakeCommand(confirmed);
-  assert.equal(argv[argv.indexOf('--test-policy-confirm') + 1], digest);
-  assert.ok(!storyPreflightCommand(confirmed).includes('--test-policy-confirm'), 'a read cannot carry consent');
-  assert.ok(storyPreflightCommand(confirmed).includes('--test-baseline-disposition'));
+  assert.deepEqual(intakeProblems(form), [], 'nothing to tick before Start');
+  assert.doesNotMatch(intakeHtml(form), /data-test-recovery-confirm|type="checkbox"[^>]*test-recovery|Display defaults are not consent/u);
+  assert.match(intakeHtml(form), /Start Story is your Yes to this exact plan: its scope, unknowns, required checks and first route\./u);
+  const argv = intakeCommand(form);
+  assert.equal(argv[argv.indexOf('--test-policy-confirm') + 1], digest, 'bound to the plan the page shows');
+  assert.ok(!storyPreflightCommand(form).includes('--test-policy-confirm'), 'a read cannot carry consent');
+  assert.ok(storyPreflightCommand(form).includes('--test-baseline-disposition'));
+  // A plan that is not complete is never confirmed: Start waits for it.
+  const pending = story({ testRecovery: { ...capability(), ready: false } });
+  assert.ok(!intakeCommand(pending).includes('--test-policy-confirm'));
+  assert.match(intakeProblems(pending).join(' '), /Refresh and resolve the Test and recovery plan/u);
 });
 
 test('Story preflight and Start both bind the isolated target checkout', () => {
@@ -88,7 +89,8 @@ test('first preflight discovers policy and evaluates choices in one read without
     assert.equal(intakeCommand(form).includes('--test-baseline-disposition'),
       testRecovery?.schemaVersion === 1 && testRecovery?.enabled === true,
       'disabled/undiscovered policy never receives mutation agreement flags');
-    assert.ok(!intakeCommand(form).includes('--test-policy-confirm'), 'defaults are not consent');
+    // Start Story is the person's one Yes to the plan the page shows, once it is complete [owner, 2026-11-28]; the read above never is.
+    assert.equal(intakeCommand(form).includes('--test-policy-confirm'), testRecoveryCanConfirm(form), 'only a complete plan, as shown');
   }
 });
 
@@ -123,12 +125,11 @@ test('unsupported or unreviewable failure acceptance is visibly unavailable and 
   assert.equal(testRecoveryCanConfirm({ ...missingEligibility, testBaselineDisposition: 'accept-known-failures' }), false);
 });
 
-test('changed engine plan, malformed digest and missing readiness never reuse confirmation', () => {
-  for (const preview of [
-    capability({ planDigest: `sha256:${'b'.repeat(64)}` }),
-    capability({ planDigest: 'not-a-digest' }), capability({ ready: false }),
-    capability({ ready: undefined })
-  ]) {
+test('a changed engine plan is confirmed as it is shown now, never as an older one; a malformed or unready plan never is', () => {
+  const changed = `sha256:${'b'.repeat(64)}`;
+  const argv = intakeCommand(story({ testRecovery: capability({ planDigest: changed }), testRecoveryConfirmedDigest: digest }));
+  assert.equal(argv[argv.indexOf('--test-policy-confirm') + 1], changed, 'the plan on the page, not one an earlier tick named');
+  for (const preview of [capability({ planDigest: 'not-a-digest' }), capability({ ready: false }), capability({ ready: undefined })]) {
     const form = story({ testRecovery: preview, testRecoveryConfirmedDigest: digest });
     assert.ok(intakeProblems(form).length > 0);
     assert.ok(!intakeCommand(form).includes('--test-policy-confirm'));

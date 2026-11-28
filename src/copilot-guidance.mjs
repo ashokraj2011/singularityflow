@@ -186,7 +186,9 @@ function skillRouteForCommand(command, skill, fallback) {
     // `decisions undo|learn <WORK-ID>` opens the same list: its Story, never the subcommand (`/sf-decide undo`, landing-6).
     const match = !/[\u0000-\u001f\u007f]/u.test(value)
       && value.match(/^(?:singularity-flow|sflow)\s+decisions\s+(?:(?:undo|learn)\s+)?([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s|$)/u);
-    return match && !['record', 'undo', 'learn'].includes(match[1]) ? `${selected} ${match[1]}` : selected;
+    if (match && !['record', 'undo', 'learn'].includes(match[1])) return `${selected} ${match[1]}`;
+    // A step the Decide card records that a /sf-decide turn also takes on the person's Yes: its Story too [owner, 2026-11-28].
+    return cardRoute(value) ?? selected;
   }
   // /sf-amend drafts and proposes an amendment; /sf-reject's bare form returns a phase [owner, 2026-11-14].
   if (/^\/sf-(?:amend|reject)$/u.test(selected) && /^(?:singularity-flow|sflow)\s+story\s+intent-amendment\s+(?:draft|propose)(?:\s|$)/u.test(value)) return '/sf-amend propose';

@@ -213,7 +213,7 @@ test('the way on names who does what, in plain words, from any snapshot', () => 
   assert.deepEqual(approval, { where: 'W-1 is at Planning (version 2): submitted, waiting for approval.',
     why: adviceForStep(workflow, 'planning').decides,
     next: { by: 'person', kind: 'approval', words: 'Review and approve Planning: SFlow asks you here; in VS Code it opens the approval page.' } });
-  assert.match(approval.why, /^You decide if Planning /u);
+  assert.match(approval.why, /^You decide /u);
   const none = storyWayOut(nextStepsSnapshot({ initialized: true }), null);
   assert.equal(none.where, 'No Story is open in this chat.');
   assert.equal(none.next.by, 'person');

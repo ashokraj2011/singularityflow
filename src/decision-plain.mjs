@@ -138,7 +138,10 @@ function question(workflow, item) {
     case 'review-finding':
       return `Dispute the reviewer's finding ${details.finding} on ${step} version ${details.generation}?`;
     case 'check-finding':
-      return `Override the check's finding ${details.code} on ${step} version ${details.generation}?`;
+      return details.report ? `Is SFlow's check ${details.code} wrong here, on ${step} version ${details.generation}?`
+        : `Override the check's finding ${details.code} on ${step} version ${details.generation}?`;
+    case 'browser-sign-off':
+      return `Sign off SFlow's screenshot of the ${details.server} page for ${step} version ${details.generation}?`;
     // One approval question everywhere, by step and version (owner, 2026-11-19): "Approve Requirements v1?".
     case 'approval':
       return `Approve ${step}${Number.isSafeInteger(details.generation) && details.generation > 0 ? ` v${details.generation}` : ''}?`;
@@ -177,7 +180,10 @@ function why(workflow, item) {
     case 'review-finding':
       return `The reviewer found: ${clip(bare(details.message ?? ''), 160)}. Its author fixes it unless you dispute it.`;
     case 'check-finding':
-      return `The check found: ${clip(bare(details.message ?? ''), 160)}. Its author fixes it unless you override it.`;
+      return details.report ? `The check found: ${clip(bare(details.message ?? ''), 160)}. Nothing else gets past it; your reason moves the Story on, and it shows as overridden.`
+        : `The check found: ${clip(bare(details.message ?? ''), 160)}. Its author fixes it unless you override it.`;
+    case 'browser-sign-off':
+      return `SFlow could not capture the ${details.server} page itself. Your sign-off on its saved screenshot is recorded as signed off by you, not captured by SFlow.`;
     case 'approval': {
       // Each disputed finding of its review, with who disputed it and why, beside the approval [owner, 2026-11-20].
       const disputed = details.disputes?.length ? ` ${details.disputes.map((entry) => entry.words).join(' ')} Return the step if you agree with the reviewer.` : '';
@@ -262,6 +268,7 @@ function skipWords(item) {
   switch (item.kind) {
     case 'review-finding': return 'Don\'t dispute (the author fixes it)';
     case 'check-finding': return 'Don\'t override (the author fixes it)';
+    case 'browser-sign-off': return 'Not now (SFlow sets up its browser check first)';
     case 'convergence-answer': return 'Keep this answer';
     case 'convergence-settled': return 'Keep what the plan says';
     default: return 'Not now (nothing waits on it)';
@@ -271,6 +278,7 @@ function skipWords(item) {
 /** What an offered item lets the person do, as the one line a chat may say of it; never asked as a question. */
 const OFFER_WORDS = Object.freeze({ 'review-finding': 'dispute a reviewer\'s finding you disagree with',
   'check-finding': 'override a check\'s finding the check got wrong',
+  'browser-sign-off': 'sign off a page SFlow could not capture',
   'scope-completeness': 'record that you reviewed the scope for completeness',
   'convergence-answer': 'change an answer already given', 'convergence-settled': 'overrule what the plan settled' });
 

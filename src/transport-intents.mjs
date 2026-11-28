@@ -512,7 +512,8 @@ function classified(result) {
   // Every transport intent is a push: a refusal here means the account cannot write, not read.
   if (failure.classification === 'authorization-denied') {
     return { ...failure, retryable: false, advice: 'Your Git account can read this repository but cannot push to it. '
-      + 'Ask the repository owner for write access (with SSO, authorize your credential for the organisation), then retry.' };
+      + 'Ask the repository owner for write access (with SSO, authorize your credential for the organisation), then retry. '
+      + 'Send them: "Please give my Git account write access to this repository; SFlow could not push my commit and will send it unchanged once I can write."' };
   }
   return { ...failure, retryable: AUTO_RETRYABLE.has(failure.classification) };
 }

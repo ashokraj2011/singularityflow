@@ -1038,7 +1038,7 @@ Usage:
   singularity-flow decision witness-exception [WORK-ID] [--fetch] --phase STEP --mapping sha256:... --expires YYYY-MM-DD --reason TEXT [--json]
   singularity-flow decision witness [WORK-ID] [--fetch] --criterion AC-ID --slot SLOT (--file PATH | --attest) (--confirm ITEM | --deny ITEM)... --reason TEXT [--json]
   singularity-flow decision witness-defer [WORK-ID] [--fetch] --criterion AC-ID --slot SLOT --to STEP --reason TEXT [--json]
-  singularity-flow decision override-finding [WORK-ID] [--fetch] [--phase STEP] --finding CHK-ID --reason TEXT [--json]
+  singularity-flow decision override-finding [WORK-ID] [--fetch] [--phase STEP] --finding CHK-ID (--reason TEXT | --sign-off) [--json]
   singularity-flow decision screenshot [WORK-ID] --criterion AC-ID --slot SLOT [--replace] [--wait SECONDS] [--json]
   singularity-flow decision visual-risk [WORK-ID] [--fetch] --comparison VISUAL-ID --expires YYYY-MM-DD --reason TEXT [--json]
   singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]

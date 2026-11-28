@@ -24,6 +24,8 @@ import { storyLocation } from './story-paths.mjs';
 
 export { CHANGE_STORY_FILE, CHANGE_EXPLANATION_FILE };
 
+/** The page's section for what a person decided in SFlow's place; the pull request shows its own (pull-request.mjs). */
+export const PERSON_DECISIONS_SECTION = '## Decided by a person, not checked by SFlow';
 export const CHANGE_STORY_LIMITS = Object.freeze({ files: 200, fileBytes: 512 * 1024, explanationBytes: 256 * 1024, how: 1500, entry: 600,
   reasons: 12, decisions: 8, reasonCharacters: 400, criteria: 60 });
 
@@ -331,6 +333,15 @@ async function outsidePlan(workflow, steps) {
   } catch { return null; }
 }
 
+/** What a person decided where SFlow's own check could not, each said as what it is (finding-overrides.mjs) [owner, 2026-11-28]. */
+async function personDecisions(workflow) {
+  if (!workflow?.findingOverrides?.length) return [];
+  try {
+    return (await import('./finding-overrides.mjs')).personOverrideLines(workflow)
+      .map((entry) => ({ step: workflow.phases?.[entry.phase]?.label ?? entry.phase, generation: entry.generation, words: plain(entry.words, CHANGE_STORY_LIMITS.entry) }));
+  } catch { return []; }
+}
+
 /**
  * The page's facts for a Story, or null when no code step has a published version yet [CSP:REQ-006]. `revision` is the
  * commit whose bytes the code steps delivered; null reads the checkout (inside the publication's own commit, before it).
@@ -373,6 +384,7 @@ export async function buildChangeStory(root, config, workflow, { revision = null
     files,
     tests: await testRun(root, workflow, steps),
     outsidePlan: await outsidePlan(workflow, steps),
+    personDecisions: await personDecisions(workflow),
     withheld: words.withheld,
     codeSteps: steps.map((step) => ({ id: step.id, label: step.label ?? step.id, generation: Number(step.generation ?? 0) }))
   };
@@ -446,6 +458,9 @@ export function renderChangeStory(model) {
     out.push('## 6. Outside the plan', '', ...model.outsidePlan.map((entry) => `- ${code(entry.file)}: ${entry.supporting
       ? `${entry.writer === 'copilot' ? `by Copilot${entry.reason ? `: ${entry.reason}` : ''}` : 'by you'}, as a supporting change`
       : entry.writer === 'copilot' ? `by Copilot: ${entry.reason ?? 'no reason written'}` : 'by you'}`), '');
+  }
+  if (model.personDecisions?.length) {
+    out.push(PERSON_DECISIONS_SECTION, '', ...model.personDecisions.map((entry) => `- ${entry.step} version ${entry.generation}: ${entry.words}`), '');
   }
   if (model.withheld) out.push(`_SFlow did not show ${plural(model.withheld, 'note')} from the code step: ${model.withheld === 1 ? 'it' : 'each'} had a link, markup, code or a secret's shape, or named something this change does not hold._`, '');
   return `${out.join('\n').trimEnd()}\n`;

@@ -179,7 +179,7 @@ export const SDA_NAMES = Object.freeze({
   'workspace-repository-missing': ['src/commands/session-current.mjs'],
   // The plain-language check (840e3fc2d) skips it as one of the route fields whose text is a command: the same field.
   remapAction: ['scripts/plain-language-check.mjs', 'src/cli.mjs', 'src/organisation.mjs', 'src/refusal-remediation.mjs'],
-  'configuration-approve': ['src/commands/push.mjs', 'src/copilot-mutation-guard.mjs', 'src/person-step-catalog.mjs'],
+  'configuration-approve': ['src/commands/push.mjs', 'src/copilot-mutation-guard.mjs', 'src/person-step-catalog.mjs', 'src/person-step-routes.mjs'],
   maximumDrafts: ['src/local-backup.mjs'],
   savedConfigurationDrafts: ['src/factory-reset.mjs'],
   // M4 leftover: cancellation inside a transition. Cancelled after its commit, before its push: retained.

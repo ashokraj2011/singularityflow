@@ -124,9 +124,9 @@ test('the skill is /sf-reject\'s intent-amendment route on its own, with the sha
     assert.match(command, /^(?:status|nextsteps|session current|story intent-amendment(?: (?:status|draft|preview|propose))?)(?:\s|$)/u, command);
   }
   assert.doesNotMatch(amend, /intent-amendment (?:decide|acknowledge)/u);
-  // Proposed only on the person's own yes to its preview, with their words as the reason [CIC:REQ-015, owner decision 3].
+  // Proposed without asking, its reason one line on why; the person decides it once (owner, 2026-11-28) [CIC:REQ-015].
   // No --file: it proposes the Story's own draft, so no path is typed [owner, 2026-11-20].
-  assert.match(amend, /story intent-amendment propose --work-id <WORK-ID> --reason "<THEIR WORDS>" --authored governed-agent --channel copilot-host --json/u);
+  assert.match(amend, /story intent-amendment propose --work-id <WORK-ID> --reason "<one line: why it is proposed>" --authored governed-agent --channel copilot-host --json/u);
   // The decision and the acknowledgement, said as the product says them: a person's, on the card or in their own terminal.
   assert.match(amend, /The decision and the acknowledgement are a person's, never this turn's: a person who approves the scope decides it on the decisions card, `\/sf-decide <WORK-ID>`/u);
   assert.match(amend, /or in their own terminal/u);

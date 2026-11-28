@@ -243,7 +243,9 @@ src/commands/work.mjs).
   workflow choice.
 - **What it asks.** The Story's details: its ID, title and "What do you want done?" (and its acceptance criteria, optional),
   or its Jira key or GitHub Issue as today; its documents, each with its name and where it is kept (Git or this machine, as
-  the task's workflow allows); its base branch and Story branch. Each field says what it is for.
+  the task's workflow allows); its base branch (the repository's default branch, as /sf-task's, until the person chooses
+  another) and its Story branch. Each field says what it is for. "Start the task" is offered on every step once nothing is
+  missing; the review step stays there to read.
 - **What it hides.** The workflow picker, the phases a document is used in (every step of the task reads it), the target
   URL, reference repositories and the testing and quality-gate choices: a task uses start's own (hard gates, SFlow runs the
   tests itself), and the review step says so.

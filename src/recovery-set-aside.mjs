@@ -32,6 +32,21 @@ export function setAsideWorktreeAction(worktreeAction, workflow, phase, publishe
   };
 }
 
+/**
+ * One file kept out of the open code step [WCB:REQ-015]: after its take-up is undone, the checkout and the Git index are
+ * saved in a private recovery copy first; then only `files` return to their committed bytes, and an untracked one is
+ * deleted. The person's step, from the Decide page's "Keep <file> out of this Story".
+ */
+export async function setAsideFiles(root, config, workflow, files) {
+  return withSubjectLock(root, { kind: 'story', id: workflow.workItem.id }, async () => {
+    assertNoHiddenWorktreeChanges(root, 'Setting a file aside');
+    const phase = workflow.phases[workflow.currentPhase];
+    const checkpoint = await createPhaseCheckpoint(root, config, workflow, phase);
+    const { restored, removed } = restorePathsToHead(root, files);
+    return { paths: files, restored, removed, checkpoint: checkpoint.id, inspect: checkpoint.next };
+  });
+}
+
 export async function setAsideRecovery(root, config, workflow, options) {
   return withSubjectLock(root, { kind: 'story', id: workflow.workItem.id }, async () => {
     assertNoHiddenWorktreeChanges(root, 'Setting aside held changes');

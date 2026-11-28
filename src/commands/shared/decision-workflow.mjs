@@ -24,7 +24,8 @@ export async function decisionWorkflow(positionals, options, action) {
   }
   try {
     const held = receiptToken || action === 'approve' ? await heldForLaterCode(root, config, workflow) : null;
-    if (receiptToken) assertLifecycleWorktreeClean(root, null, null, { workId: optionString(options, 'work-id') ?? branch(root), held });
+    // The Story's own rules for its checkout: a document step leaves code base files in place [WCB:REQ-006].
+    if (receiptToken) assertLifecycleWorktreeClean(root, config, workflow, { workId: optionString(options, 'work-id') ?? branch(root), held });
     if (action === 'approve') assertLifecycleWorktreeClean(root, config, workflow, { held });
   } catch (error) {
     // A draft of a step not yet submitted is authoring work, not cleanup. A clean checkout goes on

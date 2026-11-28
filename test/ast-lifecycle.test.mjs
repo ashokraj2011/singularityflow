@@ -216,15 +216,11 @@ test('source changes do not create an AST receipt prerequisite at submission', a
     });
     assert.equal(historical.applies, false);
     assert.deepEqual(historical.errors, []);
-    await assert.rejects(
-      submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false }),
-      (error) => error.code === 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION'
-        && error.details?.changedPaths?.includes('README.md'),
-      'the artifact-only phase must refuse post-publication source edits without inventing an AST gate'
-    );
-    await writeFile(path.join(root, 'README.md'), '# AST lifecycle fixture\n');
+    // A document step never stops for a code base file changed after its publication: it stays in the checkout for the
+    // code step ahead [WCB:REQ-005], and no AST gate is invented for it.
     await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
     assert.equal(workflow.currentPhase, 'requirements');
+    assert.equal(await readFile(path.join(root, 'README.md'), 'utf8'), '# Relevant bytes changed after publication\n');
   });
 });
 

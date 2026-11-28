@@ -17,7 +17,7 @@ import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN, qualifiedClauseIds
 import { isTestAutomationPath, isTestSupportPath } from './source-boundary.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
 import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supporting-changes.mjs';
-import { accountedAmendmentPaths, departureCandidatePaths, planAmendmentRecord } from './plan-amendments.mjs';
+import { accountedAmendmentPaths, departureCandidatePaths, outsidePlanSettled, planAmendmentRecord } from './plan-amendments.mjs';
 import { mergedVerificationContracts, normalizeVerificationContracts, parseVerificationContracts, validateRetainedEvidenceDeclarations } from './verification/contracts.mjs';
 import { nonTestVerification, parseVerificationIntent, validatePlannedVerification } from './verification/intent.mjs';
 import { verifyPlanEvidenceAmendments } from './plan-evidence-amendments.mjs';
@@ -1850,6 +1850,9 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
   // So is a departure's file while a person decides it: submission goes ahead, and the step's approval
   // waits for that decision instead [CQF:REQ-022, REQ-023]. A rejected one is not, and goes back.
   for (const candidate of departureCandidatePaths(workflow)) claimedPaths.add(candidate);
+  // And a file its code step took up because it changed outside the plan, by Copilot with its reason or by a person: no
+  // clause's question. A clause still needs its own code and test [WCB:REQ-001, REQ-010].
+  for (const { file } of outsidePlanSettled(workflow)) claimedPaths.add(file);
   const unimplemented = [...clauses.keys()].filter((id) => {
     const claim = observedClaims[id];
     if (!claim) return true;

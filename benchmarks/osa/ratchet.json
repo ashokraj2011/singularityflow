@@ -387,7 +387,7 @@
       "predicateCalls": 3,
       "skillChooserCalls": 1,
       "routeObjects": 3,
-      "lifecycleCommands": 4,
+      "lifecycleCommands": 3,
       "skillLiterals": 2
     },
     "generation-publication-store.mjs": {

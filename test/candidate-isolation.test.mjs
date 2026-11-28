@@ -207,7 +207,7 @@ test('a folder this checkout would commit stays out, and another repository gets
   assert.equal(await lstat(path.join(other, 'node_modules')).catch((error) => error.code), 'ENOENT');
 });
 
-test('local verification isolates unrelated edits; publication requires explicit accounting or private preservation [D9]', async (t) => {
+test('local verification isolates unrelated edits; publication takes them up, and a person keeps each out in one step with a private copy [D9, WCB:REQ-010, REQ-015]', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-isolation-'));
   const remote = `${root}.git`;
   // Git's detached maintenance can still be writing .git/objects as the test ends (ENOTEMPTY).
@@ -302,15 +302,34 @@ test('local verification isolates unrelated edits; publication requires explicit
   const local = JSON.parse(cli('tests', 'run', '--work-id', W, '--phase', 'implementation', '--json').stdout);
   assert.ok(local.commands.every(command => command.status === 'passed'), JSON.stringify(local));
   assert.equal(await readFile(path.join(root, 'src/config.mjs'), 'utf8'), unrelated);
+  // Publication takes up every file no plan row names, nobody asked [WCB:REQ-010]; its tests then run on that code and
+  // fail, a hard stop [WCB:REQ-001].
   const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /These changed files would be excluded from implementation/);
-  const recovery = JSON.parse(cli('recover', W, '--json').stdout);
-  const aside = recovery.actions.find(action => action.id === 'set-aside-worktree');
-  assert.deepEqual(aside.paths, ['component.mdx', 'data.txt', 'src/config.mjs', 'src/scratch.mjs']);
-  const preserved = JSON.parse(cli(...aside.commandGuidance.argv).stdout);
-  const checkpoint = JSON.parse(cli('appeal', 'checkpoint-show', preserved.setAside.checkpoint, '--work-id', W, '--phase', 'implementation', '--json').stdout);
-  for (const file of aside.paths) assert.ok(JSON.stringify(checkpoint).includes(file), file);
+  assert.doesNotMatch(refused.stdout + refused.stderr, /would be excluded from implementation/);
+  const unrelatedFiles = ['component.mdx', 'data.txt', 'src/config.mjs', 'src/scratch.mjs'];
+  const taken = (JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).settledDecisions ?? [])
+    .filter((entry) => !entry.undone && unrelatedFiles.includes(String(entry.subject ?? '').replace(/^file:/u, '')));
+  assert.deepEqual(taken.map((entry) => entry.subject.replace(/^file:/u, '')).sort(), unrelatedFiles);
+  // The person keeps each one out in one step from the Decide page: SFlow undoes its take-up and sets the file aside with a
+  // private copy [WCB:REQ-015, owner 2026-11-28]. No question, and the row carries the whole command.
+  const card = JSON.parse(cli('decisions', W, '--json').stdout).data;
+  const rows = card.settled.filter((item) => item.options.some((option) => option.id === 'keep-out'));
+  assert.deepEqual(rows.map((item) => item.details.effect.file).sort(), unrelatedFiles, JSON.stringify(card.settled.map((item) => item.options.map((option) => option.id))));
+  const copies = [];
+  for (const row of rows) {
+    const { command } = row.options.find((option) => option.id === 'keep-out').action;
+    assert.equal(command, `singularity-flow decisions undo ${W} --settled ${row.details.settledId} --keep-out ${row.details.effect.file}`);
+    const kept = JSON.parse(cli(...command.replace(/^singularity-flow /u, '').split(' '), '--json').stdout).data.keptOut;
+    assert.deepEqual(kept.paths, [row.details.effect.file]);
+    copies.push([row.details.effect.file, kept.checkpoint]);
+  }
+  for (const [file, copy] of copies) {
+    const checkpoint = JSON.parse(cli('appeal', 'checkpoint-show', copy, '--work-id', W, '--phase', 'implementation', '--json').stdout);
+    assert.ok(JSON.stringify(checkpoint).includes(file), file);
+  }
+  const after = JSON.parse(cli('decisions', W, '--json').stdout).data;
+  assert.equal((after.settled ?? []).some((item) => item.options.some((option) => option.id === 'keep-out')), false, 'nothing left to keep out');
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   // The diagnostic runner edit was restored before publication; it needs no human re-pin.
   const pins = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).testCommandPins;

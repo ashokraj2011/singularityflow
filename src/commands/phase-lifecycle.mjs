@@ -232,7 +232,10 @@ async function phaseSubcommand(positionals, options) {
     });
     const departures = departureRecords ? await departureRecords.departureSummary(root, workflow, phase, recordedNow) : null;
     const askedFor = askedForRecords ? await askedForRecords.askedForSummary(root, workflow, phase) : null;
-    const result = { ...checked, ...(departures ? { departures } : {}), ...(askedFor ? { askedFor } : {}) };
+    // What publication takes up because it changed outside the plan, with who changed it, and the reasons Copilot still owes
+    // its document [WCB:REQ-010, REQ-012].
+    const outsidePlan = departureRecords ? await (await import('../code-outside-plan.mjs')).outsidePlanPreview(root, config, workflow, phase).catch(() => null) : null;
+    const result = { ...checked, ...(departures ? { departures } : {}), ...(askedFor ? { askedFor } : {}), ...(outsidePlan ? { outsidePlan } : {}) };
     const { observeWorkflowTaskCheck, readWorkflowTaskResume } = await import('../workflow-task-store.mjs');
     if (subcommand === 'draft-check') await observeWorkflowTaskCheck(root, workflow, phase, result);
     const taskResume = await readWorkflowTaskResume(root, workflow, phase, { generation: result.generation,
@@ -367,17 +370,16 @@ async function phaseSubcommand(positionals, options) {
     throw new SingularityFlowError('--usage-json is valid only with --authored governed-agent. Manual and deterministic publication record model usage as not-invoked.');
   }
   assertProducerAllowed(requestedPhase, authorshipOptions.producer);
-  // A file no row of the plan names is recorded as a departure first, in its own commit before the remote
-  // tip is read, so the agent's publication carries it and a person decides it once [CQF:REQ-021, REQ-022].
-  // A person's own publication records none: what they leave out stays theirs to account for.
-  if (phaseRequiresCodeDelivery(requestedPhase) && authorshipOptions.producer === 'governed-agent') {
+  // A file no row of the plan names is taken up with the step, in its own commit before the remote tip is read, whoever
+  // publishes: settled into the plan when its class places it, else as changed outside the plan, by Copilot with its
+  // reason or by you, nobody asked [owner, 2026-11-19, C3; WCB:REQ-010]. Only what a person already holds (a rejected or
+  // undone file) is left, and the agent's publication records that as a departure, as before [CQF:REQ-021, REQ-022].
+  if (phaseRequiresCodeDelivery(requestedPhase)) {
     const recordedBy = await loadSession(root, { required: false });
     const agentName = recordedBy?.workId === workflow.workItem.id ? recordedBy.agent ?? null : null;
-    // What the plan settles is settled here too, as at prepublish: an agent that publishes without one met a companion
-    // file as a person's question [owner, 2026-11-19, C3].
     await (await import('../settle-before-publication.mjs')).settleBeforePublication(root, config, workflow, requestedPhase,
-      { actor: actionActor(root), agent: agentName, accounting: true, nodeSettled: true });
-    await (await import('../departure-records.mjs')).recordPathDepartures(root, config, workflow, requestedPhase,
+      { actor: actionActor(root), agent: agentName, accounting: true, takeUp: true, nodeSettled: true });
+    if (authorshipOptions.producer === 'governed-agent') await (await import('../departure-records.mjs')).recordPathDepartures(root, config, workflow, requestedPhase,
       { actor: actionActor(root), agent: agentName });
   }
   // An agent's publication carries what the person asked for even when no prepublish copied it [SCS:REQ-041].

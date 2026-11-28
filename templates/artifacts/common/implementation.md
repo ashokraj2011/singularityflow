@@ -10,7 +10,7 @@ TODO: Write the Agent brief here as visible text; text inside the comment above 
 
 ## Changed components and decisions
 
-<!-- sflow:guidance Each changed product-source path and why, citing the qualified `@clause:{{work.id}}:REQ-001`-style comment that binds a planned clause (a tag alone is not proof of behavior). Each decision the plan did not settle, with its reason. For a configuration or documentation outcome, cite the build or inspection result and write `Not applicable: <reason>` for tags. -->
+<!-- sflow:guidance Each changed product-source path and why, citing the qualified `@clause:{{work.id}}:REQ-001`-style comment that binds a planned clause (a tag alone is not proof of behavior). Each decision the plan did not settle, with its reason. For a configuration or documentation outcome, cite the build or inspection result and write `Not applicable: <reason>` for tags. A file you changed that no plan row names goes under a `### Changes outside the plan` heading here, one line each: the file in backticks, then why. -->
 
 TODO: List what changed, why, and the decisions made.
 

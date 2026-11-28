@@ -81,12 +81,18 @@ export function phaseAuthoringContract(definition, workflow, phase) {
 export const UPSTREAM_DISCREPANCY_PROTOCOL = '- Upstream discrepancies: approved inputs are fixed evidence. If one is wrong, incomplete or contradictory, do not edit it and do not stop: use the most conservative reading consistent with the pinned source. Under `## Upstream discrepancies` list producer phase, clause/section, problem, assumption, impact and owner action, with every affected qualified clause ID in Impact/Clause; cite existing UPI-IDs, never duplicate them. Missing evidence belongs to its producer. File new items once with `singularity-flow upstream-issue raise --from-artifact`; producer approvers decide. Stop only for a refusal about changed or unapproved input bytes (use its restore/return route), or when no reading satisfies the pinned source: then (ask the person only if clarification permits) raise `singularity-flow upstream-issue raise --phase <EARLIER> --about <ID|SECTION> --problem "<TEXT>" --proposed amend` (or `--proposed return`) and end the turn.';
 
 /**
+ * A file the code step changes that no plan row names is no departure [WCB:REQ-012, REQ-013]: SFlow takes it up with the
+ * step at publication and lists it at the code approval, "by Copilot" with the reason the agent writes here, or "by you".
+ */
+export const CODE_OUTSIDE_PLAN_PROTOCOL = 'A file you change that no plan row names is no departure: under `## Changes outside the plan` in this step\'s document, list it in backticks and say why; SFlow takes it up with the step and shows your reason at its approval.';
+
+/**
  * The code step's form of the same rule [CQF:REQ-020]: what the approved documents lack is a
  * departure, decided once before approval. Given the upstream protocol instead, a real /sf-code turn
  * raised an upstream issue for the file SFlow had already recorded as DEP-001, so the person had the
  * same gap to decide twice, the second time by the plan's approvers before the Story could finish.
  */
-export const CODE_STEP_DEPARTURE_PROTOCOL = '- Departures: approved inputs are fixed evidence. In a code step, what they lack or get wrong (a file, plan row, test, wording or clause) is a departure, not an upstream issue, and never a reason to stop. Record each once with `singularity-flow departure record --kind <kind> --reason <why>` (`--path`, `--clause`; wording or clause: `--target <step> --file <draft copy>`) and keep coding; prepublish records a changed file no plan row names by itself. Never edit the earlier document: a person decides each departure once, before approval. A refusal about changed or unapproved input bytes uses its restore/return route.';
+export const CODE_STEP_DEPARTURE_PROTOCOL = '- Departures: approved inputs are fixed evidence. In a code step, what they lack or get wrong (a plan row, test, wording or clause) is a departure, not an upstream issue, and never a reason to stop. Record each once with `singularity-flow departure record --kind <kind> --reason <why>` (`--clause`; wording or clause: `--target <step> --file <draft copy>`) and keep coding. Never edit the earlier document: a person decides each departure once, before approval. ' + CODE_OUTSIDE_PLAN_PROTOCOL + ' A refusal about changed or unapproved input bytes uses its restore/return route.';
 
 /**
  * `specificationSections` says which optional specification tables this scope step asks for (its

@@ -4276,6 +4276,8 @@ singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [--reason ITEM=
 # In an interactive terminal, decisions record [WORK-ID] asks for each choice, shows a summary and asks y/N.
 # What the agent or SFlow settled with its evidence is listed as "Settled for you"; undoing one makes it your question again.
 singularity-flow decisions undo [WORK-ID] --settled STL-ID [--reason TEXT]
+# A file the open code step took up, still only in your checkout, is kept out of the Story in one step: undone and set aside.
+singularity-flow decisions undo [WORK-ID] --settled STL-ID --keep-out FILE
 # Your own agent folder as a user-defined agent: previewed, then proposed by its plan digest; start <WORK-ID> --agent NAME runs it.
 singularity-flow call add FOLDER [--name ID] [--main FILE] [--output code|document] [--replace] [--confirm sha256:PLAN] [--json]
 singularity-flow call list|show NAME [--json]

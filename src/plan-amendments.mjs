@@ -182,6 +182,23 @@ export function departureCandidatePaths(workflow, phaseId = null) {
     && !superseded.has(entry.id) && !rejected.has(entry.id)).flatMap((entry) => entry.paths ?? []))].sort();
 }
 
+/**
+ * The files SFlow took up with a code step because they changed outside the plan, as nobody undid them [WCB:REQ-010]:
+ * each `{ id, file, writer, basis, reason, kind, supporting, at }`, newest last; `phaseId` null for every step's. The
+ * `out-of-plan` settlements, and the supporting changes (a person's scratch note, a test helper) whose settlement says who
+ * changed them (`supporting` names the class) [owner, 2026-11-28: a scratch note is committed, listed "by you"]. An
+ * `out-of-plan` one is read beside the plan, never merged into it: `settledPlanChanges` leaves it out, so no plan record
+ * or hash built from one changes.
+ */
+export function outsidePlanSettled(workflow, phaseId = null) {
+  return standingSettlements(workflow).filter((entry) => entry.kind === 'plan-accounting' && entry.effect?.file
+    && (entry.effect.class === 'out-of-plan' || (SETTLED_SUPPORTING.has(entry.effect.class) && ['copilot', 'person'].includes(entry.effect.writer)))
+    && (!phaseId || entry.phase === phaseId))
+    .map(({ id, phase, at, effect }) => ({ id, phase: phase ?? null, file: effect.file, writer: effect.writer === 'copilot' ? 'copilot' : 'person',
+      basis: effect.basis ?? null, reason: effect.reason ?? null, kind: effect.kind ?? null,
+      supporting: effect.class === 'out-of-plan' ? null : effect.class, at }));
+}
+
 /** Every path an amendment accounted for, across the planned records given. */
 export function accountedAmendmentPaths(planned = []) {
   return [...new Set(planned.filter((record) => record?.amendment)

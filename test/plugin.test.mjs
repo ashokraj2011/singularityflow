@@ -463,7 +463,9 @@ test('code skill treats a prepared draft as authoring work without bypassing gen
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   assert.match(content, /Inspect `recovery`, `intent`, test handoff and exact diffs\/untracked bytes including `workflow.json`/);
   // What the approved documents lack is a departure the code step records, never a stop [CQF:REQ-020].
-  assert.match(content, /Repair admitted draft\/test\/runtime causes\. What the approved documents lack \(file, row, test, wording, clause\) is a departure: `singularity-flow departure record --kind <kind> --reason <why>`/);
+  assert.match(content, /Repair admitted draft\/test\/runtime causes\. What the approved documents lack \(row, test, wording, clause\) is a departure: `singularity-flow departure record --kind <kind> --reason <why>`/);
+  // A file no plan row names is no departure: its reason goes in the step's document, and SFlow takes it up [WCB:REQ-013].
+  assert.match(content, /Unplanned file: why under `## Changes outside the plan`\./);
   assert.match(content, /then keep coding; never edit an earlier document/);
   assert.doesNotMatch(content, /pin\/scope changes need humans/);
   assert.match(content, /Require open intent\.[^\n]*Absent: `singularity-flow phase begin <phase> --json` with adoption\/confirmation/);

@@ -144,7 +144,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
     '2d1d1dc1ab8e94760cda8df39cf07aef51ef7ce191d76218558d19a6ffcc1a54',
     // Before it said only what changed, why and the decisions made, never restating the requirements (2026-11-21).
-    'ba0749ab3997579949fc836a839af6606f995c2012a90b410597ebadf211298d'
+    'ba0749ab3997579949fc836a839af6606f995c2012a90b410597ebadf211298d',
+    // Before it asked for a file no plan row names under "Changes outside the plan", with why [WCB:REQ-013] (2026-11-27).
+    'b94713de659f5bff93f4ed0d18fabda754a5708c7bb36ef9096c5786d95d8086'
   ]),
   // First released SKP starter. Exact previous bytes can be upgraded without claiming any
   // repository-customized starter file as framework-owned.
@@ -716,7 +718,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/common/conformance.md': '8c342771cb590be4960267ca307ea181647a7415006994686acc2a04dd8e7fea',
   'singularity/templates/common/design.md': 'cf2d335dc0d88935ca047273057493d683af0d2133c1ba5138dbaec38c6ae49c',
   'singularity/templates/common/document.md': 'a7c17638c2ee09c362ec40b2999d4d5ae61432f297126c01f0caeb5e37d8f31a',
-  'singularity/templates/common/implementation.md': 'b94713de659f5bff93f4ed0d18fabda754a5708c7bb36ef9096c5786d95d8086',
+  'singularity/templates/common/implementation.md': '12d8c2341664993c704ab15a282884171afc0694f7b2f2ffb772ca27dcd26e5a',
   'singularity/templates/common/intake.md': 'e16cd8b47f472973823a1a53294c77ac6551285c4df75e916c739611c3bc1d23',
   // The starter templates of the step intents with no shipped step of their own (step intents Stage 3).
   'singularity/templates/common/plan.md': 'b0ff7b0cb2ba39206a063646441a2096901a9734b04ed5b46b0b3dc7d5b5dd57',

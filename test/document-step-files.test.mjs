@@ -4,8 +4,9 @@
  * Planning was published, then a settings.json changed in the checkout. Its submission was refused with a plan decision
  * as the route; /sf-decide said nothing waited and sent the person back to submit, which was refused again. A Java
  * extension had written .vscode/settings.json. An editor's own settings stop no step: not a document step's submission
- * or approval, nor a code step's start, plan question or approval. Any other file a document step cannot hold is set
- * aside from the Decide page.
+ * or approval, nor a code step's start, plan question or approval. Any other file is the code base's: a document step
+ * never stops for it and leaves it in the checkout, and the code step takes it up, listed as changed by you
+ * [WCB:REQ-004 to REQ-007, docs/SPEC-WCB-WATCH-CODE-BASE-v1.md].
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -106,7 +107,7 @@ async function classicStory(t, W, { approveIntake = true } = {}) {
 
 const json = (result) => JSON.parse(result.stdout);
 
-test('an editor\'s settings never stop a step, and any other file a document step cannot hold is set aside from the Decide page', slowLane({ timeout: 900_000 }), async (t) => {
+test('an editor\'s settings never stop a step, and any other file a document step leaves in the checkout is taken up by the code step', slowLane({ timeout: 900_000 }), async (t) => {
   const W = 'DOCF-1';
   const { root, write } = await classicStory(t, W, { approveIntake: false });
   execute('mkdir', ['-p', '.vscode', '.idea', 'config'], root);
@@ -120,46 +121,23 @@ test('an editor\'s settings never stop a step, and any other file a document ste
   await write('service/.settings/org.eclipse.jdt.core.prefs', 'eclipse.preferences.version=1\n');
   await write('config/settings.json', '{ "spark": true }\n');
 
-  // Any other file: the refusal's route is the set-aside, never a plan decision.
-  const refused = flow(root, ['submit', 'intake', '--json'], { allowFailure: true });
-  assert.notEqual(refused.status, 0);
-  const error = json(refused).error;
-  assert.equal(error.code, 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', refused.stdout);
-  assert.deepEqual(error.details.changedPaths, ['config/settings.json'], 'the editor\'s files are not the step\'s');
-  assert.deepEqual(error.details.gate.actions.map((entry) => entry.command), [`singularity-flow recover ${W} --phase intake --json`]);
-  assert.doesNotMatch(refused.stdout, /decision plan --add-location/u);
-  // Only a person clears it: retried after their own attempts, it never escalates to "hand it to a maintainer".
-  for (const words of ['{ "spark": 1 }', '{ "spark": 2 }', '{ "spark": 3 }']) {
-    await write('config/settings.json', `${words}\n`);
-    const again = json(flow(root, ['submit', 'intake', '--json'], { allowFailure: true }));
-    assert.equal(again.error.code, 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION');
-    assert.equal(again.remediationPlan.escalation, undefined, words);
-  }
+  // Any other file is the code base's: Intake writes documents only, leaves it in the checkout for the code step ahead,
+  // and is submitted without a question [WCB:REQ-005].
+  const submitted = flow(root, ['submit', 'intake', '--json'], { allowFailure: true });
+  assert.equal(submitted.status, 0, submitted.stdout);
+  assert.doesNotMatch(submitted.stdout, /decision plan --add-location|PHASE_SOURCE_CHANGED_AFTER_PUBLICATION/u);
 
-  // The Decide page has the row the refusal sends the person to, recommended.
+  // The Decide page has nothing to ask about it [WCB:REQ-007].
   const list = json(flow(root, ['decisions', W, '--json'])).data;
-  const row = list.items.find((item) => item.kind === 'generation-rollover');
-  assert.ok(row, JSON.stringify(list.items.map((item) => item.kind)));
-  assert.equal(row.details.documents, true);
-  assert.deepEqual(row.details.paths, ['config/settings.json']);
-  assert.deepEqual(row.options.map((option) => option.id), ['set-aside']);
-  assert.equal(row.options[0].action.command, `singularity-flow recover ${W} --phase intake --json`);
-  assert.match(row.title, /^Set config\/settings\.json aside: Intake writes documents only/u);
-  assert.notEqual(list.status, 'nothing-to-decide');
-
-  // The person sets it aside from recovery; the step is then submitted as published, the editor's files untouched.
-  const plan = json(flow(root, ['recover', W, '--phase', 'intake', '--json']));
-  const aside = plan.actions.find((action) => action.id === 'set-aside-worktree');
-  assert.deepEqual(aside.paths, ['config/settings.json']);
-  flow(root, aside.commandGuidance.argv);
-  flow(root, ['submit', 'intake']);
+  assert.ok(!list.items.some((item) => ['generation-rollover', 'plan-accounting'].includes(item.kind)), JSON.stringify(list.items.map((item) => item.kind)));
   const read = async () => JSON.parse(await readFile(path.join(root, 'singularity/work-items', W, 'workflow.json'), 'utf8'));
-  assert.equal((await read()).phases.intake.status, 'awaiting_approval');
-  // Its approval does not hold for them either: no SFlow commit takes an unstaged editor file.
+  // Its approval does not hold for it either: no SFlow commit takes an unstaged file [WCB:REQ-006].
   flow(root, ['approve', 'intake', '--yes']);
   assert.equal((await read()).phases.intake.status, 'approved');
+  assert.equal(await readFile(path.join(root, 'config/settings.json'), 'utf8'), '{ "spark": true }\n');
 
-  // The code step: the editor writes again; it is no plan question, no new draft, and no approval hold.
+  // The code step: the editor writes again; it is no plan question, no new draft, and no approval hold. The settings file
+  // is taken up with the code, changed outside the plan by you.
   flow(root, ['prepare', 'implementation']);
   await write('src/value.mjs', `// @clause:${W}:AC-001 returns the approved value\nexport const value = 2;\n`);
   await write('test/value.test.mjs', ["import test from 'node:test';", "import assert from 'node:assert/strict';",
@@ -168,6 +146,8 @@ test('an editor\'s settings never stop a step, and any other file a document ste
   const summary = path.join(root, 'singularity/work-items', W, 'artifacts/implementation/implementation-summary.md');
   await writeFile(summary, (await readFile(summary, 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module returns the approved value.'));
   flow(root, ['phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place']);
+  const taken = ((await read()).settledDecisions ?? []).filter((entry) => entry.effect?.class === 'out-of-plan');
+  assert.deepEqual(taken.map((entry) => [entry.effect.file, entry.effect.writer]), [['config/settings.json', 'person']]);
   await write('.idea/workspace.xml', '<project version="4"/>\n');
   await write('service/.project', '<projectDescription/>\n');
   flow(root, ['submit', 'implementation']);

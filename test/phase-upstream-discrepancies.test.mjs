@@ -47,7 +47,8 @@ test('a code step records what the approved documents lack as a departure, never
   assert.doesNotMatch(lines, /upstream-issue raise|## Upstream discrepancies/u);
   assert.match(CODE_STEP_DEPARTURE_PROTOCOL, /is a departure, not an upstream issue, and never a reason to stop/u);
   assert.match(CODE_STEP_DEPARTURE_PROTOCOL, /`singularity-flow departure record --kind <kind> --reason <why>`/u);
-  assert.match(CODE_STEP_DEPARTURE_PROTOCOL, /prepublish records a changed file no plan row names by itself/u);
+  // A file no plan row names is no departure: the agent writes why in its document, and SFlow takes it up [WCB:REQ-013].
+  assert.match(CODE_STEP_DEPARTURE_PROTOCOL, /A file you change that no plan row names is no departure: under `## Changes outside the plan` in this step's document, list it in backticks and say why/u);
   assert.match(CODE_STEP_DEPARTURE_PROTOCOL, /Never edit the earlier document/u);
   // The step before it still files its upstream problems for their owners.
   assert.ok(phaseAuthoringContractLines(phaseAuthoringContract({}, workflow, workflow.phases.planning)).includes(UPSTREAM_DISCREPANCY_PROTOCOL));

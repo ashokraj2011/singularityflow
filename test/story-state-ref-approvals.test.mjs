@@ -129,7 +129,7 @@ test('a state-ref Story is published, submitted, decided, clarified and approved
   assert.equal(await status(item, 'planning'), 'approved');
 });
 
-test('a code commit after a submission stops its approval, as a change after publication does today (A4)', async (t) => {
+test('a code commit after a submission never stops a document step\'s approval: the code step ahead takes it up (A4, WCB:REQ-006)', async (t) => {
   const work = 'SSB-A4';
   const story = await stateRefStory(t, work);
   const { root, item, git } = story;
@@ -143,12 +143,13 @@ test('a code commit after a submission stops its approval, as a change after pub
   await writeFile(path.join(root, 'value.mjs'), 'export const value = 2;\n');
   git('add', 'value.mjs');
   git('commit', '-qm', 'A change a person made after the submission');
-  const refused = cliIn(root, ['approve', 'specification', '--yes', '--json'], { allowFailure: true });
-  assert.notEqual(refused.status, 0);
-  // Today's refusal for a change after the submission: the code commit the submission names is behind the branch.
-  assert.match(refused.stdout + refused.stderr, /STORY_REVIEW_SOURCE_CHANGED|STORY_REVIEW_INTERVENING_COMMIT/u);
-  assert.match(refused.stdout + refused.stderr, /changed after generation 1 was submitted|A change a person made after the submission/u);
-  assert.equal(await status(item, 'specification'), 'awaiting_approval');
+  // A document step's approval never answers for the code base when a code step comes after it (owner, 2026-11-27): that
+  // step's first interval starts where code was last governed, so it takes the commit up [WCB:REQ-006, REQ-008]. Before
+  // WCB this stopped the approval (STORY_REVIEW_INTERVENING_COMMIT).
+  const approved = cliIn(root, ['approve', 'specification', '--yes', '--json'], { allowFailure: true });
+  assert.equal(approved.status, 0, approved.stdout + approved.stderr);
+  assert.equal(await status(item, 'specification'), 'approved');
+  assert.equal(git('log', '-1', '--format=%s', '--', 'value.mjs').trim(), 'A change a person made after the submission', 'the code commit stays for the code step');
 });
 
 test('a lesson noticed at approval is committed on the state ref, not the branch, and recalled from it [WMR:REQ-022]', async (t) => {

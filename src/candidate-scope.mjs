@@ -3,10 +3,10 @@
  *
  * A changed file belongs to the candidate when the plan names it for this step: an expected path
  * of a row allocated here, a planned test, a supporting change, a path a plan amendment
- * accounted for, or a file of one of its departures [CQF:REQ-022]. Test automation always belongs,
- * because tests verify rather than ship. Every other changed application file is excluded from
- * local candidate verification. Publication requires the person to account for it or preserve it
- * privately first; it is never silently adopted or discarded.
+ * accounted for, a file of one of its departures [CQF:REQ-022], or a file publication took up because
+ * it changed outside the plan [WCB:REQ-010]. Test automation always belongs, because tests verify
+ * rather than ship. Every other changed application file is excluded from local candidate
+ * verification until publication takes it up; it is never silently discarded.
  * Tests still run in the worktree, so an excluded file that could change what they
  * execute requires isolation. File extensions do not prove irrelevance: text may be a test fixture
  * or executable MDX/doctest input. Null when the Story plans no claims, so every change is the candidate.
@@ -14,9 +14,10 @@
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import path from 'node:path';
 import { isAllowedTestAutomationPath } from './code-delivery-tests.mjs';
-import { accountedAmendmentPaths, classificationContext, departureCandidatePaths } from './plan-amendments.mjs';
+import { accountedAmendmentPaths, classificationContext, departureCandidatePaths, outsidePlanSettled } from './plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from './specifications.mjs';
-import { applicationPathContext, isApplicationChangePath, isEditorConfigurationPath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
+import { isWorkspaceLocalPath } from './workspace-local-paths.mjs';
 import { storyLocation } from './story-paths.mjs';
 
 /** Dirty files excluded from this delivery must be accounted for before it is published. */
@@ -28,10 +29,29 @@ export async function unreconciledCandidatePaths(root, config, workflow, phase, 
   const { inspectLifecycleWorktree } = await import('./lifecycle-worktree.mjs');
   return [...new Set(inspectLifecycleWorktree(root, config, workflow).entries.flatMap(entry =>
     [entry.path, entry.originalPath].filter(item => item?.kind === 'utf8').map(item => ({ path: item.value, untracked: entry.type === 'untracked' })))
-    // An editor's own settings stay out of the code, as any file no plan names, but are never asked about (office, 2026-11-27).
+    // A workspace-local file (an editor's settings, a local-only file, test output) stays out of the code, as any file no plan
+    // names, but is never asked about [WCB:REQ-002].
     .filter(item => isApplicationChangePath(item.path, { ...context, untracked: item.untracked }) && !scope.allows(item.path)
-      && !isEditorConfigurationPath(item.path))
+      && !isWorkspaceLocalPath(item.path))
     .map(item => item.path))].sort();
+}
+
+// A key or certificate SFlow never commits on its own (settle-before-publication.mjs keeps the same rule).
+const SECRET_SHAPED = /(?:^|\/)(?:\.env(?:\..*)?|id_(?:rsa|ed25519|ecdsa)|[^/]+\.(?:pem|key|p12|pfx|keystore|jks))$/iu;
+
+/**
+ * The dirty files publication leaves out of a code step and cannot take up itself [WCB:REQ-010]: a protected path, a hard
+ * stop, a key or certificate, and a file a person already holds (a departure they rejected, its file not restored; a settlement they undid; a
+ * departure still waiting). Every other file no plan row names is taken up with the step at publication, so nothing read
+ * before it asks about one.
+ */
+export async function heldCandidatePaths(root, config, workflow, phase, scope = undefined) {
+  const files = await unreconciledCandidatePaths(root, config, workflow, phase, scope);
+  if (!files.length) return files;
+  const held = await (await import('./code-outside-plan.mjs')).personHeldFiles(workflow, phase.id);
+  const guarded = [...(config?.governance?.protectedPaths ?? []), ...(workflow?.resolution?.capability?.policy?.protectedPaths ?? [])]
+    .map((entry) => String(entry).replace(/\/$/u, ''));
+  return files.filter((file) => held.has(file) || SECRET_SHAPED.test(file) || guarded.some((entry) => file === entry || file.startsWith(`${entry}/`)));
 }
 
 export async function codeCandidateScope(itemDirectory, workflow, phase) {
@@ -50,6 +70,8 @@ export async function codeCandidateScope(itemDirectory, workflow, phase) {
   // A departure's files are published with the step that recorded it [CQF:REQ-022]; a file another
   // step's plan names stays that step's, so publication still refuses it here.
   for (const candidate of departureCandidatePaths(workflow, phase.id)) if (!others.has(candidate)) allowed.add(candidate);
+  // A file SFlow took up with this step because it changed outside the plan, by Copilot or by a person [WCB:REQ-010].
+  for (const { file } of outsidePlanSettled(workflow, phase.id)) if (!others.has(file)) allowed.add(file);
   return Object.freeze({
     allows: (candidate) => allowed.has(candidate) || isAllowedTestAutomationPath(candidate),
     /** Whether an excluded file could change what the tests execute in the worktree. */

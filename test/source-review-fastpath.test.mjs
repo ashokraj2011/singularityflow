@@ -67,7 +67,10 @@ test('review readers cannot statically pull in phase authoring or lifecycle publ
   // 282 (28ffdfe53, 2026-11-23; measured here only now, as this test reads sources and no import named it):
   // automatic-approval-possible.mjs, a pure rule on two policy readers, joins through the evidence receipt and the
   // approval chain a review reads, so neither promises an automatic approval the step cannot have. The writers above stay out.
-  assert.ok(visited.size < 283, `review read closure grew to ${visited.size} local modules`);
+  // 283 (2026-11-28, watch-code-base; main 0971ed184 measures 282): workspace-local-paths.mjs, the one rule every gate
+  // reads for the workspace's own files [WCB:REQ-002], a leaf on two modules already here, joins through the candidate
+  // scope. The writers above stay out.
+  assert.ok(visited.size < 284, `review read closure grew to ${visited.size} local modules`);
 });
 
 test('only exact read forms share a review command scope; writers and override flags never do', () => {

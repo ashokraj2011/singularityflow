@@ -74,8 +74,9 @@ const TYPED = new Set(['sf-task', 'sflow-task']);
 const CARRIED = new Set(['sf-next', 'sf-approve']);
 // A record written a moment before the turn's prompt was kept (clocks of two processes) still belongs to the turn.
 const CLOCK_SLACK_MS = 1000;
-// How SFlow records a step it approved itself: approve twice's automatic approval, or a policy's waiver.
-const AUTOMATIC = new Set(['approved_automatically', 'policy_waived']);
+// How SFlow records a step it approved itself: approve twice's automatic approval, a policy's waiver, or a step nobody
+// approves, which completes at its submission.
+const AUTOMATIC = new Set(['approved_automatically', 'policy_waived', 'not_required']);
 const since = (at, turn) => Number.isFinite(Date.parse(at)) && Date.parse(at) >= turn.recordedAt - CLOCK_SLACK_MS;
 
 /** What each carried call is: who ran it, and which SFlow command did it, read as the guard reads it. */

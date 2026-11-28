@@ -64,7 +64,8 @@ test('by: the composed step needs the group too, required and never automatic, b
   assert.deepEqual(phases.verification, before.verification, 'only the steps the rule gives a person');
   // The plan line, the task page's note and the preview say it.
   const approvals = { intake: 'person', implementation: 'person', verification: 'sflow' };
-  assert.equal(planLine(touched, { approvals }), 'Plan: code → tests. You approve the plan in the intake and the code. Security approves the code. Say "add a design step" to change it.');
+  // A fix sized by its requirement (ITW v1.2): its requirement, the step that implements and tests, SFlow's run of the tests.
+  assert.equal(planLine(touched, { approvals }), 'Plan: requirement → implement and test → SFlow runs the tests. You approve the requirement and the code. Security approves the code. Small or big is decided with the requirement. Say "add a design step" to change it.');
   assert.equal(groupApprovalWords(plain), '');
   assert.match(planNote({ resolution: { composition: touched } }), /The team's rules added your approval of the code and Security's approval of the code\./u);
   // A Story rebuilds the same workflow from its own composition, whatever the rules say now.
@@ -138,16 +139,23 @@ test('by: the Rules place says who also approves, writes by, offers the reposito
     [['changed', 'When a task touches src/payments/**: a person approves the code, and Security approves it too.']]);
 });
 
-test('by: the team\'s own workflow is offered as the plan only when it already requires the group on those steps', () => {
+test('by: the team\'s own workflow is the plan with the group added to those steps, as every rule adds to it (ITW v1.2 REQ-107)', () => {
   const definition = withSecurity({ paths: [PAYMENTS] });
   definition.workTypes['secure-fix'] = { label: 'Secure fix', phases: ['intake', 'implementation', 'verification'] };
   const composition = composeTask(definition, { kind: 'fix', touchedPaths: ['src/payments/round.mjs'] });
   const approvals = { intake: 'person', implementation: 'person', verification: 'sflow' };
   const without = localWorkflowCandidate(definition, 'secure-fix', { approvals });
-  assert.equal(planCoverage(composition, without).covers, false, 'Security\'s approval would be lost');
+  assert.equal(planCoverage(composition, without).covers, true, 'the rule adds Security to it, so nothing is lost');
   const withGroup = localWorkflowCandidate(definition, 'secure-fix', { approvals, groups: { implementation: ['security'] } });
   assert.equal(planCoverage(composition, withGroup).covers, true);
   assert.equal(planCoverage(composeTask(definition, { kind: 'fix' }), without).covers, true, 'no group added, nothing more asked');
+  // Run as the plan, the team's workflow keeps its steps and order, and its code step needs Security too.
+  const onIt = composeTask(definition, { kind: 'fix', touchedPaths: ['src/payments/round.mjs'], workflow: { workflow: 'secure-fix' } });
+  assert.deepEqual([onIt.workType, onIt.uses, onIt.local, onIt.steps.map((step) => step.id)],
+    ['task-fix', undefined, { workflow: 'secure-fix', label: 'Secure fix' }, ['intake', 'implementation', 'verification']]);
+  assert.deepEqual(onIt.groupApproves, [{ intent: 'code', group: 'security', rule: 'payments-security', because: PAYMENTS.because, label: 'Security' }]);
+  const code = resolved(definition, onIt).phases.find((phase) => phase.id === 'implementation');
+  assert.deepEqual(code.approval.requiredAuthorities, ['security']);
 });
 
 // ---------------------------------------------------------------------- through the CLI
@@ -168,7 +176,8 @@ test('by: a paths rule\'s group must approve: the step\'s own approver\'s yes do
     Object.assign(story, { workId: 'TASK-1', item: 'singularity/work-items/TASK-1' });
     const words = 'fix the payments rounding so it rounds half up';
     const shown = JSON.parse(story.cli('work', words, '--kind', 'fix', '--path', 'src/payments/round.mjs', '--json'));
-    assert.match(shown.plan, /You approve the plan in the intake and the code\. Security approves the plan in the intake\./u, shown.plan);
+    // A fix sized by its requirement (ITW v1.2): the rule's group approves the requirement.
+    assert.match(shown.plan, /You approve the requirement and the code\. Security approves the requirement\./u, shown.plan);
     const walk = await followRoutes(story, {
       label: 'task by group', start: { shell: `singularity-flow work "${words}" --kind fix --path src/payments/round.mjs --start` },
       agent: generatedAgent('TASK-1'), person: generatedPerson(story, 'TASK-1'),

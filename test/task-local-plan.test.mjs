@@ -92,7 +92,8 @@ function teamDefinition(tasks = undefined) {
   definition.workTypes['unit-tests'] = { label: 'Unit tests', phases: ['intake', 'implementation', 'verification'] };
   definition.workTypes['api-builder'] = { label: 'API builder', description: 'From folder api-builder: api-builder 1.0.0', phases: ['intake', 'requirements', 'implementation', 'verification'] };
   definition.workTypes['qa-import'] = { label: 'QA imported', phases: ['intake', 'requirements', 'implementation', 'verification'] };
-  if (tasks) definition.tasks = tasks;
+  // The kind's own steps, as v1.1 composed them: what a workflow covers either way (task-agents.mjs offerable).
+  definition.tasks = { sizing: 'kind', ...(tasks ?? {}) };
   return validateDefinition(definition);
 }
 
@@ -137,23 +138,28 @@ test('ITW REQ-020: the team\'s own workflows and agents are read with what each 
   assert.deepEqual(await localPlanCandidates(root, teamDefinition()), { candidates, notes }, 'read twice, the same');
 });
 
-test('ITW REQ-020, A2: one offer: the team\'s workflow, then a local agent, then a marketplace agent; the same input gives the same offer', async (t) => {
+test('ITW REQ-020, REQ-108, A2: the team\'s covering workflow is the plan with no question; then a local agent, then a marketplace agent, is offered; the same input gives the same answer', async (t) => {
   const root = await teamRepository(t);
   const definition = teamDefinition();
   const own = (await localPlanCandidates(root, definition)).candidates;
   const workflows = own.filter((entry) => entry.source === 'workflow');
   const local = await localQa();
   const market = await marketplaceQa();
-  const offer = (kind, candidates) => chooseTaskAgent(composeTask(definition, { kind }), { candidates }).offer ?? null;
-  // A tests task: the team's unit-tests workflow first, then the installed agent, then the marketplace's.
-  const tests = offer('tests', [market, local, ...workflows]);
-  assert.deepEqual(tests, {
+  const answer = (kind, candidates, options = {}) => chooseTaskAgent(composeTask(definition, { kind }), { candidates, ...options });
+  const offer = (kind, candidates) => answer(kind, candidates).offer ?? null;
+  const used = (kind, candidates) => answer(kind, candidates).chosenWorkflow?.workflow ?? null;
+  // A tests task: the team's unit-tests workflow is the plan, with no question; it says why, and its no.
+  const tests = answer('tests', [market, local, ...workflows]);
+  assert.deepEqual(tests, { chosenWorkflow: { workflow: 'unit-tests', label: 'Unit tests' }, used: {
     id: 'unit-tests', source: 'workflow', workflow: 'unit-tests', label: 'Unit tests', imported: true, state: null, steps: ['Intake', 'Implementation', 'Verification'],
     ask: 'Your team\'s workflow Unit tests covers this task: use it as the plan, exactly as it is, write the tests → tests?',
     why: 'its steps cover every step this task needs (write the tests and tests)',
-    yes: '--use-workflow unit-tests', no: '--without-workflow unit-tests'
-  });
-  assert.deepEqual(offer('tests', [...workflows].reverse().concat([local, market])), tests, 'in any order, the same offer');
+    yes: '--use-workflow unit-tests', no: '--without-workflow unit-tests', asked: false
+  } });
+  assert.deepEqual(answer('tests', [...workflows].reverse().concat([local, market])), tests, 'in any order, the same answer');
+  // A sized task (v1.2) is covered by the kind's own steps, the same answer.
+  const sized = Object.assign(structuredClone(definition), { tasks: {} });
+  assert.deepEqual(chooseTaskAgent(composeTask(sized, { kind: 'tests' }), { candidates: [market, local, ...workflows] }), tests);
   const installed = offer('tests', [market, local]);
   assert.deepEqual(installed, {
     id: 'qa-test-automation', source: 'local-agent', workflow: 'qa-test-automation', label: 'QA Test Automation', imported: false,
@@ -166,9 +172,9 @@ test('ITW REQ-020, A2: one offer: the team\'s workflow, then a local agent, then
   });
   assert.equal(offer('tests', [market]).id, 'acme/qa-test-automation-agent', 'with nothing of the team\'s own, the marketplace\'s');
   // Within a group, the fewest steps the task does not need, then by name; a workflow's code is the task's kind of code.
-  assert.equal(offer('fix', [...workflows, local, market]).id, 'secure-fix');
-  assert.equal(offer('feature', [...workflows, local, market]).id, 'api-builder', 'its requirements step plans the code');
-  assert.equal(offer('docs', [...workflows, local, market]), null, 'a workflow with code never covers a task that changes none');
+  assert.equal(used('fix', [...workflows, local, market]), 'secure-fix');
+  assert.equal(used('feature', [...workflows, local, market]), 'api-builder', 'its requirements step plans the code');
+  assert.deepEqual(answer('docs', [...workflows, local, market]), {}, 'a workflow with code never covers a task that changes none');
   // A deprecated or retired item is never offered, the team's agent or the marketplace's.
   const retired = await localQa({ lifecycleState: 'deprecated' });
   assert.equal(retired.lifecycle, 'retired');
@@ -176,9 +182,9 @@ test('ITW REQ-020, A2: one offer: the team\'s workflow, then a local agent, then
   assert.equal(offer('tests', [retired, market]).id, 'acme/qa-test-automation-agent');
   // The no asks nothing more.
   assert.deepEqual(chooseTaskAgent(composeTask(definition, { kind: 'tests' }), { candidates: [...workflows, local, market], withoutWorkflow: ['unit-tests'] }), {});
-  // Read from the repository by the finder: the same offer.
+  // Read from the repository by the finder: the same answer.
   const found = await taskAgentFinder(root, definition)(composeTask(definition, { kind: 'tests' }));
-  assert.deepEqual(found, { offer: tests, notes: [] });
+  assert.deepEqual(found, { ...tests, notes: [] });
 });
 
 test('ITW REQ-020, A4: the yes runs the team\'s workflow exactly as it is, and no rule of the team\'s is lost', async (t) => {
@@ -212,13 +218,26 @@ test('ITW REQ-020, A4: the yes runs the team\'s workflow exactly as it is, and n
     (error) => error.code === 'TASK_WORKFLOW_UNKNOWN' && /--use-agent acme\/qa-test-automation-agent/u.test(error.message));
   assert.throws(() => chooseTaskAgent(composeTask(definition, { kind: 'fix' }), { candidates, useWorkflow: ['feature'] }),
     (error) => error.code === 'TASK_WORKFLOW_UNKNOWN' && error.details.nextAction.command === 'singularity-flow workflow list', 'SFlow\'s own workflows are not offered');
-  // The team's rules: a workflow run as it is covers the steps they add, and gives a person what they give a person.
+  // The team's rules add to the team's workflow [ITW:REQ-107]: the one with the fewest steps the task does not need is the
+  // plan, and the rule's step goes where its intent goes; a step the workflow has is not added twice.
   const reviewed = teamDefinition({ always: [{ kinds: ['fix'], steps: ['review'], because: 'Every fix is reviewed.' }] });
   const ruled = (await localPlanCandidates(root, reviewed)).candidates;
-  assert.equal(chooseTaskAgent(composeTask(reviewed, { kind: 'fix' }), { candidates: ruled }).offer.id, 'reviewed-fix', 'secure-fix has no review step, so it would lose the rule\'s');
+  const chosen = chooseTaskAgent(composeTask(reviewed, { kind: 'fix' }), { candidates: ruled }).chosenWorkflow;
+  assert.equal(chosen.workflow, 'secure-fix', 'the rule adds the review secure-fix lacks');
+  const secure = composeTask(reviewed, { kind: 'fix', workflow: chosen });
+  assert.deepEqual(secure.steps.map((step) => step.id), ['intake', 'implementation', 'verification', 'conformance']);
+  assert.deepEqual([secure.workType, secure.uses, secure.local], ['task-fix', undefined, { workflow: 'secure-fix', label: 'Secure fix' }]);
+  assert.deepEqual(secure.added, [{ intent: 'review', rule: 'always[0]', because: 'Every fix is reviewed.' }]);
+  assert.equal(taskClosureWorkTypes(reviewed, secure)[0], 'secure-fix', 'the Story\'s branch carries the team\'s workflow and the step the rule brings');
+  assert.equal((await taskPlan(reviewed, { kind: 'fix', chooseAgent: choose(['secure-fix']) })).walk, 'completed');
+  const twice = composeTask(reviewed, { kind: 'fix', workflow: { workflow: 'reviewed-fix' } });
+  assert.deepEqual([twice.steps.map((step) => step.id), twice.workType, twice.uses], [['intake', 'implementation', 'verification', 'conformance'], 'reviewed-fix', 'reviewed-fix'],
+    'a workflow that has the rule\'s step runs exactly as it is');
   const personal = teamDefinition({ always: [{ kinds: ['fix'], steps: ['review'], personApproves: ['review'], because: 'A person reads every fix\'s review.' }] });
-  assert.deepEqual(chooseTaskAgent(composeTask(personal, { kind: 'fix' }), { candidates: (await localPlanCandidates(root, personal)).candidates }), {},
-    'reviewed-fix\'s review is SFlow\'s to approve, and the rule gives it to a person');
+  const theirs = composeTask(personal, { kind: 'fix', workflow: { workflow: 'reviewed-fix' } });
+  assert.deepEqual([theirs.workType, theirs.personApproves], ['task-fix', ['review']], 'the rule gives the workflow\'s own review to a person');
+  const resolved = (await taskPlan(personal, { kind: 'fix', chooseAgent: choose(['reviewed-fix']) })).steps;
+  assert.equal(resolved.find((step) => step.id === 'conformance').approvedBy, 'person');
 });
 
 test('ITW REQ-020, A8: a `tasks.use` rule still wins over the team\'s other workflows and its agents', async (t) => {
@@ -285,7 +304,7 @@ function refused(story, args) {
   return body.error ?? body;
 }
 
-test('ITW REQ-020: in a real repository, the team\'s workflow is offered and runs as it is; a no keeps the task\'s steps, with its own skill frozen', slowLane({ timeout: 900_000 }), async (t) => {
+test('ITW REQ-020, REQ-108: in a real repository, the team\'s workflow is the plan with no question and runs as it is; a no keeps the task\'s steps, with its own skill frozen', slowLane({ timeout: 900_000 }), async (t) => {
   const SMOKE = skillText('web-smoke', ['task:e2e-testing', 'web']);
   const story = await journeyRepository(t, {
     files: { 'package.json': WEB_PACKAGE, '.github/skills/web-smoke/SKILL.md': SMOKE, '.github/skills/broken-skill/SKILL.md': '---\nname: broken-skill\n---\n\nNo description.\n' },
@@ -295,21 +314,15 @@ test('ITW REQ-020: in a real repository, the team\'s workflow is offered and run
   });
   const WORDS = 'fix the login button';
   const shown = json(story.cli('work', WORDS, '--kind', 'fix', '--json'));
-  assert.deepEqual([shown.agentOffer.source, shown.agentOffer.id, shown.agentOffer.yes, shown.agentOffer.no],
-    ['workflow', 'reviewed-fix', '--use-workflow reviewed-fix', '--without-workflow reviewed-fix']);
-  assert.equal(shown.next.label, 'Start the task after a yes or no to the workflow offered.');
-  assert.match(shown.plan, /^Plan: code \(with web-smoke\) → tests\./u, 'the task\'s own plan, with the repository\'s own skill');
-  assert.ok(shown.notes.some((note) => /^Skill broken-skill \(\.github\/skills\/broken-skill\/SKILL\.md\) is not used: /u.test(note)), 'the broken skill is named');
+  assert.equal(shown.agentOffer, undefined, 'the team\'s own workflow is not asked about');
+  assert.deepEqual([shown.usedWorkflow.id, shown.usedWorkflow.without], ['reviewed-fix', `singularity-flow work "${WORDS}" --kind fix --start --without-workflow reviewed-fix`]);
+  assert.equal(shown.next.label, 'Start the task.');
+  assert.match(shown.plan, /^Plan, from your team's workflow Reviewed fix: code → tests → review\./u);
   assert.deepEqual(json(story.cli('work', WORDS, '--kind', 'fix', '--json')), shown, 'the same words and repository, the same plan');
   const printed = story.cli('work', WORDS, '--kind', 'fix');
-  assert.match(printed, /^Your team's workflow Reviewed fix covers this task: use it as the plan, exactly as it is, code → tests → review\? Its steps cover/mu);
-  // Starting asks first; the refusal carries the offer as it is shown.
-  const asked = refused(story, ['work', WORDS, '--kind', 'fix', '--start']);
-  assert.equal(asked.code, 'TASK_AGENT_YES_NEEDED');
-  assert.deepEqual([asked.details.agentOffer.source, asked.details.agentOffer.yes], ['workflow', '--use-workflow reviewed-fix']);
-  assert.equal(asked.details.nextAction, `singularity-flow work "${WORDS}" --kind fix --start --use-workflow reviewed-fix`);
-  // The yes: the Story runs the team's workflow exactly as it is.
-  const started = json(story.cli('work', WORDS, '--kind', 'fix', '--start', '--use-workflow', 'reviewed-fix', '--json'));
+  assert.match(printed, /^Your team's workflow Reviewed fix covers this task \(its steps cover every step this task needs \(code and tests\)\), so it is the plan\. Its own steps instead: /mu);
+  // The start asks nothing: the Story runs the team's workflow exactly as it is.
+  const started = json(story.cli('work', WORDS, '--kind', 'fix', '--start', '--json'));
   assert.equal(started.id, 'TASK-1');
   assert.match(started.task.plan, /^Plan, from your team's workflow Reviewed fix: code → tests → review\./u);
   story.item = 'singularity/work-items/TASK-1';
@@ -323,6 +336,7 @@ test('ITW REQ-020: in a real repository, the team\'s workflow is offered and run
   story.git('checkout', '-q', 'main');
   const declined = json(story.cli('work', WORDS, '--kind', 'fix', '--start', '--new', '--without-workflow', 'reviewed-fix', '--json'));
   assert.equal(declined.id, 'TASK-2');
+  assert.ok(shown.notes === undefined || shown.notes.some((note) => /^Skill broken-skill /u.test(note)), 'the broken skill is named');
   assert.deepEqual(declined.task.skills, [{ id: 'web-smoke', steps: ['implementation'] }]);
   story.item = 'singularity/work-items/TASK-2';
   const second = storyRecord(story);

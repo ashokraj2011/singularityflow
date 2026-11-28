@@ -180,8 +180,9 @@ test('A8: for each kind\'s sentence the likely plan is the plan line the chat sa
   assert.ok(page.startedBy && !page.startedBy.includes('@'), page.startedBy);
   assert.match(page.planNote, /^Composed from your words: a fix\./u);
   assert.deepEqual(page.chips.map((chip) => chip.state), ['now', 'to-do', 'to-do']);
-  assert.equal(page.now, 'Intake');
-  assert.equal(page.next, 'Code');
+  // A fix sized by its requirement (ITW v1.2): its requirement, then the step that implements and tests.
+  assert.equal(page.now, 'Requirement');
+  assert.equal(page.next, 'Implement and test');
   assert.equal(page.events[0].words, 'Started');
   assert.deepEqual(page.addable.map((entry) => entry.step), ['requirements', 'design', 'plan', 'review']);
   assert.deepEqual(page.changed.files.map((file) => [file.path, file.added, file.removed]), [['src/value.mjs', 2, 1]],

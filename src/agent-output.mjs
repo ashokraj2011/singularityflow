@@ -441,7 +441,11 @@ export function agentAct(result) {
   // A review packet's action context is its approval context again, word for word. One screen with a Yes (owner,
   // 2026-11-19): the documents, the steps it also covers, any decisions owed, and one question, "Approve Requirements v1?".
   if (result.approvalPacket && result.approvalContext && result.ready !== undefined && !result.resultType) {
-    const question = (result.choiceSets ?? []).find((entry) => entry?.id === 'phase-confirmation')?.question ?? null;
+    const confirmation = (result.choiceSets ?? []).find((entry) => entry?.id === 'phase-confirmation') ?? null;
+    const question = confirmation?.question ?? null;
+    // Why the person is asked, and an answer beside the Yes (a task's requirement made a big change) [ITW:REQ-103, REQ-113].
+    const why = typeof confirmation?.why === 'string' ? confirmation.why : null;
+    const other = (confirmation?.alternatives ?? []).filter((entry) => typeof entry?.label === 'string' && typeof entry.command === 'string');
     // VS Code's chat ends on what the person does, filled: the approval page that is open, or their own @sflow line. The
     // routes the packet once carried for this same approval (/sf-approve, `approve --fetch`) sent the person round again
     // [owner, 2026-11-21]; a second turn calls the tool again, which brings the open page forward.
@@ -454,13 +458,15 @@ export function agentAct(result) {
     const focus = result.approvalPacket?.review?.approvalFocus ? 'approvalPacket.review.approvalFocus' : null;
     const lead = focus ? `Lead with ${focus}: eyes.title as a heading, each of eyes.items in its words with its at (file:line, section or requirement), then eyes.checked as one line; then "What is new" with ${result.approvalPacket.review.approvalFocus.page ? `${focus}.page as a link and ` : ''}each of ${focus}.documents[].line, one line each (never paste a section or diff). Then ` : '';
     return { state: question ? 'ask-person' : 'read', do: null, said: null, read: [...(focus ? [focus] : []), 'approvalPacket', 'approvalContext', 'choiceSets', ...(result.tryIt ? ['tryIt'] : [])],
-      // Why the person is asked and what each choice does, from the step's advice (step-advice.mjs): one line each.
-      ...(question ? { ask: { question, ...(result.advice?.decides ? { why: result.advice.decides } : {}),
-        choices: [{ label: question.replace(/\?$/u, ''), ...(result.advice?.yes ? { does: result.advice.yes } : {}) },
-          { label: 'Not now', ...(result.advice?.notNow ? { does: result.advice.notNow } : {}) }],
+      // Why the person is asked: a task's own line [ITW:REQ-113], else the step's advice (step-advice.mjs); and what each
+      // choice does, from the advice, when the line does not say it already.
+      ...(question ? { ask: { question, ...(why ? { why } : result.advice?.decides ? { why: result.advice.decides } : {}),
+        choices: [{ label: question.replace(/\?$/u, ''), ...(!why && result.advice?.yes ? { does: result.advice.yes } : {}) },
+          ...other.map((entry) => ({ label: entry.label, command: entry.command })),
+          { label: 'Not now', ...(!why && result.advice?.notNow ? { does: result.advice.notNow } : {}) }],
         // Their Yes is recorded by this filled command, whose result names the filled approval (next): no token typed.
         ...(result.onYes?.command ? { onYes: result.onYes.command } : {}),
-        how: `${lead}${lead ? 's' : 'S'}how the documents as links, with those of approvalPacket.review.approvalCovers${result.approvalPacket?.review?.reviewDisputes?.length && !focus ? ', and each of approvalPacket.review.reviewDisputes in its own words (a finding a person disputed, and why; returning the step is the person\'s if they agree with the reviewer)' : ''}${tryIt}, then ${result.advice?.decides ? 'say ask.why as one line and ' : ''}ask the person ask.question exactly with ask_user (its choices as given${result.advice?.yes ? ', each with its does' : ''}, nothing preselected); in VS Code\'s own chat do not ask: call #sflowDecide with workId only, in this turn even when an earlier one opened the approval page (it brings that page forward). When it answers approval-open, end that VS Code turn with only what the person does: approve or send it back on the approval page that is open, with no command at all; only when it says the page could not open, type ${own} in the chat box. No Copilot, Shell or other approve route (vscode_askQuestions cannot record an approval). Record it only after their Yes; never answer it yourself.${result.onYes?.command ? ' On their Yes run ask.onYes, then the next.command its result returns when ready is true.' : ''}` } } : {}) };
+        how: `${lead}${lead ? 's' : 'S'}how the documents as links, with those of approvalPacket.review.approvalCovers${result.approvalPacket?.review?.reviewDisputes?.length && !focus ? ', and each of approvalPacket.review.reviewDisputes in its own words (a finding a person disputed, and why; returning the step is the person\'s if they agree with the reviewer)' : ''}${tryIt}, then ask the person ask.question exactly with ask_user (its choices as given${!why && result.advice?.yes ? ', each with its does' : ''}, nothing preselected); in VS Code\'s own chat do not ask: call #sflowDecide with workId only, in this turn even when an earlier one opened the approval page (it brings that page forward). When it answers approval-open, end that VS Code turn with only what the person does: approve or send it back on the approval page that is open, with no command at all; only when it says the page could not open, type ${own} in the chat box. No Copilot, Shell or other approve route (vscode_askQuestions cannot record an approval). Record it only after their Yes; never answer it yourself.${result.onYes?.command ? ' On their Yes run ask.onYes, then the next.command its result returns when ready is true.' : ''}${why || result.advice?.decides ? ' Say ask.why in one line before the question.' : ''}${other.length ? ' On a choice with a command, run that command, say its words, and begin this approval again.' : ''}` } } : {}) };
   }
   // A step already submitted says so first, as a submission does: Copilot session usage counts the read by act, which
   // every view keeps, whatever else it leaves out [owner, 2026-11-17: count everything].

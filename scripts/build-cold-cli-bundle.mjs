@@ -131,6 +131,10 @@ const FAMILIES = Object.freeze([
     'marketplace-repository.mjs',
     // A marketplace agent offered as the task's plan [ITW:REQ-011], read with the skill chooser.
     'task-agents.mjs',
+    // A sized task's shape, its approval's why line, its follow-ups and the agent used before [ITW v1.2 REQ-102 to REQ-113]:
+    // each imported only dynamically and each importing the task composer above; unclaimed, every /sf-task plan loaded
+    // compatibility for the requirement's guidance.
+    'task-shape.mjs', 'task-followups.mjs', 'task-history.mjs',
     // What the team already has, read before any marketplace [ITW:REQ-020]: its workflows, agents and skills, and an agent
     // read and converted as `workflow from-agent` does. Imported only dynamically, the conversion only when the repository
     // has an agent; unclaimed, a plan in a repository with one loaded compatibility and models.

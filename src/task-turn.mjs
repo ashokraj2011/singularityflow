@@ -62,7 +62,7 @@ const since = (at, turn) => Number.isFinite(Date.parse(at)) && Date.parse(at) >=
 
 /** What each carried call is: who ran it, and which SFlow command did it, read as the guard reads it. */
 const CARRY = Object.freeze({
-  start: ({ positionals, options }) => positionals[0] === 'work' && !['add', 'skip', 'status', 'handoff'].includes(positionals[1]) && options.start === true,
+  start: ({ positionals, options }) => positionals[0] === 'work' && !['add', 'skip', 'shape', 'status', 'handoff'].includes(positionals[1]) && options.start === true,
   approval: ({ positionals }) => positionals[0] === 'approve',
   submission: ({ positionals, options }) => positionals[0] === 'submit' || (positionals[0] === 'status' && options['submit-if-ready'] === true)
 });
@@ -114,12 +114,45 @@ export async function taskTurnContinuation(payload, { turn, ran, resolveRoot = d
   const waiting = reason === 'submission' && step?.status === 'awaiting_approval' && workflow.currentPhase === step.id && since(step.submittedAt, turn);
   const completed = reason === 'submission' && step?.status === 'approved' && AUTOMATIC.has(step.approvalDisposition) && workflow.currentPhase !== step.id
     && [step.approvedAt, step.automaticApproval?.at].some((at) => since(at, turn));
-  if (reason === 'submission' && !waiting && !completed) return null;
+  // Or the task grew at that submission (ITW v1.2 REQ-106): SFlow returned the code to the plan it added before it, and the
+  // turn goes on with the plan, as after a step SFlow approves itself.
+  const grown = reason === 'submission' && !waiting && !completed && workflow.currentPhase !== step?.id
+    && (workflow.changeRequests ?? []).some((entry) => entry?.automatic?.kind === 'task-grown' && entry.sourcePhase === step?.id && since(entry.requestedAt, turn));
+  if (reason === 'submission' && !waiting && !completed && !grown) return null;
   if (reason === 'approval' && (step?.status !== 'approved'
       || !(step.approvals ?? []).some((entry) => entry && !entry.invalidatedAt && since(entry.at, turn)))) return null;
   const { workflowGuide } = await import('./guide.mjs');
   const skill = taskTurnSkillFor(workflow, workflowGuide(workflow));
   // A submission that waits goes on only into the person's approval of that same step.
   if (!CARRIED.has(skill) || (waiting && skill !== 'sf-approve')) return null;
-  return { skill, workId: workflow.workItem.id, reason: completed ? 'completion' : reason };
+  return { skill, workId: workflow.workItem.id, reason: completed ? 'completion' : grown ? 'grown' : reason };
+}
+
+/**
+ * Who carries a `/sf-task` turn on in this repository [ITW:REQ-111, docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md]: `hooks` when a
+ * live `/sf-task` turn record, written by the prompt hook, binds this checkout (its mutation contract names it), else
+ * `skill`, where the sflow-task skill goes on by its own instructions (IntelliJ Copilot's local agent, a folder opened
+ * through a link: no hook ran). Decided from the records alone, never from the host's word. With the session known
+ * (COPILOT_AGENT_SESSION_ID) only that session's record counts. Reads only.
+ */
+export async function taskTurnCarrier(root, { env = process.env, now = Date.now() } = {}) {
+  try {
+    const [{ readdir, readFile }, path, { createHash }, mode] = await Promise.all([import('node:fs/promises'), import('node:path'),
+      import('node:crypto'), import('./copilot-mode.mjs')]);
+    const directory = path.join(path.dirname(mode.copilotModeFile(env)), 'copilot-boundaries');
+    const bound = await realpath(root).catch(() => path.resolve(root));
+    const session = typeof env.COPILOT_AGENT_SESSION_ID === 'string' && env.COPILOT_AGENT_SESSION_ID ? env.COPILOT_AGENT_SESSION_ID : null;
+    const names = session ? [`${createHash('sha256').update(session).digest('hex')}.json`]
+      : (await readdir(directory).catch(() => [])).filter((name) => /^[a-f0-9]{64}\.json$/u.test(name));
+    for (const name of names) {
+      const file = path.join(directory, name);
+      const turn = await mode.withTurnRenewal(JSON.parse(await readFile(file, 'utf8').catch(() => 'null')), file, now);
+      if (!turn || !TYPED.has(turn.typedSkill ?? turn.skill) || !Number.isFinite(turn.recordedAt)
+          || now - mode.turnWindowStart(turn) > mode.TURN_WINDOW_MS) continue;
+      const contract = JSON.parse(await readFile(file.replace(/\.json$/u, '.mutation.json'), 'utf8').catch(() => 'null'));
+      const named = contract?.contract?.repositoryRoot ?? contract?.repositoryRoot ?? null;
+      if (named && await realpath(named).catch(() => named) === bound) return 'hooks';
+    }
+  } catch { /* unreadable records carry nothing: the skill goes on */ }
+  return 'skill';
 }

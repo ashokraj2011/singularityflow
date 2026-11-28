@@ -22,7 +22,10 @@ import { journeyRepository, storyRecord } from './helpers/route-follower.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = YAML.parse(readFileSync(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
-const base = () => structuredClone(BASE);
+// The kind's own steps, as a Story started before v1.2 is composed (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md §4); v1.2's are in
+// test/task-shape.test.mjs.
+const base = () => Object.assign(structuredClone(BASE), { tasks: { sizing: 'kind' } });
+const v11 = (configuration) => { configuration.tasks = { ...(configuration.tasks ?? {}), sizing: 'kind' }; };
 
 test('ITW REQ-003: every kind composes the same steps every time, and each starts and walks to its end', async () => {
   const expected = {
@@ -64,7 +67,7 @@ test('ITW REQ-002: an unknown kind is refused with the kinds; the words give a f
 });
 
 test('ITW REQ-004: the team\'s rules only add steps and approvals, and a broken rule is refused with its words', async () => {
-  const withRules = (tasks) => Object.assign(base(), { tasks });
+  const withRules = (tasks) => Object.assign(base(), { tasks: { sizing: 'kind', ...tasks } });
   // A path rule adds its step only when the task touches its files.
   const rules = withRules({ paths: [{ paths: ['src/auth/**'], steps: ['review'], because: 'Auth changes get a conformance review.' }] });
   assert.deepEqual(composeTask(rules, { kind: 'fix' }).steps.map((step) => step.intent), ['intake', 'code', 'test']);
@@ -113,10 +116,10 @@ test('ITW REQ-009: before a task starts, a person may add a step or take one out
     [{ kind: 'review', add: ['plan'] }, /A plan step plans code, and a review task changes none/u]
   ]) assert.throws(() => composeTask(base(), options), (error) => error.code === 'TASK_CHANGE_REFUSED' && words.test(error.message), JSON.stringify(options));
   // Found by the task fuzzer: a rule's plan step is not given to a task with no code.
-  const planned = Object.assign(base(), { tasks: { always: [{ steps: ['plan'], because: 'Plans first.' }] } });
+  const planned = Object.assign(base(), { tasks: { sizing: 'kind', always: [{ steps: ['plan'], because: 'Plans first.' }] } });
   assert.deepEqual(composeTask(planned, { kind: 'docs' }).steps.map((step) => step.intent), ['intake', 'design']);
   // "Skip the review" on a task a rule gives one is refused with the rule's words [A4].
-  const ruled = Object.assign(base(), { tasks: { always: [{ kinds: ['feature'], steps: ['review'], because: 'Every feature gets a conformance review.' }] } });
+  const ruled = Object.assign(base(), { tasks: { sizing: 'kind', always: [{ kinds: ['feature'], steps: ['review'], because: 'Every feature gets a conformance review.' }] } });
   assert.throws(() => composeTask(ruled, { kind: 'feature', skip: ['review'] }),
     (error) => error.code === 'TASK_CHANGE_REFUSED' && /Every feature gets a conformance review/u.test(error.message));
 });
@@ -145,7 +148,7 @@ test('ITW REQ-006: the composed work type lives in memory and in the Story\'s re
 });
 
 test('ITW REQ-001, REQ-007: work shows the plan and writes nothing; --start starts TASK-1 on the default branch with the composed steps', async (t) => {
-  const story = await journeyRepository(t);
+  const story = await journeyRepository(t, { configure: v11 });
   const workflowFile = await story.read('singularity/workflow.yml');
   const shown = JSON.parse(story.cli('work', 'fix the value module so it returns 2', '--json'));
   assert.equal(shown.resultType, 'sflow-task-plan');
@@ -215,7 +218,7 @@ test('ITW REQ-008: /sf-task on an open task takes the turn of what the Story nee
   assert.equal(typedAfterSkill('/sf-task'), '');
   assert.equal(typedAfterSkill('/sf-task fix the login'), 'fix the login');
   assert.equal(typedAfterSkill('<skill-context name="sf-task">x ARGUMENTS: add a design step </skill-context>'), 'add a design step');
-  const story = await journeyRepository(t);
+  const story = await journeyRepository(t, { configure: v11 });
   story.cli('work', 'fix the value module so it returns 2', '--start', '--json');
   story.item = 'singularity/work-items/TASK-1';
   const record = storyRecord(story);

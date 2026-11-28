@@ -313,7 +313,8 @@ export function samplePath(glob) {
 }
 
 function composed(definition, rules, kind, touchedPaths) {
-  try { return composeTask(definition, { kind, touchedPaths, rules }); } catch (error) { return { error: error.message }; }
+  // The kind's own steps, what a big change gets: a sized task's shape is decided by its requirement [ITW:REQ-101].
+  try { return composeTask(definition, { kind, touchedPaths, rules, sizing: 'kind' }); } catch (error) { return { error: error.message }; }
 }
 
 const intentsOf = (composition) => (composition.error ? null : composition.steps.map((step) => step.intent));

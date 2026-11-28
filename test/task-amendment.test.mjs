@@ -17,6 +17,9 @@ import { slowLane } from './helpers/slow-lane.mjs';
 
 const ITEM = 'singularity/work-items/TASK-1';
 const json = (text) => JSON.parse(text);
+
+/** A Story composed from its kind, as one started before v1.2 is (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md §4): `tasks.sizing: kind`. */
+const v11 = (configuration) => { configuration.tasks = { ...(configuration.tasks ?? {}), sizing: 'kind' }; };
 /** A command the person runs that SFlow refuses: its code, words and way out. */
 function refusal(story, args) {
   const result = story.raw(['--no-model', ...args, '--json']);
@@ -28,7 +31,7 @@ function refusal(story, args) {
 }
 
 async function startedFix(t) {
-  const story = await journeyRepository(t);
+  const story = await journeyRepository(t, { configure: v11 });
   Object.assign(story, { workId: 'TASK-1', item: ITEM });
   json(story.cli('work', 'fix the value module so it returns 2', '--start', '--json'));
   return story;
@@ -144,7 +147,7 @@ test('ITW REQ-009: a step whose place is at or before the current step is refuse
 });
 
 test('journey ITW REQ-009: a review added while the code waits for its approval keeps that approval, and the task walks on to it', slowLane({ timeout: 1_800_000 }), async (t) => {
-  const story = await journeyRepository(t);
+  const story = await journeyRepository(t, { configure: v11 });
   Object.assign(story, { workId: 'TASK-1', item: ITEM });
   const routes = { agent: generatedAgent('TASK-1'), person: generatedPerson(story, 'TASK-1') };
   const coded = await followRoutes(story, { label: 'task fix to its code approval', ...routes, maxSteps: 120,
@@ -171,7 +174,7 @@ test('journey ITW REQ-009: a review added while the code waits for its approval 
 test('journey ITW REQ-014: a fix whose code touches a team path rule gains the rule\'s review step, recorded as the rule\'s', slowLane({ timeout: 1_800_000 }), async (t) => {
   const because = 'Changes to the value module get a conformance review.';
   const story = await journeyRepository(t, { configure: (configuration) => {
-    configuration.tasks = { paths: [{ paths: ['src/**'], steps: ['review'], because }] };
+    configuration.tasks = { sizing: 'kind', paths: [{ paths: ['src/**'], steps: ['review'], because }] };
   } });
   Object.assign(story, { workId: 'TASK-1', item: ITEM });
   // The words name no file, so the plan has no review yet.

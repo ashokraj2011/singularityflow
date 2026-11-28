@@ -1188,6 +1188,19 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // registered (command-registry.mjs +24) [FPL §11 questions 3 and 4]. No new eager file.
     // 9,960,583 (measured for start.mjs, +3,038 over 9,957,545 on the merge of fpl-rules-followups with main 088970dfc,
     // 2026-11-28; submit.mjs 9,958,349): the `by:` group above and SSB M3 together. No new eager file.
+    // 9,934,394 (measured for start.mjs, +253 over 9,934,141 at f6353df44, 2026-11-27 on sf-task-v12; submit.mjs 9,931,439,
+    // +1,046): a sized task's requirement asks its approval with its shape (choices.mjs +235, task-shape.mjs loaded only for
+    // such a Story), its shape decided after its submission (submit.mjs +1,028, task-shape.mjs loaded only then) and `work
+    // shape` registered as a mutation (command-registry.mjs +18) [ITW v1.2 REQ-103]. No new eager file.
+    // 9,960,836 (measured for start.mjs, +253 over 9,960,583 on the merge of sf-task-v12 with main 31f0c6c2a, 2026-11-28;
+    // submit.mjs 9,959,395): ITW v1.2's rises above and main's together. No new eager file.
+    // 9,961,241 (measured for start.mjs, +405 over 9,960,836, 2026-11-28 on sf-task-v12; approve.mjs 9,869,449, submit.mjs
+    // 9,959,395 unchanged): a sized task's approval says in one line why the person is asked and what each answer does, and a
+    // small requirement offers its big change on the same screen (choices.mjs +405; task-shape.mjs still loaded only for such
+    // a Story) [ITW REQ-113]. No new eager file.
+    // 9,961,312 (measured for start.mjs, +71 over 9,961,241, 2026-11-28 on sf-task-v12; approve.mjs 9,869,520): a refactor's
+    // approval says why too, so choices.mjs loads task-shape.mjs for a refactor's Story as well (+71) [ITW REQ-113]. No new
+    // eager file.
     // 9,941,613 (measured for start.mjs, +3,566 over 9,938,047 on the merge of watch-code-base with main 29c9c43b9,
     // 2026-11-27; submit.mjs 9,937,865; +3,630 over 9,937,894 at 96aa138eb before the merge): a document step never
     // stops for the code base and the code step takes it up [WCB M1]: one workspace-local rule for every gate
@@ -1211,7 +1224,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,968,300 (measured for start.mjs, +460 over 9,967,840, 2026-11-28 on watch-code-base; submit.mjs 9,966,066): a supporting
     // change that says who made it is listed with the files outside the plan, a person's scratch note "by you" (plan-amendments.mjs
     // outsidePlanSettled +460) [owner, 2026-11-28; WCB:REQ-014]. No new eager file.
-    assert.ok(closure.bytes <= 9_968_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,969,029 (measured for start.mjs, +729 over 9,968,300 on the merge of sf-task-v12 with main db5bfb141, 2026-11-28;
+    // submit.mjs 9,967,112, approve.mjs 9,877,353): ITW v1.2's rises above (choices.mjs +711, command-registry.mjs +18) and
+    // WCB's together. No new eager file.
+    assert.ok(closure.bytes <= 9_969_029, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1432,7 +1448,11 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // rule`, registered (command-registry.mjs) [FPL §11 question 4]. No new eager file.
   // 898,708 (+24 over 898,684, measured 2026-11-28 on the merge of fpl-rules-followups with main 088970dfc): `lessons
   // guidance` above and SSB M3 together. No new eager file.
-  assert.ok(root.bytes <= 898_708, `root dispatch loads ${root.bytes} source bytes`);
+  // 894,631 (+18, measured 2026-11-27 on sf-task-v12 over f6353df44): `work shape` registered as a mutation
+  // (command-registry.mjs) [ITW v1.2 REQ-103]. No new eager file.
+  // 898,726 (+18 over 898,708, measured 2026-11-28 on the merge of sf-task-v12 with main 31f0c6c2a): `work shape` above and
+  // main's rises together. No new eager file.
+  assert.ok(root.bytes <= 898_726, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1915,6 +1935,10 @@ test('the common session projection does not import attach, state stores or publ
   // [FPL §11 questions 3 and 4]. No new eager file.
   // 4,404,208 (+2,295 over 4,401,913, measured 2026-11-28 on the merge of fpl-rules-followups with main 088970dfc):
   // the `by:` group above and SSB M3 together. No new eager file.
+  // 4,391,565 (+18, measured 2026-11-27 on sf-task-v12 over f6353df44): `work shape` registered as a mutation
+  // (command-registry.mjs) [ITW v1.2 REQ-103]. No new eager file.
+  // 4,404,226 (+18 over 4,404,208, measured 2026-11-28 on the merge of sf-task-v12 with main 31f0c6c2a): `work shape` above
+  // and main's rises together. No new eager file.
   // 4,394,663 (+1,500 over 4,393,163, measured 2026-11-27 on the merge of watch-code-base with main 29c9c43b9): the
   // workspace-local rule and the code step's reach-back baseline (workspace-local-paths.mjs, 1,001, work-intervals.mjs +410, candidate-scope.mjs +89) [WCB M1]. One
   // new eager file (workspace-local-paths.mjs).
@@ -1927,7 +1951,9 @@ test('the common session projection does not import attach, state stores or publ
   // M2 above on top of main's. No other new eager file.
   // 4,409,361 (+460, measured 2026-11-28 on watch-code-base): a supporting change that says who made it is listed outside the
   // plan (plan-amendments.mjs outsidePlanSettled) [owner, 2026-11-28; WCB:REQ-014]. No new eager file.
-  assert.ok(current.bytes <= 4_409_361, `session current loads ${current.bytes} source bytes`);
+  // 4,409,379 (+18 over 4,409,361, measured 2026-11-28 on the merge of sf-task-v12 with main db5bfb141): `work shape`
+  // above (command-registry.mjs) and WCB's rises together. No new eager file.
+  assert.ok(current.bytes <= 4_409_379, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

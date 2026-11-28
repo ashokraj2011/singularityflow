@@ -529,7 +529,8 @@ test('text installed before the checks: never offered, flagged on both catalogs 
   assert.doesNotMatch(cold.context, /text checks/u);
   assert.equal(existsSync(keptFile), false, 'the session start ran no sweep');
   const plan = json(story.cli('work', 'fix the checkout button', '--kind', 'fix', '--json'));
-  assert.match(plan.plan, /^Plan: code \(not legacy-smoke-checks: SFlow's text checks refuse its text\)/u);
+  // A fix sized by its requirement (ITW v1.2): the skill is named on the step that implements and tests.
+  assert.match(plan.plan, /^Plan: requirement → implement and test \(not legacy-smoke-checks: SFlow's text checks refuse its text\)/u);
   assert.equal(plan.skills, undefined);
   assert.ok(plan.steps.every((step) => !step.skills), 'no step is given it');
   const skills = json(story.cli('skill', 'catalog', '--json'));

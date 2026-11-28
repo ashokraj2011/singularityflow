@@ -68,7 +68,11 @@ test(`ITW A10: ${SEEDS} seeded task drafts either refuse with their way on or co
       if (composition.added.some((entry) => entry.intent === skipped)) assert.fail(`${where}: a rule's ${skipped} step was skipped`);
     }
     const person = plan.steps.filter((step) => step.approvedBy === 'person');
-    assert.ok(person.length >= 2, `${where}: ${JSON.stringify(plan.steps)}`);
+    // A code task's person approves two things at least (ITW v1.2: the requirement and the code); an analysis sized by its
+    // requirement is SFlow's to approve, but for what a team rule gives a person [ITW:REQ-109].
+    const analysis = CODE_FREE.includes(d.kind) && composition.sizing === 'requirement';
+    if (analysis) assert.ok(person.every((step) => composition.personApproves.includes(step.intent)), `${where}: an analysis is SFlow's to approve: ${JSON.stringify(plan.steps)}`);
+    else assert.ok(person.length >= 2, `${where}: ${JSON.stringify(plan.steps)}`);
     for (const intent of composition.personApproves) {
       assert.ok(plan.steps.some((step) => step.intent === intent && step.approvedBy === 'person'), `${where}: a rule gives ${intent} to a person`);
     }

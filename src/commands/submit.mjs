@@ -245,6 +245,18 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       phase = workflow.phases[submittedId];
     }
   }
+  // A sized task's requirement decides its shape: a big change gains its steps after it, and its question says so [ITW:REQ-103].
+  let taskShape = null;
+  if (automaticReturn?.returned !== true && workflow.resolution?.composition?.sizing === 'requirement' && phase.status === 'awaiting_approval'
+      && workflow.resolution.composition.steps?.find((entry) => entry.id === phase.id)?.intent === 'intake') {
+    const submittedId = phase.id;
+    taskShape = (await postPublicationStep('the task\'s shape', workflow.workItem.id,
+      async () => (await import('../task-shape.mjs')).decideShapeAfterRequirement(root, workflow.workItem.id, submittedId))).value;
+    if (taskShape?.added.length) {
+      workflow = (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow;
+      phase = workflow.phases[submittedId];
+    }
+  }
   const grown = taskRuleSteps?.grown?.returned === true ? taskRuleSteps.grown : null;
   const returned = automaticReturn?.returned === true || Boolean(grown);
   // Approve twice (owner, 2026-11-19): a step SFlow approves when it is ready is approved now, in its own commit, when its
@@ -302,7 +314,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     }
     if (automaticApproval?.applies && !automaticApproval.approved) console.log((await import('../automatic-approval.mjs')).needsPersonWords(phase, automaticApproval));
     // The return, or at the brake why SFlow did not make it and the person's filled choices; the test step's run again.
-    for (const line of [...(automaticReturn?.lines ?? []), ...(rerun?.line ? [rerun.line] : []), ...(taskRuleSteps?.lines ?? []),
+    for (const line of [...(automaticReturn?.lines ?? []), ...(rerun?.line ? [rerun.line] : []), ...(taskRuleSteps?.lines ?? []), ...(taskShape?.lines ?? []),
       ...(grownCode?.line ? [grownCode.line] : [])]) console.log(line);
     for (const repair of registrationRepairs) {
       console.log(`Repaired stale artifact registration for ${repair.path} and continued; authored content still matches generation ${repair.generation}.`);
@@ -356,6 +368,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       ...(automaticReturn ? { automaticReturn: automaticReturn.data } : {}),
       ...(rerun ? { testsRerun: rerun } : {}),
       ...(taskRuleSteps ? { taskSteps: taskRuleSteps } : {}),
+      ...(taskShape ? { taskShape: { shape: taskShape.shape, reasons: taskShape.facts?.reasons ?? [], added: taskShape.added, lines: taskShape.lines } } : {}),
       ...(grownCode ? { grownCode } : {}),
       ...(automaticApproval?.applies ? { automaticApproval: { approved: automaticApproval.approved === true, checked: automaticApproval.checked ?? [],
         open: automaticApproval.open ?? [], ...(automaticApproval.approved ? { commit: automaticApproval.publication?.sha ?? null } : {}) } } : {}),

@@ -1,6 +1,6 @@
 /**
  * `singularity-flow work "<words>" [--kind KIND] [--start] [--work-id ID] [--path FILE ...] [--use-agent MARKETPLACE/AGENT] [--use-workflow ID] [--json]` [ITW:REQ-001–007, 011, 020];
- * `singularity-flow work add <STEP> [--work-id ID] [--json]` [ITW:REQ-009];
+ * `singularity-flow work add <STEP> [--work-id ID] [--json]` [ITW:REQ-009]; `singularity-flow work shape big [--work-id ID] [--json]` [ITW:REQ-103];
  * `singularity-flow work "<words>" --plan-only [--json]`, the likely plan, and `singularity-flow work list [--offline] [--json]`,
  * this person's tasks in flight and done this week [FPL:REQ-004, REQ-005, REQ-007].
  *
@@ -22,7 +22,7 @@ import { branch, commitOfRef, committedFileText, localBranches, remoteBranches, 
 import { typedChangedPaths, typedMergeBase } from '../git-access.mjs';
 import { storyCreatorName } from '../story-presentation.mjs';
 import { repoRoot } from '../git-execution.mjs';
-import { agentWords, composeTask, kindFromWords, planLine, TASK_KINDS, taskDefinition, taskRules } from '../task-composition.mjs';
+import { agentWords, composeTask, kindFromWords, planLine, TASK_KINDS, taskDefinition, taskRules, taskShape } from '../task-composition.mjs';
 import { addableSteps, nowAndNext, planChips, planNote, rulesApplied, standsWords, storyEvents, storySteps } from '../work-rows.mjs';
 import { walkTaskWorkType } from '../task-walk.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
@@ -107,6 +107,8 @@ export async function taskPlan(definition, { kind, touchedPaths = [], pullReques
     walk: walk.outcome,
     ...(chosen ? { skills: chosen.skills, offers: chosen.offers } : {}),
     ...(found?.offer ? { agentOffer: found.offer } : {}),
+    // The team's own workflow, used with no question [ITW:REQ-108].
+    ...(found?.used ? { usedWorkflow: found.used } : {}),
     ...(notes.length ? { notes } : {})
   };
 }
@@ -287,6 +289,8 @@ export async function taskStatus(root, id, { remote = 'origin', checksOf = null,
   const read = (relative) => (record.ref ? committedFileText(root, record.ref, relative)
     : existsSync(path.join(root, relative)) ? readFileSync(path.join(root, relative), 'utf8') : null);
   const checks = done && checksOf ? checksOf.taskChecks(workflow, read, { item: itemOf(record, id) }) : null;
+  // A done analysis offers its follow-ups, each with the command that starts it [ITW:REQ-109].
+  const followUps = done && taskShape(composition) === 'analysis' ? await analysisFollowUps(root, record, id, workflow, composition) : [];
   // What the change does, once a code step is published: the page's line and where it is, for the task view [CSP:REQ-008].
   const changePage = `${itemOf(record, id)}/CHANGE-STORY.md`;
   const changeText = read(changePage);
@@ -294,7 +298,7 @@ export async function taskStatus(root, id, { remote = 'origin', checksOf = null,
   const changeSummary = changeRead?.changeStorySummaryOf(changeText) ?? null;
   return {
     ...(changeSummary ? { changeStory: { path: changePage, summary: changeSummary, command: changeRead.changeStoryCommand(id) } } : {}),
-    schemaVersion: 1, resultType: 'sflow-task-status', id, kind: composition?.kind ?? null, title: workflow.workItem?.title ?? null,
+    schemaVersion: 1, resultType: 'sflow-task-status', id, kind: composition?.kind ?? null, shape: taskShape(composition), title: workflow.workItem?.title ?? null,
     status: workflow.status, done, branch: workflow.workItem?.branch ?? id, base: workflow.workItem?.baseBranch ?? null,
     pullRequest: composition?.pullRequest === true, steps,
     // Whose steps they are, when they are not the kind's own [ITW:REQ-011, REQ-020].
@@ -303,6 +307,7 @@ export async function taskStatus(root, id, { remote = 'origin', checksOf = null,
     ...(workflow.executionOrigin?.mode === 'itw-handoff' ? { handoff: workflow.executionOrigin } : {}),
     personApproved: steps.filter((step) => step.approvedBy === 'person').map((step) => step.label),
     ...(checks ? { checks } : {}),
+    ...(followUps.length ? { followUps, ask: (await import('../task-followups.mjs')).FOLLOW_UP_ASK } : {}),
     words: done
       ? `${id} is done: ${steps.map((step) => step.label).join(', ')}, on branch ${workflow.workItem?.branch ?? id}.${checks ? checksOf.checksWords(checks) : ''}`
       : standsWords(id, steps, false),
@@ -312,6 +317,16 @@ export async function taskStatus(root, id, { remote = 'origin', checksOf = null,
     chips: planChips(workflow, steps), planNote: planNote(workflow), events: storyEvents(workflow, { now }), ...nowAndNext(steps),
     rulesApplied: rulesApplied(workflow), addable: addableSteps(workflow), changed: changedFiles(root, record, workflow, remote)
   };
+}
+
+/** The follow-ups of a done analysis, from its last step's document [ITW:REQ-109]. */
+async function analysisFollowUps(root, record, id, workflow, composition) {
+  const last = workflow.phaseOrder?.at(-1);
+  const artifact = workflow.phases?.[last]?.requiredArtifact?.path;
+  const report = artifact ? storyFileText(root, record, id, artifact) : null;
+  if (!report) return [];
+  const { taskFollowUps } = await import('../task-followups.mjs');
+  return taskFollowUps({ id, kind: composition.kind, report, document: `${itemOf(record, id)}/${artifact}`, title: workflow.workItem?.title });
 }
 
 /**
@@ -340,7 +355,7 @@ function changedFiles(root, record, workflow, remote) {
 function startCommand(words, kind, options, extra = []) {
   const repeated = (name) => optionStrings(options, name).map((value) => `--${name} ${/^[\w./@:-]+$/u.test(value) ? value : quoted(value)}`);
   const single = (name) => { const value = optionString(options, name); return value ? [`--${name} ${/^[\w./@:-]+$/u.test(value) ? value : quoted(value)}`] : []; };
-  return ['singularity-flow work', quoted(words), `--kind ${kind}`, '--start', ...single('work-id'), ...single('base'), ...single('from'),
+  return ['singularity-flow work', quoted(words), `--kind ${kind}`, '--start', ...single('work-id'), ...single('base'), ...single('from'), ...single('finding'),
     ...repeated('path'), ...repeated('document'), ...repeated('add'), ...repeated('skip'), ...(optionBoolean(options, 'new') ? ['--new'] : []),
     ...repeated('use-skill'), ...repeated('without-skill'), ...repeated('use-agent'), ...repeated('without-agent'),
     ...repeated('use-workflow'), ...repeated('without-workflow'), ...extra].join(' ');
@@ -359,6 +374,23 @@ function skillOffer(offer, composition) {
     ...(offer.new ? { show: `singularity-flow import preview ${quoted(`market:${offer.marketplace}/${offer.id}`)} --as skill --json` } : {}),
     yes: `--use-skill ${offer.id}`, no: `--without-skill ${offer.id}`
   };
+}
+
+/** Finding N of a report's Follow-ups, as the follow-up's intake carries it; refused with the findings there are. */
+async function findingOf(from, report, wanted, { words, kind, options }) {
+  if (wanted === null || wanted === undefined) return null;
+  const { findingIntake, reportFollowUps } = await import('../task-followups.mjs');
+  const items = reportFollowUps(report.text);
+  const item = items.find((entry) => String(entry.n) === String(wanted));
+  if (item) return findingIntake(from, report.artifact, item);
+  const first = items[0];
+  throw new SingularityFlowError(items.length ? `${from}'s report has no finding ${wanted}; its follow-ups are ${items.map((entry) => `${entry.n}) ${entry.title}`).join(', ')}.`
+    : `${from}'s report lists no follow-ups, so there is no finding ${wanted} to start from.`, {
+    code: 'TASK_FROM_NO_FINDING',
+    details: { followUps: items, nextAction: first
+      ? { command: startCommand(first.title, kind, { ...options, finding: String(first.n) }), label: `Start a story from finding 1: ${first.title}.` }
+      : { command: startCommand(words, kind, { ...options, finding: undefined }), label: `Start from ${from}'s whole report.` } }
+  });
 }
 
 function titleOf(words) {
@@ -397,6 +429,40 @@ async function changeTask(positionals, options) {
   const amendment = await import('../task-amendment.mjs');
   if (verb === 'skip') return amendment.refuseTaskStepRemoval(loaded.workflow, intent);
   return amendment.addTaskStep(root, loaded.config ?? loaded.definition, loaded.workflow, { intent, definition: await loadConfig(root) });
+}
+
+/**
+ * `work shape big` [ITW:REQ-103]: the person makes the sized task open on this checkout a big change, at its requirement's
+ * approval (its spec, design when its analysis asks, plan and tests are added after the requirement, which still waits for
+ * the person's Yes). A big change stays big: steps are only added.
+ */
+async function shapeCommand(positionals, options) {
+  const root = await taskRepositoryRoot();
+  const id = optionString(options, 'work-id') ?? openStoryHere(root);
+  if (!id) {
+    throw new SingularityFlowError('There is no task open on this checkout to make a big change. Check out its branch, or name it with --work-id.', {
+      code: 'TASK_UNKNOWN', details: { nextAction: { command: 'singularity-flow work status', label: 'See the task open on this checkout.' } } });
+  }
+  const status = { command: `singularity-flow work status ${id}`, label: `See where ${id} stands; it carries on with its steps.` };
+  if (positionals[2] !== 'big') {
+    throw new SingularityFlowError(`A task's requirement makes it small or big, and a big change stays big: say "singularity-flow work shape big".`, {
+      code: 'TASK_CHANGE_REFUSED', details: { nextAction: { command: `singularity-flow work shape big --work-id ${id}`, label: 'Make it a big change.' } } });
+  }
+  const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
+  const { workflow } = await loadAcceptedStoryExecution(root, id);
+  const shape = await import('../task-shape.mjs');
+  const decided = await shape.decideShapeAfterRequirement(root, id, workflow.currentPhase, { force: 'big', by: 'person' });
+  if (!decided) {
+    throw new SingularityFlowError(`${id} is not a sized task whose requirement waits for its approval, so it does not become a big change here.`, {
+      code: 'TASK_CHANGE_REFUSED', details: { nextAction: status } });
+  }
+  const after = (await loadAcceptedStoryExecution(root, id)).workflow;
+  const { planLine } = await import('../task-composition.mjs');
+  return { schemaVersion: 1, resultType: 'sflow-task-change', applied: decided.added.length > 0, stateChanged: decided.added.length > 0, id,
+    shape: 'big', added: decided.added, words: decided.lines.join(' ') || `${id} is a big change.`,
+    plan: planLine(after.resolution.composition, { approvals: Object.fromEntries(after.resolution.phases.map((phase) => [phase.id,
+      phase.approval?.mode === 'none' ? 'none' : phase.approval?.automatic === 'when-ready' ? 'sflow' : 'person'])) }),
+    question: shape.taskApprovalQuestion(after, after.phases[after.currentPhase]), next: status };
 }
 
 /**
@@ -445,6 +511,7 @@ async function likelyPlan(positionals, options) {
 export async function workCommand(positionals = [], options = {}) {
   if (positionals[1] === 'handoff') return (await import('../task-handoff.mjs')).workHandoff(positionals, options);
   if (positionals[1] === 'add' || positionals[1] === 'skip') return changeTask(positionals, options);
+  if (positionals[1] === 'shape') return shapeCommand(positionals, options);
   if (positionals[1] === 'behaviour') return behaviourCommand(positionals, options);
   if (positionals[1] === 'list' && positionals.length === 2) {
     return (await import('../work-list.mjs')).workList({ offline: optionBoolean(options, 'offline') });
@@ -454,7 +521,9 @@ export async function workCommand(positionals = [], options = {}) {
     const definition = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : {};
     const id = positionals[2] ?? openStoryHere(root) ?? branchName(root);
     // Its checks are read only for a task that is done, from their own module (task-checks.mjs).
-    return taskStatus(root, id, { remote: definition.git?.remote ?? 'origin', checksOf: await import('../task-checks.mjs'), definition });
+    const status = await taskStatus(root, id, { remote: definition.git?.remote ?? 'origin', checksOf: await import('../task-checks.mjs'), definition });
+    // Who carries the /sf-task turn on: the hooks, or the skill where none ran [ITW:REQ-111].
+    return status.task ? { ...status, taskTurn: { carriedBy: await (await import('../task-turn.mjs')).taskTurnCarrier(root) } } : status;
   }
   if (optionBoolean(options, 'plan-only')) return likelyPlan(positionals, options);
   const words = wordsOf(positionals);
@@ -500,7 +569,7 @@ export async function workCommand(positionals = [], options = {}) {
     'use-workflow': [], 'without-workflow': [...withoutWorkflow, ...useWorkflow] });
   const preview = await taskPlanForWords(definition, words, { kind, touchedPaths,
     add: optionStrings(options, 'add'), skip: optionStrings(options, 'skip'),
-    chooseAgent: taskAgentFinder(root, definition, { touchedPaths, use: useAgent, without: withoutAgent, useWorkflow, withoutWorkflow }),
+    chooseAgent: taskAgentFinder(root, definition, { touchedPaths, use: useAgent, without: withoutAgent, useWorkflow, withoutWorkflow, words, folders: WORK_ITEMS }),
     chooseSkills: taskSkillChooser(root, definition, { words, touchedPaths, use, without }) }).catch((error) => {
     // A yes to an agent whose workflow is not in the repository yet: its import is the next thing, through the conversion
     // review, and the task can also start with its own steps now [ITW:REQ-011, REQ-020].
@@ -528,6 +597,9 @@ export async function workCommand(positionals = [], options = {}) {
       rules: preview.composition.rules, added: preview.composition.added,
       ...(agent ? { agent: { id: `${agent.marketplace}/${agent.agent}`, marketplace: agent.marketplace, agent: agent.agent, version: agent.version, workflow: agent.workflow } } : {}),
       ...(preview.composition.local ? { workflow: { id: preview.composition.local.workflow, label: preview.composition.local.label } } : {}),
+      // Used with no question; its no starts the task with its own steps [ITW:REQ-108].
+      ...(preview.usedWorkflow ? { usedWorkflow: { id: preview.usedWorkflow.workflow, label: preview.usedWorkflow.label, why: preview.usedWorkflow.why,
+        without: startCommand(words, kind, { ...options, 'without-workflow': [...withoutWorkflow, preview.usedWorkflow.workflow] }) } } : {}),
       ...(agentOffer ? { agentOffer } : {}),
       ...(preview.skills.length ? { skills: preview.skills } : {}), ...(offers.length ? { offers } : {}),
       ...(preview.notes?.length ? { notes: preview.notes } : {}),
@@ -573,10 +645,15 @@ export async function workCommand(positionals = [], options = {}) {
   const base = optionString(options, 'base') ?? remoteDefaultBranchName(root, definition, remote) ?? 'main';
   const from = optionString(options, 'from');
   const report = from ? await reportOf(root, from, remote) : null;
+  // One finding of an analysis, not the whole report [ITW:REQ-109].
+  const finding = report ? await findingOf(from, report, optionString(options, 'finding'), { words, kind, options }) : null;
   const documents = optionStrings(options, 'document').map((file) => path.resolve(process.cwd(), file));
   if (!optionBoolean(options, 'json')) console.log(preview.plan);
-  return launchTask(id, { words, preview, base, documents, json: optionBoolean(options, 'json'),
-    description: report ? `${words}\n\n## Starts from ${from}'s report (${report.artifact})\n\n${report.text}` : words }).catch((error) => {
+  // What SFlow asks of a sized task's requirement (its clauses, analysis and size) or of an analysis (its follow-ups),
+  // beside the person's words in its intake [ITW:REQ-102, REQ-109].
+  const guidance = preview.composition.sizing ? (await import('../task-shape.mjs')).taskIntakeGuidance(preview.composition) : null;
+  const description = [finding ? `${words}\n\n${finding}` : report ? `${words}\n\n## Starts from ${from}'s report (${report.artifact})\n\n${report.text}` : words, guidance].filter(Boolean).join('\n\n');
+  return launchTask(id, { words, preview, base, documents, json: optionBoolean(options, 'json'), description }).catch((error) => {
     // The plan read a skill this checkout has but the Story's base does not, or has otherwise: started without it.
     if (error?.code === 'TASK_SKILL_CHANGED' && error.details?.skill) {
       error.details.nextAction = { command: startCommand(words, kind, { ...options, 'use-skill': use.filter((skill) => skill !== error.details.skill),
@@ -604,6 +681,7 @@ function printPlan(result) {
     if (offer.review) console.log(`  See its conversion review: ${offer.review}`);
     console.log(`  Yes: add ${offer.yes} to the start${offer.imported ? '' : ', once its workflow is in this repository'}. No: add ${offer.no}.`);
   }
+  if (result.usedWorkflow) console.log(`Your team's workflow ${result.usedWorkflow.label} covers this task (${result.usedWorkflow.why}), so it is the plan. Its own steps instead: ${result.usedWorkflow.without}`);
   for (const skill of result.skills ?? []) console.log(`Skill ${skill.id}: ${skill.why}.`);
   for (const offer of result.offers ?? []) {
     console.log(`${offer.ask} ${offer.why}.`);

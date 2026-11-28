@@ -12028,7 +12028,7 @@ TRP: `singularity-flow explain test-recovery`.
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1516 body tokens</span>
+          <span class="pill">~1524 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-task</code></dd></div>
@@ -12070,7 +12070,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 4. Run `singularity-flow work &quot;&lt;the person&#39;s words, exactly&gt;&quot; --kind &lt;KIND&gt; --start --json` from cwd as is (add `--new` only after &quot;new task&quot;; &quot;fix it&quot; after an investigation or review in this chat: `--from &lt;ITS-ID&gt;`; a document the person names: `--document &lt;PATH&gt;`; &quot;add a design step&quot; or &quot;skip the plan&quot;: `--add &lt;STEP&gt;` or `--skip &lt;STEP&gt;`); a workspace folder is fine. Never choose an ID, base or workflow: SFlow does.
 5. Say `data.task.plan` as one line. A refactor: run `data.task.before` once now, before any edit, and say in one line which tests already fail on the base.
 6. On a refusal follow its `details.nextAction`; `TASK_OPEN_HERE`: do step 1 with the person&#39;s words; `TASK_KIND_UNKNOWN`: choose from `details.kinds` as in step 3 and run step 4 once more.
-   `TASK_AGENT_YES_NEEDED` (its `details.agentOffer`) and `TASK_SKILL_YES_NEEDED` (each of `details.offers`): run its `show` when it has one and show the source and the full `text` (an agent&#39;s: `review.markdown`), the one exception to the no-paste rule; ask_user its `ask` with Yes and No. On the person&#39;s own Yes to a shown one, run that preview&#39;s `addCommand` with `--propose --json` (an agent&#39;s: `singularity-flow workflow import &lt;bundlePath&gt; --confirm &lt;importPlan.planSha256&gt; --propose --json`); its import is reviewed: this task keeps the `no`. Any other Yes keeps its `yes`; a No keeps its `no`. Then run `details.start` once with every kept option added.
+   `TASK_AGENT_YES_NEEDED` (its `details.agentOffer`) and `TASK_SKILL_YES_NEEDED` (each of `details.offers`): run its `show` when it has one and show the source and the full `text` (an agent&#39;s: `review.markdown`), the one exception to the no-paste rule; ask_user its `ask` with Yes and No (its `noWords` when it has them). On the person&#39;s own Yes to a shown one, run that preview&#39;s `addCommand` with `--propose --json` (an agent&#39;s: `singularity-flow workflow import &lt;bundlePath&gt; --confirm &lt;importPlan.planSha256&gt; --propose --json`); its import is reviewed: this task keeps the `no`. Any other Yes keeps its `yes`; a No keeps its `no`. Then run `details.start` once with every kept option added.
 7. Say `data.readiness` in one line only if its `status` is `blocked`. When SFlow&#39;s note says this turn goes on, do step 1 with no words; else say `/sf-task`, typed in this chat, carries it on.
 </code></pre>
       </div>

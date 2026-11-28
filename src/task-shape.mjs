@@ -125,6 +125,37 @@ export function taskApprovalQuestion(workflow, phase) {
 }
 
 /**
+ * Why a person is asked to approve a step of a sized task, and what each answer does, in one plain line [ITW:REQ-113;
+ * owner 2026-11-28: every decision says plainly why the person makes it]. Null for a step SFlow approves, or another Story.
+ */
+export function taskApprovalWhy(workflow, phase) {
+  const composition = workflow?.resolution?.composition ?? null;
+  const step = (composition?.steps ?? []).find((entry) => entry.id === phase?.id);
+  if (!isSized(composition) || !step) return null;
+  const big = isBigShape(composition);
+  const waits = 'Not now: it waits, and /sf-task brings it back.';
+  const ruled = (composition.personApproves ?? []).includes(step.intent)
+    ? (composition.rules ?? []).find((entry) => entry.because && entry.rule !== 'plan')?.because?.replace(/[.\s]+$/u, '') : null;
+  const asked = ruled ? ` The team's rule asks for you: ${ruled}.` : '';
+  if (step.intent === 'intake' && SIZED_KINDS.includes(composition.kind)) {
+    return big ? `You decide what gets built: the requirement says it, clause by clause, with how each is tested, and its size is big. Yes: the spec, then the plan for your approval. ${waits}`
+      : `You decide what gets built: the requirement says it, clause by clause, with how each is tested. Yes: implement and test start. Make it a big change: a spec and a plan come first. ${waits}`;
+  }
+  if (step.intent === 'plan') return `You decide how the code will be written: the plan names the files and the tests for each clause. Yes: the code is written to it. ${waits}${asked}`;
+  if (step.intent === 'code') return `You decide whether this code goes in: it changes the repository. Yes: SFlow runs the tests itself and approves the tests step when they pass. ${waits}${asked}`;
+  return ruled ? `You approve it because the team's rule asks: ${ruled}. Yes: the task goes on. ${waits}` : null;
+}
+
+/** The other answers a sized task's approval offers beside Yes and Not now: a small requirement can be made big [ITW:REQ-103]. */
+export function taskApprovalAlternatives(workflow, phase) {
+  const composition = workflow?.resolution?.composition ?? null;
+  const step = (composition?.steps ?? []).find((entry) => entry.id === phase?.id);
+  if (!isSized(composition) || !SIZED_KINDS.includes(composition.kind) || step?.intent !== 'intake' || isBigShape(composition)) return [];
+  return [{ label: 'Make it a big change', command: `singularity-flow work shape big --work-id ${workflow.workItem.id} --json`,
+    does: 'adds a spec, a plan and the tests after the requirement, which then asks for your Yes again' }];
+}
+
+/**
  * What SFlow asks of a sized task's steps, in its intake beside the person's words [ITW:REQ-102, REQ-109]: the requirement's
  * clauses, analysis and size for a code task; the follow-ups for an analysis. Null for any other composition.
  */

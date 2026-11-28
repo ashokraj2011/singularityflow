@@ -211,15 +211,19 @@ async function choiceSets(root, definition, action, workflow = null) {
     const phase = workflow.phases[context.phase];
     // One approval with a Yes (owner, 2026-11-19): the person answers this question after the documents; their Yes, bound
     // to this receipt and so to the version reviewed, is the confirmation. Nobody types the step's ID.
-    // A sized task's requirement says its shape: the Yes confirms it too [ITW:REQ-103].
-    const question = (workflow.resolution?.composition?.sizing === 'requirement'
-      && (await import('./task-shape.mjs')).taskApprovalQuestion(workflow, phase)) || approvalQuestion(phase);
+    // A sized task's requirement says its shape: the Yes confirms it too [ITW:REQ-103]; each of its approvals says why the
+    // person is asked and what each answer does, and a small requirement offers its big change beside the Yes.
+    const shape = workflow.resolution?.composition?.sizing === 'requirement' ? await import('./task-shape.mjs') : null;
+    const question = shape?.taskApprovalQuestion(workflow, phase) || approvalQuestion(phase);
+    const why = shape?.taskApprovalWhy(workflow, phase) ?? null;
+    const alternatives = shape?.taskApprovalAlternatives(workflow, phase) ?? [];
     return [
       {
         id: 'phase-confirmation',
         label: question,
         question,
-        options: [{ id: phase.id, label: question.replace(/\?$/u, ''), description: `Your Yes approves ${phase.label ?? phase.id} version ${phase.generation} as you reviewed it.` }]
+        ...(why ? { why } : {}), ...(alternatives.length ? { alternatives } : {}),
+        options: [{ id: phase.id, label: question.replace(/\?$/u, ''), description: why ?? `Your Yes approves ${phase.label ?? phase.id} version ${phase.generation} as you reviewed it.` }]
       }
     ];
   }

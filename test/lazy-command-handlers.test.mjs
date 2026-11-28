@@ -1192,7 +1192,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // shape` registered as a mutation (command-registry.mjs +18) [ITW v1.2 REQ-103]. No new eager file.
     // 9,960,836 (measured for start.mjs, +253 over 9,960,583 on the merge of sf-task-v12 with main 31f0c6c2a, 2026-11-28;
     // submit.mjs 9,959,395): ITW v1.2's rises above and main's together. No new eager file.
-    assert.ok(closure.bytes <= 9_960_836, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,961,241 (measured for start.mjs, +405 over 9,960,836, 2026-11-28 on sf-task-v12; approve.mjs 9,869,449, submit.mjs
+    // 9,959,395 unchanged): a sized task's approval says in one line why the person is asked and what each answer does, and a
+    // small requirement offers its big change on the same screen (choices.mjs +405; task-shape.mjs still loaded only for such
+    // a Story) [ITW REQ-113]. No new eager file.
+    assert.ok(closure.bytes <= 9_961_241, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

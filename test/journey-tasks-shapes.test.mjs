@@ -190,7 +190,7 @@ test('journey ITW v1.2, B7: an investigation is done with no approval and offers
   assert.deepEqual(personActions(walk.trail), { words: 1, typed: 0, answers: 0, own: 0, total: 1 }, formatTrail(walk.trail));
   const status = JSON.parse(story.cli('work', 'status', 'TASK-1', '--json'));
   assert.equal(status.shape, 'analysis');
-  assert.equal(status.ask, 'Start a story from:');
+  assert.equal(status.ask, 'Start a story from one of these findings? Each starts a new task that carries only that finding; No starts nothing, and the report stays.');
   assert.deepEqual(status.followUps.map((entry) => [entry.n, entry.title, entry.kind]), [[1, 'Return the approved value from the value module', 'fix'], [2, 'Pin the value in a test', 'tests']]);
   // The person's one Yes, to the first: its command, as the skill runs it.
   const [first] = status.followUps;

@@ -1,6 +1,6 @@
 /**
  * The Work place in VS Code [FPL:REQ-004 to REQ-007]: the sidebar tab's box, In progress and Done this week, and the one
- * reused task page. Loaded lazily (lazy-panels-runtime), and only while `singularityFlow.navigation.layout` is `places`.
+ * reused task page. Loaded lazily (lazy-panels-runtime), with the other places (views/needs-you.ts).
  *
  * Start sends exactly `/sf-task <words>` through today's singularityFlow.startTask, and never waits for the likely plan.
  * Each button of the task page runs today's command for it with a client bound to the Story's checkout or its

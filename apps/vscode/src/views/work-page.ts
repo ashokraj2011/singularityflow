@@ -4,7 +4,7 @@
  * `work status <ID> --json`. Pure: no VS Code API, so the host tests read every string.
  *
  * Start sends exactly `/sf-task <words>` (the extension's singularityFlow.startTask); the box never waits for the likely
- * plan, which is only a preview: the plan the chat says is the plan. Off until M5 switches singularityFlow.navigation.layout.
+ * plan, which is only a preview: the plan the chat says is the plan. The sidebar's first place since M5 [FPL:REQ-001].
  */
 import { escape } from './webview.ts';
 
@@ -190,7 +190,7 @@ export function workPanelHtml(list: WorkList | null, { draft = '', likely = null
   const box = workBoxHtml(list, { draft, likely });
   if (!list) return `${box}<p class="work-empty" role="status">${escape(error ?? (reading ? 'Reading your tasks…' : 'Nothing read yet.'))}</p>`;
   const inProgress = list.inProgress.map((row) => withLiveWaiting(row, waiting));
-  const progress = inProgress.length ? `<ul class="work-rows">${inProgress.map(rowHtml).join('')}</ul>` : '<p class="work-empty">Nothing of yours is in flight.</p>';
+  const progress = inProgress.length ? `<ul class="work-rows">${inProgress.map(rowHtml).join('')}</ul>` : '<p class="work-empty">Nothing of yours is in flight. Say what you want done above, then Start.</p>';
   const done = list.doneThisWeek.length ? `<h2 class="work-group">Done this week</h2><ul class="work-rows">${list.doneThisWeek.map((row) => `<li class="work-item"><button type="button" class="work-open" data-task="${escape(row.key)}"><span class="work-title">${escape(row.title)}</span>
     <span class="work-meta">${escape([row.id, row.repository.name, row.ended ? `${row.ended.where}${row.ended.when ? `, ${row.ended.when}` : ''}` : null].filter(Boolean).join(' · '))}</span></button></li>`).join('')}</ul>` : '';
   const head = `<p class="work-checked">${escape(list.checked ?? (reading ? 'Reading…' : 'Not read yet'))}${reading ? ' · reading' : ''}</p>`;

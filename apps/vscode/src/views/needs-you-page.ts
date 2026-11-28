@@ -3,8 +3,9 @@
  * `needs-you --json` and `needs-you show <KEY> --json`. Pure: no VS Code API, so the host tests read every string.
  *
  * The sidebar's four places are one webview with tabs (§9 probe 2 confirms one view against four). The tab strip holds
- * Work (M2, views/work-page.ts), Needs you, Rules (M3, views/rules-page.ts) and Advanced (today's Navigator, unchanged);
- * Library joins it in M4. The places are off until M5 switches `singularityFlow.navigation.layout`.
+ * Work (M2, views/work-page.ts), Needs you, Rules (M3, views/rules-page.ts) and Library (views/library-place.ts, today's
+ * Marketplace page until M4). Advanced, today's Navigator unchanged, is the last row under every place and a title action,
+ * never a tab [FPL:REQ-032]. Since M5 the places are the default (`singularityFlow.navigation.layout`, REQ-034).
  */
 import { escape } from './webview.ts';
 import { CALM_PALETTE_STYLE } from './theme.ts';
@@ -25,6 +26,8 @@ export type NeedsYouList = {
   items: NeedsYouItem[]; shown: number; more: number; lines: string[];
   counts: { badge: number; later: number; total: number; badgeTooltip: string; badgeLabel: string };
   checked: { at: string; words: string } | null; workspace: { id: string; name: string } | null;
+  /** How many repositories the read covers, for the header's "shop · 3 repositories" [FPL:REQ-002]. */
+  repositories: number;
 };
 export type NeedsYouCard = {
   key: string; item: NeedsYouItem; next: { key: string; question: string } | null;
@@ -97,7 +100,8 @@ export function needsYouListFrom(value: unknown): NeedsYouList | null {
       badgeTooltip: text(counts?.badgeTooltip, 80) ?? (badge === 1 ? '1 thing needs you' : `${badge} things need you`),
       badgeLabel: `Needs you: ${badge} waiting` },
     checked: checked && text(checked.words, 200) ? { at: String(checked.at ?? ''), words: String(checked.words) } : null,
-    workspace: workspace && text(workspace.id, 128) ? { id: String(workspace.id), name: text(workspace.name, 200) ?? String(workspace.id) } : null
+    workspace: workspace && text(workspace.id, 128) ? { id: String(workspace.id), name: text(workspace.name, 200) ?? String(workspace.id) } : null,
+    repositories: Array.isArray(object(result.scope)?.repositories) ? Math.min(500, (object(result.scope)?.repositories as unknown[]).length) : 0
   };
 }
 
@@ -137,17 +141,44 @@ export function needsYouBadge(list: NeedsYouList | null): { value: number; toolt
   return { value: list.counts.badge, tooltip: list.counts.badgeTooltip };
 }
 
-export type PlaceTab = 'work' | 'needs-you' | 'rules' | 'advanced';
-export const PLACE_TABS: readonly PlaceTab[] = Object.freeze(['work', 'needs-you', 'rules', 'advanced']);
+/** The four places, in their order [FPL:REQ-001]. Advanced is not one of them: it is the last row and a title action. */
+export type PlaceTab = 'work' | 'needs-you' | 'rules' | 'library';
+export const PLACE_TABS: readonly PlaceTab[] = Object.freeze(['work', 'needs-you', 'rules', 'library']);
+/** What the sidebar shows: one of the places, or Advanced (today's Navigator, unchanged). */
+export type PlaceView = PlaceTab | 'advanced';
+/** Each place's name, which is also the view's title while it is shown [FPL:REQ-001]. */
+export const PLACE_TITLES: Readonly<Record<PlaceView, string>> = Object.freeze({
+  work: 'Work', 'needs-you': 'Needs you', rules: 'Rules', library: 'Library', advanced: 'Advanced'
+});
+
+/** One plain line under the tabs: what the place holds and what to do there (owner, 2026-11-28: no one stuck). */
+export const PLACE_INTROS: Readonly<Record<PlaceTab, string>> = Object.freeze({
+  work: 'Your tasks in flight and their plans. Say what you want done, then Start.',
+  'needs-you': 'Everything waiting on you in this workspace. Open one to read it and decide.',
+  rules: 'Your team\'s rules for tasks. A rule only adds steps; Add a rule proposes one for review.',
+  library: 'Skills and agents: this repository\'s own and those of the marketplaces you trust.'
+});
+
+/** The header above the tabs [FPL:REQ-002]: the workspace and its repository count, which opens the workspace switcher. */
+export function placesHeaderHtml(list: NeedsYouList | null, workspace: string | null = null): string {
+  const name = list?.workspace?.name ?? workspace;
+  const count = list?.repositories ?? 0;
+  const words = name ? `${name}${count > 1 ? ` · ${count} repositories` : ''}` : 'Choose a workspace';
+  // What it does is said, not hovered: a screen reader hears it, and the ▾ shows it opens a choice [FPL:REQ-037].
+  return `<header class="places-head"><button type="button" class="places-workspace" data-places="workspace" aria-label="${escape(`${words}: choose another workspace`)}">${escape(words)} <span aria-hidden="true">▾</span></button></header>`;
+}
 
 /** The places' tab strip: an ARIA tablist, arrow keys move, Home and End jump [FPL:REQ-037]. */
 export function placesTabsHtml(active: PlaceTab, list: NeedsYouList | null): string {
   const badge = list?.counts.badge ?? 0;
-  const tab = (id: PlaceTab, label: string, extra = '') => `<button type="button" role="tab" id="place-tab-${id}" class="place-tab"
-    aria-selected="${active === id}" aria-controls="place-panel" tabindex="${active === id ? '0' : '-1'}" data-tab="${id}">${escape(label)}${extra}</button>`;
-  return `<div class="places-tabs" role="tablist" aria-label="SFlow places">${tab('work', 'Work')}${tab('needs-you', 'Needs you',
-    badge ? ` <span class="place-count" aria-label="Needs you: ${badge} waiting">(${badge})</span>` : '')}${tab('rules', 'Rules')}${tab('advanced', 'Advanced')}</div>`;
+  const tab = (id: PlaceTab, extra = '') => `<button type="button" role="tab" id="place-tab-${id}" class="place-tab"
+    aria-selected="${active === id}" aria-controls="place-panel" tabindex="${active === id ? '0' : '-1'}" data-tab="${id}">${escape(PLACE_TITLES[id])}${extra}</button>`;
+  return `<div class="places-tabs" role="tablist" aria-label="SFlow places">${tab('work')}${tab('needs-you',
+    badge ? ` <span class="place-count" aria-label="Needs you: ${badge} waiting">(${badge})</span>` : '')}${tab('rules')}${tab('library')}</div>`;
 }
+
+/** The last row under every place [FPL:REQ-032]: Advanced, today's Navigator with every screen it reaches. */
+export const PLACES_ADVANCED_ROW = '<p class="places-advanced"><button type="button" class="places-link" data-places="advanced">Advanced: today\'s Navigator, with every other SFlow screen</button></p>';
 
 const GROUP_TITLES: Record<NeedsYouItem['group'], string> = { 'holds-work': 'Holds work', reviews: 'Reviews', later: 'Later' };
 
@@ -179,7 +210,7 @@ export function needsYouListHtml(list: NeedsYouList | null, { reading = false, e
   if (group !== null) rows.push('</ul>');
   const more = !all && list.more ? `<button type="button" class="needs-you-more" data-more="1">Show ${list.more} more</button>` : '';
   // Nothing waits on the person: Continue carries the open Story on, saying why it waits (the one way on, /sf-next).
-  const empty = list.items.length ? '' : '<p class="needs-you-empty">Nothing waits on you now. <button type="button" class="needs-you-more" data-continue="1">Continue</button></p>';
+  const empty = list.items.length ? '' : '<p class="needs-you-empty">Nothing waits on you now. Continue sends your open Story on to its next step in Copilot chat. <button type="button" class="needs-you-more" data-continue="1">Continue</button></p>';
   const head = `<p class="needs-you-checked">${escape(list.checked?.words ?? (reading ? 'Reading…' : 'Not read yet'))}${reading ? ' · reading' : ''}</p>`;
   const lines = list.lines.map((line) => `<p class="needs-you-line">${escape(line)}</p>`).join('');
   return `${head}${error ? `<p class="needs-you-line" role="status">${escape(error)}</p>` : ''}${empty}${rows.join('')}${more}${lines}`;
@@ -200,18 +231,24 @@ body { padding: 0 8px 8px; color: var(--vscode-foreground); background: var(--vs
 .needs-you-story, .needs-you-advice, .needs-you-checked, .needs-you-line, .needs-you-unsure { color: var(--vscode-descriptionForeground); font-size: 12px; }
 .needs-you-unsure { font-style: italic; }
 .needs-you-more { margin-top: 6px; background: none; border: 1px solid var(--vscode-button-border, var(--vscode-panel-border)); color: var(--vscode-foreground); padding: 3px 8px; cursor: pointer; font: inherit; }
-.needs-you-back { background: none; border: 0; color: var(--vscode-textLink-foreground); padding: 4px 0; cursor: pointer; font: inherit; }
+.places-head { margin: 6px 0 0; }
+.places-workspace { background: none; border: 0; padding: 2px 0; color: var(--vscode-foreground); font: inherit; font-weight: 600; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.places-intro { color: var(--vscode-descriptionForeground); font-size: 12px; margin: 0 0 8px; overflow-wrap: anywhere; }
+.places-advanced { border-top: 1px solid var(--vscode-panel-border); margin: 14px 0 0; padding-top: 8px; }
+.places-link { background: none; border: 0; color: var(--vscode-textLink-foreground); padding: 2px 0; cursor: pointer; font: inherit; text-align: left; overflow-wrap: anywhere; }
+.places-workspace:focus-visible, .places-link:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 `;
 
 /**
- * The tab strip's keys and clicks, with the page's `vscode` handle: under Advanced it runs beside today's Navigator script,
- * which already holds the one handle a webview may acquire.
+ * The tab strip's keys and clicks, the header's workspace and the Advanced row, with the page's `vscode` handle (acquired
+ * once, before this script).
  */
 export const PLACES_TABS_SCRIPT = `
 (() => {
   const tabs = [...document.querySelectorAll('[role="tab"]')];
   for (const tab of tabs) tab.addEventListener('click', () => vscode.postMessage({ type: 'places', action: 'tab', tab: tab.dataset.tab }));
+  for (const row of document.querySelectorAll('[data-places]')) row.addEventListener('click', () => vscode.postMessage({ type: 'places', action: row.dataset.places }));
   document.addEventListener('keydown', (event) => {
     const index = tabs.indexOf(document.activeElement);
     if (index < 0) return;
@@ -236,18 +273,17 @@ document.addEventListener('click', (event) => {
 `;
 
 /** The places' sidebar body for the Needs-you tab. */
-export function needsYouPlaceBody(list: NeedsYouList | null, options: { reading?: boolean; error?: string | null; all?: boolean } = {}): string {
-  return `${placesTabsHtml('needs-you', list)}<div id="place-panel" role="tabpanel" aria-labelledby="place-tab-needs-you">${needsYouListHtml(list, options)}</div>`;
+export function needsYouPlaceBody(list: NeedsYouList | null, options: { reading?: boolean; error?: string | null; all?: boolean; workspace?: string | null } = {}): string {
+  return placePanelBody('needs-you', list, needsYouListHtml(list, options), options.workspace ?? null);
 }
 
-/** Another place's panel (Work, Rules) under the tab strip, as its tab's panel. */
-export function placePanelBody(tab: PlaceTab, list: NeedsYouList | null, panel: string): string {
-  return `${placesTabsHtml(tab, list)}<div id="place-panel" role="tabpanel" aria-labelledby="place-tab-${tab}">${panel}</div>`;
-}
-
-/** The row above today's Navigator under Advanced, back to the places [FPL:REQ-032]. */
-export function advancedBackHtml(list: NeedsYouList | null): string {
-  return placesTabsHtml('advanced', list);
+/**
+ * A place under the header and the tab strip, as its tab's panel: its one line, the panel, and Advanced last [FPL:REQ-001,
+ * REQ-002, REQ-032]. Nothing else sits above the tabs.
+ */
+export function placePanelBody(tab: PlaceTab, list: NeedsYouList | null, panel: string, workspace: string | null = null): string {
+  return `${placesHeaderHtml(list, workspace)}${placesTabsHtml(tab, list)}<div id="place-panel" role="tabpanel" aria-labelledby="place-tab-${tab}">
+<p class="places-intro">${escape(PLACE_INTROS[tab])}</p>${panel}</div>${PLACES_ADVANCED_ROW}`;
 }
 
 /** The card's choice buttons: only the engine's choices, the recommended one first [FPL:REQ-013, REQ-014]. */

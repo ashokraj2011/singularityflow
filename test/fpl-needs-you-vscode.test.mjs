@@ -1,11 +1,11 @@
 // FPL M1 in VS Code (docs/SPEC-FPL-FOUR-PLACES-v1.md §3.3, REQ-012 to REQ-018, REQ-037, A5, A7): the Needs-you tab, its
-// one card page and the badge, built from the engine's JSON, behind the places switch (off until M5).
+// one card page and the badge, built from the engine's JSON; the places are the sidebar's default since M5.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
 import {
-  advancedBackHtml, needsYouBadge, needsYouCardFrom, needsYouCardHtml, needsYouListFrom, needsYouPlaceBody
+  needsYouBadge, needsYouCardFrom, needsYouCardHtml, needsYouListFrom, needsYouPlaceBody
 } from '../apps/vscode/src/views/needs-you-page.ts';
 
 const item = (key, group, extra = {}) => ({ key, kind: 'step-approval', group, question: `Approve ${key}?`, why: 'You are in Reviewers, which approves Plan.',
@@ -29,7 +29,9 @@ test('A7: the badge counts Holds work and Reviews, never Later, and reads "Needs
   assert.match(tabs, /role="tablist"/);
   assert.match(tabs, /role="tab"[^>]*aria-selected="true"[^>]*data-tab="needs-you"/);
   assert.match(tabs, /aria-label="Needs you: 2 waiting"/, 'a screen reader reads the count');
-  assert.match(advancedBackHtml(list), /data-tab="advanced"[^>]*>Advanced/u);
+  // Advanced is the last row under the place, never a tab [REQ-032].
+  assert.doesNotMatch(tabs, /data-tab="advanced"/u);
+  assert.match(tabs, /<p class="places-advanced"><button type="button" class="places-link" data-places="advanced">Advanced: today's Navigator, with every other SFlow screen<\/button><\/p>$/u);
 });
 
 test('REQ-012: one row per item in the engine\'s order, its question, Story, repository and advice; the first 50 and "Show N more"', () => {
@@ -68,13 +70,13 @@ test('REQ-013, REQ-037: the card asks one question as its first heading, recomme
   assert.doesNotMatch(html, /[0-9a-f]{40}|sha256:|\bgeneration\b|\bphase\b/u);
 });
 
-test('the places are off by default and lazy; the sidebar gains a badge and a tab strip only while they are on', async () => {
+test('the places are the default since M5 and lazy; the sidebar gains a badge and a tab strip only while they are on', async () => {
   const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   const setting = manifest.contributes.configuration.properties['singularityFlow.navigation.layout'];
-  assert.equal(setting.default, 'classic', 'M5 switches the default to places');
-  assert.deepEqual(setting.enum, ['classic', 'places']);
+  assert.equal(setting.default, 'places', 'M5 switched the default to places');
+  assert.deepEqual(setting.enum, ['places', 'classic']);
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
-  assert.match(extension, /get<string>\('navigation\.layout'\) === 'places'/);
+  assert.match(extension, /const syncPlaces = \(on = sidebarLayout\(vscode\.workspace\.getConfiguration\('singularityFlow'\)\) === 'places'\): void => \{/);
   assert.match(extension, /new \(lazyPanels\(\)\.NeedsYouPlace\)\(/, 'loaded from the lazy panels, never at activation');
   // Every choice runs today's path with a client bound to the item's repository and Story [REQ-014].
   assert.match(extension, /bind: \(where\) => client\.forkForRepository\(where\)/);
@@ -84,8 +86,8 @@ test('the places are off by default and lazy; the sidebar gains a badge and a ta
   assert.match(lazy, /export \{ NeedsYouPlace, NeedsYouCardPanel \} from '\.\/views\/needs-you\.ts';/);
   const sidebar = await readFile(new URL('../apps/vscode/src/views/sidebar.ts', import.meta.url), 'utf8');
   assert.match(sidebar, /if \(this\.places \|\| this\.view\.badge\) this\.view\.badge = this\.places\?\.badge\(\);/);
-  // Advanced is today's Navigator: sidebarBody's own output, under the tab strip.
-  assert.match(sidebar, /this\.paint\(header \? `\$\{header\.html\}\$\{body\}` : body/);
+  // Advanced is today's Navigator: sidebarBody's own output, under "← The four places".
+  assert.match(sidebar, /this\.paint\(row \? `\$\{row\}\$\{body\}` : body/);
   const place = await readFile(new URL('../apps/vscode/src/views/needs-you.ts', import.meta.url), 'utf8');
   // A5: the item leaves the list and the badge drops at once; a task's chat goes on only from its own window (continueTaskInChat checks).
   assert.match(place, /acted\(key: string\): void \{\n {4}this\.removed\.add\(key\);/);

@@ -1,6 +1,7 @@
 /**
  * The Needs-you place in VS Code [FPL:REQ-012 to REQ-018]: the sidebar tab's list, its badge, and the one reused card page.
- * Loaded lazily (lazy-panels-runtime), and only while `singularityFlow.navigation.layout` is `places` (off until M5).
+ * Loaded lazily (lazy-panels-runtime): at activation with the default layout `places` (M5), or with `classic` once the
+ * person opens the places from the Navigator's first row [FPL:REQ-034].
  *
  * Every choice runs today's path for its kind with a client bound to the item's repository and Story: the approval page
  * (`approveWithReceipt`), the Decide card, `decision choose`, `reject`, `configuration approve`. A client bound to that
@@ -15,9 +16,9 @@ import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
-  advancedBackHtml, needsYouBadge, needsYouCardFrom, needsYouCardHtml, needsYouListFrom, needsYouPlaceBody, NEEDS_YOU_CARD_SCRIPT,
-  NEEDS_YOU_CARD_STYLE, NEEDS_YOU_SCRIPT, NEEDS_YOU_STYLE, PLACE_TABS, placePanelBody, PLACES_TABS_SCRIPT, type NeedsYouCard, type NeedsYouItem,
-  type NeedsYouList, type PlaceTab
+  needsYouBadge, needsYouCardFrom, needsYouCardHtml, needsYouListFrom, needsYouPlaceBody, NEEDS_YOU_CARD_SCRIPT,
+  NEEDS_YOU_CARD_STYLE, NEEDS_YOU_SCRIPT, NEEDS_YOU_STYLE, PLACE_TABS, PLACE_TITLES, placePanelBody, PLACES_TABS_SCRIPT, type NeedsYouCard, type NeedsYouItem,
+  type NeedsYouList, type PlaceTab, type PlaceView
 } from './needs-you-page.ts';
 import { decisionChooseArgv, decisionChoiceItems, pendingDecisionSummary } from '../decisions.ts';
 import { activateReviewedWorkflowProposal, selfApprovalWords, type ConfigurationSelfApproval } from './configuration-save.ts';
@@ -52,7 +53,10 @@ export interface NeedsYouHost {
   showRefusal(error: unknown, headline: string): void;
 }
 
-/** Another place in the tab strip (Work, views/work.ts; Rules, views/rules.ts): its panel, its style and script, and its messages. */
+/**
+ * Another place in the tab strip (Work, views/work.ts; Rules, views/rules.ts; Library, views/library-place.ts): its panel,
+ * its style and script, and its messages.
+ */
 export interface PlacePart {
   panel(): string;
   readonly style: string;
@@ -66,16 +70,18 @@ export interface PlacePart {
 }
 
 /**
- * The sidebar's places while they are on: the Needs-you list and its badge, the tab shown, and the other places beside it
- * (Work from M2, Rules from M3). The sidebar opens on Work [FPL:REQ-001].
+ * The sidebar's places while they are on: the Needs-you list and its badge, the place shown, and the other places beside it
+ * (Work from M2, Rules from M3, Library from M5). The sidebar opens on Work [FPL:REQ-001]; Advanced shows today's Navigator.
  */
 export class NeedsYouPlace implements vscode.Disposable {
   private list: NeedsYouList | null = null;
   private reading = false;
   private error: string | null = null;
   private all = false;
-  private tab: PlaceTab = 'work';
-  /** The other places by their tab: Work, Rules. */
+  private tab: PlaceView = 'work';
+  /** The place Advanced's "← The four places" goes back to. */
+  private last: PlaceTab = 'work';
+  /** The other places by their tab: Work, Rules, Library. */
   private readonly parts = new Map<PlaceTab, PlacePart>();
   private post: ((message: unknown) => void) | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -139,8 +145,8 @@ export class NeedsYouPlace implements vscode.Disposable {
   /** Work beside Needs you [FPL:REQ-004 to REQ-007]: its tab comes first, and the sidebar opens on it. */
   setWork(work: PlacePart): void { this.setPart('work', work); }
 
-  /** Another place beside Needs you: Work, or Rules [FPL:REQ-019]. */
-  setPart(tab: Exclude<PlaceTab, 'needs-you' | 'advanced'>, part: PlacePart): void {
+  /** Another place beside Needs you: Work, Rules [FPL:REQ-019] or Library [FPL:REQ-027]. */
+  setPart(tab: Exclude<PlaceTab, 'needs-you'>, part: PlacePart): void {
     this.parts.set(tab, part);
     if (this.post) part.attach(this.post);
     this.changed();
@@ -152,31 +158,48 @@ export class NeedsYouPlace implements vscode.Disposable {
     for (const part of this.parts.values()) part.attach(post);
   }
 
-  /** The sidebar's body for the open tab, or null under Advanced (today's Navigator, unchanged, below `advancedHeader`). */
-  body(): { body: string; style: string; script: string } | null {
+  /**
+   * The sidebar's body for the open place, under its header and tabs; null under Advanced, where the sidebar shows today's
+   * Navigator, unchanged, below "← The four places" [FPL:REQ-032]. `workspace` names the window's workspace until the read does.
+   */
+  body({ workspace = null as string | null } = {}): { body: string; style: string; script: string } | null {
     if (this.tab === 'advanced') return null;
     const part = this.parts.get(this.tab);
     if (part) {
-      return { body: placePanelBody(this.tab, this.list, part.panel()), style: `${NEEDS_YOU_STYLE}${part.style}`,
+      return { body: placePanelBody(this.tab, this.list, part.panel(), workspace), style: `${NEEDS_YOU_STYLE}${part.style}`,
         script: `const vscode = acquireVsCodeApi();\n${PLACES_TABS_SCRIPT}\n${part.script}` };
     }
-    return { body: needsYouPlaceBody(this.list, { reading: this.reading, error: this.error, all: this.all }), style: NEEDS_YOU_STYLE, script: NEEDS_YOU_SCRIPT };
+    return { body: needsYouPlaceBody(this.list, { reading: this.reading, error: this.error, all: this.all, workspace }), style: NEEDS_YOU_STYLE, script: NEEDS_YOU_SCRIPT };
   }
 
-  /** The tab strip above today's Navigator, with its own small script and style. */
-  advancedHeader(): { html: string; style: string; script: string } {
-    return { html: advancedBackHtml(this.list), style: NEEDS_YOU_STYLE, script: PLACES_TABS_SCRIPT };
+  /** The place shown, by name: the view's title [FPL:REQ-001]. */
+  title(): string { return PLACE_TITLES[this.tab]; }
+
+  /** What is shown now: a place, or Advanced. */
+  get shown(): PlaceView { return this.tab; }
+
+  /** Show a place or Advanced: a tab, a title action, a command [FPL:REQ-033]. Opening one changes nothing; it is read. */
+  show(view: PlaceView): void {
+    this.tab = view;
+    if (view !== 'advanced') {
+      this.last = view;
+      if (view === 'needs-you') void this.read({});
+      this.parts.get(view)?.activate();
+    }
+    this.changed();
   }
 
   /** A message from the sidebar's places; true when it was the places'. */
   receive(message: { action?: unknown; tab?: unknown; key?: unknown } & Record<string, unknown>): boolean {
     if (message.action === 'tab' && PLACE_TABS.includes(message.tab as PlaceTab)) {
-      this.tab = message.tab as PlaceTab;
-      if (this.tab === 'needs-you') void this.read({});
-      this.parts.get(this.tab)?.activate();
-      this.changed();
+      this.show(message.tab as PlaceTab);
       return true;
     }
+    // Advanced, the last row and a title action; "← The four places" goes back to the place shown before it [FPL:REQ-032].
+    if (message.action === 'advanced') { this.show('advanced'); return true; }
+    if (message.action === 'back') { this.show(this.last); return true; }
+    // The header's workspace line opens the existing workspace switcher [FPL:REQ-002].
+    if (message.action === 'workspace') { void vscode.commands.executeCommand('singularityFlow.switchWorkspace'); return true; }
     for (const part of this.parts.values()) if (part.receive(message)) return true;
     if (message.action === 'more') { this.all = true; this.changed(); return true; }
     // Continue: the one way on, as the status bar's Continue sends it (extension.ts singularityFlow.continueStory).

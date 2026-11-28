@@ -4,7 +4,7 @@
  * host tests read every string.
  *
  * Rules only add a step or a person's approval; workflows run as they are. The page proposes a change through Workflow
- * Studio's reviewed path (views/rules.ts); it writes nothing itself. Off until M5 switches singularityFlow.navigation.layout.
+ * Studio's reviewed path (views/rules.ts); it writes nothing itself. One of the four places since M5 [FPL:REQ-001].
  */
 import { escape } from './webview.ts';
 

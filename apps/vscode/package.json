@@ -498,16 +498,16 @@
         },
         "singularityFlow.navigation.layout": {
           "type": "string",
-          "default": "classic",
+          "default": "places",
           "enum": [
-            "classic",
-            "places"
+            "places",
+            "classic"
           ],
           "enumDescriptions": [
-            "Today's Navigator.",
-            "The four places, in preview: Work (what you want done, your tasks in flight and their plans), Needs you (everything waiting on you across the workspace, with its badge), Rules (the team's rules for tasks, which only add steps, proposed for review) and Advanced (today's Navigator)."
+            "The four places: Work (say what you want done; your tasks in flight and their plans), Needs you (everything waiting on you across the workspace, with its badge), Rules (the team's rules for tasks, which only add steps) and Library (skills and agents). Advanced, the last row and a title action, shows today's Navigator.",
+            "Today's Navigator first, with the four places one row away."
           ],
-          "description": "What the SFlow sidebar opens on. The places only read and route: every choice runs today's command, and no workflow changes."
+          "description": "What the SFlow sidebar opens on. It changes no data and no command: every screen stays reachable under Advanced, and every command stays in the palette."
         },
         "singularityFlow.role": {
           "type": "string",
@@ -573,6 +573,22 @@
             ]
           },
           {
+            "id": "places",
+            "title": "Find your way: the four places",
+            "description": "Work, Needs you, Rules and Library. Every other screen is under Advanced, and every command stays in the palette.",
+            "media": {
+              "markdown": "media/walkthrough/places.md"
+            },
+            "completionEvents": [
+              "onView:singularityFlow.navigation",
+              "onCommand:singularityFlow.places.work",
+              "onCommand:singularityFlow.places.needsYou",
+              "onCommand:singularityFlow.places.rules",
+              "onCommand:singularityFlow.places.library",
+              "onCommand:singularityFlow.places.advanced"
+            ]
+          },
+          {
             "id": "intake",
             "title": "Start intake",
             "description": "Choose the work shape and workflow, then hand the Story context to native Copilot.",
@@ -607,7 +623,8 @@
           "name": "Run",
           "type": "tree",
           "when": "singularityFlow.runConfigurations",
-          "contextualTitle": "Singularity Flow Run"
+          "contextualTitle": "Singularity Flow Run",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -1463,6 +1480,31 @@
         "icon": "$(debug-continue)"
       },
       {
+        "command": "singularityFlow.places.work",
+        "title": "Singularity Flow: Open Work",
+        "icon": "$(briefcase)"
+      },
+      {
+        "command": "singularityFlow.places.needsYou",
+        "title": "Singularity Flow: Open Needs You",
+        "icon": "$(inbox)"
+      },
+      {
+        "command": "singularityFlow.places.rules",
+        "title": "Singularity Flow: Open Rules",
+        "icon": "$(law)"
+      },
+      {
+        "command": "singularityFlow.places.library",
+        "title": "Singularity Flow: Open Library",
+        "icon": "$(library)"
+      },
+      {
+        "command": "singularityFlow.places.advanced",
+        "title": "Singularity Flow: Advanced (Today's Navigator)",
+        "icon": "$(list-tree)"
+      },
+      {
         "command": "singularityFlow.approve",
         "title": "Singularity Flow: Approve\u2026",
         "icon": "$(check)"
@@ -1590,7 +1632,8 @@
       },
       {
         "command": "singularityFlow.askSFlow",
-        "title": "Singularity Flow: Ask SFlow"
+        "title": "Singularity Flow: Ask SFlow",
+        "icon": "$(search)"
       },
       {
         "command": "singularityFlow.openHelp",
@@ -1729,19 +1772,44 @@
           "group": "navigation@0"
         },
         {
+          "command": "singularityFlow.askSFlow",
+          "when": "view == singularityFlow.navigation && singularityFlow.fourPlaces",
+          "group": "navigation@1"
+        },
+        {
+          "command": "singularityFlow.places.advanced",
+          "when": "view == singularityFlow.navigation && singularityFlow.fourPlaces",
+          "group": "navigation@2"
+        },
+        {
           "command": "singularityFlow.startTask",
-          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive && !singularityFlow.fourPlaces",
           "group": "navigation@1"
         },
         {
           "command": "singularityFlow.openChangeExplorer",
-          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive && !singularityFlow.fourPlaces",
           "group": "navigation@1"
         },
         {
           "command": "singularityFlow.openCodeExplainer",
-          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive && !singularityFlow.fourPlaces",
           "group": "navigation@2"
+        },
+        {
+          "command": "singularityFlow.openChangeExplorer",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive && singularityFlow.fourPlaces",
+          "group": "1_explain@0"
+        },
+        {
+          "command": "singularityFlow.openCodeExplainer",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive && singularityFlow.fourPlaces",
+          "group": "1_explain@0"
+        },
+        {
+          "command": "singularityFlow.openRepositoryKnowledge",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive && singularityFlow.fourPlaces",
+          "group": "1_explain@3"
         },
         {
           "command": "singularityFlow.openCodeExplanation",

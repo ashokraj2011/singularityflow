@@ -1,6 +1,6 @@
 /**
  * The Rules place in VS Code [FPL:REQ-019 to REQ-026]: the sidebar tab's list and the one reused Rules page with its form
- * and preview. Loaded lazily (lazy-panels-runtime), and only while `singularityFlow.navigation.layout` is `places`.
+ * and preview. Loaded lazily (lazy-panels-runtime), with the other places (views/needs-you.ts).
  *
  * Opening the page changes nothing [REQ-003]. The preview is `rules preview --change-set -` (pure, no network); Propose
  * sends one Studio change set through `workflow studio apply --change-set - --propose`, the reviewed path every

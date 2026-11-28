@@ -104,7 +104,7 @@ import {
 import { capabilityProposalArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
-import { SidebarViewProvider } from './views/sidebar.ts';
+import { offerPlacesNotice, SidebarViewProvider, sidebarLayout } from './views/sidebar.ts';
 import { currentPhaseLabel, deriveSidebarNavigation } from './views/sidebar-navigation-model.ts';
 import { sidebarDestination } from './views/sidebar-destination.ts';
 import { buildApprovals } from './views/approvals-model.ts';
@@ -353,6 +353,15 @@ async function firstRunChecks(extensionPath: string, location: { executable: str
  * function below, so the key cannot disagree with the routing it describes.
  */
 export const REPOSITORY_ACTIVE_CONTEXT = 'singularityFlow.repositoryActive';
+
+/** True while the four places are shown in the sidebar: its title actions are Refresh, Ask SFlow and Advanced [FPL:REQ-002]. */
+export const FOUR_PLACES_CONTEXT = 'singularityFlow.fourPlaces';
+
+/** The commands that open each place, and Advanced, in the sidebar [FPL:REQ-033]. */
+const PLACE_COMMANDS = [
+  ['singularityFlow.places.work', 'work'], ['singularityFlow.places.needsYou', 'needs-you'], ['singularityFlow.places.rules', 'rules'],
+  ['singularityFlow.places.library', 'library'], ['singularityFlow.places.advanced', 'advanced']
+] as const;
 
 function setActiveRepositoryContext(next: ActiveRepositoryContext | null): void {
   setGatewayRepositoryContext(next);
@@ -1329,7 +1338,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.configureTemplates', 'singularityFlow.openSkills', 'singularityFlow.openReusableInstructions', 'singularityFlow.openConstitution', 'singularityFlow.configureModels',
     'singularityFlow.reopenCompleted', 'singularityFlow.rollForwardRework', 'singularityFlow.cancelWork',
     'singularityFlow.expandReference', 'singularityFlow.openHarnessReport',
-    'singularityFlow.checkRepository', ...EXECUTION_CONTEXT_COMMANDS
+    'singularityFlow.checkRepository', ...EXECUTION_CONTEXT_COMMANDS,
+    ...PLACE_COMMANDS.map(([id]) => id)
   ];
   /**
    * The Run view, IntelliJ's Services window [RUN amendment §3]. Registered whatever the window
@@ -10342,17 +10352,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }) as never
   };
   for (const [id, handler] of Object.entries(registered)) handlers.set(id, handler);
+  // Each place, and Advanced, from the palette or the title bar [FPL:REQ-033]: the place shows and the sidebar opens on it.
+  // Advanced with the places not open is the Navigator already shown, so it opens nothing more.
+  for (const [id, view] of PLACE_COMMANDS) {
+    handlers.set(id, async () => {
+      if (view !== 'advanced') syncPlaces(true);
+      needsYouPlace?.show(view);
+      await vscode.commands.executeCommand('workbench.view.extension.singularityFlowNavigator');
+    });
+  }
   // A contributed command with no handler here would be one the palette offers and nothing answers.
   const orphaned = REPOSITORY_COMMANDS.filter((id) => !handlers.has(id));
   if (orphaned.length) output.appendLine(`Commands with no handler: ${orphaned.join(', ')}`);
 
-  // The four places [FPL:REQ-001]: Work (M2), Needs you, Rules (M3) and Advanced, behind `singularityFlow.navigation.layout`
-  // until M5 makes `places` the default. Loaded lazily; with the setting off nothing of it loads. Each card choice and each
+  // The four places [FPL:REQ-001]: Work, Needs you, Rules and Library, the sidebar's default since M5; Advanced shows today's
+  // Navigator. `classic` (singularityFlow.navigation.layout, REQ-034) shows the Navigator first, with the places one row
+  // away. Loaded lazily: with `classic` nothing of them loads until that row opens them. Each card choice and each
   // task-page button runs today's path with a client bound to its Story's checkout or repository (views/needs-you.ts,
-  // views/work.ts); a rule is proposed through Workflow Studio's reviewed path (views/rules.ts).
+  // views/work.ts); a rule is proposed through Workflow Studio's reviewed path (views/rules.ts); the Library opens today's
+  // Marketplace page, All skills and Add your own agent folder… (views/library-place.ts).
   let needsYouPlace: import('./views/needs-you.ts').NeedsYouPlace | null = null;
-  const syncPlaces = (): void => {
-    const on = vscode.workspace.getConfiguration('singularityFlow').get<string>('navigation.layout') === 'places';
+  const syncPlaces = (on = sidebarLayout(vscode.workspace.getConfiguration('singularityFlow')) === 'places'): void => {
     if (on && !needsYouPlace) {
       const place = new (lazyPanels().NeedsYouPlace)({
         client, output, bind: (where) => client.forkForRepository(where),
@@ -10384,9 +10404,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showRefusal: (error, headline) => showRefusal(error, { headline })
       }, () => sidebar.placesChanged());
       place.setPart('rules', rules);
+      // Library [FPL:REQ-027]: today's Marketplace page as it is, until M4 builds the Library's own list.
+      place.setPart('library', new (lazyPanels().LibraryPlace)({ command: async (id) => { await vscode.commands.executeCommand(id); } }));
       needsYouPlace = place;
       needsYouAfterChange = () => { void place.read({}); void work.read({}); void rules.read({}); };
       sidebar.setPlaces(place);
+      void Promise.resolve(vscode.commands.executeCommand('setContext', FOUR_PLACES_CONTEXT, true)).catch(() => undefined);
       place.start();
       work.start();
       rules.start();
@@ -10395,9 +10418,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       needsYouPlace = null;
       needsYouAfterChange = null;
       sidebar.setPlaces(null);
+      void Promise.resolve(vscode.commands.executeCommand('setContext', FOUR_PLACES_CONTEXT, false)).catch(() => undefined);
     }
   };
+  // With `classic`, the Navigator's first row opens the places for this window; the setting stays as chosen.
+  sidebar.setPlacesOpener(() => syncPlaces(true));
   syncPlaces();
+  // Once, for a person who never chose a layout: one line that the places are new, and Switch back, which sets `classic`
+  // (an undo, not a question). The setting's own listener below then shows the Navigator first [REQ-034].
+  if (needsYouPlace) {
+    void offerPlacesNotice(vscode.workspace.getConfiguration('singularityFlow'), context.globalState,
+      (message, action) => showCompactInformationMessage(message, action))
+      .catch((error: unknown) => output.appendLine(`The four places notice could not be shown: ${(error as Error).message}`));
+  }
   const placesListener = vscode.workspace.onDidChangeConfiguration?.((event) => {
     if (event.affectsConfiguration('singularityFlow.navigation.layout')) syncPlaces();
   });

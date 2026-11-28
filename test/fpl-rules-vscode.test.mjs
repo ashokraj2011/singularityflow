@@ -1,5 +1,5 @@
 // FPL M3 in VS Code (docs/SPEC-FPL-FOUR-PLACES-v1.md §3.4, REQ-019 to REQ-026, REQ-037, A11 to A15): the Rules tab and its
-// one page, with the form, its preview and Propose through Workflow Studio's reviewed path, behind the places switch.
+// one page, with the form, its preview and Propose through Workflow Studio's reviewed path, one of the four places.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { rmSync } from 'node:fs';
@@ -47,10 +47,10 @@ test('REQ-019, REQ-026: the Rules tab lists built-in rules, the team\'s as When 
   assert.match(html, /data-rules-act="lessons">Guidance the agents read: 3 lessons\./u, 'lessons are guidance, linked, not listed as rules');
   assert.match(html, /data-rules-act="studio">For work a team must always do one way/u);
   assert.match(html, /data-rules-act="add">Add a rule/u);
-  // The tab strip: Work, Needs you, Rules, Advanced [REQ-001].
-  assert.deepEqual(PLACE_TABS, ['work', 'needs-you', 'rules', 'advanced']);
+  // The tab strip: Work, Needs you, Rules, Library [REQ-001]; Advanced is a row, never a tab.
+  assert.deepEqual(PLACE_TABS, ['work', 'needs-you', 'rules', 'library']);
   const tabs = placesTabsHtml('rules', null);
-  assert.ok(tabs.indexOf('data-tab="needs-you"') < tabs.indexOf('data-tab="rules"') && tabs.indexOf('data-tab="rules"') < tabs.indexOf('data-tab="advanced"'));
+  assert.ok(tabs.indexOf('data-tab="needs-you"') < tabs.indexOf('data-tab="rules"') && tabs.indexOf('data-tab="rules"') < tabs.indexOf('data-tab="library"'));
   assert.match(tabs, /role="tab"[^>]*aria-selected="true"[^>]*data-tab="rules"/u);
   // Untrusted output: a rule with an ID the engine never makes is dropped.
   assert.equal(rulesListFrom(read({ rules: [rule('bad id <script>')] })).rules.length, 0);
@@ -246,7 +246,7 @@ test('A12 in VS Code: the page previews the form\'s rule, and Propose sends one 
   }
 });
 
-test('Rules is off by default, lazy, third in the places, and wired with today\'s reviewed path', async () => {
+test('Rules is lazy, third in the places, and wired with today\'s reviewed path', async () => {
   const extension = await readFile(path.join(REPOSITORY, 'apps/vscode/src/extension.ts'), 'utf8');
   assert.match(extension, /const rules = new \(lazyPanels\(\)\.RulesPlace\)\(\{/u, 'loaded from the lazy panels, only while the places are on');
   assert.match(extension, /place\.setPart\('rules', rules\);/u);

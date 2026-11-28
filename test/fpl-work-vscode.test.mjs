@@ -1,5 +1,5 @@
 // FPL M2 in VS Code (docs/SPEC-FPL-FOUR-PLACES-v1.md §3.2, REQ-004 to REQ-007, REQ-037, A8 to A10): the Work tab, its box,
-// In progress and Done this week, and the one task page, built from the engine's JSON, behind the places switch.
+// In progress and Done this week, and the one task page, built from the engine's JSON: the sidebar's first place since M5.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { rmSync } from 'node:fs';
@@ -40,9 +40,9 @@ test('REQ-004: the box asks what you want done, names the window\'s repository, 
   assert.equal(likelyPlanFrom({ resultType: 'sflow-task-likely-plan', plan: 'Plan: code → tests. You approve the plan in the intake and the code. Say "add a design step" to change it.' }),
     'Likely plan: code → tests. You approve the plan in the intake and the code.');
   assert.equal(likelyPlanFrom({ resultType: 'sflow-task-likely-plan', plan: null, why: 'SFlow cannot tell the kind.' }), null, 'no kind, no line');
-  // The tab strip: Work first, then Needs you, then Advanced [REQ-001].
+  // The tab strip: Work first, then Needs you, Rules and Library [REQ-001]; Advanced is a row, never a tab.
   const tabs = placesTabsHtml('work', null);
-  assert.ok(tabs.indexOf('data-tab="work"') < tabs.indexOf('data-tab="needs-you"') && tabs.indexOf('data-tab="needs-you"') < tabs.indexOf('data-tab="advanced"'));
+  assert.ok(tabs.indexOf('data-tab="work"') < tabs.indexOf('data-tab="needs-you"') && tabs.indexOf('data-tab="needs-you"') < tabs.indexOf('data-tab="library"'));
   assert.match(tabs, /role="tab"[^>]*aria-selected="true"[^>]*data-tab="work"/u);
 });
 
@@ -283,9 +283,9 @@ test('A10: the task page adds a step through work add with its refusal\'s words,
   assert.match(api.panels.at(-1).webview.html, /send it first, then add the step\./u);
 });
 
-test('Work is off by default, lazy, first in the places, and wired with today\'s commands', async () => {
+test('Work is the default, lazy, first in the places, and wired with today\'s commands', async () => {
   const manifest = JSON.parse(await readFile(path.join(REPOSITORY, 'apps/vscode/package.json'), 'utf8'));
-  assert.equal(manifest.contributes.configuration.properties['singularityFlow.navigation.layout'].default, 'classic', 'M5 switches the default');
+  assert.equal(manifest.contributes.configuration.properties['singularityFlow.navigation.layout'].default, 'places', 'M5 switched the default');
   const extension = await readFile(path.join(REPOSITORY, 'apps/vscode/src/extension.ts'), 'utf8');
   assert.match(extension, /const work = new \(lazyPanels\(\)\.WorkPlace\)\(\{/u, 'loaded from the lazy panels, only while the places are on');
   assert.match(extension, /place\.setWork\(work\);/u);
@@ -297,7 +297,7 @@ test('Work is off by default, lazy, first in the places, and wired with today\'s
   const lazy = await readFile(path.join(REPOSITORY, 'apps/vscode/src/lazy-panels-runtime.ts'), 'utf8');
   assert.match(lazy, /export \{ WorkPlace, WorkTaskPanel \} from '\.\/views\/work\.ts';/u);
   const places = await readFile(path.join(REPOSITORY, 'apps/vscode/src/views/needs-you.ts'), 'utf8');
-  assert.match(places, /private tab: PlaceTab = 'work';/u, 'the sidebar opens on Work');
+  assert.match(places, /private tab: PlaceView = 'work';/u, 'the sidebar opens on Work');
   const client = await readFile(path.join(REPOSITORY, 'apps/vscode/src/cli/client.ts'), 'utf8');
   assert.match(client, /if \(args\[0\] === 'work'\) return args\.includes\('--start'\) \|\| \['add', 'skip', 'behaviour'\]\.includes\(args\[1\] \?\? ''\) \? 'mutation' : 'read';/u,
     'work add is a change; the likely plan, work list and work status read');

@@ -10,10 +10,13 @@ import { PRIMARY_NAVIGATION, sidebarBody, SIDEBAR_STYLE, SIDEBAR_SCRIPT, type Pr
 
 export type SidebarSection = 'favorites' | 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
 
-/** The four places, when on (views/needs-you.ts): the open tab's body, the strip above Advanced, the badge. */
+/**
+ * The four places, when on (views/needs-you.ts): the open place's body (null under Advanced, which is today's Navigator),
+ * the place's name for the view's title, and the badge.
+ */
 export interface SidebarPlaces {
-  body(): { body: string; style: string; script: string } | null;
-  advancedHeader(): { html: string; style: string; script: string };
+  body(context: { workspace: string | null }): { body: string; style: string; script: string } | null;
+  title(): string;
   badge(): { value: number; tooltip: string } | undefined;
   receive(message: { action?: unknown; tab?: unknown; key?: unknown } & Record<string, unknown>): boolean;
   /** How a place updates a line of the page without repainting it (Work's likely plan while the person types). */
@@ -140,6 +143,54 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'help-open', label: 'Help Center', description: 'offline guides and commands', icon: 'help', command: ACTION_COMMANDS['help-open']! }
 ]);
 
+/** The sidebar's layout [FPL:REQ-034]: the four places, the default since M5, or `classic`, today's Navigator first. */
+export type SidebarLayout = 'places' | 'classic';
+
+/** The layout setting as VS Code reads it, its default included; any other value keeps today's Navigator. */
+export function sidebarLayout(settings: Pick<vscode.WorkspaceConfiguration, 'get'>): SidebarLayout {
+  return settings.get<string>('navigation.layout') === 'places' ? 'places' : 'classic';
+}
+
+export const PLACES_NOTICE_KEY = 'singularityFlow.placesNotice.v1';
+export const PLACES_NOTICE = 'SFlow now shows four places; everything else is under Advanced.';
+export const PLACES_SWITCH_BACK = 'Switch back';
+
+/**
+ * Once, for a person who never chose a layout [FPL:REQ-034; owner, 2026-11-28]: one line saying the places are new, with
+ * Switch back, an undo that sets `classic` for this person's VS Code. A layout set anywhere (user, workspace or folder) is a
+ * choice, so it gets no notice and is kept. True when the person switched back.
+ */
+export async function offerPlacesNotice(
+  settings: Pick<vscode.WorkspaceConfiguration, 'inspect' | 'update'>,
+  state: Pick<vscode.Memento, 'get' | 'update'>,
+  show: (message: string, action: string) => PromiseLike<string | undefined>
+): Promise<boolean> {
+  const chosen = typeof settings.inspect === 'function' ? settings.inspect<string>('navigation.layout') : undefined;
+  if (!chosen || chosen.globalValue !== undefined || chosen.workspaceValue !== undefined || chosen.workspaceFolderValue !== undefined) return false;
+  if (state.get<unknown>(PLACES_NOTICE_KEY) === true) return false;
+  // Kept before it is shown: a reload while it is on screen must not show it again.
+  await state.update(PLACES_NOTICE_KEY, true);
+  if (await show(PLACES_NOTICE, PLACES_SWITCH_BACK) !== PLACES_SWITCH_BACK) return false;
+  await settings.update('navigation.layout', 'classic', true);
+  return true;
+}
+
+/**
+ * The row above today's Navigator [FPL:REQ-032, REQ-034]: under Advanced, back to the four places; with `classic`, the
+ * places one row away. Outside the Navigator's body, so that body stays byte for byte what it is (A21).
+ */
+export function placesRowHtml(places: boolean): string {
+  return `<p class="places-row"><button type="button" class="places-row-button" data-places="${places ? 'back' : 'open'}">${places
+    ? '← The four places' : 'The four places: Work, Needs you, Rules and Library'}</button></p>`;
+}
+const PLACES_ROW_STYLE = `
+  .places-row { flex:none; margin:0; padding:8px 14px 0; }
+  .places-row-button { border:0; background:transparent; color:var(--vscode-textLink-foreground); padding:4px 0; text-align:left; overflow-wrap:anywhere; }
+`;
+const PLACES_ROW_SCRIPT = `
+  document.querySelector('[data-places]')?.addEventListener('click',event=>vscode.postMessage({type:'places',action:event.currentTarget.dataset.places}));
+`;
+
 const FAVORITES_KEY = 'singularityFlow.navigationFavorites.v2';
 const LEGACY_FAVORITES_KEY = 'singularityFlow.navigationFavorites.v1';
 const MENU_COLLAPSED_KEY = 'singularityFlow.navigationMenuCollapsed.v1';
@@ -167,6 +218,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private favoritesCustomized: boolean;
   private menuCollapsed: boolean;
   private places: SidebarPlaces | null = null;
+  /** Opens the four places from `classic`'s first row; null where there are none (no repository) [FPL:REQ-034]. */
+  private openPlaces: (() => void) | null = null;
+  /** Whether the places set the view's title, so that leaving them gives it back. */
+  private titled = false;
   /** Three tree providers publish one snapshot synchronously; replace the document once, not thrice. */
   private readonly renders = new MicrotaskCoalescer(() => this.render());
 
@@ -326,6 +381,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.renders.request();
   }
 
+  /** With `classic`, how the first row opens the places; null when this window has none to open. */
+  setPlacesOpener(open: (() => void) | null): void {
+    if (open === this.openPlaces) return;
+    this.openPlaces = open;
+    this.placesChanged();
+  }
+
   bind(section: SidebarSection, source: TreeSource): void {
     // Until a section is bound it has no data source at all, which is a different thing from having
     // a source that returned nothing — and the reader deserves to be told which.
@@ -373,7 +435,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       return;
     }
     if (value.type === 'places') {
-      this.places?.receive(value as { action?: unknown; tab?: unknown; key?: unknown } & Record<string, unknown>);
+      if (this.places) this.places.receive(value as { action?: unknown; tab?: unknown; key?: unknown } & Record<string, unknown>);
+      else if (value.action === 'open') this.openPlaces?.();
       return;
     }
     if (value.type === 'navigation-ready') {
@@ -491,7 +554,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     if (!this.view) return;
     // The badge counts Holds work and Reviews while the places are on [FPL:REQ-018].
     if (this.places || this.view.badge) this.view.badge = this.places?.badge();
-    const place = this.places?.body() ?? null;
+    // The view's title is the place shown, its description the workspace's name [FPL:REQ-001]; without the places, as today.
+    if (this.places || this.titled) {
+      this.titled = Boolean(this.places);
+      this.view.title = this.places ? this.places.title() : 'Navigator';
+      this.view.description = this.places ? this.navigation.workspace?.name : undefined;
+    }
+    const place = this.places?.body({ workspace: this.navigation.workspace?.name ?? null }) ?? null;
     if (place) return this.paint(place.body, place.style, place.script);
     this.nodeIndex.clear();
     this.roots.favorites.forEach((node, index) => this.nodeIndex.set(`favorites:${index}`, node));
@@ -505,10 +574,11 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           return menu ? [{ id, label: menu.label, icon: menu.icon }] : [];
         })
       });
-    // Advanced: today's Navigator, its body unchanged, under the places' tab strip [FPL:REQ-032].
-    const header = this.places?.advancedHeader();
-    this.paint(header ? `${header.html}${body}` : body, header ? `${SIDEBAR_STYLE}${header.style}` : SIDEBAR_STYLE,
-      header ? `${SIDEBAR_SCRIPT}${header.script}` : SIDEBAR_SCRIPT);
+    // Advanced: today's Navigator, its body unchanged, under "← The four places" [FPL:REQ-032]; with `classic`, the places
+    // are its first row [REQ-034]. Without a repository there are no places, and the Navigator is as it was.
+    const row = this.places ? placesRowHtml(true) : this.openPlaces ? placesRowHtml(false) : null;
+    this.paint(row ? `${row}${body}` : body, row ? `${SIDEBAR_STYLE}${PLACES_ROW_STYLE}` : SIDEBAR_STYLE,
+      row ? `${SIDEBAR_SCRIPT}${PLACES_ROW_SCRIPT}` : SIDEBAR_SCRIPT);
   }
 
   private paint(body: string, style: string, script: string): void {

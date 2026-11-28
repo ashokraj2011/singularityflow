@@ -163,6 +163,9 @@ export function adviceOf(listed: unknown): ApprovalAdvice | null {
     stops: Object.fromEntries(kinds.map((kind) => [kind, text(stops[kind])])) as ApprovalAdvice['stops'] };
 }
 
+/** A line of the advice after the button it starts with ("Yes: the code is written to it." → "the code is written to it."). */
+export const afterLabel = (line: string, label: string) => (line.startsWith(`${label}: `) ? line.slice(label.length + 2) : line);
+
 /** The page's lines: the step's own advice, else the table's generic lines for this step's name. */
 export function approvalAdvice(request: Pick<ApprovalReviewRequest, 'advice' | 'phaseLabel'>): ApprovalAdvice {
   return request.advice ?? stepAdvice('generic', { step: request.phaseLabel }) as ApprovalAdvice;
@@ -720,9 +723,9 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
         <h2>${escape(approvalChoice(request))}?</h2>
         <p class="muted">${escape(approvalChoice(request))} records your approval of this exact version, with your answers above. Nothing is chosen for you.</p>
         <ul class="approval-choices">
-          <li><strong>${escape(approvalChoice(request))}:</strong> ${escape(advice.yes)}</li>
-          <li><strong>Send back:</strong> ${escape(advice.sendBack)}</li>
-          <li><strong>Not now:</strong> ${escape(advice.notNow)}</li>
+          <li><strong>${escape(approvalChoice(request))}:</strong> ${escape(afterLabel(advice.yes, 'Yes'))}</li>
+          <li><strong>Send back:</strong> ${escape(afterLabel(advice.sendBack, 'Send back'))}</li>
+          <li><strong>Not now:</strong> ${escape(afterLabel(advice.notNow, 'Not now'))}</li>
         </ul>
         <p class="muted">${escape(advice.settles)}</p>
       </section>
@@ -731,7 +734,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
       <div class="form-actions">
         <p class="approval-progress muted" data-progress aria-live="polite"></p>
         <div class="approval-send-back" data-send-back hidden>
-          <label>Why send it back? <span>${escape(advice.sendBack)}</span>
+          <label>Why send it back? <span>${escape(afterLabel(advice.sendBack, 'Send back'))}</span>
             <textarea data-send-back-reason aria-label="Why send ${escape(request.phaseLabel)} back"></textarea>
           </label>
         </div>

@@ -81,8 +81,8 @@ test('a long Story: its state passes 1 MB, and a decision recorded after the sub
   const workflow = JSON.parse(await readFile(path.join(root, state), 'utf8'));
   assert.equal(exactFileAtObject(root, big, state), null, 'Git\'s 1 MB default cannot read it: the cause of the real case');
   assert.ok(governedStateChange(root, config, workflow, big), 'read at the Story state limit');
-  assert.equal(sflowRecordCommit(root, config, workflow, big, workflowTaskDeltaSafe), true, 'the decision is SFlow\'s own record');
-  assert.equal(sflowRecordCommit(root, config, workflow, git('rev-parse', 'HEAD~1'), workflowTaskDeltaSafe), true, 'and so is the raise');
+  assert.equal(await sflowRecordCommit(root, config, workflow, big, workflowTaskDeltaSafe), true, 'the decision is SFlow\'s own record');
+  assert.equal(await sflowRecordCommit(root, config, workflow, git('rev-parse', 'HEAD~1'), workflowTaskDeltaSafe), true, 'and so is the raise');
 });
 
 test('a real change after the review still counts: plain words, and Send back with the person\'s reason comes first', async (t) => {

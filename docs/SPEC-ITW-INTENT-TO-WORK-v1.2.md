@@ -240,10 +240,10 @@ screen:
 - the agent used before asks "Use it, or let SFlow decide?", its No said in those words (`noWords`).
 Steps SFlow approves itself (the hidden tests step, an analysis's report) ask nobody. The grown task asks no question: one
 line says why it grew. `SFLOW_HOOKS_OFF` says why and gives the complete fix (REQ-111).
-The lines are keyed by the step they belong to (src/task-shape.mjs `APPROVAL_ADVICE` and `REFACTOR_ADVICE`, by step
-intent), and will come from the generic per-intent advice every approval surface and the generic skills read (owner,
-2026-11-28: "part of sf-phase, sf-code etc ... so this will be generic"); only the requirement's size and the choice
-between small and big stay the task's own.
+The lines are keyed by the step they belong to, by step intent, and come from the generic per-intent advice every
+approval surface and the generic skills read (src/step-advice.mjs `STEP_ADVICE`, and `WHEN_ADVICE` for a refactor's
+work that keeps behaviour; owner, 2026-11-28: "part of sf-phase, sf-code etc ... so this will be generic"); only the
+requirement's size and the choice between small and big stay the task's own (src/task-shape.mjs `SIZE_YES`).
 
 **ITW:REQ-114, making a big change small (owner, 2026-11-28: "Offer it"). Decided, not built.** A big change's requirement
 approval offers "Make it a small change" beside the Yes, as a small one offers "Make it a big change": a choice with its

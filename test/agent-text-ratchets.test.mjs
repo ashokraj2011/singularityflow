@@ -433,7 +433,7 @@ test('no two skills send VS Code\'s chat round between each other: /sf-approve a
   // reads its list again, whose approval branch is /sf-approve, only when the card did not open that page.
   const approve = skills.get('sflow-approve');
   const decide = skills.get('sflow-decide');
-  assert.match(approve, /In VS Code's own chat never ask: the person approves or sends it back on the approval page, which `#sflowDecide` with `workId` opens; once open, end with only that, no command\./u);
+  assert.match(approve, /In VS Code's own chat never ask: the person approves on the approval page \(or sends back\), which `#sflowDecide` with `workId` opens; then end, no command\./u);
   assert.doesNotMatch(approve, /approval (?:page|row)[^.]*`\/sf-decide/u);
   const step1 = decide.slice(decide.indexOf('\n1. '), decide.indexOf('\n2. '));
   // `approval-*`: the page opened on this Story (`approval-open`), or on a window that shows another (`approval-elsewhere`,

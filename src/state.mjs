@@ -610,9 +610,8 @@ export const REVIEW_EFFECTS = Object.freeze({
   // record change (approval-check.mjs); any other synchronization or link stales the submission.
   [LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED]: 'stales-submission',
   [LIFECYCLE_EVENT.BRANCH_LINKED]: 'stales-submission',
-  // SFlow's own record, which no review reads: it verifies as exactly its record change (RECORD_WRITERS) [owner, 2026-11-28].
+  // SFlow's own record, verified as exactly that (record-writer-commit.mjs) [owner, 2026-11-28].
   [LIFECYCLE_EVENT.TELEMETRY_RECORDED]: 'review-safe',
-  // A maintainer's repair of derived files (`state reconcile --repair-projections`), which may rewrite any of them.
   [LIFECYCLE_EVENT.PROJECTION_RECONCILED]: 'stales-submission',
   [LIFECYCLE_EVENT.IMPACT_CLASSIFIED]: 'stales-submission',
   [LIFECYCLE_EVENT.IMPACT_OPTED_OUT]: 'stales-submission',
@@ -635,26 +634,8 @@ const REVIEW_SAFE_DECISION_LISTS = Object.freeze(Object.entries(REVIEW_EFFECTS)
     list, event, decision: key.slice('decision-made:'.length)
   }))));
 
-/**
- * The largest Story state a commit classifier reads at a commit, as the other state readers do. A long Story's state
- * passes 1 MB, Git's read default: d-story's was 1.1 MB at Release v4, so every decision recorded after its submission
- * read as "not SFlow's" and undid the approval it was made for (2026-11-23).
- */
+/** A Story state read at a commit: past Git's 1 MB default, so a long Story's decisions still classify (d-story, 2026-11-23). */
 export const STORY_STATE_OBJECT_BYTES = 16 * 1024 * 1024;
-
-/**
- * SFlow's own record writers that are no person's decision, by event, with exactly what each commit may change besides
- * workflow.json, STATUS.md and its ledger intent [owner, 2026-11-28: SFlow's own records never undo an approval]:
- *   phaseKeys  the keys of one step's state it may change (its usage accounting)
- *   files      which other files of the Story's records it may write (`itemFile` spells a record's path in either layout)
- *   history    the history event it appends, when it appends one
- * Each is review-safe in REVIEW_EFFECTS; a commit that changes anything else is not one.
- */
-const RECORD_WRITERS = Object.freeze({
-  // Copilot usage reconciled after a version: the step's usage and its telemetry record, never what was reviewed.
-  [LIFECYCLE_EVENT.TELEMETRY_RECORDED]: Object.freeze({ phaseKeys: ['usage', 'telemetry'], history: 'phase_telemetry_reconciled',
-    files: (itemFile, event) => (file) => file === itemFile(`telemetry/${event.phaseId}-gen${event.generation}.json`) })
-});
 
 /**
  * One single-parent governed commit's Story state on either side of it, or null when it is not one
@@ -758,39 +739,12 @@ function applicabilityDecisionCommit(root, config, workflow, commit, workflowTas
 }
 
 /**
- * Whether a commit is one of SFlow's own record writes that no review reads (RECORD_WRITERS): its event, history and
- * files are exactly its kind's, and the Story's state differs only in its step's listed keys.
+ * Whether a commit is SFlow's own record, which changes nothing a review saw: a review-safe decision, or a record writer's
+ * (record-writer-commit.mjs). The one classifier the approval's history check and an Auto resume read [owner, 2026-11-28].
  */
-function recordWriterCommit(root, config, workflow, commit) {
-  const change = governedStateChange(root, config, workflow, commit);
-  const event = change?.event;
-  const writer = event ? RECORD_WRITERS[event.type] : null;
-  if (!writer || event.subject?.id !== workflow.workItem.id || change.identity.eventSha256 !== `sha256:${recordSha256(event)}`) return false;
-  const own = writer.files(change.itemFile, event);
-  if (change.changed.some((file) => !change.ownPaths.includes(file) && !own(file))) return false;
-  const { before, after } = change;
-  const history = after.history?.length - (before.history?.length ?? 0);
-  if (history !== 1 || after.history.at(-1)?.event !== writer.history) return false;
-  if (!stateChangesOnly(change, ['history', 'publicationProjections', ...(writer.phaseKeys.length ? ['phases'] : [])])) return false;
-  // Only the listed keys of the event's own step.
-  const phases = [...new Set([...Object.keys(before.phases ?? {}), ...Object.keys(after.phases ?? {})])];
-  return phases.every((id) => {
-    const was = before.phases?.[id] ?? null;
-    const is = after.phases?.[id] ?? null;
-    if (recordSha256(was) === recordSha256(is)) return true;
-    if (id !== event.phaseId || !was || !is) return false;
-    return [...new Set([...Object.keys(was), ...Object.keys(is)])].every((key) => writer.phaseKeys.includes(key)
-      || recordSha256(was[key] ?? null) === recordSha256(is[key] ?? null));
-  });
-}
-
-/**
- * Whether a commit is SFlow's own record of something that changes nothing a review saw: a review-safe decision
- * (applicabilityDecisionCommit) or a record writer's (recordWriterCommit). The one classifier the approval's history check
- * and an Auto flight's resume both read [owner, 2026-11-28].
- */
-export function sflowRecordCommit(root, config, workflow, commit, workflowTaskDeltaSafe) {
-  return applicabilityDecisionCommit(root, config, workflow, commit, workflowTaskDeltaSafe) || recordWriterCommit(root, config, workflow, commit);
+export async function sflowRecordCommit(root, config, workflow, commit, workflowTaskDeltaSafe) {
+  return applicabilityDecisionCommit(root, config, workflow, commit, workflowTaskDeltaSafe)
+    || (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'record-writer-commit.mjs')).href)).recordWriterCommit(root, config, workflow, commit);
 }
 
 /**
@@ -814,7 +768,7 @@ export async function onlyHumanDecisionCommits(root, config, workflow, from, to)
   for (const commit of commits) {
     const identity = governedCommitIdentity(root, commit);
     if (identity?.parents.length !== 1 || identity.parents[0] !== parent) return null;
-    if (!sflowRecordCommit(root, config, workflow, commit, workflowTaskDeltaSafe)) return null;
+    if (!(await sflowRecordCommit(root, config, workflow, commit, workflowTaskDeltaSafe))) return null;
     parent = commit;
   }
   return parent === to ? commits : null;
@@ -5862,7 +5816,6 @@ async function submitPhaseTransition(root, config, workflow, {
     targetGeneration: phase.generation
   });
   if (mcpEvidence.errors.length) throw new SingularityFlowError(`Phase ${phase.id} MCP evidence is not ready:\n- ${mcpEvidence.errors.join('\n- ')}`, { code: 'MCP_EVIDENCE_REQUIRED',
-    // The browser check's setup, which SFlow runs in order, then the page captured again [owner, 2026-11-28].
     ...(mcpEvidence.routes?.length ? { details: { phase: phase.id, nextAction: { command: mcpEvidence.routes[0], label: 'Set up the browser check, then capture the page again' },
       recoveryCommands: mcpEvidence.routes.map((command) => ({ command })) } } : {}) });
   if (phaseNeedsGeneration(workflow, phase)) await enforceSequenceGate(root, workflow, 'freshGeneration', 'submit for approval', {
@@ -6947,7 +6900,7 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
   if (unallowed().length) {
     const { workflowTaskDeltaSafe } = await import('./workflow-task.mjs');
     for (const commit of unallowed()) {
-      if (sflowRecordCommit(root, config, workflow, commit, workflowTaskDeltaSafe)) allowedReviewCommits.add(commit);
+      if (await sflowRecordCommit(root, config, workflow, commit, workflowTaskDeltaSafe)) allowedReviewCommits.add(commit);
     }
   }
   if (workflow.applicationReviews?.length && unallowed().length) {

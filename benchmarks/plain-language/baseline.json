@@ -13,9 +13,9 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 6,
-  "generic-route": 6194,
+  "generic-route": 6195,
   "jargon": 1343,
-  "length": 644
+  "length": 642
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -3353,9 +3353,6 @@
   "src/file-lease.mjs": {
    "74a673c6be44": "jargon:generation jargon:retained"
   },
-  "src/finding-escalation.mjs": {
-   "0a7508be82f2": "length"
-  },
   "src/findings/code-step.mjs": {
    "562d34a410ad": "length",
    "77df062b9460": "length",
@@ -3817,7 +3814,6 @@
    "09187b26bac6": "jargon:retained",
    "0eb7b96cad0b": "jargon:revalidate jargon:successor",
    "1046df2c9ce8": "jargon:generation",
-   "1eee7c8bbca7": "length",
    "1efb14654d4a": "length",
    "220bdfa410a5": "jargon:retained",
    "39af19db5078": "jargon:successor",

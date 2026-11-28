@@ -9,7 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { ADVICE_FIELDS, ADVICE_INTENTS, adviceForStep, GENERIC_INTENT, STEP_ADVICE, STOP_KINDS, stepAdvice, stepIntentOf, stopAdvice }
+import { ADVICE_FIELDS, ADVICE_INTENTS, adviceForStep, GENERIC_INTENT, STEP_ADVICE, STOP_KINDS, stepAdvice, stepIntentOf, stopAdvice, WHEN_ADVICE }
   from '../src/step-advice.mjs';
 import { storyStepIntent } from '../src/step-advice-intent.mjs';
 import { STEP_INTENTS } from '../src/phase-roles.mjs';
@@ -34,12 +34,30 @@ test('every intent has every field, and every stop its way forward, in plain sho
       assert.doesNotMatch(line, /\{step\}/u, `${intent}.${field} is filled`);
       for (const { term, pattern } of JARGON) assert.doesNotMatch(line, pattern, `${intent}.${field} uses "${term}"`);
     }
-    // Each button's line says what that button does.
-    assert.match(filled.yes, /^Approve /u, intent);
-    assert.match(filled.sendBack, /^Send back /u, intent);
-    assert.match(filled.notNow, /^Not now /u, intent);
+    // Each button's line starts with the button it is about.
+    assert.match(filled.yes, /^Yes: /u, intent);
+    assert.match(filled.sendBack, /^Send back: /u, intent);
+    assert.match(filled.notNow, /^Not now: /u, intent);
+  }
+  // Lines that replace an intent's for a fact about the step (never a workflow's name): every one a known intent's field.
+  for (const [fact, intents] of Object.entries(WHEN_ADVICE)) {
+    for (const [intent, lines] of Object.entries(intents)) {
+      assert.ok(ADVICE_INTENTS.includes(intent), `${fact}: ${intent}`);
+      for (const [field, line] of Object.entries(lines)) {
+        assert.ok(ADVICE_FIELDS.includes(field) && field !== 'stops', `${fact}.${intent}.${field}`);
+        assert.ok(line.length <= 160, `${fact}.${intent}.${field}`);
+        assert.equal(stepAdvice(intent, { when: [fact] })[field], line);
+      }
+    }
   }
 });
+
+test('/sf-task v1.2\'s approval lines are the table\'s: the task keeps only its size choice', async () => {
+  const shape = await readFile(path.join(ROOT, 'src/task-shape.mjs'), 'utf8');
+  assert.match(shape, /stepAdvice\(step\.intent, \{ when: \[refactor \? 'keeps-behaviour' : 'tests-approved-by-sflow'\] \}\)/u);
+  assert.doesNotMatch(shape, /You decide (?:how|what|whether)/u, 'no approval why of its own');
+  assert.match(shape, /const SIZE_YES = /u, 'the size choice stays the task\'s');
+}); 
 
 test('a step\'s intent: what it names, else the one SFlow ships, else the step-intent inference, else the generic lines', async () => {
   const workflow = (phases, resolved = phases) => ({ phaseOrder: phases.map((phase) => phase.id),
@@ -65,16 +83,17 @@ test('a step\'s intent: what it names, else the one SFlow ships, else the step-i
 /** Every approval and stop surface, and how it reads the table: an import of it, or the line the CLI carried from it. */
 const SURFACES = Object.freeze({
   'src/decision-list.mjs': /adviceForStep\(workflow, phase\.id, context\.facts\?\.stepIntent/u,
-  'src/decision-list-reads.mjs': /import\('\.\/step-advice-intent\.mjs'\)\)\.storyStepIntent\(workflow, phase\.id\)/u,
+  'src/decision-list-reads.mjs': /'step-advice-intent\.mjs'\)\.href\)\s+\.then\(\(module\) => module\.storyStepIntent\(workflow, phase\.id\)/u,
   'src/commands/approval-packet.mjs': /adviceForStep\(workflow, phaseId, await storyStepIntent\(workflow, phaseId\)\)/u,
   'src/agent-output.mjs': /why: result\.advice\.decides/u,
   'src/needs-you-items.mjs': /adviceForStep\(workflow, phaseId\)\.decides/u,
   'src/refusal-remediation.mjs': /stopAdvice\(stepIntentOf\(null, phase\), 'changed'/u,
   'src/finding-escalation.mjs': /stopAdvice\(stepIntentOf\(null, phaseId\), 'repeated'/u,
+  'src/task-shape.mjs': /stepAdvice\(step\.intent, /u,
   'src/phase-publication-readiness.mjs': /stopAdvice\(stepIntentOf\(workflow, phase\.id\), 'browser'/u,
   'apps/vscode/src/views/approval-review.ts': /const advice = approvalAdvice\(request\);/u,
   'apps/vscode/src/actions.ts': /advice = \(await import\('\.\/views\/approval-review\.ts'\)\)\.adviceOf\(listed\)/u,
-  'plugin/skills/sflow-approve/SKILL.md': /Say `act\.ask\.why` as one line/u
+  'plugin/skills/sflow-approve/SKILL.md': /Say `act\.ask\.why`\. Ask `act\.ask\.question`/u
 });
 
 async function sourceFiles(directory) {
@@ -92,7 +111,8 @@ test('every approval and stop surface reads its why line from the table, and no 
   const fragments = ADVICE_INTENTS.flatMap((intent) => {
     const entry = STEP_ADVICE[intent];
     return [...ADVICE_FIELDS.filter((field) => field !== 'stops').map((field) => entry[field]), ...Object.values(entry.stops)];
-  }).flatMap((line) => line.split('{step}')).map((part) => part.trim()).filter((part) => part.length >= 30);
+  }).concat(Object.values(WHEN_ADVICE).flatMap((intents) => Object.values(intents).flatMap((lines) => Object.values(lines))))
+    .flatMap((line) => line.split('{step}')).map((part) => part.trim()).filter((part) => part.length >= 30);
   const copies = [];
   for (const file of [...await sourceFiles('src'), ...await sourceFiles('apps/vscode/src'), ...await sourceFiles('plugin/skills')]) {
     if (file === 'src/step-advice.mjs' || file === 'src/step-advice-intent.mjs') continue;
@@ -116,7 +136,9 @@ test('the approval page says why the person is asked and what each button does, 
   const html = page.approvalReviewBody({ ...request, advice });
   const escaped = (text) => text.replaceAll('\'', '&#39;');
   assert.ok(html.includes(`<strong>Why you are asked:</strong> ${escaped(advice.decides)}`), html);
-  for (const line of [advice.yes, advice.sendBack, advice.notNow]) assert.ok(html.includes(escaped(line)), line);
+  for (const [line, label] of [[advice.yes, 'Yes'], [advice.sendBack, 'Send back'], [advice.notNow, 'Not now']]) {
+    assert.ok(html.includes(escaped(page.afterLabel(line, label))), line);
+  }
   // A list without advice (an older engine): the table's generic lines, never none.
   assert.ok(page.approvalReviewBody(request).includes(escaped(stepAdvice(GENERIC_INTENT, { step: 'Planning' }).decides)));
   // The decision list's approval item carries the advice the page reads.

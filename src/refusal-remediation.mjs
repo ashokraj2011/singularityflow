@@ -1376,7 +1376,9 @@ const KNOWN = Object.freeze({
     const details = error?.details ?? {};
     const workId = safeWorkId(details.workId);
     const phase = lowerKebab(details.phase);
-    return workId && phase ? [step('send-back-changed-step', `${stopAdvice(stepIntentOf(null, phase), 'changed', { step: phase })} Your reason goes to the next version.`,
+    // The step's name as a person reads it ("Implementation spec"), from its ID: the refusal carries no label.
+    const name = phase ? `${phase.charAt(0).toUpperCase()}${phase.slice(1).replaceAll('-', ' ')}` : null;
+    return workId && phase ? [step('send-back-changed-step', `${stopAdvice(stepIntentOf(null, phase), 'changed', { step: name })} Your reason goes to the next version.`,
       sendBackCommand(workId, phase), 'remediation', '/sf-reject')] : [];
   },
   // An amendment proposed after the submission holds the approval until a person decides it [SPEC-OAP M2].

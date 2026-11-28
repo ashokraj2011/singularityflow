@@ -8,19 +8,21 @@
  *
  * Per intent, one line each:
  *   decides    what the person decides at the approval, and why they are the one asked
- *   yes        what Approve does
- *   sendBack   what Send back does (its reason goes to the next version)
- *   notNow     what Not now does
+ *   yes        what Approve does ("Yes: …")
+ *   sendBack   what Send back does, its reason going to the next version ("Send back: …")
+ *   notNow     what Not now does ("Not now: …")
  *   settles    what SFlow settles itself, so the person is never asked it
  *   stops      the way forward for each stop a person can meet on the step, by kind (STOP_KINDS)
  * `{step}` is the step's name. test/step-advice.test.mjs checks every intent has every field and that no surface writes
  * these lines itself.
  *
- * Pure data and string filling. It imports only modules that import nothing, so it adds next to nothing wherever it
- * loads (the VS Code pages read it too); the step-intent inference is step-advice-intent.mjs's, for the CLI.
+ * Pure data and string filling. It imports only an import-free module, so it adds next to nothing wherever it loads (the
+ * VS Code pages read it too); the step-intent inference is step-advice-intent.mjs's, for the CLI, out of VS Code's bundles.
  */
 import { PACKAGED_STEP_INTENTS } from './packaged-step-intents.mjs';
-import { STEP_INTENTS } from './phase-roles.mjs';
+
+/** The ten step intents (phase-roles.mjs STEP_INTENTS, which test/step-advice.test.mjs keeps equal), read here without it. */
+const STEP_INTENTS = Object.freeze(['intake', 'requirements', 'design', 'plan', 'code', 'test', 'review', 'release', 'report', 'document']);
 
 /** The advice for a step whose intent SFlow cannot tell. */
 export const GENERIC_INTENT = 'generic';
@@ -44,9 +46,9 @@ const deepFreeze = (value) => {
   return value;
 };
 
-// Lines most intents share; an intent's own lines replace them.
-const SEND_BACK = 'Send back returns {step} with your reason; its next version is written to answer it.';
-const NOT_NOW = 'Not now closes this and records nothing; {step} keeps waiting for you.';
+// Lines most intents share; an intent's own lines replace them. Each line starts with the button it is about.
+const SEND_BACK = 'Send back: {step} goes back to its author with your reason, and its next version is written to answer it.';
+const NOT_NOW = 'Not now: nothing is recorded; {step} keeps waiting for you.';
 const OWN_RECORDS = 'SFlow\'s own records (decisions, issues, notes) never undo your Yes; code changed meanwhile goes to the code step.';
 const STOPS = Object.freeze({
   undecided: 'Approve stays off until each item below is decided: each one changes what the Story carries on with.',
@@ -58,55 +60,76 @@ const STOPS = Object.freeze({
 });
 const entry = (lines) => ({ sendBack: SEND_BACK, notNow: NOT_NOW, settles: OWN_RECORDS, ...lines, stops: { ...STOPS, ...(lines.stops ?? {}) } });
 
+/*
+ * The requirement's, the plan's and the code's lines are the ones /sf-task v1.2 wrote for its approvals [ITW:REQ-113],
+ * moved here as they were so every step of every workflow says them; the task keeps only its size choice (task-shape.mjs).
+ */
 export const STEP_ADVICE = deepFreeze({
   intake: entry({
-    decides: 'You decide if {step} says what was asked: every later step builds on it.',
-    yes: 'Approve keeps this version of {step} and starts the next step.'
+    decides: 'You decide what gets built: the requirement says it, clause by clause, with how each is tested.',
+    yes: 'Yes: the next step starts from it.'
   }),
   requirements: entry({
     decides: 'You decide if {step} says what must be true when the work is done: the code and tests are checked against it.',
-    yes: 'Approve keeps these requirements; later steps are checked against them.'
+    yes: 'Yes: later steps are checked against these requirements.'
   }),
   design: entry({
     decides: 'You decide if {step} is the way to build it: the plan and the code follow it.',
-    yes: 'Approve keeps this design and starts the next step.'
+    yes: 'Yes: the plan and the code follow this design.'
   }),
   plan: entry({
-    decides: 'You decide if {step} is the work to build: the code step changes what it names and tests each part.',
-    yes: 'Approve keeps this plan; the code step builds what it names.'
+    decides: 'You decide how the code will be written: the plan names the files and the tests for each clause.',
+    yes: 'Yes: the code is written to it.'
   }),
   code: entry({
-    decides: 'You decide if this code does what the plan said: it goes into the pull request as it is.',
-    yes: 'Approve keeps this code for the pull request and starts the next step.',
-    sendBack: 'Send back returns {step} with your reason; Copilot writes the next version of the code to answer it.',
+    decides: 'You decide whether this code goes in: it changes the repository.',
+    yes: 'Yes: the code goes on to be tested.',
+    sendBack: 'Send back: {step} goes back with your reason, and Copilot writes the next version of the code to answer it.',
     settles: 'SFlow\'s own records never undo your Yes; it commits code changed outside the plan with this step and lists it here.',
     stops: { changed: 'The code changed after it was reviewed, so this is not what was reviewed: Send back so the change is reviewed.' }
   }),
   test: entry({
     decides: 'You decide if these test results are enough to trust the change: later steps rely on them.',
-    yes: 'Approve keeps these results; later steps use them and do not run the tests again.',
+    yes: 'Yes: later steps use these results and do not run the tests again.',
     settles: 'SFlow runs the tests itself and keeps its own records out of the review, so they never undo your Yes.'
   }),
   review: entry({
     decides: 'You decide if the work matches what was agreed: a gap you accept goes into the pull request as a known risk.',
-    yes: 'Approve keeps this review; an accepted gap is listed in the pull request.'
+    yes: 'Yes: an accepted gap is listed in the pull request.'
   }),
   release: entry({
     decides: 'You decide if the work is ready to leave the Story: SFlow then prepares the pull request.',
-    yes: 'Approve marks the work ready; SFlow prepares the pull request next.'
+    yes: 'Yes: SFlow prepares the pull request next.'
   }),
   report: entry({
     decides: 'You decide if {step} says what happened: it is the Story\'s last word.',
-    yes: 'Approve keeps this report; the Story ends when nothing else is open.'
+    yes: 'Yes: the Story ends when nothing else is open.'
   }),
   document: entry({
     decides: 'You decide if {step} says what it should: later steps read it as written.',
-    yes: 'Approve keeps this version of {step} and starts the next step.'
+    yes: 'Yes: later steps read it as written.'
   }),
   [GENERIC_INTENT]: entry({
     decides: 'You decide if {step} is right as it is: later steps build on it.',
-    yes: 'Approve keeps this version of {step} and starts the next step.'
+    yes: 'Yes: the next step starts from {step}.'
   })
+});
+
+/**
+ * Lines that replace an intent's when a fact about the step says so, never its workflow's name:
+ *   keeps-behaviour         the step's work must keep what the code does (a refactor: its checks ran on the base first)
+ *   tests-approved-by-sflow  the test step after this code is SFlow's to approve once its tests pass
+ */
+export const WHEN_ADVICE = deepFreeze({
+  'keeps-behaviour': {
+    plan: { decides: 'You decide what must not change: the plan names the behaviour this refactor keeps and the checks that show it.',
+      yes: 'Yes: the code is changed to it, and SFlow checks that what passed on the base before any edit still passes.' },
+    code: { decides: 'You decide whether this refactor goes in: what passed on the base before any edit still passes on it, so its behaviour stays the same.',
+      yes: 'Yes: SFlow runs the tests again at the tests step and approves it when they pass.' }
+  },
+  'tests-approved-by-sflow': {
+    code: { yes: 'Yes: SFlow runs the tests itself and approves the tests step when they pass.' }
+  }
 });
 
 /** Every intent the table answers for: the ten step intents and the generic one. */
@@ -115,10 +138,13 @@ export const ADVICE_INTENTS = Object.freeze([...STEP_INTENTS, GENERIC_INTENT]);
 const fill = (line, step) => line.replaceAll('{step}', step);
 export const shipped = (phaseId) => (Object.hasOwn(PACKAGED_STEP_INTENTS, phaseId ?? '') ? PACKAGED_STEP_INTENTS[phaseId] : null);
 
-/** The advice for an intent with `{step}` filled; an unknown intent gets the generic lines. */
-export function stepAdvice(intent, { step = 'this step' } = {}) {
+/**
+ * The advice for an intent with `{step}` filled; an unknown intent gets the generic lines. `when` names the facts of
+ * WHEN_ADVICE that hold for the step; a later one wins.
+ */
+export function stepAdvice(intent, { step = 'this step', when = [] } = {}) {
   const key = Object.hasOwn(STEP_ADVICE, intent) ? intent : GENERIC_INTENT;
-  const lines = STEP_ADVICE[key];
+  const lines = Object.assign({}, STEP_ADVICE[key], ...when.filter((fact) => Object.hasOwn(WHEN_ADVICE, fact)).map((fact) => WHEN_ADVICE[fact][key] ?? {}));
   return {
     intent: key,
     ...Object.fromEntries(ADVICE_FIELDS.filter((field) => field !== 'stops').map((field) => [field, fill(lines[field], step)])),

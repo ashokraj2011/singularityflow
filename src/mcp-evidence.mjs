@@ -568,8 +568,7 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
   const integrity = await verifyMcpEvidence(root, workflow, { itemDirectory });
   const errors = [...integrity.errors];
   const passes = [];
-  // The way on for a page no browser check saw: the commands that set the check up, in order, which SFlow runs; then the
-  // page is captured again [owner, 2026-11-28: the d-story Verification stop said "when the tools are available"].
+  // A page no browser check saw: the setup commands, in order, then a new capture [owner, 2026-11-28].
   const routes = [];
   const records = integrity.records.filter((record) =>
     record.phase === phase.id && Number(record.targetGeneration) === Number(targetGeneration)

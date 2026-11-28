@@ -247,7 +247,10 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
   const policy = seed?.story?.branchCompletionPolicy ?? workflow.source?.branchCompletionPolicy
     ?? workflow.lineage?.branchCompletionPolicy ?? 'pr';
   if (policy === 'direct') throw directPolicyRefusal(root, workflow, policy);
-  if (base === head) throw new SingularityFlowError(`Pull request base and head are both '${base}'.`);
+  if (base === head) {
+    throw pullRequestRefusal({ workId: workflow.workItem.id, base, head }, `${workflow.workItem.id}'s branch is its base, '${base}', so there is nothing to open a pull request from. Its work is already on ${base}.`,
+      'PULL_REQUEST_SAME_BRANCH', { route: 'next', label: `See what ${workflow.workItem.id} still needs` });
+  }
   let evidenceReceipt = null;
   if (workflow.lineage?.submissions?.length) {
     try {
@@ -318,7 +321,10 @@ export function epicPullRequestPlan(root, config, initiative, mergeSequence) {
   const subjectId = initiative.initiative.id;
   const base = defaultBranchName(root, config);
   const head = initiative.initiative.branch ?? subjectId;
-  if (base === head) throw new SingularityFlowError(`Pull request base and head are both '${base}'.`);
+  if (base === head) {
+    throw new SingularityFlowError(`${subjectId}'s branch is the default branch, '${base}', so there is nothing to open a pull request from.`,
+      { code: 'PULL_REQUEST_SAME_BRANCH', details: { workId: subjectId, base, head, nextAction: { command: 'singularity-flow initiative next --json', label: `See what ${subjectId} still needs` } } });
+  }
   const blockedBy = [
     ...(mergeSequence.epicReady ? [] : (mergeSequence.outstanding ?? [])),
     ...(mergeSequence.unreachable ?? []).map((id) => `${id} is unreachable`)

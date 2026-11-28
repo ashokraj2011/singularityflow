@@ -13,7 +13,7 @@
  "totals": {
   "count-without-name": 27,
   "draft-for-version": 6,
-  "generic-route": 6191,
+  "generic-route": 6189,
   "jargon": 1340,
   "length": 639
  },
@@ -1921,7 +1921,6 @@
   "src/publication-pending.mjs": 3,
   "src/publication-recovery.mjs": 32,
   "src/publication-unit-of-work.mjs": 5,
-  "src/pull-request.mjs": 2,
   "src/regression-analysis.mjs": 3,
   "src/reinstall.mjs": 118,
   "src/remote-fetch.mjs": 18,

@@ -216,3 +216,26 @@ test('refusals that know the fix say it: steps, clauses, paths, patches and cita
   assert.equal(applyFocusedEdits(spec, recovered.patches), '# Spec\n\nx\nThe user can store.\n');
   assert.equal(recoveredPatches(spec, [{ before: 'The user can convert units.', after: 'x' }]).notes.length, 0, 'a different word is not a slip');
 });
+
+test('a slipped copy of a confirmation offers the same command with the exact value, never a refusal to copy again [owner, 2026-11-28]', async () => {
+  const { withExactConfirmation } = await import('../src/text-lines.mjs');
+  const exact = `sha256:${HASH}`;
+  const slipped = `sha256:${HASH.slice(0, 30)}`;
+  assert.deepEqual(withExactConfirmation(['appeal', 'submit', 'APL-1', '--confirm', slipped, '--json'], '--confirm', slipped, exact),
+    ['appeal', 'submit', 'APL-1', '--confirm', exact, '--json']);
+  assert.deepEqual(withExactConfirmation(['decisions', 'record', 'W-1', `--confirm=${slipped}`], '--confirm', slipped, exact), ['decisions', 'record', 'W-1', `--confirm=${exact}`]);
+  assert.equal(withExactConfirmation(['appeal', 'submit', 'APL-1'], '--confirm', slipped, exact), null, 'a command that does not name it is not rewritten');
+  // The refusal's next action is that filled command: the card and a chat run it; the person's own terminal asks one Yes.
+  const argv = process.argv;
+  process.argv = [argv[0], 'singularity-flow', 'appeal', 'submit', 'APL-1', '--confirm', slipped];
+  try {
+    assertConfirmation(slipped, exact, { code: 'PHASE_APPEAL_STALE', message: 'Confirm the exact current packet.',
+      fail: (message, code, details) => { throw new SingularityFlowError(message, { code, details }); } });
+    assert.fail('a slip is refused');
+  } catch (error) {
+    assert.equal(error.code, 'PHASE_APPEAL_MISTYPED');
+    assert.deepEqual(error.details.retryArgv, ['appeal', 'submit', 'APL-1', '--confirm', exact]);
+    assert.equal(error.details.nextAction.command, `singularity-flow appeal submit APL-1 --confirm ${exact}`);
+    assert.match(error.message, /: the same command with it is the next step\.$/u);
+  } finally { process.argv = argv; }
+});

@@ -36,8 +36,29 @@ export function oversizedTextRefusal(error) {
   { code: 'INPUT_TOO_LARGE_FOR_TEXT', details: { origin }, cause: error });
 }
 
+/**
+ * A confirmation copied with a slip, in the person's own terminal: one Yes runs the same command with the exact value, never
+ * a refusal to copy again [owner, 2026-11-28]. Anywhere else the refusal carries that filled command as its next action.
+ * Returns whether it ran.
+ */
+async function offerExactConfirmation(error, argv) {
+  const retry = error?.details?.retryArgv;
+  if (!/_MISTYPED$/u.test(String(error?.code ?? '')) || !Array.isArray(retry) || !retry.length || retry.join('\u0000') === argv.join('\u0000')) return false;
+  if (process.stdin.isTTY !== true || process.stdout.isTTY !== true || argv.includes('--json')) return false;
+  const readline = await import('node:readline/promises');
+  const io = readline.createInterface({ input: process.stdin, output: process.stdout });
+  let yes = false;
+  try { yes = /^(?:y|yes)$/iu.test((await io.question(`${error.message}\nRun it with the exact value? [y/N] `)).trim()); } finally { io.close(); }
+  if (!yes) return false;
+  const { spawnSync } = await import('node:child_process');
+  const ran = spawnSync(process.execPath, [process.argv[1], ...retry], { stdio: 'inherit' });
+  process.exitCode = ran.status ?? 1;
+  return true;
+}
+
 export async function reportCliFailure(error, argv = []) {
   error = oversizedTextRefusal(error) ?? error;
+  if (await offerExactConfirmation(error, argv).catch(() => false)) return;
   // In a test run: a refusal's route is never the refused command again (story-invariants.mjs).
   if (globalThis.__SFLOW_CLI_BUNDLE__ !== true && globalThis.__SFLOW_EXTENSION_HOST__ !== true && process.env.SINGULARITY_FLOW_INVARIANTS) {
     await (await import('./invariant-checks.mjs')).withStoryInvariants((checks) => checks.reportViolations(checks.refusalViolations(argv, error)));

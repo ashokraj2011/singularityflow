@@ -113,6 +113,8 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
 
 // What a settled file may be listed as (out-of-plan-classes.mjs) [C3, 2026-11-19].
 const SETTLED_SUPPORTING = new Set(['test-support', 'documentation', 'repository-metadata']);
+// Who a file outside the plan is listed as changed by (code-outside-plan.mjs codeWriters).
+const OUTSIDE_PLAN_WRITERS = Object.freeze(['copilot', 'person', 'base']);
 
 /** Settlements none undid, read without loading settled-decisions.mjs. */
 function standingSettlements(workflow) {
@@ -184,19 +186,37 @@ export function departureCandidatePaths(workflow, phaseId = null) {
 
 /**
  * The files SFlow took up with a code step because they changed outside the plan, as nobody undid them [WCB:REQ-010]:
- * each `{ id, file, writer, basis, reason, kind, supporting, at }`, newest last; `phaseId` null for every step's. The
+ * each `{ id, file, writer, basis, reason, kind, supporting, branch, at }`, newest last; `phaseId` null for every step's. The
  * `out-of-plan` settlements, and the supporting changes (a person's scratch note, a test helper) whose settlement says who
- * changed them (`supporting` names the class) [owner, 2026-11-28: a scratch note is committed, listed "by you"]. An
+ * changed them (`supporting` names the class) [owner, 2026-11-28: a scratch note is committed, listed "by you"]. `writer` is
+ * `copilot`, `person`, or `base` for a file that holds what the base branch has, merged in (`branch` names it). An
  * `out-of-plan` one is read beside the plan, never merged into it: `settledPlanChanges` leaves it out, so no plan record
  * or hash built from one changes.
  */
 export function outsidePlanSettled(workflow, phaseId = null) {
   return standingSettlements(workflow).filter((entry) => entry.kind === 'plan-accounting' && entry.effect?.file
-    && (entry.effect.class === 'out-of-plan' || (SETTLED_SUPPORTING.has(entry.effect.class) && ['copilot', 'person'].includes(entry.effect.writer)))
+    && (entry.effect.class === 'out-of-plan' || (SETTLED_SUPPORTING.has(entry.effect.class) && OUTSIDE_PLAN_WRITERS.includes(entry.effect.writer)))
     && (!phaseId || entry.phase === phaseId))
-    .map(({ id, phase, at, effect }) => ({ id, phase: phase ?? null, file: effect.file, writer: effect.writer === 'copilot' ? 'copilot' : 'person',
+    .map(({ id, phase, at, effect }) => ({ id, phase: phase ?? null, file: effect.file,
+      writer: OUTSIDE_PLAN_WRITERS.includes(effect.writer) ? effect.writer : 'person',
       basis: effect.basis ?? null, reason: effect.reason ?? null, kind: effect.kind ?? null,
-      supporting: effect.class === 'out-of-plan' ? null : effect.class, at }));
+      supporting: effect.class === 'out-of-plan' ? null : effect.class, ...(effect.writer === 'base' ? { branch: effect.branch ?? null } : {}), at }));
+}
+
+/**
+ * Who changed a file outside the plan, in the words every place shows it [WCB:REQ-014]: "by Copilot: <reason>" (through a
+ * terminal command when that is what SFlow's hooks saw), "by you" (and why no hook could tell, for a folder VS Code opened
+ * through a link), or, for a file that holds what the base branch has, "from <branch>, merged in: not changed in this
+ * Story". A supporting change adds ", as a supporting change".
+ */
+export function outsidePlanWho({ writer, reason = null, basis = null, branch = null, supporting = null } = {}) {
+  if (writer === 'base') return `from ${branch ?? 'the base branch'}, merged in: not changed in this Story`;
+  const as = supporting ? ', as a supporting change' : '';
+  if (writer === 'copilot') {
+    const how = basis === 'shell-write' || basis === 'shell-call' ? ', through a terminal command' : '';
+    return `by Copilot${how}${reason ? `: ${reason}` : supporting ? '' : ': no reason written'}${as}`;
+  }
+  return `by you${basis === 'linked-folder' ? ' (no SFlow hooks ran here: VS Code opened this folder through a link)' : ''}${as}`;
 }
 
 /** Every path an amendment accounted for, across the planned records given. */

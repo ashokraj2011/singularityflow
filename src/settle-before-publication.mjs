@@ -77,17 +77,18 @@ export async function settleOutOfPlan(root, config, workflow, phase, files, { ac
   const context = await settleContext(root, config, workflow, phase, files);
   const pinned = outOfPlanSettling(workflow);
   // Who changed each file, and what Copilot wrote about it, read once [WCB:REQ-011, REQ-012].
-  const [writers, { reasons, document }] = await Promise.all([outside.codeWriters(root, workflow, files).catch(() => new Map()),
+  const [writers, { reasons, document }] = await Promise.all([outside.codeWriters(root, workflow, files, { config }).catch(() => new Map()),
     outside.stepDocumentReasons(root, config, workflow, phase)]);
   const guarded = context.protectedPaths.map((entry) => String(entry).replace(/\/$/u, ''));
   // Taken up with the step unless a person already has it, it is a protected path, a hard stop [WCB:REQ-001, REQ-010], or it is
   // shaped like a key or certificate, which SFlow never commits on its own.
   const takesUp = (file) => !context.rejected.has(file) && !context.undone.has(file) && !context.open.has(file) && !SECRET.test(file)
     && !guarded.some((entry) => file === entry || file.startsWith(`${entry}/`));
-  // The agent's own `departure record` says it changed the file: Copilot's, with its reason, when no hook says so already.
+  // The agent's own `departure record` says it changed the file: Copilot's, with its reason, when no hook says so already
+  // and the file does not hold exactly what the base branch has (merged in, not this Story's change).
   const writerOf = (file) => {
     const recorded = writers.get(file) ?? { writer: 'person', basis: 'no-hook-records' };
-    return claimedBy === 'agent' && recorded.writer !== 'copilot' ? { writer: 'copilot', basis: 'agent-said' } : recorded;
+    return claimedBy === 'agent' && recorded.writer === 'person' ? { writer: 'copilot', basis: 'agent-said' } : recorded;
   };
   const takeUp = async (file) => {
     const writer = writerOf(file);
@@ -117,7 +118,8 @@ export async function settleOutOfPlan(root, config, workflow, phase, files, { ac
       // A supporting change (a scratch note, a test helper) says who changed it, so the code approval and the change page
       // list it "by you" or "by Copilot" too [owner, 2026-11-28]; the plan reads only its file and class.
       const who = place.settle.effect?.file ? writerOf(file) : null;
-      const effect = who ? { ...place.settle.effect, writer: who.writer === 'copilot' ? 'copilot' : 'person', basis: who.basis,
+      const effect = who ? { ...place.settle.effect, writer: ['copilot', 'base'].includes(who.writer) ? who.writer : 'person', basis: who.basis,
+        ...(who.writer === 'base' ? { branch: who.branch ?? null } : {}),
         ...(who.writer === 'copilot' && (reasons.get(file) ?? reason) ? { reason: String(reasons.get(file) ?? reason).replace(/\s+/gu, ' ').trim().slice(0, 400) } : {}) }
         : place.settle.effect;
       try {

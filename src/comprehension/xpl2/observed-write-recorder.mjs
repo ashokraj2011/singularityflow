@@ -295,6 +295,27 @@ export async function settleToolWrites(pendingFile, { final = false, now = Date.
 }
 
 /**
+ * The files a Copilot terminal command changed in an SFlow turn, as the turn's guard saw them change around the call
+ * (copilot-mutation-guard.mjs, its before and after snapshot) [WCB:REQ-011]: one `tool: 'shell'` record of what each
+ * file holds now (`after`, or `absent`), so who left it as it is can be read later. Never `verified` and with no line
+ * steps: a line is never credited from it (writer-attribution.mjs reads only well-formed steps). `files` are
+ * repository-relative; at most LIMIT.files, each read once.
+ */
+export async function recordShellWrites({ root, gitDirectory, files = [], writer, subject = null, now = Date.now() }) {
+  const repo = await realpath(root);
+  const recorded = [];
+  for (const file of [...new Set(files)].slice(0, LIMIT.files)) {
+    if (typeof file !== 'string' || !file || file.includes('\0') || path.isAbsolute(file) || file.split('/').includes('..') || /^\.git(?:\/|$)/iu.test(file)) continue;
+    let bytes;
+    try { bytes = await bytesOf(path.join(repo, file)); } catch { continue; }
+    recorded.push({ path: file, verified: false, after: bytes ? hash(bytes) : 'absent' });
+  }
+  if (!recorded.length) return null;
+  const { head, branch } = await headOf(gitDirectory).catch(() => ({ head: null, branch: null }));
+  return recordObservedWrite(gitDirectory, { source: 'copilot-hook', tool: 'shell', writer, subject, head, branch, files: recorded }, { now });
+}
+
+/**
  * Append one record to today's segment (UTC). Bounded and best effort: a full segment drops the
  * record and leaves a marker (created exclusively, never through a link) so explanations say records
  * are missing; a new day prunes old days.

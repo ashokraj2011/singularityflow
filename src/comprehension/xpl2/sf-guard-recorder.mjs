@@ -16,7 +16,7 @@
  * applies the agent is `none`, never a guess. Records are strong evidence, not proof (CON-002).
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFile, lstat, mkdir, open, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, mkdir, open, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { captureToolWrites, settleToolWrites } from './observed-write-recorder.mjs';
@@ -70,10 +70,14 @@ async function writeJson(file, value) {
   } finally { await unlink(temporary).catch(() => {}); }
 }
 
-/** The checkout containing `cwd`, from its `.git` entry alone: `{ root, gitDir, commonDir }` or null. */
+/**
+ * The checkout containing `cwd`, from its `.git` entry alone: `{ root, gitDir, commonDir }` or null. A folder reached through
+ * a link is read at its real path (Copilot CLI runs hooks from a link; SFlow's commands run at the real path), so its hooks'
+ * records and their readers name one checkout.
+ */
 export async function sfGuardRepository(cwd) {
   if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) return null;
-  let directory = path.resolve(cwd);
+  let directory = await realpath(path.resolve(cwd)).catch(() => path.resolve(cwd));
   for (let depth = 0; depth < LIMIT.walk; depth += 1) {
     const dotGit = path.join(directory, '.git');
     const info = await lstat(dotGit).catch(() => null);
@@ -420,7 +424,7 @@ export async function sfGuardNoteToolCall(payload = {}, decision = {}, { directo
       const pending = (await readJson(paths.shell, LIMIT.mapBytes))?.calls ?? [];
       const before = await fingerprint(repo);
       for (const call of shell) {
-        pending.push({ call: call.key, at: now, commandSha256: sha(commandOf(call.args)), cwd: relativeCwd(repo, payload.cwd),
+        pending.push({ call: call.key, at: now, commandSha256: sha(commandOf(call.args)), cwd: await relativeCwd(repo, payload.cwd),
           before, publishes: PUBLISHES.test(commandOf(call.args)), writer: copilotSessionWriter(map, writerFor(payload, map, stamps, call.key)) });
       }
       await writeJson(paths.shell, { format: FORMAT, calls: pending.slice(-LIMIT.shell) });
@@ -442,9 +446,9 @@ function copilotSessionWriter(map, fields) {
   return { kind: 'copilot-session', session, turn: map.prompt?.id ?? null, skill: fields.skill, agent: fields.agent, attribution };
 }
 
-function relativeCwd(repo, cwd) {
+async function relativeCwd(repo, cwd) {
   if (typeof cwd !== 'string') return '.';
-  const relative = path.relative(repo.root, path.resolve(cwd));
+  const relative = path.relative(repo.root, await realpath(path.resolve(cwd)).catch(() => path.resolve(cwd)));
   return !relative ? '.' : relative.startsWith('..') || path.isAbsolute(relative) ? 'outside' : relative.split(path.sep).join('/');
 }
 
@@ -592,7 +596,8 @@ export async function sfGuardRunningCall(cwd, { directory = sfGuardBoundaryDirec
   for (const entry of (await readdir(directory).catch(() => [])).filter((file) => file.endsWith('.attribution-shell.json')).slice(0, 256)) {
     const base = path.join(directory, entry.slice(0, -'.attribution-shell.json'.length));
     const map = await readJson(`${base}.attribution.json`, LIMIT.mapBytes);
-    if (map?.format !== SESSION_FORMAT || map.repo !== repo.root) continue;
+    // A map a hook started before it read links names the checkout as reached: compared by its real path.
+    if (map?.format !== SESSION_FORMAT || (map.repo !== repo.root && await realpath(String(map.repo)).catch(() => null) !== repo.root)) continue;
     for (const call of (await readJson(`${base}.attribution-shell.json`, LIMIT.mapBytes))?.calls ?? []) {
       if (Number.isFinite(call?.at) && now - call.at <= withinMs && call.at <= now + 1000 && (!newest || call.at > newest.at)) newest = call;
     }

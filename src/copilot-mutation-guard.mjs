@@ -148,8 +148,9 @@ const sourceTextRule = files => files.length
   ? ` Write an Epic source note or answer only at the issued file ${files[0]}, for \`singularity-flow epic sources note|answer --text-file ${files[0]}\`.` : '';
 /**
  * What an /sf-amend turn does [owner, 2026-11-14]: it runs /sf-reject's intent-amendment route on its own, so it is told that
- * route, never "approval or rejection only". Each command carries the binary, and where change impact is on the proposal waits
- * for the person's own yes (copilot-answer-binding.mjs). A person decides and acknowledges it, never this turn.
+ * route, never "approval or rejection only". Each command carries the binary. It writes the proposal itself, with one line on
+ * why it is proposed, and asks nothing: the person decides it once, approving or dropping it [owner, 2026-11-28, reversing the
+ * change-impact "Propose it?" of 2026-11-14]. A person decides and acknowledges it, never this turn.
  */
 function amendTurnSummary(contract) {
   const workId = contract.workId ?? '<WORK-ID>';
@@ -158,8 +159,8 @@ function amendTurnSummary(contract) {
   return `Intent amendment only: draft the change ${file ? `only at the issued file ${file}` : 'only in the file `singularity-flow story intent-amendment draft` issues'}, `
     + `show \`singularity-flow story intent-amendment preview --work-id ${workId} --for-agent --json\`, then propose with `
     + `\`singularity-flow story intent-amendment propose --work-id ${workId} --reason "<why>" --authored governed-agent --channel copilot-host --json\``
-    + `${contract.policy?.changeImpact ? ', only after the person\'s own Yes to "Propose it?", with their words as the reason' : ''}. `
-    + `A person decides and acknowledges it on the Decide card (/sf-decide ${workId}) or in their own terminal, never this turn.`;
+    + ', its reason one line on why it is proposed, asking nothing first. '
+    + `A person decides it once, approving or dropping it, and acknowledges it, on the Decide card (/sf-decide ${workId}) or in their own terminal, never this turn.`;
 }
 const digest = value => createHash('sha256').update(value).digest('hex');
 const directory = () => path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
@@ -1602,18 +1603,6 @@ function personStepOfCall(call, cwd) {
   return null;
 }
 /**
- * Proposing an intent amendment in chat, as a step held to the person's own yes to its preview under SPEC-CIC switch 3
- * (the contract's `changeImpact`, computed at refresh) [CIC:REQ-015, owner decision 3], or null.
- */
-function proposalStepOfCall(call, cwd) {
-  if (!SHELL_INPUT_TOOLS.has(call.name)) return null;
-  const text = [call.args.command, call.args.cmd, call.args.script, call.args.input, call.args.chars].find(value => typeof value === 'string');
-  if (!text || !/singularity-flow|sflow/iu.test(text)) return null;
-  const argv = shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd).map(entry => confirmedInvocation(entry).argv)
-    .find(candidate => parseCli(candidate).positionals.slice(0, 3).join(' ') === 'story intent-amendment propose');
-  return argv ? { id: 'intent-amendment-proposal', argv } : null;
-}
-/**
  * The proposal a `phase rollover` preview kept on this clone under `confirmation` (story-version-consent.mjs), read from
  * files only, with the clone's common directory: `{ record, commonDir }`, or `{ record: null }` when there is none.
  */
@@ -2287,25 +2276,19 @@ async function answerBoundDenial(payload, record) {
     if (reason) return { ...mutationDenial(null, reason, [], { alone: true, turn: record.skill }), recoverable: true };
   }
   if (!ANSWER_BOUND_SKILLS.has(skillName(record.skill))) return null;
-  // The turn's contract, read once and only for a proposal: whether change impact holds it to a yes.
-  let contract;
-  const changeImpact = async () => ((contract ??= await currentContract(payload, record, { reclassifyOutputs: false })
-    .then(value => value.contract, () => null))?.policy?.changeImpact === true);
   for (const call of toolCalls) {
-    const proposal = personStepOfCall(call, payload.cwd) ? null : proposalStepOfCall(call, payload.cwd);
-    const step = personStepOfCall(call, payload.cwd) ?? (proposal && await changeImpact() ? proposal : null);
-    if (!step || (PROPOSAL_BOUND_TURNS.includes(skillName(record.skill)) && step.id !== 'intent-amendment-proposal')) continue;
+    const step = personStepOfCall(call, payload.cwd);
+    // A reject or amend turn writes an intent amendment's proposal without the person's yes, and holds nothing else here: its
+    // decision and acknowledgement are a person's step, refused in it (owner, 2026-11-28).
+    if (!step || PROPOSAL_BOUND_TURNS.includes(skillName(record.skill))) continue;
     const binding = await answerBinding();
     if (!binding.answerBoundStep(step)) continue;
     const { positionals, options } = parseCli(step.argv);
     const reason = await binding.unboundAnswerReason(file, record, options, { localChat: typeof payload.tool_name === 'string', positionals }).catch(() => null);
-    // The person's own answer is the way through, on the card or in their terminal; the words say the same. A proposal's
-    // is the preview they say yes to, in this same turn.
+    // The person's own answer is the way through, on the card or in their terminal; the words say the same.
     if (reason) {
-      const workId = record.contract?.workId ?? contract?.workId ?? workIdOfArgv(step.argv);
-      const routes = [safeCommandGuidance(step.id === 'intent-amendment-proposal'
-        ? { argv: ['story', 'intent-amendment', 'preview', ...(workId ? ['--work-id', workId] : []), ...(typeof options.file === 'string' ? ['--file', options.file] : []), '--for-agent', '--json'] }
-        : { argv: ['decisions', ...(workId ? [workId] : [])], skill: '/sf-decide' })].filter(Boolean);
+      const workId = record.contract?.workId ?? workIdOfArgv(step.argv);
+      const routes = [safeCommandGuidance({ argv: ['decisions', ...(workId ? [workId] : [])], skill: '/sf-decide' })].filter(Boolean);
       return { ...mutationDenial(null, reason, [], { routes, alone: true, turn: record.skill, workId }), recoverable: true };
     }
   }

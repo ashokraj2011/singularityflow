@@ -85,7 +85,7 @@ export function ownStepArgv(command: string, given: { reason?: string | null; ex
   }
   if (quote) return { missing: 'value' };
   if (open) tokens.push({ text, raw, shell });
-  if (!tokens.length || !['singularity-flow', 'sflow'].includes(tokens[0].text)) return { missing: 'value' };
+  if (!tokens.length || !['singularity-flow', 'sflow'].includes(tokens[0]?.text ?? '')) return { missing: 'value' };
   const whole = new RegExp(`^(?:${REASON_SLOT.source})$`, 'u');
   const argv: string[] = [];
   for (const token of tokens.slice(1)) {

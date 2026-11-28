@@ -24,7 +24,7 @@ export function sentBackLine(workflow, phase, answer, next) {
 }
 
 export async function sentBackRollover(root, config, workflow, phase, options, { changedFiles = false } = {}) {
-  const [{ optionBoolean, optionString }, { phaseRequiresCodeDelivery }, { sentBackAnswer }, { versionPreviewCommand }] = await Promise.all([
+  const [{ optionBoolean, optionString }, { phaseRequiresCodeDelivery }, { sentBackAnswer }, { versionPreviewCommand, stepEntryCommand }] = await Promise.all([
     import('./util.mjs'), import('./code-delivery-policy.mjs'), import('./phase-generation-need.mjs'), import('./action-command-map.mjs')]);
   if (optionString(options, 'confirm') || optionString(options, 'reason', null) !== null || options.correction !== undefined) {
     throw new SingularityFlowError('--sent-back starts the next version on the person\'s send-back and takes no --confirm, --reason or --correction.',
@@ -74,8 +74,11 @@ export async function sentBackRollover(root, config, workflow, phase, options, {
       undo: { copilotCommand: `/sf-decide ${workId}`, words: `An undo does not withdraw version ${next}: it stays open. It makes SFlow ask you before it starts another version of this step after a send-back.` } } : null,
     preserved: code ? `Version ${from}, its evidence and its test results stay as published.` : `Version ${from} stays as published.`,
     opened: { generation: next, status: 'open' }, opening: opened.outcome, replayed: opened.replayed,
-    // What follows is the kernel's next for the open version: writing it, in this same turn.
+    // What follows is the kernel's next for the open version, writing it; in this same turn the entry is read once first,
+    // which admits the writing (a turn that ran `prepare` next went to its checks with nothing written).
     nextAction: (await opening.kernelRoute(root, workflow, phase, { config })).route };
+  result.next = { command: stepEntryCommand(phase.id, workId), copilotCommand: result.nextAction?.copilotCommand ?? null, skill: result.nextAction?.skill ?? null,
+    reason: `Write version ${next} of ${phase.label ?? phase.id} for the person's reason now, in this same turn: read the entry once, then write it.` };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(line);
 }

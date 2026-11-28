@@ -818,11 +818,11 @@ export function agentAct(result) {
   // A version started on the person's send-back: its line names the answer used, so they see why nothing is asked.
   if (result.resultType === 'sflow-generation-rollover' && result.kind === 'sent-back' && result.mutates === true && result.line) {
     return withRoute({ state: 'next', do: null, show: result.line, read: ['settled', 'preserved', 'answerUsed'],
-      said: oneLine(`${result.line} Say act.show as it is, in one line, then refresh the entry once and write the version for their reason in this same turn; ask the person nothing about it.`) }, result.nextAction);
+      said: oneLine(`${result.line} Say act.show as it is, in one line, then refresh the entry once and write the version for their reason in this same turn; ask the person nothing about it.`) }, result.next ?? result.nextAction);
   }
   if (result.resultType === 'sflow-generation-rollover' && result.kind === 'review-corrections' && result.mutates === true && result.line) {
     return withRoute({ state: 'next', do: null, show: result.line, read: ['settled', 'preserved', 'requestedChange'],
-      said: oneLine(`${result.line} Say act.show as it is, in one line, then refresh the entry once and fix the review's findings in this same turn; ask the person nothing about it.`) }, result.nextAction);
+      said: oneLine(`${result.line} Say act.show as it is, in one line, then refresh the entry once and fix the review's findings in this same turn; ask the person nothing about it.`) }, result.next ?? result.nextAction);
   }
   const action = genericAction(result);
   // A prepared scope-owning draft names the source statements it has yet to link, as entry does.

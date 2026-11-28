@@ -295,7 +295,9 @@ test('journey B: a code review asks for corrections three times: versions 2 and 
     const asked = questions.find((act) => /Start version 4\b/u.test(act.ask?.question ?? ''));
     assert.ok(asked, JSON.stringify(questions).slice(0, 2000));
     assert.match(asked.said, /^The reviewer has asked for corrections 3 times in a row\./u);
-    assert.match(asked.ask.how, /^Say successor\.because first\./u);
+    // The hold is the question's why, said first, with what each answer does (ask once, owner 2026-11-28).
+    assert.equal(asked.ask.why, 'The reviewer has asked for corrections 3 times in a row.');
+    assert.match(asked.ask.how, /^Say ask\.why first, as one line, and each choice with its does\./u);
   });
 
   // Version 4: fixed, re-reviewed ready and submitted in the author's turn, which then ends: the code step completes (a

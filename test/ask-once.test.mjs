@@ -110,9 +110,12 @@ test('the start on a send-back is settled with an undo, and its line names the a
   const line = sentBackLine(workflow, workflow.phases.implement, sentBackAnswer(workflow, workflow.phases.implement), 2);
   assert.equal(line, 'Using your answer from Implement version 1: "Say in the code why the value is 2." SFlow started version 2 of Implement on it, so nothing is asked.');
   // The agent says that line as it is and writes the version, asking nothing.
+  // Its route in the same turn is the step's entry, read once, which admits the writing; never `prepare` straight to checks.
   const act = agentAct({ resultType: 'sflow-generation-rollover', kind: 'sent-back', mutates: true, line, phase: 'implement',
-    nextAction: { command: 'singularity-flow prepare implement', copilotCommand: '/sf-code implement' } });
+    nextAction: { command: 'singularity-flow prepare implement', copilotCommand: '/sf-code implement' },
+    next: { command: 'singularity-flow phase enter implement --work-id ASK-1 --compose --for-agent --json', copilotCommand: '/sf-code implement' } });
   assert.equal(act.show, line);
+  assert.match(act.do?.shell ?? '', /^singularity-flow phase enter implement --work-id ASK-1 --compose --for-agent --json$/u, JSON.stringify(act));
   assert.equal(act.ask, undefined);
   assert.match(act.said, /ask the person nothing about it/u);
 });

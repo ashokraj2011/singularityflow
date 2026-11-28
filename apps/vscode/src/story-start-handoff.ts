@@ -68,6 +68,36 @@ export function storyStartNoticeFor(value: unknown, repository: string, now = Da
   return Number.isFinite(age) && age >= 0 && age <= NOTICE_FRESH_MS ? notice.message : null;
 }
 
+/**
+ * A task started from Start Story goes on in the chat of the window that opens its checkout [ITW:REQ-115]: one record,
+ * left before the folder opens (which reloads the window), and sent once as /sf-task when that window shows the task.
+ */
+export const STORY_START_TASK_TURN_KEY = 'singularityFlow.storyStartTaskTurn.v1';
+const TASK_TURN_FRESH_MS = 10 * 60 * 1000;
+
+export interface StoryStartTaskTurn { schemaVersion: 1; repositoryPath: string; storyId: string; createdAt: string }
+
+export function storyStartTaskTurn(repositoryPath: string, storyId: string, now = Date.now()): StoryStartTaskTurn | null {
+  if (!path.isAbsolute(repositoryPath) || repositoryPath.length > 8192 || typeof storyId !== 'string' || !storyId
+      || storyId.length > 200 || /[\x00-\x1f\x7f]/.test(storyId)) return null;
+  return { schemaVersion: 1, repositoryPath: path.resolve(repositoryPath), storyId, createdAt: new Date(now).toISOString() };
+}
+
+/**
+ * What this window does with a task's turn record: `send` /sf-task now (this window shows that task's own checkout and
+ * Story), `wait` (another window's, or its first read is still to come), or `drop` it (old or not a record).
+ */
+export function storyStartTaskTurnDue(value: unknown, repository: string,
+  workflow: { workItem?: { id?: unknown } } | null | undefined, isTask: boolean, now = Date.now()): 'send' | 'wait' | 'drop' {
+  const turn = value as Partial<StoryStartTaskTurn> | null;
+  if (!turn || typeof turn !== 'object' || turn.schemaVersion !== 1 || typeof turn.repositoryPath !== 'string'
+      || typeof turn.storyId !== 'string' || typeof turn.createdAt !== 'string') return 'drop';
+  const age = now - Date.parse(turn.createdAt);
+  if (!Number.isFinite(age) || age < 0 || age > TASK_TURN_FRESH_MS) return 'drop';
+  if (!sameStoryAttachPath(turn.repositoryPath, repository)) return 'wait';
+  return workflow?.workItem?.id === turn.storyId && isTask ? 'send' : 'wait';
+}
+
 /** Exact locally confirmed identity fences a one-time deferral of optional remote inventory. */
 export function storyStartHandoffMatches(
   value: unknown, repository: string, snapshot: RepositorySnapshot, now = Date.now()

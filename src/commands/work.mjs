@@ -12,6 +12,10 @@
  * offers its workflow (src/task-agents.mjs): `--use-agent` is the yes, `--without-agent` the no. The team's own workflow,
  * or an agent this repository has, comes before any marketplace's (src/task-local.mjs) [ITW:REQ-020]: `--use-workflow`
  * is the yes, `--without-workflow` the no.
+ *
+ * VS Code's Start Story starts a task too [ITW:REQ-115]: its words are `--description` (and `--title`), or a GitHub Issue
+ * or Jira issue's own (`--github`, `--jira`), and the form's Story branch, bases, documents and checkout reach `start` as
+ * start's own options (TASK_START_OPTIONS), which start reads and checks as for any Story.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -20,18 +24,25 @@ import { assertWorkTypeStartable, resolveWorkType, validateDefinition, WORKFLOW_
 import { loadConfig } from '../state-stores.mjs';
 import { branch, commitOfRef, committedFileText, localBranches, remoteBranches, remoteDefaultBranchName } from '../git.mjs';
 import { typedChangedPaths, typedMergeBase } from '../git-access.mjs';
+import { documentStorageChoices } from '../document-storage-policy.mjs';
 import { storyCreatorName } from '../story-presentation.mjs';
 import { repoRoot } from '../git-execution.mjs';
 import { agentWords, composeTask, kindFromWords, planLine, TASK_KINDS, taskDefinition, taskRules, taskShape } from '../task-composition.mjs';
 import { addableSteps, nowAndNext, planChips, planNote, rulesApplied, standsWords, storyEvents, storySteps } from '../work-rows.mjs';
 import { walkTaskWorkType } from '../task-walk.mjs';
-import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
+import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 import { STATE_CHECKOUT, storiesDirectory, storiesRoot, storyLocation } from '../story-paths.mjs';
 
 const JIRA_KEY = /\b([A-Z][A-Z0-9_]{1,31}-[1-9][0-9]{0,9})\b/u;
 
-function wordsOf(positionals) {
-  const words = positionals.slice(1).join(' ').trim();
+/** The person's words: after `work`, else `--description` (VS Code's Start Story) [ITW:REQ-115]. */
+const typedWords = (positionals, options) => positionals.slice(1).join(' ').trim() || (optionString(options, 'description') ?? '').trim();
+
+/** The words a task's kind and plan are read from: its title, when one is given, then its words. */
+const planWords = (words, options) => [optionString(options, 'title')?.trim(), words].filter(Boolean).join('\n\n');
+
+function wordsOf(positionals, options) {
+  const words = typedWords(positionals, options);
   if (!words) {
     throw new SingularityFlowError('Say what the task is: singularity-flow work "fix the login timeout on slow networks".', {
       code: 'TASK_WORDS_MISSING',
@@ -355,10 +366,13 @@ function changedFiles(root, record, workflow, remote) {
 function startCommand(words, kind, options, extra = []) {
   const repeated = (name) => optionStrings(options, name).map((value) => `--${name} ${/^[\w./@:-]+$/u.test(value) ? value : quoted(value)}`);
   const single = (name) => { const value = optionString(options, name); return value ? [`--${name} ${/^[\w./@:-]+$/u.test(value) ? value : quoted(value)}`] : []; };
-  return ['singularity-flow work', quoted(words), `--kind ${kind}`, '--start', ...single('work-id'), ...single('base'), ...single('from'), ...single('finding'),
-    ...repeated('path'), ...repeated('document'), ...repeated('add'), ...repeated('skip'), ...(optionBoolean(options, 'new') ? ['--new'] : []),
+  const flag = (name) => (optionBoolean(options, name) ? [`--${name}`] : []);
+  // Start Story's own options [ITW:REQ-115] go with it, so the route starts the same Story the form asked for.
+  return ['singularity-flow work', ...(words ? [quoted(words)] : []), `--kind ${kind}`, '--start', ...single('work-id'), ...single('title'), ...single('base'), ...single('from'), ...single('finding'),
+    ...repeated('path'), ...repeated('document'), ...repeated('add'), ...repeated('skip'), ...flag('new'),
     ...repeated('use-skill'), ...repeated('without-skill'), ...repeated('use-agent'), ...repeated('without-agent'),
-    ...repeated('use-workflow'), ...repeated('without-workflow'), ...extra].join(' ');
+    ...repeated('use-workflow'), ...repeated('without-workflow'), ...single('ref'), ...repeated('from-branch'), ...repeated('document-name'), ...repeated('document-store'),
+    ...single('acceptance-criteria'), ...repeated('address'), ...single('github'), ...flag('jira'), ...flag('isolated-worktree'), ...extra].join(' ');
 }
 
 /** What the person is asked about a skill offered for a step, and the option each answer adds to the start. */
@@ -398,13 +412,39 @@ function titleOf(words) {
   return line.length > 120 ? `${line.slice(0, 117).trimEnd()}…` : line;
 }
 
-export async function launchTask(id, { words, description = words, preview, base, documents = [], json, admission = null, isolated = false }) {
+/**
+ * Start's own options a task's start hands on as the person gave them [ITW:REQ-115]: the Story's branch, its bases (one for
+ * all, `<repository>=<branch>` for some), each document's name and where it is kept, its acceptance criteria, the findings
+ * it addresses, its GitHub Issue or Jira issue and its own checkout. `start` reads and checks each as for any Story.
+ */
+export const TASK_START_OPTIONS = Object.freeze(['ref', 'from-branch', 'document-name', 'document-store', 'acceptance-criteria', 'address',
+  'github', 'jira', 'isolated-worktree']);
+
+export async function launchTask(id, { words, title = titleOf(words), description = words, preview, base, documents = [], json, admission = null, isolated = false,
+  passOn = {}, source = null, notes = null }) {
   const { startTaskStory } = await import('./start.mjs');
+  // An issue is the Story's source as it is, so the words and the title are its own; what SFlow asks of the task goes with it.
   return startTaskStory(['start', id], {
-    json, title: titleOf(words), description, base, 'work-type': preview.composition.workType, yes: true,
-    ...(documents.length ? { document: documents } : {}), ...(isolated ? { 'isolated-worktree': true } : {})
-  }, preview.composition, { plan: preview.plan, admission });
+    json, ...(source ? {} : { title, description }), ...(passOn['from-branch'] ? {} : { base }), 'work-type': preview.composition.workType, yes: true,
+    ...(documents.length ? { document: documents } : {}), ...(isolated ? { 'isolated-worktree': true } : {}), ...passOn
+  }, preview.composition, { plan: preview.plan, admission, source, notes });
 }
+
+/** The GitHub Issue or Jira issue a task starts from, read once with start's own readers; null for typed words. */
+async function issueOf(options, id) {
+  const github = optionString(options, 'github');
+  if (github) return (await import('../work-source.mjs')).getGitHubIssue(github);
+  if (!optionBoolean(options, 'jira')) return null;
+  if (!id) {
+    throw new SingularityFlowError('Name the Jira issue the task starts from: its key is the task\'s ID.', {
+      code: 'TASK_JIRA_KEY_MISSING', details: { nextAction: { command: 'singularity-flow work --jira --work-id <NEW-WORK-ID> --start', label: 'Give the Jira key.' } } });
+  }
+  const [{ getIssue }, { normalizeWorkSource }] = await Promise.all([import('../jira.mjs'), import('../work-source.mjs')]);
+  return normalizeWorkSource(await getIssue(id), { rawRef: id, fetchedAt: nowIso() });
+}
+
+/** An issue's words, as a task's words: its title, its description and its acceptance criteria. */
+const issueWords = (source) => [source.title, source.description, ...(source.acceptanceCriteria ?? [])].map((line) => String(line ?? '').trim()).filter(Boolean).join('\n\n');
 
 /**
  * `work add <STEP>` [ITW:REQ-009]: the task open on this checkout (or --work-id) gains a step after its current one,
@@ -485,26 +525,33 @@ async function behaviourCommand(positionals, options) {
  * or the repository has no SFlow yet, there is no plan (`plan: null`) and nothing is refused: the box shows no line.
  */
 async function likelyPlan(positionals, options) {
-  const words = positionals.slice(1).join(' ').trim();
-  const none = (why) => ({ schemaVersion: 1, resultType: 'sflow-task-likely-plan', words, kind: null, plan: null, why });
-  if (!words || SKILL_NAME_ONLY.test(words)) return none('Say what you want done.');
-  const named = optionString(options, 'kind');
-  const kind = named && TASK_KINDS.includes(named) ? named : kindFromWords(words);
-  if (!kind) return none('SFlow cannot tell the kind of task from these words; the chat names it.');
+  const typed = typedWords(positionals, options);
+  // Start Story's title is read with its words [ITW:REQ-115].
+  const words = planWords(typed, options);
+  const none = (why, extra = {}) => ({ schemaVersion: 1, resultType: 'sflow-task-likely-plan', words, kind: null, plan: null, why, ...extra });
   let root = null;
   try { root = await taskRepositoryRoot(); } catch { return none('Open the repository, or select its workspace, to see a plan.'); }
   if (!existsSync(path.join(root, WORKFLOW_PATH))) return none('This repository does not use SFlow yet.');
+  let definition = null;
+  try { definition = await loadConfig(root); } catch (error) { return none(error?.message ?? 'SFlow could not read this repository\'s workflows.'); }
+  // Where Start Story keeps a task's documents: the repository's policy, or the plan's workflow's once it has one [ITW:REQ-115].
+  const kept = { documentStorage: documentStorageChoices(definition.documents) };
+  if (!typed || SKILL_NAME_ONLY.test(typed)) return none('Say what you want done.', kept);
+  const named = optionString(options, 'kind');
+  const kind = named && TASK_KINDS.includes(named) ? named : kindFromWords(words);
+  // Start Story then shows the kinds, as the chat names one [ITW:REQ-115].
+  if (!kind) return none('SFlow cannot tell the kind of task from these words; the chat names it.', { ...kept, kindNeeded: true, kinds: [...TASK_KINDS] });
   try {
-    const definition = await loadConfig(root);
     const pullRequest = ASKS_FOR_PULL_REQUEST.test(words);
     const composition = { ...composeTask(definition, { kind, touchedPaths: optionStrings(options, 'path') }), ...(pullRequest ? { pullRequest: true } : {}) };
     const overlaid = validateDefinition(structuredClone(taskDefinition(definition, composition)));
     const resolved = assertWorkTypeStartable(resolveWorkType(overlaid, composition.workType));
     const approvals = Object.fromEntries(resolved.phases.map((phase) => [phase.id, approvalOf(phase)]));
     return { schemaVersion: 1, resultType: 'sflow-task-likely-plan', words, kind, plan: planLine(composition, { approvals, pullRequest }),
-      steps: composition.steps.map((step) => ({ id: step.id, intent: step.intent, label: step.label, approvedBy: approvals[step.id] })) };
+      steps: composition.steps.map((step) => ({ id: step.id, intent: step.intent, label: step.label, approvedBy: approvals[step.id] })),
+      documentStorage: documentStorageChoices(resolved.documents) };
   } catch (error) {
-    return none(error?.message ?? 'SFlow could not compose a plan here.');
+    return none(error?.message ?? 'SFlow could not compose a plan here.', kept);
   }
 }
 
@@ -526,14 +573,16 @@ export async function workCommand(positionals = [], options = {}) {
     return status.task ? { ...status, taskTurn: { carriedBy: await (await import('../task-turn.mjs')).taskTurnCarrier(root) } } : status;
   }
   if (optionBoolean(options, 'plan-only')) return likelyPlan(positionals, options);
-  const words = wordsOf(positionals);
+  // A GitHub Issue or Jira issue is a task's source, and its words when none are typed [ITW:REQ-115].
+  const fromIssue = Boolean(optionString(options, 'github')) || optionBoolean(options, 'jira');
+  const typed = fromIssue ? typedWords(positionals, options) : wordsOf(positionals, options);
   const root = await taskRepositoryRoot();
   // A skill's name alone ("/sf-task" typed with nothing after it) says what to run, not what to do: it never names a
   // task. With a task open on this checkout it means "carry that one on" (a chat its hooks did not bind, 2026-11-25).
-  if (SKILL_NAME_ONLY.test(words)) {
+  if (SKILL_NAME_ONLY.test(typed)) {
     const openTask = openStoryHere(root);
     throw new SingularityFlowError(openTask
-      ? `${openTask} is open on this checkout; "${words}" carries it on and starts nothing new.`
+      ? `${openTask} is open on this checkout; "${typed}" carries it on and starts nothing new.`
       : 'Say what the task is, in your own words: a skill\'s name alone is not a task.', {
       code: openTask ? 'TASK_OPEN_HERE' : 'TASK_WORDS_MISSING',
       details: openTask
@@ -541,6 +590,9 @@ export async function workCommand(positionals = [], options = {}) {
         : { nextAction: { command: 'singularity-flow work "<what you want done>"', label: 'Say what you want done, in your own words.' } }
     });
   }
+  const issue = fromIssue ? await issueOf(options, optionString(options, 'work-id')) : null;
+  // What the kind and the plan are read from: the title and the words, then the issue's own.
+  const words = [typed ? planWords(typed, options) : '', issue ? issueWords(issue) : ''].filter(Boolean).join('\n\n');
   const kind = kindOf(words, options);
   if (!existsSync(path.join(root, WORKFLOW_PATH))) {
     throw new SingularityFlowError('This repository does not use SFlow yet, so a task has no steps to use. Set it up first.', {
@@ -561,11 +613,11 @@ export async function workCommand(positionals = [], options = {}) {
     const [first, flag] = useAgent.length ? [useAgent[0], 'use-agent'] : [useWorkflow[0], 'use-workflow'];
     throw new SingularityFlowError('One workflow is a task\'s plan: say yes to one.', {
       code: useAgent.length ? 'TASK_AGENT_UNKNOWN' : 'TASK_WORKFLOW_UNKNOWN',
-      details: { agents: useAgent, workflows: useWorkflow, nextAction: { command: startCommand(words, kind, { ...options, 'use-agent': [], 'use-workflow': [], [flag]: [first] }), label: `Start the task with ${first}'s workflow.` } }
+      details: { agents: useAgent, workflows: useWorkflow, nextAction: { command: startCommand(typed, kind, { ...options, 'use-agent': [], 'use-workflow': [], [flag]: [first] }), label: `Start the task with ${first}'s workflow.` } }
     });
   }
   // The start without the plan named: with the task's own steps, the named one's no added [ITW:REQ-011, REQ-020].
-  const withoutPlan = () => startCommand(words, kind, { ...options, 'use-agent': [], 'without-agent': [...withoutAgent, ...useAgent],
+  const withoutPlan = () => startCommand(typed, kind, { ...options, 'use-agent': [], 'without-agent': [...withoutAgent, ...useAgent],
     'use-workflow': [], 'without-workflow': [...withoutWorkflow, ...useWorkflow] });
   const preview = await taskPlanForWords(definition, words, { kind, touchedPaths,
     add: optionStrings(options, 'add'), skip: optionStrings(options, 'skip'),
@@ -574,7 +626,7 @@ export async function workCommand(positionals = [], options = {}) {
     // A yes to an agent whose workflow is not in the repository yet: its import is the next thing, through the conversion
     // review, and the task can also start with its own steps now [ITW:REQ-011, REQ-020].
     if (['TASK_AGENT_IMPORT_NEEDED', 'TASK_AGENT_NOT_COVERING', 'TASK_AGENT_UNKNOWN', 'TASK_WORKFLOW_UNKNOWN'].includes(error?.code) && (useAgent.length || useWorkflow.length)) {
-      error.details.start = startCommand(words, kind, options);
+      error.details.start = startCommand(typed, kind, options);
       error.details.withoutAgent = withoutPlan();
       if (error.code === 'TASK_AGENT_NOT_COVERING') error.details.nextAction = { command: error.details.withoutAgent, label: 'Start the task with its own steps.' };
     }
@@ -583,11 +635,11 @@ export async function workCommand(positionals = [], options = {}) {
     if (error?.code === 'TASK_SKILL_NOT_IN_LIBRARY') {
       const skill = error.details.skill;
       const rest = { ...options, 'use-skill': use.filter((id) => id !== skill), 'without-skill': [...without, skill] };
-      error.details.nextAction = { command: startCommand(words, kind, rest), label: `Start the task without ${skill} for now.` };
+      error.details.nextAction = { command: startCommand(typed, kind, rest), label: `Start the task without ${skill} for now.` };
     }
     throw error;
   });
-  const start = startCommand(words, kind, options);
+  const start = startCommand(typed, kind, options);
   const offers = preview.offers.map((offer) => skillOffer(offer, preview.composition));
   const agentOffer = preview.agentOffer ?? null;
   const agent = preview.composition.agent ?? null;
@@ -599,7 +651,7 @@ export async function workCommand(positionals = [], options = {}) {
       ...(preview.composition.local ? { workflow: { id: preview.composition.local.workflow, label: preview.composition.local.label } } : {}),
       // Used with no question; its no starts the task with its own steps [ITW:REQ-108].
       ...(preview.usedWorkflow ? { usedWorkflow: { id: preview.usedWorkflow.workflow, label: preview.usedWorkflow.label, why: preview.usedWorkflow.why,
-        without: startCommand(words, kind, { ...options, 'without-workflow': [...withoutWorkflow, preview.usedWorkflow.workflow] }) } } : {}),
+        without: startCommand(typed, kind, { ...options, 'without-workflow': [...withoutWorkflow, preview.usedWorkflow.workflow] }) } } : {}),
       ...(agentOffer ? { agentOffer } : {}),
       ...(preview.skills.length ? { skills: preview.skills } : {}), ...(offers.length ? { offers } : {}),
       ...(preview.notes?.length ? { notes: preview.notes } : {}),
@@ -609,11 +661,12 @@ export async function workCommand(positionals = [], options = {}) {
   }
   // A task open on this checkout takes the words as its own: an answer, or the change wanted. Only "new task" (--new)
   // starts another here [ITW:REQ-017]; a model's guess never starts a second Story over the first one.
-  const open = openStoryHere(root);
+  // A start in a checkout of its own (VS Code's Start Story) leaves this checkout's task as it is [ITW:REQ-115].
+  const open = optionBoolean(options, 'isolated-worktree') ? null : openStoryHere(root);
   if (open && !optionBoolean(options, 'new')) {
     throw new SingularityFlowError(`${open} is open on this checkout, so these words are for it: its question's answer, or the change you want.`, {
       code: 'TASK_OPEN_HERE',
-      details: { openTask: open, newTask: `singularity-flow work ${quoted(words)} --kind ${kind} --start --new`,
+      details: { openTask: open, newTask: startCommand(typed, kind, options, ['--new']),
         nextAction: { command: `singularity-flow work status ${open}`, label: `Carry ${open} on with the person's words.` } }
     });
   }
@@ -642,26 +695,30 @@ export async function workCommand(positionals = [], options = {}) {
   }
   const id = workIdFor(root, words, definition, options);
   const remote = definition.git?.remote ?? 'origin';
-  const base = optionString(options, 'base') ?? remoteDefaultBranchName(root, definition, remote) ?? 'main';
+  // Start Story's bases go to start as they are (--from-branch); otherwise the task starts from the default branch.
+  const base = optionStrings(options, 'from-branch').length ? null : optionString(options, 'base') ?? remoteDefaultBranchName(root, definition, remote) ?? 'main';
   const from = optionString(options, 'from');
   const report = from ? await reportOf(root, from, remote) : null;
   // One finding of an analysis, not the whole report [ITW:REQ-109].
-  const finding = report ? await findingOf(from, report, optionString(options, 'finding'), { words, kind, options }) : null;
+  const finding = report ? await findingOf(from, report, optionString(options, 'finding'), { words: typed, kind, options }) : null;
   const documents = optionStrings(options, 'document').map((file) => path.resolve(process.cwd(), file));
   if (!optionBoolean(options, 'json')) console.log(preview.plan);
   // What SFlow asks of a sized task's requirement (its clauses, analysis and size) or of an analysis (its follow-ups),
   // beside the person's words in its intake [ITW:REQ-102, REQ-109].
   const guidance = preview.composition.sizing ? (await import('../task-shape.mjs')).taskIntakeGuidance(preview.composition) : null;
-  const description = [finding ? `${words}\n\n${finding}` : report ? `${words}\n\n## Starts from ${from}'s report (${report.artifact})\n\n${report.text}` : words, guidance].filter(Boolean).join('\n\n');
-  return launchTask(id, { words, preview, base, documents, json: optionBoolean(options, 'json'), description }).catch((error) => {
+  const description = [finding ? `${typed}\n\n${finding}` : report ? `${typed}\n\n## Starts from ${from}'s report (${report.artifact})\n\n${report.text}` : typed, guidance].filter(Boolean).join('\n\n');
+  // An issue's own text is its Story's; the words typed beside it and what SFlow asks go in its notes [ITW:REQ-115].
+  const passOn = Object.fromEntries(TASK_START_OPTIONS.filter((name) => Object.hasOwn(options, name)).map((name) => [name, options[name]]));
+  return launchTask(id, { words: typed || words, title: optionString(options, 'title') ?? titleOf(typed || words), preview, base, documents,
+    json: optionBoolean(options, 'json'), description, passOn, source: issue, notes: issue ? description || null : null }).catch((error) => {
     // The plan read a skill this checkout has but the Story's base does not, or has otherwise: started without it.
     if (error?.code === 'TASK_SKILL_CHANGED' && error.details?.skill) {
-      error.details.nextAction = { command: startCommand(words, kind, { ...options, 'use-skill': use.filter((skill) => skill !== error.details.skill),
+      error.details.nextAction = { command: startCommand(typed, kind, { ...options, 'use-skill': use.filter((skill) => skill !== error.details.skill),
         'without-skill': [...without, error.details.skill] }), label: `Start the task without ${error.details.skill}.` };
     }
     // The agent's workflow is in this checkout but not in the configuration the Story starts from: started without it.
     if (['TASK_AGENT_IMPORT_NEEDED', 'TASK_WORKFLOW_UNKNOWN'].includes(error?.code) && (useAgent.length || useWorkflow.length)) {
-      error.details.start = startCommand(words, kind, options);
+      error.details.start = startCommand(typed, kind, options);
       error.details.withoutAgent = withoutPlan();
       error.details.nextAction = { command: error.details.withoutAgent, label: 'Start the task with its own steps for now.' };
     }

@@ -41,13 +41,14 @@ test('on a step nobody approves, clear files are settled and a behaviour change 
   sflow('prepare', 'implement');
 
   // The agent's prepublish settles the companion and the documentation, records no departure, and says what publication
-  // takes up.
+  // takes up. The documentation, a supporting change, says who changed it: no SFlow hook ran here, so by you [owner,
+  // 2026-11-28; WCB:REQ-014]. A companion is accounted to its clause's row and names no writer.
   const prepublished = sflowJson('phase', 'prepublish', 'implement', '--for-agent');
   assert.ok(prepublished.value, prepublished.stderr);
   const after = await workflowOf(root);
   const settled = (after.settledDecisions ?? []).filter((entry) => entry.kind === 'plan-accounting');
   assert.deepEqual(settled.map((entry) => [entry.subject, entry.effect]).sort(), [
-    ['file:README.md', { file: 'README.md', class: 'documentation' }],
+    ['file:README.md', { file: 'README.md', class: 'documentation', writer: 'person', basis: 'no-hook-records' }],
     ['file:src/value.d.ts', { clauseId: 'QF-1:AC-001', path: 'src/value.d.ts' }]]);
   assert.equal((after.departures ?? []).length, 0, 'no departure waits for a person');
   assert.deepEqual(prepublished.value.outsidePlan.files.map((entry) => [entry.file, entry.writer]), [['src/extra.mjs', 'person']]);

@@ -92,9 +92,9 @@ const CLONED_STORY_REQUEST = Symbol('cloned-story-request');
 // it over each definition it reads, in memory, and the Story records it; workflow.yml is never written.
 const TASK_COMPOSITION = Symbol('task-composition');
 
-/** Start a Story whose workflow was composed for a task (src/task-composition.mjs) [ITW:REQ-006, REQ-007]. */
-export function startTaskStory(positionals, options, composition, { plan = null, admission = null } = {}) {
-  options[TASK_COMPOSITION] = { composition, plan, admission };
+/** Start a Story whose workflow was composed for a task (src/task-composition.mjs) [ITW:REQ-006, REQ-007]; an issue's, with the issue `work` read and SFlow's notes [ITW:REQ-115]. */
+export function startTaskStory(positionals, options, composition, { plan = null, admission = null, source = null, notes = null } = {}) {
+  options[TASK_COMPOSITION] = { composition, plan, admission, source, notes };
   return startCommand(positionals, options);
 }
 
@@ -571,9 +571,10 @@ async function startCommandAtRoot(positionals, options) {
   const hasManualInput = Boolean(storyFile || title || description || acceptanceCriteria || explicitFiles.length || explicitUrls.length);
   const declaredSource = githubReference ? 'github-issue' : jira ? 'jira' : hasManualInput ? 'manual' : null;
   let externalSourcePromise = null;
+  const handedSource = (githubReference || jira) ? options[TASK_COMPOSITION]?.source ?? null : null;
   const externalSource = () => {
     if (!externalSourcePromise) {
-      externalSourcePromise = githubReference
+      externalSourcePromise = handedSource ? Promise.resolve(handedSource) : githubReference
         ? getGitHubIssue(githubReference)
         : jira ? getIssue(id).then((source) => normalizeWorkSource(source, { rawRef: id, fetchedAt: nowIso() }))
           : Promise.resolve(null);
@@ -1528,6 +1529,9 @@ async function startCommandAtRoot(positionals, options) {
           // public artifact shape while the normalized hash and provider contract remain list-based.
           acceptanceCriteria: manual.source.acceptanceCriteria
         });
+  // An issue's text stays as it is; what SFlow asks of a task's steps is its notes [ITW:REQ-115].
+  const taskNotes = taskComposition && source.type !== 'manual' ? options[TASK_COMPOSITION]?.notes : null;
+  if (taskNotes) source = normalizeWorkSource({ ...source, notes: [source.notes, taskNotes].filter(Boolean).join('\n\n') });
   // The first capture already owns the exact bytes for every non-interactive input. Only a later
   // interactive manual intake can add documents here; never read the first sources a second time.
   const laterDocuments = preloadedManual ? [] : withStartDocumentDefaults(manual?.documents ?? [], options);

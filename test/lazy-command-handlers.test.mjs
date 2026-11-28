@@ -1227,6 +1227,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,969,029 (measured for start.mjs, +729 over 9,968,300 on the merge of sf-task-v12 with main db5bfb141, 2026-11-28;
     // submit.mjs 9,967,112, approve.mjs 9,877,353): ITW v1.2's rises above (choices.mjs +711, command-registry.mjs +18) and
     // WCB's together. No new eager file.
+    // 9,975,419 kept (measured 2026-11-28 on the merge of sf-task-start-form with main 1d2f4aaf2): submit.mjs 9,975,419 is the
+    // largest; start.mjs 9,974,914 (+595, Start a task's issue hand-off, over ask once's 9,974,319).
     // 9,975,419 (measured for submit.mjs, +8,307 over 9,967,112 on ask-once merged with main 0233340d8, 2026-11-28; start.mjs
     // 9,974,319): ask once [owner, 2026-11-28]. A person's send-back is the answer to its next version, read by every surface
     // that names the step's route (phase-generation-need.mjs sentBackAnswer +1,780, step-decision.mjs +938,
@@ -1235,12 +1237,17 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // reuse what the person answered in the Story (clarifications.mjs +1,213, the reading itself in answered-questions.mjs,
     // loaded lazily from the CLI source, as is the start on a send-back, sent-back-opening.mjs); `--sent-back` among the boolean
     // flags (util.mjs +13). No new eager file.
-    // 9,975,629 (measured for submit.mjs, +210 over 9,975,419, 2026-11-28 on carry-on merged with main 1d2f4aaf2; start.mjs
-    // 9,974,529): every Story carries on like a task and has one way on (owner, 2026-11-28): /sf-next as any Story's route
+    // 9,969,624 (measured for start.mjs, +595 over 9,969,029 on the merge of sf-task-start-form with main 0233340d8,
+    // 2026-11-28; submit.mjs 9,967,112 and approve.mjs 9,877,353 unchanged; +595 over 9,961,312 on sf-task-start-form before
+    // the merge): a task from VS Code's Start Story whose source is a GitHub Issue or Jira issue hands start the issue `work`
+    // read and keeps SFlow's sizing words as the issue's notes (commands/start.mjs +595) [ITW REQ-115]. No new eager file.
+    // 9,975,897 (measured for submit.mjs, +480 over 9,975,417, 2026-11-28 on carry-on merged with main 2e8a96c49; start.mjs
+    // 9,975,382): every Story carries on like a task and has one way on (owner, 2026-11-28): /sf-next as any Story's route
     // (safe-command-guidance.mjs +217 NEXT_ROUTE, carryRoute), an approval that says the turn goes on
-    // (approval-agent-result.mjs +116), every Story keeps its chat (context-policy.mjs -126). The way out itself
-    // (way-out.mjs) loads only for a nextsteps read. No new eager file.
-    assert.ok(closure.bytes <= 9_975_629, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // (approval-agent-result.mjs +116), every Story keeps its chat and a new chat right after an approval keeps the Story
+    // (context-policy.mjs +144 openedByApproval). The way out itself (way-out.mjs) loads only for a nextsteps read. No new
+    // eager file.
+    assert.ok(closure.bytes <= 9_975_897, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1971,9 +1978,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,412,385 (+3,006 over 4,409,379, measured 2026-11-28 on ask-once merged with main 0233340d8): ask once, the send-back
   // reader (phase-generation-need.mjs +1,780) and a step's questions reusing the Story's answers (clarifications.mjs +1,213, `--sent-back` in util.mjs +13;
   // answered-questions.mjs loads lazily). No new eager file.
-  // 4,412,479 (+94 over 4,412,385, measured 2026-11-28 on carry-on merged with main 1d2f4aaf2): any Story's one way on
-  // (safe-command-guidance.mjs +217) and every Story keeping its chat (context-policy.mjs -126). No new eager file.
-  assert.ok(current.bytes <= 4_412_479, `session current loads ${current.bytes} source bytes`);
+  // 4,412,737 (+364 over 4,412,373, measured 2026-11-28 on carry-on merged with main 2e8a96c49): any Story's one way on
+  // (safe-command-guidance.mjs +217) and every Story keeping its chat (context-policy.mjs +144). No new eager file.
+  assert.ok(current.bytes <= 4_412_737, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -151,9 +151,9 @@ export const ISSUE_ONLY_OPTIONS = DECISION_LIST_CHAT_OPTIONS;
  * An approval is the person's Yes to "Approve <Step> v<N>?" in its own turn, never a typed step ID (owner, 2026-11-19).
  */
 export const ANSWER_BOUND_TURNS = Object.freeze(['decide', 'converge', 'reject', 'amend', 'approve']);
-// Change impact on: a chat proposal waits for the person's yes, the one step held there [CIC:REQ-015].
+// The turns that write an intent amendment's proposal, without a yes: its decision is the person's (owner, 2026-11-28).
 export const PROPOSAL_BOUND_TURNS = Object.freeze(['reject', 'amend']);
-export const ANSWER_BOUND_STEPS = Object.freeze(['story-decision', 'convergence-adjudication', 'upstream-issue-decision', 'decision-list-record', 'intent-amendment-proposal',
+export const ANSWER_BOUND_STEPS = Object.freeze(['story-decision', 'convergence-adjudication', 'upstream-issue-decision', 'decision-list-record',
   'settled-undo', 'intent-amendment-acknowledgement', 'review-dispute', 'finding-override']);
 
 const EPIC_COMMANDS = new Set(['initiative', 'epic']);

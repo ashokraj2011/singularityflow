@@ -27,8 +27,8 @@ For `singularity-flow story intent-amendment`, use this route, not phase rejecti
    Write only the changed clauses in the file `singularity-flow story intent-amendment draft` issues;
    never edit approved intent in place.
 2. Show the `summary` of `singularity-flow story intent-amendment preview --work-id <WORK-ID> --for-agent --json` in plain words
-   (what changes, its size and why, what is redone or kept, who decides) and `ask_user` "Propose it?" (Yes, No). On their Yes, in this turn, run
-   `singularity-flow story intent-amendment propose --work-id <WORK-ID> --reason "<THEIR WORDS>" --authored governed-agent --channel copilot-host --json`;
+   (what changes, its size and why, what is redone or kept, who decides), then, asking nothing, in this turn run
+   `singularity-flow story intent-amendment propose --work-id <WORK-ID> --reason "<one line: why it is proposed>" --authored governed-agent --channel copilot-host --json`;
    do not invent an `update-intent` convergence finding or change YAML. Propose only when nextsteps returns the
    `singularity-flow story intent-amendment propose` action; otherwise record the change in clarification and revise the scope draft.
 3. Show amendment ID, diff and blast radius. Only a human scope authority decides with exact confirmation,

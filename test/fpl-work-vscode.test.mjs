@@ -207,10 +207,10 @@ test('A8: Start sends exactly /sf-task <words> through startTask, never waiting 
   assert.deepEqual(host.calls.filter((call) => call.includes('--plan-only')).map((call) => call[3]), ['hello', 'fix the login timeout']);
   assert.deepEqual(posted, [{ type: 'work-likely', words: 'fix the login timeout', text: 'Likely plan: code → tests. You approve the code.' }]);
   assert.match(place.panel(), /Likely plan: code → tests\. You approve the code\./u, 'a repaint keeps the line for the same words');
-  // The links: Start with a workflow, Another repository, All Stories.
-  for (const [act, command] of [['workflow', 'singularityFlow.startWork'], ['repository', 'singularityFlow.switchWorkspaceRepository'], ['stories', 'singularityFlow.openWorkspaceStories']]) {
+  // The links: Start with a workflow (Start Story on its workflow choice, ITW:REQ-113), Another repository, All Stories.
+  for (const [act, command, ...args] of [['workflow', 'singularityFlow.startWork', { startMode: 'workflow' }], ['repository', 'singularityFlow.switchWorkspaceRepository'], ['stories', 'singularityFlow.openWorkspaceStories']]) {
     place.receive({ action: 'work-act', act });
-    assert.deepEqual(host.calls.at(-1), ['command', command]);
+    assert.deepEqual(host.calls.at(-1), ['command', command, ...args]);
   }
 });
 

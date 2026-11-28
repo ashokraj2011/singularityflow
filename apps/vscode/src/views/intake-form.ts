@@ -24,6 +24,7 @@ import { intakeWizardActions, intakeWizardLayout, intakeWizardNavigation, INTAKE
 import { gitRemoteProblem } from './map-capability-form.ts';
 import { commandGuidance } from '../copilot-command.ts';
 import { CATALOG_SEARCH_SCRIPT, SAMPLE_STORY_WORKFLOWS } from './catalog-search.ts';
+import { likelyPlanFrom } from './work-page.ts';
 import {
   EMPTY_TEST_RECOVERY_DRAFT, testRecoveryArguments, testRecoveryPreviewArguments, testRecoveryEnabled,
   testRecoveryHtml, testRecoveryProblems, testRecoveryNeedsTerminalReview,
@@ -35,6 +36,48 @@ export type Shape = 'initiative' | 'epic' | 'story';
 
 /** Where the work is tracked. `none` is a first-class answer, not a degraded one. */
 export type Tracker = 'jira' | 'github' | 'none';
+
+/**
+ * How a Story runs [ITW:REQ-115]: the steps of a workflow the person chooses (the default), or a task, whose steps SFlow
+ * picks from what the person describes, as /sf-task does in Copilot chat.
+ */
+export type StartMode = 'workflow' | 'task';
+
+/** A task's kinds in plain words, for when SFlow cannot tell one from the words (src/task-composition.mjs TASK_KINDS). */
+export const TASK_KIND_CHOICES: ReadonlyArray<{ id: string; label: string }> = Object.freeze([
+  { id: 'change', label: 'A change: SFlow sizes it from its requirement' },
+  { id: 'fix', label: 'A fix for something broken' },
+  { id: 'feature', label: 'A new feature' },
+  { id: 'refactor', label: 'A restructure that keeps what the code does' },
+  { id: 'tests', label: 'Tests only' },
+  { id: 'chore', label: 'A chore: an upgrade or a rename' },
+  { id: 'investigate', label: 'An investigation: a report, no code' },
+  { id: 'review', label: 'A review: findings, no code' },
+  { id: 'docs', label: 'A document' }
+]);
+
+/** The likely plan for a task's words as they are (`work --plan-only --json`), as the Work place shows it. */
+export interface TaskPlan {
+  /** The words it is for (taskPlanKey). */
+  key: string;
+  /** The Work place's line ("Likely plan: requirement → implement and test → tests. …"), or null. */
+  text: string | null;
+  /** Why there is no line, in SFlow's words. */
+  why: string | null;
+  /** The words do not say the kind of task: the form asks it. */
+  kindNeeded: boolean;
+  /** Where the task's documents may be kept, as its workflow allows. */
+  documentStorage: { allowed: Array<'git' | 'local'>; default: 'git' | 'local' } | null;
+}
+
+/** A question SFlow asks before a task starts: a marketplace agent or skill that could do it [ITW:REQ-010, REQ-011]. */
+export interface TaskQuestion {
+  ask: string;
+  why: string | null;
+  /** What a Yes adds to the start; null when it needs its review first, so this task starts with SFlow's steps. */
+  yes: string[] | null;
+  no: string[];
+}
 
 /** One open security finding or TLM item the register offers a new Story [CQF:REQ-065]. */
 export interface FindingChoice {
@@ -128,6 +171,8 @@ export function suggestedStoryDocumentName(fileName: string): string {
 export function storyAttachmentPhases(form: IntakeForm, entry: StoryAttachmentDraft): {
   phases: string[] | null; dropped: string[]; emptied: boolean;
 } {
+  // A task's documents are read by every step it has, and by any it gains [ITW:REQ-115].
+  if (taskMode(form)) return { phases: null, dropped: [], emptied: false };
   const available = form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.phases ?? [];
   if (!entry.phases?.length || !available.length) return { phases: entry.phases ?? null, dropped: [], emptied: false };
   const kept = available.filter((phase) => entry.phases!.includes(phase));
@@ -247,6 +292,17 @@ export interface InFlight {
 }
 
 export interface IntakeForm extends TestRecoveryDraft {
+  /** A workflow the person chooses, or a task whose steps SFlow picks [ITW:REQ-115]; the person's last choice is kept. */
+  startMode: StartMode;
+  /** The kind of task the person chose, when the words do not say it; null lets SFlow read it from them. */
+  taskKind: string | null;
+  /** Start found that the issue's words do not say the kind of task: the form asks it. */
+  taskKindNeeded: boolean;
+  taskPlan: TaskPlan | null;
+  /** SFlow's question before the task starts, answered with one click that starts it. */
+  taskQuestion: TaskQuestion | null;
+  /** The answers given to SFlow's questions, as the start options they add. */
+  taskAnswers: string[];
   qualityGateMode: 'hard' | 'soft';
   /** The exact surface context this form will mutate. */
   targetWorkspace: string | null;
@@ -435,6 +491,7 @@ export interface PreflightTestReadiness {
 
 export const EMPTY_INTAKE_FORM: IntakeForm = {
   ...EMPTY_TEST_RECOVERY_DRAFT,
+  startMode: 'workflow', taskKind: null, taskKindNeeded: false, taskPlan: null, taskQuestion: null, taskAnswers: [],
   qualityGateMode: 'hard',
   targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
@@ -514,6 +571,107 @@ function findingsPicker(form: IntakeForm): string {
 /** `--ref` only for a name the person typed; otherwise the engine names it from the repository pattern. */
 function storyBranchArguments(form: IntakeForm): string[] {
   return form.storyBranch.trim() ? ['--ref', form.storyBranch.trim()] : [];
+}
+
+/** Whether Start Story offers a task: a new Story, not a clone or a Story from a reviewed specification [ITW:REQ-115]. */
+export function taskModeOffered(form: IntakeForm): boolean {
+  return form.shape === 'story' && !form.cloneFrom && !form.cloneSpecifications?.length;
+}
+
+/** The form starts a task: SFlow picks its steps from the words, and no workflow is chosen [ITW:REQ-115]. */
+export function taskMode(form: IntakeForm): boolean {
+  return taskModeOffered(form) && form.startMode === 'task';
+}
+
+/** Why a task cannot start here, in one plain line; the workflow choice is then one click away [ITW:REQ-115]. */
+export function taskBlocker(form: IntakeForm): string | null {
+  if (!taskMode(form)) return null;
+  // SFlow sizes a task from the files of its one repository (src/task-shape.mjs), so a task works in one.
+  if (form.baseRepositories.length > 1) {
+    return `A task works in one repository, and this workspace has ${form.baseRepositories.length}. Use a workflow to change them together.`;
+  }
+  if (testRecoveryEnabled(form)) return 'This repository asks for a decision about tests that fail before work starts. A workflow\'s form asks it.';
+  return null;
+}
+
+/** The base a task starts from when none is chosen: its repository's default branch, as /sf-task's (`work`). */
+export function taskDefaultBase(form: IntakeForm): string | null {
+  if (!taskMode(form) || form.baseBranch) return null;
+  const own = form.baseRepositories.find((entry) => entry.id === form.baseLaunchRepository) ?? form.baseRepositories[0];
+  return own?.defaultBranch && form.baseBranchChoices.some((choice) => choice.branch === own.defaultBranch) ? own.defaultBranch : null;
+}
+
+/** The words a task's likely plan is read from, so an answer for older words is never shown. */
+export function taskPlanKey(form: IntakeForm): string {
+  const typed = form.tracker === 'none';
+  return JSON.stringify([form.tracker, typed ? form.title.trim() : '', typed ? form.description.trim() : '', form.taskKind]);
+}
+
+/**
+ * `work --plan-only` for the words as they are. With no words yet, or an issue's (read on Start), it still says where the
+ * task's documents may be kept.
+ */
+export function taskPlanCommand(form: IntakeForm): string[] | null {
+  if (!taskMode(form)) return null;
+  const words = form.tracker === 'none' ? form.description.trim() : '';
+  return ['work', '--plan-only', '--json', ...(words && form.title.trim() ? ['--title', form.title.trim()] : []),
+    ...(words ? ['--description', words] : []), ...(words && form.taskKind ? ['--kind', form.taskKind] : [])];
+}
+
+const record = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+const words = (value: unknown, limit: number): string | null => typeof value === 'string' && value.trim() ? value.trim().slice(0, limit) : null;
+
+/** The likely plan from untrusted CLI output, worded as the Work place words it (likelyPlanFrom). */
+export function taskPlanFrom(value: unknown, key: string): TaskPlan {
+  const result = record(value) ?? {};
+  const storage = record(result.documentStorage);
+  const allowed = Array.isArray(storage?.allowed) ? (['git', 'local'] as const).filter((kind) => (storage!.allowed as unknown[]).includes(kind)) : [];
+  const fallback = allowed.includes('local') ? 'local' : allowed[0];
+  return {
+    key, text: likelyPlanFrom(value), why: words(result.why, 300), kindNeeded: result.kindNeeded === true,
+    documentStorage: fallback ? { allowed: [...allowed], default: allowed.includes(storage!.default as 'git') ? storage!.default as 'git' | 'local' : fallback } : null
+  };
+}
+
+/** The plan for the words as they are, or null while it is read. */
+function currentTaskPlan(form: IntakeForm): TaskPlan | null {
+  return form.taskPlan?.key === taskPlanKey(form) ? form.taskPlan : null;
+}
+
+/** SFlow cannot tell the kind of task from the words: the form shows the kinds, a change chosen until the person says. */
+export function taskKindAsked(form: IntakeForm): boolean {
+  return Boolean(form.taskKind) || form.taskKindNeeded || Boolean(currentTaskPlan(form)?.kindNeeded);
+}
+
+/** The kind a task starts as: the person's choice, a change where SFlow cannot tell, else SFlow reads it from the words. */
+export function taskKindOf(form: IntakeForm): string | null {
+  return form.taskKind ?? (taskKindAsked(form) ? 'change' : null);
+}
+
+/** The options an answer to SFlow's question adds to the start: only these, each naming one agent, workflow or skill. */
+const ANSWER_FLAGS = new Set(['--use-agent', '--without-agent', '--use-skill', '--without-skill', '--use-workflow', '--without-workflow']);
+function answerOf(value: unknown): string[] | null {
+  if (typeof value !== 'string') return null;
+  const [flag, id, ...rest] = value.trim().split(/\s+/u);
+  return flag && ANSWER_FLAGS.has(flag) && id && !rest.length && /^[A-Za-z0-9][A-Za-z0-9._/@:-]{0,200}$/u.test(id) ? [flag, id] : null;
+}
+
+/**
+ * What a refused task start asks of the person, from its untrusted JSON [ITW:REQ-115]: the kind of task when the words do
+ * not say it, or SFlow's question about a marketplace agent or skill that could do it. Null for any other refusal.
+ */
+export function taskStartAnswer(result: unknown): Partial<IntakeForm> | null {
+  const error = record(record(result)?.error);
+  const details = record(error?.details);
+  if (error?.code === 'TASK_KIND_NEEDED' || error?.code === 'TASK_KIND_UNKNOWN') return { taskKindNeeded: true };
+  const offer = error?.code === 'TASK_AGENT_YES_NEEDED' ? record(details?.agentOffer)
+    : error?.code === 'TASK_SKILL_YES_NEEDED' && Array.isArray(details?.offers) ? record(details.offers[0]) : null;
+  const no = answerOf(offer?.no);
+  const ask = words(offer?.ask, 400);
+  if (!offer || !no || !ask) return null;
+  const why = words(offer.why, 300);
+  return { taskQuestion: { ask, why: why ? `${why[0]!.toUpperCase()}${why.slice(1)}${/[.!?]$/u.test(why) ? '' : '.'}` : null, yes: offer.show ? null : answerOf(offer.yes), no } };
 }
 
 /** Where the engine's intake catalog answer came from (SDA §8): read now, or last-known and why. */
@@ -668,6 +826,7 @@ export function baseSelectionKey(form: IntakeForm): string | null {
 /** All user-controlled creation inputs; a confirmation never survives an edit to this tuple. */
 export function intakePlanInputKey(form: IntakeForm): string {
   return JSON.stringify([
+    form.startMode, form.taskKind, form.taskAnswers,
     form.targetWorkspace, form.targetRepository, form.targetBranch, form.shape, form.tracker,
     form.key, form.id, form.title, form.description, form.goal, form.acceptanceCriteria,
     form.targetUrl, form.profile, form.workType, baseSelectionKey(form), form.storyBranch, form.readinessBaseline, form.qualityGateMode,
@@ -685,8 +844,9 @@ export function intakePlanInputKey(form: IntakeForm): string {
  */
 export function intakeProblems(form: IntakeForm): string[] {
   const problems: string[] = [];
+  const task = taskMode(form);
   if (form.shape === 'story' && form.baselineRunning) problems.push('Wait for the reviewed baseline run to finish.');
-  if (form.shape === 'story' && form.readinessBaseline === 'run'
+  if (form.shape === 'story' && !task && form.readinessBaseline === 'run'
       && (!form.baselineRunCommit || form.baseTestReadiness?.repositories?.length !== 1
         || form.baselineRunCommit !== form.baseTestReadiness.repositories[0]?.baseCommit)) {
     problems.push('Review and run the selected baseline, or choose reuse/defer explicitly.');
@@ -715,7 +875,7 @@ export function intakeProblems(form: IntakeForm): string[] {
     }
     // With a tracker, the title and the rest are fetched. Without one, they are the whole input.
     if (!form.title.trim()) problems.push(`Give the ${shapeNoun(form.shape)} a title.`);
-    if (!form.description.trim()) problems.push('Say what is being asked for.');
+    if (!form.description.trim()) problems.push(task ? 'Say what you want done: SFlow picks the steps from it.' : 'Say what is being asked for.');
     if (form.shape === 'epic' && !form.goal.trim()) {
       problems.push('Say what outcome would make this a success.');
     }
@@ -728,7 +888,14 @@ export function intakeProblems(form: IntakeForm): string[] {
     problems.push('No approval group has a member yet, so work cannot be started. '
       + 'Add at least one person in People & approvals.');
   }
-  if (form.shape === 'story') {
+  if (task) {
+    // A task: its details, its branch and its documents; nothing a workflow would ask [ITW:REQ-115].
+    if (form.catalogStatus === 'failed') problems.push(form.workflowReason ?? 'Could not load workflows and branches. Retry loading.');
+    const blocker = taskBlocker(form);
+    if (blocker) problems.push(blocker);
+    if (form.taskQuestion) problems.push('Answer SFlow\'s question below: your answer starts the task.');
+    problems.push(...storyAttachmentNameProblems(form.storyAttachments), ...storyBranchProblems(form));
+  } else if (form.shape === 'story') {
     if (form.catalogStatus === 'failed') {
       problems.push(form.workflowReason ?? 'Could not load workflows and branches. Retry loading.');
     }
@@ -770,28 +937,53 @@ export function intakeProblems(form: IntakeForm): string[] {
         problems.push(`Document ${index + 1} (${entry.displayName}) was used only in phases this workflow does not have (${storyAttachmentPhases(form, entry).dropped.join(', ')}). Choose which phases use it.`);
       }
     });
-    if (/\s/u.test(form.storyBranch.trim())) problems.push('A Story branch name cannot contain spaces.');
-    if (basePerRepositoryMode(form) && !baseSelected(form)) {
-      const unset = repositoryBases(form).filter((row) => row.branch === null).map((row) => row.id);
-      problems.push(form.baseBranchReason
-        ?? `Choose a base branch for ${unset.join(', ')}: ${unset.length === 1 ? 'it has' : 'they have'} no shared or default branch to use.`);
-    } else if (!baseSelected(form)) {
-      problems.push(form.baseBranchReason
-        ?? (form.baseBranchChoices.length
-          ? 'Choose the remote base branch from which the Story branch will be created.'
-          : form.catalogStatus === 'loading' ? 'Reading the remote base branches…'
-            : 'No remote base branch is available for this Story.'));
-    } else if (form.basePreflightChecking) {
-      problems.push(form.basePreflightReason ?? 'Checking configuration, agents and the selected branch…');
-    } else if (!form.basePreflightPassed) {
-      problems.push(form.basePreflightReason
-        ?? 'Remote publication preflight must succeed before this Story can start.');
-    }
+    problems.push(...storyBranchProblems(form));
   }
   if (identifier && form.inFlight.some((entry) => entry.id === identifier)) {
     problems.push(`'${identifier}' has already been started. Open it rather than starting it again.`);
   }
   return problems;
+}
+
+/** The Story's branch and its bases, as a workflow's Story and a task both need them. */
+function storyBranchProblems(form: IntakeForm): string[] {
+  const problems: string[] = [];
+  if (/\s/u.test(form.storyBranch.trim())) problems.push('A Story branch name cannot contain spaces.');
+  if (basePerRepositoryMode(form) && !baseSelected(form)) {
+    const unset = repositoryBases(form).filter((row) => row.branch === null).map((row) => row.id);
+    problems.push(form.baseBranchReason
+      ?? `Choose a base branch for ${unset.join(', ')}: ${unset.length === 1 ? 'it has' : 'they have'} no shared or default branch to use.`);
+  } else if (!baseSelected(form)) {
+    problems.push(form.baseBranchReason
+      ?? (form.baseBranchChoices.length
+        ? 'Choose the remote base branch from which the Story branch will be created.'
+        : form.catalogStatus === 'loading' ? 'Reading the remote base branches…'
+          : 'No remote base branch is available for this Story.'));
+  } else if (form.basePreflightChecking) {
+    problems.push(form.basePreflightReason ?? 'Checking configuration, agents and the selected branch…');
+  } else if (!form.basePreflightPassed) {
+    problems.push(form.basePreflightReason
+      ?? 'Remote publication preflight must succeed before this Story can start.');
+  }
+  return problems;
+}
+
+/**
+ * `work --start` for the task this form describes [ITW:REQ-115]: the Story's details (or its issue), its branch, its
+ * bases and its documents, each with its name and where it is kept, in a checkout of its own. No workflow: SFlow picks
+ * the steps from the words, as /sf-task does, and the answers to its questions go with it.
+ */
+export function taskIntakeCommand(form: IntakeForm): string[] {
+  const kind = taskKindOf(form);
+  const selected = form.storyAttachments.filter((entry): entry is StoryAttachmentDraft => Boolean(entry));
+  const source = form.tracker === 'jira' ? ['--jira'] : form.tracker === 'github' ? ['--github', form.key.trim()]
+    : ['--title', form.title.trim(), '--description', form.description.trim(),
+      ...(form.acceptanceCriteria.trim() ? ['--acceptance-criteria', form.acceptanceCriteria.trim()] : [])];
+  return ['work', '--start', '--json', '--isolated-worktree', '--work-id', intakeIdentifier(form), ...(kind ? ['--kind', kind] : []), ...source,
+    ...baseBranchArguments(form), ...storyBranchArguments(form),
+    ...selected.flatMap((entry) => ['--document', entry.sourcePath, '--document-name', storyAttachmentName(entry).replace(/\s+/gu, ' ').trim(),
+      '--document-store', storyAttachmentStore(form, entry)]),
+    ...addressArguments(form), ...form.taskAnswers];
 }
 
 /**
@@ -828,6 +1020,7 @@ export function intakeCommand(form: IntakeForm): string[] {
     return args;
   }
 
+  if (taskMode(form)) return taskIntakeCommand(form);
   // A Story with a tracker is fetched by key; without one, its content is what was typed here.
   // One base for the whole capability, plus `<repository>=<branch>` for each repository chosen
   // differently. Omitted entirely when nothing was chosen, so the single-repository default is
@@ -892,12 +1085,15 @@ export function storyPreflightCommand(form: IntakeForm): string[] | null {
       .flatMap((entry) => ['--reference-repository', `${entry.id}=${entry.repository}`,
         '--reference-branch', `${entry.id}=${entry.branch}`]);
   } catch { references = []; }
+  // A task is checked as it starts: its branch and base, with start's own defaults and no workflow [ITW:REQ-115].
+  const task = taskMode(form);
+  if (task) references = [];
   return [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', identifier, '--isolated-worktree',
     ...baseBranchArguments(form), '--selected-base-only',
-    '--readiness-baseline', form.readinessBaseline,
-    '--gate-mode', form.qualityGateMode,
-    ...(form.workType ? ['--work-type', form.workType, '--mint-intake-receipt'] : []),
+    '--readiness-baseline', task ? 'reuse' : form.readinessBaseline,
+    '--gate-mode', task ? 'hard' : form.qualityGateMode,
+    ...(form.workType && !task ? ['--work-type', form.workType, '--mint-intake-receipt'] : []),
     // The same branch Start will use: the typed name, or the pattern's name, which may use the title.
     ...storyBranchArguments(form),
     ...(form.tracker === 'none' && form.title.trim() && !form.storyBranch.trim() ? ['--title', form.title.trim()] : []),
@@ -1035,9 +1231,54 @@ function trackerHtml(form: IntakeForm): string {
     </div>`;
 }
 
+/**
+ * The first question of a new Story [ITW:REQ-115]: a workflow the person chooses (today's default), or a task whose steps
+ * SFlow picks. Each says what it does; the last choice is kept. A task that cannot start here says why, beside the way on.
+ */
+function startModeHtml(form: IntakeForm): string {
+  if (!taskModeOffered(form)) return '';
+  const choice = (mode: StartMode, title: string, detail: string) => `<label class="choice${form.startMode === mode ? ' chosen' : ''}">
+        <input type="radio" name="startMode" value="${mode}" data-start-mode="${mode}"${form.startMode === mode ? ' checked' : ''}${form.busy ? ' disabled' : ''}>
+        <span class="choice-label"><span class="sf-title">${title}</span></span>
+        <span class="choice-detail">${detail}</span>
+      </label>`;
+  const blocker = taskBlocker(form);
+  return `<section class="sf-panel" data-start-mode-choice>
+    <h2>How should this Story run?</h2>
+    <div class="choices">
+      ${choice('workflow', 'Choose a workflow', 'You pick the exact steps your team defined.')}
+      ${choice('task', 'Start a task', 'SFlow picks the steps from what you describe: the requirement first, then the code and its tests.')}
+    </div>
+    ${blocker ? `<p class="blockers" role="alert" data-task-blocker>${escape(blocker)}</p>
+    <p><button type="button" data-start-mode-switch="workflow">Choose a workflow</button></p>` : ''}
+  </section>`;
+}
+
+/**
+ * What SFlow will do with the task's words, under them [ITW:REQ-115]: the likely plan as the Work place says it, or why
+ * there is none yet; and the kinds when the words do not say one, a change chosen until the person says otherwise.
+ */
+function taskPlanHtml(form: IntakeForm, { kinds = true }: { kinds?: boolean } = {}): string {
+  const plan = currentTaskPlan(form);
+  const line = form.tracker !== 'none' ? 'SFlow reads the issue when you press Start and picks the steps from it.'
+    : !form.description.trim() ? 'Say what you want done; SFlow shows the steps it will take here.'
+      : taskKindAsked(form) && !form.taskKind ? 'SFlow cannot tell the kind of task from these words, so it starts it as a change. Choose another kind below if it is not one.'
+        : plan?.text ?? (plan ? plan.why ?? 'SFlow could not read the likely steps here.' : 'Reading the steps SFlow will take…');
+  const kind = taskKindOf(form);
+  return `<div class="task-plan" data-task-plan>
+      <p class="meta" role="status" aria-live="polite" data-task-plan-line>${escape(line)}</p>
+      ${kinds && taskKindAsked(form) ? `<label class="field"><span>Kind of task</span>
+        <select data-task-kind${form.busy ? ' disabled' : ''}>${TASK_KIND_CHOICES.map((entry) =>
+    `<option value="${entry.id}"${entry.id === kind ? ' selected' : ''}>${escape(entry.label)}</option>`).join('')}</select></label>
+      ${form.taskKindNeeded ? '<p class="meta">The issue does not say what kind of task it is. Check the kind, then press Start again.</p>' : ''}` : ''}
+    </div>`;
+}
+
 /** The fields the chosen shape and tracker actually need. */
 function fieldsHtml(form: IntakeForm): string {
   const noun = form.shape === 'initiative' ? 'Initiative' : form.shape === 'epic' ? 'Epic' : 'Story';
+  // A task's words are what SFlow picks its steps from, so each field says what it is for [ITW:REQ-115].
+  const task = taskMode(form);
 
   if (form.tracker === 'jira') {
     return `
@@ -1045,7 +1286,7 @@ function fieldsHtml(form: IntakeForm): string {
       <label class="field"><span>${escape(noun)} key ${REQUIRED}</span><input type="text" value="${escape(form.key)}" data-field="key" required aria-required="true"
         placeholder="${form.shape === 'story' ? 'ENG-142' : 'PAY-17'}" size="16"></label>
     </div>
-    <p class="muted">Everything else is read from the issue, so it stays the tracker's to change.</p>`;
+    <p class="muted">Everything else is read from the issue, so it stays the tracker's to change.</p>${task ? taskPlanHtml(form) : ''}`;
   }
 
   if (form.tracker === 'github') {
@@ -1056,7 +1297,7 @@ function fieldsHtml(form: IntakeForm): string {
       <label class="field"><span>GitHub Issue ${REQUIRED}</span><input type="text" value="${escape(form.key)}" data-field="key" required aria-required="true"
         placeholder="owner/repository#142" size="56"></label>
     </div>
-    <p class="muted">Title, description, labels and acceptance checkboxes are read before any branch is created.</p>`;
+    <p class="muted">Title, description, labels and acceptance checkboxes are read before any branch is created.</p>${task ? taskPlanHtml(form) : ''}`;
   }
 
   return `
@@ -1069,8 +1310,9 @@ function fieldsHtml(form: IntakeForm): string {
       <label class="field"><span>${escape(noun)} title ${REQUIRED}</span><input type="text" value="${escape(form.title)}" data-field="title" required aria-required="true"
         placeholder="What this is called" size="42"></label>
     </div>
+    ${task ? '<p class="muted">The ID names the Story and its branch; the title is how lists show it.</p>' : ''}
     ${form.shape === 'story' ? `<div class="story-description-editor">
-      <label class="field full"><span>What is being asked for ${REQUIRED}</span>
+      <label class="field full"><span>${task ? 'What do you want done?' : 'What is being asked for'} ${REQUIRED}</span>
         <textarea data-field="description" rows="8" cols="64" class="story-description" required aria-required="true">${escape(form.description)}</textarea></label>
       <p class="card-foot">
         <button type="button" class="secondary" data-enhance-description${form.enhancing || form.busy || !form.description.trim() ? ' disabled' : ''}${form.enhancing ? ' aria-busy="true"' : ''}>
@@ -1089,7 +1331,7 @@ function fieldsHtml(form: IntakeForm): string {
         </p>
       </div>` : ''}
       ${form.enhanceError ? `<div class="notice error" role="alert">${escape(form.enhanceError)}</div>` : ''}
-    </div>` : `<div class="sf-field-stack">
+    </div>${task ? taskPlanHtml(form) : ''}` : `<div class="sf-field-stack">
       <label class="field"><span>What is being asked for ${REQUIRED}</span>
         <textarea data-field="description" rows="3" cols="64" required aria-required="true">${escape(form.description)}</textarea></label>
     </div>`}
@@ -1103,12 +1345,12 @@ function fieldsHtml(form: IntakeForm): string {
       <label class="field"><span>How it will be judged done <small>(acceptance criteria)</small></span>
         <textarea data-field="acceptanceCriteria" rows="3" cols="64" placeholder="One per line">${escape(form.acceptanceCriteria)}</textarea></label>
     </div>
-    <p class="muted">Each line becomes an acceptance criterion.</p>
+    <p class="muted">${task ? 'Optional. SFlow\'s requirement turns each line into a numbered clause with its test.' : 'Each line becomes an acceptance criterion.'}</p>
     ${findingsPicker(form)}
-    <details class="sf-setup-detail"><summary>How criteria connect to tests</summary><p class="muted">In code workflows with traceability
+    ${task ? '' : `<details class="sf-setup-detail"><summary>How criteria connect to tests</summary><p class="muted">In code workflows with traceability
       enabled, executable tests later use qualified tags such as <code>@ac:WORK-ID:AC-001</code>;
       planned product source uses <code>@clause:WORK-ID:REQ-001</code> followed by how the change meets it, for source-bound clauses.
-      Reviewed test-only or opt-out work may not require source tags.</p></details>` : ''}`;
+      Reviewed test-only or opt-out work may not require source tags.</p></details>`}` : ''}`;
 }
 
 /**
@@ -1260,8 +1502,9 @@ function baseBranchHtml(form: IntakeForm): string {
   return `
   <section>
     <h2>${icon('workflow')}Base branch</h2>
-    <p class="question">Choose explicitly. The new Story branch is cut from the latest remote commit
-      and only the Story branch is published. The selected branch is validated before Start.</p>
+    <p class="question">${taskMode(form) ? 'SFlow starts a task from the repository\'s default branch, as /sf-task does; choose another if the work starts elsewhere. Only the Story branch is published.'
+      : `Choose explicitly. The new Story branch is cut from the latest remote commit
+      and only the Story branch is published. The selected branch is validated before Start.`}</p>
     ${form.catalogStatus === 'cached' ? `<p class="meta" role="status">These are the last known
       branches and workflows. Checking the remote for changes…</p>`
       : form.catalogFreshness ? `<p class="meta" role="status" data-catalog-freshness>${escape(form.catalogFreshness)}</p>` : ''}
@@ -1308,8 +1551,8 @@ function baseBranchHtml(form: IntakeForm): string {
     ${baseStoryNoteHtml(form)}
     ${visibleOrphans.length ? `<p class="meta">Not offered: ${visibleOrphans.map((name) => `<code>${escape(name)}</code>`).join(', ')}
       — ${visibleOrphans.length === 1 ? 'it shares' : 'they share'} no history with the default branch, so no Story can start from ${visibleOrphans.length === 1 ? 'it' : 'them'}.</p>` : ''}
-    ${baseSelected(form) && form.basePreflightPassed ? `<p class="meta">Story-start readiness confirmed for
-      workflow <code>${escape(form.workType ?? '')}</code>: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
+    ${baseSelected(form) && form.basePreflightPassed ? `<p class="meta">${taskMode(form) ? 'The branch is ready'
+      : `Story-start readiness confirmed for workflow <code>${escape(form.workType ?? '')}</code>`}: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
       from ${perRepository ? `each repository's base (${escape(repositoryBasesSummary(form))})`
     : `<code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch ?? '')}</code>`} and publish only
       <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(storyBranchName(form) || '<Story ID>')}</code>.
@@ -1332,7 +1575,7 @@ function baseBranchHtml(form: IntakeForm): string {
 
 /** The same testing choices, separated from branch selection for the wizard's inputs step. */
 function storyChecksHtml(form: IntakeForm): string {
-  if (form.shape !== 'story') return '';
+  if (form.shape !== 'story' || taskMode(form)) return '';
   return `<section><h2>${icon('gate')}Testing & quality gates</h2>
     ${preflightTestReadinessHtml(form.baseTestReadiness)}
     <fieldset ${form.busy || form.baselineRunning ? 'disabled' : ''}><legend>Quality gates</legend>
@@ -1375,6 +1618,14 @@ function sampleWorkflowOffered(form: IntakeForm, id: string): boolean {
     || form.inFlight.some((entry) => entry.workType && SAMPLE_STORY_WORKFLOWS.has(entry.workType));
 }
 
+/** In a task, the workflow's place says who picks the steps, and keeps the workflow one click away [ITW:REQ-115]. */
+function taskStepsHtml(form: IntakeForm): string {
+  return `<section><h2>${icon('workflow')}Steps</h2>
+    <p class="question">SFlow picks the steps from what you described, so there is no workflow to choose. Later it can add a step, never take one away.</p>
+    ${taskPlanHtml(form, { kinds: false })}
+    <p><button type="button" class="secondary" data-start-mode-switch="workflow">Choose a workflow instead</button></p></section>`;
+}
+
 function storyWorkflowHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
   if (form.catalogStatus === 'failed') {
@@ -1384,6 +1635,7 @@ function storyWorkflowHtml(form: IntakeForm): string {
         If the repository is in a cloud-synced folder, make it available offline before retrying.</p>
       <p><button type="button" class="secondary" data-catalog-retry>Retry loading workflows and branches</button></p></section>`;
   }
+  if (taskMode(form)) return taskStepsHtml(form);
   if (!form.storyWorkflows.length && !form.availableStoryWorkflows.length
       && form.catalogStatus === 'loading') {
     return `<section><h2>${icon('workflow')}Story workflow</h2>
@@ -1501,7 +1753,7 @@ function workflowCodeGenerationBadge(workflow: ProfileChoice): string {
 }
 
 function pocReadinessHtml(form: IntakeForm): string {
-  if (form.shape !== 'story' || !targetUrlAsked(form)) return '';
+  if (form.shape !== 'story' || !targetUrlAsked(form) || taskMode(form)) return '';
   const workflow = form.storyWorkflows.find((entry) => entry.id === form.workType);
   // The engine names each step's setup in the order it applies; an engine that predates it, the POC's.
   const steps = workflow?.browserSteps?.length ? workflow.browserSteps : [{
@@ -1530,7 +1782,7 @@ function pocReadinessHtml(form: IntakeForm): string {
 }
 
 function referenceRepositoriesHtml(form: IntakeForm): string {
-  if (form.shape !== 'story') return '';
+  if (form.shape !== 'story' || taskMode(form)) return '';
   const mode = form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.referenceMode
     ?? 'optional';
   const requirement = mode === 'required' ? 'required' : mode === 'off' ? 'not used' : 'optional';
@@ -1572,6 +1824,8 @@ function referenceRepositoriesHtml(form: IntakeForm): string {
 
 /** Where the chosen workflow lets Story documents be kept; both, Git first, when it does not say. */
 export function storyDocumentStorage(form: IntakeForm): { allowed: Array<'git' | 'local'>; default: 'git' | 'local' } {
+  // A task's are where the repository's policy, or its plan's workflow's, lets them be kept [ITW:REQ-115].
+  if (taskMode(form)) return form.taskPlan?.documentStorage ?? { allowed: ['local'], default: 'local' };
   return form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.documentStorage
     ?? { allowed: ['local'], default: 'local' };
 }
@@ -1593,7 +1847,7 @@ function storyAttachmentOptionsHtml(form: IntakeForm, entry: StoryAttachmentDraf
           ${storage.allowed.map((kind) => `<option value="${kind}"${store === kind ? ' selected' : ''}>${labels[kind]}</option>`).join('')}
         </select>
       </label>
-      ${phases.length ? `<fieldset class="attachment-phases"><legend>Used in phases</legend>
+      ${taskMode(form) ? '<p class="muted">Every step of the task reads it.</p>' : phases.length ? `<fieldset class="attachment-phases"><legend>Used in phases</legend>
         ${phases.map((phase) => `<label><input type="checkbox" data-attachment-phase="${index}" data-phase="${escape(phase)}"${chosen.includes(phase) ? ' checked' : ''}> <code>${escape(phase)}</code></label>`).join('')}
       </fieldset>` : '<p class="muted">Choose a workflow to choose which phases use this document.</p>'}
     </div>`;
@@ -1631,7 +1885,7 @@ function storyAttachmentsHtml(form: IntakeForm): string {
             maxlength="${STORY_DOCUMENT_NAME_MAXIMUM_LENGTH}" aria-label="Name for document ${index + 1}">
         </label>
         ${storyAttachmentOptionsHtml(form, entry, index)}`
-    : '<p class="muted">No document selected. Choose a file or image, then name it and choose where it is kept and which phases use it.</p>'}
+    : `<p class="muted">No document selected. Choose a file or image, then name it and choose where it is kept${taskMode(form) ? '' : ' and which phases use it'}.</p>`}
         <p class="card-foot">
           <button type="button" class="secondary" data-attachment-pick="${index}">${entry ? 'Replace file' : 'Choose file'}</button>
           ${entry ? `<button type="button" class="secondary" data-attachment-clear="${index}">Clear</button>` : ''}
@@ -1642,7 +1896,7 @@ function storyAttachmentsHtml(form: IntakeForm): string {
       <button type="button" class="secondary" data-attachments-pick${selectedCount >= MAX_STORY_ATTACHMENT_SLOTS ? ' disabled' : ''}>Choose documents…</button>
     </p>
     <p class="muted">Up to four documents. Each document needs its own name, and has its own
-      storage and phases; prompts, reviews and citations refer to it by that name. File paths come from VS Code's native picker and
+      ${taskMode(form) ? 'storage' : 'storage and phases'}; prompts, reviews and citations refer to it by that name. File paths come from VS Code's native picker and
       cannot be typed or posted by webview content.</p>
   </section>`;
 }
@@ -1695,7 +1949,9 @@ function storyReviewHtml(form: IntakeForm): string {
   const workflow = form.storyWorkflows.find(entry => entry.id === form.workType);
   const documents = form.storyAttachments.filter((entry): entry is StoryAttachmentDraft => Boolean(entry));
   const value = (text: string | null | undefined) => escape(text?.trim() || 'Not provided');
-  const edit = (step: string) => `<p><button type="button" class="link" data-intake-wizard-go="${step}" aria-label="Edit ${step === 'details' ? 'Story details' : step === 'workflow' ? 'workflow and branch' : 'documents and checks'}">Edit</button></p>`;
+  const task = taskMode(form);
+  const edit = (step: string) => `<p><button type="button" class="link" data-intake-wizard-go="${step}" aria-label="Edit ${step === 'details' ? 'Story details'
+    : step === 'workflow' ? (task ? 'the branch' : 'workflow and branch') : task ? 'documents' : 'documents and checks'}">Edit</button></p>`;
   return `<section class="sf-panel"><h2>${icon('story')}Review your Story</h2>
     <p class="muted">Nothing is created until you choose Start Story. Publication access and changed inputs are checked on Start.</p>
     <div class="intake-review-grid">
@@ -1705,21 +1961,24 @@ function storyReviewHtml(form: IntakeForm): string {
         ${form.tracker === 'none' ? `<h4>Description</h4><p class="intake-review-prose" data-intake-review-field="description">${value(form.description)}</p>
           <h4>Acceptance criteria</h4><p class="intake-review-prose" data-intake-review-field="acceptanceCriteria">${value(form.acceptanceCriteria)}</p>` : ''}
         ${addressArguments(form).length ? `<h4>Findings this Story addresses</h4><p data-intake-review-findings>${String(addressArguments(form)[1]).split(',').map((id) => `<code>${escape(id)}</code>`).join(' ')}</p>` : ''}${edit('details')}</article>
-      <article><h3>Workflow & branch</h3><dl><dt>Workflow</dt><dd>${value(workflow?.label ?? form.workType)}</dd>
-        <dt>Phases</dt><dd>${workflow ? value(workflow.phases.join(' → ')) : 'Not selected'}</dd>
+      <article><h3>${task ? 'Steps & branch' : 'Workflow & branch'}</h3><dl>${task
+    ? `<dt>Steps</dt><dd>SFlow picks them from what you described.${taskPlanHtml(form, { kinds: false })}</dd>`
+    : `<dt>Workflow</dt><dd>${value(workflow?.label ?? form.workType)}</dd>
+        <dt>Phases</dt><dd>${workflow ? value(workflow.phases.join(' → ')) : 'Not selected'}</dd>`}
         ${form.baseRepositories.length > 1 ? `<dt>Base branches</dt><dd data-intake-review-bases><ul class="intake-review-bases">${repositoryBases(form)
     .map((row) => `<li><code>${escape(row.id)}</code>: ${value(row.branch)}${baseOverridden(form, row) ? ' <span class="sf-tag">override</span>' : ''}</li>`).join('')}</ul></dd>`
     : `<dt>Base branch</dt><dd>${value(form.baseBranch)}</dd>`}<dt>Story branch</dt><dd>${value(storyBranchName(form))}</dd>
         <dt>Workspace</dt><dd>${value(form.targetWorkspace)}</dd>
         <dt>Repository</dt><dd>${value(form.targetRepository)}</dd></dl>${edit('workflow')}</article>
-      <article><h3>Documents & checks</h3><dl><dt>Documents</dt><dd>${documents.length ? documents.map(entry => {
+      <article><h3>${task ? 'Documents' : 'Documents & checks'}</h3><dl><dt>Documents</dt><dd>${documents.length ? documents.map(entry => {
         const effective = storyAttachmentPhases(form, entry);
-        const phases = effective.emptied ? 'No eligible phases — review required' : effective.phases?.join(', ') || 'all workflow phases';
+        const phases = task ? 'every step' : effective.emptied ? 'No eligible phases — review required' : effective.phases?.join(', ') || 'all workflow phases';
         return `${value(storyAttachmentName(entry))} — ${storyAttachmentStore(form, entry) === 'git' ? 'kept in Git' : 'on this machine only'} · ${value(phases)}`;
       }).join('<br>') : 'None selected'}</dd>
-        <dt>References</dt><dd>${form.referenceRepositories.length ? form.referenceRepositories.map(entry => `${value(entry.id)} · ${value(entry.branch)}`).join('<br>') : 'None selected'}</dd>
+        ${task ? '<dt>Checks</dt><dd>SFlow\'s own: hard quality gates, and it runs the tests itself.</dd>'
+    : `<dt>References</dt><dd>${form.referenceRepositories.length ? form.referenceRepositories.map(entry => `${value(entry.id)} · ${value(entry.branch)}`).join('<br>') : 'None selected'}</dd>
         <dt>Quality gates</dt><dd>${form.qualityGateMode === 'soft' ? 'Pilot soft — eligible exceptions require human review' : 'Hard'}</dd>
-        <dt>Test selection</dt><dd>${value(form.testExecutionMode)}</dd><dt>Baseline</dt><dd>${value(form.readinessBaseline)}</dd></dl>${edit('inputs')}</article>
+        <dt>Test selection</dt><dd>${value(form.testExecutionMode)}</dd><dt>Baseline</dt><dd>${value(form.readinessBaseline)}</dd>`}</dl>${edit('inputs')}</article>
     </div></section>`;
 }
 
@@ -1727,6 +1986,8 @@ function storyReviewHtml(form: IntakeForm): string {
 function problemTarget(problem: string): string | null {
   // First: a target URL problem names the steps that check it, which may be called anything.
   if (/\bPOC\b|authorized URL|target URL/iu.test(problem)) return 'targetUrl';
+  if (/^A task works in one repository|before work starts/u.test(problem)) return 'region:mode';
+  if (/SFlow's question/u.test(problem)) return 'region:status';
   if (/\bdocument\b/iu.test(problem)) return 'region:attachments';
   if (/^Reference repositor/u.test(problem)) return 'region:references';
   if (/base branch/iu.test(problem)) return 'base';
@@ -1734,7 +1995,7 @@ function problemTarget(problem: string): string | null {
   if (/baseline|testing|coverage/iu.test(problem)) return 'region:checks';
   if (/identifier|Story ID/iu.test(problem)) return 'id';
   if (/\btitle\b/iu.test(problem)) return 'title';
-  if (/asked for/iu.test(problem)) return 'description';
+  if (/asked for|want done/iu.test(problem)) return 'description';
   if (/\bkey\b|GitHub Issue/iu.test(problem)) return 'key';
   return null;
 }
@@ -1760,12 +2021,14 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
     ? `<h2>${escape(title)}</h2>${lede ? `<p class="sf-lede">${escape(lede)}</p>` : ''}`
     : stepHeading(step, title, lede);
   const recoveryRoute = commandGuidance(form.recoveryRouteCommand);
+  const task = taskMode(form);
   const regions: Record<string, string> = {
     progress: startWizardProgress(journey),
     heading: heroHeader({
     title: form.cloneFrom ? 'Clone Story' : 'Start new work',
     status: problems.length ? 'Needs input' : 'Gates ready',
-    subtitle: form.shape === 'story' ? 'Describe the change, choose its workflow and branch, add supporting inputs, then review and start.'
+    subtitle: task ? 'Say what you want done, choose its branch and documents, then review and start. SFlow picks the steps.'
+      : form.shape === 'story' ? 'Describe the change, choose its workflow and branch, add supporting inputs, then review and start.'
       : 'Work arrives in three shapes and with or without a tracker. Both are answered here, and the rest of the form follows from the answers.'
   }),
     context: contextStrip([
@@ -1773,7 +2036,8 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
     { key: 'Repository', value: form.targetRepository ?? '' },
     { key: 'Checked out', value: form.targetBranch ?? '', accent: true }
   ]) + (form.shape === 'story' ? infoNote('This Story gets a dedicated Git checkout. The target branch, index, and uncommitted files stay unchanged; the editor opens the new checkout only after its start succeeds.') : ''),
-    wizard: intakeWizardNavigation(form.shape === 'story'),
+    wizard: intakeWizardNavigation(form.shape === 'story', task),
+    mode: startModeHtml(form),
 
     scope: `${form.shape === 'story' ? `<details class="sf-panel"><summary>Story · ${form.tracker === 'none' ? 'No tracker' : form.tracker === 'jira' ? 'Jira' : 'GitHub Issue'} <span class="muted">— change work type or source</span></summary>` : ''}<div class="sf-panels">
     <section class="sf-panel">
@@ -1796,7 +2060,7 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
   for (const [id, html] of Object.entries({
     profile: profileHtml(form), workflow: storyWorkflowHtml(form), base: baseBranchHtml(form),
     poc: pocReadinessHtml(form), attachments: storyAttachmentsHtml(form), references: referenceRepositoriesHtml(form),
-    checks: storyChecksHtml(form), recovery: form.shape === 'story' ? testRecoveryHtml(form) : '',
+    checks: storyChecksHtml(form), recovery: form.shape === 'story' && !task ? testRecoveryHtml(form) : '',
     inFlight: inFlightHtml(form)
   })) {
     regions[id] = form.shape === 'story' ? html.replaceAll('<section>', '<section class="sf-panel">') : numberedSections(html, nextSection);
@@ -1819,8 +2083,11 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
         `<p class="meta" role="status" aria-live="polite">${escape(problem)}</p>`).join('')}`
     : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${mintsIdentifier(form)
       ? `Reserves a branch for this ${escape(noun)}, which is what mints its identifier, and commits its first state.`
+      : task ? `Starts task <code>${escape(intakeIdentifier(form))}</code> in a checkout of its own; Copilot chat then carries it on.`
       : `Starts ${escape(noun)} <code>${escape(intakeIdentifier(form))}</code> and commits its first state.`}</p>`}
-    ${form.error ? `<div class="notice error" role="alert">${escape(form.error)}</div>` : ''}
+    ${form.taskQuestion && task ? taskQuestionHtml(form.taskQuestion, form.busy) : ''}
+    ${form.error ? `<div class="notice error" role="alert">${escape(form.error)}${task && problemTarget(form.error)
+      ? ` <button type="button" class="link" data-focus-field="${escape(problemTarget(form.error)!)}">Show where to fix it</button>` : ''}</div>` : ''}
     ${form.recoveryCommand && recoveryRoute ? `<div class="notice warning" role="status" aria-live="polite"><strong>Continue safely</strong>
       <p>The command is bound to this repository and preserves every argument exactly.</p>
       ${commandRouteListHtml(recoveryRoute, [
@@ -1841,13 +2108,26 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
       ? `<button type="button" class="link" data-focus-field="region:status">${needed === 1 ? '1 thing' : `${needed} things`} still needed</button>`
       : problems.length ? 'Checking…' : `${icon('ok')}Ready to start`}</p>
       ${intakeWizardActions(form.shape === 'story')}
-      <span data-intake-wizard-final${form.shape === 'story' ? ' hidden' : ''}><button type="button" data-submit="start" ${problems.length || form.busy || form.enhancing ? 'disabled' : ''}>
-        ${form.busy ? 'Starting…' : form.shape === 'story' && testRecoveryNeedsTerminalReview(form)
+      <span data-intake-wizard-final${task ? '="always"' : form.shape === 'story' ? ' hidden' : ''}><button type="button" data-submit="start" ${problems.length || form.busy || form.enhancing ? 'disabled' : ''}>
+        ${form.busy ? 'Starting…' : task ? 'Start the task' : form.shape === 'story' && testRecoveryNeedsTerminalReview(form)
           ? 'Prepare exact human review in terminal' : `Start ${escape(noun)}`}
       </button></span>
       <button type="button" class="secondary" data-intake-cancel ${form.busy ? 'disabled' : ''}>Cancel</button>
   </div>`;
   return regions;
+}
+
+/**
+ * SFlow's question before a task starts [ITW:REQ-010, REQ-011], with why it asks; one click answers it and starts the task.
+ * One that needs its review first has no Yes here: the task starts with SFlow's own steps.
+ */
+function taskQuestionHtml(question: TaskQuestion, busy: boolean): string {
+  return `<div class="notice" role="status" data-task-question><strong>One question before the task starts</strong>
+      <p>${escape(question.ask)}</p>${question.why ? `<p class="meta">${escape(question.why)}</p>` : ''}
+      ${question.yes ? '' : '<p class="meta">It needs a review before any task can use it, so this task starts with SFlow\'s own steps.</p>'}
+      <p>${question.yes ? `<button type="button" data-task-answer="yes"${busy ? ' disabled' : ''}>Yes, use it</button> ` : ''}<button type="button"
+        class="secondary" data-task-answer="no"${busy ? ' disabled' : ''}>${question.yes ? 'No, SFlow picks the steps' : 'Start with SFlow\'s steps'}</button></p>
+    </div>`;
 }
 
 /**
@@ -1975,6 +2255,10 @@ document.addEventListener('click', (event) => {
     vscode.postMessage({ type: 'workflowFavourite', value: favourite.dataset.workflowFavourite, favourite: on });
     return;
   }
+  const modeSwitch = event.target.closest('[data-start-mode-switch]');
+  if (modeSwitch) return vscode.postMessage({ type: 'startMode', value: modeSwitch.dataset.startModeSwitch });
+  const taskAnswer = event.target.closest('[data-task-answer]');
+  if (taskAnswer) { if (!taskAnswer.disabled) vscode.postMessage({ type: 'taskAnswer', value: taskAnswer.dataset.taskAnswer }); return; }
   const samples = event.target.closest('[data-workflow-samples]');
   if (samples) return vscode.postMessage({ type: 'sampleWorkflows', value: samples.dataset.workflowSamples });
   if (event.target.closest('[data-baseline-run]')) return vscode.postMessage({ type: 'baselineRun' });
@@ -2029,6 +2313,8 @@ document.addEventListener('change', (event) => {
   if (el.hasAttribute('data-quality-gate-mode')) return vscode.postMessage({ type: 'qualityGateMode', value: el.value });
   if (el.dataset?.testRecoveryField) return vscode.postMessage({ type: 'testRecoveryChoice', field: el.dataset.testRecoveryField, value: el.value });
   if (el.hasAttribute('data-test-recovery-confirm')) return vscode.postMessage({ type: 'testRecoveryConfirm', confirmed: el.checked, planDigest: el.dataset.testRecoveryConfirm });
+  if (el.dataset?.startMode) return vscode.postMessage({ type: 'startMode', value: el.dataset.startMode });
+  if (el.hasAttribute('data-task-kind')) return vscode.postMessage({ type: 'taskKind', value: el.value });
   if (el.dataset?.shape) return vscode.postMessage({ type: 'shape', value: el.dataset.shape });
   if (el.dataset?.tracker) return vscode.postMessage({ type: 'tracker', value: el.dataset.tracker });
   if (el.dataset?.profile) return vscode.postMessage({ type: 'profile', value: el.dataset.profile });

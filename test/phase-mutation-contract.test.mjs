@@ -1867,7 +1867,6 @@ const NOT_RUN_BY_THIS_TURN = Object.freeze({
   'sflow-revision-checks': [[/^revision checks run\b/u, 'displayed for separate Shell review; never run from this skill']],
   'sflow-initiative-checklist': [[/^initiative evidence add\b/u, 'shown as an example; registration is /sf-initiative-evidence']],
   'sflow-jira-work': [[/^start PMC-1 --jira\b/u, 'the Shell form of the /sf-start route it offers']],
-  'sflow-nextsteps': [[/^sync$/u, 'lists the returned actions; /sf-next runs them']],
   'sflow-reject': [[/^story intent-amendment propose$/u, 'names the nextsteps action; its full command is checked']],
   'sflow-amend': [[/^story intent-amendment propose$/u, 'names the nextsteps action; its full command is checked']],
   'sflow-decide': [[/^upstream-issue decide$/u, 'names the family in its turn boundary; its full `upstream-issue decide <UPI-ID> --work-id` step is checked'],

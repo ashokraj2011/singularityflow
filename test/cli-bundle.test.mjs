@@ -124,8 +124,13 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
     assert.ok(!statusClosure.some(item => item.file === name), `status must not statically reach ${name}`);
   }
   const presentationClosure = closure('cold-worker-protocol.mjs');
-  assert.ok(presentationClosure.reduce((sum, item) => sum + item.bytes, 0) < 2 * 1024 * 1024,
-    'small output helpers must not shift policy loading into every agent response');
+  const presentationBytes = presentationClosure.reduce((sum, item) => sum + item.bytes, 0);
+  // 2 MB, then 2,100,630 bytes (measured 2026-11-28 on never-stuck-3; main 38f37deda already measured 2,098,929, over the
+  // 2 MB): +1,701 for a test command's AI-model use asked once and remembered, and models on for one run (the refusal's
+  // question, model-mode.mjs --models-on, the policy honouring the answer) [owner, 2026-11-28]. Output still reaches none of
+  // the chunks named below.
+  assert.ok(presentationBytes <= 2_100_630,
+    `small output helpers must not shift policy loading into every agent response: ${presentationBytes} bytes`);
   for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs']) {
     assert.ok(!presentationClosure.some(item => item.file === name), `output must not statically reach ${name}`);
   }

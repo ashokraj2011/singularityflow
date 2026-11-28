@@ -1,9 +1,7 @@
 /**
- * A conversation that did not see an approval still learns the context boundary it owes.
- *
- * An approval made in the CLI, the VS Code approvals view or by another person returns its boundary
- * only there. Agent entries for the next phase repeat it until that phase is prepared, so a stale
- * conversation can ask for `/clear` instead of carrying every earlier phase into each model call.
+ * A conversation that did not see an approval owes no chat reset: every Story keeps its chat between steps (owner,
+ * 2026-11-28, reversing the 11-19 decision to keep /clear). Each step's prompt is composed fresh by SFlow from the Story's
+ * records, so going on depends on nothing said earlier; the boundary machinery stays for a policy that still asks one.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -31,47 +29,30 @@ function story({ onApproval = 'new', previous = 'approved', current = 'in_progre
   };
 }
 
-test('the approval that opened an unprepared phase is repeated with its commands', () => {
-  const boundary = pendingContextBoundary(story());
-  assert.equal(boundary.mode, 'new');
-  assert.equal(boundary.phase, 'intake');
-  assert.equal(boundary.nextPhase, 'implementation');
-  assert.deepEqual(boundary.commands, ['/clear', '/sf-next']);
-  assert.match(boundary.instruction, /already worked on an earlier phase.*\/clear, then \/sf-next.*A conversation that starts here continues/u);
-  assert.deepEqual(pendingContextBoundary(story({ onApproval: 'compact' })).commands, ['/compact', '/sf-next']);
-  assert.equal(pendingContextBoundary(story({ onApproval: 'keep', phaseOverrides: { intake: 'new' } })).mode, 'new',
-    'a phase override names the boundary of that approval');
+test('no Story owes a chat reset between its steps, whatever its workflow pinned (owner, 2026-11-28)', () => {
+  // Every Story carries on like a task: its steps run one after another in one chat, each prompt composed fresh by SFlow.
+  for (const options of [{}, { onApproval: 'compact' }, { onApproval: 'keep', phaseOverrides: { intake: 'new' } }]) {
+    assert.equal(pendingContextBoundary(story(options)), null, JSON.stringify(options));
+    assert.equal(pendingContextBoundary(story(options), stepChatCommand), null, JSON.stringify(options));
+  }
 });
 
-test('approval, nextsteps, compact routing and phase continuation agree before authoring', () => {
+test('approval, nextsteps and phase continuation agree before authoring: no reset, the step\'s own command first', () => {
   for (const onApproval of ['new', 'compact']) {
     const workflow = story({ onApproval });
     const snapshot = nextStepsSnapshot({ workflow });
-    const boundary = snapshot.contextBoundary;
-    // The reset, then the step's own command: the one its action below names and VS Code's chat prefill puts in (owner, 2026-11-17).
-    const own = snapshot.actions.find(entry => entry.timing === 'now').copilotCommand;
-    assert.equal(own, '/sf-phase');
-    assert.deepEqual(boundary.commands, [onApproval === 'new' ? '/clear' : '/compact', own]);
-    assert.equal(boundary.condition, 'conversation-worked-on-earlier-phase');
-    assert.equal(boundary.commandGuidance.command, null, 'a chat reset is never an executable shell command');
-    assert.equal(boundary.commandGuidance.modelFreeCommand, null);
-    assert.equal(agentNextSteps(snapshot).contextBoundary, boundary);
-    assert.ok(snapshot.actions.filter(entry => entry.timing === 'now')
-      .every(entry => entry.copilotTiming === 'after-context-boundary'));
-    const text = nextStepsText(snapshot);
-    assert.ok(text.indexOf(boundary.commands[0]) < text.indexOf('singularity-flow prepare'));
+    assert.equal(snapshot.contextBoundary, undefined);
+    const own = snapshot.actions.find(entry => entry.timing === 'now');
+    assert.equal(own.copilotCommand, '/sf-phase');
+    assert.equal(own.copilotTiming, undefined, 'nothing comes before the step\'s own action');
+    assert.equal(agentNextSteps(snapshot).contextBoundary, undefined);
+    assert.doesNotMatch(nextStepsText(snapshot), /\/clear|\/compact/u);
     const continuation = phaseContinuation(workflow);
-    assert.deepEqual(continuation.contextBoundary, boundary);
-    const continuationText = phaseContinuationLines(continuation).join('\n');
-    assert.ok(continuationText.includes(boundary.commands.join(', then ')));
-    assert.ok(continuationText.includes('singularity-flow prepare'), 'fresh chats still receive an actionable authoring command');
-    assert.ok(continuationText.indexOf(boundary.commands[0]) < continuationText.indexOf('singularity-flow prepare'));
+    assert.equal(continuation.contextBoundary ?? null, null);
+    assert.ok(phaseContinuationLines(continuation).join('\n').includes('singularity-flow prepare'), 'an actionable authoring command');
     const approved = approvalAgentResult({ operation: { id: 'approve' }, data: { contextBoundary: pendingContextBoundary(workflow, stepChatCommand) } });
-    assert.deepEqual(approved.contextBoundary.commands, boundary.commands);
-    assert.match(approved.instruction, /clear|compact/);
-    assert.match(boundary.instruction, /A conversation that starts here continues/);
-    assert.ok(snapshot.actions.some(entry => entry.timing === 'now' && entry.argv[0] === 'prepare'),
-      'fresh chats and model-free/shell consumers must not acquire an artificial lifecycle gate');
+    assert.equal(approved.contextBoundary, undefined);
+    assert.ok(snapshot.actions.some(entry => entry.timing === 'now' && entry.argv[0] === 'prepare'));
   }
 });
 
@@ -85,7 +66,7 @@ test('boundary presentation never hides publication, recovery or required after-
   assert.equal(nextStepsSnapshot({ workflow: story({ onApproval: 'keep' }) }).contextBoundary, undefined);
 });
 
-test('all seeded, copied and future-named phase boundaries share the pending handoff rule', () => {
+test('all seeded, copied and future-named steps go on in the same chat', () => {
   let checked = 0;
   for (const file of ['../templates/workflow.yml', '../examples/workflow-with-quality-gates.yml']) {
     const definition = YAML.parse(readFileSync(new URL(file, import.meta.url), 'utf8'));
@@ -96,7 +77,7 @@ test('all seeded, copied and future-named phase boundaries share the pending han
         const workflow = { workItem: { id: 'MATRIX' }, status: 'in_progress',
           currentPhase: phases[index].id, phaseOrder: phases.map(entry => entry.id),
           phases: Object.fromEntries(phases.map(entry => [entry.id, entry])), resolution: { contextPolicy: { onApproval: 'new' } } };
-        assert.equal(nextStepsSnapshot({ workflow }).contextBoundary.nextPhase, phases[index].id);
+        assert.equal(nextStepsSnapshot({ workflow }).contextBoundary, undefined);
         checked++;
       }
     }
@@ -106,7 +87,7 @@ test('all seeded, copied and future-named phase boundaries share the pending han
   workflow.phases['team-future-step'] = { ...workflow.phases.implementation, id: 'team-future-step' };
   delete workflow.phases.implementation;
   workflow.phaseOrder[1] = workflow.currentPhase = 'team-future-step';
-  assert.equal(nextStepsSnapshot({ workflow }).contextBoundary.nextPhase, 'team-future-step');
+  assert.equal(nextStepsSnapshot({ workflow }).contextBoundary, undefined);
 });
 
 test('no boundary is repeated once it no longer applies', () => {

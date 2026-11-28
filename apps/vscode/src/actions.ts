@@ -173,6 +173,23 @@ function isSelfApprovalRefusal(error: unknown): boolean {
   return error instanceof CliError && /--acknowledge-self-approval/.test(error.message);
 }
 
+/**
+ * A test command skipped because models are off and nobody said whether it calls an AI model (`answer: 'unknown'`), or one
+ * the person said calls one (`'yes'`), read from the refusal's own steps [owner, 2026-11-28: "ask once, remember"].
+ */
+export function modelUseRefusal(error: unknown): { answer: 'unknown' | 'yes'; commandId: string; argvSha256: string; question: string; why: string } | null {
+  if (!(error instanceof CliError)) return null;
+  const text = [error.message, error.stderr, JSON.stringify((error as { result?: unknown }).result ?? null)].filter(Boolean).join('\n');
+  const asked = text.match(/singularity-flow tests model-use --command ([A-Za-z0-9][A-Za-z0-9:._@/-]{0,127}) --argv-sha256 ([a-f0-9]{64}) --calls no/u);
+  const why = text.match(/Models are off, so SFlow runs a test command only when it calls no AI model[^."]*\./u)?.[0] ?? '';
+  if (asked?.[1] && asked[2]) {
+    const shown = text.match(/Does `([^`]{1,300})` call an AI model\?/u)?.[1] ?? asked[1];
+    return { answer: 'unknown', commandId: asked[1], argvSha256: asked[2], question: `Does \`${shown}\` call an AI model?`, why };
+  }
+  const said = text.match(/Models are off, and ([A-Za-z0-9][A-Za-z0-9:._@/-]{0,127}) calls an AI model, as you said/u)?.[1];
+  return said && /--models-on\b/u.test(text) ? { answer: 'yes', commandId: said, argvSha256: '', question: '', why } : null;
+}
+
 function generationRolloverPhase(error: unknown, args: string[]): string | null {
   if (!(error instanceof CliError)
       || !/generation intent .* already consumed/i.test(error.message)
@@ -230,6 +247,28 @@ export async function runGovernedAction(
   try {
     return await run(args);
   } catch (error) {
+    // Models off and a test command nobody said calls a model: asked once and remembered; never the same skip again.
+    const modelUse = modelUseRefusal(error);
+    if (modelUse) {
+      try {
+        if (modelUse.answer === 'unknown') {
+          const no = 'No, it calls none';
+          const choice = await showCompactWarningMessage(modelUse.question, { modal: true, detail: modelUse.why }, no, 'Yes, it calls one');
+          if (!choice) return false;
+          await client.runText(['tests', 'model-use', '--command', modelUse.commandId, '--argv-sha256', modelUse.argvSha256, '--calls', choice === no ? 'no' : 'yes']);
+          if (choice === no) return await run(args);
+        }
+        const on = 'Turn models on for this run';
+        const turned = await showCompactWarningMessage(`Models are off, and ${modelUse.commandId} calls an AI model.`,
+          { modal: true, detail: 'The same check runs it once with models on; they stay off afterwards.' }, on);
+        if (turned !== on) return false;
+        return await run([...args, '--models-on']);
+      } catch (modelUseError) {
+        output.appendLine(`  failed: ${(modelUseError as Error).message}`);
+        showRefusal(modelUseError);
+        return false;
+      }
+    }
     const rolloverPhase = generationRolloverPhase(error, args);
     if (rolloverPhase) {
       try {

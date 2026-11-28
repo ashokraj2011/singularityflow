@@ -179,6 +179,8 @@ export class NeedsYouPlace implements vscode.Disposable {
     }
     for (const part of this.parts.values()) if (part.receive(message)) return true;
     if (message.action === 'more') { this.all = true; this.changed(); return true; }
+    // Continue: the one way on, as the status bar's Continue sends it (extension.ts singularityFlow.continueStory).
+    if (message.action === 'continue') { void vscode.commands.executeCommand('singularityFlow.continueStory'); return true; }
     if (message.action === 'open' && typeof message.key === 'string' && this.list?.items.some((item) => item.key === message.key)) {
       void NeedsYouCardPanel.show(this.host, this, message.key);
       return true;

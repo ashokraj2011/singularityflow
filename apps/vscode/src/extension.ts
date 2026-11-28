@@ -43,7 +43,7 @@ import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedA
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import { buildJourney } from './views/journey-model.ts';
-import { CHAT_INPUT_SCHEMES, ChatPrefill, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING, removeOldCopilotTurns, taskChatContinuation, taskDecisionContinuation } from './chat-prefill.ts';
+import { CHAT_INPUT_SCHEMES, ChatPrefill, CONTINUE_COMMAND, copilotTurnOpen, PREFILL_COMMAND, PREFILL_SETTING, removeOldCopilotTurns, taskChatContinuation, taskDecisionContinuation } from './chat-prefill.ts';
 import { copilotTurnDirectory } from '../../../src/copilot-mode.mjs';
 import {
   phaseGenerationChatPrefill, startsFreshChat, submissionCommandArgv
@@ -154,7 +154,7 @@ import {
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
 import { formatCommandRouteLines } from '../../../src/model-free-commands.mjs';
-import { isTaskStory, TASK_ROUTE } from '../../../src/safe-command-guidance.mjs';
+import { carryRoute, TASK_ROUTE } from '../../../src/safe-command-guidance.mjs';
 import { vscodeVersionLimits, vscodeVersionWarning } from '../../../src/vscode-host-version.mjs';
 import { createTerminalIn } from './terminal-start.ts';
 import { idleMinutesSetting, noteLaptopActivity, watchLaptopActivity } from './laptop-activity.ts';
@@ -402,6 +402,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // window says so in the status bar and once per folder in a warning, whose button reopens the folder at its real path.
   // The item exists only once there is something to say, so the window's other status items keep their places.
   let linkedFolderStatus: vscode.StatusBarItem | undefined;
+  // Why Copilot's chat runs no SFlow hook in this window, when VS Code can tell, and its one fix: Continue says it in one
+  // line and offers that fix instead of sending a turn SFlow cannot guard [owner, 2026-11-28: one way on that always works].
+  let hooksOff: { line: string; action: string; command: vscode.Command } | null = null;
   context.subscriptions.push({ dispose: () => linkedFolderStatus?.dispose() });
   const warnedLinkedFolders = new Set<string>();
   const checkLinkedFolders = async (): Promise<void> => {
@@ -413,10 +416,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (await usesSflowFolder(entry.real, exists)) linked.push(entry);
     }
     const first = linked[0];
-    if (!first) { linkedFolderStatus?.hide(); return; }
+    if (!first) { linkedFolderStatus?.hide(); if (hooksOff?.command.command === 'vscode.openFolder') hooksOff = null; return; }
     const prompt = linkedFolderPrompt(first, { multiRoot: folders.length > 1 || Boolean(vscode.workspace.workspaceFile) });
     const reopen: vscode.Command = { command: 'vscode.openFolder', title: prompt.action,
       arguments: [vscode.Uri.file(first.real), prompt.newWindow ? { forceNewWindow: true } : { forceReuseWindow: true }] };
+    hooksOff = { line: prompt.message, action: prompt.action, command: reopen };
     linkedFolderStatus ??= vscode.window.createStatusBarItem('singularityFlow.linkedFolder', vscode.StatusBarAlignment.Left, 98);
     linkedFolderStatus.name = 'Singularity Flow: folder opened through a link';
     linkedFolderStatus.text = prompt.status;
@@ -1295,7 +1299,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.openPhaseArtifacts', 'singularityFlow.openStoryIntake', 'singularityFlow.runAction',
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
-    'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration', 'singularityFlow.prefillNextCommand',
+    'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration', 'singularityFlow.prefillNextCommand', 'singularityFlow.continueStory',
     'singularityFlow.reviewStoryTestRecovery', 'singularityFlow.changeTestScope', 'singularityFlow.resolvePhaseIssues',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
     'singularityFlow.openInvestigation', 'singularityFlow.openContextReceipt', 'singularityFlow.openHandoff', 'singularityFlow.openProgress',
@@ -5986,6 +5990,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (/"disableAllHooks"\s*:\s*true/u.test(text)) disabled.push(relative);
       }
       if (repository !== target) return;
+      // Copilot's own setting turns every hook off: Continue says so and opens Diagnostics, whose doctor names the file.
+      if (disabled.length) hooksOff = { line: `Copilot hooks are off here (disableAllHooks in ${disabled.join(' and ')}), so SFlow cannot guard a chat: turn them on, then press Continue again.`,
+        action: 'Open Diagnostics', command: { command: 'singularityFlow.doctor', title: 'Open Diagnostics' } };
+      else if (hooksOff?.command.command === 'singularityFlow.doctor') hooksOff = null;
       if (present && !disabled.length) { hooksStatus?.hide(); return; }
       hooksStatus ??= vscode.window.createStatusBarItem('singularityFlow.copilotHooks', vscode.StatusBarAlignment.Left, 99);
       hooksStatus.name = 'Singularity Flow: Copilot hooks';
@@ -6158,6 +6166,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push(chatPrefill);
   handlers.set(PREFILL_COMMAND, () => chatPrefill.fillNow());
+  /**
+   * Continue [owner, 2026-11-28: one way on that always works]: sends the Story's one way on (`/sf-next`, or `/sf-task` on a
+   * task) to the chat the person used last, as they would type it. Its turn says where the Story is, why it waits and the
+   * one thing to do, and does it when it is SFlow's; a person's approval or decision is asked there or on its page.
+   */
+  const continueStatus = vscode.window.createStatusBarItem('singularityFlow.continueStory', vscode.StatusBarAlignment.Left, 99.4);
+  continueStatus.name = 'Singularity Flow: Continue';
+  continueStatus.command = CONTINUE_COMMAND;
+  context.subscriptions.push(continueStatus);
+  const showContinue = (): void => {
+    const workflow = store.current.snapshot?.workflow;
+    if (!workflow?.workItem?.id || workflow.status !== 'in_progress') { continueStatus.hide(); return; }
+    continueStatus.text = '$(debug-continue) Continue';
+    continueStatus.tooltip = `Carry ${workflow.workItem.id} on: sends ${carryRoute(workflow)} to the Copilot chat you used last. It says why the Story waits and does what is SFlow's.`
+      + ' If the chat says SFlow\'s guard is off, reload the window (Developer: Reload Window), start a new chat and press Continue again.';
+    continueStatus.show();
+  };
+  handlers.set(CONTINUE_COMMAND, async () => {
+    const workflow = store.current.snapshot?.workflow;
+    if (!workflow?.workItem?.id) { void showCompactInformationMessage('No Story is open in this window: start one from Work, or open one.'); return; }
+    // With the chat's hooks off, a turn would run unguarded: say why in one line and offer the one fix instead.
+    if (hooksOff) {
+      const off = hooksOff;
+      if (await showCompactWarningMessage(off.line, off.action) === off.action) await vscode.commands.executeCommand(off.command.command, ...(off.command.arguments ?? []));
+      return;
+    }
+    await sendTaskRoute(carryRoute(workflow));
+  });
+  context.subscriptions.push(store.onDidChange(() => showContinue()));
+  showContinue();
   context.subscriptions.push(store.onDidChange((state, change) => {
     if (state.error) { nextCommandStatus.hide(); return; }
     if (change.kind === 'snapshot' && state.snapshot && !state.stale) chatPrefill.observe();
@@ -8158,13 +8196,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * the Story session.
   */
   /**
-   * After a person approves a step of a task's Story on the approval page, the chat goes on with the task's next action
-   * [ITW:REQ-008]: `/sf-task` is sent as the person would type it, so its turn is the next step's, under that step's rules.
-   * Only for a task (its work type `task-<kind>`), only once the step reads approved.
+   * After a person approves a step on the approval page, the chat goes on with the Story's next action [ITW:REQ-008; owner,
+   * 2026-11-28: every Story carries on]: its one way on (`/sf-task` on a task, `/sf-next` on any other) is sent as the person
+   * would type it, so its turn is the next step's, under that step's rules. Only once the step reads approved.
    */
   const continueTaskInChat = async (workId: string, phaseId: string): Promise<void> => {
     const workflow = store.current.snapshot?.workflow;
-    if (!workflow || workflow.workItem?.id !== workId || !isTaskStory(workflow)) return;
+    if (!workflow || workflow.workItem?.id !== workId) return;
     // The view may not have read the approval yet: then one read of the Story itself says whether the step reads approved.
     const route = taskChatContinuation(workflow, workId, phaseId)
       ?? taskChatContinuation(await client.run<unknown>(['status', workId, '--json']).catch(() => null), workId, phaseId);

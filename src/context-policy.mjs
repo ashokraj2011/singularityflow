@@ -1,6 +1,5 @@
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { isTaskStory } from './safe-command-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const CONTEXT_BOUNDARY_MODES = new Set(['keep', 'compact', 'new']);
@@ -42,13 +41,11 @@ export function normalizeContextPolicy(value = {}, { phaseIds = null, label = 'c
 }
 
 /**
- * The context policy a Story's boundaries follow: its pinned one, except a task's. A task's steps run one after another in
- * the same chat, and /sf-task carries it on there [ITW:REQ-008]: no /clear or new chat between them.
+ * Every Story keeps its chat between steps and its turn carries on (task-turn.mjs) [owner, 2026-11-28; ITW:REQ-008]: no
+ * /clear or new chat. SFlow composes each step's prompt fresh, so going on needs nothing said earlier in the chat.
  */
-const TASK_CONTEXT_POLICY = Object.freeze({ onApproval: 'keep', onRejection: 'keep', phaseOverrides: Object.freeze({}) });
-export function storyContextPolicy(workflow) {
-  return isTaskStory(workflow) ? TASK_CONTEXT_POLICY : workflow?.resolution?.contextPolicy ?? {};
-}
+const CARRY_ON_CONTEXT_POLICY = Object.freeze({ onApproval: 'keep', onRejection: 'keep', phaseOverrides: Object.freeze({}) });
+export const storyContextPolicy = () => CARRY_ON_CONTEXT_POLICY;
 
 export function contextBoundaryMode(policy, phaseId, event = 'approval') {
   const normalized = normalizeContextPolicy(policy);
@@ -122,7 +119,8 @@ export function contextBoundaryPresentation(handoff) {
  * Copilot run the last phase started each call with 154K tokens of earlier work. Until the current
  * phase is prepared, agent entries repeat the boundary of the approval that opened it.
  */
-export function pendingContextBoundary(workflow, commandOf) {
+/** The step an approval just opened, not prepared yet: its approved step before it, or null. */
+export function openedByApproval(workflow) {
   const phaseId = workflow?.currentPhase;
   const phase = phaseId ? workflow.phases?.[phaseId] : null;
   if (!phase || phase.status !== 'in_progress') return null;
@@ -132,7 +130,13 @@ export function pendingContextBoundary(workflow, commandOf) {
       || phase.inputContext?.generation === generation) return null;
   const order = workflow.phaseOrder ?? [];
   const previous = order[order.indexOf(phaseId) - 1];
-  if (!previous || workflow.phases?.[previous]?.status !== 'approved') return null;
+  return previous && workflow.phases?.[previous]?.status === 'approved' ? previous : null;
+}
+
+export function pendingContextBoundary(workflow, commandOf) {
+  const previous = openedByApproval(workflow);
+  if (!previous) return null;
+  const phaseId = workflow.currentPhase;
   const handoff = contextBoundaryHandoff(storyContextPolicy(workflow), previous, { nextPhase: phaseId, nextSkill: commandOf?.(workflow) });
   if (handoff.mode === 'keep') return null;
   return { ...handoff, instruction: `If this conversation already worked on an earlier phase of this Story, ask the user to run ${handoff.commands.join(', then ')} and stop. A conversation that starts here continues.` };

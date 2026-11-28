@@ -4547,6 +4547,7 @@ function requiredTestExecutionDiagnostic(root, command, check) {
     status: check?.status ?? 'not-run',
     ...(check?.errorCode ? { errorCode: check.errorCode, environment: check.environment?.name ?? null } : {}),
     ...(check?.environmentFix ? { environmentFix: check.environmentFix } : {}),
+    ...(check?.modelUse ? { modelUse: check.modelUse } : {}),
     ...(check?.processGroup ? { processGroup: check.processGroup } : {}),
     resultPath: path.resolve(cwd, command.result.path),
     configuredResultPath: command.result.path,
@@ -5107,6 +5108,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   const freshStep = stepRunsTestsFresh(workflow, phase.id);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
+  // Models off: whether each test command calls an AI model, as a person answered it once for the repository [owner, 2026-11-28].
+  const modelUseOf = modelEnabled ? null : await import('./test-model-use.mjs').then((module) => module.repositoryModelUse(root), () => null);
   let activeTransientRestore = null;
   let isolatedResultRestore = null;
   // A new Story checkout has no dependencies: made ready before any test or candidate copy (repository-dependency-setup.mjs).
@@ -5137,7 +5140,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   try {
   if (runs) await runs.assertNoHeldRuns(root, commands.filter((command) => command?.kind === 'test').map(runTarget), { itemRelative: storyItemRelative(config, workflow) });
   for (const [index, value] of commands.entries()) {
-    const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
+    const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index, modelUseOf });
     const command = policy.command ?? policy.argv.join(' ');
     const startedAt = nowIso();
     const environmentGate = await environmentQualityCommandGate(root, policy, {
@@ -5170,13 +5173,16 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     }
     if (policy.action === 'block') throw new SingularityFlowError(policy.reason, { code: 'EXTERNAL_MODEL_POLICY_BLOCKED' });
     if (policy.action === 'skip') {
-      checks.push({
+      const skipped = {
         id: policy.id, command, requirement: policy.requirement,
         externalModelPolicy: policy.modelPolicy, sourceCommit, sourceTreeSha256,
         ...(testInputSha256 ? { testInputSha256 } : {}),
         startedAt, completedAt: nowIso(), status: 'skipped-warning', exitCode: null,
         stdout: '', stderr: policy.reason
-      });
+      };
+      // The question it asks, or the answer it has, for the refusal only: never kept on the check a Story records.
+      if (policy.modelUse) Object.defineProperty(skipped, 'modelUse', { value: { ...(await import('./test-model-use.mjs')).modelUseQuestion(policy), answer: policy.modelUse } });
+      checks.push(skipped);
       continue;
     }
     const commandTarget = await secureRepositoryPath(

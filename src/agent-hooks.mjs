@@ -22,7 +22,7 @@ import { phasePublicationAuthorship, phasePublicationCommand } from './manual-au
 import { workItemWorkflowRelative } from './work-item-location.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { readCopilotMode } from './copilot-mode.mjs';
-import { pendingContextBoundary } from './context-policy.mjs';
+import { openedByApproval } from './context-policy.mjs';
 import { parseArgs } from './util.mjs';
 import { resolveOperation } from './command-registry.mjs';
 import { CLI_PATH_CONTRACT } from './safe-command-guidance.mjs';
@@ -232,11 +232,11 @@ async function sessionStartContext(root, definition, workflow, payload = {}) {
   const workspaceSelectionGate = previous?.source === 'workspace'
     && previous?.repositoryRoot === root
     && previous?.workItemSelectionRequired === true;
-  // A conversation opened after the context boundary of the approval that opened this phase
-  // continues the Story this checkout already selected: the reset was requested by SFlow, so asking
-  // for the selection again would only cost a turn. Once the phase is prepared, prompt applies again.
+  // A conversation opened after the approval that opened this phase continues the Story this checkout already selected:
+  // asking for the selection again would only cost a turn. Once the phase is prepared, prompt applies again. (Every Story
+  // keeps its chat between steps now, so this is a person's own new chat, never one SFlow asked for.)
   const handedOver = Boolean(workflow && previous?.repositoryRoot === root && previous?.workId === activeWorkId
-    && previous?.workItemSelectionRequired !== true && pendingContextBoundary(workflow));
+    && previous?.workItemSelectionRequired !== true && openedByApproval(workflow));
   const workItemSelectionRequired = workspaceSelectionGate
     ? true
     : policy.workItemSelection === 'prompt'

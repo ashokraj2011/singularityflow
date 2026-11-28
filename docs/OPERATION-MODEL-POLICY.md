@@ -942,6 +942,7 @@ Every public operation is classified before its implementation module is importe
 | tests.base | mutation | never | — | — |
 | tests.held | read | never | — | — |
 | tests.held.set-aside | mutation | never | — | — |
+| tests.model-use | mutation | never | — | — |
 | tests.node | mutation | never | — | — |
 | tests.plan | read | never | — | — |
 | tests.run | mutation | never | — | — |

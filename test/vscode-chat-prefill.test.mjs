@@ -134,14 +134,16 @@ test('ITW REQ-008: a task\'s Story says /sf-task in the status bar and the chat 
   assert.equal(nextChatPrefill(generation()).command, '/sf-code');
 });
 
-test('ITW REQ-008: a person\'s approval on any page sends /sf-task into the same chat, once the step reads approved', async () => {
+test('ITW REQ-008: a person\'s approval on any page sends the Story\'s one way on into the same chat, once the step reads approved', async () => {
   // A live run: the person approved on the approval page the chat opened, and VS Code started a new chat with /sf-phase.
   const record = (status, workType = 'task-fix') => ({ workItem: { id: 'TASK-1', workType }, currentPhase: 'code',
     phases: { code: { status } }, resolution: workType.startsWith('task-') ? { composition: { kind: 'fix', steps: [] } } : {} });
   assert.equal(taskChatContinuation(record('approved'), 'TASK-1', 'code'), '/sf-task');
   assert.equal(taskChatContinuation(record('awaiting_approval'), 'TASK-1', 'code'), null, 'not before the step reads approved');
   assert.equal(taskChatContinuation(record('approved'), 'TASK-2', 'code'), null, 'another Story\'s approval');
-  assert.equal(taskChatContinuation(record('approved', 'quick-fix'), 'TASK-1', 'code'), null, 'a classic Story goes on as before');
+  // Every Story carries on like a task (owner, 2026-11-28): a classic Story's chat goes on with its one way on, /sf-next.
+  assert.equal(taskChatContinuation(record('approved', 'quick-fix'), 'TASK-1', 'code'), '/sf-next', 'a classic Story goes on too');
+  assert.equal(taskChatContinuation({ ...record('approved', 'quick-fix'), status: 'closed' }, 'TASK-1', 'code'), null, 'a closed Story has nothing to carry on');
   assert.equal(taskChatContinuation(null, 'TASK-1', 'code'), null);
   // Every page approval goes through runNode's approve branch, which continues the task's chat there, in the chat the person
   // used last (no new chat), and nowhere else.

@@ -188,7 +188,7 @@ test('generative requirements retains interactive clarification and governed pub
   assert.match(content, /document reuse never (?:reuses|carries) approval consent/);
 });
 
-test('phase handoffs show Copilot, Shell and exact available model-free alternatives', async () => {
+test('phase handoffs say what happens next in one plain line, from the exact returned routes', async () => {
   const phaseSkills = [
     'sflow-phase', 'sflow-requirements', 'sflow-design',
     'sflow-review', 'sflow-release', 'sflow-verify', 'sflow-next',
@@ -197,19 +197,20 @@ test('phase handoffs show Copilot, Shell and exact available model-free alternat
   ];
   for (const name of phaseSkills) {
     const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
-    // The shared presentation contract (8f25dc4b): three bullets in route order, and the words for a missing route.
-    assert.match(content, /three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code \(model-free\): `<modelFreeCommand>`"/);
-    assert.match(content, /Missing Copilot: "no verified equivalent"; missing Shell or model-free: "not available for this action"/);
+    // The shared presentation contract: one plain next line, never three commands (owner, 2026-11-28; was 8f25dc4b's bullets).
+    assert.match(content, /Say what happens next in one plain line \("Next: <what happens>"\), never as a list of commands/);
+    assert.doesNotMatch(content, /three separate Markdown bullets/);
     if (name === 'sflow-next') {
       assert.match(content, /first `NOW` action's `copilotCommand` and `command` from that same action object/);
-      assert.match(content, /render all three surfaces per the Output contract/);
+      assert.match(content, /say it in one plain line\./);
     } else {
       // Dynamic handoffs retain exact decision arguments; a literal slash command is not required.
       const boundHandoff = /`handoff`[^\n]*`copilotCommand`[^\n]*`command`/.test(content)
         || /relay the returned handoff[^\n]*Copilot\/Shell pairs/.test(content)
         || /Relay `continuation\.actions`: phase and all three surfaces/.test(content);
-      assert.ok(boundHandoff || /Next in Copilot: \/sf-|next: Copilot `\/sf-/.test(content), `${name} must relay the verified Copilot command`);
-      assert.ok(boundHandoff || /Terminal equivalent: singularity-flow |Shell `singularity-flow /.test(content), `${name} must include the terminal equivalent`);
+      const plain = /returned next actions? in one plain line/.test(content);
+      assert.ok(boundHandoff || plain || /Next in Copilot: \/sf-|next: Copilot `\/sf-/.test(content), `${name} must relay the verified Copilot command`);
+      assert.ok(boundHandoff || plain || /Terminal equivalent: singularity-flow |Shell `singularity-flow /.test(content), `${name} must include the terminal equivalent`);
     }
   }
   const verify = await readFile(path.join(root, 'plugin', 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');
@@ -238,7 +239,8 @@ test('approval remains explicit-only with complete bound human review outside ch
   assert.match(content, /sflow-turn-boundary: approval-only/);
   assert.match(content, /approval CLI is the sole permitted lifecycle mutation/i);
   assert.match(content, /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i);
-  assert.match(content, /end this turn before next-phase authoring/i);
+  // Every Story carries on (owner, 2026-11-28): the next step is this turn's only once SFlow's note says so.
+  assert.match(content, /When SFlow's note says this turn goes on, do what it says now: the turn is then the next step's, under its rules/);
 });
 
 test('artifact presentation rejects conflicting dump instructions without equating summaries to review', () => {

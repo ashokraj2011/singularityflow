@@ -177,7 +177,7 @@ export async function resolveSnapshot(positionals, { root = repoRoot(), modelMod
 async function resolveSnapshotInScope(root, positionals, approvedConfigurationAvailable, modelMode = null) {
   const initialized = approvedConfigurationAvailable
     || existsSync(path.join(root, 'singularity/workflow.yml'));
-  if (!initialized) return nextStepsSnapshot({ initialized: false, branch: branch(root) });
+  if (!initialized) return withWayOut(nextStepsSnapshot({ initialized: false, branch: branch(root) }));
   const requestedWorkId = positionals[1] ?? null;
   const reference = requestedWorkId ?? branch(root);
   const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
@@ -189,7 +189,7 @@ async function resolveSnapshotInScope(root, positionals, approvedConfigurationAv
   const { buildRepositorySubjectIndex, resolveContext } = await import('../repository-subject-index.mjs');
   const selected = resolveContext(await buildRepositorySubjectIndex(root), { reference, required: false });
   if (selected?.kind === 'initiative') return initiativeSnapshot(root, selected);
-  if (selected?.kind !== 'story') return nextStepsSnapshot({ initialized: true, branch: branch(root), requestedWorkId });
+  if (selected?.kind !== 'story') return withWayOut(nextStepsSnapshot({ initialized: true, branch: branch(root), requestedWorkId }));
   return resolveStorySnapshot(root, await loadAcceptedStoryExecution(root, selected.id), { modelMode });
 }
 
@@ -314,11 +314,24 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
     nextAction: snapshot.actions.find(action => action.timing === 'now'),
     progress: { state: authoringProgress?.draft?.draftModified ? 'repair-draft' : 'load-context' }
   });
-  if (documentReadiness?.status !== 'ready' && documentReadiness) return { ...snapshot,
-    state: 'documents-required', documentReadiness,
-    actions: documentReadiness.missing.map(record => ({ timing: 'now', ...record.commandGuidance,
-      reason: `Re-upload ${record.id} — ${record.name} on this laptop, preserving its existing ID and SHA-256. Then resume this phase.` })) };
-  return snapshot;
+  if (documentReadiness?.status !== 'ready' && documentReadiness) {
+    const held = { ...snapshot, state: 'documents-required', documentReadiness,
+      actions: documentReadiness.missing.map(record => ({ timing: 'now', ...record.commandGuidance,
+        reason: `Re-upload ${record.id} — ${record.name} on this laptop, preserving its existing ID and SHA-256. Then resume this phase.` })) };
+    const way = await withWayOut(held, workflow);
+    return { ...way, wayOut: { ...way.wayOut, why: 'A document this Story was started from is not on this laptop.',
+      next: { by: 'person', kind: 'answer', words: 'Attach the listed document on this laptop; SFlow keeps its ID and goes on.' } } };
+  }
+  return withWayOut(snapshot, workflow);
+}
+
+/**
+ * Where the Story is, why it waits and the one thing to do (way-out.mjs) [owner, 2026-11-28], beside the actions it is read
+ * from: one answer for /sf-next and its older names and a refusal's last line. Loaded only for a nextsteps read.
+ */
+async function withWayOut(snapshot, workflow = null, gap = null) {
+  const { storyWayOut } = await import('../way-out.mjs');
+  return { ...snapshot, wayOut: storyWayOut(snapshot, workflow, { gap }) };
 }
 
 /** Only entry-capable authoring skills can compose inline; every other prerequisite survives. */
@@ -369,8 +382,10 @@ export async function nextStepsAgentPacket(workId = null, { cwd = process.cwd() 
   const entry = await phaseEntryContext({ cwd, workId, allowTerminal: true, turnMode: 'kernel-only' });
   const { packet } = entry;
   if (packet.paused) return packet;
-  if (!packet.ready) return { ...packet, resultType: 'sflow-nextsteps', state: 'binding-required',
-    actions: packet.phaseAgent?.handoff ? [{ timing: 'now', ...packet.phaseAgent.handoff }] : [] };
+  // The one way on, from a chat SFlow cannot bind yet or whose hooks did not run (way-out.mjs) [owner, 2026-11-28].
+  const gap = (await import('../copilot-chat-hooks.mjs')).processChatHookGap();
+  if (!packet.ready) return withWayOut({ ...packet, resultType: 'sflow-nextsteps', state: 'binding-required',
+    actions: packet.phaseAgent?.handoff ? [{ timing: 'now', ...packet.phaseAgent.handoff }] : [] }, entry.workflow ?? null, gap);
   const snapshot = agentNextSteps(await resolveStorySnapshot(entry.root, entry));
   const first = snapshot.actions.find(action => action.timing === 'now');
   let inputs = null;
@@ -386,7 +401,8 @@ export async function nextStepsAgentPacket(workId = null, { cwd = process.cwd() 
   }
   const { contextBoundary: entryBoundary, ...bindingPacket } = packet;
   const view = agentNextStepsView(snapshot);
-  return agentPacketPresentation({ ...bindingPacket, ...view, resultType: 'sflow-nextsteps', inputs });
+  const way = gap ? (await withWayOut(snapshot, entry.workflow, gap)).wayOut : view.wayOut;
+  return agentPacketPresentation({ ...bindingPacket, ...view, ...(way ? { wayOut: way } : {}), resultType: 'sflow-nextsteps', inputs });
 }
 
 export async function run(_argv, { positionals, options }) {

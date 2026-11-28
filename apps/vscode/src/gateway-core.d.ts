@@ -266,6 +266,8 @@ declare module '*/copilot-guidance.mjs' {
 
 declare module '*/safe-command-guidance.mjs' {
   export const TASK_ROUTE: '/sf-task';
+  export const NEXT_ROUTE: '/sf-next';
+  export function carryRoute(workflow: unknown): '/sf-task' | '/sf-next';
   export function isTaskStory(workflow: unknown): boolean;
   export function withTaskRoute<T extends { skill?: string | null; copilotCommand?: string | null }>(workflow: unknown, action: T): T;
   export function safeCommandGuidance(value: unknown): {

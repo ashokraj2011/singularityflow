@@ -405,10 +405,11 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null, r
   const stat = await lstat(directory);
   if (!stat.isDirectory() || stat.isSymbolicLink()) return {};
   const confirm = ['sf-confirm', 'sflow-confirm'].includes(skill) ? confirmedTurn(payload.prompt) : null;
-  // /sf-task with no words takes the turn of what the Story needs next (task-turn.mjs) [ITW:REQ-008]: the approval, the
-  // decision or the step's own work, each under its own skill's rules. The prompt is still kept as /sf-task.
-  const turnSkill = ['sf-task', 'sflow-task'].includes(skill)
-    ? await (await import('./task-turn.mjs')).taskTurnSkill(payload).catch(() => null) ?? skill : skill;
+  // The one way on (/sf-task, /sf-next and its older names) takes the turn of what the Story needs next (task-turn.mjs)
+  // [ITW:REQ-008; owner, 2026-11-28]: the approval, the decision or the step's own work, each under its own skill's rules.
+  // The prompt is still kept as typed.
+  const turnSkill = NEXT_ACTION_SKILLS.has(skill)
+    ? await (await import('./task-turn.mjs')).taskTurnSkill(payload, { skill: skill.replace(/^sflow-/u, 'sf-') }).catch(() => null) ?? skill : skill;
   const record = { schemaVersion: currentSchemaVersion(FAMILY), sessionId: sessionId(payload), skill: turnSkill, turnId: randomUUID(),
     ...(turnSkill !== skill ? { typedSkill: skill } : {}),
     recordedAt: now, modeChangedAt: mode.changedAt, ...(confirm ? { confirmDigest: confirm.digest } : {}),
@@ -521,28 +522,30 @@ export async function repositoryPostToolGuard(payload = {}) {
   return unread ? unread.withUnreadResult(answer, unread.context) : answer;
 }
 
-const TASK_SKILLS = new Set(['sf-task', 'sflow-task']);
+// The typed names of the one way on (task-turn.mjs NEXT_ACTION_SKILLS), kept here so a prompt that names none loads nothing.
+const NEXT_ACTION_SKILLS = new Set(['task', 'next', 'nextsteps', 'status', 'resume', 'continue'].flatMap((name) => [`sf-${name}`, `sflow-${name}`]));
 
 /**
- * A `/sf-task` turn carries its task on with nothing typed [ITW:REQ-008, A11, A17]: after a start it ran, into the new
- * Story's first step; after a step's submission, into the person's approval of it, or into the next action once SFlow
- * approved it itself; and after the person's Yes it recorded, into the next step's work or approval question. Which, and
- * whether, the Story decides (task-turn.mjs taskTurnContinuation). The session's turn is then recorded again as that
- * next action's, exactly as the prompt hook records `/sf-task` typed on a bound Story, and its contract is captured: the
- * guard binds every later call of this turn to that Story, step and generation, under that skill's rules. The window
- * stays where the person's prompt or last answer put it, and a new turn ID starts its answers afresh, so no answer given
- * before decides anything after. No other call changes a turn's mode mid-turn. One string test for any other call; a
- * failure keeps the turn.
+ * Any Story's turn carries it on with nothing typed [owner, 2026-11-28: every Story carries on like a task; ITW:REQ-008,
+ * A11, A17]: after a task's start, into the new Story's first step; after a step's submission, into the person's
+ * approval of it, or into the next action once SFlow approved it itself; and after the person's Yes it recorded, into the
+ * next step's work or approval question. Which, and whether, the Story decides (task-turn.mjs storyTurnContinuation).
+ * The session's turn is then recorded again as that next action's, exactly as the prompt hook records the one way on
+ * typed on a bound Story, and its contract is captured: the guard binds every later call of this turn to that Story, step
+ * and generation, under that skill's rules. The window stays where the person's prompt or last answer put it, and a new
+ * turn ID starts its answers afresh, so no answer given before decides anything after. No other call changes a turn's
+ * mode mid-turn. One string test for any other call; a failure keeps the turn.
  */
 async function carryTaskTurn(payload, answer) {
   if (answer?.continue === false) return answer;
   const text = JSON.stringify(payload.toolCalls ?? payload.toolArgs ?? payload.tool_input ?? '');
-  if (!/(?:singularity-flow|sflow)\b/u.test(text) || !/\b(?:work|approve|submit)\b/u.test(text)) return answer;
+  if (!/(?:singularity-flow|sflow)\b/u.test(text) || !/\b(?:work|approve|submit|reject|publish)\b/u.test(text)) return answer;
   try {
     const turn = await currentTurn(payload);
-    if (!turn || !TASK_SKILLS.has(turn.typedSkill ?? turn.skill)) return answer;
+    if (!turn) return answer;
     const guard = await import('./copilot-mutation-guard.mjs');
-    const next = await (await import('./task-turn.mjs')).taskTurnContinuation(payload, { turn, ran: await guard.turnRanCommands(payload) });
+    const carry = await import('./task-turn.mjs');
+    const next = await carry.storyTurnContinuation(payload, { turn, ran: await guard.turnRanCommands(payload) });
     if (!next) return answer;
     const file = recordPath(payload);
     const noted = await readTurnRenewal(turnRenewalFile(file));
@@ -552,11 +555,7 @@ async function carryTaskTurn(payload, answer) {
       typedSkill: turn.typedSkill ?? turn.skill, recordedAt: Math.max(turn.recordedAt, renewedAt), modeChangedAt: turn.modeChangedAt };
     await writeTurnRecord(file, record);
     const captured = await guard.captureMutationTurn(payload, record);
-    const said = { start: `SFlow: ${next.workId} started, and this /sf-task turn goes on with it now, under the turn rules below: do /sf-task's step 1 in this turn.`,
-      submission: `SFlow: the step is submitted and waits for the person's approval, and this /sf-task turn goes on with it now, under the turn rules below: do /sf-task's step 1 again in this turn (its question is theirs to answer).`,
-      completion: `SFlow: SFlow approved the step, and this /sf-task turn goes on with ${next.workId}'s next action now, under the turn rules below: do /sf-task's step 1 again in this turn.`,
-      grown: `SFlow: the task grew, its code went back to the plan SFlow added, and this /sf-task turn goes on with ${next.workId}'s next action now, under the turn rules below: do /sf-task's step 1 again in this turn.`,
-      approval: `SFlow: the approval is recorded, and this /sf-task turn goes on with ${next.workId}'s next action now, under the turn rules below: do /sf-task's step 1 again in this turn.` }[next.reason];
+    const said = carry.carryOnWords(next);
     return { ...answer, additionalContext: [answer?.additionalContext, said, captured?.additionalContext].filter(Boolean).join(' ') };
   } catch { return answer; }
 }

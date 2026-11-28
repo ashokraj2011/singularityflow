@@ -103,9 +103,13 @@ export function skillEntries(skillsRoot = SKILLS) {
     const finish = commands(body).find((command) => /^singularity-flow phase prepublish\b.*--publish-if-ready/u.test(command)) ?? null;
     // An alias hands the turn to its canonical skill ("Run `/sflow-code` once", "Delegate once to `/sf-code`").
     // The delegation sentence names it; another skill the text mentions first (/sf-call's `/sf-start … --agent`) is not it.
+    // The one way on's older names hand their turn to /sf-next ("This is the one way on, `/sf-next`, under an older name"),
+    // whatever command they also name (/sf-resume's opening).
+    const oneWayAlias = /This is the one way on, `\/sf-next`, under an older name: run `\/sflow-next` once/u.test(body);
     const delegate = /<!-- sflow-output-contract: canonical-delegation -->/u.test(body)
       ? (/(?:Delegate once to|Run) `\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n'))
-        ?? /`\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n')))?.[1] ?? null : null;
+        ?? /`\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n')))?.[1] ?? null
+      : oneWayAlias ? 'next' : null;
     // A skill whose first step picks among subcommands (`spec analyze|coverage|trace`) has no single entry.
     const choice = !entry && commands(own.join('\n')).some((command) => !PAUSE_CHECK.test(command) && command.includes('|'));
     // "Successful begin: refresh entry once": opening a code version is followed by the skill's entry again.
@@ -120,7 +124,7 @@ export function skillEntries(skillsRoot = SKILLS) {
     const runsBefore = /run `data\.task\.before` once now, before any edit/u.test(body);
     map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint, refreshAfterBegin, worksInTurn, oneWorkCommand,
       ...(stepWork ? { stepWork } : {}), ...(runsBefore ? { runsBefore } : {}),
-      ...(delegate && !entry ? { delegate: `/sf-${delegate}` } : {}), ...(choice ? { choice: true } : {}) });
+      ...(delegate && (!entry || oneWayAlias) ? { delegate: `/sf-${delegate}` } : {}), ...(choice ? { choice: true } : {}) });
   }
   for (const known of map.values()) {
     const target = known.delegate ? map.get(known.delegate) : null;
@@ -313,9 +317,10 @@ async function runCommand(story, command, { agent = true } = {}) {
     writeFileSync(path.join(process.env.SINGULARITY_FLOW_JOURNEY_DUMP, `${story.workId}-${String(dumped).padStart(3, '0')}-${commandWords(argv.join(' ')).join('-').slice(0, 60)}.json`),
       JSON.stringify({ argv, status: output.status, result, ...(result ? {} : { stdout: output.stdout.slice(-4000) }), stderr: output.stderr.slice(-4000) }, null, 2));
   }
-  // In a task's chat the host's after-tool hook sees every command the agent ran, as Copilot calls it: it may carry the
-  // /sf-task turn on (task-turn.mjs taskTurnContinuation: a start into its intake, a submission into its approval question,
-  // the person's Yes or SFlow's own approval into the next step), which the walk then follows in the same turn.
+  // In a Story's chat the host's after-tool hook sees every command the agent ran, as Copilot calls it: it may carry the
+  // turn on (task-turn.mjs storyTurnContinuation: a task's start into its intake, a submission into its approval question,
+  // the person's Yes or SFlow's own approval into the next step), which the walk then follows in the same turn. Every
+  // Story carries on so (owner, 2026-11-28); a task's turn is /sf-task's.
   const ran = `singularity-flow ${argv.join(' ')}`;
   const chat = chatHooks?.story === story ? chatHooks : null;
   // Where no hook runs (IntelliJ Copilot's local agent, a folder opened through a link), the /sf-task skill carries its own
@@ -329,12 +334,12 @@ async function runCommand(story, command, { agent = true } = {}) {
     if (status?.taskTurn?.carriedBy === 'skill' && status.status === 'in_progress') {
       chat.guard.carried = { after: commandWords(argv.join(' ')).join(' '), note: 'no hook ran; the /sf-task skill reads work status and goes on', by: 'skill' };
     }
-  } else if (agent && chat?.guard.turn && !chat.guard.subagent && storyRecord(story)?.resolution?.composition) {
+  } else if (agent && chat?.guard.turn && !chat.guard.subagent && (storyRecord(story)?.resolution?.composition || chat.carryAll)) {
     // As the agent typed it: a word with a space or quote stays one word (a task's words starting "add …" are no `work add`).
     const typed = ['singularity-flow', ...argv].map((word) => (/^[A-Za-z0-9_./:=@%+,-]+$/u.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`)).join(' ');
     const said = chat.guard.turn.after('bash', { command: typed }, { resultType: output.status === 0 ? 'success' : 'failure', textResultForLlm: output.stdout.slice(0, 200_000) });
     const note = String(said?.additionalContext ?? '');
-    if (/this \/sf-task turn goes on/u.test(note)) chat.guard.carried = { after: commandWords(argv.join(' ')).join(' '), note: note.slice(0, 240) };
+    if (/this (?:\/sf-task )?turn goes on/u.test(note)) chat.guard.carried = { after: commandWords(argv.join(' ')).join(' '), note: note.slice(0, 240), task: /\/sf-task turn/u.test(note) };
   }
   return { status: output.status, result, stdout: output.stdout, stderr: output.stderr, ran };
 }
@@ -428,7 +433,7 @@ export function formatTrail(trail) {
  * Returns { reached, findings: [{ kind, detail, step }], trail, steps, views }: `views` lists each hand-off where one of
  * the person's views named another skill than the agent's route (see personViews).
  */
-export async function followRoutes(story, { start, agent = {}, person = null, detour = null, newChat = null, done, maxSteps = 60, label = 'journey', host = 'cli', vscode = null, skillsRoot = SKILLS, values = {}, hooks = true }) {
+export async function followRoutes(story, { start, agent = {}, person = null, detour = null, newChat = null, done, maxSteps = 60, label = 'journey', host = 'cli', vscode = null, skillsRoot = SKILLS, values = {}, hooks = true, carryAll = true }) {
   const entries = skillEntries();
   // VS Code's chat [hardening C]: /sf-approve and /sf-decide are entered as skills there, and their page tools are called on
   // the host's pages (test/helpers/vscode-host.mjs); every tool answer is kept to find the same one coming back unchanged.
@@ -442,7 +447,7 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
   const views = [];
   const entered = new Map();
   let route = { ...start, source: 'start' };
-  chatHooks = { story, guard, hooks };
+  chatHooks = { story, guard, hooks, carryAll };
   // With hooks off, the host runs none of SFlow's hooks: no turn is recorded and nothing is guarded (copilotTurn's stub).
   hooksOff = hooks === false ? story : null;
   let turn = null;
@@ -514,8 +519,30 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     // SFlow's note after a command said this /sf-task turn goes on: its next action is this same turn's, nothing typed.
     const carried = guard.carried;
     guard.carried = null;
-    if (carried) entry.did = `${entry.did ? `${entry.did}; ` : ''}${carried.by === 'skill' ? 'the /sf-task skill carries its own turn on, no hook ran' : 'SFlow carries the /sf-task turn on'} (after ${carried.after})`;
+    if (carried) entry.did = `${entry.did ? `${entry.did}; ` : ''}${carried.by === 'skill' ? 'the /sf-task skill carries its own turn on, no hook ran' : carried.task === false ? 'SFlow carries the turn on' : 'SFlow carries the /sf-task turn on'} (after ${carried.after})`;
     if (carried && taken.next && isPersonRoute({ ...taken.next, inTurn: false })) taken.next = { ...taken.next, carried: true };
+    // Any other Story's turn carried on into the next step's own work: that work is this same turn's, nothing typed; its
+    // work command's steps run in it (the hook bound the turn to the new step).
+    else if (carried && carried.task === false && taken.next?.copilot && !taken.next.inTurn && guard.skill) {
+      // SFlow's note says how: `phase enter --compose`, the work command's own entry (task-turn.mjs carryOnWords). The way on
+      // the result named (/sf-next) is the step's own route as the person's views name it: the work command's goes on in this
+      // turn; a step whose own skill is another (the kernel-built /sf-converge) is handed to it, as the work command's text
+      // says, and the person types it.
+      let route = taken.next;
+      let handed = false;
+      if (/^\/sf(?:low)?-next(?:\s|$)/u.test(route.copilot)) {
+        const read = story.raw(['nextsteps', story.workId, '--json']);
+        let own = null;
+        try { own = (JSON.parse(read.stdout).actions ?? []).find((entry) => entry?.timing === 'now') ?? null; } catch { own = null; }
+        const skill = skillOf(own?.skill ?? own?.copilotCommand);
+        route = skill ? { ...route, copilot: own.copilotCommand && skillOf(own.copilotCommand) === skill ? own.copilotCommand : skill, shell: own.command ?? route.shell } : route;
+        handed = Boolean(skill) && (!WORK_ROUTE.test(route.copilot) || /^\/sf(?:low)?-converge\b/u.test(route.copilot));
+        // /sf-code and /sf-phase are one work command (D1): the turn's own name goes on, its entry writing the step.
+        if (!handed && entries.get(guard.skill)?.oneWorkCommand && entries.get(skillOf(route.copilot))?.oneWorkCommand) route = { ...route, copilot: guard.skill };
+      }
+      taken.next = handed ? { ...route, inTurn: false }
+        : { ...route, inTurn: false, within: guard.skill, carried: true, source: `${route.source ?? 'route'} (carried on)` };
+    }
     if (task?.stepWork && !isPersonRoute({ ...taken.next, inTurn: false }) && !/^singularity-flow work\b/u.test(taken.next.shell ?? '') && current()) {
       const work = [...entries.values()].find((known) => known.oneWorkCommand && known.entry === task.stepWork)?.skill ?? null;
       const resolved = work ? { ...taken.next, copilot: work, source: `${taken.next.source ?? 'route'} (${task.skill}: the step's own work)` } : null;
@@ -549,7 +576,9 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
       const agentWords = commandWords(taken.next.shell).join(' ');
       for (const view of await personViews(story)) {
         // The same skill, or the same command (a person's confirmation of the step's own command names /sf-confirm).
-        const differs = view.skill && agentSkill && view.skill !== agentSkill && !(agentWords && commandWords(view.command).join(' ') === agentWords);
+        // /sf-code and /sf-phase are one work command (D1): a turn carried on as either names the other's step rightly.
+        const oneWork = entries.get(view.skill)?.oneWorkCommand && entries.get(agentSkill)?.oneWorkCommand;
+        const differs = view.skill && agentSkill && view.skill !== agentSkill && !oneWork && !(agentWords && commandWords(view.command).join(' ') === agentWords);
         if (differs || view.completeWhileWriting) {
           views.push({ step, agent: agentSkill, agentCommand: short(taken.next.shell), view: view.view, skill: view.skill, command: short(view.command),
             ...(view.completeWhileWriting ? { said: 'complete while the step is being written' } : {}) });
@@ -756,9 +785,9 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
       guard.hosts = { ...(guard.hosts ?? {}), [skill]: within };
       entry.within = within;
       entry.did = `${within} does the step's own work in its turn, by ${skill}'s steps`;
-    } else if (guard && route.subagent && storyRecord(story)?.resolution?.composition) {
-      // A task's reviewer is a sub-agent with a chat of its own: the author's /sf-task turn, and what SFlow's notes carry on,
-      // stay its own (a classic Story's reviewer keeps the walk's one chat, as before).
+    } else if (guard && route.subagent && (storyRecord(story)?.resolution?.composition || chatHooks?.carryAll)) {
+      // The reviewer is a sub-agent with a chat of its own: the author's turn, and what SFlow's notes carry on, stay its own
+      // (a task's, and every Story's since it carries on too; a walk that models the older typed turns keeps one chat).
       copilotTurn(story, `${guard.sessionId}-reviewer`).prompt(skill);
       guard.subagent = skill;
     } else if (guard) {
@@ -980,10 +1009,10 @@ async function takeRoute({ story, route, entries, phases, currentPhase, agent, p
   return { result, next, turn: nextTurn };
 }
 
-/** Whether a person's route is a task's step approval, which /sf-task asks in its chat. */
+/** Whether a person's route is a step approval asked in the chat: a task's, which /sf-task asks, or any Story's the turn carried into. */
 function chatApprovalRoute(story, route) {
   const record = storyRecord(story);
-  if (!record?.resolution?.composition || record.status !== 'in_progress') return false;
+  if ((!record?.resolution?.composition && !route.carried) || record?.status !== 'in_progress') return false;
   return /^singularity-flow approve\s/u.test(route.shell ?? '') || /^\/sf-approve\b/u.test(route.copilot ?? '');
 }
 
@@ -995,6 +1024,8 @@ function chatApprovalRoute(story, route) {
  */
 async function chatApproval({ story, route, person, entry, guard, phase, last }) {
   const said = [];
+  // The turn's name in the trail: /sf-task on a task; on any other Story the skill whose turn SFlow carried on.
+  const label = storyRecord(story)?.resolution?.composition ? '/sf-task' : guard.skill ?? '/sf-next';
   if (!route.carried || !guard.turn) {
     guard.turn = copilotTurn(story, guard.sessionId);
     guard.turn.prompt('/sf-task');
@@ -1004,32 +1035,32 @@ async function chatApproval({ story, route, person, entry, guard, phase, last })
   }
   const run = async (command) => {
     const decision = guard.turn.tool('bash', { command });
-    if (decision?.permissionDecision === 'deny') throw stop('guard-denied', `the guard refused ${short(command)} in the /sf-task approval turn: ${String(decision.permissionDecisionReason ?? '').slice(0, 500)}`);
+    if (decision?.permissionDecision === 'deny') throw stop('guard-denied', `the guard refused ${short(command)} in the ${label} approval turn: ${String(decision.permissionDecisionReason ?? '').slice(0, 500)}`);
     return runCommand(story, command);
   };
   try {
     const begin = `singularity-flow choices begin approve ${story.workId} --fetch --for-agent --json --review-packet`;
     const begun = await run(begin);
     Object.assign(entry, { ran: begun.ran, status: begun.status, code: begun.result?.error?.code ?? null, act: begun.result?.act?.state ?? null });
-    if (begun.status !== 0) return refusalRoute(begun.result, begin, '/sf-task');
+    if (begun.status !== 0) return refusalRoute(begun.result, begin, label);
     const ask = begun.result?.act?.ask ?? null;
-    if (!ask?.question || !ask.onYes) return { result: begun.result, finding: { kind: 'approval-without-question', detail: `${short(begin)} asked no question with an onYes` }, turn: '/sf-task' };
+    if (!ask?.question || !ask.onYes) return { result: begun.result, finding: { kind: 'approval-without-question', detail: `${short(begin)} asked no question with an onYes` }, turn: label };
     const answer = person?.({ story, route: { ...route, copilot: '/sf-approve' }, result: begun.result, act: begun.result.act, phase });
-    if (!answer) return { result: begun.result, personPending: true, finding: { kind: 'person-unanswered', detail: `the approval question "${ask.question}"` }, turn: '/sf-task' };
+    if (!answer) return { result: begun.result, personPending: true, finding: { kind: 'person-unanswered', detail: `the approval question "${ask.question}"` }, turn: label };
     // The person's other answer on the same screen (`answer.choose`, a choice with its command: "Make it a big change"): the
     // agent runs that command, says its words and begins this approval again, in the same turn [ITW:REQ-113].
     if (answer.choose) {
       const other = (ask.choices ?? []).find((choice) => choice?.label === answer.choose && typeof choice.command === 'string');
-      if (!other) return { result: begun.result, finding: { kind: 'choice-missing', detail: `"${answer.choose}" is not a choice with a command on "${ask.question}"` }, turn: '/sf-task' };
+      if (!other) return { result: begun.result, finding: { kind: 'choice-missing', detail: `"${answer.choose}" is not a choice with a command on "${ask.question}"` }, turn: label };
       const labels = (ask.choices ?? []).map((choice) => choice?.label ?? choice);
       guard.turn.tool('ask_user', { question: ask.question, choices: labels });
       guard.turn.after('ask_user', { question: ask.question, choices: labels }, { resultType: 'success', textResultForLlm: `User responded: ${other.label}` });
       const chose = await run(other.command);
-      if (chose.status !== 0) return refusalRoute(chose.result, other.command, '/sf-task') ?? { result: chose.result, finding: { kind: 'choice-refused', detail: `${short(other.command)}: ${chose.result?.error?.code ?? ''}` }, turn: '/sf-task' };
+      if (chose.status !== 0) return refusalRoute(chose.result, other.command, label) ?? { result: chose.result, finding: { kind: 'choice-refused', detail: `${short(other.command)}: ${chose.result?.error?.code ?? ''}` }, turn: label };
       said.push(`the person answered "${other.label}" to "${ask.question}" in the chat`);
       entry.did = `${said.join('; ')}; the agent ran ${short(other.command)}: ${short(chose.result?.words ?? '')}; it begins the approval again`;
       Object.assign(entry, { ran: chose.ran, status: chose.status, act: chose.result?.act?.state ?? null });
-      return { result: chose.result, next: { ...route, carried: true }, personPending: false, turn: '/sf-task' };
+      return { result: chose.result, next: { ...route, carried: true }, personPending: false, turn: label };
     }
     const yes = (ask.choices ?? []).map((choice) => choice?.label ?? choice).find((label) => typeof label === 'string' && !/^not now$/iu.test(label))
       ?? ask.question.replace(/\?$/u, '');
@@ -1039,19 +1070,19 @@ async function chatApproval({ story, route, person, entry, guard, phase, last })
     let ran = null;
     for (const command of [ask.onYes].flat()) {
       ran = await run(command);
-      if (ran.status !== 0) return refusalRoute(ran.result, command, '/sf-task') ?? { result: ran.result, finding: { kind: 'approval-refused', detail: `${short(command)}: ${ran.result?.error?.code ?? ''}` }, turn: '/sf-task' };
+      if (ran.status !== 0) return refusalRoute(ran.result, command, label) ?? { result: ran.result, finding: { kind: 'approval-refused', detail: `${short(command)}: ${ran.result?.error?.code ?? ''}` }, turn: label };
     }
     // The answer recorded names the approval itself as its next command, which this turn runs once.
     const approve = [ran.result?.next?.command, ran.result?.act?.do?.shell].find((command) => /^singularity-flow approve\s/u.test(command ?? ''));
     if (approve) {
       ran = await run(approve);
-      if (ran.status !== 0) return refusalRoute(ran.result, approve, '/sf-task') ?? { result: ran.result, finding: { kind: 'approval-refused', detail: `${short(approve)}: ${ran.result?.error?.code ?? ''}` }, turn: '/sf-task' };
+      if (ran.status !== 0) return refusalRoute(ran.result, approve, label) ?? { result: ran.result, finding: { kind: 'approval-refused', detail: `${short(approve)}: ${ran.result?.error?.code ?? ''}` }, turn: label };
     }
     entry.did = `${said.join('; ')}; the agent ran its approval`;
     Object.assign(entry, { ran: ran.ran, status: ran.status, act: ran.result?.act?.state ?? null });
-    return { result: ran.result, next: nextFrom(ran.result, { turn: '/sf-task' }), personPending: false, turn: '/sf-task' };
+    return { result: ran.result, next: nextFrom(ran.result, { turn: label }), personPending: false, turn: label };
   } catch (error) {
-    if (error?.journeyFinding) return { result: last, finding: error.journeyFinding, turn: '/sf-task' };
+    if (error?.journeyFinding) return { result: last, finding: error.journeyFinding, turn: label };
     throw error;
   }
 }

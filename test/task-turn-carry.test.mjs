@@ -89,7 +89,7 @@ test('ITW REQ-008, A11: the start this /sf-task turn ran goes on into the intake
   const decide = (overrides = {}) => taskTurnContinuation({ cwd: story.root }, {
     turn: overrides.turn ?? turn, ran: { value: overrides.value ?? value, commands: overrides.commands ?? [parsed(START)] },
     resolveRoot: async () => overrides.root ?? story.root, load: async () => ({ workflow: overrides.workflow ?? record }) });
-  assert.deepEqual(await decide(), { skill: 'sf-next', workId: 'TASK-1', reason: 'start' });
+  assert.deepEqual(await decide(), { skill: 'sf-next', workId: 'TASK-1', reason: 'start', task: true });
   assert.equal(await decide({ workflow: { ...record, workItem: { ...record.workItem, createdAt: new Date(first.recordedAt - 60_000).toISOString() } } }), null,
     'a Story already open before this turn was not started by it');
   const classic = structuredClone(record);
@@ -189,8 +189,9 @@ test('ITW REQ-008, A11, A17: in one chat the step\'s submission goes on into its
   const decide = (overrides = {}) => taskTurnContinuation({ cwd: story.root }, {
     turn: overrides.turn ?? turn, ran: { value: overrides.value ?? value, commands: overrides.commands ?? [parsed(approve)] },
     resolveRoot: async () => story.root, load: async () => ({ workflow: overrides.workflow ?? record }) });
-  assert.deepEqual(await decide(), { skill: 'sf-next', workId: 'TASK-1', reason: 'approval' });
-  assert.equal(await decide({ turn: { ...turn, typedSkill: undefined } }), null, '/sf-approve typed: its own skill ends the turn');
+  assert.deepEqual(await decide(), { skill: 'sf-next', workId: 'TASK-1', reason: 'approval', task: true });
+  // Every Story carries on (owner, 2026-11-28): /sf-approve typed goes on after the Yes too.
+  assert.deepEqual(await decide({ turn: { ...turn, typedSkill: undefined } }), { skill: 'sf-next', workId: 'TASK-1', reason: 'approval', task: true }, '/sf-approve typed: it goes on too');
   assert.equal(await decide({ turn: { ...turn, recordedAt: Date.now() + 60_000 } }), null, 'an approval recorded before this turn');
   const waiting = structuredClone(record);
   waiting.phases.intake.status = 'awaiting_approval';
@@ -198,7 +199,7 @@ test('ITW REQ-008, A11, A17: in one chat the step\'s submission goes on into its
   const classic = structuredClone(record);
   classic.workItem.workType = 'quick-fix';
   delete classic.resolution.composition;
-  assert.equal(await decide({ workflow: classic }), null, 'a classic Story\'s approval ends its turn as before');
+  assert.deepEqual(await decide({ workflow: classic }), { skill: 'sf-next', workId: 'TASK-1', reason: 'approval', task: false }, 'a classic Story\'s approval goes on as a task\'s does');
   const deciding = structuredClone(record);
   deciding.pendingDecision = { key: 'd1', label: 'Pick one', options: [{ id: 'a', label: 'A' }] };
   assert.equal(await decide({ workflow: deciding }), null, 'a decision is the person\'s on its card');
@@ -213,16 +214,16 @@ test('ITW REQ-008, A11, A17: in one chat the step\'s submission goes on into its
   const bound = { turnId: working.turnId, sessionId: working.sessionId, originPhase: 'intake',
     contract: { workId: 'TASK-1', turnMode: 'authoring', phaseId: 'intake', repositoryRoot: contract.repositoryRoot } };
   const carry = (overrides = {}) => decide({ turn: work, value: bound, commands: [parsed(submit)], workflow: asSubmitted, ...overrides });
-  assert.deepEqual(await carry(), { skill: 'sf-approve', workId: 'TASK-1', reason: 'submission' });
-  assert.deepEqual(await carry({ commands: [parsed('singularity-flow submit intake --work-id TASK-1 --json')] }), { skill: 'sf-approve', workId: 'TASK-1', reason: 'submission' });
+  assert.deepEqual(await carry(), { skill: 'sf-approve', workId: 'TASK-1', reason: 'submission', task: true });
+  assert.deepEqual(await carry({ commands: [parsed('singularity-flow submit intake --work-id TASK-1 --json')] }), { skill: 'sf-approve', workId: 'TASK-1', reason: 'submission', task: true });
   assert.equal(await carry({ commands: [parsed('singularity-flow status TASK-1 --submission-readiness --json')] }), null, 'a read submits nothing');
-  assert.equal(await carry({ turn: { ...work, typedSkill: undefined } }), null, '/sf-next typed: its own skill ends the turn');
+  assert.deepEqual(await carry({ turn: { ...work, typedSkill: undefined } }), { skill: 'sf-approve', workId: 'TASK-1', reason: 'submission', task: true }, '/sf-next typed: it goes on too');
   assert.equal(await carry({ turn: { ...work, recordedAt: Date.now() + 60_000 } }), null, 'a submission from before this turn');
   assert.equal(await carry({ workflow: record }), null, 'nothing waits for a person');
   const classicSubmitted = structuredClone(asSubmitted);
   classicSubmitted.workItem.workType = 'quick-fix';
   delete classicSubmitted.resolution.composition;
-  assert.equal(await carry({ workflow: classicSubmitted }), null, 'a classic Story\'s submission ends its turn as before');
+  assert.deepEqual(await carry({ workflow: classicSubmitted }), { skill: 'sf-approve', workId: 'TASK-1', reason: 'submission', task: false }, 'a classic Story\'s submission goes on into its approval');
   const held = structuredClone(asSubmitted);
   held.pendingDecision = { key: 'd1', label: 'Pick one', options: [{ id: 'a', label: 'A' }] };
   assert.equal(await carry({ workflow: held }), null, 'a decision first is the person\'s on its card');
@@ -276,7 +277,7 @@ test('ITW REQ-008, A11 (owner, 2026-11-26): a change\'s step SFlow approves itse
   const decide = (overrides = {}) => taskTurnContinuation({ cwd: story.root }, {
     turn: overrides.turn ?? working, ran: { value, commands: [parsed(submit)] },
     resolveRoot: async () => story.root, load: async () => ({ workflow: overrides.workflow ?? record }) });
-  assert.deepEqual(await decide(), { skill: 'sf-next', workId: 'TASK-1', reason: 'completion' });
+  assert.deepEqual(await decide(), { skill: 'sf-next', workId: 'TASK-1', reason: 'completion', task: true });
   assert.equal(await decide({ turn: { ...working, recordedAt: Date.now() + 60_000 } }), null, 'an approval SFlow recorded before this turn');
   const byPerson = structuredClone(record);
   delete byPerson.phases.intake.approvalDisposition;
@@ -284,9 +285,9 @@ test('ITW REQ-008, A11 (owner, 2026-11-26): a change\'s step SFlow approves itse
   const classic = structuredClone(record);
   classic.workItem.workType = 'quick-fix';
   delete classic.resolution.composition;
-  assert.equal(await decide({ workflow: classic }), null, 'a classic Story keeps decision 7: the turn ends');
+  assert.deepEqual(await decide({ workflow: classic }), { skill: 'sf-next', workId: 'TASK-1', reason: 'completion', task: false }, 'a classic Story goes on after SFlow\'s approval too (owner, 2026-11-28, replacing decision 7)');
   const held = structuredClone(record);
   held.pendingDecision = { key: 'd1', label: 'Pick one', options: [{ id: 'a', label: 'A' }] };
   assert.equal(await decide({ workflow: held }), null, 'a decision pending is the person\'s on its card');
-  assert.equal(await decide({ turn: { ...working, typedSkill: undefined } }), null, '/sf-next typed: decision 7 ends its turn');
+  assert.deepEqual(await decide({ turn: { ...working, typedSkill: undefined } }), { skill: 'sf-next', workId: 'TASK-1', reason: 'completion', task: true }, '/sf-next typed: it goes on too');
 });

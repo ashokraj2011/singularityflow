@@ -786,16 +786,17 @@ function confirmCodeArgv(positionals, options) {
  * itself. Only its reads (`tools`, `events`) and the guide session are a turn's: resetting
  * conversational context changes no work, plan, workspace selection or lifecycle record `[INT:REQ-101]`.
  */
-function hostOnlyCommand(positionals) {
+function hostOnlyCommand(positionals, options = {}) {
   // `update` reinstalls the product, the Copilot plugin a turn runs in included: only a person starts it.
-  return ['hook', 'exec', 'update'].includes(positionals[0])
+  // Whether a test command calls an AI model, and models on for one run, are the person's answers [owner, 2026-11-28].
+  return modelUseAnswer(positionals, options) || ['hook', 'exec', 'update'].includes(positionals[0])
     || (positionals[0] === 'ui' && positionals[1] !== 'status')
     || (positionals[0] === 'gateway' && !['tools', 'events', 'session'].includes(positionals[1] ?? 'tools'));
 }
 
 export function argvAllowed(argv, mode, value) {
   const { positionals, options } = parseCli(argv);
-  if (hostOnlyCommand(positionals)) return false;
+  if (hostOnlyCommand(positionals, options)) return false;
   if (positionals[0] === 'work' && positionals[1] === 'handoff') return false;
   // A specification's secret-shaped values are withheld from a model; asking for them is the person's own page, in no turn.
   if (options['for-person'] !== undefined &&
@@ -1285,10 +1286,16 @@ const GATEWAY_SERVER_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: the gateway
 /** A verified host-only command (a hook, or the gateway server), as the refusal that names why. */
 function hostOnlyDenial(call, value) {
   const safe = verifiedShellForm(call, value);
-  const { positionals } = safe ? parseCli(safe.argv) : { positionals: [] };
-  if (!hostOnlyCommand(positionals)) return null;
+  const { positionals, options } = safe ? parseCli(safe.argv) : { positionals: [], options: {} };
+  if (!hostOnlyCommand(positionals, options)) return null;
+  if (modelUseAnswer(positionals, options)) return MODEL_USE_DENIAL;
   return { gateway: GATEWAY_SERVER_DENIAL, hook: HOOK_DENIAL }[positionals[0]] ?? null;
 }
+/** `tests model-use` and `--models-on`: the person says whether a test command calls an AI model, and turns models on. */
+function modelUseAnswer(positionals, options) {
+  return (positionals[0] === 'tests' && positionals[1] === 'model-use') || options?.['models-on'] !== undefined;
+}
+const MODEL_USE_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: whether a test command calls an AI model, and turning models on for one run, are the person\'s answers, in VS Code or their own terminal; an agent never gives them. Show the person the question and its two answers, and stop; do not retry it';
 const PLANNED_ACTION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: action execute runs its planned command in this process, and this turn may not run that command itself (an approval or rejection, a person\'s own decision, or a plan this checkout does not hold). Show the user the planned command and its own route; do not retry it';
 
 /** A verified `recover --set-aside`: a person's decision about changes held for review. */

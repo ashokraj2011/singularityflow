@@ -7,7 +7,7 @@
  *
  * Small on purpose: no file, Git or process access, so a planner that imports it loads no path checks or writers.
  */
-import { versionFactsOf } from './phase-generation-need.mjs';
+import { sentBackAnswer, versionFactsOf } from './phase-generation-need.mjs';
 import { stepState } from './kernel/step-state.mjs';
 import { pendingIntentAmendmentAcknowledgement, sourceReviewRequired } from './source-review-policy.mjs';
 import { phaseKernelOwned, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -198,7 +198,10 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
       `Another checkout writes version ${next.inputs.version} of ${phase.id}. Take it over here only when that checkout's work is published or set aside; this checkout may still inspect it.`, ACTION_SKILLS.takeover)];
     case 'open-version':
       // A successor, for any reason, is previewed and opened only on the person's yes [D3, OSA:REQ-030]; version 1 opens directly.
-      // Beside it, what the person's No goes on with (the kernel's `declined`).
+      // Beside it, what the person's No goes on with (the kernel's `declined`). A person's own send-back is that yes: its
+      // version opens on it, never asked again (ask once, owner 2026-11-28; sent-back-opening.mjs).
+      if (next.inputs.consent === 'required' && ['rework', 'rejected'].includes(next.inputs.reason) && sentBackAnswer(workflow, phase)) return [render('open-version', 'sent-back',
+        `The person sent ${phase.id} back${next.inputs.from ? ` after version ${next.inputs.from}` : ''}: version ${next.inputs.version} opens on that answer, with nothing asked.`, author)];
       if (next.inputs.consent === 'required') return [render('open-version', 'preview',
         `${next.inputs.reason === 'change-requested' ? 'The person asked for a change: p' : 'P'}review starting version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; ${next.inputs.from ? `version ${next.inputs.from} stays as published` : 'nothing published changes'}.`, author),
       ...(next.inputs.declined ? decisionRoutes({ ...decision, next: next.inputs.declined }, workflow, requested, { exactSubmit }).filter(Boolean)
@@ -206,7 +209,9 @@ export function decisionRoutes(decision, workflow, requested, { exactSubmit = fa
       return [code ? render('open-version', 'begin', 'Open the exact code generation before application edits.', author)
         : render('open-version', 'prepare', 'Continue the configured phase author; publish only after its checks pass.', author)];
     // A kernel-built step's next version opens on the person's yes like any successor [D3, D5]; then its generator builds it.
-    case 'build-version': if (next.inputs.consent === 'required') return [render('build-version', 'preview',
+    case 'build-version': if (next.inputs.consent === 'required' && ['rework', 'rejected'].includes(next.inputs.reason) && sentBackAnswer(workflow, phase)) return [render('open-version', 'sent-back',
+      `The person sent ${phase.id} back${next.inputs.from ? ` after version ${next.inputs.from}` : ''}: version ${next.inputs.version} opens on that answer, with nothing asked. Its generator builds it once it opens.`, author)];
+      if (next.inputs.consent === 'required') return [render('build-version', 'preview',
       `Preview building version ${next.inputs.version} of ${phase.id} and ask the person to confirm it; ${next.inputs.from ? `version ${next.inputs.from} stays as published` : 'nothing published changes'}. Its generator builds it once it opens.`, author)];
       return [render('build-version', 'prepare', 'Continue the configured phase author; publish only after its checks pass.', author)];
     case 'author-version': return [render('author-version', 'prepare', 'Continue the configured phase author; publish only after its checks pass.', author)];

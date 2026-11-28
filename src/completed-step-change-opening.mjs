@@ -67,7 +67,7 @@ export async function completedStepChangeRollover(root, config, workflow, code, 
     command: route?.command ?? null, executable: route?.executable ?? null, argv: route?.argv ?? null, skill: route?.skill ?? null,
     copilotCommand: route?.copilotCommand ?? null, platformCommands: route?.platformCommands ?? null,
     nextAction: route ? { command: route.command, copilotCommand: route.copilotCommand,
-      reason: `Show the person what they asked to change, then ask them "${question}" with your question tool; only on their Yes run this confirmation.` } : null,
+      reason: `Show the person what they asked to change, then ask "${question}" once; run this on their Yes. Never ask twice.` } : null,
     mutates: false };
   let supplied = optionString(options, 'confirm');
   let typed = false;

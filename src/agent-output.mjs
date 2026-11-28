@@ -610,6 +610,10 @@ export function agentAct(result) {
     if (/\s--review-findings(?:\s|$)/u.test(settles?.commandGuidance?.command ?? settles?.command ?? '')) return withRoute({ state: 'next', do: null, read: ['next'],
       said: oneLine(`Only the reviewer has seen ${result.phase ?? 'this step'}'s published version: run do.shell now, in this turn. SFlow starts the next version itself and lists it on the decisions card; `
         + 'say its line, refresh the entry once and fix the review\'s findings in this same turn. Ask the person nothing about it.') }, settles);
+    // A step the person sent back: their send-back is the answer, so its next version opens on it (ask once, owner 2026-11-28).
+    if (/\s--sent-back(?:\s|$)/u.test(settles?.commandGuidance?.command ?? settles?.command ?? '')) return withRoute({ state: 'next', do: null, read: ['next'],
+      said: oneLine(`The person sent ${result.phase ?? 'this step'} back, which already answers whether to write its next version: run do.shell now, in this turn. `
+        + 'SFlow starts it on their answer; say its line (it names the answer used), refresh the entry once and write the version for their reason in this same turn. Ask the person nothing about it.') }, settles);
     // A review asked the published code for corrections: one yes from the person starts the next version, and this same
     // turn fixes the findings. Asked with the host's question tool, never answered by the agent [owner, 2026-11-16].
     // So does a change the person typed after it was published (successor.requests, their words quoted): one yes, then the
@@ -618,7 +622,7 @@ export function agentAct(result) {
     if (result.status === 'completed-step-change' && result.successor?.question) return withRoute({ state: 'confirm', do: null,
       read: ['successor', 'next'],
       ask: { kind: 'choice', question: result.successor.question, choices: (result.successor.choices ?? ['Yes', 'No']).map((label) => ({ label })),
-        how: `Show the person successor.requests in plain words, then ask successor.question now with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation command it returns, then \`singularity-flow phase enter ${result.phase} --compose --for-agent --json\` once, and make the change in ${result.phase} in this same turn. On No, or with no question tool, give the person next and end; never answer it yourself, and never build ${result.currentPhase ?? 'the current step'} in this turn.` },
+        how: `Show the person successor.requests in plain words, then ask successor.question now, once, with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation command it returns, on that same Yes without asking again, then \`singularity-flow phase enter ${result.phase} --compose --for-agent --json\` once, and make the change in ${result.phase} in this same turn. On No, or with no question tool, give the person next and end; never answer it yourself, and never build ${result.currentPhase ?? 'the current step'} in this turn.` },
       said: oneLine(`The person asked for a change to ${result.phase}, which already finished: ask them whether to go back to it and start version ${result.successor.targetGeneration ?? 'N+1'} for it, and on their Yes make it now.`) },
     result.successor.preview);
     const asked = result.successor?.requests?.length > 0;
@@ -631,8 +635,9 @@ export function agentAct(result) {
     if (result.status === 'successor-confirmation-required' && result.successor?.question) return withRoute({ state: 'confirm', do: null,
       read: ['successor', 'next'],
       // Words the person typed may have been only a question: its third answer opens nothing (owner, 2026-11-18).
-      ask: { kind: 'choice', question: result.successor.question, choices: [...(result.successor.choices ?? ['Yes', 'No']), ...(asked ? [JUST_A_QUESTION] : [])].map((label) => ({ label })),
-        how: `${result.successor.because ? 'Say successor.because first. ' : ''}Show the person successor.${asked ? 'requests' : 'findings'} in plain words, then ask successor.question now with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation it returns, refresh the entry once and ${asked ? 'make the change' : 'fix the findings'} in this same turn.${asked ? ` On "${JUST_A_QUESTION}" run do.shell (the preview), then its justAQuestion.command, which keeps their words as a question and opens nothing; answer their question in this turn.` : ''} On No, or with no question tool, give the person next and end; never answer it yourself.` },
+      ask: { kind: 'choice', question: result.successor.question, ...(result.successor.why ? { why: result.successor.why } : {}),
+        choices: [...(result.successor.choices ?? ['Yes', 'No']), ...(asked ? [JUST_A_QUESTION] : [])].map((label) => ({ label, ...(result.successor.does?.[label] ? { does: result.successor.does[label] } : {}) })),
+        how: `${result.successor.why ? 'Say ask.why first, as one line, and each choice with its does. ' : result.successor.because ? 'Say successor.because first. ' : ''}Show the person successor.${asked ? 'requests' : 'findings'} in plain words, then ask successor.question now, once, with your question tool (ask_user; in VS Code, vscode_askQuestions). On Yes run do.shell (the preview), then the confirmation it returns, on that same Yes without asking again, refresh the entry once and ${asked ? 'make the change' : 'fix the findings'} in this same turn.${asked ? ` On "${JUST_A_QUESTION}" run do.shell (the preview), then its justAQuestion.command, which keeps their words as a question and opens nothing; answer their question in this turn.` : ''} On No, or with no question tool, give the person next and end; never answer it yourself.` },
       said: oneLine(asked ? `The person asked for a change to ${result.phase ?? 'this step'}: ask them whether to start version ${result.successor.targetGeneration ?? 'N+1'} for it, and on their Yes make it now.`
         : `${result.successor.because ? `${result.successor.because} ` : ''}The review of ${result.phase ?? 'this step'} asked for corrections: ask the person whether to start version ${result.successor.targetGeneration ?? result.targetGeneration ?? 'N+1'} to fix them, and on their Yes do it now.`) },
     result.successor.preview);
@@ -812,9 +817,14 @@ export function agentAct(result) {
     return { state: 'read', do: null, said: oneLine(`${list.headline}${optional}`, 500) };
   }
   // The next version for a review's findings, started by SFlow, said in one line with its undo (owner, 2026-11-19).
+  // A version started on the person's send-back: its line names the answer used, so they see why nothing is asked.
+  if (result.resultType === 'sflow-generation-rollover' && result.kind === 'sent-back' && result.mutates === true && result.line) {
+    return withRoute({ state: 'next', do: null, show: result.line, read: ['settled', 'preserved', 'answerUsed'],
+      said: oneLine(`${result.line} Say act.show as it is, in one line, then refresh the entry once and write the version for their reason in this same turn; ask the person nothing about it.`) }, result.next ?? result.nextAction);
+  }
   if (result.resultType === 'sflow-generation-rollover' && result.kind === 'review-corrections' && result.mutates === true && result.line) {
     return withRoute({ state: 'next', do: null, show: result.line, read: ['settled', 'preserved', 'requestedChange'],
-      said: oneLine(`${result.line} Say act.show as it is, in one line, then refresh the entry once and fix the review's findings in this same turn; ask the person nothing about it.`) }, result.nextAction);
+      said: oneLine(`${result.line} Say act.show as it is, in one line, then refresh the entry once and fix the review's findings in this same turn; ask the person nothing about it.`) }, result.next ?? result.nextAction);
   }
   const action = genericAction(result);
   // A prepared scope-owning draft names the source statements it has yet to link, as entry does.
@@ -842,8 +852,12 @@ export function agentAct(result) {
         said: oneLine(`${result.nextAction?.reason ?? ''} Then refresh the entry once and do the version's work in this same turn.`) };
     }
     const question = result.justAQuestion?.command ? result.justAQuestion : null;
-    return { ...act, ask: { ...act.ask, question: result.question, choices: [{ label: 'Yes' }, { label: 'No' }, ...(question ? [{ label: question.answer }] : [])],
-      how: `Ask the person ask.question exactly, with your question tool (ask_user; in VS Code, vscode_askQuestions). Only on their Yes run ${act.do?.confirm ? 'do.confirm (do.shell by its code)' : 'do.shell'} once; on No, or with no question tool, start nothing and give them do.copilot.${question
+    const does = (label) => (result.does?.[label] ? { does: result.does[label] } : {});
+    return { ...act, ask: { ...act.ask, question: result.question, ...(result.why ? { why: result.why } : {}),
+      choices: [{ label: 'Yes', ...does('Yes') }, { label: 'No', ...does('No') }, ...(question ? [{ label: question.answer }] : [])],
+      // One question, one Yes: the entry may have asked it already in this turn, and their Yes carries this confirmation
+      // (d-story asked "Start version 3?", then "The rollover preview is ready. Start version 3?"; ask once, 2026-11-28).
+      how: `${result.why ? 'Say ask.why as one line, with each choice\'s does. ' : ''}If the person already said Yes to ask.question in this turn, do not ask again: run ${act.do?.confirm ? 'do.confirm (do.shell by its code)' : 'do.shell'} once now. Otherwise ask them ask.question exactly, once, with your question tool (ask_user; in VS Code, vscode_askQuestions). Only on their Yes run ${act.do?.confirm ? 'do.confirm (do.shell by its code)' : 'do.shell'} once; on No, or with no question tool, start nothing and give them do.copilot.${question
         ? ` Only on their "${question.answer}" run justAQuestion.command once: it keeps their words as a question and opens nothing.` : ''} Never answer it yourself.` } };
   }
   return act;

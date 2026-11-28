@@ -7,8 +7,8 @@
  *   D1  /sf-code and /sf-phase give the same targets and the same behaviour on a code step, a document step and a
  *       kernel-built step [OSA:REQ-024];
  *   D5  a kernel-built step is built by its declared generator in the work command's turn, and its next version opens on
- *       the person's yes before its generator builds it, with refusing AI and harness ports: no model and no Copilot runs
- *       [OSA:REQ-026].
+ *       the person's send-back (their yes, never asked again: ask once, 2026-11-28) before its generator builds it, with
+ *       refusing AI and harness ports: no model and no Copilot runs [OSA:REQ-026].
  */
 import assert from 'node:assert/strict';
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
@@ -155,7 +155,7 @@ test('D5: a kernel-built step is built by its generator in the work command\'s t
   assert.deepEqual(walks['/sf-next'], walks['/sf-code'], '/sf-next builds it in its own turn, the same way');
 });
 
-test('D5: a returned kernel-built step\'s next version opens only on the person\'s yes, then its generator builds it; no model, no harness', { ...posix, ...slowLane({ timeout: 600_000 }) }, async (t) => {
+test('D5: a kernel-built step a person sent back opens its next version on that send-back, then its generator builds it; no model, no harness', { ...posix, ...slowLane({ timeout: 600_000 }) }, async (t) => {
   const W = 'KB-RET';
   const story = await journeyRepository(t, { configure: (configuration) => {
     // The plan returns to itself: a kernel-built step with a person's approval, so a return reopens it.
@@ -172,22 +172,22 @@ test('D5: a returned kernel-built step\'s next version opens only on the person\
   assert.equal(publishedGeneration(storyRecord(story), 'poc-lite-plan'), 1, JSON.stringify(published.value?.act ?? published.value).slice(0, 2000));
   story.cli('submit', 'poc-lite-plan');
   story.cli('reject', 'poc-lite-plan', '--to', 'poc-lite-plan', '--reason', 'The plan must name the changed module explicitly.');
-  // The kernel's route is the step's preview, asked of the person, by its work command; its generator does not run first.
+  // The person's send-back answers "Start version 2?" (ask once, owner 2026-11-28): the kernel's route starts it on that
+  // answer, by the step's work command; its generator does not run first.
   const shown = run('phase', 'show', 'poc-lite-plan');
   const next = shown.value?.continuation?.nextAction ?? null;
-  assert.match(next?.command ?? '', /^singularity-flow phase rollover poc-lite-plan --json$/u, JSON.stringify(shown.value?.continuation ?? shown.value).slice(0, 2000));
+  assert.match(next?.command ?? '', /^singularity-flow phase rollover poc-lite-plan --sent-back --json$/u, JSON.stringify(shown.value?.continuation ?? shown.value).slice(0, 2000));
   assert.match(next?.skill ?? next?.copilotCommand ?? '', /^\/sf-phase\b/u);
   const refused = run('prepare', 'poc-lite-plan');
-  assert.notEqual(refused.status, 0, 'the generator never builds a successor with no yes');
+  assert.notEqual(refused.status, 0, 'the generator never builds a successor before it opens');
   assert.equal(refused.value?.error?.code, 'VERSION_CONSENT_REQUIRED', JSON.stringify(refused.value).slice(0, 1500));
-  // The preview asks the person; their yes at their own terminal opens version 2 through the opening operation.
-  const preview = run('phase', 'rollover', 'poc-lite-plan');
-  assert.equal(preview.status, 0, JSON.stringify(preview.value).slice(0, 2000));
-  assert.match(preview.value.question, /^Start version 2 of /u);
-  const opened = run('phase', 'rollover', 'poc-lite-plan', '--confirm', preview.value.confirmation);
+  // The start on the send-back opens version 2 through the opening operation, settled with the person's reason.
+  const opened = run('phase', 'rollover', 'poc-lite-plan', '--sent-back');
   assert.equal(opened.status, 0, JSON.stringify(opened.value).slice(0, 2000));
+  assert.match(opened.value.line, /^Using your answer from .* version 1: "The plan must name the changed module explicitly\." SFlow started version 2 /u);
   const opening = JSON.parse(readFileSync(path.join(story.root, story.item, 'context/version-openings/poc-lite-plan-v2.json'), 'utf8'));
-  assert.equal(opening.consent?.schema, 'version-opening-consent/v1');
+  assert.equal(opening.consent, null);
+  assert.equal(opening.settled?.kind, 'sent-back');
   assert.equal(opening.proposal.version, 2);
   // Then its generator builds version 2, and it is published.
   assert.equal(run('prepare', 'poc-lite-plan').status, 0);

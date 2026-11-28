@@ -10,8 +10,9 @@
  *   D  a required test would fail for an environment reason (the wrong Node): SFlow runs it on the installed Node the
  *      package accepts, settled with an undo, and the step publishes (owner, 2026-11-19, ceremony cut 5; before, the card's pin);
  *   E  a person answers after the 30-minute turn window (the Node pin, once they undid SFlow's settled Node): the turn renews;
- *   F  a code step returned for rework is written again, republished, its review asks corrections, the person is asked
- *      "Start version 3?", and it goes on to its submission [OSA:AC-013];
+ *   F  a code step a person sends back opens version 2 on that send-back, nothing asked; its review asks corrections of
+ *      a version only the reviewer saw, version 3 starts on its own, and it goes on to its submission (ask once, owner
+ *      2026-11-28; before, "Start version 2?" and "Start version 3?") [OSA:AC-013];
  *   G  version 2 open on a step with no review: submit refuses with the route to write it, which is then followed
  *      [OSA:REQ-032, AC-013];
  *   I  a document step's review asks corrections of a version only its reviewer saw: version 2 starts on its own, settled
@@ -254,11 +255,13 @@ test('journey B: a code review asks for corrections three times: versions 2 and 
     assert.ok(routes.some((route) => /^\/sf-code\b/u.test(route.copilot ?? '')), `no route to the code author: ${JSON.stringify(routes)}`);
   });
 
-  // Version 2's review asks again, for another finding: version 3 starts on its own too, the second in a row.
+  // Version 2's review asks again, for another finding: version 3 starts on its own too, the second in a row. A walk stopped
+  // inside the author's turn (the entry it reads next) goes on as that turn does: /sf-code again, never a bare command.
+  const resume = (walk) => (walk.next && !walk.next.inTurn && walk.next.copilot ? walk.next : { copilot: '/sf-code implement' });
   const opens = (version) => ({ record }) => Number(record?.phases?.implement?.generationIntent?.generation ?? 0) >= version
     && record.phases.implement.generationIntent.status === 'open';
   const second = await followRoutes(story, {
-    label: 'journey B, version 2 to version 3', start: first.next ?? { copilot: '/sf-code implement' },
+    label: 'journey B, version 2 to version 3', start: resume(first),
     agent: { author, review: reviewer({ findings: blocking }) }, person: cooperativePerson(), done: opens(3), maxSteps: 24
   });
   t.diagnostic(formatTrail(second.trail));
@@ -274,7 +277,7 @@ test('journey B: a code review asks for corrections three times: versions 2 and 
   // Version 3's review asks a third time: SFlow stops starting versions and asks the person, saying why (owner, 2026-11-19).
   const questions = [];
   const third = await followRoutes(story, {
-    label: 'journey B, version 3: the person is asked for version 4', start: second.next ?? { copilot: '/sf-code implement' },
+    label: 'journey B, version 3: the person is asked for version 4', start: resume(second),
     agent: { author, review: reviewer({ findings: blocking }) }, done: opens(4), maxSteps: 24,
     // What the person was told when asked; then the cooperative yes.
     person: cooperativePerson(({ act }) => { if (act?.state === 'confirm') questions.push(act); return null; })
@@ -294,7 +297,9 @@ test('journey B: a code review asks for corrections three times: versions 2 and 
     const asked = questions.find((act) => /Start version 4\b/u.test(act.ask?.question ?? ''));
     assert.ok(asked, JSON.stringify(questions).slice(0, 2000));
     assert.match(asked.said, /^The reviewer has asked for corrections 3 times in a row\./u);
-    assert.match(asked.ask.how, /^Say successor\.because first\./u);
+    // The hold is the question's why, said first, with what each answer does (ask once, owner 2026-11-28).
+    assert.equal(asked.ask.why, 'The reviewer has asked for corrections 3 times in a row.');
+    assert.match(asked.ask.how, /^Say ask\.why first, as one line, and each choice with its does\./u);
   });
 
   // Version 4: fixed, re-reviewed ready and submitted in the author's turn, which then ends: the code step completes (a
@@ -483,8 +488,9 @@ const versionedAuthor = (W) => async ({ story: s, phase, generation }) => {
 };
 
 // C8 and C13 (2026-11-16 review): a code step returned for rework said "next: prepare" while its edit permission and task
-// said `phase begin`; republished, a review asking corrections was not asked about as "Start version N?".
-test('journey F: a code step returned for rework is written again, its review asks corrections, the person is asked "Start version 3?", and it goes on', slowLane({ timeout: 1_800_000 }), async (t) => {
+// said `phase begin`. Ask once (owner, 2026-11-28): the person's send-back already answers "Start version 2?", and the
+// version written for it is one only the reviewer saw, so neither next version is asked (d-story answered 9 such questions).
+test('journey F: a code step a person sends back opens version 2 on that send-back, its review starts version 3 on its own, and the person is asked nothing', slowLane({ timeout: 1_800_000 }), async (t) => {
   const W = 'JRN-F';
   // The code step has an approver here, who returns it for rework.
   const story = await quickFixAtCode(t, W, { configure: (configuration) => {
@@ -492,6 +498,9 @@ test('journey F: a code step returned for rework is written again, its review as
       approval: { authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['implement'] } };
   } });
   const agent = { author: versionedAuthor(W), review: reviewer({ findings: explainTheValue(W, 2) }) };
+  // What the person did after their send-back: each answer and each step of their own (on main: "Start version 2?" and
+  // "Start version 3?", one answer each, and in a real chat the preview asked each once more).
+  const personActions = (trail) => trail.filter((entry) => entry.turn === 'person' || ['confirm', 'ask-person'].includes(entry.act)).length;
   // Version 1: written, reviewed ready and submitted by the routes; the approver then returns it.
   const first = await followRoutes(story, { label: 'journey F, version 1', start: { copilot: '/sf-code' }, agent, person: cooperativePerson(() => null),
     done: ({ record }) => record?.phases?.implement?.status === 'awaiting_approval', maxSteps: 24 });
@@ -501,43 +510,48 @@ test('journey F: a code step returned for rework is written again, its review as
   assert.equal(rejected.status, 0, rejected.stdout.slice(-2000) + rejected.stderr.slice(-2000));
   assert.ok(storyRecord(story).phases.implement.reworkRevalidation, 'the code step was returned for rework');
 
-  // The rework: written again, republished as version 2, and its review asks corrections.
+  // The rework: version 2 opens on the send-back, is written, republished, and its review asks corrections.
   const corrections = ({ trail }) => trail.some((entry) => /reviewer wrote.*correction-required/u.test(entry.did ?? ''));
-  const rework = await followRoutes(story, { label: 'journey F, the rework', start: { copilot: '/sf-code' }, agent, person: cooperativePerson(),
+  const rework = await followRoutes(story, { label: 'journey F, the rework', start: { copilot: '/sf-code' }, agent, person: cooperativePerson(() => null),
     done: corrections, maxSteps: 20 });
   t.diagnostic(formatTrail(rework.trail));
-  await check(t, 'the returned code step asks the person to start version 2 in its own entry, then writes it: no opening without their yes', {}, () => {
+  await check(t, 'the returned code step opens version 2 on the person\'s send-back, names the answer it used, and asks nothing', {}, () => {
     assert.equal(rework.reached, true, report(rework));
     assert.deepEqual(rework.findings, [], report(rework));
-    // A person's return reopens the step, and its next version still opens only on their yes [D3, OSA:REQ-030]: the entry
-    // asks "Start version 2?", and only then does the confirmation run, through the guard; nothing is prepared, begun or
-    // written before it [C13].
     const text = (item) => `${item.ran ?? ''} ${item.did ?? ''}`;
-    const asked = rework.trail.findIndex((item) => item.act === 'confirm');
-    const confirmed = rework.trail.findIndex((item) => /phase rollover implement --confirm /u.test(text(item)));
-    assert.ok(asked >= 0 && confirmed >= asked, report(rework));
-    assert.ok(rework.trail.slice(0, confirmed).every((item) => !/^singularity-flow (?:prepare|phase begin)\b/u.test(item.ran ?? '')), report(rework));
-    assert.equal(storyRecord(story).phases.implement.generation, 2);
+    const opened = rework.trail.findIndex((item) => /phase rollover implement --sent-back --json/u.test(text(item)));
+    assert.ok(opened >= 0, report(rework));
+    assert.equal(personActions(rework.trail), 0, report(rework));
+    // Nothing is prepared, begun or written before it opens [C13].
+    assert.ok(rework.trail.slice(0, opened).every((item) => !/^singularity-flow (?:prepare|phase begin)\b/u.test(item.ran ?? '')), report(rework));
+    const record = storyRecord(story);
+    assert.equal(record.phases.implement.generation, 2);
+    // Settled on the send-back, with the person's words as its evidence and an undo on the decisions card.
+    const settled = (record.settledDecisions ?? []).find((entry) => entry.kind === 'sent-back');
+    assert.ok(settled, JSON.stringify(record.settledDecisions ?? []));
+    assert.match(settled.evidence[0].what, /Say in the code why the value is 2\./u);
+    assert.ok((record.history ?? []).some((event) => event.event === 'version_opened' && event.phase === 'implement'
+      && /version 2 opened \(rework\) settled for the person \(STL-\d+; the person sent it back/u.test(event.detail ?? '')), JSON.stringify((record.history ?? []).slice(-12)));
   });
-  await check(t, 'after the rewrite\'s review asks corrections, the person is asked "Start version 3?" before it opens', {}, () => {
+  await check(t, 'after the rewrite\'s review asks corrections, version 3 starts on its own: only the reviewer saw version 2', {}, () => {
     const entry = json(story.raw(['phase', 'enter', '--compose', '--for-agent', '--json']).stdout);
-    assert.equal(entry?.act?.state, 'confirm', JSON.stringify(entry?.act ?? entry).slice(0, 1500));
-    assert.match(String(entry.act.ask?.question ?? ''), /^Start version 3\b/u);
-    assert.equal(storyRecord(story).phases.implement.generationIntent?.status, 'consumed', 'version 3 is not open before the person says yes');
+    assert.equal(entry?.act?.state, 'next', JSON.stringify(entry?.act ?? entry).slice(0, 1500));
+    assert.match(String(entry.act.do?.shell ?? ''), /phase rollover implement --review-findings --json/u, JSON.stringify(entry.act).slice(0, 1500));
+    assert.equal(entry.act.ask, undefined);
   });
 
-  // Onward: the person says yes, version 3 opens through the opening operation on that yes, and is written, reviewed
-  // ready and submitted by its routes.
-  const onward = await followRoutes(story, { label: 'journey F, version 3', start: rework.next ?? { copilot: '/sf-code' }, agent, person: cooperativePerson(),
+  // Onward: version 3 starts on its own, is written, reviewed ready and submitted by its routes.
+  const onward = await followRoutes(story, { label: 'journey F, version 3', start: rework.next ?? { copilot: '/sf-code' }, agent, person: cooperativePerson(() => null),
     done: ({ record }) => record?.phases?.implement?.status === 'awaiting_approval' && Number(record.phases.implement.generation) === 3, maxSteps: 24 });
   t.diagnostic(formatTrail(onward.trail));
-  await check(t, 'version 3 is opened on the person\'s yes, written, reviewed ready and submitted by its routes', {}, () => {
+  await check(t, 'version 3 starts on its own, is written, reviewed ready and submitted by its routes, with nothing asked', {}, () => {
     assert.equal(onward.reached, true, report(onward));
     assert.deepEqual(onward.findings, [], report(onward));
-    // The person's yes comes first: the walk asked "Start version 3?" before the version opened.
-    assert.ok(onward.trail.some((entry) => entry.act === 'confirm' && /:consumed2\]?$/u.test(entry.state ?? '')), report(onward));
+    assert.equal(personActions(onward.trail), 0, report(onward));
+    assert.ok(onward.trail.some((entry) => /phase rollover implement --review-findings/u.test(`${entry.ran ?? ''} ${entry.did ?? ''}`)), report(onward));
     assert.ok(onward.trail.some((entry) => /reviewer wrote.*ready/u.test(entry.did ?? '')), report(onward));
   });
+  t.diagnostic(`person actions from the send-back to version 3's submission: ${personActions(rework.trail) + personActions(onward.trail)} (main: 2)`);
   await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => {
     for (const walk of [first, rework, onward]) viewsAgree(walk);
   });
@@ -732,7 +746,7 @@ test('journey L: a change typed while the review is owed, the person says No, an
 // review asks corrections of version 1, which only its reviewer has seen: SFlow starts version 2 itself, through the opening
 // operation, settled for the person with an undo, and nobody is asked "Start version 2?", a yes that only agreed with a
 // reviewer they had not read (owner, 2026-11-19, ceremony cut 10); version 2 is written, reviewed ready, submitted and
-// approved by its routes [OSA:REQ-020]. A version a person has seen is still asked (journey F) [D3, OSA:REQ-030, AC-013].
+// approved by its routes [OSA:REQ-020]. A version a person has seen is still asked [D3, OSA:REQ-030, AC-013].
 test('journey I: a document step\'s review asks corrections of a version only its reviewer saw: version 2 starts on its own, and the step goes on by its routes', slowLane({ timeout: 1_800_000 }), async (t) => {
   const W = 'JRN-I';
   const story = await journeyRepository(t, { configure: (configuration) => {

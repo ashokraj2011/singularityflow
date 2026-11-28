@@ -92,7 +92,10 @@ test('SFlow starts at most 2 versions in a row for a review\'s findings; the thi
   const act = agentAct({ resultType: 'sflow-phase-entry', phase: 'implementation', ...entry, next: entry.actions });
   assert.equal(act.state, 'confirm');
   assert.match(act.said, /^The reviewer has asked for corrections 3 times in a row\. The review of implementation asked for corrections: ask the person whether to start version 4/u);
-  assert.match(act.ask.how, /^Say successor\.because first\./u);
+  // Why it is asked is the ask's own line, and each answer says what it does (ask once, owner 2026-11-28).
+  assert.equal(act.ask.why, 'The reviewer has asked for corrections 3 times in a row.');
+  assert.match(act.ask.how, /^Say ask\.why first, as one line, and each choice with its does\./u);
+  assert.match(act.ask.choices.find((choice) => choice.label === 'No')?.does ?? '', /^No keeps version 3: its review still asks for changes/u);
 });
 
 test('a person\'s yes on a version resets the count: only starts in a row since then count', () => {

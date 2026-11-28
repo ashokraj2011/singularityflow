@@ -198,6 +198,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   const preview = {
     schemaVersion: 1, resultType: 'sflow-generation-rollover', kind: kind === 'review-corrections' ? 'requested-change' : kind,
     workId: workflow.workItem.id, phase: phase.id, fromGeneration: phase.generation, toGeneration: proposed.proposal.version, question: proposed.question,
+    why: proposed.asked.why, does: { Yes: proposed.asked.yes, No: proposed.asked.no },
     requestedChange: { requests, keptAs: edited ? 'the edited document itself; nothing is kept as typed words' : typedFocusOff(workflow) ? 'this command only'
       : `typed words of generation ${next} ("Asked for" once it is prepublished)` },
     confirmation: expected, currentResultDigest: resultDigest,
@@ -206,7 +207,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     command: route?.command ?? null, executable: route?.executable ?? null, argv: route?.argv ?? null, skill: route?.skill ?? null,
     copilotCommand: route?.copilotCommand ?? null, platformCommands: route?.platformCommands ?? null,
     nextAction: route ? { command: route.command, copilotCommand: route.copilotCommand,
-      reason: `Show the person what they asked to change and this confirmation; only on their explicit yes open generation ${next}.` } : null,
+      reason: `Show the person what they asked to change, then ask "${proposed.question}" once; run this on their Yes. Never ask twice.` } : null,
     // The question's third answer, beside Yes and No: on the person's own "No, it was just a question", its command keeps what
     // they typed as a question with nothing to change and opens nothing (owner, 2026-11-18).
     ...(questionRoute ? { justAQuestion: { answer: JUST_A_QUESTION, command: questionRoute.command, argv: questionRoute.argv,

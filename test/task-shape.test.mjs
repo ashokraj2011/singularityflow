@@ -175,14 +175,14 @@ test('ITW REQ-113 (owner, 2026-11-28): each approval of a sized task says why th
   const { agentAct } = await import('../src/agent-output.mjs');
   const small = { workItem: { id: 'TASK-1' }, resolution: { composition: composeTask(base(), { kind: 'fix' }) } };
   const intake = { id: 'intake', generation: 1 };
-  assert.equal(taskApprovalWhy(small, intake), 'You decide what gets built: the requirement says it, clause by clause, with how each is tested. Yes: implement and test start. Make it a big change: a spec and a plan come first. Not now: it waits, and /sf-task brings it back.');
-  assert.match(taskApprovalWhy(small, { id: 'implementation', generation: 1 }), /^You decide whether this code goes in: it changes the repository\. Yes: SFlow runs the tests itself/u);
+  assert.equal(taskApprovalWhy(small, intake), 'You decide what gets built: the requirement says it, clause by clause, with how each is tested. Yes: implement and test start. Make it a big change: a spec and a plan come first. Not now: the requirement waits; /sf-task brings it back.');
+  assert.equal(taskApprovalWhy(small, { id: 'implementation', generation: 1 }), 'You decide whether this code goes in: it changes the repository. Yes: SFlow runs the tests itself and approves the tests step when they pass. Not now: the code waits; /sf-task brings it back.');
   assert.equal(taskApprovalWhy(small, { id: 'verification', generation: 1 }), null, 'SFlow\'s own tests step asks nobody');
   assert.deepEqual(taskApprovalAlternatives(small, intake), [{ label: 'Make it a big change', command: 'singularity-flow work shape big --work-id TASK-1 --json',
-    does: 'adds a spec, a plan and the tests after the requirement, which then asks for your Yes again' }]);
+    does: 'adds a spec and a plan before the code, and the requirement asks for your Yes again' }]);
   const big = { workItem: { id: 'TASK-1' }, resolution: { composition: composeTask(base(), { kind: 'change', shape: 'big' }) } };
   assert.deepEqual(taskApprovalAlternatives(big, intake), [], 'a big change stays big');
-  assert.match(taskApprovalWhy(big, { id: 'implementation-spec', generation: 1 }), /^You decide how the code will be written/u);
+  assert.equal(taskApprovalWhy(big, { id: 'implementation-spec', generation: 1 }), 'You decide how the code will be written: the plan names the files and the tests for each clause. Yes: the code is written to it. Not now: the plan waits; /sf-task brings it back.');
   assert.equal(taskApprovalWhy({ resolution: { composition: composeTask(base({ sizing: 'kind' }), { kind: 'fix' }) } }, intake), null, 'a Story composed before v1.2 asks as before');
   // The chat's question carries the line and the other answer, with the command it runs; the Yes stays the first choice.
   const act = agentAct({ approvalPacket: {}, approvalContext: { phase: 'intake' }, ready: true, workId: 'TASK-1', onYes: { command: 'singularity-flow choices answer x' },
@@ -192,4 +192,44 @@ test('ITW REQ-113 (owner, 2026-11-28): each approval of a sized task says why th
   assert.deepEqual(act.ask.choices, [{ label: 'Approve the requirement v1 · Small change: implement and test next' },
     { label: 'Make it a big change', command: 'singularity-flow work shape big --work-id TASK-1 --json' }, { label: 'Not now' }]);
   assert.match(act.ask.how, /Say ask\.why in one line before the question\. On a choice with a command, run that command, say its words, and begin this approval again\.$/u);
+});
+
+test('ITW REQ-113 (coordinator, 2026-11-28): a step a team\'s rules give a person says the reasons of the rules that gave it, each once on one line, never another rule\'s', async () => {
+  const { taskApprovalWhy } = await import('../src/task-shape.mjs');
+  const tasks = {
+    always: [{ kinds: ['fix'], personApproves: ['test'], because: 'A person reads every fix\'s test results.' }, { kinds: ['fix'], personApproves: ['code'], because: 'A person reads every fix.' }],
+    paths: [{ paths: ['src/billing/**'], personApproves: ['code'], because: 'Billing code is read by a person.' }] };
+  const definition = base(tasks);
+  const composition = composeTask(definition, { kind: 'fix', touchedPaths: ['src/billing/total.mjs'] });
+  assert.deepEqual(composition.approvalRules, [
+    { intent: 'test', rule: 'always[0]', because: 'A person reads every fix\'s test results.' },
+    { intent: 'code', rule: 'always[1]', because: 'A person reads every fix.' },
+    { intent: 'code', rule: 'paths[0]', because: 'Billing code is read by a person.' }]);
+  const workflow = { workItem: { id: 'TASK-1' }, resolution: { composition } };
+  assert.equal(taskApprovalWhy(workflow, { id: 'implementation', generation: 1 }), 'You decide whether this code goes in: it changes the repository. Yes: SFlow runs the tests itself and approves the tests step when they pass. Not now: the code waits; /sf-task brings it back. Also, the team\'s rules ask: A person reads every fix; Billing code is read by a person.');
+  assert.equal(taskApprovalWhy(workflow, { id: 'verification', generation: 1 }), 'You approve the tests because the team\'s rule asks: A person reads every fix\'s test results. Yes: the task goes on. Not now: the tests wait; /sf-task brings them back.');
+  // The step's pinned reason is its own rules' too, not the first rule's.
+  const pinned = taskDefinition(definition, composition).workTypes['task-fix'].phaseOverrides;
+  assert.equal(pinned.implementation.because['approval.automatic'], 'A person reads every fix. Billing code is read by a person.');
+  assert.equal(pinned.verification.because['approval.automatic'], 'A person reads every fix\'s test results.');
+  // Without the paths rule's files, only the rule that gave it.
+  const plain = { workItem: { id: 'TASK-1' }, resolution: { composition: composeTask(definition, { kind: 'fix' }) } };
+  assert.match(taskApprovalWhy(plain, { id: 'implementation', generation: 1 }), / Also, the team's rule asks: A person reads every fix\.$/u);
+  // A composition recorded before it kept the reasons names no rule it cannot tell gave the step.
+  const { approvalRules: _kept, ...older } = composition;
+  assert.match(taskApprovalWhy({ resolution: { composition: older } }, { id: 'implementation', generation: 1 }), / Also, the team's task rules give it to you\.$/u);
+  assert.equal(taskDefinition(definition, older).workTypes['task-fix'].phaseOverrides.verification.because['approval.automatic'], 'A person reads every fix\'s test results.',
+    'a Story recorded before keeps its pinned words');
+  // No rule, no field: the composition is as before.
+  assert.equal(Object.hasOwn(composeTask(base(), { kind: 'fix' }), 'approvalRules'), false);
+});
+
+test('ITW REQ-113 (coordinator, 2026-11-28): a refactor\'s plan and code say what the person decides (behaviour kept, checked before and after) and what Yes does; Not now names what waits', async () => {
+  const { taskApprovalWhy } = await import('../src/task-shape.mjs');
+  const refactor = { workItem: { id: 'TASK-1' }, resolution: { composition: composeTask(base(), { kind: 'refactor' }) } };
+  assert.equal(taskApprovalWhy(refactor, { id: 'implementation-spec', generation: 1 }), 'You decide what must not change: the plan names the behaviour this refactor keeps and the checks that show it. Yes: the code is changed to it, and SFlow checks that what passed on the base before any edit still passes. Not now: the plan waits; /sf-task brings it back.');
+  assert.equal(taskApprovalWhy(refactor, { id: 'implementation', generation: 1 }), 'You decide whether this refactor goes in: what passed on the base before any edit still passes on it, so its behaviour stays the same. Yes: SFlow runs the tests again at the tests step and approves it when they pass. Not now: the code waits; /sf-task brings it back.');
+  assert.equal(taskApprovalWhy(refactor, { id: 'intake', generation: 1 }), null, 'its intake is SFlow\'s to approve');
+  // A Story of another kind composed before v1.2 keeps its approval's own words.
+  assert.equal(taskApprovalWhy({ resolution: { composition: composeTask(base({ sizing: 'kind' }), { kind: 'change' }) } }, { id: 'implementation-spec', generation: 1 }), null);
 });

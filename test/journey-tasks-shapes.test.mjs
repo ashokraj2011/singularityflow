@@ -1,8 +1,9 @@
 /**
- * Journeys ITW v1.2 (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md REQ-101–112): a task walked from its words to its end by its
+ * Journeys ITW v1.2 (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md REQ-101–113): a task walked from its words to its end by its
  * routes, as Copilot CLI drives it, with the workflow's own checks deciding each step; each counts what the person did.
  * - a small change: the requirement, then one step that implements and tests, then SFlow's run of the tests: 3 actions;
  * - a big change, whose requirement proposes it: spec, plan, code and tests after it: 4 actions;
+ * - a small change the person makes big at its requirement ("Make it a big change"), whose requirement then asks again: 5;
  * - a small change whose code turns out bigger: it grows, with a plan before the code and tests after: 4 actions.
  * The scripted agent writes each step from its own template (test/helpers/generated-journey.mjs).
  */
@@ -140,6 +141,34 @@ test('journey ITW v1.2, B2: a requirement that proposes a big change gains spec,
 });
 
 const SIX_FILES = ['src/reads/a.mjs', 'src/reads/b.mjs', 'lib/c.mjs', 'lib/d.mjs', 'app/e.mjs', 'app/f.mjs'];
+
+test('journey ITW v1.2, B12: the person makes a small change big at its requirement: "Make it a big change", then the requirement\'s Yes again, the plan and the code; 5 actions', slowLane({ timeout: 2_400_000 }), async (t) => {
+  // The person: at the first approval that offers it, the other answer on the same screen; every other approval a Yes.
+  const person = (story) => {
+    const yes = generatedPerson(story, 'TASK-1');
+    let chosen = false;
+    return (context) => {
+      if (!chosen && (context.act?.ask?.choices ?? []).some((choice) => choice?.label === 'Make it a big change')) { chosen = true; return { choose: 'Make it a big change' }; }
+      return yes(context);
+    };
+  };
+  const { story, walk } = await walkTask(t, 'make the value module return 2', 'change', { agent: sizingAgent(), person });
+  assert.deepEqual(walk.findings, [], `${JSON.stringify(walk.findings)}\n${formatTrail(walk.trail)}`);
+  assert.equal(walk.reached, true, formatTrail(walk.trail));
+  const record = storyRecord(story);
+  assert.deepEqual(record.phaseOrder.map((id) => record.phases[id].label), ['Requirement', 'Spec', 'Plan', 'Code', 'Tests']);
+  const shaped = record.resolution.composition.changes.filter((entry) => entry.shape === 'big');
+  assert.deepEqual(shaped.map((entry) => [entry.intent, entry.because]), [['plan', 'The person asked for a big change.'], ['requirements', 'The person asked for a big change.']]);
+  // The choice, then the same requirement asks its Yes again, saying it is big now because the person asked.
+  const chose = walk.trail.findIndex((entry) => /the person answered "Make it a big change" to "Approve the requirement v1 · Small change: implement and test next\?"/u.test(entry.did ?? ''));
+  assert.ok(chose >= 0, formatTrail(walk.trail));
+  assert.match(walk.trail[chose].did, /the agent ran work shape big --work-id TASK-1: Big change, as you asked: a spec and a plan were added\.; it begins the approval again/u, formatTrail(walk.trail));
+  assert.equal(walk.trail[chose + 1].typed, undefined, 'nothing typed again: the approval begins again in the same turn');
+  assert.deepEqual(answeredYes(walk.trail), ['Approve the requirement v1 · Big change: spec, plan, code and tests next (you asked for it)?', 'Approve Plan v1?', 'Approve Code v1?']);
+  assert.deepEqual(record.phaseOrder.filter((id) => record.phases[id].approvalDisposition !== 'approved_automatically'), ['intake', 'implementation-spec', 'implementation']);
+  // The words, the big change, the requirement's Yes, the plan's and the code's.
+  assert.deepEqual(personActions(walk.trail), { words: 1, typed: 0, answers: 4, own: 0, total: 5 }, formatTrail(walk.trail));
+});
 
 test('journey ITW v1.2, B4: a small change whose code turns out bigger grows: a plan before the code, tests after it; the person takes 4 actions', slowLane({ timeout: 2_400_000 }), async (t) => {
   const { story, walk } = await walkTask(t, 'make the value module return 2', 'change', { agent: sizingAgent({ extra: SIX_FILES }), maxSteps: 220 });

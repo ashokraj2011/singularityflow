@@ -1016,6 +1016,21 @@ async function chatApproval({ story, route, person, entry, guard, phase, last })
     if (!ask?.question || !ask.onYes) return { result: begun.result, finding: { kind: 'approval-without-question', detail: `${short(begin)} asked no question with an onYes` }, turn: '/sf-task' };
     const answer = person?.({ story, route: { ...route, copilot: '/sf-approve' }, result: begun.result, act: begun.result.act, phase });
     if (!answer) return { result: begun.result, personPending: true, finding: { kind: 'person-unanswered', detail: `the approval question "${ask.question}"` }, turn: '/sf-task' };
+    // The person's other answer on the same screen (`answer.choose`, a choice with its command: "Make it a big change"): the
+    // agent runs that command, says its words and begins this approval again, in the same turn [ITW:REQ-113].
+    if (answer.choose) {
+      const other = (ask.choices ?? []).find((choice) => choice?.label === answer.choose && typeof choice.command === 'string');
+      if (!other) return { result: begun.result, finding: { kind: 'choice-missing', detail: `"${answer.choose}" is not a choice with a command on "${ask.question}"` }, turn: '/sf-task' };
+      const labels = (ask.choices ?? []).map((choice) => choice?.label ?? choice);
+      guard.turn.tool('ask_user', { question: ask.question, choices: labels });
+      guard.turn.after('ask_user', { question: ask.question, choices: labels }, { resultType: 'success', textResultForLlm: `User responded: ${other.label}` });
+      const chose = await run(other.command);
+      if (chose.status !== 0) return refusalRoute(chose.result, other.command, '/sf-task') ?? { result: chose.result, finding: { kind: 'choice-refused', detail: `${short(other.command)}: ${chose.result?.error?.code ?? ''}` }, turn: '/sf-task' };
+      said.push(`the person answered "${other.label}" to "${ask.question}" in the chat`);
+      entry.did = `${said.join('; ')}; the agent ran ${short(other.command)}: ${short(chose.result?.words ?? '')}; it begins the approval again`;
+      Object.assign(entry, { ran: chose.ran, status: chose.status, act: chose.result?.act?.state ?? null });
+      return { result: chose.result, next: { ...route, carried: true }, personPending: false, turn: '/sf-task' };
+    }
     const yes = (ask.choices ?? []).map((choice) => choice?.label ?? choice).find((label) => typeof label === 'string' && !/^not now$/iu.test(label))
       ?? ask.question.replace(/\?$/u, '');
     guard.turn.tool('ask_user', { question: ask.question, choices: [yes, 'Not now'] });

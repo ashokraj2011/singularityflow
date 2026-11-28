@@ -19,7 +19,11 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-import { checkTaskRules, isBigShape, isSized, pathMatches, SIZED_KINDS, taskShape } from './task-composition.mjs';
+import { approvalReasons, checkTaskRules, isBigShape, isSized, pathMatches, SIZED_KINDS, taskShape } from './task-composition.mjs';
+
+/** Why a small change is big when nothing else says so: the person's own ask (`work shape big`), as its record says it. */
+const PERSON_ASKED = 'the person asked for a big change';
+const BIG_ORDER = Object.freeze(['requirements', 'design', 'plan', 'test']);
 
 /** What a small change may touch [ITW:REQ-103; open question 1, default]: application files and areas, tests apart. */
 export const SMALL_LIMITS = Object.freeze({ files: 5, areas: 2 });
@@ -120,30 +124,67 @@ export function taskApprovalQuestion(workflow, phase) {
   const step = (composition.steps ?? []).find((entry) => entry.id === phase.id);
   if (step?.intent !== 'intake') return null;
   const shape = taskShape(composition);
-  const why = (composition.changes ?? []).find((entry) => entry?.shape === 'big' && entry.because)?.because?.replace(/[.\s]+$/u, '') ?? null;
+  const said = (composition.changes ?? []).find((entry) => entry?.shape === 'big' && entry.because)?.because?.replace(/[.\s]+$/u, '') ?? null;
+  // The question is the person's: their own ask for a big change is "you asked for it".
+  const why = said && said.toLowerCase() === PERSON_ASKED ? 'you asked for it' : said;
   return `Approve the requirement v${Number(phase.generation) || 0} · ${shape === 'big' ? 'Big' : 'Small'} change: ${nextWords(composition)} next${why ? ` (${why})` : ''}?`;
 }
 
+// What waits when the person says Not now, by step intent, as the person names the step [ITW:REQ-113].
+const WAITING = Object.freeze({ intake: 'requirement', requirements: 'spec', design: 'design', plan: 'plan', code: 'code', test: 'tests', review: 'review' });
+
+/** A step as the person names it: "requirement", "plan", "code"; a refactor's first step is its "intake". */
+function stepNoun(composition, intent) {
+  const sized = isSized(composition);
+  return intent === 'code' && composition.kind === 'tests' ? 'tests' : !sized && intent === 'intake' ? 'intake'
+    : !sized && intent === 'requirements' ? 'requirements' : WAITING[intent] ?? 'step';
+}
+
+/** A step's Not now, in its own words: "Not now: the plan waits; /sf-task brings it back." */
+function notNow(composition, intent) {
+  const noun = stepNoun(composition, intent);
+  const many = noun === 'tests' || noun === 'requirements';
+  return `Not now: the ${noun} ${many ? 'wait' : 'waits'}; /sf-task brings ${many ? 'them' : 'it'} back.`;
+}
+
 /**
- * Why a person is asked to approve a step of a sized task, and what each answer does, in one plain line [ITW:REQ-113;
- * owner 2026-11-28: every decision says plainly why the person makes it]. Null for a step SFlow approves, or another Story.
+ * Why the team's rules ask the person for this step, on one line [ITW:REQ-113]: the reason of each rule that gave its
+ * approval (composition.approvalRules), never another rule's; null when no rule gave it.
+ */
+function ruleReasons(composition, intent) {
+  if (!(composition.personApproves ?? []).includes(intent)) return null;
+  const reasons = (approvalReasons(composition, intent) ?? []).map((because) => because.replace(/[.\s]+$/u, ''));
+  return reasons.length > 1 ? `the team's rules ask: ${reasons.join('; ')}` : reasons.length ? `the team's rule asks: ${reasons[0]}`
+    : 'the team\'s task rules give it to you';
+}
+
+/** The kind's own refactor, whose plan says what must not change and whose checks ran on the base before any edit. */
+const ownRefactor = (composition) => composition?.kind === 'refactor' && !composition.uses && !composition.local && !composition.agent;
+
+/**
+ * Why a person is asked to approve a step of a task, and what each answer does, in one plain line [ITW:REQ-113; owner
+ * 2026-11-28: every decision says plainly why the person makes it]: a sized task's steps and a refactor's. Null for a step
+ * SFlow approves, and for a Story composed before v1.2 (it keeps its approval's own words).
  */
 export function taskApprovalWhy(workflow, phase) {
   const composition = workflow?.resolution?.composition ?? null;
   const step = (composition?.steps ?? []).find((entry) => entry.id === phase?.id);
-  if (!isSized(composition) || !step) return null;
-  const big = isBigShape(composition);
-  const waits = 'Not now: it waits, and /sf-task brings it back.';
-  const ruled = (composition.personApproves ?? []).includes(step.intent)
-    ? (composition.rules ?? []).find((entry) => entry.because && entry.rule !== 'plan')?.because?.replace(/[.\s]+$/u, '') : null;
-  const asked = ruled ? ` The team's rule asks for you: ${ruled}.` : '';
-  if (step.intent === 'intake' && SIZED_KINDS.includes(composition.kind)) {
-    return big ? `You decide what gets built: the requirement says it, clause by clause, with how each is tested, and its size is big. Yes: the spec, then the plan for your approval. ${waits}`
-      : `You decide what gets built: the requirement says it, clause by clause, with how each is tested. Yes: implement and test start. Make it a big change: a spec and a plan come first. ${waits}`;
+  if (!step || !(isSized(composition) || ownRefactor(composition))) return null;
+  const waits = notNow(composition, step.intent);
+  const ruled = ruleReasons(composition, step.intent);
+  const too = ruled ? ` Also, ${ruled}.` : '';
+  if (ownRefactor(composition)) {
+    if (step.intent === 'plan') return `You decide what must not change: the plan names the behaviour this refactor keeps and the checks that show it. Yes: the code is changed to it, and SFlow checks that what passed on the base before any edit still passes. ${waits}${too}`;
+    if (step.intent === 'code') return `You decide whether this refactor goes in: what passed on the base before any edit still passes on it, so its behaviour stays the same. Yes: SFlow runs the tests again at the tests step and approves it when they pass. ${waits}${too}`;
+  } else if (step.intent === 'intake' && SIZED_KINDS.includes(composition.kind)) {
+    return isBigShape(composition) ? `You decide what gets built: the requirement says it, clause by clause, with how each is tested, and its size is big. Yes: the spec, then the plan for your approval. ${waits}${too}`
+      : `You decide what gets built: the requirement says it, clause by clause, with how each is tested. Yes: implement and test start. Make it a big change: a spec and a plan come first. ${waits}${too}`;
+  } else if (step.intent === 'plan') {
+    return `You decide how the code will be written: the plan names the files and the tests for each clause. Yes: the code is written to it. ${waits}${too}`;
+  } else if (step.intent === 'code') {
+    return `You decide whether this code goes in: it changes the repository. Yes: SFlow runs the tests itself and approves the tests step when they pass. ${waits}${too}`;
   }
-  if (step.intent === 'plan') return `You decide how the code will be written: the plan names the files and the tests for each clause. Yes: the code is written to it. ${waits}${asked}`;
-  if (step.intent === 'code') return `You decide whether this code goes in: it changes the repository. Yes: SFlow runs the tests itself and approves the tests step when they pass. ${waits}${asked}`;
-  return ruled ? `You approve it because the team's rule asks: ${ruled}. Yes: the task goes on. ${waits}` : null;
+  return ruled ? `You approve the ${stepNoun(composition, step.intent)} because ${ruled}. Yes: the task goes on. ${waits}` : null;
 }
 
 /** The other answers a sized task's approval offers beside Yes and Not now: a small requirement can be made big [ITW:REQ-103]. */
@@ -152,7 +193,7 @@ export function taskApprovalAlternatives(workflow, phase) {
   const step = (composition?.steps ?? []).find((entry) => entry.id === phase?.id);
   if (!isSized(composition) || !SIZED_KINDS.includes(composition.kind) || step?.intent !== 'intake' || isBigShape(composition)) return [];
   return [{ label: 'Make it a big change', command: `singularity-flow work shape big --work-id ${workflow.workItem.id} --json`,
-    does: 'adds a spec, a plan and the tests after the requirement, which then asks for your Yes again' }];
+    does: 'adds a spec and a plan before the code, and the requirement asks for your Yes again' }];
 }
 
 /**
@@ -229,7 +270,7 @@ export async function decideShapeAfterRequirement(root, workId, phaseId, { force
   const facts = await shapeFactsFor(root, definition, { kind: composition.kind, files, proposed: proposedSize(text) });
   const shape = force === 'big' ? 'big' : facts.shape;
   if (shape !== 'big') return { shape, facts, lines: [], added: [] };
-  const reasons = force === 'big' && !facts.reasons.length ? ['the person asked for a big change'] : facts.reasons;
+  const reasons = force === 'big' && !facts.reasons.length ? [PERSON_ASKED] : facts.reasons;
   const because = `${reasons[0][0].toUpperCase()}${reasons.join('; ').slice(1)}.`;
   return growToBig(root, workId, { definition, because, design: facts.design, facts, by });
 }
@@ -258,6 +299,10 @@ export async function growToBig(root, workId, { definition, because, design = fa
       break;
     }
   }
-  if (added.length) lines.unshift(`Big change: ${because.replace(/\.$/u, '')}. ${by === 'person' ? 'You asked for it' : 'SFlow made it big'}; ${list(added.map((entry) => entry.intent === 'requirements' ? 'a spec' : entry.intent === 'test' ? 'a tests step' : `a ${entry.intent}`))} ${added.length > 1 ? 'were' : 'was'} added.`);
+  // In the order the person meets the steps: the spec, the design, the plan, the tests.
+  const met = [...added].sort((left, right) => BIG_ORDER.indexOf(left.intent) - BIG_ORDER.indexOf(right.intent));
+  const what = `${list(met.map((entry) => entry.intent === 'requirements' ? 'a spec' : entry.intent === 'test' ? 'a tests step' : `a ${entry.intent}`))} ${added.length > 1 ? 'were' : 'was'} added`;
+  const asked = by === 'person' && because.replace(/[.\s]+$/u, '').toLowerCase() === PERSON_ASKED;
+  if (added.length) lines.unshift(asked ? `Big change, as you asked: ${what}.` : `Big change: ${because.replace(/\.$/u, '')}. ${by === 'person' ? 'You asked for it' : 'SFlow made it big'}; ${what}.`);
   return { shape: 'big', facts, lines, added };
 }

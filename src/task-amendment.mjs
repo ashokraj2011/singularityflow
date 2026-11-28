@@ -226,6 +226,14 @@ async function taskStepChange(root, definition, workflow, { intent, rule = null,
   const groups = composer.ruleGroupApproves(definition, kind, [...(composition.touchedPaths ?? []), ...changedPaths, ...files])
     .filter((entry) => entry.intent === intent && !(nextComposition.groupApproves ?? []).some((held) => held.intent === intent && held.group === entry.group));
   if (groups.length) nextComposition.groupApproves = [...(nextComposition.groupApproves ?? []), ...groups];
+  // And the reasons of the rules that give it, so its approval says them [ITW:REQ-113]: kept by a composition that keeps
+  // them, or one with no person's approval from a rule yet; one recorded before them keeps its words.
+  const rose = (nextComposition.personApproves ?? []).includes(intent) && !(composition.personApproves ?? []).includes(intent);
+  if (rose && (Array.isArray(composition.approvalRules) || !(composition.personApproves ?? []).length)) {
+    const reasons = composer.ruleApprovalReasons(definition, kind, [...(composition.touchedPaths ?? []), ...changedPaths, ...files])
+      .filter((entry) => entry.intent === intent && !(composition.approvalRules ?? []).some((held) => held.intent === intent && held.rule === entry.rule));
+    if (reasons.length) nextComposition.approvalRules = [...(composition.approvalRules ?? []), ...reasons];
+  }
   // The work type with the step, resolved as the Story's start resolved its own. A step the change would hand from a
   // person to SFlow (an intake that was the plan, once a design step plans) stays a person's: the composition says so
   // (personKeeps), so a change only ever adds approvals and every later reader resolves the same steps. A step that wrote

@@ -1298,7 +1298,7 @@ Copilot custom-agent IDs may map to different governed-agent IDs in `singularity
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1407 body tokens</span>
+          <span class="pill">~1421 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-amend</code></dd></div>
@@ -1333,7 +1333,7 @@ This is the dedicated route for `singularity-flow story intent-amendment`; `/sf-
 2. Run `singularity-flow story intent-amendment draft --work-id &lt;WORK-ID&gt; --clause &lt;CLAUSE-ID&gt;` (one `--clause` per changed clause). Write only the changed clauses in the file it issues.
 3. Show the `summary` of `singularity-flow story intent-amendment preview --work-id &lt;WORK-ID&gt; --for-agent --json` in plain words (what changes, its size and why, what is redone or kept, who decides). It records nothing.
 4. Propose it in this same turn, asking nothing first, only when `singularity-flow nextsteps --for-agent --json` returns the `singularity-flow story intent-amendment propose` action: run `singularity-flow story intent-amendment propose --work-id &lt;WORK-ID&gt; --reason &quot;&lt;one line: why it is proposed&gt;&quot; --authored governed-agent --channel copilot-host --json`. The person decides it once. Do not invent an `update-intent` convergence finding or change YAML. Otherwise record the change in clarification and revise the scope draft.
-5. Show the amendment ID, diff and blast radius. The decision and the acknowledgement are a person&#39;s, never this turn&#39;s: a person who approves the scope decides it on the decisions card, `/sf-decide &lt;WORK-ID&gt;` (Copilot CLI: `/decide &lt;WORK-ID&gt;`; VS Code: Singularity Flow: Decide Everything This Step Waits On), or in their own terminal, and the step it was proposed from pauses until then. They may reject and replace a stale proposal without changing approved intent. Anyone on the Story then acknowledges an approved one on the same card or in their own terminal. Never decide or acknowledge here; waive no tests or approvals. Closed Stories need reviewed reopening.
+5. Show the amendment ID, diff and blast radius. The decision and the acknowledgement are a person&#39;s, never this turn&#39;s: a person who approves the scope decides it on the decisions card, `/sf-decide &lt;WORK-ID&gt;` (Copilot CLI: `/decide &lt;WORK-ID&gt;`; VS Code: Singularity Flow: Decide Everything This Step Waits On), or in their own terminal, and the step it was proposed from pauses until then. They may reject and replace a stale proposal without changing approved intent. Anyone else on the Story then acknowledges an approved one on the same card or in their own terminal; with nobody else, SFlow records its approver&#39;s own. Never decide or acknowledge here; waive no tests or approvals. Closed Stories need reviewed reopening.
 </code></pre>
       </div>
     </details>

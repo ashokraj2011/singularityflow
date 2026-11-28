@@ -35,8 +35,12 @@ export const ADVICE_FIELDS = Object.freeze(['decides', 'yes', 'sendBack', 'notNo
  *   approver   nobody is set to approve it
  *   repeated   the same check failed again after repairs
  *   browser    it needs a browser check SFlow saw itself
+ *   signOff    SFlow still cannot capture that page after its setup: the person signs off on SFlow's saved screenshot
+ *   wrongCheck nothing else gets past a check, so the check may be wrong here: the person says why and the Story moves on
+ *   protected  the check guards SFlow's own hooks, governance files or a secret: no override, and why
+ *   hooks      SFlow's hooks did not run in this VS Code chat, so it checks nothing there
  */
-export const STOP_KINDS = Object.freeze(['undecided', 'changed', 'review', 'approver', 'repeated', 'browser']);
+export const STOP_KINDS = Object.freeze(['undecided', 'changed', 'review', 'approver', 'repeated', 'browser', 'signOff', 'wrongCheck', 'protected', 'hooks']);
 
 const deepFreeze = (value) => {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -56,7 +60,11 @@ const STOPS = Object.freeze({
   review: 'The reviewer asked for changes: Send back with its findings, or dispute one with your reason.',
   approver: 'Nobody is set to approve {step}: add yourself as its approver, then approve it here.',
   repeated: 'This check keeps failing on the same thing: override it with your reason, or return it to the step that owns it.',
-  browser: '{step} needs a page SFlow saw itself: let SFlow set up the browser check, or sign off on its screenshot yourself.'
+  browser: '{step} needs a page SFlow saw itself: let SFlow set up the browser check, or sign off on its screenshot yourself.',
+  signOff: 'Sign off only when SFlow cannot capture the page after setting up its browser check: it is recorded as signed off by you, not captured by SFlow.',
+  wrongCheck: 'If {step} is right as it is and this check still names it, the check is wrong here: say why, and the Story moves on, shown as overridden.',
+  protected: 'This check guards SFlow\'s own hooks, governance files or a secret, so nobody overrides it: fix what it names, or copy the report.',
+  hooks: 'Reload VS Code (Developer: Reload Window) and start a new chat: SFlow\'s hooks did not run in this one, and nothing written is lost.'
 });
 const entry = (lines) => ({ sendBack: SEND_BACK, notNow: NOT_NOW, settles: OWN_RECORDS, ...lines, stops: { ...STOPS, ...(lines.stops ?? {}) } });
 

@@ -559,17 +559,46 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
   return { errors, warnings, passes, records };
 }
 
+/** The finding a page no browser check saw is, for its sign-off's key: one per browser server on the step. */
+export const BROWSER_UNOBSERVED_CODE = 'MCP_EVIDENCE_BROWSER_UNOBSERVED';
+const browserUnobserved = (server) => ({ code: BROWSER_UNOBSERVED_CODE, category: 'external-evidence', path: null, value: server,
+  message: `SFlow could not capture the ${server} page itself for this version.` });
+
+/**
+ * A person's sign-off on SFlow's saved screenshot of a page no browser check saw [owner, 2026-11-28: "allow sign-off,
+ * recorded"]. The screenshot is the newest record of `server` for this version with a saved output that the host did
+ * not observe (the agent's own capture, kept "for audit"); a sign-off counts only for those exact bytes. Returns the
+ * sign-off in force, else what a person may sign off (null when SFlow saved no screenshot).
+ */
+async function browserSignOff(workflow, phase, generation, server, records) {
+  const shots = records.filter((record) => record.server === server && /^browser_/u.test(String(record.tool ?? '')) && record.output?.sha256
+    && record.captureSource !== 'observed-by-mcp-host').sort((left, right) => String(left.recordedAt ?? '').localeCompare(String(right.recordedAt ?? '')));
+  const { activeFindingOverrides, findingOverrideKey, overriddenWords, overrideSummary } = await import('./finding-overrides.mjs');
+  const finding = browserUnobserved(server);
+  const key = findingOverrideKey(phase.id, finding);
+  const signed = activeFindingOverrides(workflow, phase, generation).find((entry) => entry.finding === key && entry.kind === 'browser-sign-off'
+    && shots.some((shot) => shot.output.sha256 === entry.screenshot?.sha256));
+  if (signed) return { signed: { ...finding, overriddenBy: overrideSummary(signed) }, words: overriddenWords(finding, overrideSummary(signed)) };
+  const shot = shots.at(-1);
+  return { offer: shot ? Object.freeze({ ...finding, override: Object.freeze({ key, kind: 'browser-sign-off',
+    screenshot: Object.freeze({ record: shot.id, path: shot.output.path, sha256: shot.output.sha256 }) }) }) : null };
+}
+
 export async function verifyPhaseMcpRequirements(root, workflow, phase, {
   itemDirectory = null,
   targetGeneration = nextPhaseGeneration(phase)
 } = {}) {
   const requirements = phase?.mcp?.evidence ?? [];
-  if (!requirements.length) return { errors: [], passes: [], records: [], routes: [] };
+  if (!requirements.length) return { errors: [], passes: [], records: [], routes: [], signOffs: [], signed: [] };
   const integrity = await verifyMcpEvidence(root, workflow, { itemDirectory });
   const errors = [...integrity.errors];
   const passes = [];
-  // A page no browser check saw: the setup commands, in order, then a new capture [owner, 2026-11-28].
+  // A page no browser check saw: the setup commands, in order, then a new capture; and when SFlow still cannot capture it,
+  // the person's sign-off on its saved screenshot (signOffs), recorded as signed off, not captured [owner, 2026-11-28].
   const routes = [];
+  const signOffs = [];
+  const signed = [];
+  const signedOff = new Set();
   const records = integrity.records.filter((record) =>
     record.phase === phase.id && Number(record.targetGeneration) === Number(targetGeneration)
   );
@@ -585,17 +614,23 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
         candidate.captureId === record.captureId && candidate.tool === 'browser_snapshot'
         && candidate.captureSource === 'observed-by-mcp-host')
     );
-    if (!observedNavigation) {
-      errors.push(
-        `Phase '${phase.id}' generation ${targetGeneration} requires a live, host-observed navigation receipt for origin-bound browser evidence from '${server}'. `
-        + 'Way on: set up the browser check (SFlow runs each command), then capture this version\'s page again with it.'
-      );
-      for (const command of mcpServerSetupCommands(server, workflow.resolution?.mcpServers?.[server], { origin: authorizedMcpOrigins(workflow, server)[0] ?? null })) {
-        if (!routes.includes(command)) routes.push(command);
-      }
-    } else passes.push(`${server}/origin: ${observedNavigation.observedFinalOrigin}`);
+    if (observedNavigation) { passes.push(`${server}/origin: ${observedNavigation.observedFinalOrigin}`); continue; }
+    const signOff = await browserSignOff(workflow, phase, targetGeneration, server, records);
+    // The workflow's gate stays: a person's sign-off is its way out, said as what it is wherever the evidence is read.
+    if (signOff.signed) { signedOff.add(server); signed.push(signOff.signed); passes.push(`${server}: ${signOff.words}`); continue; }
+    errors.push(
+      `Phase '${phase.id}' generation ${targetGeneration} requires a live, host-observed navigation receipt for origin-bound browser evidence from '${server}'. `
+      + 'Way on: set up the browser check (SFlow runs each command), then capture this version\'s page again with it.'
+      + (signOff.offer ? ' If SFlow still cannot capture it, a person who approves the step may sign off on SFlow\'s saved screenshot instead.' : '')
+    );
+    for (const command of mcpServerSetupCommands(server, workflow.resolution?.mcpServers?.[server], { origin: authorizedMcpOrigins(workflow, server)[0] ?? null })) {
+      if (!routes.includes(command)) routes.push(command);
+    }
+    if (signOff.offer) signOffs.push(signOff.offer);
   }
   for (const requirement of requirements) {
+    // A signed-off page stands for its server's browser records this version; they are never counted as captured.
+    if (signedOff.has(requirement.server) && requirement.tool.startsWith('browser_')) continue;
     const originBoundBrowser = requirement.tool.startsWith('browser_')
       && authorizedMcpOrigins(workflow, requirement.server).length > 0;
     const matches = records.filter((record) =>
@@ -614,7 +649,7 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
       );
     } else passes.push(`${requirement.server}/${requirement.tool}: ${matches.length}/${requirement.minimum}`);
   }
-  return { errors, passes, records, routes };
+  return { errors, passes, records, routes, signOffs, signed };
 }
 
 export async function listMcpEvidence(root, workflow, options = {}) {

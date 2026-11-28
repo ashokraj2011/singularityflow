@@ -8,9 +8,12 @@ import { recap } from './narration/recap.mjs';
 import { receiptApprovalText } from './evidence-receipt.mjs';
 import { workItemWorkflowRelative } from './work-item-location.mjs';
 import { pullRequestTarget, readStorySeed } from './story-base-lineage.mjs';
-import { storyNextCommand } from './action-command-map.mjs';
+import { pullRequestRouteCommand, storyNextCommand } from './action-command-map.mjs';
 
 export { pullRequestTarget, readStorySeed };
+
+/** The pull request's section for what a person decided in SFlow's place (finding-overrides.mjs personOverrideLines). */
+export const PERSON_DECISIONS_HEADING = '### Decided by a person, not checked by SFlow';
 
 function bulleted(values, empty) {
   const items = (values ?? []).filter(Boolean);
@@ -21,7 +24,7 @@ function bulleted(values, empty) {
 // identity, the acceptance criteria, and every approved artifact with the exact hash it was
 // approved at. Nothing here is invented.
 export function storyPullRequestBody(workflow, seed = null, {
-  mergeSequence = null, evidenceReceipt = null, evidence = null, builtOn = null, changeStory = null
+  mergeSequence = null, evidenceReceipt = null, evidence = null, builtOn = null, changeStory = null, personDecisions = []
 } = {}) {
   const story = seed?.story ?? {};
   const initiative = seed?.initiative ?? {};
@@ -93,6 +96,12 @@ export function storyPullRequestBody(workflow, seed = null, {
   warnings.push(...selfApprovals);
   if (workflow.publication?.status === 'pending') warnings.push('Publication is pending synchronization with the remote.');
   if (warnings.length) lines.push('### Flow Policy warnings', '', bulleted(warnings, ''), '');
+
+  // What a person decided where SFlow's own check could not: a page they signed off, a check they said is wrong here
+  // [owner, 2026-11-28]. Each says what it is, never that SFlow checked it.
+  if (personDecisions.length) {
+    lines.push(PERSON_DECISIONS_HEADING, '', bulleted(personDecisions.map((entry) => `${workflow.phases?.[entry.phase]?.label ?? entry.phase} v${entry.generation}: ${entry.words}`), ''), '');
+  }
 
   // What the evidence shows, from the one evaluator every surface uses; the label is its own.
   lines.push('### Evidence', '', evidence ?? '_The evidence matrix could not be evaluated for this preview._', '');
@@ -271,6 +280,11 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
     const page = await read.readChangeStoryPage(root, config, workflow);
     changeStory = page ? read.changeStoryForPullRequest(page.text) : null;
   } catch { changeStory = null; }
+  // Every page a person signed off and every check a person said is wrong here, as overridden, never passed [owner, 2026-11-28].
+  let personDecisions = [];
+  try {
+    if (workflow.findingOverrides?.length) personDecisions = (await import('./finding-overrides.mjs')).personOverrideLines(workflow);
+  } catch { personDecisions = []; }
   // A closing commit still waiting to be pushed is not on the remote head the pull request opens from:
   // the PR said "closed" while its head lacked the close (2026-10-29).
   let unpublished = false;
@@ -284,7 +298,7 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
     head,
     policy,
     title: `${workflow.workItem.id}: ${workflow.workItem.title}`,
-    body: storyPullRequestBody(workflow, seed, { mergeSequence, evidenceReceipt, evidence, builtOn, changeStory }),
+    body: storyPullRequestBody(workflow, seed, { mergeSequence, evidenceReceipt, evidence, builtOn, changeStory, personDecisions }),
     ...(builtOn ? { builtOn } : {}),
     evidenceReceipt,
     requiredChecks: seed?.story?.requiredChecks ?? [],
@@ -324,12 +338,29 @@ export function epicPullRequestPlan(root, config, initiative, mergeSequence) {
 }
 
 // Create the pull request. Outward action: callers must obtain explicit confirmation first.
+/**
+ * Each refusal to open a pull request has its code and one filled way on [owner, 2026-11-28, dead end 19]: the Story's
+ * publication or next step when it is not ready, else its reviewed description to copy and open by hand.
+ */
+function pullRequestRefusal(plan, message, code, { route = 'describe', label = null, extra = {} } = {}) {
+  const story = plan.subjectKind !== 'Epic';
+  const command = !story ? null : route === 'next' ? storyNextCommand(plan.workId) : pullRequestRouteCommand(plan.workId, route);
+  return new SingularityFlowError(message, { code, details: { workId: plan.workId, base: plan.base, head: plan.head, ...extra,
+    ...(command ? { nextAction: { command, label }, recoveryCommands: [{ command, label }] } : {}) } });
+}
+
 export function createPullRequest(root, plan, { remote = 'origin', runCommand = run } = {}) {
   if ((plan.blockedBy ?? []).length) {
-    throw new SingularityFlowError(`${plan.subjectId ?? plan.workId} cannot open a pull request yet: ${plan.blockedBy.join(', ')} must merge or otherwise become ready first.`);
+    const unpublished = plan.blockedBy.some((entry) => /waiting to be published/u.test(String(entry)));
+    throw pullRequestRefusal(plan, `${plan.subjectId ?? plan.workId} cannot open a pull request yet: ${plan.blockedBy.join(', ')} must merge or otherwise become ready first.`,
+      'PULL_REQUEST_NOT_READY', unpublished ? { route: 'sync', label: `Publish ${plan.workId}'s waiting commit, then open its pull request` }
+        : { route: 'next', label: `See what ${plan.workId} still needs before its pull request`, extra: { blockedBy: plan.blockedBy } });
   }
   const url = runCommand('git', ['remote', 'get-url', remote], { cwd: root, allowFailure: true });
-  if (url.status !== 0) throw new SingularityFlowError(`Remote '${remote}' is not configured.`);
+  if (url.status !== 0) {
+    throw pullRequestRefusal(plan, `Remote '${remote}' is not configured, so SFlow cannot push ${plan.head} or open its pull request. Copy the reviewed description, add the remote, and open it from ${plan.head} into ${plan.base}.`,
+      'PULL_REQUEST_REMOTE_MISSING', { label: 'Copy the reviewed description', extra: { remote } });
+  }
   // The GitHub CLI opens GitHub pull requests only; another host's merge request is opened by hand.
   const host = classifyGitHost(url.stdout.trim());
   if (!['github', 'unknown'].includes(host.provider)) {
@@ -347,7 +378,8 @@ export function createPullRequest(root, plan, { remote = 'origin', runCommand = 
     );
   }
   if (runCommand === run && !commandExists('gh')) {
-    throw new SingularityFlowError('Opening a pull request requires the GitHub CLI. Install gh and run gh auth login, or open the pull request manually using the generated body.');
+    throw pullRequestRefusal(plan, `Opening a pull request needs the GitHub CLI (gh), which is not installed here. Copy the reviewed description and open it on GitHub from ${plan.head} into ${plan.base}, or install gh and run gh auth login.`,
+      'PULL_REQUEST_GITHUB_CLI_MISSING', { label: `Copy the reviewed description, then open the pull request from ${plan.head} into ${plan.base} on GitHub` });
   }
   githubAuthStatus(root, url.stdout.trim(), { runCommand });
 
@@ -356,7 +388,10 @@ export function createPullRequest(root, plan, { remote = 'origin', runCommand = 
     return { status: 'existing', url: existing.stdout.trim(), base: plan.base, head: plan.head };
   }
   const created = runCommand('gh', ['pr', 'create', '--base', plan.base, '--head', plan.head, '--title', plan.title, '--body', plan.body], { cwd: root, allowFailure: true });
-  if (created.status !== 0) throw new SingularityFlowError(`Unable to open the pull request: ${(created.stderr || created.stdout).trim()}`);
+  if (created.status !== 0) {
+    throw pullRequestRefusal(plan, `GitHub refused to open the pull request: ${(created.stderr || created.stdout).trim()}`,
+      'PULL_REQUEST_CREATE_FAILED', { label: `Copy the reviewed description, then open the pull request from ${plan.head} into ${plan.base} on GitHub` });
+  }
   return { status: 'created', url: created.stdout.trim().split(/\s+/).pop(), base: plan.base, head: plan.head };
 }
 

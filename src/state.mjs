@@ -5815,9 +5815,15 @@ async function submitPhaseTransition(root, config, workflow, {
     itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
     targetGeneration: phase.generation
   });
-  if (mcpEvidence.errors.length) throw new SingularityFlowError(`Phase ${phase.id} MCP evidence is not ready:\n- ${mcpEvidence.errors.join('\n- ')}`, { code: 'MCP_EVIDENCE_REQUIRED',
-    ...(mcpEvidence.routes?.length ? { details: { phase: phase.id, nextAction: { command: mcpEvidence.routes[0], label: 'Set up the browser check, then capture the page again' },
-      recoveryCommands: mcpEvidence.routes.map((command) => ({ command })) } } : {}) });
+  if (mcpEvidence.errors.length) {
+    // Setup first; when SFlow still cannot capture the page, a person's sign-off on its saved screenshot [owner, 2026-11-28].
+    const { browserSignOffCommand } = await import('./action-command-map.mjs');
+    const signOffs = (mcpEvidence.signOffs ?? []).map((offer) => ({ command: browserSignOffCommand(workflow.workItem.id, phase.id, offer.override.key),
+      label: `Or sign off on SFlow's saved screenshot of the ${offer.value} page.` }));
+    throw new SingularityFlowError(`Phase ${phase.id} MCP evidence is not ready:\n- ${mcpEvidence.errors.join('\n- ')}`, { code: 'MCP_EVIDENCE_REQUIRED',
+      ...(mcpEvidence.routes?.length ? { details: { phase: phase.id, nextAction: { command: mcpEvidence.routes[0], label: 'Set up the browser check, then capture the page again' },
+        recoveryCommands: [...mcpEvidence.routes.map((command) => ({ command })), ...signOffs] } } : {}) });
+  }
   if (phaseNeedsGeneration(workflow, phase)) await enforceSequenceGate(root, workflow, 'freshGeneration', 'submit for approval', {
     requestedPhase: phase.id,
     reason: phase.generation < 1 ? 'The phase has no published generation.' : 'The phase was returned for correction and has not been regenerated.'

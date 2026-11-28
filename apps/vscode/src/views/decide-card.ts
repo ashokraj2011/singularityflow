@@ -30,7 +30,7 @@ import { guardCardDecisionsArgv, guardCardFrom, guardCardText, presenceCardArgs,
 import { approvalElsewhereWords, approvalFocus, approvalPageWords, approvalRows, chatNext, shareText, checkNames, checkOf, DECIDE_SCRIPT, filledCommand, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows,
   decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS, guardRoute, joinedWords, openRows, othersApproval, othersApprovalWords, approveInChat, approversNext, readyApproval,
   selectStoryNext, type DecideDraft } from './decide-card-page.ts';
-import { OWN_TERMINAL_REFUSALS, ownStepArgv, ownTerminalWords, runMissingWords, runnableStep } from './decide-card-page.ts';
+import { OWN_TERMINAL_REFUSALS, ownStepArgv, ownTerminalWords, runMissingWords, runnableStep, setAsideArgv, setAsidePreviewArgv, setAsidePreviewOf, targetOriginArgv, targetOriginPreviewArgv, targetOriginPreviewOf, targetOriginWork, type RowPreview } from './decide-card-page.ts';
 
 // How long the page's first read checks before it asks, and how long "Check first" waits (src/decision-probes.mjs).
 const CHECK_SECONDS = 60;
@@ -165,9 +165,11 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     // A task whose step goes on after what was recorded here: the chat route that carries it on, and what a chat's agent does.
     let continueTask: string | undefined;
     let continueTaskInstruction: string | undefined;
+    // A set-aside preview the person asked for, shown until they set the files aside or say Not now.
+    let preview: RowPreview | null = null;
     const render = (error: string | null = null, notice: string | null = null) => {
       const token = nonce();
-      panel.webview.html = page(`Decide · ${workId}`, `<style nonce="${token}">${DECIDE_STYLE}</style>${decideHtml(shown(), { error, notice, busy, draft, route, declined: declined?.digest ?? null, forApproval })}`,
+      panel.webview.html = page(`Decide · ${workId}`, `<style nonce="${token}">${DECIDE_STYLE}</style>${decideHtml(shown(), { error, notice, busy, draft, route, declined: declined?.digest ?? null, forApproval, preview })}`,
         contentSecurityPolicy(panel.webview, token), token, DECIDE_SCRIPT);
     };
     const finish = (answer: DecideResult) => {
@@ -292,6 +294,49 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
       // "Do this now": the row's own step, run here for the person from the list as read, with their reason and date as values of
       // their own [owner, 2026-11-28]. It runs only while the row still offers that exact step; a step that must ask in their own
       // terminal opens there typed in, with the one line why.
+      // Leaving changes out of a step: its preview first, read here, then one Yes bound to the plan it showed [owner, 2026-11-28].
+      'decide.preview': async (message) => {
+        if (busy) return;
+        const command = commandOf(message);
+        const aside = command ? setAsidePreviewArgv(command) : null;
+        // The web address a browser check trusts: the one the person wrote in the row, read by its own preview first.
+        const origin = command && !aside ? targetOriginPreviewArgv(command, stringField(message, 'url')) : null;
+        if (command && !aside && targetOriginWork(command) && !origin) return render('Write the address in the row first: https://, or http:// on this machine.');
+        const argv = aside ?? origin;
+        if (!argv) return;
+        const at = { option: stringField(message, 'option') ?? '', item: stringField(message, 'item') ?? '', workId: argv[aside ? 1 : 2]! };
+        busy = true; render(null, aside ? 'Reading what it would set aside…' : 'Reading what it would trust…');
+        try {
+          const result = await client.run(argv, undefined, { priority: 'interactive' });
+          busy = false;
+          preview = aside ? setAsidePreviewOf(result, { ...at, phase: argv[3]! }) : targetOriginPreviewOf(result, at);
+          panel.reveal();
+          render(null, preview ? null : aside ? 'Nothing here needs setting aside now.' : 'There is nothing to pin for this address now.');
+        } catch (error) { busy = false; panel.reveal(); render((error as Error).message); }
+      },
+      'decide.preview-cancel': () => { const was = preview; preview = null; render(null, was?.kind === 'target-origin' ? 'Nothing was pinned.' : 'Nothing was set aside.'); },
+      'decide.preview-apply': async (message) => {
+        if (busy || !preview) return;
+        const shown = preview;
+        const reason = String(stringField(message, 'reason') ?? '').trim();
+        if (shown.kind === 'target-origin' && (!reason || shown.conflicts.length)) return render(shown.conflicts.length ? 'This address cannot be pinned: nothing was changed.' : 'Write why this is the address to trust first: it is kept with the pin.');
+        busy = true; render(null, shown.kind === 'target-origin' ? 'Pinning it…' : 'Setting it aside…');
+        try {
+          await client.runText(shown.kind === 'target-origin' ? targetOriginArgv(shown, reason) : setAsideArgv(shown));
+          preview = null;
+          recorded = [...recorded, shown.kind === 'target-origin' ? 'address pinned' : 'set aside'];
+          await Promise.resolve(refresh?.()).catch(() => undefined);
+          await reread();
+          busy = false; panel.reveal();
+          render(null, shown.kind === 'target-origin' ? `Pinned ${shown.origin}: the browser checks trust only this address now.`
+            : `Set aside: ${shown.paths.length === 1 ? shown.paths[0] : `${shown.paths.length} files`}. A private copy is kept, so it can be undone.`);
+        } catch (error) {
+          busy = false; preview = null;
+          const code = cliRefusalCode(error);
+          await reread(); panel.reveal();
+          render(code && OWN_TERMINAL_REFUSALS[code] ? ownTerminalWords(code) : (error as Error).message);
+        }
+      },
       'decide.run': async (message) => {
         if (busy) return;
         draft = decideDraftFrom(message);

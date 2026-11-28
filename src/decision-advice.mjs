@@ -369,6 +369,12 @@ export function itemRecommendation(workflow, item) {
     // A sign-off stands in for SFlow's own capture, so it is never recommended [owner, 2026-11-28].
     case 'browser-sign-off':
       return lean('sign it off only when SFlow cannot capture the page after setting up its browser check, and its screenshot shows what the step needs.');
+    // Which address the browser checks trust is the person's word: SFlow never picks one [owner, 2026-11-28].
+    case 'target-origin':
+      return first('name the address the app runs at for these checks, and look at what it trusts before you pin it.');
+    // Accepting a screen that differs goes against the comparison, so it is never recommended [owner, 2026-11-28].
+    case 'visual-risk':
+      return lean('fix the screen and compare again; accept the difference until a date only if it is meant to look this way.');
     case 'generation-rollover':
       // Code committed on a Story with no code step: taking the commit out is the one way on [WCB:REQ-017].
       if (details.committedCode) return rec(item, 'take-out', 'No step of this Story checks code against a clause and a test; a task with a code step delivers it.');
@@ -408,17 +414,21 @@ export function yesNoOf(workflow, item) {
   if (['approval', 'routing-decision', 'convergence-item', 'convergence-answer', 'convergence-settled', 'scope-completeness'].includes(item.kind)) return null;
   const options = live(item);
   if (!options.length || options.length > 2 || !options.every((entry) => entry.chat?.command)) return null;
-  if (options.some((entry) => entry.needs?.clause || entry.needs?.article || entry.needs?.expires || entry.needs?.cause)) return null;
-  if (options.length === 2 && !options.some((entry) => entry.id === 'reject')) return null;
-  const yes = options.find((entry) => entry.id !== 'reject');
+  // A date is asked as the one its chat command carries, named in the question, so the Yes is to that date [owner, 2026-11-28].
+  if (options.some((entry) => entry.needs?.clause || entry.needs?.article || entry.needs?.cause || (entry.needs?.expires && !entry.chat?.expires))) return null;
+  // A forward amendment's reject is its no, as a departure's is.
+  const rejects = (entry) => entry.id === 'reject' || entry.id === 'reject-amendment';
+  if (options.length === 2 && !options.some(rejects)) return null;
+  const yes = options.find((entry) => !rejects(entry));
   // Reject alone is no yes or no: the item says why there is nothing to accept (a departure no row of the plan can take).
   if (!yes) return null;
-  const no = options.find((entry) => entry.id === 'reject') ?? null;
+  const no = options.find(rejects) ?? null;
   // The question names its row, as the answer binding reads it (a departure's ID, a responsibility, a path), says which answer
   // is recommended and why, and asks for a reason only on the side that takes one [owner, 2026-11-14; C10, 2026-11-19].
   const advice = item.recommended ?? itemRecommendation(workflow, item);
   const said = advice?.option === yes.id ? ` Recommended: yes. ${advice.why}` : no && advice?.option === no.id ? ` Recommended: no. ${advice.why}` : '';
-  return { question: `${String(item.title ?? '').replace(/[.!?]+$/u, '')}. ${yes.label.replace(/[.!?]+$/u, '')}?${said.replace(/\s*$/u, '')}${reasonWords(options, { yes, no })}`, yes: yes.id, no: no?.id ?? null,
+  const until = yes.chat?.expires ? ` until ${yes.chat.expires}` : '';
+  return { question: `${String(item.title ?? '').replace(/[.!?]+$/u, '')}. ${yes.label.replace(/[.!?]+$/u, '')}${until}?${said.replace(/\s*$/u, '')}${reasonWords(options, { yes, no })}`, yes: yes.id, no: no?.id ?? null,
     route: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` };
 }
 

@@ -32,14 +32,16 @@ import { pinDiffWords, testCommandReviewHold } from './story-test-commands.mjs';
 import { testSetupFiles } from './test-support-files.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
+import { authorizedMcpOrigins, mcpTargetOriginSteps } from './mcp-target.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
-import { automaticApprovalsBefore, coveredStep, finalScopeStep, isConformancePhase, ownerStepChecks } from './phase-roles.mjs';
+import { automaticApprovalsBefore, coveredStep, finalScopeStep, isConformancePhase, ownerStepChecks, visualVerificationPhaseOf } from './phase-roles.mjs';
 import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnJoin, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { advisedItem, reopenWords } from './decision-advice.mjs';
 import { browserSignOffCommand, findingOverrideCommand, returnRoute, reviewDisputeCommand, sendBackCommand } from './action-command-map.mjs';
 import { disputedFindingWords } from './review-dispute-words.mjs';
 import { behaviourCommands, testEditWords } from './refactor-behaviour.mjs';
+import { witnessDeferralCandidates } from './witness-deferrals.mjs';
 import { adviceForStep } from './step-advice.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
@@ -480,6 +482,40 @@ function visualItem(workflow, context, entry) {
   };
 }
 
+/**
+ * A screen comparison that fails the Story's thresholds and nobody accepted (visual-risks.mjs): the Story cannot end on it.
+ * Fix the screen and compare again, or accept the difference until a date: the comparison stays failed in the evidence.
+ */
+function visualRiskItem(workflow, context, entry) {
+  const visual = visualVerificationPhaseOf(workflow, null)?.id ?? null;
+  const groups = visual ? approvers(workflow, visual) : [];
+  const screen = entry.profileId ? `the ${entry.profileId} screen` : 'a screen';
+  const words = 'The comparison stays failed in the evidence; only this exact result is accepted, until the date.';
+  return stepItem(workflow, context, { kind: 'visual-risk', title: `Accept ${screen} that differs (${entry.id})`, groups,
+    why: `${entry.id} differs from its reference more than the Story allows, so the Story cannot end on it. Fix the screen, or accept the difference until a date.`,
+    options: [{ id: 'accept-visual-risk', label: 'Accept the difference until a date', command: entry.command, words }],
+    details: { comparison: entry.id, profileId: entry.profileId, ...(entry.path ? { path: entry.path } : {}), ...(visual ? { phase: visual } : {}) } });
+}
+
+/**
+ * A Story with a step that checks the app in a browser at one web address, and none pinned for it (story-target-origin.mjs):
+ * that step cannot be submitted until a person who approves it names the address [owner, 2026-11-28: its row on the card]. The
+ * row takes the address, shows what it pins, then one press pins it; the command checks who may, as in a terminal.
+ */
+function targetOriginItem(workflow, context) {
+  if (workflow.status !== 'in_progress') return null;
+  const steps = mcpTargetOriginSteps((workflow.phaseOrder ?? []).map((id) => workflow.phases?.[id]).filter(Boolean));
+  const servers = [...new Set(steps.flatMap((step) => step.servers))];
+  if (!steps.length || servers.every((server) => authorizedMcpOrigins(workflow, server).length)) return null;
+  const names = listWords(steps.map((step) => stepName(workflow, step.phase)));
+  const groups = [...new Set(steps.flatMap((step) => testRunRiskAuthorities(workflow, step.phase)))].sort();
+  return stepItem(workflow, context, { kind: 'target-origin', title: `Name the web address ${names} checks the app at`, groups,
+    why: `${names} checks the app in a browser at one web address, and this Story has none yet, so it cannot be submitted. Name it: SFlow shows what it trusts first.`,
+    options: [{ id: 'pin-target-origin', label: 'Name the address and see what it trusts', command: `singularity-flow story target-origin ${workflow.workItem.id} --url <AUTHORIZED-URL> --json`,
+      words: 'Only this address is trusted for the browser checks; a check against any other is refused.' }],
+    details: { steps: steps.map((step) => step.phase), servers } });
+}
+
 /** A step anyone may take: nobody's approval is involved. Said only where the step's own command checks no group. */
 const anyone = (words) => ({ groups: [], labels: [], allowed: true, words });
 
@@ -523,6 +559,25 @@ function attestOption(workflow, context, owed, groups) {
     method: owed.method, files: [], owners: owed.owners, contextBinding: owed.contextBinding } } };
 }
 
+/**
+ * Handing a sign-off to a later step that can perform and repair what it checks (`decision witness-defer`), its row on the
+ * card [owner, 2026-11-28]: once offered only where the approval was refused, typed in a terminal. The first later step it
+ * may go to, as the command itself checks (witness-deferrals.mjs); none when there is none.
+ */
+function deferEntry(workflow, owed) {
+  const from = owed?.owners?.[0];
+  if (!from || !owed.clauseId || !owed.slot || !['inspection', 'visual'].includes(owed.method)) return null;
+  const [to] = witnessDeferralCandidates(workflow, { from, method: owed.method });
+  if (!to) return null;
+  return { id: `defer-${owed.slot}`, label: `Hand this sign-off to ${stepName(workflow, to)}`,
+    command: `singularity-flow decision witness-defer ${workflow.workItem.id} --criterion ${owed.clauseId} --slot ${owed.slot} --to ${to} --reason "<why>"`,
+    words: `${stepName(workflow, to)} can do and repair what this sign-off checks, and gives it at its own approval; ${stepName(workflow, from)} no longer waits for it.` };
+}
+function deferOption(workflow, context, owed, groups) {
+  const entry = deferEntry(workflow, owed);
+  return entry ? personalStep({ ...entry, decidedBy: stepDecidedBy(workflow, context, groups, entry.words) }) : null;
+}
+
 function evidenceItem(workflow, context, entry) {
   const name = clauseName(workflow, entry.criterion);
   const slots = entry.witnesses.map((witness) => witness.files.length === 1 ? witness.files[0] : `slot ${witness.slot}`);
@@ -542,10 +597,11 @@ function evidenceItem(workflow, context, entry) {
       words,
       decidedBy: stepDecidedBy(workflow, context, owed?.groups ?? witness.groups ?? [...new Set((owed?.owners ?? []).flatMap(id => approvers(workflow, id)))], words)
       });
-      if (notYet(witness)) return [{ ...step, available: false }, attestOption(workflow, context, owed, owed?.groups ?? witness.groups ?? [])].filter(Boolean);
-      return owed ? { ...step,
+      const defer = deferOption(workflow, context, owed, owed?.groups ?? witness.groups ?? []);
+      if (notYet(witness)) return [{ ...step, available: false }, attestOption(workflow, context, owed, owed?.groups ?? witness.groups ?? []), defer].filter(Boolean);
+      return [owed ? { ...step,
         action: { ...step.action, humanReview: { kind: 'witness', clauseId: owed.clauseId, clauseText: owed.clauseText, slot: owed.slot, method: owed.method,
-          files: owed.files, owners: owed.owners, contextBinding: owed.contextBinding } } } : step;
+          files: owed.files, owners: owed.owners, contextBinding: owed.contextBinding } } } : step, defer].filter(Boolean);
     }).flat(),
     ...entry.risks.flatMap((risk, index) => (risk.obligationId ? entry.categories : []).map((category) => option(workflow, context, {
       id: `accept-obligation-risk-${category}${entry.risks.length === 1 ? '' : `-${index + 1}`}`,
@@ -650,12 +706,13 @@ function testNarrowingItem(workflow, context, entry) {
     title: `${name}'s tests ran narrowed (${entry.commandId})`,
     why: `The latest run of ${entry.commandId} passed narrowed: ${entry.words}. A narrowed run does not prove the module, so the gate refuses it. `
       + 'Remove the narrowing and run it again, or accept it with a reason: the acceptance covers runs of the same pin narrowed the same or less.',
-    options: [option(workflow, context, {
+    // Also a /sf-decide turn's bound yes to the question naming its test command, with the person's reason [owner, 2026-11-28].
+    options: [{ ...option(workflow, context, {
       id: 'accept-test-narrowing', label: 'Accept this narrowed run for this step',
       words: 'A run narrowed further, or under a changed pin, is refused again.',
       effects: [{ kind: 'test-narrowing', phase: entry.phase, commandId: entry.commandId, attemptId: entry.attemptId ?? null }],
       needs: { reason: textNeed(`The narrowed run of ${entry.commandId} is enough for ${name}: ${entry.words}.`.slice(0, REASON.maximum), REASON) }
-    })],
+    }), chat: { command: `singularity-flow decision test-narrowing ${workflow.workItem.id} --phase ${entry.phase} --command ${entry.commandId} --reason "<REASON>"` } }],
     details: { phase: entry.phase, commandId: entry.commandId, attemptId: entry.attemptId ?? null, reasons: entry.reasons,
       commands: [`singularity-flow decision test-narrowing ${workflow.workItem.id} --phase ${entry.phase} --command ${entry.commandId} --reason "<why the narrowed run is enough for this step>"`] }
   };
@@ -1009,9 +1066,11 @@ function intentAmendmentItem(workflow, context, amendment) {
 function forwardAmendmentItem(workflow, context, blocker) {
   if (blocker.code === 'AMENDMENT_REVALIDATION_REQUIRED') return revalidationItem(workflow, context, blocker);
   const name = stepName(workflow, blocker.phase);
-  const decide = (decision, label, words) => option(workflow, context, { id: `${decision}-amendment`, label, words,
+  // Each choice is also a /sf-decide turn's bound yes or no, with the person's own reason [owner, 2026-11-28].
+  const decide = (decision, label, words) => ({ ...option(workflow, context, { id: `${decision}-amendment`, label, words,
     effects: [{ kind: 'forward-amendment-decision', amendment: blocker.amendment, phase: blocker.phase, decision }],
-    needs: { reason: textNeed('', REASON) } });
+    needs: { reason: textNeed('', REASON) } }),
+  chat: { command: `singularity-flow upstream-issue decide-amendment ${blocker.amendment} --work-id ${workflow.workItem.id} --decision ${decision} --reason "<REASON>" --confirm ${blocker.amendment}` } });
   const command = (decision) => `singularity-flow upstream-issue decide-amendment ${blocker.amendment} --work-id ${workflow.workItem.id} --decision ${decision} --reason "<why>" --confirm ${blocker.amendment}`;
   return {
     kind: 'forward-amendment', title: `Decide forward amendment ${blocker.amendment}`,
@@ -1047,10 +1106,12 @@ function witnessExceptionItems(workflow, context) {
         items.push({
           kind: 'witness-exception', title: `Renew ${name}'s witness exception for ${clause}`, subject: `witness-exception:${mapping.mappingSha256}`,
           why: `${name}'s approval accepted a test for ${clause} until ${until}, which has passed, so the Story cannot end on it. Only ${name}'s approvers can renew it.`,
-          options: [option(workflow, context, { id: 'renew-exception', label: `Renew it until a date`,
+          // Also a /sf-decide turn's bound yes to the question that shows the date it lasts until, with the person's reason.
+          options: [{ ...option(workflow, context, { id: 'renew-exception', label: 'Renew it',
             words: `The same test keeps standing in for ${clause}'s evidence until then; nothing runs again and no step goes back.`,
             effects: [{ kind: 'witness-exception-renewal', phase: phaseId, generation: Number(phase.generation), mappingSha256: mapping.mappingSha256, clauseId: mapping.clauseId ?? null }],
-            needs: { expires: expiryNeed(context.at, { endOfDay: true }), reason: textNeed('', { minimum: 10, maximum: 1000 }) } })],
+            needs: { expires: expiryNeed(context.at, { endOfDay: true }), reason: textNeed('', { minimum: 10, maximum: 1000 }) } }),
+          chat: { expires: expiryNeed(context.at, { endOfDay: true }).default, command: `singularity-flow decision witness-exception ${workflow.workItem.id} --phase ${phaseId} --mapping ${mapping.mappingSha256} --expires ${expiryNeed(context.at, { endOfDay: true }).default} --reason "<REASON>"` } }],
           details: { phase: phaseId, clause: mapping.clauseId ?? null, expiresAt, mappingSha256: mapping.mappingSha256,
             commands: [`singularity-flow decision witness-exception ${workflow.workItem.id} --phase ${phaseId} --mapping ${mapping.mappingSha256} --expires <YYYY-MM-DD> --reason "<why the exception still stands>"`] }
         });
@@ -1317,7 +1378,7 @@ function owedItem(workflow, context, entry) {
       words: 'You checked it yourself and say what you checked; your sign-off is its evidence, with no screenshot.',
       humanReview: { kind: 'witness', attest: true, clauseId: entry.clauseId, clauseText: entry.clauseText, slot: entry.slot, method: entry.method,
         files: [], owners: entry.owners, contextBinding: entry.contextBinding } }] : []),
-    ...risk, ...appReview],
+    ...risk, ...appReview, ...(witness ? [deferEntry(workflow, entry)].filter(Boolean) : [])],
     // Whose delivery publishes its evidence and what it is: a sign-off nobody can give yet says when it can [owner, 2026-11-16].
     details: witness ? { clause: entry.clauseId, slot: entry.slot, contextBinding: entry.contextBinding, owners: entry.owners ?? [], files: entry.files ?? [], method: entry.method ?? null,
       ...(entry.capture ? { capture: { status: entry.capture.status, file: entry.capture.file, ...(entry.capture.reason ? { reason: entry.capture.reason } : {}),
@@ -2184,11 +2245,11 @@ export const PENDING_CONCEPTS = Object.freeze({
   // Convergence items too: the Adjudicate page shows only these, for one release [SCS:REQ-030, REQ-033].
   // And what the person typed that a code step has not accounted for yet [SCS:REQ-042].
   // And the next generation a published step needs, once asked only in chat [owner, 2026-11-13].
-  // And a refactor's behaviour change while its code is written [ITW:REQ-015].
-  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover', 'refactor-behaviour'] }),
+  // And a refactor's behaviour change while its code is written [ITW:REQ-015], and the web address a browser check trusts [owner, 2026-11-28].
+  'decision-list': Object.freeze({ kinds: ['target-origin', 'conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover', 'refactor-behaviour'] }),
   'routing-decision': Object.freeze({ kinds: ['routing-decision'] }),
   // And a witness exception whose date passed, renewed here by its step's approvers [owner, 2026-11-28].
-  'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation', 'witness-exception'] }),
+  'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation', 'witness-exception', 'visual-risk'] }),
   'intent-amendments': Object.freeze({ kinds: ['intent-amendment'] }),
   'forward-amendments': Object.freeze({ kinds: ['forward-amendment', 'revalidation'] }),
   appeals: Object.freeze({ kinds: ['appeal'] }),
@@ -2227,7 +2288,7 @@ export const LATER_KINDS = Object.freeze(['owed-decision', 'departure', 'asked-f
 /** Every item kind this list builds. */
 export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'revalidation', 'appeal',
   'conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'owed-decision',
-  'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover', 'refactor-behaviour', 'approval-hold', 'transport-intent', 'approval', 'witness-exception']);
+  'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover', 'refactor-behaviour', 'approval-hold', 'transport-intent', 'approval', 'witness-exception', 'visual-risk', 'target-origin']);
 
 /**
  * The command that records choices. Only choices a /sf-decide turn records after the person's yes carry
@@ -2253,7 +2314,9 @@ export function decisionChatSteps(packet, steps) {
     const { reason = '', clause = [] } = step.values ?? {};
     // The recommended answer runs with --recommended; the person's own words, when they gave some, with them [C10].
     const template = reason && chat?.withReason ? chat.withReason : chat?.command;
-    const command = template?.replaceAll('"<REASON>"', () => (reason ? shellQuoted(reason) : '<REASON>')).replaceAll('<CLAUSES>', () => clause.join(',') || '<CLAUSES>');
+    // A date the person chose in place of the one the chat command carries goes in its place.
+    const dated = chat?.expires && step.values?.expires && step.values.expires !== chat.expires ? template?.replace(`--expires ${chat.expires}`, `--expires ${step.values.expires}`) : template;
+    const command = dated?.replaceAll('"<REASON>"', () => (reason ? shellQuoted(reason) : '<REASON>')).replaceAll('<CLAUSES>', () => clause.join(',') || '<CLAUSES>');
     return command && !/<[A-Z][A-Z-]*>/u.test(command) ? [{ item: step.item, command }] : [];
   });
 }
@@ -2358,7 +2421,9 @@ function itemHolds(workflow, facts, awaiting) {
       if (item.kind === 'revalidation' && item.details?.reason === 'prompt-held' && (item.details.consumers ?? []).includes(phaseId)) {
         return workflow.phases?.[phaseId]?.approvalPolicy?.mode === 'none' ? 'this-step' : 'approval-later';
       }
-      if (['forward-amendment', 'revalidation', 'upstream-issue', 'evidence-obligation', 'witness-exception'].includes(item.kind)) return 'story-end';
+      if (['forward-amendment', 'revalidation', 'upstream-issue', 'evidence-obligation', 'witness-exception', 'visual-risk'].includes(item.kind)) return 'story-end';
+      // The web address holds only the steps that check the app at it.
+      if (item.kind === 'target-origin') return (item.details?.steps ?? []).includes(phaseId) ? 'this-step' : 'later-step';
       if (awaiting) return item.kind === 'owed-decision' ? 'story-end' : 'nothing';
       // A pending intent amendment pauses the step it was proposed in until a scope approver decides it [owner, 2026-11-13, D3].
       if (item.kind === 'intent-amendment' && item.details?.status === 'proposed' && item.details.sourcePhase === phaseId) return 'this-step';
@@ -2454,6 +2519,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state, { early }))),
     ...converging,
     ...(facts.visual ?? []).map((entry) => visualItem(workflow, context, entry)),
+    ...(facts.visualRisks ?? []).map((entry) => visualRiskItem(workflow, context, entry)),
+    ...[targetOriginItem(workflow, context)].filter(Boolean),
     ...(facts.nodePin ? [nodePinItem(workflow, context, facts.nodePin)] : []),
     ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk)),
     ...(facts.testNarrowings ?? []).map((entry) => testNarrowingItem(workflow, context, entry)),

@@ -235,8 +235,11 @@ const VSCODE_CARD_WORDS = 'In VS Code\'s own chat, which has no /decide, the car
 /** A returned action that carries a value a person must confirm (a digest or plan hash). */
 function confirmation(route) {
   const value = String(route?.shell ?? '').match(/\s--confirm(?:-plan)?\s+(?!--)(\S+)/u)?.[1];
-  return value ? { kind: 'confirm', value,
-    how: `Show what it confirms in plain words (the step, its generation, its files; never this value, a hash or a commit SHA), ask the person in this chat, and only on an explicit yes run ${route.confirm ? 'do.confirm (do.shell by its code)' : 'do.shell'} once; a changed value needs a fresh review.` } : null;
+  // One Yes to a question naming its code, never a code the person types [owner, 2026-11-28]: the hook binds their Yes to it.
+  const code = String(route?.confirm ?? '').match(/\sconfirm\s+([0-9A-Z]{4}-[0-9A-Z]{4})(?=\s|$)/u)?.[1] ?? null;
+  return value ? { kind: 'confirm', value, ...(code ? { question: `Go ahead with this (${code})?`, choices: [{ label: 'Yes' }, { label: 'Not now' }] } : {}),
+    how: code ? 'Show what it confirms in plain words (the step, its generation, its files; never a hash or a commit SHA), then ask ask.question exactly, once, with your question tool (ask_user; in VS Code, vscode_askQuestions). Only on their Yes run do.confirm (do.shell by its code) once; on Not now run nothing. A changed value needs a fresh review.'
+      : `Show what it confirms in plain words (the step, its generation, its files; never this value, a hash or a commit SHA), ask the person in this chat, and only on an explicit yes run do.shell once; a changed value needs a fresh review.` } : null;
 }
 
 // An informational next action is an offer for the person, never the one thing to do now: a

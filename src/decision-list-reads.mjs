@@ -122,6 +122,22 @@ async function testRisks(root, config, workflow, phase, at) {
  * The screen sizes enforced visual coverage still lacks at the visual step that holds `phase` (the
  * step itself or one before it): one entry per profile, worded by visualProfileDecisionOptions.
  */
+/**
+ * Each screen comparison that fails the Story's enforced thresholds and nobody accepted, with its accept command: a row on the
+ * card [owner, 2026-11-28], where once only the final check or the visual step's refusal named it. Read only when the Story
+ * enforces comparisons; never throws.
+ */
+async function failedComparisons(root, config, workflow) {
+  if (workflow?.resolution?.verification?.comparison?.mode !== 'enforce') return [];
+  try {
+    const [{ listVisualComparisons }, { storyLocation }, risks] = await Promise.all([import('./visual-compare.mjs'), import('./story-paths.mjs'), import('./visual-risks.mjs')]);
+    const listed = await listVisualComparisons(root, workflow, { itemDirectory: storyLocation(root, config, workflow.workItem.id).directory });
+    return listed.filter((comparison) => risks.comparisonFails(workflow, comparison) && !risks.activeVisualRisk(workflow, comparison)).slice(0, 10)
+      .map((comparison) => ({ id: comparison.id, profileId: comparison.profileId ?? null, path: comparison.path ?? null, disposition: comparison.disposition ?? 'failed',
+        command: risks.visualRiskCommand(workflow, comparison) }));
+  } catch { return []; }
+}
+
 async function visualProfiles(root, config, workflow, phase) {
   if (!(workflow.resolution?.verification?.profiles ?? []).length) return [];
   const [{ evaluateVisualCoverage }, { visualProfileDecisionOptions }] = await Promise.all([
@@ -601,6 +617,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     testCommands: commandReviews.pending,
     inactiveTestCommands: commandReviews.inactive,
     visual: await visualProfiles(root, config, workflow, phase),
+    visualRisks: workflow.status === 'in_progress' ? await failedComparisons(root, config, workflow) : [],
     completeness: answering ? await completenessFacts(root, config, workflow) : null,
     excludedChanges: answering ? await excludedChangeFacts(root, config, workflow, phase) : null,
     rollover: answering ? await rolloverFacts(root, config, workflow, phase) : null,

@@ -100,10 +100,15 @@ export async function decisionTestNarrowingCommand(positionals, options) {
   const actor = actionActor(root);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === id ? session.agent ?? null : null;
-  const { record, publication } = await recordTestNarrowingDecision(root, config, workflow, {
-    phaseId, revoke, commandId: optionString(options, 'command') ?? null, reason: optionString(options, 'reason') ?? '',
+  // The answer it records and the row it was to, kept with the commit: a chat's bound yes says so [owner, 2026-11-28].
+  const { chatAnswer, withChatAdvice } = await import('../recommended-answer.mjs');
+  const commandId = optionString(options, 'command') ?? null;
+  const answer = revoke ? { advice: null } : await chatAnswer(root, config, workflow, { reason: optionString(options, 'reason') ?? '', what: commandId ?? phaseId,
+    matches: (item) => item.kind === 'test-narrowing' && item.details?.phase === phaseId && item.details?.commandId === commandId, optionOf: () => 'accept-test-narrowing' });
+  const { record, publication } = await withChatAdvice(answer.advice, () => recordTestNarrowingDecision(root, config, workflow, {
+    phaseId, revoke, commandId, reason: optionString(options, 'reason') ?? '',
     expires: optionString(options, 'expires') ?? null
-  }, { actor, agent });
+  }, { actor, agent }));
   if (!optionBoolean(options, 'json')) {
     console.log(record.revokes ? `Revoked ${record.revokes} on ${record.phase} ${record.commandId}.`
       : `Recorded ${record.id}: ${record.phase} test command ${record.commandId} may pass narrowed (${narrowingWords(record.narrowing)})`

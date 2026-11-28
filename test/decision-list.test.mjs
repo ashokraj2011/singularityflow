@@ -488,8 +488,10 @@ test('an evidence item is the person\'s own step: the list shows its commands an
   assert.equal(noCard.next.command, item.options[0].action.command);
   assert.equal(noCard.next.copilotCommand, null);
   assert.equal(skillForCommandLine(sign.action.command), null, sign.action.command);
+  // Accepting a test run's risk is also a /sf-decide turn's bound yes now [owner, 2026-11-28]; revoking one stays the person's own.
   for (const command of ['decision test-risk BIN-501', 'decision test-narrowing BIN-501', 'decision evidence-reuse BIN-501', 'decision visual-profile BIN-501']) {
-    assert.equal(skillForCommandLine(`singularity-flow ${command}`), null, command);
+    assert.equal(skillForCommandLine(`singularity-flow ${command}`), 'sf-decide', command);
+    assert.equal(skillForCommandLine(`singularity-flow ${command} --revoke TRR-001`), null, command);
   }
   for (const command of ['decision choose BIN-501', 'decision show BIN-501', 'decisions BIN-501']) {
     assert.equal(skillForCommandLine(`singularity-flow ${command}`), 'sf-decide', command);

@@ -1281,7 +1281,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,989,418 (measured for submit.mjs, +68 over 9,989,350, 2026-11-28 on carry-on-2 merged with main 9dfff1954): every
     // turn no note carries on ends with /sf-next, and a host with no hook types it between steps (model-free-commands.mjs,
     // its one-line note). No new eager file.
-    assert.ok(closure.bytes <= 9_989_418, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,992,170 (measured for submit.mjs, +2,752 over main's 9,989,418 on no-typing-2 merged with main 3284009d4, 2026-11-28;
+    // start.mjs 9,988,488, approve.mjs 9,897,486): a copied value with a slip offers the same command with the exact value
+    // (text-lines.mjs +1,210), the steps a /sf-decide turn takes on the person's bound Yes (person-step-catalog.mjs +894), and the
+    // card's rows and their Story in the route (model-free-commands.mjs +487, copilot-guidance.mjs +161) [owner, 2026-11-28]. No new eager file.
+    assert.ok(closure.bytes <= 9_992_170, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -2039,7 +2043,10 @@ test('the common session projection does not import attach, state stores or publ
   // steps moved to it (model-free-commands.mjs +282) and the records SF Guard signs there (person-step-catalog.mjs +75). No new eager file.
   // 4,418,669 (+68 over 4,418,601, measured 2026-11-28 on carry-on-2 merged with main 9dfff1954): the presentation
   // contract's line for a host with no hook (model-free-commands.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_418_669, `session current loads ${current.bytes} source bytes`);
+  // 4,420,211 (+1,542 over main's 4,418,669, measured 2026-11-28 on no-typing-2 merged with main 3284009d4): the steps a /sf-decide
+  // turn takes on the person's bound Yes (person-step-catalog.mjs +894) and the card's rows and their Story in the route
+  // (model-free-commands.mjs +487, copilot-guidance.mjs +161) [owner, 2026-11-28]. No new eager file.
+  assert.ok(current.bytes <= 4_420_211, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

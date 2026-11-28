@@ -434,7 +434,11 @@ async function decideAmendment(root, config, workflow, amendmentId, options) {
   if (!proposal) refused(`${amendmentId || 'That amendment'} is not a forward amendment of this Story.`, 'FORWARD_AMENDMENT_NOT_FOUND');
   const actor = actionActor(root);
   const decision = optionString(options, 'decision');
-  const value = await commitForwardAmendmentDecision(root, config, workflow, { amendmentId, decision, reason: optionString(options, 'reason'), actor });
+  // The answer it records and the row it was to, kept with the commit: a chat's bound yes or no says so [owner, 2026-11-28].
+  const { chatAnswer, withChatAdvice } = await import('../recommended-answer.mjs');
+  const answer = await chatAnswer(root, config, workflow, { reason: optionString(options, 'reason') ?? '', what: amendmentId,
+    matches: (item) => item.kind === 'forward-amendment' && item.details?.amendment === amendmentId, optionOf: () => `${decision}-amendment` });
+  const value = await withChatAdvice(answer.advice, () => commitForwardAmendmentDecision(root, config, workflow, { amendmentId, decision, reason: optionString(options, 'reason'), actor }));
   const owed = value.applied ? pendingAmendmentRevalidations(workflow).filter((entry) => entry.amendment === amendmentId) : [];
   if (!optionBoolean(options, 'json')) {
     if (!value.applied) console.log(`Rejected ${amendmentId}; ${proposal.phase} keeps generation ${proposal.fromGeneration}.`);

@@ -148,10 +148,9 @@ export function testRecoveryArguments(draft: TestRecoveryDraft, confirmed = fals
       '--test-baseline-reason', draft.testBaselineReason.trim(), '--test-baseline-owner', draft.testBaselineOwner.trim(),
       '--test-baseline-remediation', draft.testBaselineRemediation.trim(), '--test-baseline-expires-at', draft.testBaselineExpiresAt.trim());
   }
-  if (confirmed && testRecoveryCanConfirm(draft)
-    && draft.testRecoveryConfirmedDigest === draft.testRecovery!.planDigest) {
-    args.push('--test-policy-confirm', draft.testRecoveryConfirmedDigest!);
-  }
+  // Start Story is the person's one Yes to the plan the page shows, bound to its digest; never a box to tick first [owner,
+  // 2026-11-28]. A read (the preview) never carries it, and the engine refuses a plan that changed since it was shown.
+  if (confirmed && testRecoveryCanConfirm(draft)) args.push('--test-policy-confirm', draft.testRecovery!.planDigest!);
   return args;
 }
 
@@ -159,10 +158,6 @@ export function testRecoveryProblems(draft: TestRecoveryDraft): string[] {
   if (!testRecoveryEnabled(draft)) return [];
   const problems: string[] = testRecoveryTermsProblems(draft);
   if (!testRecoveryCanConfirm(draft)) problems.push('Refresh and resolve the Test and recovery plan before starting.');
-  if (!draft.testRecoveryConfirmedDigest
-    || draft.testRecoveryConfirmedDigest !== draft.testRecovery?.planDigest) {
-    problems.push('Explicitly confirm the exact Test and recovery plan. Display defaults are not consent.');
-  }
   return problems;
 }
 
@@ -194,7 +189,7 @@ export function testRecoveryHtml(draft: TestRecoveryDraft): string {
     }).join('')}</fieldset>`;
   return `<section data-test-recovery><h2>Test and recovery · opt-in pilot</h2>
     <p class="question">${escape(capability.summary ?? 'Only the capabilities advertised by the selected repository policy are available.')}</p>
-    <p class="meta">Display defaults are not consent. Opening this preview does not execute tests or install packages.</p>
+    <p class="meta">These choices decide which tests the Story runs. Nothing runs until you press Start Story, which confirms the plan below as shown.</p>
     ${radios('testBaselineDisposition', 'Existing failures', [
       ['fix', 'Fix existing failures before feature coding'],
       ['accept-known-failures', 'Accept listed existing failures and continue']
@@ -240,8 +235,7 @@ export function testRecoveryHtml(draft: TestRecoveryDraft): string {
     <strong>Legal next actions</strong>${list(capability.legalActions?.map((action) =>
       `${action.id}: ${action.label}${action.command ? ` · ${action.command} ${JSON.stringify(action.args ?? [])}` : ''}`), 'No legal action returned.')}
     ${capability.planDigest ? '' : '<p>The exact plan is not available yet.</p>'}
-    <p><label><input type="checkbox" data-test-recovery-confirm="${escape(capability.planDigest ?? '')}"${testRecoveryCanConfirm(draft) ? '' : ' disabled'}${testRecoveryCanConfirm(draft) && draft.testRecoveryConfirmedDigest === capability.planDigest ? ' checked' : ''}>
-      I reviewed and confirm this exact plan, including scope, unknowns, required checks and the initial route.</label></p>
+    <p class="meta" data-test-recovery-plan="${escape(capability.planDigest ?? '')}">${testRecoveryCanConfirm(draft) ? 'Start Story is your Yes to this exact plan: its scope, unknowns, required checks and first route.' : 'Refresh the plan before starting: Start Story confirms it only once it is complete.'}</p>
     <button type="button" class="secondary" data-test-recovery-refresh>Refresh test and recovery plan</button>
   </section>`;
 }

@@ -290,13 +290,29 @@ export function agentInputIssues(issues, input, { schema = null, known = [] } = 
  * own stale wording and code, and always carries the current value. A person's confirmation stays
  * theirs: this only says what was wrong; it never accepts a near miss.
  */
+/** The invocation with the slipped confirmation replaced by the exact one, or null when it does not name it. */
+export function withExactConfirmation(argv, label, given, expected) {
+  let replaced = false;
+  const next = argv.map((word, index) => {
+    if (word === `${label}=${given}`) { replaced = true; return `${label}=${expected}`; }
+    if (word === given && argv[index - 1] === label) { replaced = true; return expected; }
+    return word;
+  });
+  return replaced ? next : null;
+}
+const argvWord = (word) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(word) ? word : `'${String(word).replaceAll("'", `'"'"'`)}'`);
+
 export function assertConfirmation(given, expected, { fail, code, message, label = '--confirm', details = {} }) {
   if (given === expected) return;
   const mistyped = `${String(code).replace(/_(?:STALE|CHANGED|MISMATCH|REQUIRED|INVALID)$/u, '')}_MISTYPED`;
   const confirmation = { given: typeof given === 'string' ? given.slice(0, 200) : null, expected };
   if (typeof given === 'string' && given && copySlip(given, expected) === 'slip') {
-    fail(`${label} ${given.slice(0, 80)} is a copying slip of the current value; nothing changed. Use ${label} ${expected} exactly.`, mistyped,
-      { ...details, confirmation: { ...confirmation, slip: true } });
+    // The same command with the exact value, filled, is the way on [owner, 2026-11-28: no mis-typed-value refusals]: in the
+    // person's own terminal it is one Yes (cli-failure.mjs), and every other host gets it as the refusal's next action.
+    const retryArgv = withExactConfirmation(process.argv.slice(2), label, given, expected);
+    fail(`${label} ${given.slice(0, 80)} is a copying slip of the current value; nothing changed. Use ${label} ${expected} exactly${retryArgv ? ': the same command with it is the next step' : ''}.`, mistyped,
+      { ...details, confirmation: { ...confirmation, slip: true },
+        ...(retryArgv ? { retryArgv, nextAction: { command: ['singularity-flow', ...retryArgv.map(argvWord)].join(' '), label: `Run it with the exact ${label}: nothing else changes.` } } : {}) });
   }
   fail(`${message} The current value is ${expected}.`, code, { ...details, confirmation: { ...confirmation, slip: false } });
 }

@@ -44,7 +44,9 @@ test('a lapsed witness exception is a row the card records: renew it until a dat
   assert.equal(renew.needs.reason.minimum, 10, 'the command\'s own limit');
   assert.equal(renew.decidedBy.allowed, true);
   assert.equal(renew.recordable, undefined, 'recorded by the card, never a terminal step');
-  assert.equal(item.answer.where, 'card');
+  // Or one Yes in chat, to the question naming its date [owner, 2026-11-28]; the card still records it.
+  assert.equal(item.answer.where, 'chat');
+  assert.match(item.yesNo.question, /Renew it until \d{4}-\d{2}-\d{2}\? /u);
   // SF Guard signs it on the card, as in a terminal: its family names the effect the list writes.
   assert.ok(EFFECT_ORDER.includes('witness-exception-renewal'));
   assert.equal(PERSON_STEPS.find((row) => row.id === 'witness-exception').effect, 'witness-exception-renewal');

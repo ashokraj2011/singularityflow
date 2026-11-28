@@ -43,6 +43,17 @@ test('every kind of person-facing text is found, so a broken reader cannot pass 
   // vscode-view 5573, skill-line 600. Each floor is about half, so moving texts around never trips it.
   const floors = { narration: 150, refusal: 3500, 'refusal-step': 120, 'next-label': 200, 'next-reason': 150, decision: 300, 'vscode-view': 2500, 'skill-line': 300 };
   for (const [kind, floor] of Object.entries(floors)) assert.ok(counted[kind] >= floor, `${kind}: found ${counted[kind]} texts, expected at least ${floor}`);
+  // Since the one plain next line (owner, 2026-11-28; skill-line 423 measured that day) every skill's contract names the line's
+  // form and the line a turn ends with, and the reader sees both in every skill: it found 31 when it read neither.
+  const skills = new Set(result.texts.filter((entry) => entry.file.startsWith('plugin/skills/')).map((entry) => entry.file));
+  const { readdir } = await import('node:fs/promises');
+  const all = (await readdir(path.join(root, 'plugin/skills'), { withFileTypes: true })).filter((entry) => entry.isDirectory())
+    .map((entry) => `plugin/skills/${entry.name}/SKILL.md`);
+  for (const line of ['Next: <what happens>', '/sf-next carries it on']) {
+    const seen = new Set(result.texts.filter((entry) => entry.kind === 'skill-line' && entry.text === line).map((entry) => entry.file));
+    assert.deepEqual(all.filter((file) => !seen.has(file)), [], `every skill's "${line}" is read`);
+  }
+  assert.ok(skills.size >= all.length, `${skills.size} of ${all.length} skills read`);
 });
 
 test('the owner\'s examples of 2026-11-16 each break a rule', () => {

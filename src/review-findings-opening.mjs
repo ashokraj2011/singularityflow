@@ -26,7 +26,7 @@ export async function reviewFindingsUndone(workflow, phase) {
 }
 
 export async function reviewFindingsRollover(root, config, workflow, phase, options, { changedFiles = false } = {}) {
-  const [{ optionBoolean, optionString }, { phaseRequiresCodeDelivery }, { reviewerAloneSaw, reviewFindingsHold, reviewFindingKeys, reviewUpstreamRoute }, { versionPreviewCommand }] = await Promise.all([
+  const [{ optionBoolean, optionString }, { phaseRequiresCodeDelivery }, { reviewerAloneSaw, reviewFindingsHold, reviewFindingKeys, reviewUpstreamRoute }, { versionPreviewCommand, stepEntryCommand }] = await Promise.all([
     import('./util.mjs'), import('./code-delivery-policy.mjs'), import('./source-review-continuation.mjs'), import('./action-command-map.mjs')]);
   if (optionString(options, 'confirm') || optionString(options, 'reason', null) !== null || options.correction !== undefined) {
     throw new SingularityFlowError('--review-findings starts the next version for the review\'s findings and takes no --confirm, --reason or --correction.',
@@ -95,8 +95,12 @@ export async function reviewFindingsRollover(root, config, workflow, phase, opti
       undo: { copilotCommand: `/sf-decide ${workId}`, words: `An undo does not withdraw version ${next}: it stays open. It makes SFlow ask you before it starts another version of this step for a review's findings. To disagree with a finding, dispute it on the decisions card: its author is then told not to make that fix.` } } : null,
     preserved: code ? `Version ${from}, its evidence and its test results stay as published.` : `Version ${from} and its review stay as published.`,
     opened: { generation: next, status: 'open' }, opening: opened.outcome, replayed: opened.replayed,
-    // What follows is the kernel's next for the open version: writing it, in this same turn.
+    // What follows is the kernel's next for the open version: writing it, in this same turn, once the entry is read again
+    // (ask once, 2026-11-28: a turn that ran `prepare` next went to its checks with nothing fixed).
     nextAction: (await opening.kernelRoute(root, workflow, phase, { config })).route };
+  result.next = { command: stepEntryCommand(phase.id, workId), skill: result.nextAction?.skill ?? null,
+    copilotCommand: result.nextAction?.copilotCommand ?? (result.nextAction?.skill ? `${result.nextAction.skill} ${phase.id}` : null),
+    reason: `Fix the review's findings in version ${next} of ${phase.label ?? phase.id} now, in this same turn: read the entry once, then fix them.` };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(line);
 }

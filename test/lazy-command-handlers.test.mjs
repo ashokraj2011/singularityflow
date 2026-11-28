@@ -1227,7 +1227,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,969,029 (measured for start.mjs, +729 over 9,968,300 on the merge of sf-task-v12 with main db5bfb141, 2026-11-28;
     // submit.mjs 9,967,112, approve.mjs 9,877,353): ITW v1.2's rises above (choices.mjs +711, command-registry.mjs +18) and
     // WCB's together. No new eager file.
-    assert.ok(closure.bytes <= 9_969_029, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,975,419 (measured for submit.mjs, +8,307 over 9,967,112 on ask-once merged with main 0233340d8, 2026-11-28; start.mjs
+    // 9,974,319): ask once [owner, 2026-11-28]. A person's send-back is the answer to its next version, read by every surface
+    // that names the step's route (phase-generation-need.mjs sentBackAnswer +1,780, step-decision.mjs +938,
+    // source-review-continuation.mjs +1,062, action-command-map.mjs +284, phase-authoring-entry.mjs +835); a version question
+    // that stays says why and what each answer does (story-version-proposal.mjs versionQuestionWhy +2,182); a step's questions
+    // reuse what the person answered in the Story (clarifications.mjs +1,213, the reading itself in answered-questions.mjs,
+    // loaded lazily from the CLI source, as is the start on a send-back, sent-back-opening.mjs); `--sent-back` among the boolean
+    // flags (util.mjs +13). No new eager file.
+    assert.ok(closure.bytes <= 9_975_419, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1452,7 +1460,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // (command-registry.mjs) [ITW v1.2 REQ-103]. No new eager file.
   // 898,726 (+18 over 898,708, measured 2026-11-28 on the merge of sf-task-v12 with main 31f0c6c2a): `work shape` above and
   // main's rises together. No new eager file.
-  assert.ok(root.bytes <= 898_726, `root dispatch loads ${root.bytes} source bytes`);
+  // 898,739 (+13 over 898,726, measured 2026-11-28 on ask-once merged with main 0233340d8): `--sent-back`, the next version
+  // on a person's send-back, among the boolean flags (util.mjs BOOLEAN_OPTIONS) [ask once, owner 2026-11-28]. No new eager file.
+  assert.ok(root.bytes <= 898_739, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1953,7 +1963,10 @@ test('the common session projection does not import attach, state stores or publ
   // plan (plan-amendments.mjs outsidePlanSettled) [owner, 2026-11-28; WCB:REQ-014]. No new eager file.
   // 4,409,379 (+18 over 4,409,361, measured 2026-11-28 on the merge of sf-task-v12 with main db5bfb141): `work shape`
   // above (command-registry.mjs) and WCB's rises together. No new eager file.
-  assert.ok(current.bytes <= 4_409_379, `session current loads ${current.bytes} source bytes`);
+  // 4,412,385 (+3,006 over 4,409,379, measured 2026-11-28 on ask-once merged with main 0233340d8): ask once, the send-back
+  // reader (phase-generation-need.mjs +1,780) and a step's questions reusing the Story's answers (clarifications.mjs +1,213, `--sent-back` in util.mjs +13;
+  // answered-questions.mjs loads lazily). No new eager file.
+  assert.ok(current.bytes <= 4_412_385, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

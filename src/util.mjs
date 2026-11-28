@@ -240,7 +240,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   // Run and test: app start --debug, tests summary --latest. Environment files: env files add|remove --personal, create --from-template, root|link --clear.
   'debug', 'latest', 'personal', 'from-template', 'clear',
   // doctor --repair-hooks [PCR:REQ-030].
-  'repair-hooks', 'as-question', 'review-findings',
+  'repair-hooks', 'as-question', 'review-findings', 'sent-back',
   // The recommended answer, no reason [C10].
   'recommended',
   // app-review runtime-check --again: run the check again on a version already checked.

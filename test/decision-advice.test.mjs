@@ -290,7 +290,9 @@ test('every host shows the recommendation and what each choice does; the approva
   const card = decideHtml({ ...awaiting, packetSha256: `sha256:${'b'.repeat(64)}` });
   assert.match(card, /data-approval="d\d+">Review and approve<\/button>/u);
   assert.match(DECIDE_SCRIPT, /closest\('\[data-approval\]'\)\) return vscode\.postMessage\(\{ type: 'decide\.approval' \}\)/u);
-  assert.match(await readFile(new URL('../apps/vscode/src/views/decide-card.ts', import.meta.url), 'utf8'), /'decide\.approval': \(\) => \{ void vscode\.commands\.executeCommand\('singularityFlow\.openApprovals', approvalFocus\(packet, approvalRows\(packet\)\[0\]\)\); \}/u);
+  // The approval page itself, for this step: never the Approvals list first, whose Approve came back here [owner, 2026-11-28].
+  assert.match(await readFile(new URL('../apps/vscode/src/views/decide-card.ts', import.meta.url), 'utf8'),
+    /'decide\.approval': \(\) => \{\n\s+if \(forApproval\) return finish\(notNow\(\)\);[\s\S]*?executeCommand\('singularityFlow\.approve', \{ kind: 'action'/u);
   // VS Code's Decisions page.
   const page = decisionListHtml(buildDecisionListView({ ...awaiting, packetSha256: `sha256:${'b'.repeat(64)}` }));
   assert.match(page, /<p class="dl-rec">[\s\S]*Recommended: Fix the environment and run unit again\./u);

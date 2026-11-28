@@ -169,3 +169,27 @@ test('ITW REQ-103: `work shape big` is the person\'s while the requirement waits
   const small = refusedWith(['work', 'shape', 'small']);
   assert.equal(small.details.nextAction.command ?? small.details.nextAction, 'singularity-flow work shape big --work-id TASK-1');
 });
+
+test('ITW REQ-113 (owner, 2026-11-28): each approval of a sized task says why the person is asked and what each answer does; a small requirement offers its big change beside the Yes', async () => {
+  const { taskApprovalAlternatives, taskApprovalWhy } = await import('../src/task-shape.mjs');
+  const { agentAct } = await import('../src/agent-output.mjs');
+  const small = { workItem: { id: 'TASK-1' }, resolution: { composition: composeTask(base(), { kind: 'fix' }) } };
+  const intake = { id: 'intake', generation: 1 };
+  assert.equal(taskApprovalWhy(small, intake), 'You decide what gets built: the requirement says it, clause by clause, with how each is tested. Yes: implement and test start. Make it a big change: a spec and a plan come first. Not now: it waits, and /sf-task brings it back.');
+  assert.match(taskApprovalWhy(small, { id: 'implementation', generation: 1 }), /^You decide whether this code goes in: it changes the repository\. Yes: SFlow runs the tests itself/u);
+  assert.equal(taskApprovalWhy(small, { id: 'verification', generation: 1 }), null, 'SFlow\'s own tests step asks nobody');
+  assert.deepEqual(taskApprovalAlternatives(small, intake), [{ label: 'Make it a big change', command: 'singularity-flow work shape big --work-id TASK-1 --json',
+    does: 'adds a spec, a plan and the tests after the requirement, which then asks for your Yes again' }]);
+  const big = { workItem: { id: 'TASK-1' }, resolution: { composition: composeTask(base(), { kind: 'change', shape: 'big' }) } };
+  assert.deepEqual(taskApprovalAlternatives(big, intake), [], 'a big change stays big');
+  assert.match(taskApprovalWhy(big, { id: 'implementation-spec', generation: 1 }), /^You decide how the code will be written/u);
+  assert.equal(taskApprovalWhy({ resolution: { composition: composeTask(base({ sizing: 'kind' }), { kind: 'fix' }) } }, intake), null, 'a Story composed before v1.2 asks as before');
+  // The chat's question carries the line and the other answer, with the command it runs; the Yes stays the first choice.
+  const act = agentAct({ approvalPacket: {}, approvalContext: { phase: 'intake' }, ready: true, workId: 'TASK-1', onYes: { command: 'singularity-flow choices answer x' },
+    choiceSets: [{ id: 'phase-confirmation', question: 'Approve the requirement v1 · Small change: implement and test next?', why: taskApprovalWhy(small, intake),
+      alternatives: taskApprovalAlternatives(small, intake) }] });
+  assert.equal(act.ask.why, taskApprovalWhy(small, intake));
+  assert.deepEqual(act.ask.choices, [{ label: 'Approve the requirement v1 · Small change: implement and test next' },
+    { label: 'Make it a big change', command: 'singularity-flow work shape big --work-id TASK-1 --json' }, { label: 'Not now' }]);
+  assert.match(act.ask.how, /Say ask\.why in one line before the question\. On a choice with a command, run that command, say its words, and begin this approval again\.$/u);
+});

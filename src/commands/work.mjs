@@ -307,7 +307,7 @@ export async function taskStatus(root, id, { remote = 'origin', checksOf = null,
     ...(workflow.executionOrigin?.mode === 'itw-handoff' ? { handoff: workflow.executionOrigin } : {}),
     personApproved: steps.filter((step) => step.approvedBy === 'person').map((step) => step.label),
     ...(checks ? { checks } : {}),
-    ...(followUps.length ? { followUps, ask: 'Start a story from:' } : {}),
+    ...(followUps.length ? { followUps, ask: (await import('../task-followups.mjs')).FOLLOW_UP_ASK } : {}),
     words: done
       ? `${id} is done: ${steps.map((step) => step.label).join(', ')}, on branch ${workflow.workItem?.branch ?? id}.${checks ? checksOf.checksWords(checks) : ''}`
       : standsWords(id, steps, false),

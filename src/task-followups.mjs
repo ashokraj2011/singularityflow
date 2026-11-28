@@ -10,6 +10,8 @@
 import { kindFromWords } from './task-composition.mjs';
 
 const FOLLOW_UPS = /^#{2,4}\s+follow[- ]?ups?\b/iu;
+/** The one question a done analysis asks [ITW:REQ-109, REQ-113]: why the person is asked, and what each answer does. */
+export const FOLLOW_UP_ASK = 'Start a story from one of these findings? Each starts a new task that carries only that finding; No starts nothing, and the report stays.';
 const ITEM = /^\s*(?:(\d{1,2})[.)]|[-*+])\s+(.+?)\s*$/u;
 const LIMIT = 9;
 const clean = (text) => String(text ?? '').replace(/\*\*|__|`/gu, '').replace(/\s+/gu, ' ').trim();

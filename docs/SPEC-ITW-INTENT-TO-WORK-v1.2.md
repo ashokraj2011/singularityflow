@@ -4,7 +4,7 @@
 
 **Status:** Built 2026-11-27 on branch sf-task-v12 (M1 to M5 built together, in src/task-shape.mjs, src/task-followups.mjs,
 src/task-history.mjs, with src/task-composition.mjs, src/task-amendment.mjs, src/task-change-contracts.mjs,
-src/task-agents.mjs, src/task-turn.mjs and `work`), walked by test/journey-tasks-shapes.test.mjs. Builds on [ITW v1.1](SPEC-ITW-INTENT-TO-WORK-v1.1.md) and replaces its composition
+src/task-agents.mjs, src/task-turn.mjs and `work`), walked by test/journey-tasks-shapes.test.mjs; M6 built 2026-11-28 (src/task-shape.mjs `taskApprovalWhy`, src/choices.mjs, src/agent-output.mjs). Builds on [ITW v1.1](SPEC-ITW-INTENT-TO-WORK-v1.1.md) and replaces its composition
 (REQ-003, the default approvals of REQ-004 and REQ-005, and the offer of the team's own workflow in REQ-020). Everything
 else in v1.1 stays as it is: the front door, the Story, carrying the turn on, adding a step, skills, a marketplace agent
 as the plan, investigating, refactoring, documents and the last message.
@@ -60,7 +60,8 @@ An analysis asks for nothing until it is done:
 /sf-task why does the value module return 1?
 ...
 TASK-13 is done: the report is in artifacts/design/design.md.
-Start a story from: 1) Return the approved value from the value module  2) Pin the value in a test   → 1
+Start a story from one of these findings? Each starts a new task that carries only that finding; No starts nothing, and the report stays.
+1) Return the approved value from the value module  2) Pin the value in a test  No   → 1
 ```
 
 Two person actions: the words and the one follow-up.
@@ -212,6 +213,24 @@ count a person's actions through the real CLI:
 - a small change that grows: 4 (the words, the requirement, the plan, the code);
 - nothing typed again between them (v1.1 REQ-019).
 
+**ITW:REQ-113, every decision says why (owner, 2026-11-28: no one gets stuck, and every decision says plainly why the
+person is making it).** Each of a task's questions to a person carries one plain line, `why`, that says why the person
+is asked and what each answer does (src/task-shape.mjs `taskApprovalWhy`), and every stop has a way forward on the same
+screen:
+- the requirement's approval: you decide what gets built; Yes starts implement and test (a big change: the spec, then the
+  plan); a small one also offers "Make it a big change" beside the Yes, a choice with its complete command, after which
+  the requirement asks its Yes again;
+- the plan's approval: you decide how the code is written; Yes: the code is written to it;
+- the code's approval: you decide whether this code goes in; Yes: SFlow runs the tests itself and approves the tests
+  step when they pass;
+- a step a team's rule gives a person says that rule's own `because`;
+- Not now, on each: it waits, and `/sf-task` brings it back;
+- a done analysis asks "Start a story from one of these findings?" and says that each starts a new task carrying only that
+  finding, and that No starts nothing and keeps the report;
+- the agent used before asks "Use it, or let SFlow decide?", its No said in those words (`noWords`).
+Steps SFlow approves itself (the hidden tests step, an analysis's report) ask nobody. The grown task asks no question: one
+line says why it grew. `SFLOW_HOOKS_OFF` says why and gives the complete fix (REQ-111).
+
 ## 4. Stories already in flight
 
 A Story records its composition when it starts. One started under v1.1 has no `sizing` and keeps its steps, its
@@ -253,6 +272,9 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
 - **B9:** With no live turn record, a task's results say `taskTurn.carriedBy: skill`, and a journey walked with the hooks
   off reaches the end with the same person actions.
 - **B10:** A Story started before this version keeps its steps and its approval words.
+- **B11:** Each approval of a sized task carries `why` (the requirement's, the plan's, the code's, a rule's step's); a
+  small requirement's approval offers "Make it a big change" with its complete command; a done analysis's `ask` says what
+  each answer does.
 
 ## 7. Open questions for the owner, with the default built (7 and 8 decided 2026-11-28)
 
@@ -285,3 +307,4 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
 | M3 | An analysis with no approval, and its follow-ups (REQ-109) |
 | M4 | The agent used for similar changes before, and the lessons (REQ-110) |
 | M5 | The turn without hooks; the skill text, help and topics (REQ-111) |
+| M6 | Every decision says why, with a way forward on the same screen (REQ-113, owner 2026-11-28) |

@@ -33,7 +33,9 @@ test('a clone is editable manual input, with no original lifecycle, tracker iden
   assert.equal(draft.request.desiredOutcome, source.desiredOutcome);
   assert.deepEqual(draft.request.scope, source.scope);
   assert.match(draft.request.acceptanceCriteria, /Reject unauthorized access/);
-  assert.match(draft.request.notes, /Request copied from Story SOURCE-1/);
+  // The person's own notes, and nothing SFlow wrote about the copy: that is on the clone screen (ask once, 2026-11-28).
+  assert.equal(draft.request.notes, 'Keep column order.');
+  assert.equal(draft.source.workId, 'SOURCE-1');
   assert.equal(draft.request.attachments, undefined);
   assert.equal(draft.phases, undefined);
   assert.equal(draft.decisions, undefined);

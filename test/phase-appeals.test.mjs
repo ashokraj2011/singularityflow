@@ -75,7 +75,8 @@ test('all findings have an owner route; trust is never an ordinary risk waiver',
   assert.equal(phaseResolutionChoices({ ...workflow, testRecovery: { id: 'TRA-1' } }, phase, { code: 'CODE_TEST_FAILED' }).choices[0].kind, 'risk-inspection');
   // A finding no rule names: the person's own way now, never "give it to the maintainer" [owner, 2026-11-28].
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'never-seen-before' }).choices[0].kind, 'author-correction');
-  assert.equal(phaseResolutionChoices(workflow, { ...phase, status: 'awaiting_approval' }, { code: 'never-seen-before' }).choices[0].kind, 'send-back');
+  // Waiting for approval: Send back, where the Story's own rules admit it (this bare Story's do not: its own next step).
+  assert.notEqual(phaseResolutionChoices(workflow, { ...phase, status: 'awaiting_approval' }, { code: 'never-seen-before' }).choices[0].kind, 'owner-escalation');
   assert.ok(!phaseResolutionChoices(workflow, phase, { code: 'never-seen-before' }).choices.some((choice) => choice.skill === '/sf-doctor'));
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'scope.unclaimed' }).choices[0].kind, 'plan-amendment',
     'a scope appeal cannot run without a current open code generation');

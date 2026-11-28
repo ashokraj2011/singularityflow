@@ -535,6 +535,8 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
         const skill = skillOf(own?.skill ?? own?.copilotCommand);
         route = skill ? { ...route, copilot: own.copilotCommand && skillOf(own.copilotCommand) === skill ? own.copilotCommand : skill, shell: own.command ?? route.shell } : route;
         handed = Boolean(skill) && (!WORK_ROUTE.test(route.copilot) || /^\/sf(?:low)?-converge\b/u.test(route.copilot));
+        // /sf-code and /sf-phase are one work command (D1): the turn's own name goes on, its entry writing the step.
+        if (!handed && entries.get(guard.skill)?.oneWorkCommand && entries.get(skillOf(route.copilot))?.oneWorkCommand) route = { ...route, copilot: guard.skill };
       }
       taken.next = handed ? { ...route, inTurn: false }
         : { ...route, inTurn: false, within: guard.skill, carried: true, source: `${route.source ?? 'route'} (carried on)` };

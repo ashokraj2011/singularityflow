@@ -11,7 +11,7 @@
   "skill-line": 120
  },
  "totals": {
-  "count-without-name": 27,
+  "count-without-name": 26,
   "draft-for-version": 6,
   "generic-route": 6195,
   "jargon": 1342,
@@ -2137,9 +2137,6 @@
   },
   "apps/vscode/src/views/dashboard-model.ts": {
    "90cf29e97bf8": "count-without-name"
-  },
-  "apps/vscode/src/views/decide-card.ts": {
-   "c68295a30ce8": "count-without-name"
   },
   "apps/vscode/src/views/decision-list-model.ts": {
    "198fcbfe5f29": "count-without-name",

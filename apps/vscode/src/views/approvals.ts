@@ -235,7 +235,8 @@ export class ApprovalsPanel {
       'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy || approval?.decideNext) onMessage({ type: 'decide-list', approval }); },
       'run-hold': (message) => {
         const approval = approvalFor(message);
-        const place = typeof (message as { route?: unknown }).route === 'number' ? (message as { route: number }).route : -1;
+        const route = (message as unknown as { route?: unknown }).route;
+        const place = typeof route === 'number' ? route : -1;
         const command = approval ? holdRoutes(approval)[place] : undefined;
         if (approval && command) onMessage({ type: 'run-hold', approval, command });
       },

@@ -1093,7 +1093,8 @@ export function collectApprovalReview(
       },
       // A hold's route, found by its place in the request's own list: run, then this page again.
       'approval.run': (message) => {
-        const index = typeof (message as { route?: unknown }).route === 'number' ? (message as { route: number }).route : -1;
+        const route = (message as unknown as { route?: unknown }).route;
+        const index = typeof route === 'number' ? route : -1;
         const command = approvalPageRoutes(request)[index];
         if (command) finish({ action: 'run', command });
       },

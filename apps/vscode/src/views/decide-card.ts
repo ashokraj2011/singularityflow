@@ -229,7 +229,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
       for (const slot of [...new Set(command.match(/<[^<>\s]+>/gu) ?? [])].filter((entry) => !/^<(?:REASON|reason|why|TEXT|YYYY-MM-DD)>$/u.test(entry))) {
         const name = slot.slice(1, -1).replace(/[-_]/gu, ' ').toLowerCase();
         const typed = await vscode.window.showInputBox({ title: `This step needs the ${name}`, prompt: `Type the ${name}: it goes into the command, which then runs as it is.`,
-          ignoreFocusOut: true, validateInput: (value) => (value.trim() && !/[\s"'`$\;|&<>]/u.test(value.trim()) ? null : 'One word, with no spaces or quotes.') });
+          ignoreFocusOut: true, validateInput: (value) => (value.trim() && !/[\s"'`$\\;|&<>]/u.test(value.trim()) ? null : 'One word, with no spaces or quotes.') });
         if (!typed?.trim()) return null;
         text = text.split(slot).join(typed.trim());
       }

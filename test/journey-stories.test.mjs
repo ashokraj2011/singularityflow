@@ -255,11 +255,13 @@ test('journey B: a code review asks for corrections three times: versions 2 and 
     assert.ok(routes.some((route) => /^\/sf-code\b/u.test(route.copilot ?? '')), `no route to the code author: ${JSON.stringify(routes)}`);
   });
 
-  // Version 2's review asks again, for another finding: version 3 starts on its own too, the second in a row.
+  // Version 2's review asks again, for another finding: version 3 starts on its own too, the second in a row. A walk stopped
+  // inside the author's turn (the entry it reads next) goes on as that turn does: /sf-code again, never a bare command.
+  const resume = (walk) => (walk.next && !walk.next.inTurn && walk.next.copilot ? walk.next : { copilot: '/sf-code implement' });
   const opens = (version) => ({ record }) => Number(record?.phases?.implement?.generationIntent?.generation ?? 0) >= version
     && record.phases.implement.generationIntent.status === 'open';
   const second = await followRoutes(story, {
-    label: 'journey B, version 2 to version 3', start: first.next ?? { copilot: '/sf-code implement' },
+    label: 'journey B, version 2 to version 3', start: resume(first),
     agent: { author, review: reviewer({ findings: blocking }) }, person: cooperativePerson(), done: opens(3), maxSteps: 24
   });
   t.diagnostic(formatTrail(second.trail));
@@ -275,7 +277,7 @@ test('journey B: a code review asks for corrections three times: versions 2 and 
   // Version 3's review asks a third time: SFlow stops starting versions and asks the person, saying why (owner, 2026-11-19).
   const questions = [];
   const third = await followRoutes(story, {
-    label: 'journey B, version 3: the person is asked for version 4', start: second.next ?? { copilot: '/sf-code implement' },
+    label: 'journey B, version 3: the person is asked for version 4', start: resume(second),
     agent: { author, review: reviewer({ findings: blocking }) }, done: opens(4), maxSteps: 24,
     // What the person was told when asked; then the cooperative yes.
     person: cooperativePerson(({ act }) => { if (act?.state === 'confirm') questions.push(act); return null; })

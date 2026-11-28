@@ -109,6 +109,12 @@ test('the start on a send-back is settled with an undo, and its line names the a
   assert.match(words, /asks you before it starts implement's next version after a send-back/u);
   const line = sentBackLine(workflow, workflow.phases.implement, sentBackAnswer(workflow, workflow.phases.implement), 2);
   assert.equal(line, 'Using your answer from Implement version 1: "Say in the code why the value is 2." SFlow started version 2 of Implement on it, so nothing is asked.');
+  // The agent says that line as it is and writes the version, asking nothing.
+  const act = agentAct({ resultType: 'sflow-generation-rollover', kind: 'sent-back', mutates: true, line, phase: 'implement',
+    nextAction: { command: 'singularity-flow prepare implement', copilotCommand: '/sf-code implement' } });
+  assert.equal(act.show, line);
+  assert.equal(act.ask, undefined);
+  assert.match(act.said, /ask the person nothing about it/u);
 });
 
 test('a version only the reviewer saw after an earlier send-back starts on its own for the review\'s findings', () => {
@@ -175,5 +181,7 @@ test('what the person already answered reaches the reader, and SFlow\'s own requ
   // The author is told never to ask them again.
   const checkpoint = clarificationCheckpoint({ mode: 'when-needed' }, { recordState: 'missing', errors: [] }, { answered: 2 });
   assert.match(checkpoint.instruction, /clarification\.answered, which the person already gave in this Story/u);
+  // And each question it still asks says why, and what each answer changes.
+  assert.match(checkpoint.instruction, /Each question says in one line what the evidence leaves open and what each answer changes\./u);
   assert.doesNotMatch(clarificationCheckpoint({ mode: 'when-needed' }, { recordState: 'missing', errors: [] }).instruction, /clarification\.answered/u);
 });

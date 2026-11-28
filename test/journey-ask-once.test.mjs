@@ -22,16 +22,23 @@ import { slowLane } from './helpers/slow-lane.mjs';
 
 const ASKS_FOR_DOCUMENTS = /Attach needed documents|supporting documents?|attach(?:ed)? (?:a |the )?(?:picture|image|screenshot)/iu;
 
-/** The graph-plotter reviewer: a blocking finding for each request line asking for documents that the packet leaves open. */
+/**
+ * The graph-plotter reviewer: a blocking finding for a request line asking for documents that the packet does not name as
+ * SFlow's; and, on a later version, the same question in other words ("no reference picture"), unless an answer the person
+ * already gave settles it.
+ */
 function documentsReviewer(packet) {
   const settledBySflow = (source, line) => (packet.sflowNotes ?? []).some((note) => note.sourceId === source.id && note.line === line);
+  const lines = packet.sources.flatMap((source) => source.text.split(/\r?\n/u).map((text, index) => ({ source, line: index + 1, text })));
+  const asks = lines.filter((entry) => ASKS_FOR_DOCUMENTS.test(entry.text) && !settledBySflow(entry.source, entry.line));
   const answered = (packet.answeredEarlier ?? []).some((entry) => /inspiration only|no picture/iu.test(entry.answer));
-  const asks = packet.sources.flatMap((source) => source.text.split(/\r?\n/u).map((text, index) => ({ source, line: index + 1, text })))
-    .filter((entry) => ASKS_FOR_DOCUMENTS.test(entry.text) && !settledBySflow(entry.source, entry.line) && !answered);
+  const again = packet.generation >= 2 && !answered ? [lines.find((entry) => entry.text.trim())] : [];
+  const findings = [...asks.slice(0, 1).map((entry) => ({ id: 'missing-supporting-material', entry,
+    message: 'The request asks for supporting documents and images; none are attached. Please confirm the intended reference.' })),
+  ...again.map((entry) => ({ id: 'missing-plotter-reference', entry, message: 'The request names no reference picture for the result. Please confirm what it should look like.' }))];
   const report = documentReport(packet);
-  return { ...report, findings: asks.slice(0, 1).map((entry) => ({ id: 'missing-supporting-material', severity: 'blocking',
-    message: 'The request asks for supporting documents and images; none are attached. Please confirm the intended reference.',
-    sourceId: entry.source.id, line: entry.line, quote: entry.text.trim().slice(0, 200) })) };
+  return { ...report, findings: findings.map(({ id, entry, message }) => ({ id, severity: 'blocking', message, sourceId: entry.source.id, line: entry.line,
+    quote: entry.text.trim().slice(0, 200) })) };
 }
 
 test('journey Y: a Story an older build cloned is reviewed once, its copy note read as SFlow\'s, and a send-back\'s answer is never asked again', slowLane({ timeout: 900_000 }), async (t) => {
@@ -65,6 +72,8 @@ test('journey Y: a Story an older build cloned is reviewed once, its copy note r
   assert.deepEqual((first.packet.sflowNotes ?? []).map((note) => note.text.slice(0, 24)), ['Request copied from Stor', 'Supporting documents wer'], JSON.stringify(first.packet.sflowNotes ?? null));
   assert.match(first.packet.answeredGuidance ?? '', /SFlow's own note, not the person's request: never a requirement, a gap or a finding/u);
   assert.equal(first.status.status, 'ready', JSON.stringify(first.status.findings ?? first.status).slice(0, 2000));
+  // Without SFlow naming its own lines, this reviewer raises the copy note, as the graph-plotter Story's did.
+  assert.equal(documentsReviewer({ ...first.packet, sflowNotes: [] }).findings.length, 1);
 
   // The person sends it back with their answer to what a reviewer might ask; version 2 opens on that send-back, and its
   // review is given the answer, so the question is not raised again.
@@ -79,6 +88,8 @@ test('journey Y: a Story an older build cloned is reviewed once, its copy note r
   const second = review();
   assert.ok((second.packet.answeredEarlier ?? []).some((answer) => answer.kind === 'send-back' && /inspiration only/u.test(answer.answer)), JSON.stringify(second.packet.answeredEarlier ?? null));
   assert.equal(second.status.status, 'ready', JSON.stringify(second.status.findings ?? second.status).slice(0, 2000));
+  // Without the person's answer in its packet, it asks the same thing again in other words.
+  assert.deepEqual(documentsReviewer({ ...second.packet, answeredEarlier: [] }).findings.map((finding) => finding.id), ['missing-plotter-reference']);
 
   // What it cost: one review per version, no finding on the note or the answered question, no version question asked
   // (graph-plotter Story: four versions, five answers, four typed reviews for the same note).

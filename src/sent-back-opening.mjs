@@ -77,7 +77,8 @@ export async function sentBackRollover(root, config, workflow, phase, options, {
     // What follows is the kernel's next for the open version, writing it; in this same turn the entry is read once first,
     // which admits the writing (a turn that ran `prepare` next went to its checks with nothing written).
     nextAction: (await opening.kernelRoute(root, workflow, phase, { config })).route };
-  result.next = { command: stepEntryCommand(phase.id, workId), copilotCommand: result.nextAction?.copilotCommand ?? null, skill: result.nextAction?.skill ?? null,
+  result.next = { command: stepEntryCommand(phase.id, workId), skill: result.nextAction?.skill ?? null,
+    copilotCommand: result.nextAction?.copilotCommand ?? (result.nextAction?.skill ? `${result.nextAction.skill} ${phase.id}` : null),
     reason: `Write version ${next} of ${phase.label ?? phase.id} for the person's reason now, in this same turn: read the entry once, then write it.` };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(line);

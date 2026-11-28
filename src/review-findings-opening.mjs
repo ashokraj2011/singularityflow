@@ -98,7 +98,8 @@ export async function reviewFindingsRollover(root, config, workflow, phase, opti
     // What follows is the kernel's next for the open version: writing it, in this same turn, once the entry is read again
     // (ask once, 2026-11-28: a turn that ran `prepare` next went to its checks with nothing fixed).
     nextAction: (await opening.kernelRoute(root, workflow, phase, { config })).route };
-  result.next = { command: stepEntryCommand(phase.id, workId), copilotCommand: result.nextAction?.copilotCommand ?? null, skill: result.nextAction?.skill ?? null,
+  result.next = { command: stepEntryCommand(phase.id, workId), skill: result.nextAction?.skill ?? null,
+    copilotCommand: result.nextAction?.copilotCommand ?? (result.nextAction?.skill ? `${result.nextAction.skill} ${phase.id}` : null),
     reason: `Fix the review's findings in version ${next} of ${phase.label ?? phase.id} now, in this same turn: read the entry once, then fix them.` };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(line);

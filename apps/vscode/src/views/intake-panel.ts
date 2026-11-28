@@ -22,6 +22,7 @@ import {
   MAX_STORY_ATTACHMENT_SLOTS, mergeStoryAttachments, referenceRepositoryEntries, SHAPES,
   storyPreflightCommand, storyWorkflowSelection, suggestedStoryDocumentName,
   storyWorkflowSelectionForReload, baseSelected, baseSelectionKey, launchBaseBranch,
+  TASK_KIND_CHOICES, taskMode, taskPlanCommand, taskPlanFrom, taskPlanKey, taskStartAnswer, type StartMode,
   type BaseBranchChoice, type BaseRepository, type CatalogSnapshot, type FindingChoice, type InFlight, type IntakeForm, type ProfileChoice,
   type PreflightTestReadiness, type ReferenceRepositoryDraft, type Shape, type StoryAttachmentDraft, type Tracker
 } from './intake-form.ts';
@@ -50,6 +51,10 @@ const INTAKE_REFERENCE_PREFETCH_DEBOUNCE_MS = 600;
 const INTAKE_RECEIPT_MINIMUM_REMAINING_MS = 60_000;
 /** Discovery must finish or show Retry; it is not an unbounded Story-start transaction. */
 const INTAKE_CATALOG_TIMEOUT_MS = 30_000;
+/** A task's likely plan is read this long after the words stop changing, as the Work place reads it [ITW:REQ-113]. */
+const TASK_PLAN_QUIET_MS = 600;
+/** The person's last choice between a workflow and a task, kept for every Start Story [ITW:REQ-113]. */
+export const START_MODE_KEY = 'singularityFlow.intake.startMode';
 
 /** What was started, so the caller can take the reader straight to it. */
 export interface Started {
@@ -61,6 +66,8 @@ export interface Started {
   configuration?: { commit?: string } | null;
   /** The Story started, but this person was not added to its approval groups: why, and the retry. */
   enrollmentPending?: string;
+  /** A task: Copilot chat carries it on with /sf-task, as after its start in /sf-task [ITW:REQ-113]. */
+  task?: boolean;
 }
 
 export interface IntakeTarget {
@@ -90,6 +97,8 @@ export interface IntakeTarget {
 }
 
 export interface IntakeDefaults {
+  /** A workflow or a task, when the way in asked for one (the Work place's Start with a workflow…). */
+  startMode?: StartMode | null;
   specifications?: string[];
   shape?: Shape | null;
   source?: 'jira' | 'github-issue' | 'manual' | null;
@@ -351,6 +360,8 @@ export class IntakePanel {
   private readonly runtimeWarmup = new AbortController();
   private prep: IntakeWorktreePreparation | null = null;
   private branchCheckout: { base: string; client: SingularityFlowClient } | null = null;
+  private taskPlanTimer: ReturnType<typeof setTimeout> | null = null;
+  private taskPlanRevision = 0;
 
   private get storyExecutionClient(): SingularityFlowClient {
     return this.form.shape === 'story' && this.branchCheckout?.base === launchBaseBranch(this.form)
@@ -385,6 +396,9 @@ export class IntakePanel {
       // Starting a Story is the common case, so the form opens on it unless the caller asked for
       // another shape.
       shape: this.defaults.shape ?? 'story',
+      // The person's last choice, unless this way in asked for one or names a workflow [ITW:REQ-113].
+      startMode: this.defaults.startMode ?? (this.defaults.workType || this.defaults.clone ? 'workflow'
+        : preferences.get(START_MODE_KEY) === 'task' ? 'task' : 'workflow'),
       approvalAuthorityMissing: target.approvalAuthorityMissing === true,
       inFlight: target.inFlight,
       favouriteWorkflows: [],
@@ -426,6 +440,7 @@ export class IntakePanel {
       null, this.disposables);
     this.holdWhileVisible(this.panel.visible);
     this.render();
+    this.scheduleTaskPlan(0);
     void this.refreshTargetWorkspace();
     void this.load().finally(() => {
       if (!this.disposed) void this.client.prewarmRuntime(this.runtimeWarmup.signal);
@@ -487,6 +502,7 @@ export class IntakePanel {
           && Boolean(IntakePanel.current.journey) === Boolean(target.journey)) {
         IntakePanel.current.panel.reveal(vscode.ViewColumn.Active);
         IntakePanel.current.retarget(target);
+        if (target.defaults?.startMode) IntakePanel.current.chooseStartMode(target.defaults.startMode, { remember: false });
         // A retained Intake panel may have outlived a terminal or Configuration Center refresh.
         // Reopening Start Work is an explicit request for the current authority, not for its cached
         // launch catalog. Preserve the person's draft while refreshing only governed choices.
@@ -618,6 +634,48 @@ export class IntakePanel {
       this.renderTimer = null;
       if (!this.disposed) this.scheduleRender();
     }, INTAKE_TYPING_QUIET_MS - quiet);
+  }
+
+  /**
+   * A workflow, or a task whose steps SFlow picks [ITW:REQ-113]. The readiness check is asked again (a task's names no
+   * workflow) and the choice is kept for the next Start Story.
+   */
+  private chooseStartMode(mode: StartMode, { remember = true }: { remember?: boolean } = {}): void {
+    if (this.disposed || this.form.busy || mode === this.form.startMode) return;
+    if (remember) void Promise.resolve(this.preferences.update(START_MODE_KEY, mode)).catch((error: unknown) => {
+      this.output.appendLine(`Could not remember the choice between a workflow and a task: ${(error as Error).message}`);
+    });
+    this.cancelBasePreflight();
+    this.preflightVersion += 1;
+    this.update({ startMode: mode, error: null, taskQuestion: null, taskAnswers: [], taskKindNeeded: false, ...emptyStoryPreflight() });
+    this.scheduleIdentifierPreflight();
+    this.scheduleTaskPlan(0);
+  }
+
+  /** The likely plan for the task's words, once they stop changing; an answer for older words is never shown. */
+  private scheduleTaskPlan(delay = TASK_PLAN_QUIET_MS): void {
+    if (this.taskPlanTimer) clearTimeout(this.taskPlanTimer);
+    this.taskPlanTimer = null;
+    if (!taskPlanCommand(this.form) || this.form.taskPlan?.key === taskPlanKey(this.form)) return;
+    this.taskPlanTimer = setTimeout(() => {
+      this.taskPlanTimer = null;
+      void this.readTaskPlan();
+    }, delay);
+  }
+
+  private async readTaskPlan(): Promise<void> {
+    const command = taskPlanCommand(this.form);
+    if (!command || this.disposed) return;
+    const key = taskPlanKey(this.form);
+    const asked = ++this.taskPlanRevision;
+    let plan;
+    try {
+      plan = taskPlanFrom(await this.client.run(command, undefined, { priority: 'interactive' }), key);
+    } catch (error) {
+      plan = taskPlanFrom({ why: `SFlow could not read the likely steps: ${(error as Error).message}`.slice(0, 300) }, key);
+    }
+    if (this.disposed || asked !== this.taskPlanRevision || key !== taskPlanKey(this.form)) return;
+    this.update({ taskPlan: plan }, { background: true });
   }
 
   private cancelBasePreflight(): void {
@@ -1039,10 +1097,31 @@ export class IntakePanel {
       this.invalidateEnhancement();
       this.preflightVersion += 1;
       this.update({
-        tracker: tracker as Tracker, error: null,
+        tracker: tracker as Tracker, error: null, taskKindNeeded: false, taskQuestion: null, taskAnswers: [],
         ...emptyStoryPreflight()
       });
+      this.scheduleTaskPlan(0);
       return this.scheduleIdentifierPreflight();
+    },
+    // A workflow, or a task whose steps SFlow picks; a task's kind when its words do not say it [ITW:REQ-113].
+    startMode: (message) => {
+      const value = stringField(message, 'value');
+      if (value === 'task' || value === 'workflow') this.chooseStartMode(value);
+    },
+    taskKind: (message) => {
+      const value = stringField(message, 'value');
+      if (this.form.busy || !taskMode(this.form) || !TASK_KIND_CHOICES.some((entry) => entry.id === value)) return;
+      this.update({ taskKind: value, error: null, taskQuestion: null, taskAnswers: [] });
+      this.scheduleTaskPlan(0);
+    },
+    // The person's answer to SFlow's question is the start: it goes with the start, as the chat's yes or no does.
+    taskAnswer: (message) => {
+      const question = this.form.taskQuestion;
+      const value = stringField(message, 'value');
+      const answer = value === 'yes' ? question?.yes : value === 'no' ? question?.no : null;
+      if (this.form.busy || !taskMode(this.form) || !answer) return;
+      this.update({ taskQuestion: null, taskAnswers: [...this.form.taskAnswers, ...answer] });
+      return this.start();
     },
     profile: (message) => {
       const profile = this.form.profiles.find((entry) => entry.id === stringField(message, 'value'));
@@ -1191,6 +1270,7 @@ export class IntakePanel {
           this.form.testRecoveryConfirmedDigest = null;
         }
         (this.form as unknown as Record<string, string>)[field] = value;
+        if (field === 'title' || field === 'description') this.scheduleTaskPlan();
         if (field === 'id' || field === 'key') {
           // The identifier moved on, so an answer for the old one must never enable Start.
           if (this.preflightKey !== null
@@ -1225,6 +1305,7 @@ export class IntakePanel {
             ...emptyStoryPreflight(), suggestedStoryBranch: null
           } : {})
         } as Partial<IntakeForm>);
+        if (field === 'title' || field === 'description') this.scheduleTaskPlan();
         if (invalidatesPreflight) return this.scheduleIdentifierPreflight();
       }
     },
@@ -1234,6 +1315,7 @@ export class IntakePanel {
       if (!proposal || this.form.enhancing || this.form.busy) return;
       this.enhancementRevision += 1;
       this.update({ description: proposal, enhanceProposal: null, enhanceError: null });
+      this.scheduleTaskPlan(0);
     },
     enhanceDiscard: () => {
       if (!this.form.enhanceProposal || this.form.enhancing || this.form.busy) return;
@@ -1589,23 +1671,26 @@ export class IntakePanel {
       const exactWorkType = catalogReturned
         ? storyWorkflowSelection(this.form.workType, exactBaseWorkflows)
         : this.form.workType;
+      // A task names no workflow: SFlow composes its steps as it starts, so no workflow is waited for [ITW:REQ-113].
+      const task = taskMode(this.form);
       const warnings = (readiness?.warnings ?? [])
+        .filter((entry) => !(task && entry.code === 'STORY_WORKFLOW_SELECTION_PENDING'))
         .map((entry) => entry.message?.trim())
         .filter((message): message is string => Boolean(message));
       const refreshRecommended = configurationRefreshRelevant(readiness);
       if (!result.preflight?.passed || !readiness || readiness.ready === false
-          || exactWorkType === null) {
+          || (exactWorkType === null && !task)) {
         this.update({
           ...(catalogReturned ? {
             storyWorkflows: exactBaseWorkflows,
             availableStoryWorkflows: exactCatalog.available,
             workflowCatalogReason: result.intake?.workflowCatalogReason ?? null,
             workType: exactWorkType,
-            workflowReason: exactWorkType === null
+            workflowReason: exactWorkType === null && !task
               ? 'Choose a Story workflow available on the selected base branch.' : null
           } : {}),
           basePreflightPassed: false, basePreflightChecking: false,
-          basePreflightReason: exactWorkType === null
+          basePreflightReason: exactWorkType === null && !task
             ? 'Choose a Story workflow available on the selected base branch.'
             : readiness?.blockers?.find((entry) => entry.message)?.message
             ?? (readiness
@@ -1718,7 +1803,9 @@ export class IntakePanel {
       });
       return;
     }
-    if (this.form.shape === 'story' && testRecoveryNeedsTerminalReview(this.form)) {
+    // A task: `work --start` with the form's details, branch and documents; SFlow picks its steps [ITW:REQ-113].
+    const task = taskMode(this.form);
+    if (this.form.shape === 'story' && !task && testRecoveryNeedsTerminalReview(this.form)) {
       const terminal = createTerminalIn({
         name: `Singularity Flow · Baseline review · ${intakeIdentifier(this.form)}`,
         shellPath: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh',
@@ -1734,10 +1821,10 @@ export class IntakePanel {
 
     // A receipt for exactly this request, with time left, lets Start verify instead of rediscover.
     // It is single-use either way, so the panel forgets it now.
-    const receipt = this.intakeReceipt;
+    const receipt = task ? null : this.intakeReceipt;
     this.intakeReceipt = null;
     const currentPreflight = storyPreflightCommand(this.form);
-    const prepared = currentPreflight
+    const prepared = currentPreflight && !task
       ? await this.prep?.take(JSON.stringify(currentPreflight)) : null;
     if (this.disposed) return;
     const args = [
@@ -1770,7 +1857,7 @@ export class IntakePanel {
       };
       // The engine reports each stage it enters; show it where the person is looking.
       const result = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `Starting ${this.form.shape}…` },
+        { location: vscode.ProgressLocation.Notification, title: task ? 'Starting the task…' : `Starting ${this.form.shape}…` },
         (progress) => executionClient.run<StartPayload & { data?: StartPayload }>(args, undefined, {
           onProgress: (step) => {
             const label = startProgressLabel(step);
@@ -1803,11 +1890,17 @@ export class IntakePanel {
       await this.onStarted({
         shape, id, currentPhase: payload.currentPhase, repositoryPath: payload.repositoryPath,
         publication: payload.publication, configuration: payload.configuration,
-        ...(enrollmentPending ? { enrollmentPending } : {})
+        ...(enrollmentPending ? { enrollmentPending } : {}), ...(task ? { task: true } : {})
       });
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
       if (this.disposed || this.client.repository !== startRepository) return;
+      // What SFlow asks before a task starts (the kind, or a yes or no to an agent or skill): asked here, nothing started.
+      const asked = task && failure instanceof CliError ? taskStartAnswer(failure.result) : null;
+      if (asked) {
+        this.update({ busy: false, startStep: null, ...asked });
+        return;
+      }
       this.update({
         busy: false,
         error: failure instanceof CliTimeoutError ? failure.summary : failure.message,
@@ -1818,7 +1911,7 @@ export class IntakePanel {
       if (failure instanceof CliError) {
         const { showRefusal } = await import('./result-panel.ts');
         if (!this.disposed && this.client.repository === startRepository) showRefusal(failure, {
-          headline: 'Story intake needs recovery', repositoryRoot: executionClient.repository
+          headline: task ? 'The task did not start' : 'Story intake needs recovery', repositoryRoot: executionClient.repository
         });
       }
     } finally {
@@ -1839,6 +1932,8 @@ export class IntakePanel {
     this.renderTimer = null;
     this.invalidateEnhancement();
     this.cancelBasePreflight();
+    if (this.taskPlanTimer) clearTimeout(this.taskPlanTimer);
+    this.taskPlanTimer = null;
     if (IntakePanel.current === this) IntakePanel.current = null;
     for (const [key, panel] of IntakePanel.clones) if (panel === this) IntakePanel.clones.delete(key);
     this.panel.dispose();

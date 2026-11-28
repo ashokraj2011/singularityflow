@@ -2,17 +2,21 @@
 import { escape } from './webview.ts';
 
 const STEPS = [
-  { id: 'details', label: 'Details', regions: ['scope', 'identification'] },
+  { id: 'details', label: 'Details', regions: ['mode', 'scope', 'identification'] },
   { id: 'workflow', label: 'Workflow & branch', regions: ['profile', 'workflow', 'base', 'poc'] },
   { id: 'inputs', label: 'Documents & checks', regions: ['attachments', 'references', 'checks', 'recovery'] },
   { id: 'review', label: 'Review & start', regions: ['review', 'status', 'inFlight'] }
 ] as const;
 
-export function intakeWizardNavigation(enabled: boolean): string {
+/** A task has no workflow and no checks to choose, so its steps are named for what it asks [ITW:REQ-113]. */
+const TASK_LABELS: Record<string, string> = { workflow: 'Branch', inputs: 'Documents' };
+
+export function intakeWizardNavigation(enabled: boolean, task = false): string {
   if (!enabled) return '';
+  const label = (step: (typeof STEPS)[number]) => (task ? TASK_LABELS[step.id] : null) ?? step.label;
   return `<nav class="intake-wizard-nav" aria-label="Story intake steps" data-intake-wizard-nav>
-    <ol>${STEPS.map((step, index) => `<li><button type="button" data-intake-wizard-go="${step.id}"${index === 0 ? ' aria-current="step"' : ''}>
-      <span aria-hidden="true">${index + 1}</span>${escape(step.label)}</button></li>`).join('')}</ol>
+    <ol>${STEPS.map((step, index) => `<li><button type="button" data-intake-wizard-go="${step.id}" data-intake-wizard-label="${escape(label(step))}"${index === 0 ? ' aria-current="step"' : ''}>
+      <span aria-hidden="true">${index + 1}</span>${escape(label(step))}</button></li>`).join('')}</ol>
     <p class="muted" data-intake-wizard-position role="status" aria-live="polite">Step 1 of 4 · Details</p>
   </nav>`;
 }
@@ -90,7 +94,8 @@ export const INTAKE_WIZARD_SCRIPT = `
       if (final) final.hidden = on && step !== 'review';
       const position = document.querySelector('[data-intake-wizard-position]');
       const index = steps.findIndex(item => item.id === step);
-      if (position) position.textContent = 'Step ' + (index + 1) + ' of 4 · ' + steps[index].label;
+      const named = document.querySelector('[data-intake-wizard-nav] [data-intake-wizard-go="' + step + '"]');
+      if (position) position.textContent = 'Step ' + (index + 1) + ' of 4 · ' + (named?.dataset.intakeWizardLabel || steps[index].label);
       review();
     };
     const go = (id, focus = true) => {

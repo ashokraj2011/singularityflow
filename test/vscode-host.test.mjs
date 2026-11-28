@@ -3998,6 +3998,88 @@ for (const deferredWorkspace of [false, true]) test(deferredWorkspace
   );
 });
 
+test('ITW REQ-113: Start Story starts a task with no workflow, and the window that opens its checkout carries it on in the chat', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-task-intake-'));
+  t.after(() => removeFixture(base));
+  const root = path.join(base, 'service');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# service\n');
+  await mkdir(path.join(root, 'src'));
+  await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 1;\n');
+  const initialized = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'], { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  await writeFile(portfolioFile, (await readFile(portfolioFile, 'utf8'))
+    .replace(/^  publish: \w+$/m, '  publish: off')
+    .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const remote = path.join(base, 'service.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+
+  const values = new Map();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+  await registered.commands.get('singularityFlow.startWork')();
+  const intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  t.after(() => intakePanel.dispose());
+  await until(() => intakePanel.webview.html.includes('data-base-branch="main"') ? true : null);
+  // The workflow is the default; the task is beside it, saying what it does.
+  assert.match(intakePanel.webview.html, /data-start-mode="workflow" checked/u);
+  await intakePanel.post({ type: 'startMode', value: 'task' });
+  assert.equal(values.get('singularityFlow.intake.startMode'), 'task', 'the choice is kept for the next Start Story');
+  assert.doesNotMatch(intakePanel.webview.html, /data-work-type=/u, 'no workflow to choose');
+  await intakePanel.post({ type: 'baseBranch', value: 'main' });
+  await intakePanel.post({ type: 'field', field: 'id', value: 'TASK-UI' });
+  await intakePanel.post({ type: 'field', field: 'title', value: 'Make the value module return 2' });
+  await intakePanel.post({ type: 'field', field: 'description', value: 'The value module returns 1; its callers want 2.' });
+  const brief = path.join(base, 'value-brief.md');
+  await writeFile(brief, '# Value brief\nCallers want 2.\n');
+  registered.pickedFile = brief;
+  await intakePanel.post({ type: 'attachmentsPick' });
+  // The likely plan under the words, in the Work place's words; the branch checked with no workflow.
+  await until(() => /Likely plan: requirement → implement and test → SFlow runs the tests\./u.test(intakePanel.webview.html) ? true : null,
+    { what: 'the likely plan under the words' });
+  await until(() => /The branch is ready: create <code>TASK-UI<\/code>/u.test(intakePanel.webview.html) ? true : null,
+    { what: 'the task\'s branch check', attempts: 400 });
+  assert.match(intakePanel.webview.html, /Every step of the task reads it\./u);
+  const runsBefore = registered.executedCommands.length;
+  await intakePanel.post({ type: 'start' });
+  const openFolder = await until(() => registered.executedCommands.slice(runsBefore).find((entry) => entry.id === 'vscode.openFolder') ?? null,
+    { what: 'the task\'s own checkout to open' });
+  const storyRoot = openFolder.args[0].fsPath;
+  assert.deepEqual(registered.errors, []);
+  assert.ok(registered.infos.some((message) => /^Task TASK-UI started in its own checkout\. Opening it; Copilot chat carries it on there\./u.test(message)), registered.infos.join('\n'));
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim(), 'main', 'the launch checkout is not switched');
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: storyRoot }).stdout.trim(), 'TASK-UI');
+  const record = JSON.parse(await readFile(path.join(storyRoot, 'singularity/work-items/TASK-UI/workflow.json'), 'utf8'));
+  assert.equal(record.workItem.workType, 'task-change', 'SFlow composed the steps');
+  assert.equal(record.resolution.composition.sizing, 'requirement');
+  const documents = JSON.parse(await readFile(path.join(storyRoot, 'singularity/work-items/TASK-UI/documents.json'), 'utf8')).documents;
+  assert.deepEqual(documents.map((entry) => [entry.name, entry.phases]), [['value brief', record.phaseOrder]]);
+  // Nothing was sent to a chat in the window that is closing; the record is for the window that opens the checkout.
+  assert.equal(registered.executedCommands.slice(runsBefore).some((entry) => entry.id === 'workbench.action.chat.open' && entry.args[0]?.isPartialQuery === false), false);
+  const turn = values.get('singularityFlow.storyStartTaskTurn.v1');
+  assert.deepEqual([turn?.storyId, turn && path.resolve(turn.repositoryPath)], ['TASK-UI', path.resolve(storyRoot)]);
+
+  // The window that opens the task's checkout sends /sf-task to the chat, once, as /sf-task's own start carries its turn on.
+  const opened = stubVscode();
+  opened.api.workspace.workspaceFolders = [{ uri: { fsPath: storyRoot } }];
+  await loadExtension(opened.api).activate(context(values));
+  const sent = await until(() => opened.registered.executedCommands.find((entry) => entry.id === 'workbench.action.chat.open' && entry.args[0]?.isPartialQuery === false) ?? null,
+    { what: '/sf-task sent to the chat of the task\'s window' });
+  assert.deepEqual(sent.args[0], { query: '/sf-task', isPartialQuery: false });
+  assert.equal(values.get('singularityFlow.storyStartTaskTurn.v1'), undefined, 'sent once');
+});
+
 test('the Publish button uses the exact ready route, acknowledges its receipt and does not render the artifact', async t => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-button-'));

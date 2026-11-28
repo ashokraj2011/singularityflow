@@ -58,7 +58,8 @@ import { discoverWorkspaceStoryRows, settleIndependentStoryRead, StoryRefreshGat
 import { sameStoryAttachPath, selectedCatalogStory, storyListingWorkspaceStatus, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository } from './story-attach.ts';
 import {
   storyCheckoutNeedsWindowSwitch, storyStartHandoffFromResult, storyStartHandoffMatches,
-  STORY_START_HANDOFF_KEY, STORY_START_DISCOVERY_IDLE_MS, STORY_START_NOTICE_KEY, storyStartNotice, storyStartNoticeFor
+  STORY_START_HANDOFF_KEY, STORY_START_DISCOVERY_IDLE_MS, STORY_START_NOTICE_KEY, storyStartNotice, storyStartNoticeFor,
+  STORY_START_TASK_TURN_KEY, storyStartTaskTurn, storyStartTaskTurnDue
 } from './story-start-handoff.ts';
 import type { StoriesMessage } from './views/stories.ts';
 import type { CapabilitiesMessage } from './views/capabilities.ts';
@@ -6952,6 +6953,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * profile offers it here without the extension being changed.
    */
   const startWork = async (defaults: {
+    /** A workflow or a task, when the way in asked for one [ITW:REQ-113]; else the person's last choice. */
+    startMode?: 'workflow' | 'task' | null;
     shape?: 'initiative' | 'epic' | 'story' | null;
     source?: 'jira' | 'github-issue' | 'manual' | null;
     workType?: string | null;
@@ -7087,8 +7090,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           try { await context.globalState.update(STORY_START_NOTICE_KEY, notice); }
           catch { /* The start result already printed it; a lost notice must not refuse the Story. */ }
         }
-        void showCompactInformationMessage(
-          `Story ${started.id} started in its isolated checkout. Opening it now.`
+        // A task goes on in the chat of the window that opens its checkout, as after its start in /sf-task [ITW:REQ-113].
+        const taskTurn = started.task ? storyStartTaskTurn(started.repositoryPath, started.id) : null;
+        if (taskTurn) {
+          try { await context.globalState.update(STORY_START_TASK_TURN_KEY, taskTurn); }
+          catch { /* The task is started; its next action is in the chat box and on the status bar's Next. */ }
+        }
+        void showCompactInformationMessage(started.task
+          ? `Task ${started.id} started in its own checkout. Opening it; Copilot chat carries it on there.`
+          : `Story ${started.id} started in its isolated checkout. Opening it now.`
         );
         await vscode.commands.executeCommand(
           'vscode.openFolder', vscode.Uri.file(started.repositoryPath), false
@@ -7096,6 +7106,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       await refreshAfterKnownMutation();
+      if (started.task) {
+        // Its checkout is this window's: the task's turn goes on in the chat now [ITW:REQ-113].
+        await sendTaskRoute(TASK_ROUTE);
+        void showCompactInformationMessage(`Task ${started.id} started. Copilot chat carries it on.`);
+        return;
+      }
       const subject = started.shape === 'story' ? 'Story'
         : started.shape === 'epic' ? 'Epic' : 'Initiative';
       const next = started.currentPhase
@@ -8150,6 +8166,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     chatPrefill.noteRequestSent();
     await vscode.commands.executeCommand('workbench.action.chat.open', { query: route, isPartialQuery: false });
   };
+
+  /**
+   * A task started from Start Story in this window's checkout goes on in its chat [ITW:REQ-113]: /sf-task, sent once,
+   * when this window first shows that task. The window that started it left the record before it opened this folder.
+   */
+  const carryStartedTaskOn = (): void => {
+    const state = store.current;
+    const pending = context.globalState.get<unknown>(STORY_START_TASK_TURN_KEY);
+    if (!pending || !state.snapshot || state.stale || state.error) return;
+    const workflow = state.snapshot.workflow;
+    const due = storyStartTaskTurnDue(pending, state.snapshot.repository?.root ?? repository, workflow, isTaskStory(workflow));
+    if (due === 'wait') return;
+    void Promise.resolve(context.globalState.update(STORY_START_TASK_TURN_KEY, undefined)).catch(() => {});
+    if (due === 'send') void sendTaskRoute(TASK_ROUTE).catch((error: unknown) => output.appendLine(`Could not send /sf-task to the chat: ${(error as Error).message}`));
+  };
+  context.subscriptions.push(store.onDidChange((_state, change) => { if (change.kind === 'snapshot') carryStartedTaskOn(); }));
+  carryStartedTaskOn();
 
   const openGovernedCopilot = async (requestedWorkId?: string | null): Promise<void> => {
     const resolvedWorkId = store.current.snapshot?.workflow?.workItem.id ?? null;

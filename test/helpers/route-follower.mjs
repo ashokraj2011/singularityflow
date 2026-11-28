@@ -103,11 +103,13 @@ export function skillEntries(skillsRoot = SKILLS) {
     const finish = commands(body).find((command) => /^singularity-flow phase prepublish\b.*--publish-if-ready/u.test(command)) ?? null;
     // An alias hands the turn to its canonical skill ("Run `/sflow-code` once", "Delegate once to `/sf-code`").
     // The delegation sentence names it; another skill the text mentions first (/sf-call's `/sf-start … --agent`) is not it.
-    // The one way on's older names hand their turn to /sf-next ("This is the one way on, `/sf-next`, under an older name").
+    // The one way on's older names hand their turn to /sf-next ("This is the one way on, `/sf-next`, under an older name"),
+    // whatever command they also name (/sf-resume's opening).
+    const oneWayAlias = /This is the one way on, `\/sf-next`, under an older name: run `\/sflow-next` once/u.test(body);
     const delegate = /<!-- sflow-output-contract: canonical-delegation -->/u.test(body)
       ? (/(?:Delegate once to|Run) `\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n'))
         ?? /`\/(?:sf|sflow)-([a-z0-9-]+)\b[^`]*`/u.exec(own.join('\n')))?.[1] ?? null
-      : /This is the one way on, `\/sf-next`, under an older name: run `\/sflow-next` once/u.test(body) ? 'next' : null;
+      : oneWayAlias ? 'next' : null;
     // A skill whose first step picks among subcommands (`spec analyze|coverage|trace`) has no single entry.
     const choice = !entry && commands(own.join('\n')).some((command) => !PAUSE_CHECK.test(command) && command.includes('|'));
     // "Successful begin: refresh entry once": opening a code version is followed by the skill's entry again.
@@ -124,7 +126,7 @@ export function skillEntries(skillsRoot = SKILLS) {
     const runsBefore = /run `data\.task\.before` once now, before any edit/u.test(body);
     map.set(name, { skill: name, entry, source: fromPause ? 'pause' : entry ? 'steps' : null, finish, hint, refreshAfterBegin, worksInTurn, oneWorkCommand, buildsConverge,
       ...(stepWork ? { stepWork } : {}), ...(runsBefore ? { runsBefore } : {}),
-      ...(delegate && !entry ? { delegate: `/sf-${delegate}` } : {}), ...(choice ? { choice: true } : {}) });
+      ...(delegate && (!entry || oneWayAlias) ? { delegate: `/sf-${delegate}` } : {}), ...(choice ? { choice: true } : {}) });
   }
   for (const known of map.values()) {
     const target = known.delegate ? map.get(known.delegate) : null;

@@ -125,12 +125,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   }
   const presentationClosure = closure('cold-worker-protocol.mjs');
   const presentationBytes = presentationClosure.reduce((sum, item) => sum + item.bytes, 0);
-  // 2 MB again (2026-11-28, gaps-writers-bundle): main ea5f16c55 measured 2,106,451, over it since 38f37deda. Most of that was
+  // 2 MB again (2026-11-28, gaps-writers-bundle): main e2d820022 measured 2,106,699 (the history before is in Git), over it since 38f37deda. Most of that was
   // not the output helpers' own code: two static imports put whole chunks of other families in their closure. agent-output.mjs
   // imported agent-output-folder.mjs, which the hooks claimed, so every agent result loaded cold-hooks.mjs (307,172), which
   // loads cold-status.mjs; workspace-context.mjs imported the Story index (cold-status.mjs, 169,269) only to find a branch's
   // Story. The folder leaf (Node built-ins only) is now the startup chunk's (cold-core +~2.3 KB) and the index loads lazily:
-  // measured 1,632,158 bytes (-474,293). Behaviour is the same; the two chunks named last below hold it.
+  // measured 1,632,389 bytes (-474,299 on the same build). Behaviour is the same; the two chunks named last below hold it.
   assert.ok(presentationBytes < 2 * 1024 * 1024,
     `small output helpers must not shift policy loading into every agent response: ${presentationBytes} bytes`);
   for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs', 'cold-hooks.mjs', 'cold-status.mjs']) {

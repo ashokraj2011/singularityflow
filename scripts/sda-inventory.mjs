@@ -133,6 +133,11 @@ const OVERRIDES = {
   // The runtime check's capture and screenshots of one step version, private to this checkout's Git directory.
   'runtime-check.mjs': 'local-operational',
   'runtime-check-web.mjs': 'local-operational',
+  // The office checks (probe office): temporary repositories and machine folders of their own, removed at the end, and one report.
+  'office-probe/hooks.mjs': 'local-operational',
+  'office-probe/machine.mjs': 'local-operational',
+  'office-probe/process.mjs': 'local-operational',
+  'office-probe/state-checkout.mjs': 'local-operational',
   // A person's confirmed kind of software for a capability, kept with this clone's private files; the only copy.
   'software-kind-record.mjs': 'local-authored',
   // The short confirmation codes this machine gave, each with the command it names; a week's worth, never shared.

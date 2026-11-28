@@ -244,7 +244,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   // The recommended answer, no reason [C10].
   'recommended',
   // app-review runtime-check --again: run the check again on a version already checked.
-  'again'
+  'again', 'host-questions'
 ]));
 
 /**

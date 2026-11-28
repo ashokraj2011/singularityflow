@@ -1980,6 +1980,21 @@
         "process-launch": 1
       },
       "digest": "a168504be7970ab5b670f2f5d121392c06472f8181da7db733a5096b2e057f77"
+    },
+    "apps/vscode/src/office-checks.ts": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "81961a309528cb652b16ee832bf2a555491b66fa4c344e429b56edef2f51aa12"
+    },
+    "src/office-probe/process.mjs": {
+      "counts": {
+        "command-run": 2,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "a2900f842f6d57ad780519e5b4806c0796bcd86bf775d96b030302deaa4e8860"
     }
   }
 }

@@ -31,6 +31,8 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'guard', 'git-policy',
   // Security team and TLM findings (CQF M6): its --json is its own structured result (sflow-findings-*).
   'findings',
+  // The office checks (probe office): sflow-office-checks.
+  'probe',
   // The clone's kept prompts (PCR P1): sflow-prompts.
   'prompts',
   // Story lessons [LRN-v1]: sflow-lessons and sflow-lessons-change.

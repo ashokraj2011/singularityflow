@@ -906,6 +906,7 @@ Usage:
   singularity-flow backup restore <DIRECTORY> [--json]
   singularity-flow findings template [--out FILE] [--json]
   singularity-flow prompts [--story ID] [--limit N] [--json]
+  singularity-flow probe office [--out FILE] [--push] [--chat] [--intellij] [--jira KEY] [--json]
   singularity-flow findings import FILE [--feed security|tlm] [--source NAME] [--dry-run] [--json]
   singularity-flow findings list [--feed security|tlm] [--state active|all|STATE] [--all-repositories] [--limit N] [--json]
   singularity-flow findings link <WORK-ID> --address ID,... [--json]

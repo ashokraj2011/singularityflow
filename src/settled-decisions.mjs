@@ -15,9 +15,9 @@ import { countedRecords } from './presence/counted.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /**
- * What each kind settles, and the person's route an undo hands it back to. `own-correction` stays readable for Stories
- * that recorded one before 2026-11-17; none is settled now: the author's own correction is asked like every successor
- * (owner, 2026-11-17) [D3, OSA:REQ-030].
+ * What each kind settles, and the person's route an undo hands it back to. `own-correction`: Copilot's correction of its own
+ * work on a step nobody reviewed or approved yet starts its next version, at most as many in a row as the review fixes
+ * (sourceReview.autoFixVersions) [owner, 2026-11-28, reversing 2026-11-17's "asked like every successor"].
  */
 export const SETTLED_KINDS = Object.freeze(['story-selection', 'own-correction', 'node-version', 'test-command', 'plan-accounting', 'review-corrections',
   // A test step's failing tests returned to the code step, which starts its next version, and the test step's run again
@@ -31,7 +31,6 @@ export const SETTLED_KINDS = Object.freeze(['story-selection', 'own-correction',
   'sent-back']);
 /** The kinds that start a step's next version: forward only, and history once a later version of that step exists. */
 const VERSION_STARTS = Object.freeze(['review-corrections', 'own-correction', 'failing-tests', 'tests-rerun', 'person-change', 'task-grown', 'sent-back']);
-const RETIRED_KINDS = Object.freeze(['own-correction']);
 const ID = /^STL-[0-9]{3,}$/u;
 const BY = Object.freeze(['agent', 'sflow']);
 
@@ -105,8 +104,6 @@ const nextId = (workflow) => `STL-${String((workflow.settledDecisions ?? []).len
 /** Append one settlement to the aggregate and return it. Pure: the caller commits. */
 export function recordSettledDecision(workflow, { kind, subject, answer, evidence = [], by, at, phase = null, effect = null, actor = null, agent = null }) {
   if (!SETTLED_KINDS.includes(kind)) fail(`A settled decision is one of ${SETTLED_KINDS.join(', ')}; not '${kind}'.`);
-  if (RETIRED_KINDS.includes(kind)) fail('The author\'s own correction is never settled for the person: it is previewed and opens only on their yes.',
-    'SETTLED_DECISION_RETIRED');
   if (!BY.includes(by)) fail('A settled decision is settled by the agent or by SFlow.');
   const named = (Array.isArray(evidence) ? evidence : []).map((entry) => ({ what: text(entry?.what, 500), where: text(entry?.where, 300) }))
     .filter((entry) => entry.what && entry.where);
@@ -159,7 +156,7 @@ export function reraisedRoute(workflow, entry) {
   // A test step's failing tests (failing-tests-return.mjs) are forward only too: the version SFlow started stays open, and
   // from now on the test step waits for its approvers when its tests fail, or before it runs them again.
   if (VERSION_STARTS.includes(entry.kind)) return { words: {
-    'own-correction': `The author asks you before it corrects ${step} again. The generation it opened stays open, and the one before it stays as published.`,
+    'own-correction': `From now on SFlow asks you before it starts another version of ${step} for Copilot's own correction. The version it started stays open, and the one before it stays as published.`,
     'review-corrections': `From now on SFlow asks you before it starts another version of ${step} for a review's findings. An undo does not withdraw the version it started: that stays open, and the one before it stays as published. `
       + 'To disagree with a finding, dispute it on the decisions card or in /sf-decide, with your reason; or return the step when you approve it.',
     'failing-tests': `From now on SFlow asks you before it returns ${entry.effect?.testPhase ?? 'the test step'}'s failing tests to ${step} again. `

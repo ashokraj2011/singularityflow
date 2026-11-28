@@ -255,6 +255,13 @@ export class NeedsYouCardPanel {
       contentSecurityPolicy(this.panel.webview, token), token, NEEDS_YOU_CARD_SCRIPT, { styles: NEEDS_YOU_CARD_STYLE });
   }
 
+  /** The card read again in place, with one line on why: never "open it again" with nothing to press. */
+  private async reopen(key: string, words: string): Promise<void> {
+    await this.open(key);
+    this.result = words;
+    this.render();
+  }
+
   private async done(words: string, { acted = true } = {}): Promise<void> {
     this.result = words;
     if (acted && this.card) this.place.acted(this.card.key);
@@ -289,7 +296,8 @@ export class NeedsYouCardPanel {
         if (!reason?.trim()) return;
         // The engine's own return command for this card (action-command-map.mjs), with the person's words for its reason.
         const words = (choice.command ?? '').split(/\s+/u).filter(Boolean);
-        if (words[0] !== 'singularity-flow' || !words.includes('<reason>')) return this.done('This card cannot send it back; open it again.', { acted: false });
+        // A card read before its route was: it is read again here, in place, with the choice the person makes next [owner, 2026-11-28].
+        if (words[0] !== 'singularity-flow' || !words.includes('<reason>')) return this.reopen(card.key, 'This card was read before its send-back route; it is read again below, so choose Send back once more.');
         await bound.runText(words.slice(1).map((word) => (word === '<reason>' ? reason.trim() : word)));
         await this.done(`${item.step.label} was sent back with your note.`);
       } else if (item.kind === 'workflow-decision') {
@@ -323,7 +331,7 @@ export class NeedsYouCardPanel {
     const workId = item.story?.id ?? '';
     const view = await bound.run<StoryDecisionView>(['decision', 'show', workId, '--json']);
     const pending = view.pending;
-    if (!pending || (item.expected && pending.key !== item.expected)) return this.done('The decision changed since this card was read. Open it again.', { acted: false });
+    if (!pending || (item.expected && pending.key !== item.expected)) return this.reopen(item.key, 'The decision changed since this card was read; it is read again below, as it is now.');
     const picked = decisionChoiceItems(pending).find((entry) => entry.option === optionId);
     if (!picked?.option) return;
     const reason = await vscode.window.showInputBox({ title: `${pending.label}: ${picked.label}`, prompt: `${pendingDecisionSummary(pending)} Why this choice? It is recorded with your name.`,

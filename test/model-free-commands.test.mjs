@@ -94,7 +94,7 @@ test('every decision the Decide card records has the card as its routes, never "
     'singularity-flow decision witness-defer PAY-1 --criterion PAY-1:AC-001 --slot screen --to build --reason "The later step changes it."'
   ]) assert.deepEqual(routes(command).filter((_, at) => at !== 1), [null, null], command);
   // Moved to the card [owner, 2026-11-28]: a forward amendment's two choices and a lapsed exception's renewal are rows it records,
-  // and a finding's accepted risk runs from its row on "Do it now"; /sf-decide opens it.
+  // and a finding's accepted risk runs from its row on "Do this now"; /sf-decide opens it.
   for (const command of ['singularity-flow upstream-issue decide-amendment FAM-001 --work-id PAY-1 --decision approve --reason "Agreed with the corrected plan." --confirm FAM-001',
     `singularity-flow decision witness-exception PAY-1 --phase build --mapping sha256:${'a'.repeat(64)} --expires 2099-01-01 --reason "The device lab is still down."`,
     'singularity-flow decision finding-risk PAY-1 --phase build --finding F-0123456789abcdef --expires 2099-01-01 --reason "The nested branches mirror the table."'

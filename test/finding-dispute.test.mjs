@@ -204,7 +204,7 @@ test('the same refusal three times says to stop and hand it on; prepublish count
   };
   const outputs = [unchanged[0], await publishAfterRepair('first'), await publishAfterRepair('second')];
   assert.doesNotMatch(outputs[1], /Stop: CODE_DELIVERY_EVIDENCE_REQUIRED/u);
-  assert.match(outputs[2], /1\. Stop: CODE_DELIVERY_EVIDENCE_REQUIRED has returned 3 times; repeating the repair cannot pass\./u);
+  assert.match(outputs[2], /1\. Stop: CODE_DELIVERY_EVIDENCE_REQUIRED came back 3 times; its entry says the way past it\./u);
   assert.match(outputs[2], /Dispute \(phase-approval-authority\): singularity-flow appeal risk-prepare --phase implementation --finding CODE_DELIVERY_EVIDENCE_REQUIRED/u);
   const json = completeAgentResult(attempt('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json').stdout);
   assert.equal(json.remediationPlan.escalation.required, true);

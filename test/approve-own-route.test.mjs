@@ -102,7 +102,8 @@ test('a real approval packet, read as an approve turn\'s agent view on both host
       for (const [name, value] of [['view', view], ['kept result', kept]]) {
         // The person's own @sflow line is said once, in VS Code's ending, filled; never as a route of the packet.
         const { how, ...ask } = value.act.ask;
-        assert.ok(how.includes(`approve on the approval page that is open, or type \`${OWN_LINE}\` in the chat box`), `${where}, ${name}: ${how}`);
+        // With the page open, nothing to type; the person's own line only when it could not open [owner, 2026-11-28].
+        assert.ok(how.includes(`approve or send it back on the approval page that is open, with no command at all; only when it says the page could not open, type \`${OWN_LINE}\` in the chat box`), `${where}, ${name}: ${how}`);
         assert.doesNotMatch(JSON.stringify({ ...value, act: { ...value.act, ask } }), /@sflow \/approve/u, `${where}, ${name}`);
       }
     }
@@ -134,7 +135,7 @@ test('VS Code: #sflowDecide in a second turn brings the open approval page forwa
     assert.equal(answer.status, 'approval-open', `${turn}: ${JSON.stringify(answer)}`);
     assert.match(answer.message, /^The approval page is open for Scope and plan v1 with its documents\./u, turn);
     assert.doesNotMatch(answer.message, /reopen/iu, turn);
-    assert.deepEqual(answer.next, next, turn);
+    assert.equal(answer.next, null, `${turn}: the page is open, so no command`);
     assert.doesNotMatch(JSON.stringify(answer), OWN_ROUTE, turn);
   }
   assert.equal(approvalPages().length, 1, 'one approval page: the second turn brought it forward');

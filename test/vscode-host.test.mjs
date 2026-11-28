@@ -11916,7 +11916,7 @@ test('a list that changed before the preview is shown fresh, with no confirmatio
   assert.match(page.webview.html, /role="alert">[\s\S]*The Quality reviewers decide this\./);
 });
 
-test('an approval held by pending decisions says so on the approval page and opens the decision list', async (t) => {
+test('an approval held by pending decisions says so on the approval page, opens the Decide card in place and comes back after it', async (t) => {
   if (!requireBundle(t)) return;
   const { registered, cli } = await activatedWithDecisions(t);
   await cli.write('current.json', decisionPacketFixture(DECIDE_DIGEST));
@@ -11933,11 +11933,17 @@ test('an approval held by pending decisions says so on the approval page and ope
   assert.match(review.webview.html, /Evidence consistency[\s\S]*UPI-002: owned by implementation; open; human decision outstanding\./);
   assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === `decisions ${DECIDE_W} --phase conformance --json`), 'read beside the review bundle');
   await review.post({ type: 'approval.decide' });
-  await approving;
+  // One page, then back: the Decide card for the same Story opens in place of the approval page, never the older
+  // Decisions list whose buttons led round through Approvals to this page again [owner, 2026-11-28].
+  const card = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.decide' && entry.visible) ?? null);
   assert.equal(review.visible, false, 'the approval page closed');
-  const page = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.decisions') ?? null);
-  await until(() => page.webview.html.includes('data-item="d1"'));
-  assert.deepEqual((await cli.log()).at(-1).argv, ['decisions', DECIDE_W, '--phase', 'conformance', '--json'], 'the list of the step being approved');
+  await until(() => card.webview.html.includes('data-item="d1"'));
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.decisions'), false, 'never the older list');
+  assert.match(card.webview.html, /Back to the approval page/u);
+  await card.post({ type: 'decide.cancel' });
+  const back = await until(() => registered.panels.filter((entry) => entry.id === 'singularityFlow.approvalReview' && entry.visible && entry !== review).at(-1) ?? null);
+  await back.post({ type: 'approval.cancel' });
+  await approving;
   assert.equal(registered.output.some((line) => /\$ singularity-flow approve /.test(line)), false);
 
   // With nothing pending, the approval page has no such section.

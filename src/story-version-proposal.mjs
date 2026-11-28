@@ -40,7 +40,7 @@ export function versionQuestionWhy(proposal, { because = null } = {}) {
     'review-corrections': `Someone besides the reviewer has seen version ${from} of ${step}, so whether to write another for its review is yours to say.`,
     'requested-change': `You asked for a change after version ${from} of ${step} was published: only you can say whether it is a change to make now.`,
     'changed-after-publication': `Files changed after version ${from} of ${step} was published: only you know whether they belong in its next version.`,
-    'own-correction': `The author found its own mistake in version ${from} of ${step} before anyone reviewed it.`,
+    'own-correction': `Copilot found a mistake in its own work on version ${from} of ${step}.`,
     amendment: `An approved change to the Story's intent reopened ${step}.`
   })[proposal?.reason] ?? `${step} needs another version, and SFlow cannot tell on its own whether to start it now.`;
   const no = ({
@@ -71,7 +71,7 @@ function testsRecorded(phase, published) {
  * number, or a legacy local opening's own), the high-watermark before it, the last publication and its digest, the reason,
  * the confirmation a preview showed, and the configuration and lifecycle revisions it expects. Pure.
  */
-export function versionProposal(workflow, phase, { reason, confirmation = null, lifecycleRevision = null, adoption = null } = {}) {
+export function versionProposal(workflow, phase, { reason, confirmation = null, lifecycleRevision = null, adoption = null, because = null } = {}) {
   const facts = versionFactsOf(workflow, phase);
   const numbers = versionNumbers(facts);
   if (!numbers.ok) throw refuse(`${phase.id}'s version counters cannot be read, so no version is proposed.`, numbers.code, { phase: phase.id });
@@ -89,5 +89,5 @@ export function versionProposal(workflow, phase, { reason, confirmation = null, 
     evidence: { testsRecorded: testsRecorded(phase, numbers.published) },
     confirmation: confirmation ?? null, adoption: adoption ?? null,
     configurationRevision: workflow.resolution?.configSha256 ?? null, lifecycleRevision: lifecycleRevision ?? null };
-  return { proposal, digest: `sha256:${recordSha256(proposal)}`, question: consentQuestion(proposal), asked: versionQuestionWhy(proposal) };
+  return { proposal, digest: `sha256:${recordSha256(proposal)}`, question: consentQuestion(proposal), asked: versionQuestionWhy(proposal, { because }) };
 }

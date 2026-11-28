@@ -20,7 +20,7 @@
 | 10 | Refusals | One route for an uncertain opening retained for sync (Stage 2 finding 8); no recovery detour beside a failed test; the entry's unreadable review reads its status again; the non-Copilot hook names the kernel's next (a7, C19); a plain refusal with no remote to publish to (Stage 2 finding 13) | `phase-entry-authoring.mjs`, `refusal-remediation.mjs`, `phase-authoring-entry.mjs`, `agent-hooks.mjs`, `publication-unit-of-work.mjs` |
 | 11 | Handoffs | A code publication's outcome review is read and asked in the same turn (act `read`), not handed to `/sf-outcome` (b38); a kernel-built step (convergence too) is checked and published by its own work command, never `/sf-publish` (b25, C9) | `src/agent-output.mjs`, `src/commands/shared/prepared-phase-next-actions.mjs` |
 | 12 | Stage 2 path | A verification step that writes test automation was opened as a code generation before `prepare` (GENERATION_INTENT_NOT_APPLICABLE); it opens as a document does | `src/commands/phase-opening.mjs` |
-| 13 | Owner, 2026-11-17 | The author's own correction asks the person like every successor (section 5) | `own-correction-rollover.mjs`, `requested-successor.mjs`, `story-version-opening.mjs`, `commands/phase-opening.mjs`, `settled-decisions.mjs`, `sflow-code` step 2 |
+| 13 | Owner, 2026-11-17 (reversed 2026-11-28: SFlow starts it, with an undo, at most 2 in a row) | The author's own correction asks the person like every successor (section 5) | `own-correction-rollover.mjs`, `requested-successor.mjs`, `story-version-opening.mjs`, `commands/phase-opening.mjs`, `settled-decisions.mjs`, `sflow-code` step 2 |
 | 14 | Qualification | `test/osa-stage3-continuation.test.mjs`, `test/osa-stage3-vscode.test.mjs`, journey I, the three `osa-stage-3` KNOWN_BAD entries removed, the shadow comparison widened to six surfaces | `test/` |
 
 ## 2 One decision for every surface
@@ -67,6 +67,13 @@
 **Handoffs (REQ-050).** The guard already ends the turn's writes on a change of phase or version (b37, `step-routes-stage1`, `osa-stage1-guard` "a moved basis or an expired turn revokes an earlier grant"); a successor's opening ends in the same turn only through the person's yes. VS Code's prefill fills the chat input and never sends; it already waits while the person types and never replaces their text (`vscode-chat-prefill`, `osa-stage3-vscode`).
 
 ## 5 Owner's decision of 2026-11-17: the own correction asks the person
+
+**Reversed by the owner on 2026-11-28.** When Copilot finds a mistake in its own work on a step (not from a review or a
+person), SFlow starts the correction version itself, settled with an undo on the decisions card, and says in one line
+what was found and which version fixes it ("Copilot found … in its own work; version N of … fixes it"). At most as many
+start in a row as the review's fixes (`sourceReview.autoFixVersions`, 2 unless set); after them, or once a person undid
+such a start, the next is the person's question, with one line on why it is asked (`src/own-correction-rollover.mjs`).
+The rest of this section records the 2026-11-17 rule as it was.
 
 This supersedes the owner's rule of 2026-11-13 (settled for the person, with an undo). D3 and REQ-030 now hold with no exception.
 - `phase rollover <step> --correction "<what it contradicts>"` previews the next version with the reason `own-correction` and the proposal's question ("Start version N of …?"). Its confirmation (`--correction … --confirm <value>`) opens it only on the person's yes, through the same proposal, consent receipt and opening operation as every successor. A confirmation with no yes in the turn is refused by the guard.

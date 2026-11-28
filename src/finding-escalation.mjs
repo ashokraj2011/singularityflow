@@ -18,7 +18,9 @@ import { changedFiles, gitCommonDir, head } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
+import { isArtifactQualityFinding } from './phase-finding-policy.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { stepIntentOf, stopAdvice } from './step-advice.mjs';
 
 export const ESCALATION_THRESHOLD = 3;
 const MAX_KEYS = 64;
@@ -140,6 +142,10 @@ export function findingEscalation({ count, code, workId, phaseId, overrideKey = 
     ...(overrideKey && workId ? [{ kind: 'override', owner: 'phase-approval-authority',
       command: `singularity-flow decision override-finding ${workId} --phase ${phaseId} --finding ${overrideKey} --reason "<REASON>"`,
       detail: 'If the check is wrong, someone the step\'s approval rules name overrides this exact finding with their own reason, on the decision list or in their terminal; recorded as overridden, never passed.' }] : []),
+    // A document shortfall the person may carry with a reason and a date, as an exception, never a pass [owner, 2026-11-28].
+    ...(!disputable && isArtifactQualityFinding({ code }) ? [{ kind: 'quality-risk', owner: 'phase-approval-authority',
+      command: `singularity-flow appeal risk-prepare${work} --phase ${phaseId} --finding ${code} --gate-mode soft --expires <YYYY-MM-DD> --reason <why> --json`,
+      detail: 'Or a person the step\'s approval rules name carries this exact shortfall with their reason and a date: it stays unmet, never passed, and the work goes on.' }] : []),
     { kind: 'documentation', owner: 'reader', command: documentation.command,
       detail: 'What the finding means, its usual causes, and who else can act.' },
     // The step's own read (the map's inspect form), never recovery: a repeated finding is not damage, and the instruction
@@ -149,11 +155,14 @@ export function findingEscalation({ count, code, workId, phaseId, overrideKey = 
   ];
   return Object.freeze({
     required: true, repeated: count, code, documentation,
+    // What the person can do now, from the step's advice, then each route filled: never "hand it to someone" with nothing
+    // to press [owner, 2026-11-28].
     instruction: `The same ${code} finding has returned ${count} times after repairs; repeating the repair cannot pass. `
-      + 'Stop repairing, prepublishing, recovering or re-running the appeal preflight for it. Tell the person what is blocked and hand it to someone other than the author: '
-      + (disputable ? 'prepare a dispute with the evidence for the step\'s approvers, or ' : '')
-      + (overrideKey && workId ? 'someone the step\'s approval rules name may override it with their reason on the decision list, or ' : '')
-      + 'follow the route its documentation names. Nothing was accepted or waived.',
+      + `Stop repairing, prepublishing, recovering or re-running the appeal preflight for it. Tell the person: ${stopAdvice(stepIntentOf(null, phaseId), 'repeated', { step: phaseId })} Their routes, filled: `
+      + (disputable ? 'prepare a dispute with the evidence for the step\'s approvers; ' : '')
+      + (overrideKey && workId ? 'override it with their reason on the decision list; ' : '')
+      + (!disputable && isArtifactQualityFinding({ code }) ? 'carry the shortfall with a reason and a date; ' : '')
+      + 'or the route its documentation names. Nothing was accepted or waived.',
     routes: Object.freeze(routes)
   });
 }
@@ -182,7 +191,7 @@ export function escalateRefusalEnvelope(envelope, error, root = process.cwd(), {
   // The same route fields every other plan step carries, so no surface prints a missing Copilot route.
   const guidance = safeCommandGuidance({ argv: [...escalation.documentation.argv] });
   const step = Object.freeze({ id: 'escalate-repeated-finding',
-    label: `Stop: ${code} has returned ${count} times; repeating the repair cannot pass. Read its entry, then hand it to someone other than the author.`,
+    label: `Stop: ${code} came back ${count} times; its entry says the way past it.`,
     command: guidance?.command ?? escalation.documentation.command, argv: [...escalation.documentation.argv],
     executable: guidance?.executable ?? 'singularity-flow', skill: guidance?.skill ?? null,
     copilotCommand: guidance?.copilotCommand ?? null, copyable: guidance?.copyable ?? false,

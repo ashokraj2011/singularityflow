@@ -319,8 +319,9 @@ test('an approve turn in VS Code always ends with the approval page opened or th
     const answer = await host.callTool('singularityFlow_decide', { workId: W });
     const opened = host.approvals.some((page) => page.focus?.workId === W && page.focus?.phase === 'planning');
     assert.ok(opened || answer.next?.modelFreeCommand === PERSON, `${name}: ${JSON.stringify(answer)}`);
-    // Every approval the person may give carries their own model-free route, the page or not; nothing a chat would take itself.
-    assert.equal(answer.next?.modelFreeCommand, PERSON, `${name}: ${JSON.stringify(answer)}`);
+    // With the page open there is nothing to type: the person approves or sends it back there [owner, 2026-11-28]. A held
+    // approval keeps the person's own model-free route; nothing a chat would take itself either way.
+    assert.equal(answer.next?.modelFreeCommand, opened ? undefined : PERSON, `${name}: ${JSON.stringify(answer)}`);
     assert.equal(answer.next?.copilotCommand ?? null, null, name);
     assert.equal(answer.next?.command ?? null, null, name);
     assert.equal(opened, name !== 'held', `${name}: the page opens for a ready approval, not a held one`);

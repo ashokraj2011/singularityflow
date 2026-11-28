@@ -175,7 +175,7 @@ The targeted runs are listed in [stage2.md](stage2.md) §10. **Not run:** the fu
 | 1 | One decision for every surface, and the common-basis comparison | [stage3.md](stage3.md) §2 |
 | 2 | Durable task outcomes and no-progress detection | [stage3.md](stage3.md) §3 |
 | 3 | Refusals, recovery and handoffs | [stage3.md](stage3.md) §4 |
-| 4 | The owner's decision of 2026-11-17: the own correction asks the person | [stage3.md](stage3.md) §5 |
+| 4 | The owner's decision of 2026-11-17: the own correction asks the person (reversed 2026-11-28: SFlow starts it, with an undo, at most 2 in a row) | [stage3.md](stage3.md) §5 |
 | 5 | Findings and decisions for the owner | [stage3.md](stage3.md) §6 |
 | 6 | Ratchet, budgets, performance and acceptance rows | [stage3.md](stage3.md) §7–§9 |
 | 7 | Stage 3 completion: refusals and the recovery planner, sessions, the `publication-pending` stage, the qualification journeys | [stage3.md](stage3.md) §12 |

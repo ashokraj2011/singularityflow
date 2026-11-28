@@ -8,7 +8,7 @@
  * answers (`guard card decisions`): it is what Touch ID signs, and the record carries its digest, so the CLI signs with Touch ID
  * from here once the card matches; nothing is signed without the person's click and touch [owner, 2026-11-19].
  *
- * A row's own step (a return, a draft to propose, a held package) runs from here on "Do it now", from the list as read and
+ * A row's own step (a return, a draft to propose, a held package) runs from here on "Do this now", from the list as read and
  * with the person's reason and date as values of their own; only a step that must ask in their own terminal goes there, typed in.
  */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -27,7 +27,7 @@ import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, 
   type VersionOpeningPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
 import { guardCardDecisionsArgv, guardCardFrom, guardCardText, presenceCardArgs, type GuardCardRead } from './sf-guard-model.ts';
-import { approvalElsewhereWords, approvalFocus, approvalPageWords, approvalRows, chatNext, checkNames, checkOf, DECIDE_SCRIPT, filledCommand, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows,
+import { approvalElsewhereWords, approvalFocus, approvalPageWords, approvalRows, chatNext, shareText, checkNames, checkOf, DECIDE_SCRIPT, filledCommand, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows,
   decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS, guardRoute, joinedWords, openRows, othersApproval, othersApprovalWords, approveInChat, approversNext, readyApproval,
   selectStoryNext, type DecideDraft } from './decide-card-page.ts';
 import { OWN_TERMINAL_REFUSALS, ownStepArgv, ownTerminalWords, runMissingWords } from './decide-card-page.ts';
@@ -72,7 +72,11 @@ const readGuardCard = (client: SingularityFlowClient, workId: string, file: stri
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export async function reviewDecisions(client: SingularityFlowClient, target: { workId?: unknown }, refresh?: () => Promise<unknown>, { askedInChat = false } = {}): Promise<DecideResult> {
+/**
+ * `forApproval`: opened from the approval page's "Decide what blocks this step". Only what blocks it is shown, the card
+ * records it, and the approval page opens again after it (actions.ts), so the person never goes round other pages.
+ */
+export async function reviewDecisions(client: SingularityFlowClient, target: { workId?: unknown }, refresh?: () => Promise<unknown>, { askedInChat = false, forApproval = false } = {}): Promise<DecideResult> {
   if (!target || Object.keys(target).some((key) => key !== 'workId') || typeof target.workId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(target.workId)) {
     throw new Error('This page takes only a Story ID. Answers and reasons come from the person on the page.');
   }
@@ -101,14 +105,14 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
   const shown = (): DecisionPacket => packet;
   // A chat that asked carries on when nothing waits: only a person who opened this page sees a review nothing waits on,
   // or the approval, whose row opens its page [owner, 2026-11-13].
-  const waiting = () => (askedInChat ? openRows(shown()) : [...decideRows(shown()), ...approvalRows(shown())]);
+  const waiting = () => (askedInChat || forApproval ? openRows(shown()) : [...decideRows(shown()), ...approvalRows(shown())]);
   /**
    * In VS Code the person approves on the approval page, which this card opens [owner, 2026-11-19]. A chat that asked while
    * only the step's approval is left (VS Code's /sf-approve comes here) opens that page on this Story and step and is told so,
    * with no next step: the approve route it was handed back sent it round again [owner's Story, 2026-11-20]. Null when the
    * chat did not ask, something else is still open, or the approval is not theirs to give now.
    */
-  const approvalPage = async (): Promise<{ words: string; elsewhere: boolean; approval: DecisionItemPacket } | null> => {
+  const approvalPage = async (): Promise<{ words: string; elsewhere: boolean; opened: boolean; approval: DecisionItemPacket } | null> => {
     const approval = askedInChat ? readyApproval(packet) : null;
     if (!approval) return null;
     const page = await Promise.resolve(vscode.commands.executeCommand('singularityFlow.openApprovals', approvalFocus(packet, approval)))
@@ -116,15 +120,18 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     // The page shows this window's Story: one that shows another, or none, does not have this approval on it, and the chat
     // is never told it does [hardening C, F4]. A page that cannot tell yet (still reading) is taken at its word.
     const shown = (page.panel as { focusShown?: () => { status: string; story: string | null } } | null)?.focusShown?.();
-    return shown?.status === 'elsewhere' ? { words: approvalElsewhereWords(packet, approval, shown.story), elsewhere: true, approval }
-      : { words: approvalPageWords(packet, approval, page.opened), elsewhere: false, approval };
+    return shown?.status === 'elsewhere' ? { words: approvalElsewhereWords(packet, approval, shown.story), elsewhere: true, opened: page.opened, approval }
+      : { words: approvalPageWords(packet, approval, page.opened), elsewhere: false, opened: page.opened, approval };
   };
-  // A chat's answer once the approval page opened: the person's own model-free @sflow /approve beside it, or the Story to select
-  // first (@sflow /approve takes only the Story this window shows).
-  const approvalAnswer = (page: { words: string; elsewhere: boolean; approval: DecisionItemPacket }) => (page.elsewhere
-    ? { status: 'approval-elsewhere', next: selectStoryNext(workId) } : { status: 'approval-open', next: approveInChat(packet, page.approval) });
+  // A chat's answer once the approval page opened: nothing to type, since the person approves or sends it back on that page,
+  // so the chat never shows an approve route again [owner, 2026-11-28]; the person's own @sflow /approve only when the page
+  // could not open; or the Story to select first (the page shows only the Story this window shows).
+  const approvalAnswer = (page: { words: string; elsewhere: boolean; opened: boolean; approval: DecisionItemPacket }) => (page.elsewhere
+    ? { status: 'approval-elsewhere', next: selectStoryNext(workId) } : { status: 'approval-open', next: page.opened ? null : approveInChat(packet, page.approval) });
   // What a chat is handed next: never an approve route or this card again (chatNext). A person who opened it keeps the Story's.
   const nextFor = <T>(route: T | null | undefined): T | null => (askedInChat ? chatNext(route) : route ?? null);
+  // From the approval page with nothing left to decide: straight back to it.
+  if (forApproval && !waiting().length && !versionOpeningOf(packet)) return { status: 'nothing-to-decide', message: packet.headline };
   // Nothing waits on this person: the Story's own next step ends it [owner, 2026-11-18].
   if (!waiting().length && !versionOpeningOf(packet)) {
     const page = await approvalPage();
@@ -160,7 +167,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     let continueTaskInstruction: string | undefined;
     const render = (error: string | null = null, notice: string | null = null) => {
       const token = nonce();
-      panel.webview.html = page(`Decide · ${workId}`, `<style nonce="${token}">${DECIDE_STYLE}</style>${decideHtml(shown(), { error, notice, busy, draft, route, declined: declined?.digest ?? null })}`,
+      panel.webview.html = page(`Decide · ${workId}`, `<style nonce="${token}">${DECIDE_STYLE}</style>${decideHtml(shown(), { error, notice, busy, draft, route, declined: declined?.digest ?? null, forApproval })}`,
         contentSecurityPolicy(panel.webview, token), token, DECIDE_SCRIPT);
     };
     const finish = (answer: DecideResult) => {
@@ -217,14 +224,24 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
       return entry?.allowed === true && typeof entry.command === 'string' ? entry.command : null;
     };
     // The whole command, with the reason and date the person typed in the row: never one with a blank left in it [owner, 2026-11-19].
-    const completeCommandOf = (message: InboundMessage) => {
+    // Any other value it takes the card asks for right here, by its name, never "decide it from your terminal" [owner, 2026-11-28].
+    const completeCommandOf = async (message: InboundMessage) => {
       const command = commandOf(message);
       if (!command) return null;
-      const filled = filledCommand(command, { reason: stringField(message, 'reason'), expires: stringField(message, 'expires') }, process.platform === 'win32');
+      const given = { reason: stringField(message, 'reason'), expires: stringField(message, 'expires') };
+      // Each other value the command takes, asked here by its name, then the row's reason and date.
+      let text = command;
+      for (const slot of [...new Set(command.match(/<[^<>\s]+>/gu) ?? [])].filter((entry) => !/^<(?:REASON|reason|why|TEXT|YYYY-MM-DD)>$/u.test(entry))) {
+        const name = slot.slice(1, -1).replace(/[-_]/gu, ' ').toLowerCase();
+        const typed = await vscode.window.showInputBox({ title: `This step needs the ${name}`, prompt: `Type the ${name}: it goes into the command, which then runs as it is.`,
+          ignoreFocusOut: true, validateInput: (value) => (value.trim() && !/[\s"'`$\\;|&<>]/u.test(value.trim()) ? null : 'One word, with no spaces or quotes.') });
+        if (!typed?.trim()) return null;
+        text = text.split(slot).join(typed.trim());
+      }
+      const filled = filledCommand(text, given, process.platform === 'win32');
       if ('command' in filled) return filled.command;
       void vscode.window.showWarningMessage(filled.missing === 'reason' ? 'Write your reason in the row first: it goes into the command, so there is nothing left to fill in.'
-        : filled.missing === 'expires' ? 'Choose the date in the row first: it goes into the command, so there is nothing left to fill in.'
-          : `This step needs a value the card cannot fill in. Decide it from your terminal instead: singularity-flow decisions ${workId}`);
+        : 'Choose the date in the row first: it goes into the command, so there is nothing left to fill in.');
       return null;
     };
     const router = registerMessageRouter('singularityFlow.decide', {
@@ -255,19 +272,24 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         const file = optionOf(message)?.action?.file;
         if (typeof file === 'string' && path.isAbsolute(file)) await openBeside(file);
       },
+      // What another person decides: the words to send them, copied from the list as read [owner, 2026-11-28].
+      'decide.share': async (message) => {
+        const text = shareText(packet, stringField(message, 'row') ?? '');
+        if (text) { await vscode.env.clipboard.writeText(text); void vscode.window.setStatusBarMessage('$(clippy) Copied what to send them.', 3_000); }
+      },
       'decide.copy': async (message) => {
-        const command = completeCommandOf(message);
+        const command = await completeCommandOf(message);
         if (command) { await vscode.env.clipboard.writeText(command); void vscode.window.setStatusBarMessage('$(clippy) Copied.', 3_000); }
       },
       // Typed, not run: the person presses Enter themselves, in a terminal this page opened in the Story's checkout.
-      'decide.terminal': (message) => {
-        const command = completeCommandOf(message);
+      'decide.terminal': async (message) => {
+        const command = await completeCommandOf(message);
         if (!command) return;
         const terminal = createTerminalIn({ name: `Singularity Flow · ${workId}` }, packet.repositoryPath ?? client.repository);
         terminal.show(false);
         terminal.sendText(command, false);
       },
-      // "Do it now": the row's own step, run here for the person from the list as read, with their reason and date as values of
+      // "Do this now": the row's own step, run here for the person from the list as read, with their reason and date as values of
       // their own [owner, 2026-11-28]. It runs only while the row still offers that exact step; a step that must ask in their own
       // terminal opens there typed in, with the one line why.
       'decide.run': async (message) => {
@@ -312,7 +334,16 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         }
       },
       // The approval starts from this card: its row opens the approval page with the documents [owner, 2026-11-13].
-      'decide.approval': () => { void vscode.commands.executeCommand('singularityFlow.openApprovals', approvalFocus(packet, approvalRows(packet)[0])); },
+      // Opened from the approval page, it closes and that page opens again (actions.ts). Otherwise the approval page itself,
+      // for this step: never the Approvals list first, whose Approve opened this page again [owner, 2026-11-28].
+      'decide.approval': () => {
+        if (forApproval) return finish(notNow());
+        const approval = approvalRows(packet)[0];
+        const focus = approvalFocus(packet, approval);
+        const label = `${packet.phaseLabel} v${Number(approval?.details?.generation) || 0}`;
+        void vscode.commands.executeCommand('singularityFlow.approve', { kind: 'action', id: `story:${focus.phase}:approve`, label: `Approve ${label}`,
+          approve: { kind: 'story', workId: focus.workId, phaseId: focus.phase, expected: focus.phase, summary: `Approve ${packet.workId} / ${packet.phaseLabel}` } });
+      },
       // A step's next version: the person's yes to the exact proposal this page showed, kept by the engine's own command
       // (`decisions record --version-consent`), as on the Copilot CLI card [D3, OSA:REQ-030]. This page writes no record,
       // never runs the opening itself and never sends anything to a chat; "Not now" records nothing.

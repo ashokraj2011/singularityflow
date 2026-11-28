@@ -1,5 +1,5 @@
 /**
- * A row's own step runs from the Decide card on "Do it now" [owner, 2026-11-28: terminal-only steps move to the card], and the
+ * A row's own step runs from the Decide card on "Do this now" [owner, 2026-11-28: terminal-only steps move to the card], and the
  * card records on one press. Before, a row such as "Return Implementation for changes first" or a held package's acceptance said
  * "This one stays in your terminal": the person put it in a terminal, pressed Enter there and came back to the chat.
  *
@@ -111,14 +111,14 @@ test('the row\'s own step as argv: the person\'s reason and date are values of t
   assert.deepEqual(ownStepArgv('git push --force', {}), { missing: 'value' }, 'only an SFlow command');
 });
 
-test('the card offers "Do it now" on every own step, says what it does, and records on one press', () => {
+test('the card offers "Do this now" on every own step, says what it does, and records on one press', () => {
   const html = decideHtml(list());
-  assert.match(html, new RegExp(`${RUN_WORDS.replace(/[.;]/gu, '.')}[\\s\\S]*<button type="button" data-run="return-step-first">Do it now</button>[\\s\\S]*data-terminal="return-step-first"`, 'u'));
+  assert.match(html, new RegExp(`${RUN_WORDS.replace(/[.;]/gu, '.')}[\\s\\S]*<button type="button" data-run="return-step-first">Do this now</button>[\\s\\S]*data-terminal="return-step-first"`, 'u'));
   assert.doesNotMatch(html, /This one stays in your terminal/u);
   assert.match(html, /Nothing is recorded until you press Record what I chose; Not now records nothing\./u);
 });
 
-test('Do it now runs the row\'s own step with the person\'s reason, once, and the card ends when nothing is left', async () => {
+test('Do this now runs the row\'s own step with the person\'s reason, once, and the card ends when nothing is left', async () => {
   panels.length = 0; terminals.length = 0;
   const cli = client();
   const result = reviewDecisions(cli, { workId: W }, async () => undefined, { askedInChat: true });

@@ -41,9 +41,10 @@ test('each kind of row offers what it really is: a choice, the sign-off, a step 
   assert.match(html, /data-open="a\.js"/u);
   assert.match(html, /data-needs="reason cause expires"/u);
   assert.match(html, /data-witness="witness-1"/u);
-  assert.match(html, /Do it now runs this step for you with what you wrote here[\s\S]*singularity-flow recover PAY-1 --json[\s\S]*data-run="route">Do it now<\/button>[\s\S]*data-terminal="route"/u);
+  assert.match(html, /Do this now runs this step for you with what you wrote here[\s\S]*singularity-flow recover PAY-1 --json[\s\S]*data-run="route">Do this now<\/button>[\s\S]*data-terminal="route"/u);
   assert.doesNotMatch(html.slice(html.indexOf('data-other="d6"')), /data-choice/u, 'no control on what is not theirs');
-  assert.match(html, /The Leads decide this; ask them\.[\s\S]*\/sf-decide PAY-1/u);
+  // Someone else's: who decides, and one button that copies the words to send them [owner, 2026-11-28].
+  assert.match(html, /The Leads decide this; ask them\.[\s\S]*data-share="d6">Copy what to send them<\/button>/u);
   // Nothing to record: no "Record what I chose" at all, which did nothing when clicked [owner, 2026-11-18].
   assert.equal(decideHtml(packet({ items: [packet().items[5]] })).includes('data-review'), false, 'nothing to record, nothing to press');
 });
@@ -195,12 +196,14 @@ test('beside the departures the card shows coverage, each criterion\'s tests, th
 test('a held package shows who may accept it and its own command, which stays in the person\'s terminal; anyone else is told who to share it with', () => {
   const mine = evidenceHtml(packet({ approvalEvidence: approvalEvidence() }));
   assert.match(mine, /minimist@1\.2\.5 GHSA-xvch-5gv4-984h \(critical, fixed in 1\.2\.8\)[\s\S]*The security reviewers accept it, or it is upgraded to 1\.2\.8 and submitted again\./u);
-  assert.match(mine, /Do it now runs this step for you[\s\S]*<code>singularity-flow decision finding-risk PAY-1 --phase implementation --finding F-a4bd3792d14b22d0 [^<]*--reason &quot;&lt;why the step may keep it&gt;&quot; --expires &lt;YYYY-MM-DD&gt;<\/code>/u);
+  assert.match(mine, /Do this now runs this step for you[\s\S]*<code>singularity-flow decision finding-risk PAY-1 --phase implementation --finding F-a4bd3792d14b22d0 [^<]*--reason &quot;&lt;why the step may keep it&gt;&quot; --expires &lt;YYYY-MM-DD&gt;<\/code>/u);
   assert.match(mine, /data-hold-terminal="0">Put it in a terminal<\/button>[\s\S]*data-hold-copy="0">Copy<\/button>/u);
   assert.ok(pageText(mine).includes(HOLD_COMMAND));
   const theirs = evidenceHtml(packet({ approvalEvidence: approvalEvidence({ allowed: false }) }));
   assert.doesNotMatch(theirs, /data-hold-terminal|data-hold-copy/u, 'no command to run for someone who may not accept it');
-  assert.match(theirs, /Share this with them: <code>\/sf-decide PAY-1<\/code>/u);
+  // Someone else's: one button that copies the words to send them, never a command with nothing to press [owner, 2026-11-28].
+  assert.match(theirs, /data-share="hold-0">Copy what to send them<\/button>/u);
+  assert.doesNotMatch(theirs, /Share this with them/u);
   // The hold's own row already offers its command: the evidence names the package and who, and points there.
   const holdRow = { id: 'd2', kind: 'approval-hold', title: 'Code waits for a person', why: 'A vulnerable package.', decidedBy: allowed,
     options: [{ id: 'route', label: 'A person who may decide accepts it, or it is upgraded.', recommended: false, recordable: false, effects: [], needs: {}, decidedBy: allowed, action: { command: HOLD_COMMAND } }] };
@@ -222,8 +225,10 @@ test('the extension types a held package\'s command only from the list it read, 
   assert.match(source, /packet\.approvalEvidence\?\.hold\?\.entries\?\.\[Number\(hold\)\]/u);
   assert.match(source, /entry\?\.allowed === true && typeof entry\.command === 'string' \? entry\.command : null/u);
   // The whole command, with the reason and date typed in the row [owner, 2026-11-19].
-  assert.match(source, /'decide\.terminal': \(message\) => \{\n\s+const command = completeCommandOf\(message\);/u);
-  assert.match(source, /const completeCommandOf = \(message: InboundMessage\) => \{\n\s+const command = commandOf\(message\);[\s\S]*filledCommand\(command,/u);
+  assert.match(source, /'decide\.terminal': async \(message\) => \{\n\s+const command = await completeCommandOf\(message\);/u);
+  // Any other value the command takes is asked for on the card, by name, then the row's reason and date [owner, 2026-11-28].
+  assert.match(source, /const completeCommandOf = async \(message: InboundMessage\) => \{\n\s+const command = commandOf\(message\);[\s\S]*showInputBox[\s\S]*filledCommand\(text, given,/u);
+  assert.doesNotMatch(source, /Decide it from your terminal instead/u);
   assert.match(source, /evidencePaths\(packet\)\.includes\(file\)/u, 'only files the list names open');
 });
 
@@ -252,7 +257,7 @@ test('drafted, the row\'s own step opens the engine\'s draft, and the card asks 
     words: `The draft is at ${DRAFT}.`, action: { command: `singularity-flow story intent-amendment propose --work-id PAY-1 --file "${DRAFT}" --reason "<why the specification changes>"`, alternativeCommands: [], file: DRAFT } };
   const list = packet({ items: [difference([written, choice('accept-risk', 'Accept the difference for now')])] });
   const html = decideHtml(list);
-  assert.match(html, /Update the spec: write the draft and propose it\.<\/span> <span class="muted">Do it now runs this step for you with what you wrote here; Put it in a terminal types it in for you to run\.<\/span>\s*<span class="muted">The draft is at [^<]+<\/span><button type="button" data-draft="update-spec">Open the draft<\/button>/u);
+  assert.match(html, /Update the spec: write the draft and propose it\.<\/span> <span class="muted">Do this now runs this step for you with what you wrote here; Put it in a terminal types it in for you to run\.<\/span>\s*<span class="muted">The draft is at [^<]+<\/span><button type="button" data-draft="update-spec">Open the draft<\/button>/u);
   assert.equal(draftFileOf(list), DRAFT);
   assert.match(DECIDE_SCRIPT, /vscode\.postMessage\(\{ type: 'decide\.draft', item: drafted\.closest\('tr\[data-item\]'\)\.dataset\.item, option: drafted\.dataset\.draft \}\)/u);
   const { readFile } = await import('node:fs/promises');

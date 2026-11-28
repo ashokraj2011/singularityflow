@@ -24,8 +24,21 @@ const decidable = (option: DecisionOptionPacket) => optionRow(option).choosable;
 // "Put it in a terminal" types the whole command, never one with a blank to fill in [owner, 2026-11-19].
 const REASON_SLOT = /"<(?:REASON|reason|why|TEXT|why [^<>"]*)>"|<(?:REASON|reason|why|TEXT)>/u;
 const DATE_SLOT = /<YYYY-MM-DD>/u;
-/** What "Do it now" does, beside every own step on the card: it runs here, and only a step that must ask in a terminal goes there. */
-export const RUN_WORDS = 'Do it now runs this step for you with what you wrote here; Put it in a terminal types it in for you to run.';
+/** What "Do this now" does, beside every own step on the card: it runs here, and only a step that must ask in a terminal goes there. */
+export const RUN_WORDS = 'Do this now runs this step for you with what you wrote here; Put it in a terminal types it in for you to run.';
+/**
+ * What another person decides: one button that copies the exact words to send them, with their own route, never a command
+ * shown with nothing to press [owner, 2026-11-28]. The host copies the text it holds for that row (shareText).
+ */
+export const shareButton = (row: string) => ` <button type="button" class="dc-link" data-share="${escape(row)}">Copy what to send them</button>`;
+/** The words to send the person who decides a row, from the list as read: what it is, who decides, and their route. */
+export function shareText(packet: DecisionPacket, row: string): string | null {
+  const item = packet.items.find((entry) => entry.id === row);
+  const share = item?.decidedBy?.share ?? (/^hold-\d{1,2}$/u.test(row) ? `/sf-decide ${packet.workId}` : null);
+  if (!share) return null;
+  return `Please decide this on Story ${packet.workId}${item ? `: ${item.title}` : ''}. ${item?.decidedBy?.words ?? ''} In Copilot: ${share} (or Decide in VS Code).`.replace(/\s+/gu, ' ').trim();
+}
+
 /** The values a command's own step asks for in its row: a reason, a date, or neither. */
 export const commandSlots = (command: string) => ({ reason: REASON_SLOT.test(command), expires: DATE_SLOT.test(command) });
 const quoted = (value: string, windows: boolean) => (windows ? `'${value.replaceAll("'", "''")}'` : `'${value.replaceAll("'", `'"'"'`)}'`);
@@ -45,7 +58,7 @@ export function filledCommand(command: string, given: { reason?: string | null; 
 }
 
 /**
- * A row's own step as the argv the card runs for the person on "Do it now" [owner, 2026-11-28: terminal-only steps move to the
+ * A row's own step as the argv the card runs for the person on "Do this now" [owner, 2026-11-28: terminal-only steps move to the
  * card]: the reason and date they gave in the row go in as values of their own, never through a shell, so nothing they type is
  * read as a command. Only a whole `singularity-flow` command, as the list wrote it; anything with a blank the row cannot fill,
  * or a shell character outside quotes (the forward amendment's old `approve|reject`), is not run and says what is missing.
@@ -95,7 +108,7 @@ export const OWN_TERMINAL_REFUSALS: Readonly<Record<string, string>> = Object.fr
 });
 /** What the card says when a step must go to the person's own terminal: why, and that it is typed in for them. */
 export const ownTerminalWords = (code: string) => `This one runs in your own terminal: ${OWN_TERMINAL_REFUSALS[code] ?? 'its command asks you there'}. It is typed in there for you; press Enter.`;
-/** What a row still needs before "Do it now" can run its step. */
+/** What a row still needs before "Do this now" can run its step. */
 export const runMissingWords = (missing: 'reason' | 'expires' | 'value') => (missing === 'reason' ? 'Write your reason in the row first: it goes into the step as you wrote it.'
   : missing === 'expires' ? 'Choose the date in the row first: it goes into the step.' : 'This step needs a value the row cannot fill in, so nothing ran. Put it in a terminal: it is typed in there for you to finish.');
 
@@ -186,7 +199,7 @@ export function approvalFocus(packet: DecisionPacket, item?: DecisionItemPacket 
 export function approvalPageWords(packet: DecisionPacket, item: DecisionItemPacket, opened = true): string {
   const version = Number(item.details?.generation);
   const step = `${packet.phaseLabel}${Number.isSafeInteger(version) && version > 0 ? ` v${version}` : ''}`;
-  return opened ? `The approval page is open for ${step} with its documents. The person reads them and chooses Approve there; this chat records nothing.`
+  return opened ? `The approval page is open for ${step} with its documents. The person approves or sends it back there; this chat records nothing and offers no command.`
     : `The approval page for ${step} could not open here. The person approves by typing ${approveInChat(packet, item).modelFreeCommand} in the chat box; this chat records nothing.`;
 }
 
@@ -319,7 +332,7 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
       // Where else its decider may answer it: yes or no in chat, or their own terminal when SF Guard signs it [owner, 2026-11-14].
       item.decidedBy?.allowed && item.answer?.also ? `<p class="muted">${escape(item.answer.also)}</p>` : ''}`;
   if (!item.decidedBy?.allowed) {
-    return `<tr data-other="${escape(item.id)}"><td>${what}</td><td colspan="2"><span class="muted">${escape(item.decidedBy?.words ?? '')}</span>${item.decidedBy?.share ? ` Share this with them: <code>${escape(item.decidedBy.share)}</code>` : ''}</td></tr>`;
+    return `<tr data-other="${escape(item.id)}"><td>${what}</td><td colspan="2"><span class="muted">${escape(item.decidedBy?.words ?? '')}</span>${item.decidedBy?.share ? shareButton(item.id) : ''}</td></tr>`;
   }
   const choices = recommendedFirst(item, item.options.filter(decidable));
   // SFlow's own check, first and on a button of its own: it runs, then the row recommends from its result [owner, 2026-11-16].
@@ -334,12 +347,12 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   const reviews = witnesses(item).map((option) => `<button type="button" class="secondary" data-witness="${escape(option.id)}">${escape(option.label)}</button>`).join('');
   // A label that already ends a sentence (a hold's route often does) gets no second full stop.
   // A drafted amendment is written in the editor before its command runs [SCS:REQ-021]: the page opens the engine's own file.
-  // "Do it now" runs the row's own step for the person, from the list as read; only a step that must ask in their own terminal
+  // "Do this now" runs the row's own step for the person, from the list as read; only a step that must ask in their own terminal
   // goes there, typed in [owner, 2026-11-28].
   const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label.replace(/[.!?]+$/u, ''))}.</span> <span class="muted">${escape(RUN_WORDS)}</span>
       ${option.action?.file ? `<span class="muted">${escape(option.words ?? '')}</span><button type="button" data-draft="${escape(option.id)}">Open the draft</button>` : ''}
       <code>${escape(option.action!.command!)}</code>${slotFields(option.action!.command!, option.id, option.label)}
-      <button type="button" data-run="${escape(option.id)}">Do it now</button>
+      <button type="button" data-run="${escape(option.id)}">Do this now</button>
       <button type="button" class="secondary" data-terminal="${escape(option.id)}">Put it in a terminal</button>
       <button type="button" class="secondary" data-copy="${escape(option.id)}">Copy</button></div>`).join('');
   // A choice recorded here may also be made in the person's own terminal, with its exact command (SF Guard signs it there).
@@ -396,11 +409,11 @@ export function evidenceHtml(packet: DecisionPacket): string {
   // A held package whose command a row above already offers is not offered twice.
   const offered = new Set(decideRows(packet).filter((item) => item.decidedBy?.allowed).flatMap((item) => ownSteps(item).map((option) => option.action?.command)));
   const holdStep = (entry: NonNullable<typeof hold>['entries'][number], index: number) => (!entry.allowed
-    ? `<span class="muted">Share this with them: <code>/sf-decide ${escape(packet.workId)}</code></span>`
+    ? shareButton(`hold-${index}`)
     : offered.has(entry.command) ? '<span class="muted">Its command is on the hold\'s row above.</span>'
       : `<div class="dc-own"><span>Accept it with your reason and an expiry of at most 90 days.</span> <span class="muted">${escape(RUN_WORDS)}</span>
       <code>${escape(entry.command)}</code>${slotFields(entry.command, `hold-${index}`, 'the held package')}
-      <button type="button" data-hold-run="${index}">Do it now</button>
+      <button type="button" data-hold-run="${index}">Do this now</button>
       <button type="button" class="secondary" data-hold-terminal="${index}">Put it in a terminal</button>
       <button type="button" class="secondary" data-hold-copy="${index}">Copy</button></div>`);
   const parts = [
@@ -459,7 +472,13 @@ function changeStoryHtml(story: { summary: string; path: string } | null): strin
   return story ? `<p class="dc-docs">What this change does: ${escape(story.summary)} <button type="button" class="dc-link" data-open="${escape(story.path)}">Open the page</button></p>` : '';
 }
 
-function approvalHtml(packet: DecisionPacket): string {
+function approvalHtml(packet: DecisionPacket, { forApproval = false } = {}): string {
+  // Opened from the approval page: the approval is that page's, and this card brings the person back to it [owner, 2026-11-28].
+  if (forApproval) {
+    return `<section class="dc-approval" aria-label="Back to the approval page"><div class="dc-own">
+      <button type="button" data-approval>Back to the approval page</button>
+      <span class="muted">Record what you decided first; the approval page then opens again with it.</span></div></section>`;
+  }
   return approvalRows(packet).map((item) => ({ item, plain: plainWords(item) })).map(({ item, plain }) => `<section class="dc-approval" aria-label="${escape(item.title)}"><h2>${escape(plain.question ?? item.title)}</h2>
     ${plain.why ? `<p class="muted dc-why">${escape(plain.why)}</p>` : ''}${plain.recommended ? `<p class="dc-rec">${escape(plain.recommended)}</p>` : ''}
     ${changeStoryHtml(changeStoryOf(item))}
@@ -468,11 +487,11 @@ function approvalHtml(packet: DecisionPacket): string {
     ${disputesOf(item).map((entry) => `<p class="dc-docs">Disputed: ${escape(entry)}</p>`).join('')}
     ${item.decidedBy?.allowed ? `<div class="dc-own"><button type="button" data-approval="${escape(item.id)}">Review and approve</button>
       <span class="muted">Opens the approval page: these documents, the same question, and its one choice. Nothing is approved until you choose it there.</span></div>`
-    : `<p class="muted">${escape(item.decidedBy?.words ?? '')}${item.decidedBy?.share ? ` Share this with them: <code>${escape(item.decidedBy.share)}</code>` : ''}</p>`}</section>`).join('');
+    : `<p class="muted">${escape(item.decidedBy?.words ?? '')}${item.decidedBy?.share ? shareButton(item.id) : ''}</p>`}</section>`).join('');
 }
 
 export function decideHtml(packet: DecisionPacket, { error = null as string | null, notice = null as string | null, busy = false, draft = undefined as DecideDraft | undefined, route = null as string | null,
-  declined = null as string | null } = {}): string {
+  declined = null as string | null, forApproval = false } = {}): string {
   const opening = versionOpeningHtml(packet, { declined, busy });
   const open = decideRows(packet).filter((item) => !item.settled);
   // What nobody can answer yet is one line, never a row [owner, 2026-11-16].
@@ -501,7 +520,7 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
     ${settled.length ? `<section class="dc-settled" aria-label="Settled for you"><h2>Settled for you</h2>
       <div class="dc-table"><table><thead><tr><th>What SFlow chose</th><th>Your decision</th><th>Your reason</th></tr></thead>
       <tbody>${settled.map((item) => rowHtml(item, draft)).join('')}</tbody></table></div></section>` : ''}
-    ${approvalHtml(packet)}
+    ${approvalHtml(packet, { forApproval })}
     ${evidenceHtml(packet)}
     ${packet.storyNext ? `<div class="dc-own dc-next" role="status"><strong>${escape(nextWords(packet.storyNext))}</strong>${packet.storyNext.command
       ? `<button type="button" class="secondary" data-next>Put it in a terminal</button>` : ''}</div>`
@@ -689,6 +708,8 @@ document.addEventListener('click', (event) => {
   const check = event.target.closest('[data-check]');
   if (check) return vscode.postMessage({ type: 'decide.check', item: check.dataset.check, rows: answers() });
   if (event.target.closest('[data-approval]')) return vscode.postMessage({ type: 'decide.approval' });
+  const share = event.target.closest('[data-share]');
+  if (share) return vscode.postMessage({ type: 'decide.share', row: share.dataset.share });
   if (event.target.closest('[data-cancel]')) return vscode.postMessage({ type: 'decide.cancel' });
   if (event.target.closest('[data-apply-all]')) {
     const chosen = document.getElementById('dc-all-choice');

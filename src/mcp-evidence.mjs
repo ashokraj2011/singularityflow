@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { withSubjectLock } from './subject-lock.mjs';
-import { authorizedMcpOrigins, safeMcpTargetUrl } from './mcp-target.mjs';
+import { authorizedMcpOrigins, mcpServerSetupCommands, safeMcpTargetUrl } from './mcp-target.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import {
   exists, nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot,
@@ -466,7 +466,7 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
         if (!record.captureId || record.observationReceipt?.captureId !== record.captureId) {
           errors.push(`[MCP_EVIDENCE_OUTPUT_RECEIPT_MISMATCH] ${prefix} has no matching host observation receipt.`);
         }
-      } else warnings.push(`${prefix} is retained for audit but cannot satisfy a host-observed browser gate.`);
+      } else warnings.push(`${prefix} is kept, but this step needs a page SFlow's browser check saw itself: set up the browser check, then capture the page again.`);
       if (!record.observedFinalOrigin || record.observedFinalOrigin !== record.targetOrigin) {
         errors.push(`${prefix} observed final origin does not match its authorized target origin.`);
       }
@@ -564,10 +564,12 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
   targetGeneration = nextPhaseGeneration(phase)
 } = {}) {
   const requirements = phase?.mcp?.evidence ?? [];
-  if (!requirements.length) return { errors: [], passes: [], records: [] };
+  if (!requirements.length) return { errors: [], passes: [], records: [], routes: [] };
   const integrity = await verifyMcpEvidence(root, workflow, { itemDirectory });
   const errors = [...integrity.errors];
   const passes = [];
+  // A page no browser check saw: the setup commands, in order, then a new capture [owner, 2026-11-28].
+  const routes = [];
   const records = integrity.records.filter((record) =>
     record.phase === phase.id && Number(record.targetGeneration) === Number(targetGeneration)
   );
@@ -585,8 +587,12 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
     );
     if (!observedNavigation) {
       errors.push(
-        `Phase '${phase.id}' generation ${targetGeneration} requires a live, host-observed navigation receipt for origin-bound browser evidence from '${server}'.`
+        `Phase '${phase.id}' generation ${targetGeneration} requires a live, host-observed navigation receipt for origin-bound browser evidence from '${server}'. `
+        + 'Way on: set up the browser check (SFlow runs each command), then capture this version\'s page again with it.'
       );
+      for (const command of mcpServerSetupCommands(server, workflow.resolution?.mcpServers?.[server], { origin: authorizedMcpOrigins(workflow, server)[0] ?? null })) {
+        if (!routes.includes(command)) routes.push(command);
+      }
     } else passes.push(`${server}/origin: ${observedNavigation.observedFinalOrigin}`);
   }
   for (const requirement of requirements) {
@@ -608,7 +614,7 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
       );
     } else passes.push(`${requirement.server}/${requirement.tool}: ${matches.length}/${requirement.minimum}`);
   }
-  return { errors, passes, records };
+  return { errors, passes, records, routes };
 }
 
 export async function listMcpEvidence(root, workflow, options = {}) {

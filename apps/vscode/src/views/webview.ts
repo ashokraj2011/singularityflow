@@ -46,7 +46,8 @@ export function evidenceConsistencyHtml(snapshot?: EvidenceConsistencyPresentati
 /**
  * Commits after a submission that approval would refuse for (`blockingCommits` in submission
  * readiness), with any undecided intent amendment's commands. Advisory: the page stays usable and
- * the approval gate checks again; the commands are shown for a person to run, never run from here.
+ * the approval gate checks again. A page that can run a route shows a button naming its place in its own list (its host runs
+ * the command it holds); elsewhere the command is shown as text.
  */
 export interface ApprovalBlockingCommits {
   statement: string;
@@ -70,28 +71,40 @@ export function approvalBlockingCommits(value: unknown): ApprovalBlockingCommits
   return { statement, lines, actions };
 }
 
-export function approvalBlockingCommitsHtml(advisory?: ApprovalBlockingCommits | null): string {
+/**
+ * A hold's route on a page that can run it: a button naming the route's place in the page's own list (`placeOf` gives it, -1
+ * when the page cannot run it), never the command; elsewhere the command as text.
+ */
+type RouteButton = { placeOf?: (command: string) => number };
+function routeHtml(action: { label: string; command: string }, { placeOf }: RouteButton): string {
+  const place = placeOf ? placeOf(action.command) : -1;
+  return place >= 0 ? `<p class="muted">${escape(action.label)}</p><button type="button" class="secondary" data-hold-run="${place}">Do this now</button>`
+    : `<p class="muted">${escape(action.label)}</p><pre><code>${escape(action.command)}</code></pre>`;
+}
+
+export function approvalBlockingCommitsHtml(advisory?: ApprovalBlockingCommits | null, { placeOf, stop }: RouteButton & { stop?: string } = {}): string {
   if (!advisory) return '';
   return `<section class="approval-held" aria-label="Commits that block this approval">
     <h2>Approval would be refused</h2>
     <p>${escape(advisory.statement)}</p>
     ${advisory.lines.map((line) => `<p>${escape(line)}</p>`).join('')}
-    ${advisory.actions.map((action) => `<p class="muted">${escape(action.label)}</p><pre><code>${escape(action.command)}</code></pre>`).join('')}
+    ${stop ? `<p><strong>${escape(stop)}</strong></p>` : ''}
+    ${advisory.actions.map((action) => routeHtml(action, { placeOf })).join('')}
     <p class="muted">Advisory: you can still review this step; the approval gate checks again when you record approval.</p>
   </section>`;
 }
 
 /** The holds someone other than the approver clears (`approvalHolds` in approvals-model.ts). */
-export function approvalHoldsHtml(holds: readonly ApprovalHoldView[], { except = [] as readonly string[] } = {}): string {
+export function approvalHoldsHtml(holds: readonly ApprovalHoldView[], { except = [] as readonly string[], placeOf }: { except?: readonly string[] } & RouteButton = {}): string {
   const shown = holds.filter((hold) => !except.includes(hold.code));
   if (!shown.length) return '';
   // Holds that share a way through show it once, under the last of them.
-  const routeHtml = (hold: ApprovalHoldView, index: number) => hold.action && shown[index + 1]?.action?.command !== hold.action.command
-    ? `<p class="muted">${escape(hold.action.label)}</p><pre><code>${escape(hold.action.command)}</code></pre>` : '';
+  const holdRoute = (hold: ApprovalHoldView, index: number) => hold.action && shown[index + 1]?.action?.command !== hold.action.command
+    ? routeHtml(hold.action, { placeOf }) : '';
   return `<section class="approval-held" aria-label="Holds on this approval">
     <h2>Approval would be refused</h2>
     ${shown.map((hold, index) => `${hold.forViewer ? `<p><strong>${escape(hold.summary)}</strong></p><p class="muted">${escape(hold.who)}</p>`
-    : `<p><strong>${escape(hold.who)}:</strong> ${escape(hold.summary)}</p>`}${routeHtml(hold, index)}`).join('')}
+    : `<p><strong>${escape(hold.who)}:</strong> ${escape(hold.summary)}</p>`}${holdRoute(hold, index)}`).join('')}
     <p class="muted">Advisory: the approval gate checks again when approval is recorded.</p>
   </section>`;
 }

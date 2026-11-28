@@ -79,13 +79,12 @@ test('journey V1: in VS Code, /sf-approve with only the approval waiting opens t
     assert.equal(walk.reached, true, report(walk));
     assert.deepEqual(walk.findings, [], report(walk));
   });
-  await check(t, 'exactly one #sflowDecide, answered approval-open with the person\'s own @sflow /approve and no approve route of the chat\'s', {}, () => {
+  await check(t, 'exactly one #sflowDecide, answered approval-open with no command at all: the person approves on the page', {}, () => {
     const calls = decideCalls(vscode);
     assert.equal(calls.length, 1, JSON.stringify(vscode.calls, null, 1));
     assert.deepEqual(calls[0].input, { workId: W });
     assert.equal(calls[0].answer.status, 'approval-open');
-    assert.deepEqual(calls[0].answer.next, { kind: 'approve-in-chat', title: 'Approve Scope and plan v1 yourself: type this in the chat box', command: null, copilotCommand: null,
-      modelFreeCommand: `@sflow /approve intake --work-id ${W}` });
+    assert.equal(calls[0].answer.next, null);
     assert.doesNotMatch(JSON.stringify({ ...calls[0].answer, next: null }), APPROVE_ROUTE);
     assert.match(calls[0].answer.message, /^The approval page is open for Scope and plan v1 with its documents\./u);
   });

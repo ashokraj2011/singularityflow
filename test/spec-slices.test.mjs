@@ -307,6 +307,12 @@ test('a Story started with a slice sees it in its prompt and scope, records its 
   const afterDrop = scope();
   assert.deepEqual(afterDrop.map((entry) => [entry.disposition, entry.decision?.reason ?? null]),
     [['unresolved', null], ['excluded', 'Verified by the pricing Story.']]);
+  // Its undo [owner, 2026-11-28]: the drop is taken back, so the clause is to be decided again; dropped again for the walk below.
+  cli('spec', 'attach', WORK, '--bring-back', 'AC-001', '--reason', 'The pricing Story no longer covers it.');
+  assert.deepEqual(scope().map((entry) => entry.disposition), ['unresolved', 'unresolved']);
+  assert.match(refused('spec', 'attach', WORK, '--bring-back', 'AC-001', '--reason', 'Nothing is dropped to bring back.'), /SCOPE_NOT_DECIDED/u);
+  assert.match(refused('spec', 'attach', WORK, '--bring-back', 'AC-001', '--drop', 'AC-001', '--reason', 'Both at once.'), /SPEC_SLICE_REQUEST_INVALID/u);
+  cli('spec', 'attach', WORK, '--drop', 'AC-001', '--reason', 'Verified by the pricing Story.');
 
   // The Story covers the rest of its slice and is submitted and approved.
   const storySpec = specification(WORK, 1).replace(`- The application returns the value 1. [${WORK}:REQ-002]`, `- ${REQ_001} [${WORK}:REQ-002]`);

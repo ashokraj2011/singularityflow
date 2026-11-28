@@ -65,7 +65,7 @@ export async function commitApplicabilityDecision(root, config, workflow, { resp
 }
 
 /** One statement's disposition, read against the same inventory and clauses the person decided from. */
-export async function commitScopeDecision(root, config, workflow, { item, disposition, clauseIds = [], reason }, { actor, agent = null }) {
+export async function commitScopeDecision(root, config, workflow, { item, disposition, clauseIds = [], reason, withdraw = false }, { actor, agent = null }) {
   const id = workflow.workItem.id;
   const { evidenceGraphFromAggregate, scopeDecisionPreview } = await import('../evidence/graph.mjs');
   const graph = await evidenceGraphFromAggregate(root, config, workflow);
@@ -91,7 +91,7 @@ export async function commitScopeDecision(root, config, workflow, { item, dispos
   );
   const decide = (aggregate) => recordScopeDecision(aggregate, {
     item, disposition, clauseIds, reason, actor: actorKey(actor), authorityGroup: authority.authorityGroup,
-    identityAssurance: authority.identityAssurance ?? null, at: nowIso(), inventory, knownClauseIds
+    identityAssurance: authority.identityAssurance ?? null, at: nowIso(), inventory, knownClauseIds, withdraw
   });
   decide(structuredClone(workflow));
   const { value: decision, publication } = await transactStory(
@@ -100,13 +100,14 @@ export async function commitScopeDecision(root, config, workflow, { item, dispos
       type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
       actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'scope', item, disposition }
     },
-    `[${id}][scope:${item}] ${disposition}`,
+    `[${id}][scope:${item}] ${withdraw ? 'back to be decided' : disposition}`,
     async (aggregate) => {
       await assertNoPendingPublication(root, config, aggregate, 'record a scope decision');
       const recorded = decide(aggregate);
       aggregate.history.push({
         at: recorded.at, actor: recorded.actor, agent, event: 'scope_decided', phase: aggregate.currentPhase ?? null,
-        detail: `${item} is ${disposition}${recorded.clauseIds.length ? ` (${recorded.clauseIds.join(', ')})` : ''}. Reason: ${recorded.reason}`
+        detail: withdraw ? `${item} is to be decided again (it was ${recorded.withdrawn.join(', ')}). Reason: ${recorded.reason}`
+          : `${item} is ${disposition}${recorded.clauseIds.length ? ` (${recorded.clauseIds.join(', ')})` : ''}. Reason: ${recorded.reason}`
       });
       return recorded;
     },

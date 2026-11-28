@@ -63,8 +63,8 @@ test('a page row is a command the extension contributes; what stays in a termina
   }
   const count = (where, kept) => Object.values(OWN_STEP_ROUTES).filter((route) => route.where === where && (!kept || route.kept === kept)).length;
   // 35 own steps (three moved to a /sf-decide turn's bound Yes on 2026-11-28, and revoking a risk split out): 10 on the Decide card
-  // (a sign-off handed on, a screen that differs, a set-aside and the web address got rows that day), 14 on a page, 8 in the
-  // person's own terminal for good, 3 until a screen has a row.
+  // (a sign-off handed on, a screen that differs, a set-aside and the web address got rows that day), 16 on a page (spec drift and a
+  // slice's clause moved to Spec Studio and the Story's intake details the same day), 8 in the person's own terminal for good, 1 until a row.
   assert.deepEqual({ card: count('card'), page: count('page'), terminal: count('terminal', 'for-good'), later: count('terminal', 'until-row') },
-    { card: 10, page: 14, terminal: 8, later: 3 });
+    { card: 10, page: 16, terminal: 8, later: 1 });
 });

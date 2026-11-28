@@ -81,6 +81,8 @@ test('a closed Story reads in sync, drifted or orphaned as its code changes, and
   await writeFile(testFile, approvedTest);
   assert.equal(clause(drift()).status, 'in-sync');
   assert.equal(JSON.parse(sflow('spec', 'drift', '--json', '--work-id', 'TOY-001')).data.drift.stories.length, 1);
+  // The Stories in progress a fix can name, so Spec Studio offers them and nobody types a Work ID [owner, 2026-11-28].
+  assert.ok(Array.isArray(JSON.parse(sflow('spec', 'drift', '--json')).data.openStories));
   assert.equal(JSON.parse(run(['spec', 'drift', '--json', '--work-id', 'NOPE-1']).stdout).error.code, 'SPEC_DRIFT_STORY_UNKNOWN');
 
   // A later Story whose change rewrites TOY-001's bound line is told so at prepublish, as advice only.

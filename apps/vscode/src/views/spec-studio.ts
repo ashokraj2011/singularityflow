@@ -238,6 +238,7 @@ export class SpecStudioPanel implements vscode.Disposable {
     'spec.discard': () => this.guard(() => this.discard()),
     'spec.attachRevision': (message) => this.guard(async () => { await this.readRevision(integerField(message, 'revision'), true); this.render(); }),
     'spec.coverage': () => this.guard(() => this.readCoverage()),
+    'spec.drift': (message) => this.guard(() => this.decideDrift(message)),
     'spec.splitPropose': (message) => this.guard(() => this.proposeSplit(message)),
     'spec.splitPublish': () => this.guard(() => this.publishSplit()),
     'spec.copy': (message) => this.copy(stringField(message, 'text')),
@@ -310,6 +311,8 @@ export class SpecStudioPanel implements vscode.Disposable {
     ]);
     this.refreshLibrary = false;
     this.state.library = library;
+    // The drift list, on the library page only; read beside it, never holding the library up.
+    if (!specId) void this.readDrift();
     this.state.status = status;
     // Publishing, adding a source or staging a proposal can advance metadata while the person
     // types. Rebase only when every editable field on disk is unchanged; real text conflicts
@@ -449,6 +452,26 @@ export class SpecStudioPanel implements vscode.Disposable {
   }
 
   /** Run one write, then read everything again: what the page shows is always the engine's answer. */
+  /** Finished Stories' drifted clauses and the Stories in progress a fix can name; a failed read shows no list. */
+  private async readDrift(): Promise<void> {
+    const drift = await this.client.run(model.driftArgv()).then(model.driftFrom, () => null);
+    if (this.state.target.specId) return;
+    this.state.drift = drift;
+    this.render();
+  }
+
+  /** One drift row's decision: accept it, or fix it through a Story in progress, with the person's reason [owner, 2026-11-28]. */
+  private async decideDrift(message: InboundMessage): Promise<void> {
+    const planned = model.driftDecisionArgv(this.state.drift ?? null, { clause: textField(message, 'clause'), outcome: textField(message, 'outcome'),
+      reason: textField(message, 'reason'), story: textField(message, 'story'), direction: textField(message, 'direction') });
+    if ('problem' in planned) { this.state.error = { message: planned.problem, next: null }; this.render(); return; }
+    const clause = textField(message, 'clause');
+    await this.write('Recording how the drift is resolved…', planned.argv, () => (textField(message, 'outcome') === 'accept'
+      ? `Recorded: ${clause}'s difference is accepted while its code and tests stay as they are.`
+      : `Recorded: ${clause} is fixed through ${textField(message, 'story')}.`));
+    await this.readDrift();
+  }
+
   private async write(label: string, argv: string[], done: (result: unknown) => string): Promise<boolean> {
     let written = false;
     await this.busy(label, async () => {

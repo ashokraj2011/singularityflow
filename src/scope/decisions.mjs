@@ -12,7 +12,7 @@ import { STARTER_CHECKLIST, validateChecklistDecisions } from '../specification-
 import { SingularityFlowError } from '../util.mjs';
 import { CLAUSE_LINKED_DISPOSITIONS, DECIDABLE_SCOPE_DISPOSITIONS } from './extract.mjs';
 import { fallbackAuthorities } from '../approval-fallback.mjs';
-import { countedRecords, inDecisionOrder, isWithdrawn } from '../presence/counted.mjs';
+import { countedRecords, inDecisionOrder, isWithdrawn, presenceRequires } from '../presence/counted.mjs';
 import { assertConfirmation } from '../text-lines.mjs';
 
 /** Who may decide the scope: the approval groups of the steps that define it, else the nearest step's. */
@@ -35,13 +35,26 @@ export function scopeAuthorities(workflow) {
  * `clauseIds` the IDs its clause indexes define; the caller has checked authority.
  */
 export function recordScopeDecision(workflow, {
-  item, disposition, clauseIds = [], reason, actor, authorityGroup, identityAssurance = null, at, inventory, knownClauseIds
+  item, disposition, clauseIds = [], reason, actor, authorityGroup, identityAssurance = null, at, inventory, knownClauseIds, withdraw = false
 }) {
   const target = inventory?.items?.find((entry) => entry.id === item);
   if (!target) {
     throw new SingularityFlowError(`The scope inventory of this Story has no item '${item}'. See it with singularity-flow evidence scope.`, {
       code: 'SCOPE_ITEM_UNKNOWN', details: { item }
     });
+  }
+  // Taking a decision back (a dropped sliced clause brought back, spec attach --bring-back) [owner, 2026-11-28]: the item is to be
+  // decided again; the earlier decision stays in the record, withdrawn, and the history keeps who did it and why.
+  if (withdraw) {
+    if (presenceRequires(workflow)) {
+      throw new SingularityFlowError('Under SF Guard a decision is taken back only by a new signed one: decide this item again on the Decide card.', { code: 'SCOPE_WITHDRAW_SIGNED' });
+    }
+    const text = String(reason ?? '').trim();
+    if (text.length < 20 || text.length > 1000) throw new SingularityFlowError('Say why in 20 to 1000 characters with --reason.', { code: 'SCOPE_REASON_REQUIRED' });
+    const standing = (workflow.scopeDispositions ?? []).filter((entry) => entry.item === item && !entry.withdrawnAt);
+    if (!standing.length) throw new SingularityFlowError(`${item} has no decision to take back; it is still to be decided.`, { code: 'SCOPE_NOT_DECIDED' });
+    for (const entry of standing) entry.withdrawnAt = at;
+    return { item, disposition: 'unresolved', clauseIds: [], reason: text, withdrawn: standing.map((entry) => entry.disposition), actor, authorityGroup, identityAssurance, at };
   }
   if (!DECIDABLE_SCOPE_DISPOSITIONS.includes(disposition)) {
     throw new SingularityFlowError(`--as must be one of ${DECIDABLE_SCOPE_DISPOSITIONS.join(', ')}.`, { code: 'SCOPE_DISPOSITION_INVALID' });

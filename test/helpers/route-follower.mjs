@@ -565,8 +565,11 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     }
     // D1: in a turn of the work command, a route naming its other name is this turn's own work, run here by its command;
     // never a route the result says is for a new turn (a submission that completed the step ends the turn, decision 7).
+    // So is a route naming the kernel-built /sf-converge (its publication after its generator) when the work command's
+    // text builds it in its turn (its step 1, owner 2026-11-28).
     const named = taken.next?.copilot ? skillOf(taken.next.copilot) : null;
-    if (named && named !== turn && entries.get(turn)?.oneWorkCommand && entries.get(named)?.oneWorkCommand && !taken.next.inTurn && taken.next.turn !== 'new-turn'
+    const built = /^\/sf(?:low)?-converge$/u.test(named ?? '') && entries.get(turn)?.buildsConverge;
+    if (named && named !== turn && entries.get(turn)?.oneWorkCommand && (entries.get(named)?.oneWorkCommand || built) && !taken.next.inTurn && taken.next.turn !== 'new-turn'
         && taken.next.shell && (taken.next.copilot.trim().split(/\s+/u)[1] ?? current()) === current()) {
       taken.next = { ...taken.next, inTurn: true, source: `${taken.next.source ?? 'route'} (one work command)` };
     }

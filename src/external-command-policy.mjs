@@ -346,16 +346,24 @@ export function externalCommandText(value, index = 0) {
 export function evaluateExternalCommandForModelMode(value, {
   modelEnabled = true,
   unknownStrictness = 'warn',
-  index = 0
+  index = 0,
+  // The person's answer for the repository, `no`, `yes` or null (test-model-use.mjs modelUseAnswer), asked once [owner, 2026-11-28].
+  modelUseOf = null
 } = {}) {
   const normalized = normalizeExternalCommand(value, index);
   if (modelEnabled || normalized.modelPolicy === 'never') return { ...normalized, action: 'run', reason: null };
   if (normalized.modelPolicy === 'required') {
     return { ...normalized, action: 'block', reason: `Quality command '${normalized.id}' requires an external model while model mode is disabled.` };
   }
+  const answered = typeof modelUseOf === 'function' ? modelUseOf(normalized) : null;
+  // A person said it calls no AI model: it runs as a command that declares modelPolicy: never does.
+  if (answered === 'no') return { ...normalized, action: 'run', reason: null, modelUse: 'no' };
+  if (answered === 'yes') {
+    return { ...normalized, action: 'skip', modelUse: 'yes', reason: `Quality command '${normalized.id}' calls an AI model (as you said), and models are off for this run: run the check with models on for this run to run it.` };
+  }
   const action = unknownStrictness === 'block' ? 'block' : 'skip';
   // Skipping is a model-mode decision, not a broken runner: name the two ways it runs again.
-  return { ...normalized, action, reason: `Quality command '${normalized.id}' has unknown external-model behavior (it declares no modelPolicy) and was not run while model mode is disabled. `
+  return { ...normalized, action, ...(typeof modelUseOf === 'function' ? { modelUse: 'unknown' } : {}), reason: `Quality command '${normalized.id}' has unknown external-model behavior (it declares no modelPolicy) and was not run while model mode is disabled. `
     + 'Rerun with the model enabled, or have configuration declare modelPolicy: never for it.' };
 }
 

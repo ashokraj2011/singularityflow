@@ -1263,7 +1263,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // rule) [owner, 2026-11-28: no one gets stuck]. No new eager file.
     // 9,981,388 (measured for submit.mjs, +2,805 over 9,978,583 on the merge of rcp-private-refs with main b77673be5,
     // 2026-11-28; start.mjs 9,980,873): both sides' rises above together. No new eager file.
-    assert.ok(closure.bytes <= 9_986_955, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,988,409 (measured for submit.mjs, +1,454 over 9,986,955 on never-stuck-3, 2026-11-28; start.mjs 9,985,937, approve.mjs
+    // 9,894,935): models off, a test command's AI-model use asked once and remembered for the repository; the gate run
+    // reads the answer and keeps the question for its refusal (external-command-policy.mjs +767, state.mjs +674; the record
+    // loads lazily, test-model-use.mjs) and `tests model-use` (command-registry.mjs +13) [owner, 2026-11-28: "ask once,
+    // remember"]. No new eager file.
+    assert.ok(closure.bytes <= 9_988_409, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1495,7 +1500,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // screenshot, among the boolean flags (util.mjs BOOLEAN_OPTIONS) [owner, 2026-11-28]. No new eager file.
   // 901,699 (+2,960 over 898,739, measured 2026-11-28 on rcp-private-refs over main b63148851): the private-ref rule and the
   // plain reasons for a commit policy SFlow cannot read (util.mjs) [owner, 2026-11-28]. No new eager file.
-  assert.ok(root.bytes <= 901_711, `root dispatch loads ${root.bytes} source bytes`);
+  // 902,132 (+421 over 901,711, measured 2026-11-28 on never-stuck-3): `--models-on`, the person's models on for one run
+  // (model-mode.mjs +408), and `tests model-use` (command-registry.mjs +13) [owner, 2026-11-28]. No new eager file.
+  assert.ok(root.bytes <= 902_132, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -2011,7 +2018,9 @@ test('the common session projection does not import attach, state stores or publ
   // the plain reasons for a commit policy SFlow cannot read (util.mjs) [owner, 2026-11-28]. No new eager file.
   // 4,415,915 (+2,948 over 4,412,967, measured 2026-11-28 on the merge of rcp-private-refs with main b77673be5): both
   // sides' rises above together. No new eager file.
-  assert.ok(current.bytes <= 4_417_100, `session current loads ${current.bytes} source bytes`);
+  // 4,417,880 (+780 over 4,417,100, measured 2026-11-28 on never-stuck-3): a test command's AI-model use asked once and
+  // remembered (external-command-policy.mjs +767, command-registry.mjs +13) [owner, 2026-11-28]. No new eager file.
+  assert.ok(current.bytes <= 4_417_880, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

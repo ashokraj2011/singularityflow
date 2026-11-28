@@ -125,6 +125,8 @@ Usage:
   singularity-flow tests base --work-id ID [--phase PHASE] [--command ID]... [--within SECONDS] [--json]
   singularity-flow tests node --work-id ID --node MAJOR [--phase PHASE] [--command ID]... [--within SECONDS] [--json]
   singularity-flow tests held --work-id ID [--phase PHASE] [--command ID --set-aside --confirm CODE] [--json]
+  singularity-flow tests model-use --command ID --argv-sha256 DIGEST --calls no|yes [--json]
+    The person's answer to "Does this test command call an AI model?", kept for the repository: no runs its tests while models are off.
   singularity-flow app-review plan|start|status|inspect|feedback|repair|recheck|accept|capture|defer|close [SESSION] [--work-id ID] [--json]
   singularity-flow app-review browser install
   singularity-flow app-review runtime-check [--work-id ID] [--phase PHASE] [--again] [--json]

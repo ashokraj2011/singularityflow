@@ -14,9 +14,11 @@ import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError, unknownStepDetails } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node', 'held']);
+const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node', 'held', 'model-use']);
 const OPTIONS = Object.freeze({
   held: ['work-id', 'phase', 'command', 'set-aside', 'confirm', 'json'],
+  // Whether a test command calls an AI model, the person's answer for the repository (test-model-use.mjs).
+  'model-use': ['command', 'argv-sha256', 'calls', 'json'],
   plan: ['capability', 'work-id', 'phase', 'command', 'json'],
   base: ['work-id', 'phase', 'command', 'within', 'refresh', 'json'],
   node: ['work-id', 'phase', 'command', 'node', 'within', 'json'],
@@ -842,6 +844,30 @@ async function heldRuns(root, options) {
     { confirm: optionBoolean(options, 'set-aside') ? optionString(options, 'confirm', null) : null, itemRelative: storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath() });
 }
 
+/**
+ * `tests model-use --command ID --argv-sha256 DIGEST --calls no|yes`: the person's answer to "Does this test command call
+ * an AI model?", kept for the repository (test-model-use.mjs) [owner, 2026-11-28: "ask once, remember"]. No: its tests run
+ * while models are off. Yes: it stays off while models are off, and the step's check runs with models on for one run.
+ */
+async function modelUse(root, options, json) {
+  const commandId = optionString(options, 'command', null);
+  const argvSha256 = optionString(options, 'argv-sha256', null);
+  const calls = optionString(options, 'calls', null);
+  if (!commandId || !argvSha256 || !calls) fail('tests model-use takes --command, --argv-sha256 and --calls no|yes, as the skipped run named them.');
+  const [{ gitCommonDir }, { recordModelUse }] = await Promise.all([import('../git-execution.mjs'), import('../test-model-use.mjs')]);
+  const by = await localActorKey(root);
+  let entry;
+  try { entry = recordModelUse(gitCommonDir(root), { commandId, argvSha256, calls, by }); }
+  catch (error) { fail(error.message, error.code ?? 'TEST_MODEL_USE_INVALID'); }
+  const words = calls === 'no'
+    ? `Kept for this repository: ${commandId} calls no AI model, so its tests run while models are off. Run the same check again.`
+    : `Kept for this repository: ${commandId} calls an AI model, so it stays off while models are off. Run the check with models on for that run.`;
+  const result = { schemaVersion: 1, resultType: 'sflow-test-model-use', ...entry, words };
+  if (json) console.log(JSON.stringify(result, null, 2));
+  else console.log(words);
+  return result;
+}
+
 export async function run(_argv, { positionals, options = {} }) {
   const subcommand = positionals[1] ?? 'summary';
   if (!SUBCOMMANDS.includes(subcommand)) {
@@ -912,6 +938,7 @@ export async function run(_argv, { positionals, options = {} }) {
     }
     return result;
   }
+  if (subcommand === 'model-use') return modelUse(root, options, json);
   if (subcommand === 'held') {
     if (!story) fail('tests held reads a Story step\'s held test runs; name it with --work-id.');
     const result = await heldRuns(root, options);

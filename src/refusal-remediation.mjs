@@ -462,6 +462,24 @@ function planCorrectionSteps(corrections) {
 const APPEAL_ROUTES = Object.freeze({ PHASE_APPEAL_INVALID: appealNeedsSteps, PHASE_APPEAL_PATH_UNSUPPORTED: appealMissingFileSteps,
   SESSION_AGENT_OPTIONS_INVALID: sessionOptionsSteps, SESSION_REPOSITORY_REQUIRED: sessionRepositorySteps, REVIEW_SOURCE_OPTIONS_INVALID: reviewSourceOptionSteps });
 
+/**
+ * The person's one question for a test command skipped while models are off (test-model-use.mjs): No, it calls no AI
+ * model (its tests run from now on), or Yes (it stays off). Once answered yes, the same check with models on for this run.
+ * Both are the person's, in VS Code or their own terminal; an agent never answers them.
+ */
+function modelUseSteps(argv, modelUse) {
+  const SHA = /^[a-f0-9]{64}$/u;
+  if (!modelUse || !SHA.test(String(modelUse.argvSha256 ?? '')) || !/^[A-Za-z0-9][A-Za-z0-9:._@/-]{0,127}$/u.test(String(modelUse.commandId ?? ''))) return null;
+  const again = argv.length ? safeCommandGuidance({ argv: [...argv.filter((word) => word !== '--no-model' && word !== '--models-on'), '--models-on'] }) : null;
+  if (modelUse.answer === 'yes') {
+    return again ? [afterChange(step('models-on-for-run', `Models are off, and ${modelUse.commandId} calls an AI model, as you said. Turn models on for this run: the same check runs it once.`,
+      again.command, 'remediation'), 'models are on for this run')] : null;
+  }
+  const answer = (calls) => `singularity-flow tests model-use --command ${modelUse.commandId} --argv-sha256 ${modelUse.argvSha256} --calls ${calls}`;
+  return [step('model-use-no', `${modelUse.question} ${modelUse.why} No: it calls none, so its tests run now and from now on.`, answer('no'), 'remediation'),
+    step('model-use-yes', 'Yes: it calls one, so it stays off while models are off; the check then runs with models on for that run.', answer('yes'), 'remediation')];
+}
+
 function requiredTestFailureSteps(argv, error) {
   const context = phaseRemediationContext(argv, error);
   const failure = requiredTestExecutionForRefusal(error)?.failure;
@@ -482,6 +500,10 @@ function requiredTestFailureSteps(argv, error) {
   // manager found here), then the same check runs again. Never a repair, another Node's probe or a base run meanwhile: each
   // meets the same failure on an unchanged machine [owner, 2026-11-20].
   const install = error?.details?.nodeInstall;
+  // Models off and a test command whose model use nobody stated: asked once, remembered for the repository; never the same
+  // skipped run again [owner, 2026-11-28: "ask once, remember"].
+  const modelUse = failure?.kind === 'model-policy-skipped' ? modelUseSteps(argv, error?.details?.requiredTestExecution?.modelUse) : null;
+  if (modelUse) return modelUse;
   if (install?.version) {
     return [...ready,
       Object.freeze({ ...step('install-node', `${install.words ?? ''} No Node installed here can run these tests: a person installs one in their own terminal. ${install.command

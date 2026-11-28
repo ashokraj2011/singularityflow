@@ -620,7 +620,7 @@ function confirmDecisionAnswers({ input = processInput, output = processOutput }
 const phaseWords = (workflow, id) => workflow.phases?.[id]?.label ?? id;
 
 /** What one decision on an intent amendment did, in words a person reads: never a digest or a commit. Exported for its test. */
-export function intentAmendmentOutcome(workflow, transition) {
+export function intentAmendmentOutcome(workflow, transition, acknowledgement = null) {
   const { proposal } = transition;
   if (!transition.reached) {
     const { reached = 0, required = 1, planSignOffsMissing = [] } = proposal.approvals ?? {};
@@ -636,9 +636,11 @@ export function intentAmendmentOutcome(workflow, transition) {
       words: `${proposal.id} is approved as editorial: the amended wording is in force, no step runs again or is asked, and the evidence of the reworded clauses is carried` };
   }
   return { id: proposal.id, decision: 'approved', applied: true, generation: application.toSpecificationGeneration ?? null,
+    ...(acknowledgement ? { acknowledged: acknowledgement.recorded === true } : {}),
     words: `${proposal.id} is approved: the amended scope is in force${application.revalidate?.length
       ? `, nothing was reset, and ${application.revalidate.map((entry) => phaseWords(workflow, entry.phase)).join(', ')} ${application.revalidate.length === 1 ? 'has a row' : 'each have a row'} on this list for its approvers`
-      : '. Acknowledge it next, on this list or in a terminal'}${application.stillHolds?.length
+      : acknowledgement?.recorded ? '. Approved and acknowledged by you: the steps it reopened can be submitted again'
+        : `. ${acknowledgement?.why ? `${acknowledgement.why} ` : ''}Acknowledge it next, on this list or in a terminal`}${application.stillHolds?.length
       ? `; ${application.stillHolds.map((entry) => phaseWords(workflow, entry.phase)).join(', ')} ${application.stillHolds.length === 1 ? 'keeps its' : 'keep their'} approval, and ${application.stillHolds.length === 1 ? 'its approvers say' : 'their approvers each say'} on this list whether it still holds`
       : ''}` };
 }
@@ -671,9 +673,9 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
       return { id: effect.amendment, refreshedAs: refreshed.proposed,
         words: `${effect.amendment} is rejected and proposed again as ${refreshed.proposed}, against the step as it is now; the scope's approvers decide ${refreshed.proposed}` };
     }
-    const { transition } = await story.recordIntentAmendmentDecision(root, config, workflow, effect.amendment,
+    const { transition, acknowledgement } = await story.recordIntentAmendmentDecision(root, config, workflow, effect.amendment,
       { decision: effect.decision, reason: step.values.reason || null, channel, ...(effect.raise ? { raise: effect.raise } : {}) });
-    return intentAmendmentOutcome(workflow, transition);
+    return intentAmendmentOutcome(workflow, transition, acknowledgement);
   }
   if (effect.kind === 'intent-amendment-acknowledge') {
     const { acknowledgeApprovedIntentAmendment } = await import('./story.mjs');

@@ -18,9 +18,9 @@ const PACKAGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const CLI = path.join(PACKAGE, 'bin/singularity-flow.mjs');
 const WORK = 'IAC-PAUSE-1';
 
-function run(command, args, cwd, { allowFailure = false } = {}) {
+function run(command, args, cwd, { allowFailure = false, identity = 'Pause Tester' } = {}) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8',
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Pause Tester' } });
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: identity } });
   if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
   return result;
 }
@@ -89,11 +89,11 @@ test('a step whose amendment waits refuses prepare, publish and submit until it 
 
   const candidates = await mkdtemp(path.join(os.tmpdir(), 'sflow-iac-candidate-'));
   t.after(() => rm(candidates, { recursive: true, force: true }));
-  const propose = async (value) => {
+  const propose = async (value, identity = 'Pause Tester') => {
     const file = path.join(candidates, `amended-${value}.md`);
     await writeFile(file, spec(value));
-    return JSON.parse(cli('story', 'intent-amendment', 'propose', '--file', file, '--reason', `The value is ${value} now.`,
-      '--authored', 'governed-agent', '--channel', 'copilot-host', '--json').stdout).proposal;
+    return JSON.parse(run(process.execPath, [CLI, '--no-model', 'story', 'intent-amendment', 'propose', '--file', file, '--reason', `The value is ${value} now.`,
+      '--authored', 'governed-agent', '--channel', 'copilot-host', '--json'], root, { identity }).stdout).proposal;
   };
   const paused = (id) => {
     // (`phase begin` of the generation the Story already opened only reads it back; opening one is refused like prepare.)
@@ -116,11 +116,14 @@ test('a step whose amendment waits refuses prepare, publish and submit until it 
   assert.equal(rejected.transition.proposal.status, 'rejected');
   assert.match(cli('prepare', 'implementation').stdout, /implementation is ready to author/u);
 
-  // Approved: deciding it is never paused; the step reopens and waits for a person's acknowledgement, then goes on.
-  const second = await propose(3);
+  // Approved: deciding it is never paused; the step reopens and waits for a person's acknowledgement, then goes on. Here
+  // someone else proposed it, so their acknowledgement is kept, and the approval says in one line why (ask once, 2026-11-28).
+  const second = await propose(3, 'Second Proposer');
   paused(second.id);
   const approved = JSON.parse(cli('story', 'intent-amendment', 'decide', second.id, '--decision', 'approve', '--confirm', second.id, '--json').stdout);
   assert.equal(approved.transition.applied, true);
+  assert.deepEqual(approved.acknowledgement, { recorded: false,
+    why: `Someone else works on this Story, so one of them reads what ${second.id} changed and acknowledges it before the steps it reopened go on.` });
   const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.deepEqual([workflow.phases.implementation.intentAmendmentRevalidation.id, workflow.phases.implementation.intentAmendmentRevalidation.revised],
     [second.id, [`${WORK}:AC-001`, `${WORK}:REQ-001`]]);

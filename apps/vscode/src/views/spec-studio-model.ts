@@ -195,6 +195,45 @@ export function findingsRequest(message: Record<string, unknown>, status: SpecSt
 /** What a person types into Copilot Chat to have this specification drafted with the Studio's tool. */
 export const copilotPrompt = (specId: string, tool: boolean, request = "Help me improve this specification."): string => `/sf-spec-author ${specId} ${tool ? "#sflowSpecStudio " : ""}\n${request}\nRead the current saved draft and selected sources. Reuse settled answers. Suggest focused wording changes, source-backed research and the next material question. Keep business needs separate from technical design. Do not assume a browser UI for backend work. Repair malformed proposals at most twice in this turn; preserve genuine access or human-decision routes. Stage proposals for my review; do not accept, approve, publish or create work. Summarize in chat; do not paste the specification or code.`;
 
+// ---- Spec drift [owner, 2026-11-28: the drift list leaves the terminal] ----------------------
+
+/** A finished Story's clause that no longer matches the code and tests it delivered, waiting for a person's decision. */
+export interface SpecDriftRow { workId: string; title: string | null; clauseId: string; status: 'drifted' | 'orphaned'; findings: string[] }
+/** The drift list, and the Stories in progress a fix can go through (so nobody types a Work ID). */
+export interface SpecDrift { rows: SpecDriftRow[]; openStories: Array<{ workId: string; title: string | null }> }
+export const driftArgv = (): string[] => ['spec', 'drift', '--json'];
+const CLAUSE_ID = /^[A-Z][A-Z0-9-]*:[A-Z][A-Z0-9-]*$/u;
+const WORK_ID = /^[A-Z][A-Z0-9]*-\d+$/u;
+export function driftFrom(raw: unknown): SpecDrift | null {
+  const record = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {});
+  const data = record(record(raw).data ?? raw);
+  const stories = Array.isArray(record(data.drift).stories) ? record(data.drift).stories as unknown[] : null;
+  if (!stories) return null;
+  const rows = stories.map(record).flatMap((story) => (Array.isArray(story.clauses) ? story.clauses : []).map(record)
+    .filter((clause) => (clause.status === 'drifted' || clause.status === 'orphaned') && typeof clause.clauseId === 'string' && CLAUSE_ID.test(clause.clauseId))
+    .map((clause) => ({ workId: String(story.workId ?? ''), title: typeof story.title === 'string' ? story.title : null, clauseId: clause.clauseId as string,
+      status: clause.status as 'drifted' | 'orphaned',
+      findings: (Array.isArray(clause.findings) ? clause.findings : []).map(record).map((finding) => String(finding.message ?? '')).filter(Boolean).slice(0, 6) })));
+  const openStories = (Array.isArray(data.openStories) ? data.openStories : []).map(record)
+    .filter((story) => typeof story.workId === 'string' && WORK_ID.test(story.workId))
+    .map((story) => ({ workId: story.workId as string, title: typeof story.title === 'string' ? story.title : null }));
+  return { rows, openStories };
+}
+/**
+ * The one decision a drift row records, or why it cannot yet: accept the difference, or fix it through a Story in progress, the
+ * code going back to the clause (restore) or the clause following the code (adopt). The command checks who may.
+ */
+export function driftDecisionArgv(drift: SpecDrift | null, given: { clause: string; outcome: string; reason: string; story?: string; direction?: string }): { argv: string[] } | { problem: string } {
+  const row = drift?.rows.find((entry) => entry.clauseId === given.clause);
+  if (!row) return { problem: 'This clause is no longer waiting for a decision. The list is shown again.' };
+  const reason = given.reason.trim();
+  if (reason.length < 20 || reason.length > 1000) return { problem: 'Say why in 20 to 1000 characters first: it is kept with the decision.' };
+  if (given.outcome === 'accept') return { argv: ['spec', 'drift', 'decide', row.clauseId, '--accept', '--reason', reason, '--json'] };
+  const story = drift!.openStories.find((entry) => entry.workId === given.story);
+  if (given.outcome !== 'fix' || !story || !['restore', 'adopt'].includes(given.direction ?? '')) return { problem: 'Choose the Story in progress that fixes it, and how.' };
+  return { argv: ['spec', 'drift', 'decide', row.clauseId, `--${given.direction}`, '--story', story.workId, '--reason', reason, '--json'] };
+}
+
 // ---- Engine answers ------------------------------------------------------------------------
 
 export function libraryFrom(raw: unknown): SpecLibrary | null {

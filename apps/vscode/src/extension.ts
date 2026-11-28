@@ -9297,6 +9297,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const preview = await client.run<import('./views/story-intake-page.ts').IntakeDocumentPreview>(
           ['documents', 'view', 'SYS-SOURCE', '--work-id', workId, '--json'], undefined, { priority: 'interactive' });
         if (!stillCurrent()) return;
+        // Which sliced clauses are dropped, so each shows Drop from this Story or Bring it back [owner, 2026-11-28].
+        const { droppedSliceClauses } = await import('./views/story-intake-page.ts');
+        const dropped = droppedSliceClauses(await client.run(['evidence', 'scope', workId, '--json'], undefined, { priority: 'interactive' }).catch(() => null));
+        if (!stillCurrent()) return;
         const { showStoryIntakeDetails } = await import('./views/story-intake-details.ts');
         if (!stillCurrent()) return;
         storyIntakePanel?.dispose();
@@ -9307,6 +9311,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           void vscode.commands.executeCommand(commands[action]);
         }, slice => {
           if (stillCurrent()) void vscode.commands.executeCommand('singularityFlow.openSpecStudio', { ...slice, step: 'attach' });
+        }, dropped, change => {
+          if (!stillCurrent()) return;
+          if (!change.reason) { void showCompactWarningMessage(`Write your reason beside ${change.clause} first: it is kept with the change.`); return; }
+          void client.runText(['spec', 'attach', workId, change.back ? '--bring-back' : '--drop', change.clause, '--reason', change.reason])
+            .then(() => vscode.commands.executeCommand('singularityFlow.openStoryIntake'),
+              (error: unknown) => showRefusal(error, { headline: change.back ? `Could not bring ${change.clause} back` : `Could not drop ${change.clause}` }));
         });
         storyIntakePanel = panel;
         const selection = store.onDidChange(() => { if (!stillCurrent()) panel.dispose(); });

@@ -162,7 +162,7 @@ export function adviceOf(listed: unknown): ApprovalAdvice | null {
     stops: Object.fromEntries(kinds.map((kind) => [kind, text(stops[kind])])) as ApprovalAdvice['stops'] };
 }
 
-/** A line of the advice after the button it starts with ("Yes: the code is written to it." → "the code is written to it."). */
+/** A line of the advice after the button it starts with: "Yes: …" under the Approve button's own label shows only "…". */
 export const afterLabel = (line: string, label: string) => (line.startsWith(`${label}: `) ? line.slice(label.length + 2) : line);
 
 /** The engine's send-back route for this step (the decision list's approval item `details.sendBack`), or null. */
@@ -746,14 +746,14 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
     </div>
       <div class="form-actions">
         <p class="approval-progress muted" data-progress aria-live="polite"></p>
+        <button type="submit" disabled>${escape(approvalChoice(request))}</button>
+        <button type="button" class="secondary" data-send-back-button>Send back</button>
+        <button type="button" class="secondary" data-cancel>Not now</button>
         <div class="approval-send-back" data-send-back hidden>
           <label>Why send it back? ${advice ? `<span>${escape(afterLabel(advice.sendBack, 'Send back'))}</span>` : ''}
             <textarea data-send-back-reason aria-label="Why send ${escape(request.phaseLabel)} back"></textarea>
           </label>
         </div>
-        <button type="submit" disabled>${escape(approvalChoice(request))}</button>
-        <button type="button" class="secondary" data-send-back-button>Send back</button>
-        <button type="button" class="secondary" data-cancel>Not now</button>
       </div>
     </form>`;
 }

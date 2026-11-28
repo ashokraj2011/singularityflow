@@ -296,11 +296,11 @@ test('repository entry initializes an explicitly opened unregistered Git root wi
   assert.equal(report.configurationMode, 'working-tree');
 });
 
-test('sf-next relays chat resets and rebuilds its binding after the user resets', async () => {
+test('sf-next asks for no chat reset: every Story keeps its chat and the turn goes on', async () => {
   const content = await readFile(path.join(root, 'plugin', 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
-  // An agent cannot clear or compact its own chat: it relays the returned reset commands and stops.
-  assert.match(content, /Read `contextBoundary` first: an earlier-phase chat relays its ordered reset commands and stops/);
-  assert.match(content, /Relay, never execute, chat resets\. After the user resets, rebuild binding/);
+  // Every Story carries on like a task (owner, 2026-11-28): no /clear or /compact between steps, so none is relayed.
+  assert.doesNotMatch(content, /contextBoundary|chat resets?\b|\/clear|\/compact/u);
+  assert.match(content, /When SFlow's note says this turn goes on, do step 1 again in this turn\./u);
 });
 
 test('model-facing Markdown never instructs a home-wide recursive search', async () => {

@@ -273,10 +273,13 @@ export const WORK_SCRIPT = `
 })();
 `;
 
-/** What "Open in Copilot chat" does for this Story [FPL:REQ-006, A10]: `/sf-task` for a task, the Journey's route otherwise. */
-export function chatRouteOf(row: Pick<WorkRow, 'task' | 'route'>): { kind: 'task' | 'journey' | 'elsewhere'; text: string } {
+/**
+ * What "Continue in Copilot chat" does for this Story [FPL:REQ-006, A10; owner, 2026-11-28]: its one way on, sent to the
+ * chat: `/sf-task` for a task, `/sf-next` for any other Story, which says why it waits and does what is SFlow's.
+ */
+export function chatRouteOf(row: Pick<WorkRow, 'task' | 'route'>): { kind: 'task' | 'next' | 'elsewhere'; text: string } {
   if (!row.route.here) return { kind: 'elsewhere', text: row.route.elsewhere.join(' then ') };
-  return row.task ? { kind: 'task', text: '/sf-task' } : { kind: 'journey', text: 'singularityFlow.prefillNextCommand' };
+  return row.task ? { kind: 'task', text: '/sf-task' } : { kind: 'next', text: '/sf-next' };
 }
 
 const lineCount = (file: { added: number | null; removed: number | null; binary: boolean }) => (file.binary ? 'binary'
@@ -299,7 +302,8 @@ export function workTaskHtml(row: WorkRow, task: WorkTask | null, { result = nul
   const route = chatRouteOf(row);
   const buttons = [
     row.route.here ? '<button type="button" class="secondary" data-act="intake">Intake</button>' : '',
-    `<button type="button" class="primary" data-act="chat">Open in Copilot chat</button>`,
+    // Continue sends the one way on (chatRouteOf); a closed Story's chat only shows what it did.
+    `<button type="button" class="primary" data-act="chat">${inFlight ? 'Continue' : 'Open in Copilot chat'}</button>`,
     inFlight && (row.route.checkout || row.route.clone) ? '<button type="button" class="secondary" data-act="stop">Stop the task</button>' : ''
   ].filter(Boolean).join(' ');
   const chips = task?.chips.length ? task.chips : row.chips;

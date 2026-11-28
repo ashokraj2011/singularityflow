@@ -1248,6 +1248,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-publication-readiness.mjs +964) [owner, 2026-11-28]. No new eager file.
     // 9,978,583 (measured for submit.mjs, +3,164 over 9,975,419 on the merge of never-stuck-approval with main 8c74e5a3b,
     // 2026-11-28; start.mjs 9,978,078): both sides' rises above together. No new eager file.
+    // 9,987,435 (measured for submit.mjs, +480 over 9,986,955, 2026-11-28 on carry-on merged with main 38f37deda): every Story
+    // carries on like a task and has one way on (owner, 2026-11-28): /sf-next as any Story's route (safe-command-guidance.mjs
+    // NEXT_ROUTE, carryRoute), an approval that says the turn goes on (approval-agent-result.mjs), every Story keeps its chat
+    // and a new chat right after an approval keeps the Story (context-policy.mjs openedByApproval). The way out itself
+    // (way-out.mjs) loads only for a nextsteps read. No new eager file.
     // 9,986,955 (measured for submit.mjs on the merge of rcp-private-refs with main 6fcac38b8, 2026-11-28; start.mjs 9,984,483,
     // approve.mjs 9,893,481): never-stuck-2 and the private-ref rule together. No new eager file.
     // 9,984,148 (measured for submit.mjs, +5,567 over 9,978,581 on never-stuck-2, 2026-11-28; start.mjs 9,981,676, approve.mjs
@@ -1263,12 +1268,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // rule) [owner, 2026-11-28: no one gets stuck]. No new eager file.
     // 9,981,388 (measured for submit.mjs, +2,805 over 9,978,583 on the merge of rcp-private-refs with main b77673be5,
     // 2026-11-28; start.mjs 9,980,873): both sides' rises above together. No new eager file.
-    // 9,988,409 (measured for submit.mjs, +1,454 over 9,986,955 on never-stuck-3, 2026-11-28; start.mjs 9,985,937, approve.mjs
-    // 9,894,935): models off, a test command's AI-model use asked once and remembered for the repository; the gate run
+    // 9,988,889 (measured for submit.mjs, +1,454 over main's 9,987,435 on never-stuck-3 merged with main 48554e767,
+    // 2026-11-28; start.mjs 9,986,417, approve.mjs 9,895,415): models off, a test command's AI-model use asked once and remembered for the repository; the gate run
     // reads the answer and keeps the question for its refusal (external-command-policy.mjs +767, state.mjs +674; the record
     // loads lazily, test-model-use.mjs) and `tests model-use` (command-registry.mjs +13) [owner, 2026-11-28: "ask once,
     // remember"]. No new eager file.
-    assert.ok(closure.bytes <= 9_988_409, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_988_889, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -2010,6 +2015,8 @@ test('the common session projection does not import attach, state stores or publ
   // (mcp-evidence.mjs) [owner, 2026-11-28]. No new eager file.
   // 4,412,967 (+582 over 4,412,385, measured 2026-11-28 on the merge of never-stuck-approval with main 1d2f4aaf2): both
   // sides' rises above together. No new eager file.
+  // 4,417,464 (+364 over 4,417,100, measured 2026-11-28 on carry-on merged with main 38f37deda): any Story's one way on
+  // (safe-command-guidance.mjs) and every Story keeping its chat (context-policy.mjs). No new eager file.
   // 4,417,100 (measured 2026-11-28 on the merge of rcp-private-refs with main 6fcac38b8): both sides together.
   // 4,414,140 (+1,185 over 4,412,955, measured 2026-11-28 on never-stuck-2): the browser gate offers a person's sign-off on
   // SFlow's saved screenshot (mcp-evidence.mjs +1,173; its reader loads lazily, browser-sign-off.mjs) and `--sign-off`
@@ -2018,9 +2025,9 @@ test('the common session projection does not import attach, state stores or publ
   // the plain reasons for a commit policy SFlow cannot read (util.mjs) [owner, 2026-11-28]. No new eager file.
   // 4,415,915 (+2,948 over 4,412,967, measured 2026-11-28 on the merge of rcp-private-refs with main b77673be5): both
   // sides' rises above together. No new eager file.
-  // 4,417,880 (+780 over 4,417,100, measured 2026-11-28 on never-stuck-3): a test command's AI-model use asked once and
+  // 4,418,244 (+780 over main's 4,417,464, measured 2026-11-28 on never-stuck-3 merged with main 48554e767): a test command's AI-model use asked once and
   // remembered (external-command-policy.mjs +767, command-registry.mjs +13) [owner, 2026-11-28]. No new eager file.
-  assert.ok(current.bytes <= 4_417_880, `session current loads ${current.bytes} source bytes`);
+  assert.ok(current.bytes <= 4_418_244, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

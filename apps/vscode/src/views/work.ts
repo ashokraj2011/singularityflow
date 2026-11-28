@@ -234,8 +234,7 @@ export class WorkTaskPanel {
     try {
       if (act === 'chat') {
         const route = chatRouteOf(row);
-        if (route.kind === 'task') { await this.host.sendChat('/sf-task'); await this.done(`Sent /sf-task to Copilot chat: ${row.id} goes on there.`, { changed: false }); }
-        else if (route.kind === 'journey') { await this.host.command('singularityFlow.prefillNextCommand'); await this.done('Its next step is in the Copilot chat box.', { changed: false }); }
+        if (route.kind === 'task' || route.kind === 'next') { await this.host.sendChat(route.text); await this.done(`Sent ${route.text} to Copilot chat: ${row.id} goes on there.`, { changed: false }); }
         else await this.openElsewhere(row);
       } else if (act === 'add' && step && this.task?.addable.some((entry) => entry.step === step)) {
         const where = placeOf(row);

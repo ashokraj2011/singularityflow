@@ -2725,7 +2725,8 @@ function remediationPlanFor(error, argv = []) {
       // Never "the original command" with nothing named: the step above is the way on [owner, 2026-11-28, dead end 23].
       : steps.some((entry) => entry.command && !GENERIC_STEP_IDS.has(entry.id))
         ? 'Nothing was changed. Do the first step above; the same command unchanged is refused the same way.'
-        : 'Nothing was changed. The refusal above says what it needs; once that is done, run the same command again.';
+        // With nothing more specific, the one way on [owner, 2026-11-28]: it reads where the Story is and does SFlow's part.
+        : 'Nothing was changed. Once the blocking condition is resolved, /sf-next carries the Story on (in VS Code, the Continue button).';
   // A finding the catalog documents names its entry: what it means, its causes and who can act.
   const documentation = specificFindingDocumentation(code);
   return Object.freeze({

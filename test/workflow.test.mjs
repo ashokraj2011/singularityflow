@@ -653,11 +653,12 @@ test('next executes one valid lifecycle action at a time', async () => {
 
   const approved = flow(root, ['next', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Next Reviewer' });
   assert.match(approved.stdout, /Approval decision committed locally/);
-  assert.match(approved.stdout, /Context boundary: new/);
-  // Each next Copilot action is its own three-route block (8f25dc4b): first /clear, then the next step's own command, the
-  // one VS Code's chat prefill puts in (owner, 2026-11-17).
-  // The reset is its own route; the step's command is named after it, never as a route with no Shell (owner, 2026-11-25).
-  assert.match(approved.stdout, /Before the next action, in Copilot:\n- Copilot: \/clear\n[\s\S]*?\nThen \/sf-phase in that chat: the next action's own command\./);
+  // Every Story keeps its chat between steps (owner, 2026-11-28, reversing the 11-19 /clear): no reset, and the next step's
+  // own command, the one VS Code's chat prefill puts in (owner, 2026-11-17), goes on in the same chat. The workflow's pinned
+  // policy is still recorded as it is (below): only the chat between its steps is kept.
+  assert.match(approved.stdout, /Context boundary: keep\. Continue in the current Copilot conversation\./);
+  assert.doesNotMatch(approved.stdout, /\/clear/);
+  assert.match(approved.stdout, /Then \/sf-phase in that chat: the next action's own command\./);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
   assert.deepEqual(workflow.resolution.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });

@@ -78,15 +78,16 @@ for (const [stepId, kind, command] of [['testing', 'a document step', '/sf-phase
   });
 }
 
-test('a boundary owed in a chat that did not see the approval names the same command as the prefill and the step\'s action', () => {
+test('no boundary is owed in a chat that did not see the approval: the step\'s action is the command the prefill names', () => {
+  // Every Story keeps its chat between steps (owner, 2026-11-28): its pinned new-chat policy asks no /clear any more.
   for (const stepId of ['implementation', 'testing']) {
     const { workflow } = approvedUpTo(stepId);
     const { prefill } = prefillOf(workflow);
     const snapshot = nextStepsSnapshot({ workflow });
-    assert.deepEqual(snapshot.contextBoundary.commands, ['/clear', prefill.command], stepId);
+    assert.equal(snapshot.contextBoundary, undefined, stepId);
     assert.equal(snapshot.actions.find((entry) => entry.timing === 'now')?.copilotCommand, prefill.command,
-      'the step\'s own action after the boundary is the same command');
-    assert.deepEqual(pendingContextBoundary(workflow, stepChatCommand).commands, ['/clear', prefill.command]);
+      'the step\'s own action is the same command');
+    assert.equal(pendingContextBoundary(workflow, stepChatCommand), null);
   }
 });
 
@@ -98,7 +99,7 @@ test('with no route for the step that follows, the boundary keeps /sf-next', () 
   assert.equal(stepChatCommand(null, 'testing'), undefined);
   assert.deepEqual(contextBoundaryHandoff(workflow.resolution.contextPolicy, previous, { nextPhase: 'testing', nextSkill: stepChatCommand(workflow, 'implementation') }).commands,
     ['/clear', '/sf-next']);
-  assert.deepEqual(pendingContextBoundary(workflow).commands, ['/clear', '/sf-next'], 'a caller with no command source');
+  assert.equal(pendingContextBoundary(workflow), null, 'no reset is owed between steps, whatever the pinned policy');
   assert.deepEqual(contextBoundaryHandoff(workflow.resolution.contextPolicy, previous, { complete: true, nextSkill: '/sf-phase' }).commands,
     ['/clear'], 'a closed Story names only the cleanup');
 });

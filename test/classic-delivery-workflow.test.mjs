@@ -218,14 +218,15 @@ test('Classic delivery commits passing test results before Testing and Code chec
   // The approval's clean-chat item names Code's own command, the one VS Code's chat prefill puts in (owner, 2026-11-17).
   // The chat reset stays between steps (owner, 2026-11-19): the next step rebuilds from approved records only.
   // The reset is its own route; the step's command is named after it, never as a route with no Shell (owner, 2026-11-25).
-  assert.match(cli('approve', 'intake', '--yes').stdout, /Before the next action, in Copilot:\n- Copilot: \/clear\n[\s\S]*?\nThen \/sf-code in that chat: the next action's own command\./u);
+  // Every Story keeps its chat between steps (owner, 2026-11-28): the approval asks for no /clear, and names the next step.
+  const approvedIntake = cli('approve', 'intake', '--yes').stdout;
+  assert.doesNotMatch(approvedIntake, /\/clear|Before the next action, in Copilot/u);
 
   measuredPhase = 'implementation';
-  // Intake was approved here, outside any Copilot conversation: the next agent entry repeats the
-  // boundary that approval owes until Code is prepared.
+  // Intake was approved here, outside any Copilot conversation: no reset is owed, and the one way on names Code's work.
   const owed = completeAgentResult(cli('nextsteps', '--for-agent', '--json').stdout);
-  // The reset, then Code's own command: the one VS Code's chat prefill puts in (owner, 2026-11-17).
-  assert.deepEqual([owed.contextBoundary?.mode, owed.contextBoundary?.phase, owed.contextBoundary?.commands], ['new', 'intake', ['/clear', '/sf-code']]);
+  assert.equal(owed.contextBoundary, undefined);
+  assert.equal(owed.wayOut?.next?.by, 'agent', JSON.stringify(owed.wayOut));
   cli('prepare', 'implementation');
   assert.equal(completeAgentResult(cli('nextsteps', '--for-agent', '--json').stdout).contextBoundary, undefined);
   measureEntry();

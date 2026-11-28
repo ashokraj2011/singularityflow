@@ -77,6 +77,24 @@ async function quickFixAtCode(t, W, options = {}) {
 const approved = (record, phase) => ['approved', 'completed'].includes(record?.phases?.[phase]?.status);
 
 /**
+ * What the person did on a walk, as a real chat counts it [ITW:REQ-019]: the start, each command they typed, each answer in
+ * the chat and each step of their own (an approval's Yes, a card). As journey-tasks.test.mjs counts a task's.
+ */
+const personActions = (trail) => {
+  const typed = trail.filter((entry) => entry.typed).length;
+  const answers = trail.filter((entry) => /the person answered/u.test(entry.did ?? '')).length;
+  const own = trail.filter((entry) => entry.turn === 'person').length;
+  return { start: 1, typed, answers, own, total: 1 + typed + answers + own };
+};
+// Journey A measured on main 0233340d8, before every Story carried on (a scratch count of this same walk, 2026-11-28): the
+// chat's first /sf-phase, then /sf-phase, /sf-code, /sf-converge, /sf-submit, /sf-phase and /sf-phase typed between steps
+// (each after a /clear in a real chat), the intake's one answer and the two approvals in the person's terminal.
+const JOURNEY_A_BEFORE = Object.freeze({ start: 1, typed: 7, answers: 1, own: 2, total: 11 });
+// Measured on carry-on, 2026-11-28: the chat's first /sf-phase and /sf-converge, the kernel-built check after the code
+// approval, which the work command hands to its own skill; the answer and both Yeses asked in the chat.
+const JOURNEY_A_AFTER = Object.freeze({ start: 1, typed: 2, answers: 3, own: 0, total: 6 });
+
+/**
  * The spec-versus-code check the code step's approval carries while it waits (approval evidence `convergence`, read as the
  * decisions list gives it to an approval page), once per code version: convergence folds into the code approval.
  */
@@ -132,12 +150,24 @@ test('journey A: a spec-driven Story from its start to its release, every step w
     assert.equal(walk.reached, true, report(walk));
     assert.deepEqual(walk.findings, [], report(walk));
   });
-  // Approve twice with ceremony turns (landing-6): the specification, which SFlow approves when ready, completes at its
-  // in-turn submission. That turn ends there, and the next step is typed in a new turn, never written in it.
-  await check(t, 'a submission SFlow approved automatically ends the author\'s turn, and the next step starts in a new turn', {}, () => {
-    const ended = walk.trail.findIndex((entry) => entry.act === 'end-turn' && /--submit-if-ready/u.test(entry.ran ?? ''));
-    assert.ok(ended >= 0, report(walk));
-    assert.equal(walk.trail[ended + 1]?.typed, true, report(walk));
+  // Every Story carries on like a task (owner, 2026-11-28, replacing decision 7 and the 11-19 new-chat rule): the
+  // specification, which SFlow approves when ready, completes at its in-turn submission, and the same turn goes on with
+  // the next step's work, nothing typed.
+  await check(t, 'a submission SFlow approved automatically goes on in the author\'s turn: the next step starts with nothing typed', {}, () => {
+    const carried = walk.trail.findIndex((entry) => /--submit-if-ready/u.test(entry.ran ?? '') && /SFlow carries the turn on/u.test(entry.did ?? ''));
+    assert.ok(carried >= 0, report(walk));
+    assert.notEqual(walk.trail[carried + 1]?.typed, true, report(walk));
+    assert.equal(walk.trail.some((entry) => entry.act === 'end-turn' && /--submit-if-ready/u.test(entry.ran ?? '')), false, report(walk));
+  });
+  // What the person did, as a real chat counts it [ITW:REQ-019]: the start, every command typed, every answer and every
+  // step of their own. Before the carry-on (main 0233340d8) this walk counted JOURNEY_A_BEFORE; now only the real decisions.
+  await check(t, 'what the person does on the classic Story: the start, the intake\'s answer and the plan\'s and the code\'s Yes, in one chat', {}, () => {
+    const counted = personActions(walk.trail);
+    t.diagnostic(`journey A person actions: ${JSON.stringify(counted)} (before: ${JSON.stringify(JOURNEY_A_BEFORE)})`);
+    assert.ok(counted.total <= JOURNEY_A_AFTER.total && counted.total < JOURNEY_A_BEFORE.total, `${JSON.stringify(counted)} vs ${JSON.stringify(JOURNEY_A_BEFORE)}\n${report(walk)}`);
+    assert.ok(counted.typed <= JOURNEY_A_AFTER.typed, `${JSON.stringify(counted)}\n${report(walk)}`);
+    // The approvals are asked in the chat the turn carried on in, never typed again or run in the person's terminal.
+    assert.equal(walk.trail.filter((entry) => /the person answered Yes to "Approve /u.test(entry.did ?? '')).length, 2, report(walk));
   });
   await check(t, 'every authored step was reviewed before it was submitted', {}, () => {
     const record = storyRecord(story);
@@ -316,10 +346,11 @@ test('journey B: a code review asks for corrections three times: versions 2 and 
     assert.equal(storyRecord(story).phases.implement.generation, 4);
     assert.ok(fourth.trail.some((entry) => /reviewer wrote.*ready/u.test(entry.did ?? '')), report(fourth));
   });
-  await check(t, 'the submission that completes the code step ends the author\'s turn and names the next step for a new one', {}, () => {
+  await check(t, 'the submission that completes the code step says the turn goes on when SFlow says so, its route the way on otherwise', {}, () => {
+    // Every Story carries on like a task (owner, 2026-11-28): never "End this turn" after a completed submission.
     const submitted = fourth.trail.findLast((entry) => /--submit-if-ready/u.test(entry.ran ?? ''));
     assert.ok(submitted, report(fourth));
-    assert.equal(submitted.act, 'end-turn', report(fourth));
+    assert.equal(submitted.act, 'next', report(fourth));
     assert.ok(!/^singularity-flow (?:prepare|phase begin) verify\b/u.test(fourth.trail.at(-1)?.ran ?? ''), report(fourth));
   });
 
@@ -1102,9 +1133,11 @@ test('journey T: the test step\'s check fails, SFlow starts the code step\'s nex
   await check(t, 'no person was asked to start a version: only the plan, the code and the tests were approved by a person', {}, () => {
     assert.deepEqual(asked, [], report(walk));
     assert.ok(!walk.trail.some((entry) => /phase rollover \S+ --confirm /u.test(entry.ran ?? '')), report(walk));
-    // The failing submission ended the test step's turn, and the code step's fix started in a new turn by /sf-code.
-    const failed = walk.trail.findIndex((entry) => entry.act === 'end-turn' && /--submit-if-ready/u.test(entry.ran ?? '') && /returned it to the code step/u.test(entry.did ?? entry.said ?? ''));
-    assert.ok(failed < 0 || walk.trail[failed + 1]?.typed === true, report(walk));
+    // The failing submission's turn goes on with the code step's fix, nothing typed (owner, 2026-11-28: every Story carries
+    // on); before, the fix started in a new turn by /sf-code.
+    const failed = walk.trail.findIndex((entry) => /--submit-if-ready/u.test(entry.ran ?? '') && /returned it to the code step/u.test(entry.did ?? entry.said ?? ''));
+    assert.ok(failed < 0 || walk.trail[failed + 1]?.typed !== true, report(walk));
+    assert.equal(walk.trail.some((entry) => entry.act === 'end-turn' && /--submit-if-ready/u.test(entry.ran ?? '')), false, report(walk));
   });
   await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => viewsAgree(walk));
   settle(t);

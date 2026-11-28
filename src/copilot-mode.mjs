@@ -48,7 +48,9 @@ function firstCommandRule(name, boundary) {
   if (name === 'sflow-start') return 'First require an explicit Work ID, then run `singularity-flow workspace branches --entry --intake --work-id <WORK-ID> --for-agent --json` once. It checks pause before Git and combines workspace/build/clean-tree/catalog facts. If `paused`, native Copilot; only offer `/sf-pause off`, never resume implicitly. Reuse the packet; no separate pause/workspace/version/status/catalog calls. Ask explicit choices; creation still revalidates live authority.';
   // Keep the first-command rule centralized for the compact entry skills and direct aliases.
   if (name === 'sflow-session') return SESSION_OPEN_PAUSE_GUARD;
-  if (['sflow-review-source', 'sflow-next', 'sflow-inputs'].includes(name)) {
+  // The one way on says what to do from an unbound chat too (way-out.mjs): its step 1, never a list of other skills.
+  if (name === 'sflow-next') return `${copilotEntryGuard(name)} ${COPILOT_BOOTSTRAP_BOUNDARY.replace(/Require returned [^.]*\.$/u, 'Unbound (no `ready`): do step 1 with its `wayOut`.')}`;
+  if (['sflow-review-source', 'sflow-inputs'].includes(name)) {
     return `${copilotEntryGuard(name)} ${COPILOT_BOOTSTRAP_BOUNDARY}`;
   }
   return PHASE_ENTRY_SKILLS.includes(name) ? PHASE_ENTRY_PAUSE_GUARD

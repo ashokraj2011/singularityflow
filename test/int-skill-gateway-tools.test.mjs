@@ -64,8 +64,7 @@ const SWITCHED = Object.freeze({
     kept: ["each inner `'` as `'\\''` (PowerShell `''`) so nothing expands", 'Relay only `data.served.text`, its citation/provenance, warnings, and related actions.', 'Never answer product behavior from model memory.'] },
   'sflow-progress': { call: storyCall('show story progress'), command: 'singularity-flow progress <WORK-ID> --utility-entry --for-agent --json',
     kept: ['(omit the ID only when absent)', 'Do not forward user-supplied formatting flags.'] },
-  'sflow-nextsteps': { call: storyCall('show story next steps'), command: 'singularity-flow nextsteps <WORK-ID> --utility-entry --for-agent --json',
-    kept: ['when the user supplied an ID; otherwise omit the ID. Read the returned `data`.', 'A ready Story session is not required for repository initialization, start, resume, or explicit-ID guidance.'] }
+  // /sf-nextsteps is the one way on's older name now (owner, 2026-11-28): it hands to /sf-next and names no tool call.
 });
 
 async function skillBody(name) {

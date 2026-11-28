@@ -1021,6 +1021,7 @@ Every public operation is classified before its implementation module is importe
 | wm.show-prompt.record-audit | mutation | never | — | — |
 | work.add | mutation | never | — | — |
 | work.plan | read | never | — | — |
+| work.shape | mutation | never | — | — |
 | work.skip | mutation | never | — | — |
 | work.start | mutation | never | — | — |
 | workflow.activate | mutation | never | — | — |

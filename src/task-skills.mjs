@@ -44,6 +44,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { AGENT_TASK_INTENTS } from './agent-task-intents.mjs';
+import { namedWorkflowOf } from './task-composition.mjs';
 import { isLifecycleWord, lifecycleReadiness, lifecycleStateOf } from './marketplace-lifecycle.mjs';
 import { STEP_INTENTS } from './phase-roles.mjs';
 import { SOFTWARE_KINDS } from './software-kinds.mjs';
@@ -187,7 +188,7 @@ export const NOT_GIVEN = Object.freeze(new Set(['withheld', 'deprecated', 'depre
 export function chooseTaskSkills(composition, { candidates = [], kinds = [], words = '', use = [], without = [] } = {}) {
   // A team's workflow (`use`, or the one the person chose, REQ-020) or a marketplace agent's (REQ-011) carries its own
   // skills: a task chooses none for it.
-  if (composition.uses || composition.agent) return { skills: [], offers: [], byStep: {} };
+  if (namedWorkflowOf(composition) || composition.agent) return { skills: [], offers: [], byStep: {} };
   const touched = new Set(kinds);
   const said = tokens(words);
   const wanted = new Set(use);
@@ -566,7 +567,7 @@ async function attachedFlags(root, definition, composition, candidates) {
   for (const step of composition.steps) {
     const agent = definition?.phases?.[step.id]?.agent ?? null;
     for (const entry of attachments) {
-      const target = entry.workflow ? entry.workflow === composition.uses : Boolean(agent) && entry.agent === agent;
+      const target = entry.workflow ? entry.workflow === namedWorkflowOf(composition) : Boolean(agent) && entry.agent === agent;
       const candidate = flagged.get(entry.id);
       if (!target || !candidate || (entry.phases.length && !entry.phases.includes(step.id))) continue;
       if ((byStep[step.id] ??= []).some((item) => item.id === entry.id)) continue;
@@ -582,7 +583,7 @@ async function attachedSkillIds(root, definition, composition) {
   const [{ configurationReadRoot }, { readSkillAttachments }] = await Promise.all([import('./configuration-read-scope.mjs'), import('./skill-library.mjs')]);
   const agents = new Set(composition.steps.map((step) => definition?.phases?.[step.id]?.agent).filter(Boolean));
   return new Set((await readSkillAttachments(configurationReadRoot(root)).catch(() => []))
-    .filter((entry) => (entry.workflow ? entry.workflow === composition.uses : agents.has(entry.agent))).map((entry) => entry.id));
+    .filter((entry) => (entry.workflow ? entry.workflow === namedWorkflowOf(composition) : agents.has(entry.agent))).map((entry) => entry.id));
 }
 
 /**
@@ -656,7 +657,7 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
     if (composition.local) {
       const attached = await attachedSkillIds(root, definition, composition);
       const { candidates: own } = await libraryCandidates(root, definition, { fetchImpl, notes, approvedOnce, only: attached });
-      notes.push(...await workflowInUseNotes(root, definition, composition.uses));
+      notes.push(...await workflowInUseNotes(root, definition, namedWorkflowOf(composition)));
       return { skills: [], offers: [], byStep: await attachedFlags(root, definition, composition, own), notes };
     }
     const { library, marketplaces, stepIntent, candidates } = await libraryCandidates(root, definition, { fetchImpl, notes, approvedOnce });
@@ -693,7 +694,7 @@ export function taskSkillChooser(root, definition, { words = '', touchedPaths = 
         { skill: named, marketplace: offered.marketplace });
     }
     const chosen = chooseTaskSkills(composition, { candidates, kinds, words, use, without });
-    if (composition.uses) notes.push(...await workflowInUseNotes(root, definition, composition.uses));
-    return { ...chosen, ...(composition.uses ? { byStep: await attachedFlags(root, definition, composition, candidates.filter((entry) => entry.source === 'library')) } : {}), kinds, notes };
+    if (namedWorkflowOf(composition)) notes.push(...await workflowInUseNotes(root, definition, namedWorkflowOf(composition)));
+    return { ...chosen, ...(namedWorkflowOf(composition) ? { byStep: await attachedFlags(root, definition, composition, candidates.filter((entry) => entry.source === 'library')) } : {}), kinds, notes };
   };
 }

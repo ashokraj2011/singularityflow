@@ -555,6 +555,7 @@ async function carryTaskTurn(payload, answer) {
     const said = { start: `SFlow: ${next.workId} started, and this /sf-task turn goes on with it now, under the turn rules below: do /sf-task's step 1 in this turn.`,
       submission: `SFlow: the step is submitted and waits for the person's approval, and this /sf-task turn goes on with it now, under the turn rules below: do /sf-task's step 1 again in this turn (its question is theirs to answer).`,
       completion: `SFlow: SFlow approved the step, and this /sf-task turn goes on with ${next.workId}'s next action now, under the turn rules below: do /sf-task's step 1 again in this turn.`,
+      grown: `SFlow: the task grew, its code went back to the plan SFlow added, and this /sf-task turn goes on with ${next.workId}'s next action now, under the turn rules below: do /sf-task's step 1 again in this turn.`,
       approval: `SFlow: the approval is recorded, and this /sf-task turn goes on with ${next.workId}'s next action now, under the turn rules below: do /sf-task's step 1 again in this turn.` }[next.reason];
     return { ...answer, additionalContext: [answer?.additionalContext, said, captured?.additionalContext].filter(Boolean).join(' ') };
   } catch { return answer; }

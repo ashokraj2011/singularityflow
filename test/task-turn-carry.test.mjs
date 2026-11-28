@@ -37,8 +37,11 @@ function records(story, sessionId) {
 const parsed = (command) => parseArgs(argvOf(command));
 const denied = (answer) => answer?.permissionDecision === 'deny';
 
+/** A Story composed from its kind, as one started before v1.2 is (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md §4): `tasks.sizing: kind`. */
+const v11 = (configuration) => { configuration.tasks = { ...(configuration.tasks ?? {}), sizing: 'kind' }; };
+
 test('ITW REQ-008, A11: the start this /sf-task turn ran goes on into the intake in the same turn; a refused start leaves the turn', async (t) => {
-  const story = await journeyRepository(t);
+  const story = await journeyRepository(t, { configure: v11 });
   Object.assign(story, { workId: 'TASK-1', item: 'singularity/work-items/TASK-1' });
   const chat = copilotTurn(story, 'task-start');
   const seen = records(story, 'task-start');
@@ -102,7 +105,7 @@ test('ITW REQ-008, A11: the start this /sf-task turn ran goes on into the intake
 });
 
 test('ITW REQ-008, A11, A17: in one chat the step\'s submission goes on into its approval question, and only the person\'s Yes into the next step', slowLane({ timeout: 600_000 }), async (t) => {
-  const story = await journeyRepository(t);
+  const story = await journeyRepository(t, { configure: v11 });
   Object.assign(story, { workId: 'TASK-1', item: 'singularity/work-items/TASK-1' });
   // The intake written, published and its review retained, by its routes: only its submission is left.
   const walk = await followRoutes(story, { label: 'a fix to its intake\'s submission', start: { shell: START.replace(/ --json$/u, '') },
@@ -226,7 +229,7 @@ test('ITW REQ-008, A11, A17: in one chat the step\'s submission goes on into its
 });
 
 test('ITW REQ-008, A11 (owner, 2026-11-26): a change\'s step SFlow approves itself goes on into the next step in the same /sf-task turn', slowLane({ timeout: 600_000 }), async (t) => {
-  const story = await journeyRepository(t);
+  const story = await journeyRepository(t, { configure: v11 });
   Object.assign(story, { workId: 'TASK-1', item: 'singularity/work-items/TASK-1' });
   const words = 'make the value module return 2';
   const plan = JSON.parse(story.cli('work', words, '--kind', 'change', '--json'));

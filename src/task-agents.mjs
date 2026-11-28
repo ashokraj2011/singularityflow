@@ -31,7 +31,7 @@
  * read, and with none trusted no marketplace is read.
  */
 import { lifecycleReadiness } from './marketplace-lifecycle.mjs';
-import { agentWords, planSteps } from './task-composition.mjs';
+import { agentWords, INTENT_ORDER, isSized, kindSteps, planSteps, SIZED_KINDS, taskStepLabel } from './task-composition.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /** The pdlc-tasks whose code is tests (agent-task-intents.mjs: tests are code, which a code step writes). */
@@ -72,13 +72,15 @@ export async function agentPlanCandidate({ marketplace, entry, skills = [], impo
 }
 
 /** The intents a task needs an agent to cover: its own steps', but the intake and those the team's rules add. */
-export function neededIntents(composition) {
+export function neededIntents(given) {
+  const composition = offerable(given);
   const ruled = new Set((composition.added ?? []).map((entry) => entry.intent));
   return [...new Set(composition.steps.map((step) => step.intent).filter((intent) => intent && intent !== 'intake' && !ruled.has(intent)))];
 }
 
 /** Every intent of a task's steps but the intake, those the team's rules add included: what a workflow run as it is covers. */
-export function ownIntents(composition) {
+export function ownIntents(given) {
+  const composition = offerable(given);
   return [...new Set(composition.steps.map((step) => step.intent).filter((intent) => intent && intent !== 'intake'))];
 }
 
@@ -110,15 +112,13 @@ const asItIs = (candidate) => candidate.source === 'workflow' || candidate.sourc
  * the rules give a person are a person's: nothing is added to it, so no rule is lost.
  */
 export function planCoverage(composition, candidate) {
-  if (!asItIs(candidate)) return agentCoverage(composition.kind, neededIntents(composition), candidate);
-  const coverage = agentCoverage(composition.kind, ownIntents(composition), candidate);
-  const personal = composition.personApproves ?? [];
-  const kept = candidate.source !== 'workflow' || candidate.steps.filter((step) => personal.includes(step.intent)).every((step) => step.approvedBy === 'person');
-  // Each approval group a rule adds (`by:`) must already be required on its steps there: nothing is added to it [FPL §11, question 3].
-  const grouped = candidate.source !== 'workflow' || (composition.groupApproves ?? []).every((entry) => candidate.steps
-    .filter((step) => step.intent === entry.intent).every((step) => (step.groups ?? []).includes(entry.group)));
-  return coverage.covers && kept && grouped ? coverage : { covers: false, extra: 0 };
+  // v1.2 [ITW:REQ-107]: the team's rules add to any workflow a task runs, so every candidate covers the task's own steps
+  // and the rules' steps, approvals and approval groups (`by:`) are added to it.
+  return agentCoverage(composition.kind, neededIntents(composition), candidate);
 }
+
+/** Whether the team's rules pick this task's workflow (`use`), so nothing else is offered [ITW:REQ-004, A8]. */
+const pickedByRule = (composition) => Boolean(composition.uses && !composition.local) || composition.local?.by === 'use';
 
 const list = (items) => (items.length <= 2 ? items.join(' and ') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
 
@@ -216,10 +216,24 @@ function chosenWorkflow(composition, candidates, named) {
  * and `without` are the MARKETPLACE/AGENT names the person said yes and no to, `useWorkflow` and `withoutWorkflow` the
  * workflow IDs.
  */
-export function chooseTaskAgent(composition, { candidates = [], kinds = [], use = [], without = [], useWorkflow = [], withoutWorkflow = [] } = {}) {
-  if (composition.uses) {
+/**
+ * The steps a workflow or agent must cover for a sized task [ITW:REQ-108]: the kind's own (what a big change of the kind
+ * gets), with any the person or the team's rules added, whatever its requirement decides later. Any other composition as it is.
+ */
+export function offerable(composition) {
+  if (!isSized(composition) || !SIZED_KINDS.includes(composition.kind)) return composition;
+  const intents = [...new Set([...kindSteps(composition.kind), ...composition.steps.map((step) => step.intent)])]
+    .sort((left, right) => INTENT_ORDER.indexOf(left) - INTENT_ORDER.indexOf(right));
+  const { sizing: _sized, ...rest } = composition;
+  return { ...rest, steps: intents.map((intent) => ({ id: composition.steps.find((step) => step.intent === intent)?.id ?? intent, intent,
+    label: taskStepLabel(composition.kind, intent) })) };
+}
+
+export function chooseTaskAgent(given, { candidates = [], kinds = [], use = [], without = [], useWorkflow = [], withoutWorkflow = [], history = null } = {}) {
+  const composition = offerable(given);
+  if (pickedByRule(composition)) {
     if (use.length || useWorkflow.length) {
-      throw refusal('TASK_AGENT_NOT_COVERING', `This team runs every ${composition.kind} task as its ${composition.uses} workflow, so ${use.length ? 'an agent\'s workflow' : 'another workflow'} is not its plan.`,
+      throw refusal('TASK_AGENT_NOT_COVERING', `This team runs every ${composition.kind} task as its ${composition.uses ?? composition.local?.workflow} workflow, so ${use.length ? 'an agent\'s workflow' : 'another workflow'} is not its plan.`,
         { command: 'singularity-flow workflow list', label: 'See the team\'s workflows.' }, use.length ? { agent: use[0] } : { workflow: useWorkflow[0] });
     }
     return {};
@@ -256,14 +270,36 @@ export function chooseTaskAgent(composition, { candidates = [], kinds = [], use 
     .filter((candidate) => candidate.lifecycle !== 'retired' && (!candidate.kinds.length || candidate.kinds.some((kind) => touched.has(kind))))
     .map((candidate) => ({ candidate, coverage: planCoverage(composition, candidate) }))
     .filter((entry) => entry.coverage.covers)
-    .sort((left, right) => groupOf(left.candidate) - groupOf(right.candidate)
+    // The one used for similar changes before comes first [ITW:REQ-110], then the team's own, a local agent, a marketplace's.
+    .sort((left, right) => Number(suggested(history, right.candidate)) - Number(suggested(history, left.candidate))
+      || groupOf(left.candidate) - groupOf(right.candidate)
       || Number(Boolean(right.candidate.imported)) - Number(Boolean(left.candidate.imported))
       || left.coverage.extra - right.coverage.extra || byText(left.candidate.marketplace, right.candidate.marketplace)
       || byText(left.candidate.agent ?? left.candidate.workflow, right.candidate.agent ?? right.candidate.workflow));
   if (!covering.length) return {};
   const [{ candidate }] = covering;
-  return { offer: offerOf(candidate, composition, asItIs(candidate) ? ownIntents(composition) : needed) };
+  // The team's own workflow that covers the task is its plan with no question [ITW:REQ-108]: what it says, the plan line
+  // says, and `--without-workflow` is the no. An agent the repository has but whose workflow is not here yet, and a
+  // marketplace's, still ask: their workflow comes in through its conversion review.
+  const before = suggested(history, candidate) ? history.suggestion : null;
+  if (candidate.source === 'workflow') {
+    const used = offerOf(candidate, composition, needed);
+    return { chosenWorkflow: { workflow: candidate.workflow, label: candidate.label, ...(candidate.from ? { from: candidate.from } : {}) },
+      used: { ...used, asked: false, ...(before ? { why: `${used.why}; ${before.line.replace(/\.$/u, '')}`, history: historyOf(before) } : {}) } };
+  }
+  const offer = offerOf(candidate, composition, asItIs(candidate) ? ownIntents(composition) : needed);
+  // Asked as what was used before, with SFlow deciding as the other answer (`no`, which keeps the task's own steps).
+  return { offer: before ? { ...offer, ask: `${before.line} Use it, or let SFlow decide?`, history: historyOf(before), noWords: 'let SFlow decide' } : offer };
 }
+
+/** Whether the history names `candidate` as what was used for similar changes before [ITW:REQ-110]. */
+function suggested(history, candidate) {
+  const source = history?.suggestion?.source;
+  if (!source) return false;
+  return source.kind === 'agent' ? !asItIs(candidate) && candidate.id === source.id : asItIs(candidate) && candidate.workflow === source.id;
+}
+
+const historyOf = (before) => ({ line: before.line, count: before.count, firstTime: before.firstTime, area: before.area, stories: before.stories });
 
 /**
  * The finder `taskPlan` calls with the composed steps: it reads the team's own workflows and agents (task-local.mjs)
@@ -271,17 +307,25 @@ export function chooseTaskAgent(composition, { candidates = [], kinds = [], use 
  * import record of the workflows made from them, and the kinds of software the task touches only when an agent's tags
  * name one. With no trusted repository marketplace it reads no marketplace.
  */
-export function taskAgentFinder(root, definition, { touchedPaths = [], use = [], without = [], useWorkflow = [], withoutWorkflow = [] } = {}) {
+export function taskAgentFinder(root, definition, { touchedPaths = [], use = [], without = [], useWorkflow = [], withoutWorkflow = [], words = '', folders = [] } = {}) {
   return async (composition) => {
     const notes = [];
+    // What was used for similar changes before, and the lessons kept for their files [ITW:REQ-110]: this checkout only.
+    let history = null;
+    if (folders.length && !composition.uses) {
+      const [{ taskHistory }, { existsSync }, path] = await Promise.all([import('./task-history.mjs'), import('node:fs'), import('node:path')]);
+      history = await taskHistory(root, { kind: composition.kind, said: words, touchedPaths, folders,
+        exists: (relative) => existsSync(path.join(root, relative)) }).catch(() => null);
+      if (history?.lessonsLine) notes.push(history.lessonsLine);
+    }
     const marketplaces = Object.values(definition.marketplaces ?? {}).filter((entry) => entry?.repository && entry.commit)
       .sort((left, right) => byText(left.id, right.id));
-    if (composition.uses && !use.length && !useWorkflow.length) return { notes };
+    if (pickedByRule(composition) && !use.length && !useWorkflow.length) return { notes };
     const skills = await import('./task-skills.mjs');
     const kindsOf = (entry) => skills.marketplaceSkillCandidate({ name: entry.name, tags: entry.tags ?? [], pdlcTasks: [] }, null).kinds;
     const candidates = [];
     // What the team already has comes first [ITW:REQ-020]; a yes to a marketplace agent reads none of it.
-    if (!composition.uses && !use.length) {
+    if (!pickedByRule(composition) && !use.length) {
       const local = await (await import('./task-local.mjs')).localPlanCandidates(root, definition, { kindsOf });
       candidates.push(...local.candidates);
       notes.push(...local.notes);
@@ -307,7 +351,7 @@ export function taskAgentFinder(root, definition, { touchedPaths = [], use = [],
       }
     }
     const kinds = candidates.some((candidate) => candidate.kinds.length) ? await skills.taskSoftwareKinds(root, touchedPaths) : [];
-    return { ...chooseTaskAgent(composition, { candidates, kinds, use, without, useWorkflow, withoutWorkflow }), notes };
+    return { ...chooseTaskAgent(composition, { candidates, kinds, use, without, useWorkflow, withoutWorkflow, history }), notes };
   };
 }
 

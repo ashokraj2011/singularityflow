@@ -17,12 +17,13 @@ import { SingularityFlowError } from './util.mjs';
 export const TASK_CHANGE_DIALECT = 'task-step-added/v1';
 export const TASK_CHANGE_ID = /^TSC-[0-9]{3,6}$/u;
 /** The resolution keys a task change re-derives from its new steps; every other key stays exactly as it was. */
-export const TASK_CHANGE_DERIVED_KEYS = Object.freeze(['policySha256', 'composition', 'phases', 'templates', 'agents', 'plannedClaims', 'obligationGraph']);
+export const TASK_CHANGE_DERIVED_KEYS = Object.freeze(['policySha256', 'composition', 'phases', 'templates', 'agents', 'plannedClaims', 'obligationGraph', 'sourceReview']);
 /** What a later step may change when a step goes in before it: its place, what it reads and what it returns to. */
 const LATER_STEP_CHANGES = Object.freeze(['order', 'inputs']);
 const QUALIFIED_SHA256 = /^sha256:[a-f0-9]{64}$/u;
 const STEP_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-const INTENTS = new Set(['requirements', 'design', 'plan', 'review']);
+// A big change gains its tests step too [ITW:REQ-105, docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md]; a person adds the first four.
+const INTENTS = new Set(['requirements', 'design', 'plan', 'review', 'test']);
 
 function fail(message, code = 'WFA_AMENDMENT_INVALID', details = undefined) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -51,7 +52,9 @@ const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.
  */
 export const TASK_GROWTHS = Object.freeze([
   Object.freeze({ from: 'fix', to: 'change', intent: 'plan', adds: true }),
-  Object.freeze({ from: 'refactor', to: 'change', intent: 'plan', adds: false })]);
+  Object.freeze({ from: 'refactor', to: 'change', intent: 'plan', adds: false }),
+  // A small change of another sized kind whose code turns out bigger keeps its kind and gains its plan [ITW:REQ-106].
+  ...['chore', 'change', 'feature', 'tests'].map((kind) => Object.freeze({ from: kind, to: kind, intent: 'plan', adds: true }))]);
 const growthOf = (change) => TASK_GROWTHS.find((entry) => entry.from === change?.from && entry.to === change?.to && entry.intent === change?.intent) ?? null;
 const isGrow = (change) => change?.change === 'grow';
 /** Whether a decision adds its step (every change but a kind change that keeps the steps). */
@@ -72,9 +75,20 @@ export function relabeledStep(phase, decision) {
   return label && phase?.id === decision.step.id ? { ...phase, label } : phase;
 }
 
+// The code step's label while a sized task is small; a big one names it as the kind's code step [ITW:REQ-105].
+const SMALL_CODE_LABELS = new Set(['Implement and test', 'Write and run the tests']);
+/** A step of a sized task as a big change names it: its code step "Code" (or "Write the tests") beside its tests step. */
+export function bigShapeStep(step, kind) {
+  return step?.intent === 'code' && SMALL_CODE_LABELS.has(step.label) ? { ...step, label: taskStepLabel(kind, 'code') } : step;
+}
+/** Whether a change to a sized task names its later code step as a big change's (`before`: the composition it changes). */
+const relabelsCode = (before, decision) => before?.sizing === 'requirement'
+  && (decision.change?.shape === 'big' || isGrow(decision.change) || (before.steps ?? []).some((step) => step.intent === 'plan'));
+
 /**
  * The change entry the composition gains: who asked, the team's rule and its reason (a `paths` rule for the files the
- * code changed, or an `always` rule of the kind a fix became), or a fix grown into a change with why and the files.
+ * code changed, or an `always` rule of the kind a fix became), a fix grown into a change with why and the files, or a
+ * step of a big change with why it is big (`shape`).
  */
 function validChange(change, step) {
   const paths = (value) => Array.isArray(value) && value.length >= 1 && value.length <= 256 && value.every((file) => isString(file, 4096));
@@ -86,8 +100,12 @@ function validChange(change, step) {
       : exactKeys(change, ['change', 'intent', 'at', 'by', 'from', 'to', 'because', 'checks', 'changeRequest']) && paths(change.checks)
         && /^CR-[0-9]{3,6}$/u.test(change.changeRequest ?? ''));
   }
+  if (change && Object.hasOwn(change, 'shape')) {
+    return exactKeys(change, ['change', 'intent', 'at', 'by', 'shape', 'because']) && change.change === 'add' && change.shape === 'big'
+      && timed && isString(change.because, 2000);
+  }
   const keys = ['change', 'intent', 'at', 'by', ...(change && Object.hasOwn(change, 'rule') ? ['rule', 'because', 'paths'] : [])];
-  return exactKeys(change, keys) && change.change === 'add' && timed
+  return exactKeys(change, keys) && change.change === 'add' && change.intent !== 'test' && timed
     && (!Object.hasOwn(change, 'rule') || (/^(?:paths|always)\[[0-9]{1,3}\]$/u.test(change.rule) && isString(change.because, 2000) && paths(change.paths)));
 }
 
@@ -162,7 +180,9 @@ function assertCompositionScope(before, after, decision) {
   }
   const adds = addsStep(decision);
   const kept = adds ? null : before.steps.map((step) => relabeledStep(step, decision));
-  if (!(adds ? same(after.steps, stepsWithInsertion(before.steps, decision.step, decision.position)) : same(after.steps, kept) || same(after.steps, before.steps))
+  const inserted = adds ? stepsWithInsertion(before.steps, decision.step, decision.position)
+    .map((step, index) => (index > decision.position && relabelsCode(before, decision) ? bigShapeStep(step, after.kind) : step)) : null;
+  if (!(adds ? same(after.steps, inserted) : same(after.steps, kept) || same(after.steps, before.steps))
       || (!adds && !same(before.steps[decision.position], decision.step))) {
     fail(adds ? 'A task change\'s steps are not the task\'s steps with exactly the recorded step added.' : 'A kind change changed the task\'s steps.');
   }
@@ -172,6 +192,11 @@ function assertCompositionScope(before, after, decision) {
   const addedApprovals = (after.personApproves ?? []).filter((intent) => !(before.personApproves ?? []).includes(intent));
   if (!(before.personApproves ?? []).every((intent) => (after.personApproves ?? []).includes(intent))) fail('A task change took an approval from a person.');
   if (addedApprovals.some((intent) => !adds || intent !== decision.step.intent)) fail('A task change gave a person the approval of a step it did not add.');
+  // The rules' reasons for those approvals only grow, each for the approval the change gave [ITW:REQ-113].
+  const [heldReasons, nextReasons] = [before.approvalRules ?? [], after.approvalRules ?? []];
+  if (!same(nextReasons.slice(0, heldReasons.length), heldReasons) || nextReasons.slice(heldReasons.length).some((entry) => !addedApprovals.includes(entry?.intent))) {
+    fail('A task change recorded a rule\'s reason for an approval it did not give.');
+  }
   // A step a person approved stays theirs when the new step would hand it to SFlow (personKeeps): it only grows, and only
   // with steps the task already had.
   // So does a step that wrote the requirement IDs before the new step took that role (clauseKeeps).
@@ -198,10 +223,28 @@ function assertCompositionScope(before, after, decision) {
   if (grown ? before.kind !== grown.from || after.kind !== grown.to : before.kind !== after.kind) fail('A task change changed the task\'s kind.');
   const rest = (value) => {
     const copy = structuredClone(value);
-    for (const key of ['kind', 'steps', 'changes', 'personApproves', 'personKeeps', 'clauseKeeps', 'added', 'rules', 'touchedPaths']) delete copy[key];
+    for (const key of ['kind', 'steps', 'changes', 'personApproves', 'approvalRules', 'personKeeps', 'clauseKeeps', 'added', 'rules', 'touchedPaths']) delete copy[key];
     return copy;
   };
   if (!same(rest(before), rest(after))) fail('A task change changed the task\'s kind or workflow.');
+}
+
+/**
+ * The review policy a task change may change [ITW:REQ-105, docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md]: none at all, or the
+ * step it adds reviewed as the Story's other authored steps are (a document or a code review), so SFlow can approve it when
+ * its reviewer says ready. Every other part of the policy stays exactly as it was.
+ */
+function assertReviewScope(previous, next, decision) {
+  const before = previous?.sourceReview ?? null;
+  const after = next?.sourceReview ?? null;
+  if (same(before, after)) return;
+  const id = decision.step.id;
+  const rest = (policy) => { const copy = structuredClone(policy ?? {}); delete copy.phases; delete copy.kinds; return copy; };
+  const others = (policy) => Object.fromEntries(Object.entries(policy?.kinds ?? {}).filter(([phase]) => phase !== id));
+  const grown = addsStep(decision) && before?.mode === 'enforce' && after?.mode === 'enforce' && !(before.phases ?? []).includes(id)
+    && (after.phases ?? []).includes(id) && same((after.phases ?? []).filter((phase) => phase !== id), before.phases ?? [])
+    && same(others(after), before.kinds ?? {}) && ['document', 'code'].includes(after.kinds?.[id]) && same(rest(before), rest(after));
+  if (!grown) fail('A task change changed the Story\'s review policy beyond reviewing the step it added.');
 }
 
 /**
@@ -217,6 +260,7 @@ export function assertTaskChangeScope(previous, next, decision) {
     return copy;
   };
   if (!same(strip(previous), strip(next))) fail('A task change changed the Story\'s policy beyond its steps.');
+  assertReviewScope(previous, next, decision);
   if (previous?.policySha256 !== decision.from.policySha256 || next?.policySha256 !== decision.to.policySha256
       || next.policySha256 !== taskChangePolicyDigest(next) || previous.policySha256 !== taskChangePolicyDigest(previous)) {
     fail('A task change does not bind the exact policies on either side of it.');
@@ -253,6 +297,12 @@ export function assertTaskChangeScope(previous, next, decision) {
     if (later.order !== index + 1) fail(`A task change gave the step '${prior.id}' the wrong place.`);
     for (const key of LATER_STEP_CHANGES) { delete prior[key]; delete later[key]; }
     if (prior.approval && later.approval) { delete prior.approval.rejectTo; delete later.approval.rejectTo; }
+    // A sized task's code step is named as a big change's, and only that [ITW:REQ-105]. A pinned step carries no intent:
+    // the composition says which is the code step.
+    const coded = (previous.composition?.steps ?? []).some((step) => step.id === prior.id && step.intent === 'code');
+    if (relabelsCode(previous.composition, decision) && coded && bigShapeStep({ ...prior, intent: 'code' }, next.composition.kind).label === later.label) {
+      delete prior.label; delete later.label;
+    }
     if (!same(prior, later)) fail(`A task change changed the later step '${before[index].id}' beyond its place, inputs and returns.`);
   }
   const added = after[position];

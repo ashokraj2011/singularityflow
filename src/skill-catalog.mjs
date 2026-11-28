@@ -95,7 +95,7 @@ function taskKindPicks(definition, candidates, kinds) {
   const add = (key, entry) => { if (!picks.has(key)) picks.set(key, []); picks.get(key).push(entry); };
   for (const kind of TASK_KINDS) {
     let composition;
-    try { composition = composeTask(definition, { kind }); } catch (error) {
+    try { composition = composeTask(definition, { kind, sizing: 'kind' }); } catch (error) {
       notComposed.push({ kind, why: String(error?.message ?? error).split('\n')[0] });
       continue;
     }

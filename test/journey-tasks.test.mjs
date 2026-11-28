@@ -1,5 +1,6 @@
 /**
- * Journey ITW (docs/SPEC-ITW-INTENT-TO-WORK-v1.1.md A1, A10, A11, A13, REQ-011, REQ-015): a task started from its words,
+ * Journey ITW (docs/SPEC-ITW-INTENT-TO-WORK-v1.1.md A1, A10, A11, A13, REQ-011, REQ-015), with the steps a task's kind gives
+ * (`tasks.sizing: kind`, as a Story started before v1.2 keeps them): a task started from its words,
  * walked by its routes to its end as Copilot CLI drives it, with the workflow's own checks deciding each step. The scripted
  * agent writes each step from its own template, by intent (test/helpers/generated-journey.mjs), so nothing here knows the
  * composed steps. A refactor's agent changes the order of two errors at its code step, and its person keeps or accepts the
@@ -32,7 +33,12 @@ const personActions = (trail) => {
 };
 
 async function walkTask(t, words, kind, { files = {}, configure = null, agent = null, person = null, start = null, maxSteps = 160 } = {}) {
-  const story = await journeyRepository(t, { files, configure });
+  // Composed from the kind, as a Story started before v1.2 is (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md §4); v1.2's shapes walk
+  // in test/journey-tasks-shapes.test.mjs.
+  const story = await journeyRepository(t, { files, configure: (configuration) => {
+    configure?.(configuration);
+    configuration.tasks = { ...(configuration.tasks ?? {}), sizing: 'kind' };
+  } });
   Object.assign(story, { workId: 'TASK-1', item: 'singularity/work-items/TASK-1' });
   const walk = await followRoutes(story, {
     label: `task ${kind}`,

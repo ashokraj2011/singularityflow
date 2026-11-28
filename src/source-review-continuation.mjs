@@ -1,5 +1,5 @@
 /** Read-only author/reviewer handoff. A draft is never evidence of publication. */
-import { stepBeingWritten } from './phase-generation-need.mjs';
+import { sentBackAnswer, stepBeingWritten } from './phase-generation-need.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { decisionRoutes, stepDecisionOf } from './step-decision.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
@@ -9,7 +9,7 @@ import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { autoFixVersionsOf, sourceReviewRequired } from './source-review-policy.mjs';
 import { raiseUpstreamIssueRoute } from './upstream-routes.mjs';
-import { inTurnSubmitCommand, reviewFindingsOpenCommand } from './action-command-map.mjs';
+import { inTurnSubmitCommand, reviewFindingsOpenCommand, sentBackOpenCommand } from './action-command-map.mjs';
 import { disputedFindingWords } from './review-dispute-words.mjs';
 
 /** Only the reviewer has seen the version its retained review asks to correct (owner, 2026-11-19): review-findings-opening.mjs. */
@@ -18,7 +18,10 @@ export function reviewerAloneSaw(workflow, phase, review) {
   if (!(version >= 1) || phase.status !== 'in_progress' || workflow?.currentPhase !== phase.id || !reviewAsksForCorrection(review) || !review.reportSha256) return false;
   if (review.generation !== undefined && Number(review.generation) !== version) return false;
   if ((review.decisions ?? []).length || (review.carriedDecisions ?? []).length || (review.pendingDispositions ?? []).length) return false;
-  if ((phase.approvals ?? []).some((entry) => Number(entry.generation) === version) || phase.rejectedAt || phase.submittedAt) return false;
+  // A send-back of an earlier version is not this one's: once a version was written after it, only the reviewer has seen
+  // that version (ask once, owner 2026-11-28). Journey F asked "Start version 3?" after a return of version 1.
+  const returnedThis = phase.rejectedAt && !(workflow.history ?? []).some((event) => event?.phase === phase.id && event.event === 'phase_generated' && event.at > phase.rejectedAt);
+  if ((phase.approvals ?? []).some((entry) => Number(entry.generation) === version) || returnedThis || phase.submittedAt) return false;
   const undone = new Set((workflow.settledDecisions ?? []).map((entry) => entry?.undoes).filter(Boolean));
   return !(workflow.settledDecisions ?? []).some((entry) => entry?.kind === 'review-corrections' && entry.phase === phase.id && undone.has(entry.id))
     && !reviewFindingsHold(workflow, phase, review);
@@ -153,9 +156,13 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
         // turn [D3, OSA:REQ-030]; /sf-recover found nothing to recover for unchanged bytes (owner, 2026-11-16), or starts it
         // on its own when only the reviewer saw this one (owner, 2026-11-19).
         const skill = code ? '/sf-code' : String(author).replace(/^\/sflow-/u, '/sf-');
+        // A person's own send-back already said to write it: it opens on that answer (ask once, owner 2026-11-28).
+        const sentBack = !fix && ['rework', 'rejected'].includes(inputs.reason) ? sentBackAnswer(workflow, phase) : null;
         const settles = Boolean(fix) && reviewerAloneSaw(workflow, phase, review);
         const held = fix && !settles ? reviewFindingsHold(workflow, phase, review) : null;
-        actions = [action(skill, settles ? reviewFindingsOpenCommand(phase.id) : `singularity-flow phase rollover ${phase.id} --json`,
+        actions = sentBack ? [action(skill, sentBackOpenCommand(phase.id), `The person sent ${phase.label ?? phase.id} back${sentBack.reason ? ` ("${sentBack.reason.slice(0, 200)}")` : ''}: ${skill} starts version ${generation} on that answer, asks nothing, and writes it in the same turn.`,
+          `Write version ${generation} of ${phase.label ?? phase.id} for the send-back`)]
+          : [action(skill, settles ? reviewFindingsOpenCommand(phase.id) : `singularity-flow phase rollover ${phase.id} --json`,
           settles ? `Only the reviewer has seen version ${phase.generation}: ${skill} starts version ${generation} of ${phase.label ?? phase.id} to fix the review's findings on its own and fixes them in the same turn.`
             : fix ? `${held ? `${held.words} ` : ''}${skill} asks the person "Start version ${generation} of ${phase.label ?? phase.id} to fix the review's findings?" and, on their yes, fixes them in the same turn.`
             : `${skill} previews version ${generation} of ${phase.id} and asks the person to confirm it; version ${phase.generation} stays as published.`, fix)];

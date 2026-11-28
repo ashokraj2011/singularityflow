@@ -299,7 +299,7 @@ export async function recordClarificationResponses(root, definition, workflow, p
 }
 
 export async function verifyClarificationRecord(root, definition, workflow, phase, {
-  generation = nextPhaseGeneration(phase), groundingRecord = null
+  generation = nextPhaseGeneration(phase), groundingRecord = null, answered = false
 } = {}) {
   const result = await inspectClarificationRecord(root, definition, workflow, phase, { generation, groundingRecord });
   // While recording is still ahead, say whether its prompt is composed: record refuses until it is.
@@ -307,7 +307,12 @@ export async function verifyClarificationRecord(root, definition, workflow, phas
     : await clarificationPromptComposition(root, definition, workflow, phase, generation);
   // A pinned specification slice is settled like approved inputs (SPEC-SPA v1.3 REQ-018).
   const slices = result.recordState === 'missing' ? await pinnedSpecificationSlices(root, definition, workflow) : [];
-  return { checkpoint: clarificationCheckpoint(resolvedPolicy(definition, workflow, phase), result, { slices }), ...result,
+  // `answered` (the step's entry): what the person already answered anywhere in the Story, while questions may be asked, so
+  // none is asked again (ask once, owner 2026-11-28; answered-questions.mjs).
+  const earlier = answered && result.mode !== 'off' && result.recordState === 'missing'
+    ? await (await import('./answered-questions.mjs')).answeredEarlier(root, definition, workflow).catch(() => []) : [];
+  return { checkpoint: clarificationCheckpoint(resolvedPolicy(definition, workflow, phase), result, { slices, answered: earlier.length }), ...result,
+    ...(earlier.length ? { answered: earlier } : {}),
     ...(composition ? { composition: { status: composition.status,
       command: composition.status === 'current' ? null : composition.command } } : {}) };
 }
@@ -345,7 +350,7 @@ async function pinnedSpecificationSlices(root, definition, workflow) {
 }
 
 /** Conversation permission is not artifact-authoring or publication permission. No model call. `slices` are settled too. */
-export function clarificationCheckpoint(policy, verification, { slices = [] } = {}) {
+export function clarificationCheckpoint(policy, verification, { slices = [], answered = 0 } = {}) {
   const { mode, maxQuestions, topics } = normalizeClarificationPolicy(policy);
   const missing = verification.recordState === 'missing';
   const stage = mode === 'off' ? 'off' : missing ? mode === 'required' ? 'derive-questions' : 'assess-ambiguity'
@@ -358,6 +363,7 @@ export function clarificationCheckpoint(policy, verification, { slices = [] } = 
     instruction: questioningAllowed
       ? `Read the exact composed context, its approved phase inputs (the earlier steps\' outputs) first: what they state is settled, never asked again. ${slices.length
         ? `So is the specification slice in the pinned Story source (${slices.join(', ')}): its clauses and decided questions are never asked again or put up for confirmation; ask only what they leave open. `
+        : ''}${answered ? 'So is every answer in clarification.answered, which the person already gave in this Story (in any step or version, or when they sent a step back): never ask one again, in other words or as a confirmation. '
         : ''}A missing durable record is not an unanswered question. First reuse actual human replies in this conversation, or those already written at responseStagingPath, only for this same Story, phase, generation and reviewed context. A refused write requires recording repair, not repeated questions. Write the replies with a file-edit tool at responseStagingPath as ${CLARIFICATION_RESPONSE_FORMAT} (${FORMAT_NOTE}), then run the standalone recordAction; preserve replies on failure. Ask only unanswered or materially changed questions: questions are agent-derived, not a missing predefined list. ${mode === 'required' ? 'Required here (the Story\'s intake): ask what its request leaves open on these topics, never a confirmation of what the evidence already states. When it leaves nothing open, ask one question naming the assumptions this step will build on, with "Go ahead" recommended, and record that answer. ' : ''}Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. ${mode === 'required'
         ? 'Recording remains required before authoring.'
         : 'Record only answers to questions you asked; with no material ambiguity, continue without a record.'}`

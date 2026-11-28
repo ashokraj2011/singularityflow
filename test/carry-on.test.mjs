@@ -301,5 +301,6 @@ test('VS Code: Continue sends the one way on from the status bar, the Work page 
   assert.match(extension, /hooksOff = \{ line: prompt\.message, action: prompt\.action, command: reopen \};/u);
   assert.match(extension, /hooksOff = \{ line: `Copilot hooks are off here \(disableAllHooks in /u);
   const { needsYouListHtml } = await import('../apps/vscode/src/views/needs-you-page.ts');
-  assert.match(needsYouListHtml({ items: [], lines: [], more: 0, checked: { words: 'Checked now' } }), /Nothing waits on you now\. <button type="button" class="needs-you-more" data-continue="1">Continue<\/button>/u);
+  assert.match(needsYouListHtml({ items: [], lines: [], more: 0, checked: { words: 'Checked now' } }), /Nothing waits on you now\. Continue sends your open Story on to its next step in Copilot chat\. <button type="button" class="needs-you-more" data-continue="1">Continue<\/button>/u,
+    'it says why Continue is the way on [FPL M5: every place says what to do]');
 });

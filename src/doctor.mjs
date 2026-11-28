@@ -16,7 +16,8 @@ import { loadStoryAggregate } from './story-aggregate-read.mjs';
 import { inspectRequiredArtifactRegistration, storyPublicationPending, validateWorkflow } from './state-stores.mjs';
 import { findLegacyPendingPublications } from './publication-pending.mjs';
 import { inspectStatePlanes } from './state-planes.mjs';
-import { commandExists, platformShell, run } from './util.mjs';
+import { commandExists, run } from './util.mjs';
+import { resolveWindowsSystemTool } from './platform-process.mjs';
 import { explainTelemetryStatus, probeTelemetry } from './telemetry-provision.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { mcpDoctor } from './mcp-readiness.mjs';
@@ -140,6 +141,20 @@ export async function vscodeVersionCheck(editorVersion) {
       ? check('vscode-version', 'warn', `VS Code ${found.version} is older than 1.141, which SFlow's Copilot plugin needs to work fully. ${found.limits.join(' ')}`, found.fix, { vscodeVersion: found.version })
       : check('vscode-version', 'pass', `VS Code ${String(version).trim()}.`, null, { vscodeVersion: String(version).trim() });
   } catch { return null; }
+}
+
+/**
+ * The shell a configured runner command should be handed to.
+ *
+ * The world-model runner is a command line a repository configures, so it genuinely needs a shell to
+ * interpret. It was always `bash`, which simply is not present on a stock Windows machine — the
+ * build failed there with a spawn error rather than anything explaining why. `cmd.exe` is the
+ * equivalent, and `/c` is its `-c`. Here, its one reader, rather than in util.mjs, which every command loads.
+ */
+function platformShell({ platform = process.platform, environment = process.env } = {}) {
+  return platform === 'win32'
+    ? { command: resolveWindowsSystemTool(environment, 'cmd.exe'), flag: '/c' }
+    : { command: 'bash', flag: '-c' };
 }
 
 export async function doctorSnapshot(root, {

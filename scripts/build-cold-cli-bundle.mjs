@@ -34,7 +34,11 @@ const FAMILIES = Object.freeze([
     // Whether SFlow's hooks ran in the Copilot chat a command runs in: stamped by the prompt hook and the guard
     // (copilot-hook-sessions.mjs, in its closure), read by root dispatch for every command a chat runs
     // (copilot-chat-hooks.mjs). Claimed elsewhere, each would load that chunk.
-    'copilot-chat-hooks.mjs']],
+    'copilot-chat-hooks.mjs',
+    // The checkout's agent results folder (Node built-ins only), which every --for-agent result (agent-output.mjs) and the
+    // edit guard both name. Claimed by the hooks, it made the output helpers import the whole hooks chunk (307 KB of a
+    // 2.1 MB closure, measured 2026-11-28); here it costs the startup chunk about 3 KB.
+    'agent-output-folder.mjs']],
   ['status', ['commands/status.mjs', 'commands/progress.mjs', 'commands/report.mjs',
     'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs',
     // The Story report's change impact counts, imported only by `report` and its read [CIC:REQ-017].

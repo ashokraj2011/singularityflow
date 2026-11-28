@@ -125,18 +125,15 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   }
   const presentationClosure = closure('cold-worker-protocol.mjs');
   const presentationBytes = presentationClosure.reduce((sum, item) => sum + item.bytes, 0);
-  // 2 MB, then 2,100,630 bytes (measured 2026-11-28 on never-stuck-3; main 38f37deda already measured 2,098,929, over the
-  // 2 MB): +1,701 for a test command's AI-model use asked once and remembered, and models on for one run (the refusal's
-  // question, model-mode.mjs --models-on, the policy honouring the answer) [owner, 2026-11-28]. Output still reaches none of
-  // the chunks named below. 2,101,446 (+816, measured 2026-11-28 on no-typing merged with main 133ab54dc): the moved person
-  // steps' routes and effects (model-free-commands.mjs, person-step-catalog.mjs) [owner, 2026-11-28]. To fall back under
-  // 2 MB: util.mjs and refusal-remediation.mjs grew ~4.6 KB on 11-28. 2,106,468 (+5,022, measured 2026-11-28 on no-typing-2): a
-  // copied value with a slip offers the filled command (text-lines.mjs), the steps a /sf-decide turn takes on the person's bound Yes
-  // (person-step-catalog.mjs), the card's new rows and their Story in the route (model-free-commands.mjs, copilot-guidance.mjs) and
-  // a confirmation asked as one Yes naming its code (agent-output.mjs) [owner, 2026-11-28].
-  assert.ok(presentationBytes <= 2_106_468,
+  // 2 MB again (2026-11-28, gaps-writers-bundle): main ea5f16c55 measured 2,106,451, over it since 38f37deda. Most of that was
+  // not the output helpers' own code: two static imports put whole chunks of other families in their closure. agent-output.mjs
+  // imported agent-output-folder.mjs, which the hooks claimed, so every agent result loaded cold-hooks.mjs (307,172), which
+  // loads cold-status.mjs; workspace-context.mjs imported the Story index (cold-status.mjs, 169,269) only to find a branch's
+  // Story. The folder leaf (Node built-ins only) is now the startup chunk's (cold-core +~2.3 KB) and the index loads lazily:
+  // measured 1,632,158 bytes (-474,293). Behaviour is the same; the two chunks named last below hold it.
+  assert.ok(presentationBytes < 2 * 1024 * 1024,
     `small output helpers must not shift policy loading into every agent response: ${presentationBytes} bytes`);
-  for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs']) {
+  for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs', 'cold-hooks.mjs', 'cold-status.mjs']) {
     assert.ok(!presentationClosure.some(item => item.file === name), `output must not statically reach ${name}`);
   }
   // 4,460,000 (next 5,000 boundary; it was 4.25 MiB, 4,456,448): main 317d51b9 measures 4,456,138. The blocker

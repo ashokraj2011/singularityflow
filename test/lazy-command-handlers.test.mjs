@@ -1285,7 +1285,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // start.mjs 9,988,488, approve.mjs 9,897,486): a copied value with a slip offers the same command with the exact value
     // (text-lines.mjs +1,210), the steps a /sf-decide turn takes on the person's bound Yes (person-step-catalog.mjs +894), and the
     // card's rows and their Story in the route (model-free-commands.mjs +487, copilot-guidance.mjs +161) [owner, 2026-11-28]. No new eager file.
-    assert.ok(closure.bytes <= 9_992_170, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,991,621 (measured for submit.mjs, -549 under main's 9,992,170 on gaps-writers-bundle merged with main ea5f16c55, 2026-11-28;
+    // start.mjs 9,987,939, approve.mjs 9,896,937): platformShell moves from util.mjs to doctor.mjs, its one reader (-655); the
+    // base branch's merged files keep their writer in WCB's record (plan-amendments.mjs +94); the Story index loads lazily where a
+    // workspace finds a branch's Story (workspace-context.mjs +12). Who changed a file, and its words, load lazily
+    // (code-outside-plan.mjs, outside-plan-words.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_991_621, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1519,7 +1524,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // plain reasons for a commit policy SFlow cannot read (util.mjs) [owner, 2026-11-28]. No new eager file.
   // 902,132 (+421 over 901,711, measured 2026-11-28 on never-stuck-3): `--models-on`, the person's models on for one run
   // (model-mode.mjs +408), and `tests model-use` (command-registry.mjs +13) [owner, 2026-11-28]. No new eager file.
-  assert.ok(root.bytes <= 902_132, `root dispatch loads ${root.bytes} source bytes`);
+  // 901,477 (-655 under 902,132, measured 2026-11-28 on gaps-writers-bundle): platformShell, which only doctor runs, moves from
+  // util.mjs to doctor.mjs. No new eager file.
+  assert.ok(root.bytes <= 901_477, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -2046,7 +2053,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,420,211 (+1,542 over main's 4,418,669, measured 2026-11-28 on no-typing-2 merged with main 3284009d4): the steps a /sf-decide
   // turn takes on the person's bound Yes (person-step-catalog.mjs +894) and the card's rows and their Story in the route
   // (model-free-commands.mjs +487, copilot-guidance.mjs +161) [owner, 2026-11-28]. No new eager file.
-  assert.ok(current.bytes <= 4_420_211, `session current loads ${current.bytes} source bytes`);
+  // 4,419,662 (-549 under main's 4,420,211, measured 2026-11-28 on gaps-writers-bundle merged with main ea5f16c55): platformShell
+  // leaves util.mjs for doctor.mjs (-655); the base branch's writer in WCB's record (plan-amendments.mjs +94) and the Story index
+  // loaded lazily (workspace-context.mjs +12). No new eager file.
+  assert.ok(current.bytes <= 4_419_662, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

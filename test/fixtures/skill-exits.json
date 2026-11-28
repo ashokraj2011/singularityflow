@@ -45,7 +45,7 @@
   "sflow-code": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
     "false `policyVerified`: show `policyReason`, offer `/sf-validate` then `/sf-recover`, stop.",
-    "If `effectiveAuthoringSkill` is neither `/sf-code` nor `/sf-phase` (the step's configured author, or `/sf-converge`), relay it and `Terminal equivalent: singularity-flow prepare <phase>`, stop;",
+    "The step's configured author: relay it and `Terminal equivalent: singularity-flow prepare <phase>`, stop;",
     "Code: Inspect `recovery`, `intent`, test handoff and exact diffs/untracked bytes including `workflow.json`.",
     "Stop on protected changes or lifecycle/authority holds.",
     "Otherwise stop for human/protected/unowned edits.",
@@ -231,7 +231,7 @@
   "sflow-phase": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
     "false `policyVerified`: show `policyReason`, offer `/sf-validate` then `/sf-recover`, stop.",
-    "If `effectiveAuthoringSkill` is neither `/sf-code` nor `/sf-phase` (the step's configured author, or `/sf-converge`), relay it and `Terminal equivalent: singularity-flow prepare <phase>`, stop;",
+    "The step's configured author: relay it and `Terminal equivalent: singularity-flow prepare <phase>`, stop;",
     "Code: Inspect `recovery`, `intent`, test handoff and exact diffs/untracked bytes including `workflow.json`.",
     "Stop on protected changes or lifecycle/authority holds.",
     "Otherwise stop for human/protected/unowned edits.",

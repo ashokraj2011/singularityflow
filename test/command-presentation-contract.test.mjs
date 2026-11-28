@@ -45,7 +45,7 @@ test('all bundled and direct Copilot skills say what happens next in one plain l
   assert.match(COMMAND_PRESENTATION_CONTRACT, /^Say what happens next in one plain line \("Next: <what happens>"\), never as a list of commands;/u);
   assert.match(COMMAND_PRESENTATION_CONTRACT, /run returned routes exactly, never invent one/u);
   assert.match(COMMAND_PRESENTATION_CONTRACT, /When SFlow's note says this turn goes on, do it in this same turn\./u);
-  assert.match(COMMAND_PRESENTATION_CONTRACT, /ends with "\/sf-next carries it on" \(VS Code: Continue\)\.$/u);
+  assert.match(COMMAND_PRESENTATION_CONTRACT, /ends with "\/sf-next carries it on" \(or press Continue\)\.$/u);
   assert.doesNotMatch(COMMAND_PRESENTATION_CONTRACT, /three separate|Shell: `<command>`/u);
   const root = new URL('../plugin/skills/', import.meta.url);
   for (const entry of await readdir(root, { withFileTypes: true })) {

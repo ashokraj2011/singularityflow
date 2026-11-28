@@ -500,5 +500,6 @@ test('a conversation opened after the approval boundary keeps the Story this che
   const kept = story({ onApproval: 'keep' });
   await activateWorkItemSession(keep, definition, kept);
   await sessionStartAgentHook(keep, definition, kept, { sessionId: 'chat-other', source: 'startup' });
-  assert.equal((await agentSessionStatus(keep, definition, kept)).ready, false, 'without a requested reset nothing is handed over');
+  // No Story asks for a reset now (owner, 2026-11-28): a person's own new chat right after an approval keeps the Story too.
+  assert.equal((await agentSessionStatus(keep, definition, kept)).ready, true, 'a new chat after the approval keeps the Story, whatever the pinned policy');
 });

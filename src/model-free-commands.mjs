@@ -109,7 +109,7 @@ export function modelFreeCommandForCommand(command) {
 
 /** Layout only: callers still validate untrusted routes and retain their existing execution gates. */
 // One plain next line [owner, 2026-11-28].
-export const COMMAND_PRESENTATION_CONTRACT = 'Say what happens next in one plain line ("Next: <what happens>"), never as a list of commands; run returned routes exactly, never invent one. When SFlow\'s note says this turn goes on, do it in this same turn. Where a person decides, say what, why and where (this question, the page or the card). A turn that ends with nothing left for SFlow ends with "/sf-next carries it on" (VS Code: Continue).';
+export const COMMAND_PRESENTATION_CONTRACT = 'Say what happens next in one plain line ("Next: <what happens>"), never as a list of commands; run returned routes exactly, never invent one. When SFlow\'s note says this turn goes on, do it in this same turn. Where a person decides, say what, why and where (this question, the page or the card). A turn that ends with nothing left for SFlow ends with "/sf-next carries it on" (or press Continue).';
 
 export function commandRouteRows(guidance = {}) {
   guidance ??= {};

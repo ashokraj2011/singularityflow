@@ -16,7 +16,7 @@ test('the presentation contract says what happens next in one plain line, no lon
   assert.equal(COMMAND_PRESENTATION_CONTRACT, 'Say what happens next in one plain line ("Next: <what happens>"), never as a list of commands; '
     + 'run returned routes exactly, never invent one. When SFlow\'s note says this turn goes on, do it in this same turn. Where a person decides, '
     + 'say what, why and where (this question, the page or the card). A turn that ends with nothing left for SFlow ends with '
-    + '"/sf-next carries it on" (VS Code: Continue).');
+    + '"/sf-next carries it on" (or press Continue).');
   // Every skill embeds it: the three bullets' wording was 436 characters (109 estimated tokens).
   assert.ok(COMMAND_PRESENTATION_CONTRACT.length <= 436, `${COMMAND_PRESENTATION_CONTRACT.length} characters`);
 });

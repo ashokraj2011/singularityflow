@@ -1868,6 +1868,7 @@ function settledItems(workflow, context) {
       kind: 'settled', settled: true, title: String(entry.answer).slice(0, 200), subject: entry.subject,
       answerWords: entry.answer, evidenceWords: evidence, evidence: (entry.evidence ?? []).map((fact) => `${fact.what} (${fact.where})`), by: entry.by, at: entry.at,
       why: [`${by.replace(/^./u, (first) => first.toUpperCase())} settled this from the evidence below; nobody was asked. ${history ? 'Its step has moved on, so there is nothing to undo here.' : 'Undo it only if it is wrong.'}`,
+        keptFile ? `If ${keptFile} is not part of this Story, keep it out: that undoes the take-up and sets the file aside with a private copy.` : '',
         findings.length ? 'Dispute a finding it was started for if the reviewer is wrong.' : ''].filter(Boolean).join(' '),
       // Undone on the Decide card or in the person's own terminal, never asked in chat: nothing waits on it [owner, 2026-11-20].
       options: history ? [] : [{ ...option(workflow, context, { id: 'undo', label: 'Undo: ask me instead', words: route.words,
@@ -2033,7 +2034,10 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
   // A Story with no code step: the code base files left in its checkout, which nothing delivers [WCB:REQ-017].
   const leftOut = context.facts?.noCodeStep?.uncommitted ?? [];
   const reviewed = [...(leftOut.length ? [`Not part of this task: ${listWords(leftOut.slice(0, 8))}${leftOut.length > 8 ? ` and ${leftOut.length - 8} more` : ''}, left in your checkout; nothing delivers ${leftOut.length === 1 ? 'it' : 'them'}.`] : []),
-    ...ledger.map((group) => `Settled for you: ${group.words}.`), ...outside.map((entry) => `Changed outside the plan: ${entry.words.replace(/[.\s]+$/u, '')}.`),
+    ...ledger.map((group) => `Settled for you: ${group.words}.`),
+    // Why they are shown and the way on, in one line before them: nothing stopped for them, and a return drops one [owner, 2026-11-28].
+    ...(outside.length ? [`No row of the approved plan names ${outside.length === 1 ? 'the file below' : `the ${outside.length} files below`}; SFlow committed ${outside.length === 1 ? 'it' : 'them'} with ${name} so nothing stopped. Approving keeps ${outside.length === 1 ? 'it' : 'them'}; to drop one, return ${name} on the approval page.`] : []),
+    ...outside.map((entry) => `Changed outside the plan: ${entry.words.replace(/[.\s]+$/u, '')}.`),
     ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : []),
     ...disputes.map((entry) => entry.words), ...overrides];
   return {

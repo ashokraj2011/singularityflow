@@ -213,6 +213,8 @@ test('code changed outside the plan, by Copilot or by you, early or late, commit
       '.eslintrc.json: by you', 'NOTES.md: by you, as a supporting change', 'src/early.mjs: by you',
       'src/format.mjs: by Copilot: the summary page shows the value with two decimals.', 'src/helper.mjs: by you']);
     assert.ok(approval.details.lines.includes('Changed outside the plan: NOTES.md: by you, as a supporting change.'), JSON.stringify(approval.details.lines));
+    // One plain line says why they are listed and the way on [owner, 2026-11-28].
+    assert.ok(approval.details.lines.includes('No row of the approved plan names the 5 files below; SFlow committed them with Code so nothing stopped. Approving keeps them; to drop one, return Code on the approval page.'), JSON.stringify(approval.details.lines));
     assert.ok(approval.details.lines.includes('Changed outside the plan: src/format.mjs: by Copilot: the summary page shows the value with two decimals.'));
     assert.deepEqual(approval.details.heldBy, []);
     // The Story's "What this change does" page, written in the code step's own commits, reads the same records: each file

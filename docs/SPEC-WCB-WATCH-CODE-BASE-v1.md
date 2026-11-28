@@ -119,7 +119,9 @@ Everything below is about what is *not* a stop.
   its settlement says who changed it too, so the approval and the change page list it "by you, as a supporting change"
   (or "by Copilot, as a supporting change", with a reason when Copilot wrote one). The owner decided this for a person's
   scratch note on 2026-11-28: "Commit it". A supporting settlement made before this build carries no writer and is not
-  listed.
+  listed. One plain line comes first and says why they are listed and the way on: no row of the approved plan names
+  them, SFlow committed them so nothing stopped, approving keeps them, and returning the step drops one (owner,
+  2026-11-28: every decision says why the person makes it).
 - **WCB:REQ-015** Undo is returning the step. While the code step is still open, undoing a settlement hands that file
   back as a question, as for any settled file; once the step awaits approval, its approver returns it first; once
   approved, it is history. Keeping one file out is one step (owner, 2026-11-28): while the code step is open and a file

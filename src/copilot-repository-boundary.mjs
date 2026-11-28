@@ -539,7 +539,7 @@ const NEXT_ACTION_SKILLS = new Set(['task', 'next', 'nextsteps', 'status', 'resu
 async function carryTaskTurn(payload, answer) {
   if (answer?.continue === false) return answer;
   const text = JSON.stringify(payload.toolCalls ?? payload.toolArgs ?? payload.tool_input ?? '');
-  if (!/(?:singularity-flow|sflow)\b/u.test(text) || !/\b(?:work|approve|submit)\b/u.test(text)) return answer;
+  if (!/(?:singularity-flow|sflow)\b/u.test(text) || !/\b(?:work|approve|submit|reject|publish)\b/u.test(text)) return answer;
   try {
     const turn = await currentTurn(payload);
     if (!turn) return answer;

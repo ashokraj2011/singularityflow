@@ -52,7 +52,6 @@ function whereLine(snapshot, workflow) {
  * own work for the agent. `action` is a nextsteps action (copilotCommand, command, skill, label, reason).
  */
 function nextOf(action, snapshot, workflow) {
-  const id = snapshot?.workId ?? workflow?.workItem?.id ?? null;
   if (!action) return null;
   const skill = SKILL(action.skill ?? action.copilotCommand);
   const command = typeof action.command === 'string' ? action.command : null;
@@ -62,9 +61,8 @@ function nextOf(action, snapshot, workflow) {
   if (kind === 'decision') return { by: 'person', kind, words: `${label.replace(/[.\s]+$/u, '')}: decide it on the Decide card.` };
   if (kind) return { by: 'person', kind, words: `${label.replace(/[.\s]+$/u, '')}.` };
   if (/^singularity-flow (?:sync|push)\b/u.test(command ?? '')) return { by: 'sflow', kind: 'push', command, words: 'SFlow sends the commits it saved here, then goes on.' };
-  if (/^singularity-flow recover\b/u.test(command ?? '') || skill === '/sf-recover') {
-    return { by: 'sflow', kind: 'recover', command: command ?? `singularity-flow recover ${id ?? ''} --fetch`.trim(), words: 'SFlow checks what is left over and repairs what it safely can, then goes on.' };
-  }
+  // A recovery is the kernel's own route, run as returned (never one built here).
+  if (/^singularity-flow recover\b/u.test(command ?? '')) return { by: 'sflow', kind: 'recover', command, words: 'SFlow checks what is left over and repairs what it safely can, then goes on.' };
   if (/^singularity-flow (?:resume|session attach)\b/u.test(command ?? '')) return { by: 'sflow', kind: 'attach', command, words: 'SFlow opens the Story in this chat, then goes on.' };
   if (/^singularity-flow (?:init|start)\b/u.test(command ?? '') || ['/sf-init', '/sf-start', '/sf-story-start'].includes(skill)) {
     return { by: 'person', kind: 'start', words: 'Say what you want done with /sf-task and your words; SFlow starts the Story.' };

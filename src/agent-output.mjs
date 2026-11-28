@@ -1387,7 +1387,8 @@ export async function boundedAgentOutput(text, options = {}) {
     if (result.resultType === 'sflow-session-entry') result = sessionEntryForAgent(result);
     const gap = await chatHookGap();
     if (gap) result.copilotHooks = { ran: false, ...gap.found };
-    const derived = gap ? gap.act : result.act ?? agentAct(result);
+    // With the hooks off, the one way on's why and its one fix stay in view (way-out.mjs).
+    const derived = gap ? { ...gap.act, ...(result.wayOut ? { read: ['wayOut'] } : {}) } : result.act ?? agentAct(result);
     const rest = Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act'));
     const routed = await withAgentRoutes(derived ? { act: derived, ...rest } : result);
     const ordered = derived ? { ...routed, act: leadingAct(routed.act) } : routed;
@@ -1427,7 +1428,8 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   // In a Copilot chat SFlow's hooks never saw, every result leads with that and ends the turn (copilot-chat-hooks.mjs).
   const gap = await chatHookGap();
   if (gap) result.copilotHooks = { ran: false, ...gap.found };
-  const derived = gap ? gap.act : result.act ?? agentAct(result);
+  // With the hooks off, the one way on's why and its one fix stay in view (way-out.mjs).
+  const derived = gap ? { ...gap.act, ...(result.wayOut ? { read: ['wayOut'] } : {}) } : result.act ?? agentAct(result);
   // A kept result read again (`result last`) is the same action, never a repeat of it.
   const counted = derived && !result.keptResult && !UNCOUNTED_STATES.has(derived.state) && (derived.do || derived.ask);
   const observed = counted && locate() ? observeAgentLoop(locate().root, result, derived, { now: now.getTime() }) : derived;

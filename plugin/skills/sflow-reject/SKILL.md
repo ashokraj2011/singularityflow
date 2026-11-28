@@ -48,7 +48,7 @@ For `singularity-flow story intent-amendment`, use this route, not phase rejecti
    Never fetch a dirty checkout. Retest and approve Code before review.
 3. Closed Story: `singularity-flow reopen <WORK-ID> --fetch --to <phase> --reason "..."`.
 4. Report decision, reason, identity/authority, agent, target, invalidations and commit/push.
-   Relay refusals. Repair only when requested.
+   Relay refusals. Repair only when requested. When SFlow's note says this turn goes on, write the next version now.
 
 ## Abandon rework
 

@@ -114,6 +114,32 @@ test('a classic Story: the step\'s submission goes on into its approval question
   assert.ok(denied(chat.tool('bash', { command: yes })), 'and never an approval');
 });
 
+test('a person\'s send-back carries the same turn straight into writing the returned step\'s next version', slowLane({ timeout: 600_000 }), async (t) => {
+  const story = await reviewedIntake(t);
+  story.cli('submit', 'intake');
+  const chat = copilotTurn(story, 'send-back');
+  const seen = records(story, 'send-back');
+  chat.prompt('/sf-reject');
+  const first = seen.turn();
+  assert.deepEqual([first.skill, seen.mutation().contract.turnMode], ['sf-reject', 'approval-only']);
+  const reject = `singularity-flow reject intake --work-id ${W} --to intake --reason "Name the value's one caller in the plan." --json`;
+  assert.ok(!denied(chat.tool('bash', { command: reject })), reject);
+  const ran = story.raw(argvOf(reject));
+  assert.equal(ran.status, 0, ran.stderr.slice(-2000));
+  const after = chat.after('bash', { command: reject }, { resultType: 'success', textResultForLlm: ran.stdout });
+  assert.match(after.additionalContext ?? '', /SFlow: the step went back with the person's reason, and its next version starts on that send-back, and this turn goes on with CARRY-1 now, under the turn rules below: run `singularity-flow phase enter --compose --for-agent --json`/u);
+  const carried = seen.turn();
+  assert.deepEqual([carried.skill, carried.typedSkill], ['sf-next', 'sf-reject'], 'the returned step\'s work is this turn\'s now');
+  assert.equal(seen.mutation().contract.turnMode, 'authoring');
+  assert.equal(seen.mutation().contract.phaseId, 'intake');
+  assert.notEqual(carried.turnId, first.turnId);
+  // Its entry starts the version on the send-back itself and names the writing, with nothing asked (sent-back-opening.mjs).
+  const entry = 'singularity-flow phase enter --compose --for-agent --json';
+  assert.ok(!denied(chat.tool('bash', { command: entry })), entry);
+  const entered = JSON.parse(story.raw(argvOf(entry)).stdout);
+  assert.equal(entered.act?.ask, undefined, JSON.stringify(entered.act));
+});
+
 test('the one way on from stuck states: after a refusal, in a stale chat, and while SFlow owes a push', slowLane({ timeout: 600_000 }), async (t) => {
   const story = await reviewedIntake(t);
   // 1. After a refusal: the approval typed before the step was submitted is refused; /sf-next then takes the step's turn.

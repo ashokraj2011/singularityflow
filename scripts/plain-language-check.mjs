@@ -360,6 +360,14 @@ export function textsOfSource(file, source) {
 }
 
 /** A skill's fixed lines: the quoted sentences it tells the agent to say or show. */
+// The one plain next line every skill's contract names (model-free-commands.mjs COMMAND_PRESENTATION_CONTRACT) [owner,
+// 2026-11-28]: its form, "Next: <what happens>", a label and a slot, and the line a turn ends with, "/sf-next carries it on",
+// the way on and then words. A person reads both, so they are skill lines though a slot or a command starts them.
+const NEXT_LINE_FORM = /^[A-Z][a-z]+: <[a-z][a-z ]{2,}>$/u;
+const ROUTE_THEN_WORDS = /^\/sf-[a-z0-9-]+\s+/u;
+const skillLine = (text) => sentenceLike(text) || NEXT_LINE_FORM.test(text)
+  || (ROUTE_THEN_WORDS.test(text) && sentenceLike(text.replace(ROUTE_THEN_WORDS, '')));
+
 export function textsOfSkill(file, source) {
   const texts = [];
   const body = source.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/u)?.[0] ?? '';
@@ -368,7 +376,7 @@ export function textsOfSkill(file, source) {
     if (index < skipped) return;
     for (const match of line.matchAll(/(?:"|“)([^"“”\n]{12,400})(?:"|”)/gu)) {
       const text = match[1].replace(/`([^`]*)`/gu, '{$1}').trim();
-      if (sentenceLike(text) && !/^[a-z_.]+$/u.test(text)) texts.push({ kind: 'skill-line', file, line: index + 1, text, pieces: [match[1].replace(/`[^`]*`/gu, ' ')] });
+      if (skillLine(text) && !/^[a-z_.]+$/u.test(text)) texts.push({ kind: 'skill-line', file, line: index + 1, text, pieces: [match[1].replace(/`[^`]*`/gu, ' ')] });
     }
   });
   return texts;

@@ -306,7 +306,7 @@ test('SCS REQ-042: an instruction left unaccounted holds the code step\'s approv
   // The route the item names opens version 2 on the person's send-back, naming the answer it used.
   const begun = repo.run(process.execPath, [cli, '--no-model', 'phase', 'rollover', 'implement', '--sent-back', '--json']);
   assert.equal(begun.status, 0, begun.stdout + begun.stderr);
-  assert.match(JSON.parse(begun.stdout).line, /^Using your answer from .* version 1: "Account for the log line the person asked for\." SFlow started version 2 /u);
+  assert.match(JSON.parse(begun.stdout).line, /^Using your answer from Implement version 1: "Account for the log line the person asked for"\. SFlow started version 2 /u);
   assert.equal((await state()).phases.implement.generationIntent?.status, 'open', 'version 2 is open');
   assert.match(listed().items.find((entry) => entry.kind === 'asked-for').options[0].action.command, /^singularity-flow departure account --work-id QF-1 --instruction 2 /u);
   const late = repo.sflowJson('departure', 'account', '--instruction', '2', '--clauses', 'QF-1:AC-001');

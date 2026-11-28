@@ -221,7 +221,6 @@
   ],
   "sflow-next": [
     "Load one returned SFlow skill route (any `/sf-*` or `/sflow-*` route), use its configured producer/channel, complete its preflight, execute at most its one authorized action (the current step's own work is one action: step 5), and stop.",
-    "Run `singularity-flow sync <WORK-ID>` once in the verified cwd, then stop;",
     "`ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and correction handoff, not a retry loop."
   ],
   "sflow-nextsteps": [

@@ -14,6 +14,7 @@ import { ADVICE_FIELDS, ADVICE_INTENTS, adviceForStep, GENERIC_INTENT, STEP_ADVI
 import { storyStepIntent } from '../src/step-advice-intent.mjs';
 import { STEP_INTENTS } from '../src/phase-roles.mjs';
 import { JARGON } from '../scripts/plain-language-check.mjs';
+import { approvalReviewPage } from './helpers/approval-review-page.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -84,7 +85,7 @@ test('a step\'s intent: what it names, else the one SFlow ships, else the step-i
 const SURFACES = Object.freeze({
   'src/decision-list.mjs': /adviceForStep\(workflow, phase\.id, context\.facts\?\.stepIntent/u,
   'src/decision-plain.mjs': /const asked = typeof details\.advice\?\.decides === 'string'/u,
-  'src/decision-list-reads.mjs': /'step-advice-intent\.mjs'\)\.href\)\s+\.then\(\(module\) => module\.storyStepIntent\(workflow, phase\.id\)/u,
+  'src/decision-list-reads.mjs': /'step-advice-intent\.mjs'\)\)\.href\)\s+\.then\(\(module\) => module\.storyStepIntent\(workflow, phase\.id\)/u,
   'src/commands/approval-packet.mjs': /adviceForStep\(workflow, phaseId, await storyStepIntent\(workflow, phaseId\)\)/u,
   'src/agent-output.mjs': /why: result\.advice\.decides/u,
   'src/needs-you-items.mjs': /adviceForStep\(workflow, phaseId\)\.decides/u,
@@ -130,7 +131,7 @@ test('every approval and stop surface reads its why line from the table, and no 
 });
 
 test('the approval page says why the person is asked and what each button does, from the step\'s advice', async () => {
-  const page = await import('../apps/vscode/src/views/approval-review.ts');
+  const page = await approvalReviewPage();
   const request = { title: 'Approve Planning', expected: 'planning', workId: 'ADV-1', phaseId: 'planning', phaseLabel: 'Planning', generation: 2,
     artifact: null, articles: [], findings: [], witnessedClauses: null, priorExceptions: [], selfApproval: false };
   const advice = adviceForStep({ phases: { planning: { label: 'Planning' } } }, 'planning');
@@ -140,8 +141,9 @@ test('the approval page says why the person is asked and what each button does, 
   for (const [line, label] of [[advice.yes, 'Yes'], [advice.sendBack, 'Send back'], [advice.notNow, 'Not now']]) {
     assert.ok(html.includes(escaped(page.afterLabel(line, label))), line);
   }
-  // A list without advice (an older engine): the table's generic lines, never none.
-  assert.ok(page.approvalReviewBody(request).includes(escaped(stepAdvice(GENERIC_INTENT, { step: 'Planning' }).decides)));
+  // A list without advice (an older engine): the extension gives the page the table's generic lines; the page writes none itself.
+  assert.doesNotMatch(page.approvalReviewBody(request), /Why you are asked/u);
+  assert.match(await readFile(path.join(ROOT, 'apps/vscode/src/actions.ts'), 'utf8'), /\?\? \(await import\('\.\.\/\.\.\/\.\.\/src\/step-advice\.mjs'\)\)\.stepAdvice\('generic'/u);
   // The decision list's approval item carries the advice the page reads.
   assert.deepEqual(page.adviceOf({ items: [{ kind: 'approval', details: { advice } }] }), { decides: advice.decides, yes: advice.yes,
     sendBack: advice.sendBack, notNow: advice.notNow, settles: advice.settles, stops: advice.stops });

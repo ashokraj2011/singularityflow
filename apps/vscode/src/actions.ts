@@ -498,7 +498,9 @@ export async function approveWithReceipt(
       // What the code step's change does, first on the page, with its whole page a click away [CSP:REQ-007].
       changeStory = (await import('./views/approval-review.ts')).changeStoryOf(listed);
       // Why the person is asked and what each button does, by what the step is for (src/step-advice.mjs).
-      advice = (await import('./views/approval-review.ts')).adviceOf(listed);
+      // An older engine's list carries none: the table's generic lines for this step, so the page always says why.
+      advice = (await import('./views/approval-review.ts')).adviceOf(listed)
+        ?? (await import('../../../src/step-advice.mjs')).stepAdvice('generic', { step: storyReview?.phase?.label ?? request.phaseId });
       sendBack = (await import('./views/approval-review.ts')).sendBackOf(listed);
       focus = (await import('./views/approval-review.ts')).focusOf(await shown);
       // Evidence counted on a "still holds" across an amendment's wording, named before approving [SCS:REQ-022].

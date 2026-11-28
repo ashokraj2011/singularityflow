@@ -43,7 +43,8 @@ test('each kind of row offers what it really is: a choice, the sign-off, a step 
   assert.match(html, /data-witness="witness-1"/u);
   assert.match(html, /This one stays in your terminal\.[\s\S]*singularity-flow recover PAY-1 --json[\s\S]*data-terminal="route"/u);
   assert.doesNotMatch(html.slice(html.indexOf('data-other="d6"')), /data-choice/u, 'no control on what is not theirs');
-  assert.match(html, /The Leads decide this; ask them\.[\s\S]*\/sf-decide PAY-1/u);
+  // Someone else's: who decides, and one button that copies the words to send them [owner, 2026-11-28].
+  assert.match(html, /The Leads decide this; ask them\.[\s\S]*data-share="d6">Copy what to send them<\/button>/u);
   // Nothing to record: no "Review and record" at all, which did nothing when clicked [owner, 2026-11-18].
   assert.equal(decideHtml(packet({ items: [packet().items[5]] })).includes('data-review'), false, 'nothing to record, nothing to press');
 });
@@ -224,8 +225,10 @@ test('the extension types a held package\'s command only from the list it read, 
   assert.match(source, /packet\.approvalEvidence\?\.hold\?\.entries\?\.\[Number\(hold\)\]/u);
   assert.match(source, /entry\?\.allowed === true && typeof entry\.command === 'string' \? entry\.command : null/u);
   // The whole command, with the reason and date typed in the row [owner, 2026-11-19].
-  assert.match(source, /'decide\.terminal': \(message\) => \{\n\s+const command = completeCommandOf\(message\);/u);
-  assert.match(source, /const completeCommandOf = \(message: InboundMessage\) => \{\n\s+const command = commandOf\(message\);[\s\S]*filledCommand\(command,/u);
+  assert.match(source, /'decide\.terminal': async \(message\) => \{\n\s+const command = await completeCommandOf\(message\);/u);
+  // Any other value the command takes is asked for on the card, by name, then the row's reason and date [owner, 2026-11-28].
+  assert.match(source, /const completeCommandOf = async \(message: InboundMessage\) => \{\n\s+const command = commandOf\(message\);[\s\S]*showInputBox[\s\S]*filledCommand\(text, given,/u);
+  assert.doesNotMatch(source, /Decide it from your terminal instead/u);
   assert.match(source, /evidencePaths\(packet\)\.includes\(file\)/u, 'only files the list names open');
 });
 

@@ -18,7 +18,6 @@ import { approvalBlockingCommits, approvalBlockingCommitsHtml, approvalHoldsHtml
 import { approvalHolds } from './approvals-model.ts';
 import { APPROVAL_STATE_PILL, guardCardText, type ApprovalStanding, type GuardCardRead } from './sf-guard-model.ts';
 import { TRY_IT_STYLE, tryItCopyText, tryItHtml, tryItOpenUrl, type TryItView } from './try-it.ts';
-import { stepAdvice } from '../../../../src/step-advice.mjs';
 
 export const APPROVAL_DECISIONS = ['satisfied', 'exception', 'not-applicable'] as const;
 export type ApprovalChecklistDecision = {
@@ -141,7 +140,7 @@ export interface ApprovalReviewRequest {
   repository?: string | null;
   /**
    * Why the person is asked and what each button does, by what the step is for (the decision list's approval item
-   * `details.advice`, src/step-advice.mjs). Without one, the table's generic lines.
+   * `details.advice`, src/step-advice.mjs; actions.ts gives the table's generic lines when an older engine carries none).
    */
   advice?: ApprovalAdvice | null;
 }
@@ -179,10 +178,11 @@ export function sendBackArgv(route: string | null, reason: string): string[] | n
   return route && reason.trim() ? words.map((word) => (word === '<reason>' ? reason.trim() : word)) : null;
 }
 
-/** The page's lines: the step's own advice, else the table's generic lines for this step's name. */
-export function approvalAdvice(request: Pick<ApprovalReviewRequest, 'advice' | 'phaseLabel'>): ApprovalAdvice {
-  return request.advice ?? stepAdvice('generic', { step: request.phaseLabel }) as ApprovalAdvice;
+/** The page's lines, as the request carries them from the advice table; none when it carries none. */
+export function approvalAdvice(request: Pick<ApprovalReviewRequest, 'advice'>): ApprovalAdvice | null {
+  return request.advice ?? null;
 }
+const line = (text: string | null | undefined, tag = 'p', css = 'muted') => (text ? `<${tag} class="${css}">${escape(text)}</${tag}>` : '');
 
 /**
  * The commands the page may run for a hold, by their place in this list: the holds' own routes and the blocking commits'
@@ -516,7 +516,7 @@ export function validateApprovalReviewSubmission(
   const answered = inApprovalDecisions(request, raw, errors);
   // Every decision that holds the step is decided here first: the engine refuses an approval while one stays open.
   for (const item of request.inApproval?.items ?? []) {
-    if (!answered.some((decision) => decision.item === item.id)) errors.push(`Decide '${item.title}' first. ${approvalAdvice(request).stops.undecided}`);
+    if (!answered.some((decision) => decision.item === item.id)) errors.push(`Decide '${item.title}' first.${approvalAdvice(request) ? ` ${approvalAdvice(request)?.stops.undecided}` : ''}`);
   }
   if (request.pendingDecisions && request.pendingDecisions.count > (request.inApproval?.items?.length ?? 0)) {
     errors.push(`${request.pendingDecisions.headline} Choose Decide what blocks this step: it opens them, then brings you back here.`);
@@ -701,14 +701,14 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
   const answerable = request.inApproval?.items ?? [];
   const decideHere = answerable.length ? `<section aria-label="Decide in this approval">
       <h2>Decide in this approval</h2>
-      <p class="muted">${escape(advice.stops.undecided)} What you choose is recorded with your approval, in the same commit.</p>
+      <p class="muted">${advice ? `${escape(advice.stops.undecided)} ` : ''}What you choose is recorded with your approval, in the same commit.</p>
       <div class="approval-checklist">${answerable.map(inApprovalItemHtml).join('')}</div></section>` : '';
   // Only what the approval cannot answer still sends the person to the decision list first.
   const pending = request.pendingDecisions;
   const held = pending && pending.count > answerable.length ? `<section class="approval-held" aria-label="Decisions needed first">
     <h2>Decide what blocks this step first</h2>
     <p>${escape(pending.headline)}</p>
-    <p class="muted">${escape(advice.stops.undecided)} The button opens them on one card, then brings you back to this page.</p>
+    <p class="muted">${advice ? `${escape(advice.stops.undecided)} ` : ''}The button opens them on one card, then brings you back to this page.</p>
     <button type="button" data-decide>Decide what blocks this step</button>
   </section>` : '';
   // Never silent: what counts on a person's word instead of a run.
@@ -721,33 +721,33 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
     <span class="muted">Every test case of this step's run, opened beside this review.</span>
   </section>` : '';
   const tryIt = tryItHtml(request.tryIt, (action, way, entry) => `data-try="${action}" data-try-way="${way}" data-try-entry="${entry}"`);
-  return `<form class="approval-form" data-expected="${escape(request.expected)}" data-undecided="${escape(advice.stops.undecided)}" data-step="${escape(approvalChoice(request).replace(/^Approve /u, ''))}">
+  return `<form class="approval-form" data-expected="${escape(request.expected)}" data-undecided="${escape(advice?.stops.undecided ?? '')}" data-step="${escape(approvalChoice(request).replace(/^Approve /u, ''))}">
     <div class="approval-review-content" tabindex="0" aria-label="Approval review details"><header>
       <h1>${escape(approvalChoice(request))}?</h1>
-      <p class="approval-why"><strong>Why you are asked:</strong> ${escape(advice.decides)}</p>
+      ${advice ? `<p class="approval-why"><strong>Why you are asked:</strong> ${escape(advice.decides)}</p>` : ''}
       <p class="meta">${escape(request.title)}. Review this version and answer any decision below, then choose ${escape(approvalChoice(request))}. Nothing is approved until you do.</p>
     </header>
     ${approvalChangeStoryHtml(request.changeStory)}${approvalFocusHtml(request.focus)}
     <div class="review-binding approval-binding">${binding}</div>
     ${approvalCoversHtml(request.covers)}${approvalDisputesHtml(request.disputes)}
-    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'], placeOf: (command) => routes.indexOf(command) })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits), { placeOf: (command) => routes.indexOf(command), stop: advice.stops.changed })}${carried}${tests}${tryIt}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
+    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'], placeOf: (command) => routes.indexOf(command) })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits), { placeOf: (command) => routes.indexOf(command), stop: advice?.stops.changed })}${carried}${tests}${tryIt}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${decideHere}${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>${escape(approvalChoice(request))}?</h2>
         <p class="muted">${escape(approvalChoice(request))} records your approval of this exact version, with your answers above. Nothing is chosen for you.</p>
-        <ul class="approval-choices">
+        ${advice ? `<ul class="approval-choices">
           <li><strong>${escape(approvalChoice(request))}:</strong> ${escape(afterLabel(advice.yes, 'Yes'))}</li>
           <li><strong>Send back:</strong> ${escape(afterLabel(advice.sendBack, 'Send back'))}</li>
           <li><strong>Not now:</strong> ${escape(afterLabel(advice.notNow, 'Not now'))}</li>
-        </ul>
-        <p class="muted">${escape(advice.settles)}</p>
+        </ul>` : ''}
+        ${line(advice?.settles)}
       </section>
       <div class="approval-errors" role="alert">${errors.map((error) => `<p>${escape(error)}</p>`).join('')}</div>
     </div>
       <div class="form-actions">
         <p class="approval-progress muted" data-progress aria-live="polite"></p>
         <div class="approval-send-back" data-send-back hidden>
-          <label>Why send it back? <span>${escape(afterLabel(advice.sendBack, 'Send back'))}</span>
+          <label>Why send it back? ${advice ? `<span>${escape(afterLabel(advice.sendBack, 'Send back'))}</span>` : ''}
             <textarea data-send-back-reason aria-label="Why send ${escape(request.phaseLabel)} back"></textarea>
           </label>
         </div>

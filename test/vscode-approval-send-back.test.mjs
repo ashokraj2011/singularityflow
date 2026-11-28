@@ -10,8 +10,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { adviceForStep } from '../src/step-advice.mjs';
+import { approvalReviewPage } from './helpers/approval-review-page.mjs';
 
-const page = await import('../apps/vscode/src/views/approval-review.ts');
+const page = await approvalReviewPage();
 const W = 'NSB-1';
 const SEND_BACK = `singularity-flow reject planning --work-id ${W} --fetch --to planning --reason <reason>`;
 const advice = adviceForStep({ phases: { planning: { label: 'Planning' } } }, 'planning');

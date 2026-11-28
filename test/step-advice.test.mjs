@@ -83,6 +83,7 @@ test('a step\'s intent: what it names, else the one SFlow ships, else the step-i
 /** Every approval and stop surface, and how it reads the table: an import of it, or the line the CLI carried from it. */
 const SURFACES = Object.freeze({
   'src/decision-list.mjs': /adviceForStep\(workflow, phase\.id, context\.facts\?\.stepIntent/u,
+  'src/decision-plain.mjs': /const asked = typeof details\.advice\?\.decides === 'string'/u,
   'src/decision-list-reads.mjs': /'step-advice-intent\.mjs'\)\.href\)\s+\.then\(\(module\) => module\.storyStepIntent\(workflow, phase\.id\)/u,
   'src/commands/approval-packet.mjs': /adviceForStep\(workflow, phaseId, await storyStepIntent\(workflow, phaseId\)\)/u,
   'src/agent-output.mjs': /why: result\.advice\.decides/u,

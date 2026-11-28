@@ -1154,7 +1154,9 @@ Usage:
   singularity-flow lessons edit <K-ID> --text TEXT [--json]
   singularity-flow work "<words>" [--kind KIND] [--path FILE]... [--use-workflow ID | --without-workflow ID] [--use-agent MARKETPLACE/AGENT | --without-agent MARKETPLACE/AGENT] [--use-skill ID]... [--without-skill ID]... [--json]
   singularity-flow work "<words>" --start [--kind KIND] [--work-id ID] [--base BRANCH] [--from TASK-ID [--finding N]] [--document FILE]... [--add STEP]... [--skip STEP]... [--use-workflow ID | --without-workflow ID] [--use-agent MARKETPLACE/AGENT | --without-agent MARKETPLACE/AGENT] [--use-skill ID]... [--without-skill ID]... [--new] [--json]
-  singularity-flow work "<words>" --plan-only [--kind KIND] [--path FILE]... [--json]
+  singularity-flow work ["<words>" | --description TEXT] --start [--title TEXT] [--github ISSUE | --jira --work-id KEY] [--ref BRANCH] [--from-branch BRANCH|REPOSITORY=BRANCH]... [--document FILE [--document-name NAME] [--document-store git|local]]... [--isolated-worktree] [--json]
+    (VS Code's Start Story: an issue's own text is the task's words when none are typed)
+  singularity-flow work "<words>" --plan-only [--kind KIND] [--title TEXT] [--path FILE]... [--json]
   singularity-flow work list [--offline] [--json]
   singularity-flow work status [TASK-ID] [--json]
   singularity-flow work add requirements|design|plan|review [--work-id ID] [--json]

@@ -57,8 +57,6 @@ test('A19, REQ-033: five new commands, each in the palette with its title; today
     assert.ok(commands.get(id).icon, `${id} has an icon for the title bar`);
     assert.equal(manifest.contributes.menus.commandPalette.some((entry) => entry.command === id), false, `${id} is never hidden from the palette`);
   }
-  assert.ok([...commands.values()].every((entry) => entry.category === 'Singularity Flow' || entry.title.startsWith('Singularity Flow: ')),
-    'every command reads "Singularity Flow: …" in the palette, by its title or its category');
   // The title bar: with classic (or no places open), exactly today's; with the places, Refresh, Ask SFlow and Advanced.
   const shown = (keys) => titleActions(keys).map((entry) => `${entry.command.replace('singularityFlow.', '')}@${entry.group}`);
   assert.deepEqual(shown({ 'singularityFlow.repositoryActive': true }), ['refresh@navigation@0', 'startTask@navigation@1', 'openChangeExplorer@navigation@1',

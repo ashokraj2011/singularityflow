@@ -130,7 +130,8 @@ const GROUPS: readonly Group[] = [
     copyHelpCommand: NONE, prefillHelpAction: NONE, openHelpTopicFromChat: NONE,
     askSFlow: ['header', 'Ask SFlow'],
     openDeveloperHome: NONE, resetGuideSession: NONE, doctor: NONE, openDiagnostics: NONE, openFaultRepairs: NONE,
-    openCopilotExtensions: NONE
+    openCopilotExtensions: NONE,
+    runOfficeChecks: [null, null, 'Help & diagnostics › Diagnostics']
   } },
   { title: 'Activity and logs', advanced: 'Activity & logs', commands: {
     openActivityLog: NONE, openPerformanceReport: NONE, openWorkspaceLogs: NONE, refreshWorkspaceLogs: NONE, openPromptAudit: NONE,

@@ -119,7 +119,8 @@ export function contextBoundaryPresentation(handoff) {
  * Copilot run the last phase started each call with 154K tokens of earlier work. Until the current
  * phase is prepared, agent entries repeat the boundary of the approval that opened it.
  */
-export function pendingContextBoundary(workflow, commandOf) {
+/** The step an approval just opened, not prepared yet: its approved step before it, or null. */
+export function openedByApproval(workflow) {
   const phaseId = workflow?.currentPhase;
   const phase = phaseId ? workflow.phases?.[phaseId] : null;
   if (!phase || phase.status !== 'in_progress') return null;
@@ -129,7 +130,13 @@ export function pendingContextBoundary(workflow, commandOf) {
       || phase.inputContext?.generation === generation) return null;
   const order = workflow.phaseOrder ?? [];
   const previous = order[order.indexOf(phaseId) - 1];
-  if (!previous || workflow.phases?.[previous]?.status !== 'approved') return null;
+  return previous && workflow.phases?.[previous]?.status === 'approved' ? previous : null;
+}
+
+export function pendingContextBoundary(workflow, commandOf) {
+  const previous = openedByApproval(workflow);
+  if (!previous) return null;
+  const phaseId = workflow.currentPhase;
   const handoff = contextBoundaryHandoff(storyContextPolicy(workflow), previous, { nextPhase: phaseId, nextSkill: commandOf?.(workflow) });
   if (handoff.mode === 'keep') return null;
   return { ...handoff, instruction: `If this conversation already worked on an earlier phase of this Story, ask the user to run ${handoff.commands.join(', then ')} and stop. A conversation that starts here continues.` };

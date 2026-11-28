@@ -201,7 +201,9 @@ test('/sf-progress and /sf-nextsteps read their CLI JSON through the tools, fiel
   const checks = ({ repositoryChecks, ...rest }) => [rest, [repositoryChecks?.scope, repositoryChecks?.mode, repositoryChecks?.refresh]];
   const asAgent = agentPacketPresentation(agentNextStepsView(agentNextSteps(cliNext.json)));
   assert.deepEqual(checks(nextsteps), checks(asAgent));
-  assert.ok(nextsteps.contextBoundary?.commands?.length, 'the chat reset the skill reads first');
+  // No chat reset is owed between steps any more (owner, 2026-11-28): the read names the one way on instead.
+  assert.equal(nextsteps.contextBoundary, undefined, 'no chat reset between steps');
+  assert.ok(nextsteps.wayOut?.next, 'where the Story is, why it waits and the one thing to do');
   assert.deepEqual(nextsteps.contextBoundary, agentPacketPresentation(cliNext.json.contextBoundary));
   assert.deepEqual(nextsteps.pending, agentPacketPresentation(cliNext.json.pending), 'the one pending list (SPEC-OAP M3)');
   assert.ok(nextsteps.actions.length && nextsteps.actions.every((action) => action.timing !== 'then'));

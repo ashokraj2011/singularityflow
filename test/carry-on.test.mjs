@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
+import { completeAgentResult } from '../src/agent-output.mjs';
 import { nextStepsSnapshot } from '../src/nextsteps.mjs';
 import { storyWayOut, wayOutLine } from '../src/way-out.mjs';
 import { storyContextPolicy, contextBoundaryHandoff } from '../src/context-policy.mjs';
@@ -191,12 +192,15 @@ test('the one way on with the chat\'s hooks off: it says why and the one fix, an
   const before = storyRecord(story);
   const off = story.raw(['nextsteps', '--for-agent', '--json'], { environment: { ...story.env, COPILOT_AGENT_SESSION_ID: 'never-hooked' } });
   const view = JSON.parse(off.stdout);
+  // The act says it and the one fix, and points at the way out, which the bounded view keeps in its file.
   assert.equal(view.act?.state, 'end-turn', off.stdout.slice(0, 1500));
-  assert.match(view.act.said, /^SFLOW_HOOKS_OFF: /u);
-  assert.equal(view.wayOut?.next?.kind, 'reload', JSON.stringify(view.wayOut));
-  assert.equal(view.wayOut.next.by, 'person');
-  assert.match(view.wayOut.why, /guard is off in this chat/u);
-  assert.match(view.wayOut.where, /^CARRY-1 is at /u);
+  assert.match(view.act.said, /^SFLOW_HOOKS_OFF: .* Fix: /u);
+  assert.deepEqual(view.act.read, ['wayOut']);
+  const { wayOut } = completeAgentResult(view);
+  assert.equal(wayOut?.next?.kind, 'reload', JSON.stringify(wayOut));
+  assert.equal(wayOut.next.by, 'person');
+  assert.match(wayOut.why, /guard is off in this chat/u);
+  assert.match(wayOut.where, /^CARRY-1 is at /u);
   assert.deepEqual(storyRecord(story), before, 'nothing changed');
 });
 

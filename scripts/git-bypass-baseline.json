@@ -288,9 +288,9 @@
     },
     "apps/vscode/src/actions.ts": {
       "counts": {
-        "command-run": 6
+        "command-run": 8
       },
-      "digest": "a0fed3643cf196f380fde0ecb8f9ac4c8d417ab5c8962da9d28a700e9b8a059c"
+      "digest": "a6d5fd9d8ddfb4eef060c08d5f11d9efd46a6e8f783ca954783161241afac866"
     },
     "apps/vscode/src/cli/runner.ts": {
       "counts": {

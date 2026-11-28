@@ -35,7 +35,7 @@ const recordFile = (commonDirectory) => path.join(commonDirectory, TEST_MODEL_US
 export function readModelUse(commonDirectory) {
   try {
     const value = JSON.parse(readFileSync(recordFile(commonDirectory), 'utf8'));
-    return value?.schemaVersion === 1 && value.answers && typeof value.answers === 'object' ? value.answers : {};
+    return value?.answers && typeof value.answers === 'object' && !Array.isArray(value.answers) ? value.answers : {};
   } catch { return {}; }
 }
 

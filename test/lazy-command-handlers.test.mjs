@@ -1248,7 +1248,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-publication-readiness.mjs +964) [owner, 2026-11-28]. No new eager file.
     // 9,978,583 (measured for submit.mjs, +3,164 over 9,975,419 on the merge of never-stuck-approval with main 8c74e5a3b,
     // 2026-11-28; start.mjs 9,978,078): both sides' rises above together. No new eager file.
-    assert.ok(closure.bytes <= 9_978_583, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,984,148 (measured for submit.mjs, +5,567 over 9,978,581 on never-stuck-2, 2026-11-28; start.mjs 9,981,676, approve.mjs
+    // 9,890,674): the browser gate offers a person's sign-off on SFlow's saved screenshot (mcp-evidence.mjs +1,173; the
+    // sign-off reader loads lazily, browser-sign-off.mjs), every final-gate escalation has its route (gate-recovery.mjs
+    // +1,269, upstream-routes.mjs +177), a missing decision value gets filled submits (commands/submit.mjs +556), the
+    // sign-off, pull-request and route forms in the map (action-command-map.mjs +868), the sign-off at submission
+    // (state.mjs +479, phase-publication-readiness.mjs +741), write access names the words to send (transport-intents.mjs
+    // +160) and `--sign-off` among the boolean flags (util.mjs +12) [owner, 2026-11-28]. No new eager file.
+    assert.ok(closure.bytes <= 9_984_148, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1475,7 +1482,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // main's rises together. No new eager file.
   // 898,739 (+13 over 898,726, measured 2026-11-28 on ask-once merged with main 0233340d8): `--sent-back`, the next version
   // on a person's send-back, among the boolean flags (util.mjs BOOLEAN_OPTIONS) [ask once, owner 2026-11-28]. No new eager file.
-  assert.ok(root.bytes <= 898_739, `root dispatch loads ${root.bytes} source bytes`);
+  // 898,751 (+12 over 898,739, measured 2026-11-28 on never-stuck-2): `--sign-off`, a person's sign-off on SFlow's saved
+  // screenshot, among the boolean flags (util.mjs BOOLEAN_OPTIONS) [owner, 2026-11-28]. No new eager file.
+  assert.ok(root.bytes <= 898_751, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -1983,7 +1992,10 @@ test('the common session projection does not import attach, state stores or publ
   // (mcp-evidence.mjs) [owner, 2026-11-28]. No new eager file.
   // 4,412,967 (+582 over 4,412,385, measured 2026-11-28 on the merge of never-stuck-approval with main 1d2f4aaf2): both
   // sides' rises above together. No new eager file.
-  assert.ok(current.bytes <= 4_412_967, `session current loads ${current.bytes} source bytes`);
+  // 4,414,140 (+1,185 over 4,412,955, measured 2026-11-28 on never-stuck-2): the browser gate offers a person's sign-off on
+  // SFlow's saved screenshot (mcp-evidence.mjs +1,173; its reader loads lazily, browser-sign-off.mjs) and `--sign-off`
+  // among the boolean flags (util.mjs +12) [owner, 2026-11-28]. No new eager file.
+  assert.ok(current.bytes <= 4_414_140, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

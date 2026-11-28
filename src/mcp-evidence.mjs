@@ -559,31 +559,6 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
   return { errors, warnings, passes, records };
 }
 
-/** The finding a page no browser check saw is, for its sign-off's key: one per browser server on the step. */
-export const BROWSER_UNOBSERVED_CODE = 'MCP_EVIDENCE_BROWSER_UNOBSERVED';
-const browserUnobserved = (server) => ({ code: BROWSER_UNOBSERVED_CODE, category: 'external-evidence', path: null, value: server,
-  message: `SFlow could not capture the ${server} page itself for this version.` });
-
-/**
- * A person's sign-off on SFlow's saved screenshot of a page no browser check saw [owner, 2026-11-28: "allow sign-off,
- * recorded"]. The screenshot is the newest record of `server` for this version with a saved output that the host did
- * not observe (the agent's own capture, kept "for audit"); a sign-off counts only for those exact bytes. Returns the
- * sign-off in force, else what a person may sign off (null when SFlow saved no screenshot).
- */
-async function browserSignOff(workflow, phase, generation, server, records) {
-  const shots = records.filter((record) => record.server === server && /^browser_/u.test(String(record.tool ?? '')) && record.output?.sha256
-    && record.captureSource !== 'observed-by-mcp-host').sort((left, right) => String(left.recordedAt ?? '').localeCompare(String(right.recordedAt ?? '')));
-  const { activeFindingOverrides, findingOverrideKey, overriddenWords, overrideSummary } = await import('./finding-overrides.mjs');
-  const finding = browserUnobserved(server);
-  const key = findingOverrideKey(phase.id, finding);
-  const signed = activeFindingOverrides(workflow, phase, generation).find((entry) => entry.finding === key && entry.kind === 'browser-sign-off'
-    && shots.some((shot) => shot.output.sha256 === entry.screenshot?.sha256));
-  if (signed) return { signed: { ...finding, overriddenBy: overrideSummary(signed) }, words: overriddenWords(finding, overrideSummary(signed)) };
-  const shot = shots.at(-1);
-  return { offer: shot ? Object.freeze({ ...finding, override: Object.freeze({ key, kind: 'browser-sign-off',
-    screenshot: Object.freeze({ record: shot.id, path: shot.output.path, sha256: shot.output.sha256 }) }) }) : null };
-}
-
 export async function verifyPhaseMcpRequirements(root, workflow, phase, {
   itemDirectory = null,
   targetGeneration = nextPhaseGeneration(phase)
@@ -615,7 +590,8 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
         && candidate.captureSource === 'observed-by-mcp-host')
     );
     if (observedNavigation) { passes.push(`${server}/origin: ${observedNavigation.observedFinalOrigin}`); continue; }
-    const signOff = await browserSignOff(workflow, phase, targetGeneration, server, records);
+    // A person's sign-off on SFlow's saved screenshot, loaded only for a page no browser check saw (browser-sign-off.mjs).
+    const signOff = await (await import('./browser-sign-off.mjs')).browserSignOff(workflow, phase, targetGeneration, server, records);
     // The workflow's gate stays: a person's sign-off is its way out, said as what it is wherever the evidence is read.
     if (signOff.signed) { signedOff.add(server); signed.push(signOff.signed); passes.push(`${server}: ${signOff.words}`); continue; }
     errors.push(

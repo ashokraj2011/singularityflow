@@ -18,7 +18,8 @@ import test from 'node:test';
 
 import { checkReportText, checkWrongBar, findingOverrideKey, honourOverrides, overriddenWords, personOverrideLines, PROTECTED_WHY,
   recordFindingOverride } from '../src/finding-overrides.mjs';
-import { BROWSER_UNOBSERVED_CODE, MCP_EVIDENCE_SCHEMA_VERSION, verifyPhaseMcpRequirements } from '../src/mcp-evidence.mjs';
+import { MCP_EVIDENCE_SCHEMA_VERSION, verifyPhaseMcpRequirements } from '../src/mcp-evidence.mjs';
+import { BROWSER_UNOBSERVED_CODE } from '../src/browser-sign-off.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 import { decisionPacket } from '../src/decision-list.mjs';
 import { withPlainWords } from '../src/decision-plain.mjs';

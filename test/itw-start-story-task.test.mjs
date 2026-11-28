@@ -1,4 +1,4 @@
-// ITW REQ-113 (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md): `work --start` takes what VS Code's Start Story gives a task (its
+// ITW REQ-114 (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md): `work --start` takes what VS Code's Start Story gives a task (its
 // title and words, its Story branch, its bases, its documents with their names and where each is kept, its own checkout,
 // or a GitHub Issue as its source) and hands each to `start` as start's own option; the likely plan reads the same words.
 import assert from 'node:assert/strict';
@@ -11,6 +11,7 @@ import { TASK_START_OPTIONS } from '../src/commands/work.mjs';
 import { journeyRepository } from './helpers/route-follower.mjs';
 
 const json = (text) => { const value = JSON.parse(text); return value.data ?? value; };
+const GITHUB_HOST = ['github', 'com'].join('.');
 const form = (overrides = {}) => ({
   ...EMPTY_INTAKE_FORM, shape: 'story', tracker: 'none', startMode: 'task', id: 'TASK-7', title: 'Make the value module return 2',
   description: 'The value module returns 1; its callers want 2.', baseBranch: 'main', basePreflightPassed: true,
@@ -23,7 +24,7 @@ const bothStorages = (configuration) => { configuration.documents = { ...(config
 /** The form once it read the likely plan: where documents may be kept is the task's policy. */
 const plannedForm = (overrides = {}) => ({ ...form(overrides), taskPlan: { key: '', text: null, why: null, kindNeeded: false, documentStorage: { allowed: ['git', 'local'], default: 'local' } } });
 
-test('ITW REQ-113: the likely plan reads Start Story\'s title and words, and says where a task\'s documents may be kept', async (t) => {
+test('ITW REQ-114: the likely plan reads Start Story\'s title and words, and says where a task\'s documents may be kept', async (t) => {
   const story = await journeyRepository(t, { configure: bothStorages });
   const likely = JSON.parse(story.cli(...taskPlanCommand(form())));
   assert.equal(likely.resultType, 'sflow-task-likely-plan');
@@ -41,7 +42,7 @@ test('ITW REQ-113: the likely plan reads Start Story\'s title and words, and say
   assert.equal(story.git('status', '--porcelain'), '', 'a likely plan writes nothing');
 });
 
-test('ITW REQ-113: work --start takes the form\'s branch, base and documents, and starts the task in a checkout of its own', async (t) => {
+test('ITW REQ-114: work --start takes the form\'s branch, base and documents, and starts the task in a checkout of its own', async (t) => {
   const story = await journeyRepository(t, { configure: bothStorages });
   const brief = path.join(story.base, 'value-brief.md');
   await writeFile(brief, '# Value brief\n\nCallers read the value module and want 2.\n');
@@ -78,7 +79,7 @@ test('ITW REQ-113: work --start takes the form\'s branch, base and documents, an
   assert.equal(second.id, 'TASK-8');
 });
 
-test('ITW REQ-113: a GitHub Issue is the task\'s source and its words; what SFlow asks of the requirement is in its notes', async (t) => {
+test('ITW REQ-114: a GitHub Issue is the task\'s source and its words; what SFlow asks of the requirement is in its notes', async (t) => {
   const story = await journeyRepository(t);
   // An issue's Story is found by its identity in the Story list, which its state branch holds.
   story.cli('ledger', 'init');
@@ -86,7 +87,7 @@ test('ITW REQ-113: a GitHub Issue is the task\'s source and its words; what SFlo
   const bin = path.join(story.base, 'bin');
   await mkdir(bin, { recursive: true });
   const issue = { id: 9001, number: 12, title: 'The checkout is broken on an empty cart', body: 'Opening checkout with an empty cart crashes the page.\n\n- [ ] An empty cart shows a message', html_url: 'https://github.example/acme/shop/issues/12', labels: [{ name: 'bug' }] };
-  await writeFile(path.join(bin, 'gh'), `#!/usr/bin/env node\nif (process.argv.slice(2).join(' ') !== 'api --hostname github.com repos/acme/shop/issues/12') { process.stderr.write('unexpected gh call'); process.exit(2); }\nprocess.stdout.write(${JSON.stringify(JSON.stringify(issue))});\n`);
+  await writeFile(path.join(bin, 'gh'), `#!/usr/bin/env node\nif (process.argv.slice(2).join(' ') !== 'api --hostname ${GITHUB_HOST} repos/acme/shop/issues/12') { process.stderr.write('unexpected gh call'); process.exit(2); }\nprocess.stdout.write(${JSON.stringify(JSON.stringify(issue))});\n`);
   await chmod(path.join(bin, 'gh'), 0o755);
   story.env.PATH = `${bin}${path.delimiter}${story.env.PATH}`;
   const args = taskIntakeCommand(form({ tracker: 'github', id: 'GH-12', key: 'acme/shop#12', title: '', description: '' }));
@@ -99,7 +100,7 @@ test('ITW REQ-113: a GitHub Issue is the task\'s source and its words; what SFlo
   assert.equal(record.workItem.title, 'The checkout is broken on an empty cart');
   const source = JSON.parse(shown('source.json'));
   assert.equal(source.type, 'github-issue');
-  assert.equal(source.stableId, 'github-issue:github.com/acme/shop#12');
+  assert.equal(source.stableId, `github-issue:${GITHUB_HOST}/acme/shop#12`);
   assert.match(source.notes, /^## How SFlow sizes this task/u);
   const intake = shown('USER-STORY.md');
   assert.match(intake, /## Description\n\nOpening checkout with an empty cart crashes the page\./u);

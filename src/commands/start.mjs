@@ -92,11 +92,7 @@ const CLONED_STORY_REQUEST = Symbol('cloned-story-request');
 // it over each definition it reads, in memory, and the Story records it; workflow.yml is never written.
 const TASK_COMPOSITION = Symbol('task-composition');
 
-/**
- * Start a Story whose workflow was composed for a task (src/task-composition.mjs) [ITW:REQ-006, REQ-007]. A task from a
- * GitHub Issue or Jira issue hands over the issue `work` read (`source`), and what SFlow asks of its steps (`notes`), which
- * the issue's own text cannot carry [ITW:REQ-113].
- */
+/** Start a Story whose workflow was composed for a task (src/task-composition.mjs) [ITW:REQ-006, REQ-007]; an issue's, with the issue `work` read and SFlow's notes [ITW:REQ-114]. */
 export function startTaskStory(positionals, options, composition, { plan = null, admission = null, source = null, notes = null } = {}) {
   options[TASK_COMPOSITION] = { composition, plan, admission, source, notes };
   return startCommand(positionals, options);
@@ -1533,7 +1529,7 @@ async function startCommandAtRoot(positionals, options) {
           // public artifact shape while the normalized hash and provider contract remain list-based.
           acceptanceCriteria: manual.source.acceptanceCriteria
         });
-  // A task from an issue keeps the issue's text as it is; what SFlow asks of its steps is its notes [ITW:REQ-113].
+  // An issue's text stays as it is; what SFlow asks of a task's steps is its notes [ITW:REQ-114].
   const taskNotes = taskComposition && source.type !== 'manual' ? options[TASK_COMPOSITION]?.notes : null;
   if (taskNotes) source = normalizeWorkSource({ ...source, notes: [source.notes, taskNotes].filter(Boolean).join('\n\n') });
   // The first capture already owns the exact bytes for every non-interactive input. Only a later

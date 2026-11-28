@@ -8,7 +8,7 @@ const STEPS = [
   { id: 'review', label: 'Review & start', regions: ['review', 'status', 'inFlight'] }
 ] as const;
 
-/** A task has no workflow and no checks to choose, so its steps are named for what it asks [ITW:REQ-113]. */
+/** A task has no workflow and no checks to choose, so its steps are named for what it asks [ITW:REQ-114]. */
 const TASK_LABELS: Record<string, string> = { workflow: 'Branch', inputs: 'Documents' };
 
 export function intakeWizardNavigation(enabled: boolean, task = false): string {
@@ -91,7 +91,7 @@ export const INTAKE_WIZARD_SCRIPT = `
       const final = document.querySelector('[data-intake-wizard-final]');
       if (back) { back.hidden = !on || step === 'details'; back.disabled = busy(); }
       if (next) { next.hidden = !on || step === 'review'; next.disabled = busy(); }
-      if (final) final.hidden = on && step !== 'review';
+      if (final) final.hidden = on && step !== 'review' && final.dataset.intakeWizardFinal !== 'always';
       const position = document.querySelector('[data-intake-wizard-position]');
       const index = steps.findIndex(item => item.id === step);
       const named = document.querySelector('[data-intake-wizard-nav] [data-intake-wizard-go="' + step + '"]');
@@ -125,7 +125,8 @@ export const INTAKE_WIZARD_SCRIPT = `
       review();
     });
     refresh();
-    return { refresh, get step() { return step; }, canStart: () => !busy() && (!enabled() || step === 'review'),
+    const always = () => document.querySelector('[data-intake-wizard-final]')?.dataset.intakeWizardFinal === 'always';
+    return { refresh, get step() { return step; }, canStart: () => !busy() && (!enabled() || step === 'review' || always()),
       reveal(target) { const panel = target?.closest('[data-intake-wizard-panel]'); if (panel) go(panel.dataset.intakeWizardPanel, false); } };
   })();
 `;

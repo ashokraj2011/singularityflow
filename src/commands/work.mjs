@@ -13,7 +13,7 @@
  * or an agent this repository has, comes before any marketplace's (src/task-local.mjs) [ITW:REQ-020]: `--use-workflow`
  * is the yes, `--without-workflow` the no.
  *
- * VS Code's Start Story starts a task too [ITW:REQ-113]: its words are `--description` (and `--title`), or a GitHub Issue
+ * VS Code's Start Story starts a task too [ITW:REQ-114]: its words are `--description` (and `--title`), or a GitHub Issue
  * or Jira issue's own (`--github`, `--jira`), and the form's Story branch, bases, documents and checkout reach `start` as
  * start's own options (TASK_START_OPTIONS), which start reads and checks as for any Story.
  */
@@ -35,7 +35,7 @@ import { STATE_CHECKOUT, storiesDirectory, storiesRoot, storyLocation } from '..
 
 const JIRA_KEY = /\b([A-Z][A-Z0-9_]{1,31}-[1-9][0-9]{0,9})\b/u;
 
-/** The person's words: after `work`, else `--description` (VS Code's Start Story) [ITW:REQ-113]. */
+/** The person's words: after `work`, else `--description` (VS Code's Start Story) [ITW:REQ-114]. */
 const typedWords = (positionals, options) => positionals.slice(1).join(' ').trim() || (optionString(options, 'description') ?? '').trim();
 
 /** The words a task's kind and plan are read from: its title, when one is given, then its words. */
@@ -367,7 +367,7 @@ function startCommand(words, kind, options, extra = []) {
   const repeated = (name) => optionStrings(options, name).map((value) => `--${name} ${/^[\w./@:-]+$/u.test(value) ? value : quoted(value)}`);
   const single = (name) => { const value = optionString(options, name); return value ? [`--${name} ${/^[\w./@:-]+$/u.test(value) ? value : quoted(value)}`] : []; };
   const flag = (name) => (optionBoolean(options, name) ? [`--${name}`] : []);
-  // Start Story's own options [ITW:REQ-113] go with it, so the route starts the same Story the form asked for.
+  // Start Story's own options [ITW:REQ-114] go with it, so the route starts the same Story the form asked for.
   return ['singularity-flow work', ...(words ? [quoted(words)] : []), `--kind ${kind}`, '--start', ...single('work-id'), ...single('title'), ...single('base'), ...single('from'), ...single('finding'),
     ...repeated('path'), ...repeated('document'), ...repeated('add'), ...repeated('skip'), ...flag('new'),
     ...repeated('use-skill'), ...repeated('without-skill'), ...repeated('use-agent'), ...repeated('without-agent'),
@@ -413,7 +413,7 @@ function titleOf(words) {
 }
 
 /**
- * Start's own options a task's start hands on as the person gave them [ITW:REQ-113]: the Story's branch, its bases (one for
+ * Start's own options a task's start hands on as the person gave them [ITW:REQ-114]: the Story's branch, its bases (one for
  * all, `<repository>=<branch>` for some), each document's name and where it is kept, its acceptance criteria, the findings
  * it addresses, its GitHub Issue or Jira issue and its own checkout. `start` reads and checks each as for any Story.
  */
@@ -526,7 +526,7 @@ async function behaviourCommand(positionals, options) {
  */
 async function likelyPlan(positionals, options) {
   const typed = typedWords(positionals, options);
-  // Start Story's title is read with its words [ITW:REQ-113].
+  // Start Story's title is read with its words [ITW:REQ-114].
   const words = planWords(typed, options);
   const none = (why, extra = {}) => ({ schemaVersion: 1, resultType: 'sflow-task-likely-plan', words, kind: null, plan: null, why, ...extra });
   let root = null;
@@ -534,12 +534,12 @@ async function likelyPlan(positionals, options) {
   if (!existsSync(path.join(root, WORKFLOW_PATH))) return none('This repository does not use SFlow yet.');
   let definition = null;
   try { definition = await loadConfig(root); } catch (error) { return none(error?.message ?? 'SFlow could not read this repository\'s workflows.'); }
-  // Where Start Story keeps a task's documents: the repository's policy, or the plan's workflow's once it has one [ITW:REQ-113].
+  // Where Start Story keeps a task's documents: the repository's policy, or the plan's workflow's once it has one [ITW:REQ-114].
   const kept = { documentStorage: documentStorageChoices(definition.documents) };
   if (!typed || SKILL_NAME_ONLY.test(typed)) return none('Say what you want done.', kept);
   const named = optionString(options, 'kind');
   const kind = named && TASK_KINDS.includes(named) ? named : kindFromWords(words);
-  // Start Story then shows the kinds, as the chat names one [ITW:REQ-113].
+  // Start Story then shows the kinds, as the chat names one [ITW:REQ-114].
   if (!kind) return none('SFlow cannot tell the kind of task from these words; the chat names it.', { ...kept, kindNeeded: true, kinds: [...TASK_KINDS] });
   try {
     const pullRequest = ASKS_FOR_PULL_REQUEST.test(words);
@@ -573,7 +573,7 @@ export async function workCommand(positionals = [], options = {}) {
     return status.task ? { ...status, taskTurn: { carriedBy: await (await import('../task-turn.mjs')).taskTurnCarrier(root) } } : status;
   }
   if (optionBoolean(options, 'plan-only')) return likelyPlan(positionals, options);
-  // A GitHub Issue or Jira issue is a task's source, and its words when none are typed [ITW:REQ-113].
+  // A GitHub Issue or Jira issue is a task's source, and its words when none are typed [ITW:REQ-114].
   const fromIssue = Boolean(optionString(options, 'github')) || optionBoolean(options, 'jira');
   const typed = fromIssue ? typedWords(positionals, options) : wordsOf(positionals, options);
   const root = await taskRepositoryRoot();
@@ -661,7 +661,7 @@ export async function workCommand(positionals = [], options = {}) {
   }
   // A task open on this checkout takes the words as its own: an answer, or the change wanted. Only "new task" (--new)
   // starts another here [ITW:REQ-017]; a model's guess never starts a second Story over the first one.
-  // A start in a checkout of its own (VS Code's Start Story) leaves this checkout's task as it is [ITW:REQ-113].
+  // A start in a checkout of its own (VS Code's Start Story) leaves this checkout's task as it is [ITW:REQ-114].
   const open = optionBoolean(options, 'isolated-worktree') ? null : openStoryHere(root);
   if (open && !optionBoolean(options, 'new')) {
     throw new SingularityFlowError(`${open} is open on this checkout, so these words are for it: its question's answer, or the change you want.`, {
@@ -707,7 +707,7 @@ export async function workCommand(positionals = [], options = {}) {
   // beside the person's words in its intake [ITW:REQ-102, REQ-109].
   const guidance = preview.composition.sizing ? (await import('../task-shape.mjs')).taskIntakeGuidance(preview.composition) : null;
   const description = [finding ? `${typed}\n\n${finding}` : report ? `${typed}\n\n## Starts from ${from}'s report (${report.artifact})\n\n${report.text}` : typed, guidance].filter(Boolean).join('\n\n');
-  // An issue's own text is its Story's; the words typed beside it and what SFlow asks go in its notes [ITW:REQ-113].
+  // An issue's own text is its Story's; the words typed beside it and what SFlow asks go in its notes [ITW:REQ-114].
   const passOn = Object.fromEntries(TASK_START_OPTIONS.filter((name) => Object.hasOwn(options, name)).map((name) => [name, options[name]]));
   return launchTask(id, { words: typed || words, title: optionString(options, 'title') ?? titleOf(typed || words), preview, base, documents,
     json: optionBoolean(options, 'json'), description, passOn, source: issue, notes: issue ? description || null : null }).catch((error) => {

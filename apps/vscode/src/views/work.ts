@@ -114,7 +114,7 @@ export class WorkPlace {
     if (message.action === 'work-act' && typeof message.act === 'string') {
       const command = ({ workflow: 'singularityFlow.startWork', repository: 'singularityFlow.switchWorkspaceRepository',
         stories: 'singularityFlow.openWorkspaceStories' } as Record<string, string>)[message.act];
-      // Start with a workflow… opens Start Story on the workflow choice, whatever was chosen there last [ITW:REQ-113].
+      // Start with a workflow… opens Start Story on the workflow choice, whatever was chosen there last [ITW:REQ-114].
       if (command) void this.host.command(command, ...(message.act === 'workflow' ? [{ startMode: 'workflow' }] : []));
       return Boolean(command);
     }

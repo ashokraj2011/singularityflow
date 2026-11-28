@@ -3998,7 +3998,7 @@ for (const deferredWorkspace of [false, true]) test(deferredWorkspace
   );
 });
 
-test('ITW REQ-113: Start Story starts a task with no workflow, and the window that opens its checkout carries it on in the chat', async (t) => {
+test('ITW REQ-114: Start Story starts a task with no workflow, and the window that opens its checkout carries it on in the chat', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-task-intake-'));
   t.after(() => removeFixture(base));
@@ -4037,7 +4037,8 @@ test('ITW REQ-113: Start Story starts a task with no workflow, and the window th
   await intakePanel.post({ type: 'startMode', value: 'task' });
   assert.equal(values.get('singularityFlow.intake.startMode'), 'task', 'the choice is kept for the next Start Story');
   assert.doesNotMatch(intakePanel.webview.html, /data-work-type=/u, 'no workflow to choose');
-  await intakePanel.post({ type: 'baseBranch', value: 'main' });
+  // The base is the repository's default branch, as /sf-task's: nothing to choose unless the work starts elsewhere.
+  assert.match(intakePanel.webview.html, /data-base-branch="main" checked/u);
   await intakePanel.post({ type: 'field', field: 'id', value: 'TASK-UI' });
   await intakePanel.post({ type: 'field', field: 'title', value: 'Make the value module return 2' });
   await intakePanel.post({ type: 'field', field: 'description', value: 'The value module returns 1; its callers want 2.' });

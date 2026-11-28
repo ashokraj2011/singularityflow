@@ -1,5 +1,5 @@
 /**
- * Journey ITW REQ-113 (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md): a small change started from VS Code's Start Story in task
+ * Journey ITW REQ-114 (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md): a small change started from VS Code's Start Story in task
  * mode, walked to its end by its routes. The person fills in the Story's details and presses Start: the extension runs
  * the form's own `work --start` (apps/vscode/src/views/intake-form.ts taskIntakeCommand), then sends /sf-task to the chat
  * of the window that opens the task's checkout (extension.ts carryStartedTaskOn), so nothing is typed. From there the walk
@@ -22,7 +22,7 @@ const personActions = (trail) => {
   return { typed, answers, own };
 };
 
-test('journey ITW REQ-113: a small change from Start Story\'s task mode is Start and two Yeses, as /sf-task is', slowLane({ timeout: 2_400_000 }), async (t) => {
+test('journey ITW REQ-114: a small change from Start Story\'s task mode is Start and two Yeses, as /sf-task is', slowLane({ timeout: 2_400_000 }), async (t) => {
   const story = await journeyRepository(t);
   Object.assign(story, { workId: 'TASK-1', item: 'singularity/work-items/TASK-1' });
   // The form as the person filled it: the ID, the title, the words; the base the form chose. No workflow, no checks.

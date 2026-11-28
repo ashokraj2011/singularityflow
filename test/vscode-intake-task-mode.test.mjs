@@ -1,11 +1,11 @@
-// ITW REQ-113 (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md): VS Code's Start Story starts a task. Beside "Choose a workflow" the
+// ITW REQ-114 (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md): VS Code's Start Story starts a task. Beside "Choose a workflow" the
 // form offers "Start a task": it asks only for the Story's details, its documents and its branch, shows the likely plan
 // under the words, and starts the task with `work --start`; SFlow picks the steps, as /sf-task does.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  EMPTY_INTAKE_FORM, TASK_KIND_CHOICES, intakeCommand, intakeHtml, intakeProblems, storyPreflightCommand, taskBlocker, taskIntakeCommand,
+  EMPTY_INTAKE_FORM, TASK_KIND_CHOICES, intakeCommand, intakeHtml, intakeProblems, storyPreflightCommand, taskBlocker, taskDefaultBase, taskIntakeCommand,
   taskKindOf, taskMode, taskModeOffered, taskPlanCommand, taskPlanFrom, taskPlanKey, taskStartAnswer
 } from '../apps/vscode/src/views/intake-form.ts';
 import { intakeWizardNavigation } from '../apps/vscode/src/views/intake-wizard.ts';
@@ -26,7 +26,7 @@ const planned = (overrides = {}) => withPlan({ resultType: 'sflow-task-likely-pl
 const after = (args, flag) => args.includes(flag) ? args[args.indexOf(flag) + 1] : null;
 const document = { sourcePath: '/work/brief.md', displayName: 'brief.md', name: 'Value brief', store: 'git', phases: ['implementation'] };
 
-test('ITW REQ-113: Start Story offers a task beside the workflow, each saying what it does; the workflow stays the default', () => {
+test('ITW REQ-114: Start Story offers a task beside the workflow, each saying what it does; the workflow stays the default', () => {
   assert.equal(EMPTY_INTAKE_FORM.startMode, 'workflow', 'today\'s default');
   const html = intakeHtml(form({ startMode: 'workflow' }));
   assert.match(html, /<h2>How should this Story run\?<\/h2>/u);
@@ -44,7 +44,7 @@ test('ITW REQ-113: Start Story offers a task beside the workflow, each saying wh
   assert.equal(taskMode(form({ cloneFrom: 'STORY-1' })), false, 'a clone with a remembered task choice is a workflow Story');
 });
 
-test('ITW REQ-113: a task asks for its details, branch and documents only; documents are read by every step', () => {
+test('ITW REQ-114: a task asks for its details, branch and documents only; documents are read by every step', () => {
   const html = intakeHtml(planned({ storyAttachments: [document, null, null, null] }));
   // Nothing that exists only because of a chosen workflow.
   assert.doesNotMatch(html, /data-work-type=|Story workflow<\/h2>|data-attachment-phase|Used in phases|Reference repositories|Browser readiness|data-field="targetUrl"/u);
@@ -58,8 +58,14 @@ test('ITW REQ-113: a task asks for its details, branch and documents only; docum
   // The workflow's place says who picks the steps, and the workflow is one click away.
   assert.match(html, /<h2>[^<]*(?:<[^>]+>[^<]*)*Steps<\/h2>[^]*SFlow picks the steps from what you described, so there is no workflow to choose\./u);
   assert.match(html, /data-start-mode-switch="workflow">Choose a workflow instead<\/button>/u);
-  // The base and the Story branch stay, with what they are for.
-  assert.match(html, /data-base-branch="main"/u);
+  // The base and the Story branch stay, with what they are for; the base is the default branch until the person says.
+  assert.match(html, /data-base-branch="main" checked/u);
+  assert.match(html, /SFlow starts a task from the repository's default branch, as \/sf-task does; choose another if the work starts elsewhere\./u);
+  assert.equal(taskDefaultBase(form({ baseBranch: null, baseLaunchRepository: 'shop' })), 'main');
+  assert.equal(taskDefaultBase(form({ baseBranch: null, startMode: 'workflow' })), null, 'a workflow\'s base stays the person\'s explicit choice');
+  assert.equal(taskDefaultBase(form({ baseBranch: null, baseRepositories: [{ id: 'shop', defaultBranch: 'trunk', branches: ['trunk'] }] })), null,
+    'never a branch the form does not offer');
+  assert.match(intakeHtml(form({ startMode: 'workflow' })), /Choose explicitly\. The new Story branch is cut from the latest remote commit/u);
   assert.match(html, /data-field="storyBranch"/u);
   assert.match(html, /The branch is ready: create <code>TASK-7<\/code>/u);
   // The review says the same, and the Start button starts the task.
@@ -68,13 +74,16 @@ test('ITW REQ-113: a task asks for its details, branch and documents only; docum
   assert.match(html, /Value brief — kept in Git · every step/u);
   assert.match(html, /<dt>Checks<\/dt><dd>SFlow's own: hard quality gates, and it runs the tests itself\.<\/dd>/u);
   assert.match(html, />\s*Start the task\s*<\/button>/u);
+  // A task can start from any step once nothing is missing: the review is there to read, not a step to click through.
+  assert.match(html, /<span data-intake-wizard-final="always"><button type="button" data-submit="start"/u);
+  assert.match(intakeHtml(form({ startMode: 'workflow' })), /<span data-intake-wizard-final hidden>/u);
   assert.match(html, /Starts task <code>TASK-7<\/code> in a checkout of its own; Copilot chat then carries it on\./u);
   // The wizard's steps are named for what a task asks.
   assert.match(intakeWizardNavigation(true, true), /data-intake-wizard-label="Branch"[^]*data-intake-wizard-label="Documents"/u);
   assert.match(intakeWizardNavigation(true, false), /data-intake-wizard-label="Workflow &amp; branch"|data-intake-wizard-label="Workflow & branch"/u);
 });
 
-test('ITW REQ-113: the likely plan is one line under the words, in the Work place\'s words, read again when they change', () => {
+test('ITW REQ-114: the likely plan is one line under the words, in the Work place\'s words, read again when they change', () => {
   const draft = form();
   assert.deepEqual(taskPlanCommand(draft), ['work', '--plan-only', '--json', '--title', 'Make the value module return 2', '--description', 'The value module returns 1; its callers want 2.']);
   assert.equal(taskPlanCommand(form({ startMode: 'workflow' })), null, 'a workflow Story reads no plan');
@@ -97,7 +106,7 @@ test('ITW REQ-113: the likely plan is one line under the words, in the Work plac
   assert.match(intakeHtml(form({ tracker: 'jira', key: 'ENG-7' })), /SFlow reads the issue when you press Start and picks the steps from it\./u);
 });
 
-test('ITW REQ-113: words that do not say the kind show the kinds, a change chosen until the person says otherwise', () => {
+test('ITW REQ-114: words that do not say the kind show the kinds, a change chosen until the person says otherwise', () => {
   assert.deepEqual(TASK_KIND_CHOICES.map((entry) => entry.id).sort(), [...TASK_KINDS].sort(), 'the engine\'s nine kinds');
   const unknown = withPlan({ resultType: 'sflow-task-likely-plan', kind: null, plan: null, kindNeeded: true, why: 'SFlow cannot tell the kind of task from these words; the chat names it.' },
     { title: 'Value module', description: 'The value module and its callers.' });
@@ -117,7 +126,7 @@ test('ITW REQ-113: words that do not say the kind show the kinds, a change chose
   assert.equal(after(taskIntakeCommand(planned()), '--kind'), null);
 });
 
-test('ITW REQ-113: Start is work --start with the details, the branch, the bases and each document\'s name and storage', () => {
+test('ITW REQ-114: Start is work --start with the details, the branch, the bases and each document\'s name and storage', () => {
   const draft = planned({ storyBranch: 'feature/TASK-7-value', acceptanceCriteria: 'The value module returns 2',
     storyAttachments: [document, { sourcePath: '/work/notes.txt', displayName: 'notes.txt', name: 'Notes', store: 'local' }, null, null] });
   const args = intakeCommand(draft);
@@ -149,7 +158,7 @@ test('ITW REQ-113: Start is work --start with the details, the branch, the bases
   assert.equal(after(preflight, '--title'), 'Make the value module return 2', 'the branch pattern may use the title');
 });
 
-test('ITW REQ-113: a task needs no workflow; where it cannot start it says why in one line, beside the way on', () => {
+test('ITW REQ-114: a task needs no workflow; where it cannot start it says why in one line, beside the way on', () => {
   // No workflow chosen, none listed, a workflow-only baseline choice: none of it stops a task.
   const ready = planned({ workType: null, readinessBaseline: 'run', storyAttachments: [{ ...document, phases: [] }, null, null, null] });
   assert.deepEqual(intakeProblems(ready), []);
@@ -168,7 +177,7 @@ test('ITW REQ-113: a task needs no workflow; where it cannot start it says why i
   assert.equal(taskBlocker(form({ startMode: 'workflow', testRecovery: { schemaVersion: 1, enabled: true } })), null);
 });
 
-test('ITW REQ-113: SFlow\'s questions before a task starts are answered on the form, one click each, and the answer starts it', () => {
+test('ITW REQ-114: SFlow\'s questions before a task starts are answered on the form, one click each, and the answer starts it', () => {
   assert.deepEqual(taskStartAnswer({ error: { code: 'TASK_KIND_NEEDED', details: { kinds: [...TASK_KINDS] } } }), { taskKindNeeded: true });
   const needed = { ...form({ tracker: 'jira', key: 'ENG-142' }), taskKindNeeded: true };
   assert.equal(taskKindOf(needed), 'change');
@@ -195,7 +204,7 @@ test('ITW REQ-113: SFlow\'s questions before a task starts are answered on the f
   assert.equal(taskStartAnswer(null), null);
 });
 
-test('ITW REQ-113: the task goes on in the chat of the window that opens its checkout, once', () => {
+test('ITW REQ-114: the task goes on in the chat of the window that opens its checkout, once', () => {
   const now = Date.parse('2026-11-28T10:00:00Z');
   const turn = storyStartTaskTurn('/work/shop/.sflow/TASK-7', 'TASK-7', now);
   assert.deepEqual(turn, { schemaVersion: 1, repositoryPath: '/work/shop/.sflow/TASK-7', storyId: 'TASK-7', createdAt: '2026-11-28T10:00:00.000Z' });

@@ -897,6 +897,17 @@ export async function sourceReviewDisputedEarlier(root, config, workflow, phaseI
       reason: String(record.reason).slice(0, 600) }])).values()];
 }
 
+/**
+ * What a person answered on this step's reviews so far, other than disputes (those are disputedEarlier): each finding they
+ * decided, with their reason, newest first. The next review reads them as settled, never to raise again (ask once, owner
+ * 2026-11-28). Each verified as the review's own decisions are; one that no longer verifies is left out.
+ */
+export async function sourceReviewAnsweredEarlier(root, config, workflow, phaseId) {
+  return (await earlierDisputes(root, config, workflow, phaseId, null, (record) => !isDispute(record)).catch(() => []))
+    .map((record) => ({ id: String(record.id), version: Number(record.generation ?? 0), reason: String(record.reason ?? '').slice(0, 600) }))
+    .filter((entry) => entry.reason.trim());
+}
+
 /** The reviewer's blocking findings a person may dispute: what the step's own author would correct, never one about an earlier step's output. */
 export function disputableReviewFindings(report, phaseId) {
   return (Array.isArray(report?.findings) ? report.findings : []).filter((entry) => entry?.severity === 'blocking'
@@ -926,7 +937,7 @@ const actorName = (actor) => actor?.name ?? actor?.login ?? actor?.email ?? null
  * each verified as the review's own decisions are: committed with its event and authorized by the step's approval rules. One
  * that no longer verifies is left out, so the finding blocks again.
  */
-async function earlierDisputes(root, config, workflow, phaseId, exceptReportSha256 = null) {
+async function earlierDisputes(root, config, workflow, phaseId, exceptReportSha256 = null, only = isDispute) {
   const phaseDirectory = path.dirname(sourceReviewDirectory(root, config, workflow, phaseId));
   const secured = await secureRepositoryPath(root, phaseDirectory, { label: 'Source review phase directory', type: 'directory' });
   if (!secured.exists) return [];
@@ -939,7 +950,7 @@ async function earlierDisputes(root, config, workflow, phaseId, exceptReportSha2
     const decisionsRoot = path.join(sourceReviewDirectory(root, config, prior, phaseId), 'decisions');
     if (!(await exists(decisionsRoot))) continue;
     for (const reportSha256 of (await readdir(decisionsRoot)).filter((name) => SHA256.test(name) && name !== exceptReportSha256).sort()) {
-      try { found.push(...await readDecisions(root, config, prior, phaseId, reportSha256, { only: isDispute })); } catch { /* It no longer verifies: not carried. */ }
+      try { found.push(...await readDecisions(root, config, prior, phaseId, reportSha256, { only })); } catch { /* It no longer verifies: not carried. */ }
     }
   }
   return found.sort((left, right) => Number(right.generation) - Number(left.generation) || String(right.decidedAt).localeCompare(String(left.decidedAt)));
@@ -1181,6 +1192,11 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     .recordSourceReviewProgress(root, { workId: input.workId, phaseId, generation: input.generation, ...progress });
   // What a person disputed on this step's reviews so far: the same finding raised again keeps its id (owner, 2026-11-20).
   const disputedEarlier = await sourceReviewDisputedEarlier(root, config, workflow, phaseId);
+  // What the person already answered anywhere in the Story, and the lines SFlow itself wrote into the request: never raised
+  // again as a finding (ask once, owner 2026-11-28; answered-questions.mjs). Not bound: what the review reads, not reviews.
+  const answeredModule = await import('./answered-questions.mjs');
+  const answeredBefore = await answeredModule.answeredEarlier(root, config, workflow, { except: (input.clarifications ?? []).map((entry) => entry.path), reviewOf: phaseId }).catch(() => []);
+  const sflowNotes = input.sources.flatMap((source) => answeredModule.sflowNotesIn(source.text).map((note) => ({ sourceId: source.id, ...note })));
   return {
     schemaVersion: 1, resultType: 'source-review-context', workId: input.workId, // schema-transient
     phase: phaseId, kind: input.kind, generation: input.generation, binding: input.binding,
@@ -1211,6 +1227,8 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     ...(input.runtimeCheck ? { runtimeCheck: input.runtimeCheck } : {}),
     // A finding about that specification names this step as its ownerPhase [PHR:REQ-003].
     ...(input.upstreamSpecPhase ? { upstreamSpecPhase: input.upstreamSpecPhase } : {}),
+    ...(answeredBefore.length || sflowNotes.length ? { ...(answeredBefore.length ? { answeredEarlier: answeredBefore } : {}), ...(sflowNotes.length ? { sflowNotes } : {}),
+      answeredGuidance: answeredModule.ANSWERED_GUIDANCE } : {}),
     ...(disputedEarlier.length ? { disputedEarlier, disputedGuidance: 'A person who may decide for this step disputed each finding in disputedEarlier, with their reason. If you raise the same finding again, keep its id, check, clause and cited source: it then shows as already disputed instead of blocking. Any other problem is a new finding with its own new id.' } : {}),
     citationGuide: sourceReviewCitationGuide(input),
     reportSchema: sourceReviewReportSchema(input.kind), reportTemplate, stagingPath,

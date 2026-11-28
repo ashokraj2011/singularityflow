@@ -124,7 +124,7 @@ async function phaseSubcommand(positionals, options) {
     // A code step that already finished, with nothing a person approved since: a change the person asks for goes back to it,
     // on their one yes (completed-step-change.mjs, daily run 2026-11-22). Before, this refused with "no changed consumed
     // generation" and named the next step's approval.
-    if (phase.id !== workflow.currentPhase && options.correction === undefined && !optionBoolean(options, 'review-findings') && !optionBoolean(options, 'as-question')
+    if (phase.id !== workflow.currentPhase && options.correction === undefined && !optionBoolean(options, 'review-findings') && !optionBoolean(options, 'sent-back') && !optionBoolean(options, 'as-question')
       && (await import('../completed-step-change.mjs')).completedCodeStepForChange(workflow, { named: phase.id })) {
       return (await import('../completed-step-change-opening.mjs')).completedStepChangeRollover(root, config, workflow, phase, options);
     }
@@ -154,6 +154,10 @@ async function phaseSubcommand(positionals, options) {
     // Files changed after publication keep it the person's: the preview asks them.
     if (optionBoolean(options, 'review-findings')) {
       return (await import('../review-findings-opening.mjs')).reviewFindingsRollover(root, config, workflow, phase, options, { changedFiles: Boolean(plan) });
+    }
+    // A person's own send-back is the answer to its next version: started on it, with an undo (ask once, owner 2026-11-28).
+    if (optionBoolean(options, 'sent-back')) {
+      return (await import('../sent-back-opening.mjs')).sentBackRollover(root, config, workflow, phase, options, { changedFiles: Boolean(plan) });
     }
     // "Just a question" answers only a version proposed for words the person typed, and never opens one: files changed after
     // publication, or a returned step, are no question (owner, 2026-11-18).

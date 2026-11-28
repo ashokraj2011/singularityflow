@@ -201,6 +201,8 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   const summary = paused ? `${intentAmendmentPauseReason(workflow, pause)}. Reads, and \`singularity-flow story intent-amendment status\` and \`singularity-flow story intent-amendment draft\`, stay open.`
     : turnMode === 'approval-only' ? 'Approval/rejection only. No file edits or next-phase authoring; end this turn after the decision.'
     : turnMode !== 'authoring' ? 'This chat edits no repository file directly: only the exact files its SFlow commands issue, and the SFlow commands it allows.'
+      // A person's send-back is that yes: its start asks nothing (ask once, owner 2026-11-28).
+      : !editable && decision?.next.inputs.consent === 'required' && /\s--sent-back(?:\s|$)/u.test(next[0]?.command ?? '') ? `No edits until version ${decision.next.inputs.version} of ${phase.id} opens on the person's send-back: run the returned start, which asks nothing, then do its work in this turn.`
       : !editable && decision?.next.inputs.consent === 'required' ? `No edits before the person's yes to version ${decision.next.inputs.version} of ${phase.id}: run the returned preview, ask them its question, and only on their yes open it and do its work in this turn.`
       : !editable ? 'No direct edits: this step is not being written now. Take its returned next action.'
       : deterministic && !code ? 'No direct edits to this deterministic generation. Use the returned kernel action.'

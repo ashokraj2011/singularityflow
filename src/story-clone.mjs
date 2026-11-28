@@ -22,10 +22,12 @@ export function storyCloneDraft(workflow, source, { commit, documents = [] } = {
   delete request.contentSha256;
   delete request.attachments;
   request.acceptanceCriteria = normalized.acceptanceCriteria.map(text => `- ${text}`).join('\n');
-  // A clone is a manual request, never another observation of the original tracker item.
-  request.notes = [request.notes, `Request copied from Story ${id} at ${commit}.`,
-    documents.length ? 'Supporting documents were not copied. Attach needed documents and images to this new Story.' : null
-  ].filter(Boolean).join('\n\n');
+  // A clone is a manual request, never another observation of the original tracker item. Its notes stay the person's own
+  // words: SFlow's notes about the copy (where it came from, the documents not copied) are shown on the clone screen
+  // (`source`, `documents`, `notice`), never written into the request a reviewer judges. A reviewer read "Supporting
+  // documents were not copied" as an open requirement and asked about it three rounds in a row (graph-plotter Story,
+  // 2026-11-20; ask once, owner 2026-11-28).
+  request.notes = normalized.notes;
   return {
     schemaVersion: 1, resultType: 'story-clone-draft', // schema-transient: editable intake data only
     source: { workId: id, branch, commit,

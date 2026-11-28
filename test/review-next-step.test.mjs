@@ -135,7 +135,8 @@ test('/sf-code\'s entry asks the person to start version 2 with the review\'s fi
   assert.equal(act.state, 'confirm');
   assert.equal(act.ask.question, entry.successor.question);
   assert.deepEqual(act.ask.choices.map((choice) => choice.label), ['Yes', 'No']);
-  assert.match(act.ask.how, /ask successor\.question now with your question tool \(ask_user; in VS Code, vscode_askQuestions\)\. On Yes run do\.shell \(the preview\), then the confirmation it returns, refresh the entry once and fix the findings in this same turn\. On No, or with no question tool, give the person next and end; never answer it yourself\./u);
+  // Asked once: the preview and its confirmation run on that same Yes (ask once, owner 2026-11-28).
+  assert.match(act.ask.how, /ask successor\.question now, once, with your question tool \(ask_user; in VS Code, vscode_askQuestions\)\. On Yes run do\.shell \(the preview\), then the confirmation it returns, on that same Yes without asking again, refresh the entry once and fix the findings in this same turn\. On No, or with no question tool, give the person next and end; never answer it yourself\./u);
   assert.equal(act.do.shell, 'singularity-flow phase rollover implementation --json');
   assert.match(nextOf(act).next, /^confirm: ask the person in this chat, and only on an explicit yes run singularity-flow phase rollover implementation --json$/u);
   // Without a retained report (an older status), the status's own reviewer findings are shown.

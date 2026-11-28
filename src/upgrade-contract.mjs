@@ -79,6 +79,7 @@ export const UPGRADE_CONTRACT = Object.freeze({
   REVIEW_DELEGATION_VERSION_MISMATCH: stepVersion('A review delegated for another version of the step than the one kept'),
   VERSION_CONSENT_DECLINED: stepVersion('The person did not say yes to starting the next version'),
   VERSION_REVIEW_FINDINGS_ASK: stepVersion('A next version for a review\'s findings that a person has seen, so the person is asked'),
+  VERSION_SENT_BACK_ASK: stepVersion('A next version after a send-back whose files changed since, or whose start a person undid, so the person is asked'),
   VERSION_CONSENT_EXPIRED: stepVersion('The person\'s yes to starting the next version expired'),
   VERSION_CONSENT_PRINCIPAL_CHANGED: stepVersion('Another person gave the yes to starting the next version'),
   // An opening an older build kept on one checkout only meets this too; its refusal names the step's preview, which asks

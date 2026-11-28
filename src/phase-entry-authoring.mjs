@@ -121,7 +121,7 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
       ...(documentReadiness.localDocumentCount ? { durableFile } : {}) };
   }
   const clarification = await measureCommandSpan('phase-entry.clarification', () => verifyClarificationRecord(root, definition, workflow, phase, {
-    generation: base.inspectionGeneration
+    generation: base.inspectionGeneration, answered: true
   }));
   if (clarification.mode !== 'off') {
     clarification.responseStagingPath = clarificationStagingPath(gitDir(root), workflow, phase);

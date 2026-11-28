@@ -293,25 +293,20 @@ test('SCS REQ-042: an instruction left unaccounted holds the code step\'s approv
   const returned = repo.run(process.execPath, [cli, '--no-model', 'reject', 'implement', '--work-id', 'QF-1', '--to', 'implement', '--reason', 'Account for the log line the person asked for', '--json']);
   assert.equal(returned.status, 0, returned.stdout + returned.stderr);
   item = listed().items.find((entry) => entry.kind === 'asked-for');
-  // Version 2 is a successor: the item names its preview, which asks the person, never an opening without their yes [D3].
-  assert.equal(item.options[0].action.command, 'singularity-flow phase rollover implement --json');
+  // Version 2 is a successor: the person's send-back is its yes, so the item names its start on that send-back, which
+  // asks nothing (ask once, owner 2026-11-28); nothing else opens it [D3].
+  assert.equal(item.options[0].action.command, 'singularity-flow phase rollover implement --sent-back --json');
   const head = () => repo.must('git', ['rev-parse', 'HEAD']).trim();
   const worktree = () => repo.must('git', ['status', '--short']);
   const [beforeYes, statusBeforeYes] = [head(), worktree()];
   const unasked = repo.run(process.execPath, [cli, '--no-model', 'phase', 'begin', 'implement', '--json']);
-  assert.notEqual(unasked.status, 0, 'version 2 never opens without the person\'s yes');
+  assert.notEqual(unasked.status, 0, 'version 2 opens only through its start');
   assert.match(unasked.stdout + unasked.stderr, /VERSION_CONSENT_REQUIRED/u);
   assert.deepEqual([head(), worktree()], [beforeYes, statusBeforeYes], 'nothing changed');
-  // The route the item names: the preview asks the question and changes nothing; the person's yes, in their own terminal,
-  // is the confirmation it returns.
-  const preview = repo.sflowJson('phase', 'rollover', 'implement');
-  assert.equal(preview.status, 0, JSON.stringify(preview.value));
-  assert.equal(preview.value.mutates, false);
-  assert.equal(preview.value.toGeneration, 2);
-  assert.match(preview.value.question, /^Start version 2 of /u);
-  assert.deepEqual([head(), worktree()], [beforeYes, statusBeforeYes], 'the preview changes nothing');
-  const begun = repo.run(process.execPath, [cli, '--no-model', 'phase', 'rollover', 'implement', '--confirm', preview.value.confirmation, '--json']);
+  // The route the item names opens version 2 on the person's send-back, naming the answer it used.
+  const begun = repo.run(process.execPath, [cli, '--no-model', 'phase', 'rollover', 'implement', '--sent-back', '--json']);
   assert.equal(begun.status, 0, begun.stdout + begun.stderr);
+  assert.match(JSON.parse(begun.stdout).line, /^Using your answer from Implement version 1: "Account for the log line the person asked for"\. SFlow started version 2 /u);
   assert.equal((await state()).phases.implement.generationIntent?.status, 'open', 'version 2 is open');
   assert.match(listed().items.find((entry) => entry.kind === 'asked-for').options[0].action.command, /^singularity-flow departure account --work-id QF-1 --instruction 2 /u);
   const late = repo.sflowJson('departure', 'account', '--instruction', '2', '--clauses', 'QF-1:AC-001');

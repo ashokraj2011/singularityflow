@@ -38,7 +38,7 @@ For `singularity-flow story intent-amendment`, use this route, not phase rejecti
 
 ## Phase correction
 
-1. Show status, targets, Git identity/authority and agent. Obtain the human's reason and target.
+1. Show status, targets, Git identity/authority and agent. Obtain the human's reason and target once; no confirming.
 2. Awaiting approval: `singularity-flow reject <phase> --work-id <WORK-ID> --fetch --to <earlier-phase> --reason "..."`.
    Recovery's `return-current-phase-for-edits` uses its exact same-phase command, even if older
    `rejectTo` omits it. Show paths; preserve dirty files and prior approvals. Add no fetch, cleanup or

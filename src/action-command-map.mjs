@@ -27,7 +27,7 @@ export const ACTION_SKILLS = Object.freeze({ recover: '/sf-recover', takeover: '
 const entry = (copilot, forms) => Object.freeze({ copilot, forms: Object.freeze(forms), shell: Object.freeze(Object.values(forms)) });
 export const ACTION_COMMANDS = Object.freeze({
   'open-version': entry('work', { preview: 'phase rollover <step> --json', begin: 'phase begin <step> --json', prepare: 'prepare <step>',
-    findings: 'phase rollover <step> --review-findings --json' }),
+    findings: 'phase rollover <step> --review-findings --json', 'sent-back': 'phase rollover <step> --sent-back --json' }),
   'build-version': entry('work', { prepare: 'prepare <step>', preview: 'phase rollover <step> --json' }),
   // `enter`: the step's own entry again, read to name the issued answers file and its shape [owner, 2026-11-20, limits].
   'author-version': entry('work', { prepare: 'prepare <step>', enter: 'phase enter <step> --work-id <W> --compose --for-agent --json' }),
@@ -106,6 +106,8 @@ export function builtPublicationRoute(workflow, phase, producer, modelEnabled) {
 /** A published step's own version question, the open-version preview: its next version opens only on the person's yes [D3]. */
 export const versionPreviewCommand = (step) => actionCommandLine('open-version', 'preview', { step });
 export const reviewFindingsOpenCommand = (step) => actionCommandLine('open-version', 'findings', { step });
+/** A step a person sent back: its next version opens on that send-back, never asked again (ask once, owner 2026-11-28). */
+export const sentBackOpenCommand = (step) => actionCommandLine('open-version', 'sent-back', { step });
 /** The preview as argv and as a route with its work command (completed-step-change.mjs). */
 export const versionPreviewArgv = (step) => actionCommand('open-version', 'preview', { step }).split(' ').filter((word) => word !== '--json');
 export const versionPreviewRoute = (workflow, phase) => ({ skill: actionSkill('open-version', { phase, workflow }), command: versionPreviewCommand(phase.id) });

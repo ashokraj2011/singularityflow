@@ -17,6 +17,7 @@ import {
   storyApprovalView
 } from './approval-authority.mjs';
 import { approveRoute, returnRoute } from './action-command-map.mjs';
+import { adviceForStep } from './step-advice.mjs';
 import { mayDecideApproval } from './gateway/work-records.mjs';
 import { COULD_NOT_TELL, itemKey, LATER_DECISION_KINDS, stepWords } from './needs-you-list.mjs';
 
@@ -127,8 +128,9 @@ export function stepApprovalItem(workflow, { repository, actor, fallbackAuthorit
     story: storyOf(workflow),
     step: { id: phaseId, label, version },
     question: `Approve ${stepWords(label, version)}?`,
+    // Why they are asked, by what the step is for (step-advice.mjs); who approves it follows [owner, 2026-11-28].
     why: admission.couldNotTell ? admission.why
-      : groupWords ? `You are in ${groupWords}, which approves ${label}.` : `Your approval group approves ${label}.`,
+      : `${adviceForStep(workflow, phaseId).decides} ${groupWords ? `You are in ${groupWords}, which approves ${label}.` : `Your approval group approves ${label}.`}`,
     waitingSince: phase.submittedAt ?? submitted?.at ?? null,
     submittedBy: submitted?.actor?.name ?? submitted?.actor?.email ?? null,
     approvals: { received: active.length, required: policy.minimum ?? 1 },

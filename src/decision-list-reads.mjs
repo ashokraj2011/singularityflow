@@ -610,6 +610,10 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     askedFor: workflow.status === 'in_progress' ? await askedForFacts(root, workflow, phase) : null,
     // The review's blocking findings a person may dispute, and while the step awaits approval what was disputed [owner, 2026-11-20].
     // A count skips them: they change no count. From the CLI source, out of the VS Code bundles that read this list.
+    // What the step is for, so its approval says why the person is asked and what each choice does (step-advice.mjs).
+    // From the CLI source, out of the VS Code bundles that read this list.
+    stepIntent: phase ? await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'step-advice-intent.mjs')).href)
+      .then((module) => module.storyStepIntent(workflow, phase.id), () => null) : null,
     reviewDisputes: offerReuse && workflow.status === 'in_progress' && ['in_progress', 'awaiting_approval'].includes(phase?.status)
       ? await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'review-finding-dispute.mjs')).href)
         .then((module) => module.reviewDisputeFacts(root, config, workflow, phase)).catch(() => null) : null,

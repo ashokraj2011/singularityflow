@@ -73,7 +73,11 @@ test('all findings have an owner route; trust is never an ordinary risk waiver',
   // Observed-risk inspection exists only under a test-recovery agreement; otherwise the author repairs.
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'CODE_TEST_FAILED' }).choices[0].kind, 'test-repair');
   assert.equal(phaseResolutionChoices({ ...workflow, testRecovery: { id: 'TRA-1' } }, phase, { code: 'CODE_TEST_FAILED' }).choices[0].kind, 'risk-inspection');
-  assert.equal(phaseResolutionChoices(workflow, phase, { code: 'never-seen-before' }).choices[0].kind, 'owner-escalation');
+  // A finding no rule names: the person's own way now, never "give it to the maintainer" [owner, 2026-11-28].
+  assert.equal(phaseResolutionChoices(workflow, phase, { code: 'never-seen-before' }).choices[0].kind, 'author-correction');
+  // Waiting for approval: Send back, where the Story's own rules admit it (this bare Story's do not: its own next step).
+  assert.notEqual(phaseResolutionChoices(workflow, { ...phase, status: 'awaiting_approval' }, { code: 'never-seen-before' }).choices[0].kind, 'owner-escalation');
+  assert.ok(!phaseResolutionChoices(workflow, phase, { code: 'never-seen-before' }).choices.some((choice) => choice.skill === '/sf-doctor'));
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'scope.unclaimed' }).choices[0].kind, 'plan-amendment',
     'a scope appeal cannot run without a current open code generation');
   const unclaimed = { code: 'code.delivery.incomplete',
@@ -101,7 +105,7 @@ test('all findings have an owner route; trust is never an ordinary risk waiver',
   assert.equal(evidence.status, 'needs-human');
   assert.match(evidence.choices[0].copilotCommand, /^\/sf-appeal evidence-prepare/u);
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'phase.appeal.not-ready', category: 'appeal', details: { sourceCode: 'PHASE_APPEAL_INTEGRITY' } }).choices[0].kind, 'configuration-owner');
-  assert.equal(phaseResolutionChoices(workflow, phase, { code: 'PHASE_APPEAL_PATH_UNSUPPORTED' }).choices[0].kind, 'owner-escalation');
+  assert.equal(phaseResolutionChoices(workflow, phase, { code: 'PHASE_APPEAL_PATH_UNSUPPORTED' }).choices[0].kind, 'plan-amendment');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED' }).status, 'needs-human');
 });
 test('repair admission rejects unchanged retries, oscillation and budget exhaustion', () => {
@@ -549,11 +553,14 @@ test('rejected code successors submit fresh evidence, including old-writer histo
       const inspection = await inspectPhaseQualityGate(f.root, definition, corrupt, corrupt.phases.implementation);
       assert.equal(inspection.risks, null); assert.equal(inspection.findings[0].code, 'SPECIFICATION_CLAIM_MAP_BINDING_STALE');
       const resolution = phaseResolutionChoices(corrupt, corrupt.phases.implementation, inspection.findings[0]);
-      assert.equal(resolution.choices[0].owner, 'workflow-maintainer');
-      assert.equal(resolution.choices[0].skill, '/sf-doctor');
+      // Waiting for approval: Send back, so its author writes a new version from what is saved; never "give it to the
+      // maintainer" with only doctor [owner, 2026-11-28].
+      assert.equal(resolution.choices[0].owner, 'phase-approval-authority');
+      assert.ok(['send-back', 'current-phase-correction'].includes(resolution.choices[0].kind), resolution.choices[0].kind);
+      assert.match(resolution.choices[0].command, /^singularity-flow reject implementation --work-id \S+ (?:--fetch )?--to implementation --reason <reason>$/u);
       const recovery = await inspectPhaseRecovery(f.root, definition, corrupt, corrupt.phases.implementation);
       assert.ok(recovery.blockers.some(finding => finding.code === 'SPECIFICATION_CLAIM_MAP_BINDING_STALE'));
-      assert.ok(recovery.actions.some(action => action.id.includes('submission-evidence') && action.skill === '/sf-doctor'));
+      assert.ok(!recovery.actions.some(action => action.id.includes('submission-evidence') && action.skill === '/sf-doctor'), JSON.stringify(recovery.actions.map((action) => [action.id, action.skill])));
       f.cli('approve', 'implementation', '--yes');
       assert.equal((await f.load()).workflow.phases.implementation.status, 'approved');
     });

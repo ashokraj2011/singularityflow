@@ -181,7 +181,9 @@ function why(workflow, item) {
     case 'approval': {
       // Each disputed finding of its review, with who disputed it and why, beside the approval [owner, 2026-11-20].
       const disputed = details.disputes?.length ? ` ${details.disputes.map((entry) => entry.words).join(' ')} Return the step if you agree with the reviewer.` : '';
-      return details.ready ? `Nothing on this list holds it; its documents are ready to review${details.covers?.length ? `, with ${details.covers.map((entry) => `${entry.label} v${entry.generation}`).join(', ')}, which SFlow approved when ready` : ''}.${disputed}` : `It waits for the questions above.${disputed}`;
+      // Why the person is asked, by what the step is for (step-advice.mjs), first [owner, 2026-11-28].
+      const asked = typeof details.advice?.decides === 'string' ? `${details.advice.decides} ` : '';
+      return details.ready ? `${asked}Nothing on this list holds it; its documents are ready to review${details.covers?.length ? `, with ${details.covers.map((entry) => `${entry.label} v${entry.generation}`).join(', ')}, which SFlow approved when ready` : ''}.${disputed}` : `${asked}It waits for the questions above.${disputed}`;
     }
     default:
       return plainSentence(item.why);

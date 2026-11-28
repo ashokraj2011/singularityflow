@@ -456,6 +456,8 @@ export async function approveWithReceipt(
   let disputes: import('./views/approval-review.ts').ApprovalReviewRequest['disputes'] = null;
   let changeStory: import('./views/approval-review.ts').ApprovalReviewRequest['changeStory'] = null;
   let focus: import('./views/approval-review.ts').ApprovalReviewRequest['focus'] = null;
+  let advice: import('./views/approval-review.ts').ApprovalReviewRequest['advice'] = null;
+  let sendBack: string | null = null;
   if (request.kind === 'story') {
     try {
       // Begin may fetch. Read the exact checklist and bytes only after that refresh; the receipt
@@ -495,6 +497,11 @@ export async function approveWithReceipt(
       disputes = (await import('./views/approval-review.ts')).disputesOf(listed);
       // What the code step's change does, first on the page, with its whole page a click away [CSP:REQ-007].
       changeStory = (await import('./views/approval-review.ts')).changeStoryOf(listed);
+      // Why the person is asked and what each button does, by what the step is for (src/step-advice.mjs).
+      // An older engine's list carries none: the table's generic lines for this step, so the page always says why.
+      advice = (await import('./views/approval-review.ts')).adviceOf(listed)
+        ?? (await import('../../../src/step-advice.mjs')).stepAdvice('generic', { step: storyReview?.phase?.label ?? request.phaseId });
+      sendBack = (await import('./views/approval-review.ts')).sendBackOf(listed);
       focus = (await import('./views/approval-review.ts')).focusOf(await shown);
       // Evidence counted on a "still holds" across an amendment's wording, named before approving [SCS:REQ-022].
       carried = listed?.approvalEvidence?.carried && Array.isArray(listed.approvalEvidence.carried.entries) ? listed.approvalEvidence.carried : null;
@@ -561,6 +568,7 @@ export async function approveWithReceipt(
       changeStory,
       tryIt: (await import('./views/try-it.ts')).tryItOf(storyReview?.tryIt),
       focus,
+      advice,
       repository: reviewedRepository,
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,
@@ -573,6 +581,33 @@ export async function approveWithReceipt(
     if (!review) {
       void vscode.window.setStatusBarMessage('$(circle-slash) Approval cancelled; nothing changed.', 4_000);
       return false;
+    }
+    // Send back, with the person's reason: the step returns to its author, who writes the next version to answer it.
+    // The engine's own send-back route (the decision list's approval item), the person's reason where `<reason>` stands.
+    if (review.action === 'send-back') {
+      if (!(await stillCurrent())) return false;
+      const command = (await import('./views/approval-review.ts')).sendBackArgv(sendBack, review.reason);
+      if (!command) { showRefusal('This step offers no send-back route here; use Request changes on its Approvals card.', { headline: 'Could not send it back' }); return false; }
+      const sent = await runGovernedAction(client, { command, title: `Sending ${request.summary.replace(/^Approve /u, '')} back` }, output);
+      if (sent) void showCompactInformationMessage('Sent back with your reason; its next version is written to answer it.', 'Show output')
+        .then((choice) => { if (choice) output.show(true); });
+      return sent;
+    }
+    // What blocks it is decided on the Decide card, in place; then this approval page again, read fresh.
+    if (review.action === 'decide') {
+      await Promise.resolve(vscode.commands.executeCommand('singularityFlow.decide', { workId: request.workId, forApproval: true })).catch((error: unknown) => { showRefusal(error); });
+      return approveWithReceipt(client, request, output, canContinue);
+    }
+    // A hold's own route, from the page's request: run it, then this approval page again, read fresh.
+    if (review.action === 'run') {
+      if (!(await stillCurrent())) return false;
+      // A value the route leaves open is asked for here, by its name, never typed into a terminal [owner, 2026-11-28].
+      const argv = await resolvePlaceholders(review.command.replace(/^singularity-flow\s+/u, '').split(/\s+/u).filter(Boolean), client.repository);
+      if (!argv) return false;
+      if (argv[0] === 'decisions' && argv[1] === request.workId && argv.length === 2) {
+        await Promise.resolve(vscode.commands.executeCommand('singularityFlow.decide', { workId: request.workId, forApproval: true })).catch((error: unknown) => { showRefusal(error); });
+      } else if (!(await runGovernedAction(client, { command: argv, title: 'Doing what the approval waits for' }, output))) return false;
+      return approveWithReceipt(client, request, output, canContinue);
     }
     confirmed = review.confirmation;
     checklist = review.decisions;

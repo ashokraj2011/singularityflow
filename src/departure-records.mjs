@@ -616,7 +616,10 @@ export async function assertDeparturesDecided(root, config, workflow, phase, { b
         acceptAll: acceptAllEligible(entry.departure) })), nextAction: { command: `singularity-flow decisions ${workId}`, label: 'Decide each departure on the decisions table.' } } });
   }
   throw new SingularityFlowError(`${readings.map((entry) => entry.departure.id).join(', ')} ${readings.length === 1 ? 'was' : 'were'} rejected and ${readings.flatMap((entry) => entry.departure.paths).join(', ')} still ${readings.length === 1 ? 'holds' : 'hold'} the change. Its author restores each file to what it held when the generation began, in a new generation, and submits again.`, {
-    code: 'DEPARTURE_REJECTED_NOT_REVERTED', details: { phase: phase.id, departures: readings.map((entry) => entry.departure.id), paths: readings.flatMap((entry) => entry.departure.paths) } });
+    code: 'DEPARTURE_REJECTED_NOT_REVERTED', details: { phase: phase.id, departures: readings.map((entry) => entry.departure.id), paths: readings.flatMap((entry) => entry.departure.paths),
+      // The way on, now: send the step back, so its author puts each file back in the next version [owner, 2026-11-28].
+      ...(phase.status === 'awaiting_approval' ? { nextAction: { command: (await import('./action-command-map.mjs')).sendBackCommand(workId, phase.id),
+        label: `Send ${phase.label ?? phase.id} back to put its files back`, skill: '/sf-reject' } } : {}) } });
 }
 
 /**

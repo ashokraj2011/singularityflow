@@ -183,7 +183,8 @@ const AUTHORITIES = { planners: { label: 'Planners', allowAnyGitIdentity: true, 
 const ME = { name: 'Person', email: 'person@example.invalid' };
 // Any route that approves, in what a chat gets back: Copilot's, VS Code's chat participant's and the terminal's.
 const APPROVE_ROUTE = /\/sf-approve|@sflow \/approve|\b(?:singularity-flow|sflow) approve\b/u;
-const PAGE_WORDS = 'The approval page is open for Planning v1 with its documents. The person reads them and chooses Approve there; this chat records nothing.';
+// With the page open the chat offers no command at all: the person approves or sends it back there [owner, 2026-11-28].
+const PAGE_WORDS = 'The approval page is open for Planning v1 with its documents. The person approves or sends it back there; this chat records nothing and offers no command.';
 // The one approve route a chat is handed: the person's own model-free @sflow /approve, as `next`, beside the page [owner's
 // Story arshy, 2026-11-20: an approve turn ended with no route]. Anything else that approves is the chat sent round again.
 const PERSON_APPROVE = { kind: 'approve-in-chat', title: 'Approve Planning v1 yourself: type this in the chat box', command: null, copilotCommand: null,
@@ -237,12 +238,12 @@ test('the incident\'s list: only the approval waits, and its own next step is /s
   assert.equal(cardPage.chatNext(code), code);
 });
 
-test('ratchet: a chat-opened card with only a ready approval opens the approval page and hands back no approve route but the person\'s own @sflow /approve', async () => {
+test('ratchet: a chat-opened card with only a ready approval opens the approval page and hands back no approve route at all', async () => {
   for (const storyNext of [null, PLANNER_APPROVE]) {
     const list = approvalOnly({ storyNext });
     panels.length = 0; executed.length = 0;
     const result = await reviewDecisions(listClient([list]), { workId: P }, async () => undefined, { askedInChat: true });
-    assert.deepEqual(result, { status: 'approval-open', message: PAGE_WORDS, next: PERSON_APPROVE });
+    assert.deepEqual(result, { status: 'approval-open', message: PAGE_WORDS, next: null });
     noAgentApprove(result, 'the chat was sent back to an approve route');
     assert.deepEqual(approvalsOpened(), [['singularityFlow.openApprovals', { workId: P, phase: 'planning' }]], 'the approval page opens on this Story and step');
     assert.equal(panels.some((panel) => panel.viewType === 'singularityFlow.decide'), false, 'no Decide card with nothing on it');
@@ -284,12 +285,12 @@ test('an approval whose approver the read could not establish opens the approval
     assert.equal(cardPage.readyApproval(list), list.items[0], JSON.stringify(decidedBy));
     panels.length = 0; executed.length = 0;
     const result = await reviewDecisions(listClient([list]), { workId: P }, async () => undefined, { askedInChat: true });
-    assert.deepEqual(result, { status: 'approval-open', message: PAGE_WORDS, next: PERSON_APPROVE }, JSON.stringify(decidedBy));
+    assert.deepEqual(result, { status: 'approval-open', message: PAGE_WORDS, next: null }, JSON.stringify(decidedBy));
     assert.deepEqual(approvalsOpened(), [['singularityFlow.openApprovals', { workId: P, phase: 'planning' }]]);
   }
 });
 
-test('a person who opened the card sees the approval row, and its button opens the approval page on this Story and step', async () => {
+test('a person who opened the card sees the approval row, and its button opens the approval page itself on this Story and step', async () => {
   panels.length = 0; executed.length = 0;
   const result = reviewDecisions(listClient([approvalOnly()]), { workId: P }, async () => undefined);
   await settle();
@@ -299,7 +300,10 @@ test('a person who opened the card sees the approval row, and its button opens t
   assert.deepEqual(approvalsOpened(), [], 'nothing opens before the person clicks');
   card.post({ type: 'decide.approval' });
   await settle();
-  assert.deepEqual(approvalsOpened(), [['singularityFlow.openApprovals', { workId: P, phase: 'planning' }]]);
+  // The approval page itself, never the Approvals list first, whose Approve opened this card's loop [owner, 2026-11-28].
+  assert.deepEqual(approvalsOpened(), []);
+  const approve = executed.filter(([id]) => id === 'singularityFlow.approve');
+  assert.deepEqual(approve.map(([, node]) => node.approve), [{ kind: 'story', workId: P, phaseId: 'planning', expected: 'planning', summary: `Approve ${P} / Planning` }]);
   card.post({ type: 'decide.cancel' });
   assert.equal((await result).status, 'cancelled');
 });
@@ -333,7 +337,7 @@ test('ratchet: once a chat-opened card records the last decision, the approval p
   const answer = await result;
   assert.ok(cli.runs.some((argv) => argv.includes('record')), 'recorded through the CLI');
   assert.equal(answer.status, 'approval-open');
-  assert.deepEqual(answer.next, PERSON_APPROVE);
+  assert.equal(answer.next, null, 'the page is open: no command');
   assert.deepEqual(answer.remaining, [], 'the approval is on its page, not a decision still open');
   assert.equal(answer.message, `1 decision recorded. Pin Node 22. All decided. ${PAGE_WORDS}`);
   assert.doesNotMatch(answer.message, /Still open|Approve Planning/u);
@@ -383,7 +387,7 @@ test('ratchet: the approval page on a window that shows another Story is never "
     assert.doesNotMatch(JSON.stringify(result), APPROVE_ROUTE);
     // The same window showing this Story: open, as before.
     answers['singularityFlow.openApprovals'] = shows(P);
-    assert.deepEqual(await reviewDecisions(listClient([approvalOnly()]), { workId: P }, async () => undefined, { askedInChat: true }), { status: 'approval-open', message: PAGE_WORDS, next: PERSON_APPROVE });
+    assert.deepEqual(await reviewDecisions(listClient([approvalOnly()]), { workId: P }, async () => undefined, { askedInChat: true }), { status: 'approval-open', message: PAGE_WORDS, next: null });
   } finally { delete answers['singularityFlow.openApprovals']; }
 });
 

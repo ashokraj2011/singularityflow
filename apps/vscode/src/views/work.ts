@@ -236,7 +236,7 @@ export class WorkTaskPanel {
         const route = chatRouteOf(row);
         if (route.kind === 'task') { await this.host.sendChat('/sf-task'); await this.done(`Sent /sf-task to Copilot chat: ${row.id} goes on there.`, { changed: false }); }
         else if (route.kind === 'journey') { await this.host.command('singularityFlow.prefillNextCommand'); await this.done('Its next step is in the Copilot chat box.', { changed: false }); }
-        else await this.done(`${row.id} is not open in this window. Open it with: ${route.text}`, { changed: false });
+        else await this.openElsewhere(row);
       } else if (act === 'add' && step && this.task?.addable.some((entry) => entry.step === step)) {
         const where = placeOf(row);
         if (!where) return;
@@ -255,6 +255,8 @@ export class WorkTaskPanel {
         await vscode.commands.executeCommand('markdown.showPreviewToSide', vscode.Uri.file(path.join(row.route.checkout, this.task.changeStory.path)));
       } else if (act === 'lessons') {
         await this.host.command('singularityFlow.lessons');
+      } else if (act === 'open-elsewhere' && !row.route.here) {
+        await this.openElsewhere(row);
       }
     } catch (error) {
       this.result = (error as Error).message?.slice(0, 600) ?? null;
@@ -263,6 +265,19 @@ export class WorkTaskPanel {
     } finally {
       this.busy = false;
     }
+  }
+
+  /** A Story open in another place: its folder in a new window, else its own commands in a terminal to run [owner, 2026-11-28]. */
+  private async openElsewhere(row: WorkRow): Promise<void> {
+    if (row.route.checkout) {
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(row.route.checkout), { forceNewWindow: true });
+      return;
+    }
+    if (!row.route.elsewhere.length) return;
+    const terminal = vscode.window.createTerminal({ name: `SFlow: ${row.id}` });
+    terminal.show();
+    terminal.sendText(row.route.elsewhere.join(' && '), false);
+    await this.done(`${row.id}'s commands are in the terminal: press Enter to run them.`, { changed: false });
   }
 
   /** Today's cancel, with its confirmation: a reason, then a yes [FPL:REQ-006, A10]. */

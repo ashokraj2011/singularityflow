@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import {
   buildInbox, type Inbox, type InboxArtifact, type InboxRepositoryBinding, type WorkspaceStoryCatalogRow
 } from './inbox-model.ts';
-import { buildApprovals, type PendingApproval } from './approvals-model.ts';
+import { buildApprovals, holdRoutes, type PendingApproval } from './approvals-model.ts';
 import { approvalHoldsHtml, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
@@ -80,7 +80,8 @@ function decisionCards(inbox: Inbox, pending: PendingListView | null = null): st
       ${approval.reviewPacketSha256 ? `<div class="review-binding"><span>Review packet</span><span>the one submitted for this generation${approval.submittedSourceCommit ? ', bound to its submitted commit' : ''}</span></div>` : ''}
       ${approval.selfApproval ? '<p class="warning-text">You generated this; approval will not count as independent review.</p>' : ''}
       ${approval.heldBy ? `<p class="warning-text">${escape(approval.heldBy.headline)}</p>` : ''}
-      ${!approval.heldBy && approval.approvalHolds?.length ? approvalHoldsHtml(approval.approvalHolds) : ''}
+      ${!approval.heldBy && approval.approvalHolds?.length ? approvalHoldsHtml(approval.approvalHolds, { placeOf: (command) => holdRoutes(approval).indexOf(command) })
+    .replaceAll('data-hold-run="', `data-hold-approval="${escape(approval.id)}" data-hold-run="`) : ''}
       <div class="card-foot">
         ${approval.kind === 'output' || approval.artifactPath
     ? `<button class="secondary" data-open-approval="${escape(approval.id)}">Open artifact</button>` : ''}
@@ -197,9 +198,10 @@ export function inboxHtml(inbox: Inbox, refresh: InboxRefreshState = { refreshin
 const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-refresh-stories],[data-story],[data-clone-story],[data-artifact],[data-approve],[data-reject],[data-open-approval],[data-decide],[data-decide-list]');
+    const target = event.target.closest('[data-refresh-stories],[data-story],[data-clone-story],[data-artifact],[data-approve],[data-reject],[data-open-approval],[data-decide],[data-decide-list],[data-hold-run]');
     if (!target) return;
     if (target.hasAttribute('data-refresh-stories')) vscode.postMessage({ type: 'refresh-stories' });
+    else if (target.dataset.holdRun) vscode.postMessage({ type: 'run-hold', id: target.dataset.holdApproval, route: Number(target.dataset.holdRun) });
     else if (target.dataset.cloneStory) vscode.postMessage({
       type: 'clone-story', id: target.dataset.cloneStory, repositoryId: target.dataset.repositoryId || ''
     });
@@ -239,7 +241,9 @@ export type InboxMessage =
   | { type: 'reject'; approval: PendingApproval }
   | { type: 'open-approval'; approval: PendingApproval }
   | { type: 'decide'; workId: string }
-  | { type: 'decide-list'; approval: PendingApproval };
+  | { type: 'decide-list'; approval: PendingApproval }
+  // A hold's own route on its card, run as the Approvals card runs it, never a raw command shown [owner, 2026-11-28].
+  | { type: 'run-hold'; approval: PendingApproval; command: string };
 
 export class InboxPanel {
   private static current = new Map<InboxMode, InboxPanel>();
@@ -351,6 +355,12 @@ export class InboxPanel {
       reject: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'reject', approval }); },
       'open-approval': (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open-approval', approval }); },
       'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy || approval?.decideNext) onMessage({ type: 'decide-list', approval }); },
+      'run-hold': (message) => {
+        const approval = approvalFor(message);
+        const route = (message as unknown as { route?: unknown }).route;
+        const command = approval ? holdRoutes(approval)[typeof route === 'number' ? route : -1] : undefined;
+        if (approval && command) onMessage({ type: 'run-hold', approval, command });
+      },
       decide: (message) => {
         const workId = stringField(message, 'id');
         if (workId && this.currentInbox().decision?.workId === workId) onMessage({ type: 'decide', workId });

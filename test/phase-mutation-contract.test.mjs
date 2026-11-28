@@ -25,6 +25,7 @@ import { boundedAgentOutput, boundedAgentText } from '../src/agent-output.mjs';
 import { commandLineWithoutSkill, OWN_TERMINAL_STEPS, ownTerminalStep, skillForCommandLine } from '../src/command-skills.mjs';
 import { clarificationStagingPath, phaseStagingPaths, sourceReviewStagingPath } from '../src/phase-staging-paths.mjs';
 import { acceptOpening } from './helpers/accepted-opening.mjs';
+import { rememberConfirmCommand } from '../src/confirm-code.mjs';
 import { inventedValue } from './helpers/invented-secrets.mjs';
 
 test('all generated context, JSON, catalog, refusal and text files get exact read-only hints in linked worktrees', async t => {
@@ -917,10 +918,18 @@ test('no agent turn accepts that a step\'s tests cannot run here or ran narrowed
     const payload = await f.enter(skill, mode ?? undefined);
     assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow spec drift --json', cwd: f.root } }), {},
       'reading drift is allowed');
-    for (const command of [accept, revoke, drift, reuse, unreuse, notApplicable, applicable, narrowed, unnarrowed]) {
+    // A revocation and a drift decision stay the person's own, in every turn.
+    for (const command of [revoke, drift, unreuse, applicable, unnarrowed]) {
       const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
       assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
       assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal or, where the Decide card lists it, on the card \(\/sf-decide PMC-1 opens it\), not by this turn/u, skill);
+    }
+    // Accepting one is the Decide card's row, or a /sf-decide turn's on the person's bound Yes [owner, 2026-11-28]: never another
+    // turn's, and in /sf-decide not without that Yes.
+    for (const command of [accept, reuse, notApplicable, narrowed]) {
+      const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+      assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
+      assert.match(denied.permissionDecisionReason, skill.startsWith('/sf-decide') ? UNBOUND : /is the word of a person who approves the step, not this turn's: \/sf-decide asks them, or opens the Decide card/u, `${skill}: ${command}`);
     }
   }
 });
@@ -1041,10 +1050,10 @@ test('every step only a person takes in their own terminal is refused in every t
     'witness-deferral': ['singularity-flow decision witness-defer PMC-1 --criterion PMC-1:AC-001 --slot screen --to custom-step --reason "The later step changes the screen this sign-off reads."'],
     // The person brings up the screen at SFlow's browser and captures it; a turn never runs it [owner, 2026-11-18].
     'visual-screenshot': ['singularity-flow decision screenshot PMC-1 --criterion PMC-1:AC-001 --slot screen'],
-    'witness-exception-renewal': [`singularity-flow decision witness-exception PMC-1 --phase custom-step --mapping sha256:${'a'.repeat(64)} --expires 2099-01-01 --reason "The device lab is still down."`],
-    'test-run-risk': ['test-risk --phase custom-step --cause "No browser here." --expires 2099-01-01', 'test-narrowing --phase custom-step',
-      'evidence-reuse --phase custom-step --from-attempt TA-001', 'visual-profile --phase custom-step --profile tablet --not-applicable']
-      .map((rest) => `singularity-flow decision ${rest.replace(/^(\S+)/u, '$1 PMC-1')} --reason "Decided by the approver."`),
+    // A lapsed exception's renewal, an accepted test-run risk and a forward amendment's decision left this list [owner, 2026-11-28]:
+    // each is also a /sf-decide turn's bound yes. Only revoking an accepted risk stays here.
+    'test-run-risk-revocation': ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile']
+      .map((sub) => `singularity-flow decision ${sub} PMC-1 --revoke TRR-001 --reason "The device lab is back."`),
     'test-command-decision': ['singularity-flow decision test-command PMC-1 --accept TCD-001',
       'singularity-flow decision test-command PMC-1 --revoke TCD-001 --reason "The repository configures this runner now."'],
     'decision-list-record': [`singularity-flow decisions record PMC-1 --answers /tmp/card-answers.json --json`,
@@ -1077,7 +1086,6 @@ test('every step only a person takes in their own terminal is refused in every t
     'browser-workspace': ['singularity-flow ui open', 'singularity-flow ui open --no-open --json', 'singularity-flow ui serve --idle-minutes 5',
       'singularity-flow ui stop --drain --json'],
     // A "still holds" row's `revalidate` is a /sf-decide turn's own, held to the person's answer [owner, 2026-11-14]: not listed here.
-    'upstream-amendment-decision': ['singularity-flow upstream-issue decide-amendment FAM-001 --decision approve --reason "The amendment is right." --confirm FAM-001'],
     'environment-binding': ['singularity-flow env bind staging --stdin', 'singularity-flow env unbind staging --json'],
     'apm-install': ['singularity-flow apm install acme/review-pack', 'singularity-flow apm install --dev ../local-pack --json',
       'singularity-flow apm update', 'singularity-flow apm update reviewer@acme-catalog --json'],
@@ -1419,7 +1427,7 @@ test('no agent turn pins a Story\'s authorized browser target origin; its previe
       `${skill}: previewing the pin is allowed`);
     const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: pin, cwd: f.root } });
     assert.equal(denied.permissionDecision, 'deny', skill);
-    assert.match(denied.permissionDecisionReason, /authorized browser target origin is a security boundary; a person who approves the step that smoke-checks it confirms the pin in their own terminal/u, skill);
+    assert.match(denied.permissionDecisionReason, /authorized browser target origin is a security boundary; a person who approves the step that smoke-checks it confirms the pin on its Decide card row \(\/sf-decide opens it\) or in their own terminal, never this turn/u, skill);
   }
 });
 
@@ -2081,7 +2089,7 @@ test('/sf-continue executes an authorized planned action only when its own turn 
   const ids = Object.fromEntries(['sync', 'approve', 'risk', 'bind', 'nested', 'later', 'missing'].map((name, index) => [name, String(index + 1).repeat(24)]));
   await plan(ids.sync, ['sync']);
   await plan(ids.approve, ['approve', 'custom-step', '--work-id', 'PMC-1']);
-  await plan(ids.risk, ['decision', 'test-risk', 'PMC-1', '--reason', 'x']);
+  await plan(ids.risk, ['decision', 'test-risk', 'PMC-1', '--revoke', 'TRR-001', '--reason', 'x']);
   await plan(ids.bind, ['env', 'bind', 'qa', '--stdin']);
   await plan(ids.nested, ['action', 'execute', ids.sync, '--action', action]);
   await plan(ids.later, ['sync'], { executable: false });
@@ -3432,8 +3440,9 @@ test('a "still holds" yes or no runs in /sf-decide only with what the person typ
     assert.equal((await run(yes, command)).permissionDecision, 'deny', command);
   }
   const amendment = await run(yes, 'singularity-flow upstream-issue decide-amendment FAM-001 --work-id PMC-1 --decision approve --reason "It does not rely on the changed wording." --confirm FAM-001');
-  // Its approvers decide it on the Decide card, which records approving or rejecting it as one choice each [owner, 2026-11-28].
-  assert.match(amendment.permissionDecisionReason, /an amendment of an earlier step is decided by that step's approvers, not by this turn: \/sf-decide opens the Decide card/u);
+  // A forward amendment is a /sf-decide turn's own bound yes now, and this turn's Yes was to another row: nothing is recorded
+  // [owner, 2026-11-28]. Its own Yes, to the question naming it, is walked in the test below.
+  assert.match(amendment.permissionDecisionReason, UNBOUND);
   // Outside /sf-decide it stays a person's decision, routed to /sf-decide.
   const authoring = await f.enter('/sf-phase', 'still-holds-authoring');
   await personSaid(authoring, 'Yes', 'It does not rely on the changed wording.');
@@ -3441,6 +3450,94 @@ test('a "still holds" yes or no runs in /sf-decide only with what the person typ
   const plain = await run({ cwd: f.root, sessionId: 'still-holds-no-turn' }, YES);
   assert.match(plain.permissionDecisionReason, /whether a step still holds after an amendment by its own, in \/sf-decide or their own terminal/u);
   assert.equal(plain.next?.[0]?.copilotCommand?.split(' ')[0], '/sf-decide');
+});
+
+test('the Decide card\'s rows a chat takes on the person\'s bound Yes: a forward amendment, a lapsed exception, a narrowed run; nothing without it [owner, 2026-11-28]', async t => {
+  const f = await fixture(t);
+  const run = (payload, command) => repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  // The person's answer to exactly the question the list asked, as the host hands it over.
+  const answered = (payload, question, ...words) => repositoryPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question },
+    toolResult: { textResultForLlm: `User responded: ${words.join(', ')}`, resultType: 'success' } });
+  const REASON = 'The corrected plan covers the new cache rule.';
+  const APPROVE = `singularity-flow upstream-issue decide-amendment FAM-001 --work-id PMC-1 --decision approve --reason "${REASON}" --confirm FAM-001`;
+  const REJECT = APPROVE.replace('--decision approve', '--decision reject');
+  const MAPPING = `sha256:${'a'.repeat(64)}`;
+  const RENEW = `singularity-flow decision witness-exception PMC-1 --phase custom-step --mapping ${MAPPING} --expires 2099-01-01 --reason "The device lab is still down."`;
+  const NARROWED = 'singularity-flow decision test-narrowing PMC-1 --phase custom-step --command unit --reason "The narrowed run covers every changed module."';
+  // Nobody answered: nothing is recorded, for each of them.
+  const unasked = await f.enter('/sf-decide PMC-1', 'card-chat-unasked');
+  for (const command of [APPROVE, RENEW, NARROWED]) assert.match((await run(unasked, command)).permissionDecisionReason, UNBOUND, command);
+  // A Yes to another row's question binds nothing here.
+  const other = await f.enter('/sf-decide PMC-1', 'card-chat-other');
+  await answered(other, 'Decide forward amendment FAM-002. Approve FAM-002: the corrected document becomes Plan\'s next version?', 'Yes', REASON);
+  assert.match((await run(other, APPROVE)).permissionDecisionReason, UNBOUND);
+  // The Yes to its own question, with the person's own reason, records it; a No records the rejection, never the approval.
+  const yes = await f.enter('/sf-decide PMC-1', 'card-chat-yes');
+  await answered(yes, 'Decide forward amendment FAM-001. Approve FAM-001: the corrected document becomes Plan\'s next version?', 'Yes', REASON);
+  assert.deepEqual(await run(yes, APPROVE), {});
+  assert.match((await run(yes, APPROVE.replace(REASON, 'The model thinks it is right.'))).permissionDecisionReason, /is not what the person answered/u);
+  const no = await f.enter('/sf-decide PMC-1', 'card-chat-no');
+  await answered(no, 'Decide forward amendment FAM-001. Approve FAM-001: the corrected document becomes Plan\'s next version?', 'No', REASON);
+  assert.deepEqual(await run(no, REJECT), {});
+  assert.match((await run(no, APPROVE)).permissionDecisionReason, UNBOUND);
+  // A renewal stands on the Yes to the question that showed its date; another date is not what they were shown.
+  const renew = await f.enter('/sf-decide PMC-1', 'card-chat-renew');
+  await answered(renew, 'Renew Custom step\'s witness exception for AC-001. Renew it until 2099-01-01?', 'Yes', 'The device lab is still down.');
+  assert.deepEqual(await run(renew, RENEW), {});
+  assert.match((await run(renew, RENEW.replace('2099-01-01', '2099-02-01'))).permissionDecisionReason, UNBOUND);
+  const narrowed = await f.enter('/sf-decide PMC-1', 'card-chat-narrowed');
+  await answered(narrowed, 'Custom step\'s tests ran narrowed (unit). Accept this narrowed run for this step?', 'Yes', 'The narrowed run covers every changed module.');
+  assert.deepEqual(await run(narrowed, NARROWED), {});
+  // A revocation has no row and no question: never a chat's, whatever the person said.
+  assert.equal((await run(narrowed, 'singularity-flow decision test-narrowing PMC-1 --phase custom-step --revoke TNA-001 --reason "The narrowed run covers every changed module."')).permissionDecision, 'deny');
+  // Outside /sf-decide, each stays the person's: a Yes in another turn records nothing.
+  const authoring = await f.enter('/sf-phase', 'card-chat-authoring');
+  await answered(authoring, 'Decide forward amendment FAM-001. Approve FAM-001: the corrected document becomes Plan\'s next version?', 'Yes', REASON);
+  assert.equal((await run(authoring, APPROVE)).permissionDecision, 'deny');
+});
+
+test('a confirmation code is one Yes in chat, never typed: its command runs on the Yes to the question naming the code [owner, 2026-11-28]', async t => {
+  const store = await mkdtemp(path.join(os.tmpdir(), 'sflow-code-yes-'));
+  const previous = process.env.SINGULARITY_FLOW_CONFIRM_CODES;
+  process.env.SINGULARITY_FLOW_CONFIRM_CODES = store;
+  t.after(async () => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_CONFIRM_CODES;
+    else process.env.SINGULARITY_FLOW_CONFIRM_CODES = previous;
+    await rm(store, { recursive: true, force: true });
+  });
+  const f = await fixture(t);
+  const run = (payload, command) => repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const answered = (payload, question, ...words) => repositoryPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question },
+    toolResult: { textResultForLlm: `User responded: ${words.join(', ')}`, resultType: 'success' } });
+  // What kind of software a project is: the person's word, which only a /sf-confirm turn ran before.
+  const kind = `singularity-flow capability kind --confirm sha256:${'c'.repeat(64)}`;
+  const code = rememberConfirmCommand(kind);
+  const other = rememberConfirmCommand(`singularity-flow capability kind --confirm sha256:${'d'.repeat(64)}`);
+  const confirm = `singularity-flow confirm ${code} --for-agent --json`;
+  for (const [index, skill] of ['/sf-decide PMC-1', '/sf-phase'].entries()) {
+    const unasked = await f.enter(skill, `code-yes-unasked-${index}`);
+    const refused = await run(unasked, confirm);
+    assert.match(refused.permissionDecisionReason, UNBOUND, skill);
+    assert.ok(refused.permissionDecisionReason.includes(`ask "Go ahead with this (${code})?" with your question tool`), refused.permissionDecisionReason);
+    // A Yes to another code's question binds nothing here.
+    const elsewhere = await f.enter(skill, `code-yes-other-${index}`);
+    await answered(elsewhere, `Go ahead with this (${other})?`, 'Yes');
+    assert.match((await run(elsewhere, confirm)).permissionDecisionReason, UNBOUND, skill);
+    // The Yes to its own question runs it, by its code; Not now runs nothing.
+    const yes = await f.enter(skill, `code-yes-${index}`);
+    await answered(yes, `The project is a web app. Go ahead with this (${code})?`, 'Yes');
+    assert.deepEqual(await run(yes, confirm), {}, skill);
+    const later = await f.enter(skill, `code-yes-later-${index}`);
+    await answered(later, `Go ahead with this (${code})?`, 'Not now');
+    assert.match((await run(later, confirm)).permissionDecisionReason, /chose Not now/u, skill);
+    // The confirmation typed out is still never this turn's own: only its code, on the Yes.
+    assert.match((await run(yes, kind)).permissionDecisionReason, /what kind of software a project is is the person's word/u, skill);
+  }
+  // An approval by its code stays the person's approval, Yes or not.
+  const approval = rememberConfirmCommand(`singularity-flow approve custom-step --work-id PMC-1 --confirm sha256:${'e'.repeat(64)}`);
+  const approving = await f.enter('/sf-decide PMC-1', 'code-yes-approval');
+  await answered(approving, `Go ahead with this (${approval})?`, 'Yes');
+  assert.equal((await run(approving, `singularity-flow confirm ${approval} --json`)).permissionDecision, 'deny');
 });
 
 // What each host hands the post-tool hook for a row's yes-or-no question, then its reason (copilot-answer-binding.mjs):

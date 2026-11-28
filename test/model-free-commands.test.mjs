@@ -87,17 +87,18 @@ test('every decision the Decide card records has the card as its routes, never "
     'singularity-flow decision test-command PAY-1 --revoke TCD-001 --reason "The repository configures this runner now."',
     'singularity-flow story adjudicate --answers /tmp/answers.json'
   ]) assert.equal(routes(command)[2], null, command);
-  // What the card has no row for keeps no Copilot route: revocations, a visual risk, a witness deferral.
+  // What the card has no row for keeps no Copilot route: revocations.
   for (const command of ['singularity-flow decision test-command PAY-1 --revoke TCD-001 --reason "The repository configures this runner now."',
-    'singularity-flow decision risk PAY-1 --revoke RSK-001 --reason "The lab is back."',
-    'singularity-flow decision visual-risk PAY-1 --comparison visual-0123456789abcdef01234567 --expires 2099-01-01 --reason "One pixel row differs."',
-    'singularity-flow decision witness-defer PAY-1 --criterion PAY-1:AC-001 --slot screen --to build --reason "The later step changes it."'
+    'singularity-flow decision risk PAY-1 --revoke RSK-001 --reason "The lab is back."'
   ]) assert.deepEqual(routes(command).filter((_, at) => at !== 1), [null, null], command);
   // Moved to the card [owner, 2026-11-28]: a forward amendment's two choices and a lapsed exception's renewal are rows it records,
   // and a finding's accepted risk runs from its row on "Do this now"; /sf-decide opens it.
   for (const command of ['singularity-flow upstream-issue decide-amendment FAM-001 --work-id PAY-1 --decision approve --reason "Agreed with the corrected plan." --confirm FAM-001',
     `singularity-flow decision witness-exception PAY-1 --phase build --mapping sha256:${'a'.repeat(64)} --expires 2099-01-01 --reason "The device lab is still down."`,
-    'singularity-flow decision finding-risk PAY-1 --phase build --finding F-0123456789abcdef --expires 2099-01-01 --reason "The nested branches mirror the table."'
+    'singularity-flow decision finding-risk PAY-1 --phase build --finding F-0123456789abcdef --expires 2099-01-01 --reason "The nested branches mirror the table."',
+    // A sign-off handed to a later step and a screen that differs have rows of their own too [owner, 2026-11-28].
+    'singularity-flow decision visual-risk PAY-1 --comparison visual-0123456789abcdef01234567 --expires 2099-01-01 --reason "One pixel row differs."',
+    'singularity-flow decision witness-defer PAY-1 --criterion PAY-1:AC-001 --slot screen --to build --reason "The later step changes it."'
   ]) assert.deepEqual(routes(command).filter((_, at) => at !== 1), ['/sf-decide PAY-1', VSCODE_DECIDE_CARD], command);
 });
 
@@ -117,14 +118,17 @@ test('every person\'s own step the Decide card records has the card as its Copil
     'witness-exception': `singularity-flow decision witness-exception PAY-1 --phase build --mapping sha256:${'a'.repeat(64)} --expires 2099-01-01 --reason "The device lab is still down."`,
     'forward-amendment': 'singularity-flow upstream-issue decide-amendment FAM-001 --work-id PAY-1 --decision approve --reason "Agreed with the corrected plan." --confirm FAM-001'
   };
-  const recorded = PERSON_STEPS.filter((row) => String(row.guard).startsWith('own:') && [row.effect ?? []].flat().some((effect) => EFFECT_ORDER.includes(effect)));
+  // Also a /sf-decide turn's bound yes [owner, 2026-11-28]: the card records them, and so does that turn on the person's Yes.
+  const CHAT_YES = ['test-narrowing', 'test-run-risk', 'evidence-reuse', 'visual-profile', 'witness-exception', 'forward-amendment'];
+  const recorded = PERSON_STEPS.filter((row) => (String(row.guard).startsWith('own:') || CHAT_YES.includes(row.id)) && [row.effect ?? []].flat().some((effect) => EFFECT_ORDER.includes(effect)));
   assert.deepEqual(recorded.map((row) => row.id).sort(), Object.keys(FORMS).sort(), 'a card-recorded own step needs its form here');
   // The card's own steps named by their effects (an amendment's decision and acknowledgement, a settled one's undo).
   const named = [...Object.values(FORMS), 'singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001 --work-id PAY-1',
     'singularity-flow story intent-amendment acknowledge AMD-001 --work-id PAY-1', 'singularity-flow decisions undo PAY-1 --settled STL-001'];
   // Terminal-to-card (ceremony-decisions, owner 2026-11-19): an acknowledgement and an undo are also a /sf-decide turn's
   // bound yes, so they are the person's as answer-bound decisions of that turn, no longer own-terminal steps.
-  const decideYes = new Set(['singularity-flow story intent-amendment acknowledge AMD-001 --work-id PAY-1', 'singularity-flow decisions undo PAY-1 --settled STL-001']);
+  const decideYes = new Set(['singularity-flow story intent-amendment acknowledge AMD-001 --work-id PAY-1', 'singularity-flow decisions undo PAY-1 --settled STL-001',
+    ...CHAT_YES.map((id) => FORMS[id])]);
   for (const command of named) {
     const guidance = safeCommandGuidance(command);
     assert.equal(guidance?.copilotCommand, '/sf-decide PAY-1', command);

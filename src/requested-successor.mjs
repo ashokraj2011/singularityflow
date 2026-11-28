@@ -124,7 +124,7 @@ export function requestedSuccessorConfirmation(workflow, phase, resultDigest, re
  * `phase rollover` for a published, unchanged code generation (requested-successor.mjs): preview the next
  * generation for what the person asked to change, and open it only on their exact confirmation.
  */
-export async function requestedSuccessorRollover(root, config, workflow, phase, options, { correction = null } = {}) {
+export async function requestedSuccessorRollover(root, config, workflow, phase, options, { correction = null, because = null } = {}) {
   const [{ typedFocusOff }, { optionBoolean, optionString, SingularityFlowError }, { generationResultMatches, generationResultDigest },
     { safeCommandGuidance }, { nextPhaseGeneration }, { printCommandRoutes }] = await Promise.all([
     askedFor(), import('./util.mjs'), import('./state-stores.mjs'), import('./safe-command-guidance.mjs'), import('./phase-generation.mjs'),
@@ -174,7 +174,8 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   // The proposal the person answers [OSA §7.1]: its exact version, the publication it keeps and the question asked.
   const opening = await import('./commands/phase-opening.mjs');
   const kind = correction ? 'own-correction' : edited ? 'changed-after-publication' : review && requests.length === 1 ? 'review-corrections' : 'requested-change';
-  const proposed = await opening.proposalNow(root, workflow, phase, { reason: kind, confirmation: expected });
+  // `because`: why the question is the person's (own-correction-rollover.mjs: its starts in a row, or an undo).
+  const proposed = await opening.proposalNow(root, workflow, phase, { reason: kind, confirmation: expected, ...(because ? { because } : {}) });
   // Words the person typed may have been only a question: its third answer keeps them as one, and opens nothing (owner, 2026-11-18).
   // The yes's own confirmation, answered as a question: the same proposal, the same confirmation.
   const questionArgv = kind === 'requested-change' && !typedFocusOff(workflow) ? [...confirmArgv.slice(0, 3), '--as-question', ...confirmArgv.slice(3), '--json'] : null;

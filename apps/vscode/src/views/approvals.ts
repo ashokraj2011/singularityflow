@@ -9,7 +9,7 @@
  * decision easy to find, not easy to make by accident.
  */
 import * as vscode from 'vscode';
-import { buildApprovals, type Approvals, type PendingApproval } from './approvals-model.ts';
+import { buildApprovals, holdRoutes, type Approvals, type PendingApproval } from './approvals-model.ts';
 import { approvalHoldsHtml, contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
@@ -89,7 +89,8 @@ function cardHtml(approval: PendingApproval, standing: StoryStanding | null = nu
     ${approval.reason ? `<p class="muted">${escape(approval.reason)}</p>` : ''}
     <div class="card-foot">
     ${approval.heldBy ? `<p class="muted">${escape(approval.heldBy.headline)}</p>` : ''}
-    ${!approval.heldBy && approval.approvalHolds?.length ? approvalHoldsHtml(approval.approvalHolds) : ''}
+    ${!approval.heldBy && approval.approvalHolds?.length ? approvalHoldsHtml(approval.approvalHolds, { placeOf: (command) => holdRoutes(approval).indexOf(command) })
+      .replaceAll('data-hold-run="', `data-hold-approval="${escape(approval.id)}" data-hold-run="`) : ''}
       ${approval.standing === 'yours'
     ? `${approval.heldBy || approval.decideNext ? `<button data-decide-list="${escape(approval.id)}">Decide what blocks this step</button>`
       : approval.approvalHolds?.length ? '' : `<button data-approve="${escape(approval.id)}">Approve…</button>`}
@@ -158,9 +159,10 @@ const SCRIPT = `
   const vscode = window.__sfVscode;
   document.querySelector('[data-focus]')?.scrollIntoView({ block: 'center' });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-approve],[data-reject],[data-open],[data-decide-list],[data-show-story]');
+    const target = event.target.closest('[data-approve],[data-reject],[data-open],[data-decide-list],[data-show-story],[data-hold-run]');
     if (!target) return;
     if (target.hasAttribute('data-show-story')) vscode.postMessage({ type: 'show-story' });
+    else if (target.dataset.holdRun) vscode.postMessage({ type: 'run-hold', id: target.dataset.holdApproval, route: Number(target.dataset.holdRun) });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.decideList) vscode.postMessage({ type: 'decide-list', id: target.dataset.decideList });
     else if (target.dataset.reject) vscode.postMessage({ type: 'reject', id: target.dataset.reject });
@@ -172,7 +174,9 @@ export type ApprovalsMessage =
   | { type: 'approve'; approval: PendingApproval }
   | { type: 'reject'; approval: PendingApproval }
   | { type: 'open'; approval: PendingApproval }
-  | { type: 'decide-list'; approval: PendingApproval };
+  | { type: 'decide-list'; approval: PendingApproval }
+  // A hold's own route, pressed on its card: the command is the card's, found by its place (holdRoutes).
+  | { type: 'run-hold'; approval: PendingApproval; command: string };
 
 export class ApprovalsPanel {
   private static current: ApprovalsPanel | null = null;
@@ -229,6 +233,13 @@ export class ApprovalsPanel {
       reject: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'reject', approval }); },
       open: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open', approval }); },
       'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy || approval?.decideNext) onMessage({ type: 'decide-list', approval }); },
+      'run-hold': (message) => {
+        const approval = approvalFor(message);
+        const route = (message as unknown as { route?: unknown }).route;
+        const place = typeof route === 'number' ? route : -1;
+        const command = approval ? holdRoutes(approval)[place] : undefined;
+        if (approval && command) onMessage({ type: 'run-hold', approval, command });
+      },
       // The Story this page was opened for is not this window's: the Stories page selects it here (its Attach).
       'show-story': () => { if (this.focusShown().status === 'elsewhere') void vscode.commands.executeCommand('singularityFlow.openWorkspaceStories'); }
     });

@@ -20,7 +20,8 @@ import { fileURLToPath } from 'node:url';
 import { foreignFindingGuidance, phaseResolutionChoices } from '../src/phase-resolution.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const GENERIC = 'No automatic repair or waiver is registered';
+// A finding no rule names: its own draft's to read and correct (no longer "give the maintainer this", owner 2026-11-28).
+const GENERIC = 'No rule names this finding';
 /** Findings whose route is the maintainer by decision, each with why. */
 const MAINTAINER_BY_DECISION = Object.freeze({
   GENERATION_PUBLICATION_INVALID: 'the published commit or its file is missing from the repository; recovery names the same route',

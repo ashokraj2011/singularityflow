@@ -9,6 +9,7 @@
  * is now, as two ordinary commits. Under SF Guard the signature stays in the person's own terminal.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -180,6 +181,12 @@ test('what a decision did is said in words: a partial approval waits for the res
     'AMD-001 is rejected: the approved clauses stay as they are, and every submission stays valid');
   const applied = intentAmendmentOutcome(workflow, { reached: true, applied: true, proposal: { id: 'AMD-001', application: { toSpecificationGeneration: 2 } } });
   assert.deepEqual([applied.generation, applied.words], [2, 'AMD-001 is approved: the amended scope is in force. Acknowledge it next, on this list or in a terminal']);
+  // Ask once (owner, 2026-11-28): its approver alone on the Story has it acknowledged with the approval; otherwise who is asked, and why.
+  const alone = intentAmendmentOutcome(workflow, { reached: true, applied: true, proposal: { id: 'AMD-001', application: {} } }, { recorded: true });
+  assert.deepEqual([alone.acknowledged, alone.words], [true, 'AMD-001 is approved: the amended scope is in force. Approved and acknowledged by you: the steps it reopened can be submitted again']);
+  const why = 'Someone else works on this Story, so one of them reads what AMD-001 changed and acknowledges it before the steps it reopened go on.';
+  const others = intentAmendmentOutcome(workflow, { reached: true, applied: true, proposal: { id: 'AMD-001', application: {} } }, { recorded: false, why });
+  assert.deepEqual([others.acknowledged, others.words], [false, `AMD-001 is approved: the amended scope is in force. ${why} Acknowledge it next, on this list or in a terminal`]);
   const settled = intentAmendmentOutcome(workflow, { reached: true, applied: true, proposal: { id: 'AMD-001', application: { revalidate: [{ phase: 'planning' }] } } });
   assert.match(settled.words, /nothing was reset, and Planning has a row on this list for its approvers$/u);
   for (const outcome of [partial, applied, settled]) assert.doesNotMatch(outcome.words, HEX_RUN);
@@ -216,13 +223,16 @@ test('approved on the card: the amendment is installed and attributed to the car
   const story = await submittedPlanningStory(t, WORK);
   const { cli, git, item, candidate } = story;
   await writeFile(candidate, specification(WORK, 2));
-  cli('story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Review showed that value 2 is required.', '--authored', 'human');
+  // Someone else proposes it, so its acknowledgement after the approval stays theirs to give (ask once, owner 2026-11-28).
+  const proposed = spawnSync(process.execPath, [CLI, '--no-model', 'story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Review showed that value 2 is required.',
+    '--authored', 'human'], { cwd: path.resolve(item, '../../..'), encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Second Proposer' } });
+  assert.equal(proposed.status, 0, proposed.stdout + proposed.stderr);
   const list = () => data(cli('decisions', WORK, '--json'));
   let packet = list();
   const decision = packet.items.find((entry) => entry.kind === 'intent-amendment');
   assert.deepEqual(decision.details.lines, ['AC-001 is revised from "The user sees the value 1." to "The user sees the value 2."',
     'REQ-002 is revised from "The application returns the value 1." to "The application returns the value 2."']);
-  assert.match(decision.details.proposedBy, /^History Tester proposed it; a person wrote the wording: "Review showed that value 2 is required\."\.$/u);
+  assert.match(decision.details.proposedBy, /^Second Proposer proposed it; a person wrote the wording: "Review showed that value 2 is required\."\.$/u);
   assert.match(decision.details.reach, /Files: src\/value\.mjs\. Tests: test\/value\.test\.mjs\. If it is approved: Planning is reopened: /u);
   // Another proposal waits for this one, and its refusal names the card first.
   const again = story.run(process.execPath, [CLI, '--no-model', 'story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Another change.', '--json'], { allowFailure: true });
@@ -232,6 +242,7 @@ test('approved on the card: the amendment is installed and attributed to the car
   assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).intentAmendments[0].sourcePhase, 'planning', 'the step it was proposed in');
   const decided = data(await cardRecord(story, WORK, { [decision.id]: 'approve' }, packet.packetSha256));
   assert.match(decided.decided[0].words, /^Approve AMD-001: approve AMD-001: the approved clauses change and the steps that cite them reopen \(intent amendment decision\)\. AMD-001 is approved: the amended scope is in force/u);
+  assert.match(decided.decided[0].words, /Someone else works on this Story, so one of them reads what AMD-001 changed and acknowledges it/u);
   const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflow.phases.specification.generation, 2, 'the amended scope is the new generation');
   const amendment = workflow.intentAmendments.find((entry) => entry.id === 'AMD-001');
@@ -266,6 +277,8 @@ test('approved on the card: the amendment is installed and attributed to the car
   assert.equal(packet.versionOpening, undefined, 'the card does not ask the version question before the acknowledgement');
   const acknowledge = packet.items.find((entry) => entry.kind === 'intent-amendment');
   assert.equal(acknowledge.title, 'Acknowledge intent amendment AMD-001');
+  // Why they are asked at all, in one line: someone else works on this Story (ask once, owner 2026-11-28).
+  assert.match(acknowledge.why, / Someone else works on this Story, so one of them reads what AMD-001 changed and acknowledges it before the steps it reopened go on\.$/u);
   data(await cardRecord(story, WORK, { [acknowledge.id]: 'acknowledge' }, packet.packetSha256));
   const after = await workflowNow();
   assert.equal(typeof after.intentAmendments[0].acknowledgedAt, 'string');

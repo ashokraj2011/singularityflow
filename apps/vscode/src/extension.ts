@@ -7700,9 +7700,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const onApprovalsMessage = async (message: ApprovalsMessage): Promise<void> => {
     const { approval } = message;
     const initiative = store.current.snapshot?.initiative;
-    // Held by decisions: the decision list for the same step, where the approval page would send them.
+    // Held by decisions: the Decide card for the same Story, which records them; never the older list, whose own buttons led
+    // back here [owner, 2026-11-28].
     if (message.type === 'decide-list') {
-      return void vscode.commands.executeCommand('singularityFlow.decisions', { workId: approval.workId, phase: approval.phase });
+      if (approval.workId) await lazyPanels().reviewDecisions(client, { workId: approval.workId }, refreshAfterKnownMutation);
+      return;
+    }
+    // A hold's own route, pressed on its card: the Decide card for the decision list, else the exact command, run here.
+    if (message.type === 'run-hold') {
+      const argv = message.command.replace(/^singularity-flow\s+/u, '').split(/\s+/u).filter(Boolean);
+      if (argv[0] === 'decisions' && argv.length === 2 && approval.workId) {
+        await lazyPanels().reviewDecisions(client, { workId: approval.workId }, refreshAfterKnownMutation);
+        return;
+      }
+      return void runNode({ kind: 'action', id: approval.id, label: approval.label, command: argv });
     }
     if (message.type === 'open') {
       if (approval.artifactPath) {
@@ -9889,9 +9900,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return result;
     },
     // Everything a step waits on, on one page: a Story ID in, and what the person recorded back.
-    'singularityFlow.decide': async (target?: { workId?: unknown }) => {
-      const selected = target ?? { workId: store.current.snapshot?.workflow?.workItem.id ?? '' };
-      const result = await lazyPanels().reviewDecisions(client, selected, refreshAfterKnownMutation, { askedInChat: target !== undefined });
+    'singularityFlow.decide': async (target?: { workId?: unknown; forApproval?: unknown }) => {
+      // From the approval page's "Decide what blocks this step": only what blocks it, and that page comes back after it.
+      const forApproval = target?.forApproval === true;
+      const selected = forApproval ? { workId: target?.workId } : target ?? { workId: store.current.snapshot?.workflow?.workItem.id ?? '' };
+      const result = await lazyPanels().reviewDecisions(client, selected, refreshAfterKnownMutation, { askedInChat: target !== undefined && !forApproval, forApproval });
+      if (forApproval) return result;
       if (result.message) void showCompactInformationMessage(result.message);
       // A task's step that goes on after the decision carries its chat on, as after a page approval [ITW:REQ-008, REQ-015].
       if (typeof selected.workId === 'string') await continueTaskAfterDecision(selected.workId, result, target !== undefined);

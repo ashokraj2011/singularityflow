@@ -610,7 +610,8 @@ export const REVIEW_EFFECTS = Object.freeze({
   // record change (approval-check.mjs); any other synchronization or link stales the submission.
   [LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED]: 'stales-submission',
   [LIFECYCLE_EVENT.BRANCH_LINKED]: 'stales-submission',
-  [LIFECYCLE_EVENT.TELEMETRY_RECORDED]: 'stales-submission',
+  // SFlow's own record, verified as exactly that (record-writer-commit.mjs) [owner, 2026-11-28].
+  [LIFECYCLE_EVENT.TELEMETRY_RECORDED]: 'review-safe',
   [LIFECYCLE_EVENT.PROJECTION_RECONCILED]: 'stales-submission',
   [LIFECYCLE_EVENT.IMPACT_CLASSIFIED]: 'stales-submission',
   [LIFECYCLE_EVENT.IMPACT_OPTED_OUT]: 'stales-submission',
@@ -633,6 +634,9 @@ const REVIEW_SAFE_DECISION_LISTS = Object.freeze(Object.entries(REVIEW_EFFECTS)
     list, event, decision: key.slice('decision-made:'.length)
   }))));
 
+/** A Story state read at a commit: past Git's 1 MB default, so a long Story's decisions still classify (d-story, 2026-11-23). */
+export const STORY_STATE_OBJECT_BYTES = 16 * 1024 * 1024;
+
 /**
  * One single-parent governed commit's Story state on either side of it, or null when it is not one
  * or cannot be read. `ownPaths` are the files every such commit writes: workflow.json, STATUS.md and,
@@ -654,8 +658,8 @@ export function governedStateChange(root, config, workflow, commit) {
   let before;
   let after;
   try {
-    before = JSON.parse(exactFileAtObject(root, parent, stateFile)?.toString('utf8') ?? 'null');
-    after = JSON.parse(exactFileAtObject(root, identity.commit, stateFile)?.toString('utf8') ?? 'null');
+    before = JSON.parse(exactFileAtObject(root, parent, stateFile, { maximumBytes: STORY_STATE_OBJECT_BYTES })?.toString('utf8') ?? 'null');
+    after = JSON.parse(exactFileAtObject(root, identity.commit, stateFile, { maximumBytes: STORY_STATE_OBJECT_BYTES })?.toString('utf8') ?? 'null');
   } catch { return null; }
   if (!before || !after) return null;
   const intentFile = projectedLedgerIntentFile(item, after.publicationProjections?.at(-1));
@@ -735,6 +739,15 @@ function applicabilityDecisionCommit(root, config, workflow, commit, workflowTas
 }
 
 /**
+ * Whether a commit is SFlow's own record, which changes nothing a review saw: a review-safe decision, or a record writer's
+ * (record-writer-commit.mjs). The one classifier the approval's history check and an Auto resume read [owner, 2026-11-28].
+ */
+export async function sflowRecordCommit(root, config, workflow, commit, workflowTaskDeltaSafe) {
+  return applicabilityDecisionCommit(root, config, workflow, commit, workflowTaskDeltaSafe)
+    || (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'record-writer-commit.mjs')).href)).recordWriterCommit(root, config, workflow, commit);
+}
+
+/**
  * The commits after `from` up to `to` when each is one human governance decision, else null.
  *
  * Auto stops where a person must decide: why an omitted responsibility does not apply, a scope
@@ -755,7 +768,7 @@ export async function onlyHumanDecisionCommits(root, config, workflow, from, to)
   for (const commit of commits) {
     const identity = governedCommitIdentity(root, commit);
     if (identity?.parents.length !== 1 || identity.parents[0] !== parent) return null;
-    if (!applicabilityDecisionCommit(root, config, workflow, commit, workflowTaskDeltaSafe)) return null;
+    if (!(await sflowRecordCommit(root, config, workflow, commit, workflowTaskDeltaSafe))) return null;
     parent = commit;
   }
   return parent === to ? commits : null;
@@ -5802,7 +5815,9 @@ async function submitPhaseTransition(root, config, workflow, {
     itemDirectory: storyLocation(root, config, workflow.workItem.id).directory,
     targetGeneration: phase.generation
   });
-  if (mcpEvidence.errors.length) throw new SingularityFlowError(`Phase ${phase.id} MCP evidence is not ready:\n- ${mcpEvidence.errors.join('\n- ')}`, { code: 'MCP_EVIDENCE_REQUIRED' });
+  if (mcpEvidence.errors.length) throw new SingularityFlowError(`Phase ${phase.id} MCP evidence is not ready:\n- ${mcpEvidence.errors.join('\n- ')}`, { code: 'MCP_EVIDENCE_REQUIRED',
+    ...(mcpEvidence.routes?.length ? { details: { phase: phase.id, nextAction: { command: mcpEvidence.routes[0], label: 'Set up the browser check, then capture the page again' },
+      recoveryCommands: mcpEvidence.routes.map((command) => ({ command })) } } : {}) });
   if (phaseNeedsGeneration(workflow, phase)) await enforceSequenceGate(root, workflow, 'freshGeneration', 'submit for approval', {
     requestedPhase: phase.id,
     reason: phase.generation < 1 ? 'The phase has no published generation.' : 'The phase was returned for correction and has not been regenerated.'
@@ -6885,7 +6900,7 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
   if (unallowed().length) {
     const { workflowTaskDeltaSafe } = await import('./workflow-task.mjs');
     for (const commit of unallowed()) {
-      if (applicabilityDecisionCommit(root, config, workflow, commit, workflowTaskDeltaSafe)) allowedReviewCommits.add(commit);
+      if (await sflowRecordCommit(root, config, workflow, commit, workflowTaskDeltaSafe)) allowedReviewCommits.add(commit);
     }
   }
   if (workflow.applicationReviews?.length && unallowed().length) {

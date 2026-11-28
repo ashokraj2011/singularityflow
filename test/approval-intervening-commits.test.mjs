@@ -32,7 +32,9 @@ const DECIDE = `singularity-flow story intent-amendment decide AMD-001 --decisio
 // The decisions card, which /sf-decide opens and VS Code's Decide shows: where a scope approver decides it [owner, 2026-11-13].
 const CARD = `singularity-flow decisions ${WORK}`;
 const DECIDE_STEPS = ['inspect-intent-amendment', 'decide-intent-amendment-on-card', 'leave-approval-turn', 'decide-intent-amendment'];
-const EXISTING_ROUTES = ['inspect-current-phase', 'leave-approval-turn', 'inspect-current-phase-evidence'];
+// A commit that is not SFlow's own record: Send back leads, then the approval turn's own steps [owner, 2026-11-28].
+const EXISTING_ROUTES = ['send-back-changed-step', 'leave-approval-turn', 'inspect-current-phase'];
+const SEND_BACK = `singularity-flow reject planning --work-id ${WORK} --fetch --to planning --reason <reason>`;
 const NO_ROUTE = 'no verified equivalent';
 
 function refusal(details, code = 'STORY_REVIEW_INTERVENING_COMMIT') {
@@ -144,7 +146,7 @@ test('the intent-amendment crosswalk routes only drafting and proposing, to /sf-
   }
 });
 
-test('commits of any other kind keep the step\'s own next-step read and the new-turn reject routes', () => {
+test('commits of any other kind lead with Send back, then the step\'s own next-step read, in a new turn', () => {
   for (const details of [
     { blockingCommitCount: 1, blockingCommits: [{ commit: '2555541e97d0', subject: 'Unrelated empty commit', kind: 'commit' }] },
     // A decided amendment whose commits record more than its proposal and rejection waits for no one:
@@ -157,8 +159,10 @@ test('commits of any other kind keep the step\'s own next-step read and the new-
   ]) {
     const plan = refusalRemediationPlan(refusal(details), APPROVE);
     assert.deepEqual(plan.steps.map((step) => step.id), EXISTING_ROUTES);
+    assert.equal(plan.steps[0].command, SEND_BACK);
+    assert.match(plan.steps[0].label, /^Planning changed after it was reviewed, so this is not what was reviewed: Send back so the change is reviewed\./u);
     // The submitted step's own next action, read in a new turn; recovery only for a damaged step [D4, OSA:REQ-011].
-    assert.equal(plan.steps[0].command, `singularity-flow nextsteps ${WORK} --json`);
+    assert.equal(plan.steps[2].command, `singularity-flow nextsteps ${WORK} --json`);
     assert.equal(plan.context.strategy, 'new-turn-repair');
   }
 });
@@ -334,13 +338,15 @@ test('approving an amendment reopens the step awaiting approval, so its acknowle
   // and never sits between a submission and its approval.
   await writeFile(candidate, specification(WORK, 1).replace('## Scenario coverage', `- The value is logged once. [${WORK}:REQ-009]\n\n## Scenario coverage`));
   cli('story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Review showed the value must be logged.');
-  cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001');
+  // Nobody else works on this Story, so the approver's acknowledgement is recorded right after the approval, in its own
+  // commit, and said in one line (ask once, owner 2026-11-28).
+  assert.match(cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001').stdout, /Approved and acknowledged by you: AMD-001 is in force/u);
   const reopened = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(reopened.phases.planning.status, 'in_progress');
-  assert.equal(JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout).classification, 'amendment-acknowledgement-required');
+  assert.equal(typeof reopened.intentAmendments[0].acknowledgedAt, 'string');
+  assert.notEqual(JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout).classification, 'amendment-acknowledgement-required');
   // Its acknowledgement adds amendment records only, so it is review-safe too (REVIEW_EFFECTS, SPEC-OAP M2).
-  const approved = git('rev-parse', 'HEAD');
-  cli('story', 'intent-amendment', 'acknowledge', 'AMD-001');
+  const approved = git('rev-parse', 'HEAD~1');
   const acknowledgement = git('rev-parse', 'HEAD');
   const { loadConfig, reviewHistoryCommits } = await import('../src/state.mjs');
   const root = path.resolve(item, '../../..');

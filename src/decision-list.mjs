@@ -23,6 +23,7 @@ import { clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, r
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { personClass } from './person-change-class.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
+import { acknowledgementWhy, otherPeopleOnStory } from './amendment-acknowledgement.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { recordSha256 } from './records.mjs';
@@ -36,9 +37,10 @@ import { automaticApprovalsBefore, coveredStep, finalScopeStep, isConformancePha
 import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnJoin, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { advisedItem, reopenWords } from './decision-advice.mjs';
-import { findingOverrideCommand, returnRoute, reviewDisputeCommand } from './action-command-map.mjs';
+import { findingOverrideCommand, returnRoute, reviewDisputeCommand, sendBackCommand } from './action-command-map.mjs';
 import { disputedFindingWords } from './review-dispute-words.mjs';
 import { behaviourCommands, testEditWords } from './refactor-behaviour.mjs';
+import { adviceForStep } from './step-advice.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
 export const DECISION_LIST_REVISION = 'decision-list-v1';
@@ -928,7 +930,9 @@ function intentAmendmentItem(workflow, context, amendment) {
     return {
       kind: 'intent-amendment', title: `Acknowledge intent amendment ${id}`,
       // Which steps, and what acknowledging lets them do, in plain words [owner, 2026-11-18: "the reopened step can revalidate"].
-      why: `${id} was approved and changed ${clauses}, so ${listWords((amendment.affectedPhases ?? []).map((phaseId) => stepName(workflow, phaseId))) || 'the steps it reopened'} can be submitted again once someone acknowledges it.`,
+      why: `${id} was approved and changed ${clauses}, so ${listWords((amendment.affectedPhases ?? []).map((phaseId) => stepName(workflow, phaseId))) || 'the steps it reopened'} can be submitted again once someone acknowledges it.`
+        // Why someone is asked at all: an approver alone on the Story has it acknowledged at approval (ask once, 2026-11-28).
+        + `${(() => { const others = otherPeopleOnStory(workflow, amendment.decision?.actor ?? context.actor); return others ? ` ${acknowledgementWhy(id, others)}` : ''; })()}`,
       // A bound yes in chat too, unless SF Guard signs it [owner, 2026-11-19].
       options: [{ ...option(workflow, context, { id: 'acknowledge', label: `I read ${id}: acknowledge it`,
         words: 'Anyone working on this Story may acknowledge it, here or in their own terminal, once they have read what it changed.',
@@ -2040,14 +2044,19 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
     ...outside.map((entry) => `Changed outside the plan: ${entry.words.replace(/[.\s]+$/u, '')}.`),
     ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : []),
     ...disputes.map((entry) => entry.words), ...overrides];
+  // Why the person is asked and what each choice does, by what the step is for, never by its workflow (step-advice.mjs).
+  const advice = adviceForStep(workflow, phase.id, context.facts?.stepIntent ?? null);
+  const standing = `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}${ownTerminal ? ' It takes your signature, in your own terminal.' : ''}`;
   return {
     kind: 'approval', title: `Approve ${name}`,
-    why: `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}${ownTerminal ? ' It takes your signature, in your own terminal.' : ''}`,
+    why: `${advice.decides} ${standing}`,
     options: [{ ...personalStep({ id: 'approve', label: heldBy.length ? `Approve ${name} once ${listWords(heldBy)} ${heldBy.length === 1 ? 'is' : 'are'} done` : `Review and approve ${name}`,
       command: `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, words: `You read its documents and say Yes to "Approve ${name} v${Number(phase.generation ?? 0)}?" once: on the approval page, with /sf-approve or in your own terminal.`,
-      does: `Records your approval of ${name} version ${Number(phase.generation ?? 0)} once you reviewed its documents; the Story moves on when ${minimum} approval${minimum === 1 ? ' is' : 's are'} recorded.` }),
+      does: `${advice.yes}${minimum > 1 ? ` The Story moves on when ${minimum} approvals are recorded.` : ''}` }),
     decidedBy: stepDecidedBy(workflow, context, approvers(workflow, phase.id), 'You read its documents and say Yes once.') }],
-    details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length,
+    // Send back, filled but for the person's reason: the approval page runs it with theirs [owner, 2026-11-28].
+    details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length, advice,
+      sendBack: sendBackCommand(workId, phase.id),
       ...(reviewed.length ? { ledger: { settled: ledger, issues: raised }, lines: reviewed } : {}),
       ...(leftOut.length ? { notPartOfTask: leftOut } : {}),
       ...(outside.length ? { outsidePlan: outside } : {}),

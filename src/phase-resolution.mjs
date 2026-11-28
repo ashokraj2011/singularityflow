@@ -1,7 +1,7 @@
 /** Shared, read-only recovery choices. A route is not authority or a successful check. */
 import { createHash } from 'node:crypto';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { submitRoute } from './action-command-map.mjs';
+import { sendBackCommand, submitRoute } from './action-command-map.mjs';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { correctionPlan, planCorrectsFirst, coverageScopeReviewPaths, repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding, activeRepairPhase, openScopeAppeal, phaseCorrectionTargets, phaseRepairActionAdmission } from './phase-finding-policy.mjs';
@@ -136,6 +136,18 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   const policy = foreignApproved && basePolicy.repairableByProducer && !planFirst
     ? Object.freeze({ ...basePolicy, classification: 'upstream-owner', repair: 'review-approved-input', repairableByProducer: false })
     : basePolicy;
+  // What the person can do now with published work that no longer matches what was saved: send the step back while it
+  // waits for approval, else the step's own next route, which restores or opens a version from what is saved. Never
+  // "give it to the maintainer" with nothing to press [owner, 2026-11-28].
+  const savedWorkRoute = (why) => {
+    if (phase.status === 'awaiting_approval') {
+      return route('send-back', 'phase-approval-authority', sendBackCommand(workId, phase.id).split(' ').slice(1),
+        `${why} Send ${phase.id} back: its author writes a new version from what is saved, and your reason goes to it.`, '/sf-reject');
+    }
+    const next = stepRoute(workflow, phase);
+    return next?.argv && next.argv[0] !== 'recover' ? route('new-version', phase.id, next.argv, `${why} ${next.detail}`, next.skill)
+      : { ...damage, detail: `${why} See exactly what is saved; its own route restores it or starts a new version.` };
+  };
   const preserve = route('preserve-checkpoint', phase.id,
     ['appeal', 'checkpoint', '--work-id', workId, '--phase', phase.id, '--json'],
     'Save private recovery copies of dirty files and the index. No commit, discard, publication or phase advance.', '/sf-appeal');
@@ -200,8 +212,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
         '--clause', '<CLAUSE-ID>', '--method', 'visual', '--reason', '<reason>', '--json'],
       'Keep the pending evidence as it is. The plan\'s approvers review the evidence change before it is published, in SFlow\'s browser or your terminal; nothing here passes a visual check or skips a test.', '/sf-appeal');
   } else if (code.startsWith('generation_publication')) {
-    resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
-      'Check the saved publication and its files. Restore them as published, or return the step for a reviewed new version; refreshing configuration or accepting a risk cannot make changed files valid.', '/sf-doctor');
+    resolution = savedWorkRoute('The published files no longer match what was saved; accepting a risk cannot make changed files valid.');
   } else if (code === 'phase_quality_risk_pending_tests') {
     resolution = route('submission-evidence', phase.id, submitRoute(workflow, phase).command.replace(/^singularity-flow /u, '').split(' '),
       'Run fresh tests on the published version and record what they show before the quality risk is reviewed. No test or evidence is waived.', '/sf-submit');
@@ -214,14 +225,13 @@ export function phaseResolutionChoices(workflow, phase, finding) {
         'Preserve the new draft separately and restore exact reviewed bytes from the authenticated publication. Submit the restored publication for authorized return if its content needs rework.', '/sf-phase-documents');
   } else if (code === 'specification_claim_map_binding_stale'
       || code === 'specification_claim_map_binding_required') {
-    resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
-      'Check the record of the clauses this step\'s published version covers. If it is damaged, restore the published files or redo the step; refreshing configuration or accepting a risk cannot fix it.', '/sf-doctor');
+    resolution = savedWorkRoute('The record of the clauses this step\'s published version covers does not match it; accepting a risk cannot fix it.');
   } else if (code === 'phase_repair_recheck_required') {
     resolution = route('repair-resume', phase.id, ['appeal', 'repair-resume', '--phase', phase.id, '--json'],
       'Resume the same durable attempt and rerun its gates. Do not start a new budget or blindly repeat the interrupted operation.', '/sf-appeal');
   } else if (code.startsWith('phase_repair_journal')) {
-    resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
-      'Preserve the private repair journal for diagnosis. Never delete or reset it to obtain a new budget.', '/sf-doctor');
+    // The journal stays as it is: its exact preserved state, whose own route goes on from it.
+    resolution = { ...damage, detail: 'The private repair journal is kept as it is (never deleted or reset for a new budget). See its exact preserved state; its own route goes on from it.' };
   } else if (policy.classification === 'integrity-or-authority'
       || /protected|authority|identity|provenance|snapshot|configuration|integrity|source.boundary/u.test(code)
       || ['configuration', 'integrity'].includes(category)) {
@@ -229,8 +239,9 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       ['workspace', 'refresh-configuration', '--dry-run'],
       'Preserve the edit. Use the original configuration authority or restore reviewed bytes; an ordinary appeal cannot waive integrity.', '/sf-workspace');
   } else if (/appeal.*(?:path.unsupported|too.large)/u.test(code)) {
-    resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
-      'Preserve the exact file. Split an oversized review, or use a qualified owner review for binary, rename, deletion or link changes; ordinary scope accounting cannot approve it.', '/sf-doctor');
+    // A scope appeal cannot carry this file: the plan's approvers say where it belongs on the Decide card instead.
+    resolution = route('plan-amendment', 'plan-approval-authority', ['decisions', workId],
+      'A scope appeal cannot carry this file (too large, binary, renamed, deleted or a link). An approver of the plan says where it belongs on the Decide card; the file is kept as it is.', '/sf-decide');
   } else if (/appeal.*lifecycle/u.test(code)) {
     resolution = damage;
   } else if (category === 'appeal' || code.includes('appeal')) {
@@ -369,8 +380,12 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     const next = ownCommand(finding.details.nextAction);
     resolution = route('finding-route', phase.id, next.argv, next.label ?? finding.message ?? 'Run the command this finding names.', next.skill ?? null);
   } else {
-    resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
-      'No automatic repair or waiver is registered for this finding. Give the maintainer this exact finding and preserved-state diagnostics.', '/sf-doctor');
+    // No rule names this finding: the person's own way now, never "give it to the maintainer" [owner, 2026-11-28].
+    // Overridden with their reason where its gate offers it (the override below leads), else corrected in the draft.
+    resolution = phase.status === 'awaiting_approval'
+      ? savedWorkRoute('No rule names this finding, so it cannot be fixed in a version that waits for approval.')
+      : route('author-correction', phase.id, ownRecheck,
+        `No rule names this finding yet: read what it says (${findingDocumentation(finding).command}), correct it in ${phase.id}'s draft if it is right, then recheck.`, author());
   }
   // Coverage the code step did not deliver where the plan put it may be the plan's fault: its own
   // corrections and the upstream issue go with the route, never in its place [PHR:REQ-003].
@@ -402,22 +417,25 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       '--evidence-file', '<PATH>', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
     'When every listed item is delivered and the finding still returns unchanged, the check is misreading the work: stop repairing and prepare a dispute with the evidence (test output, the test file). One of the step\'s approvers reviews it live and may accept it as an exception for this exact candidate; it is recorded as an exception, never a pass, and tests still run.',
     '/sf-appeal') : null;
-  const lead = planFirst && gapRoutes[0]?.kind === 'author-correction' ? gapRoutes[0] : resolution;
   // A finding its gate lets a person override (finding-overrides.mjs): their way past it when the check is wrong [owner, 2026-11-23].
   const override = finding.override?.key ? route('override', 'phase-approval-authority',
     ['decision', 'override-finding', workId, '--phase', phase.id, '--finding', finding.override.key, '--reason', '<why>'],
     `If the check is wrong, a person ${phase.id}'s approval rules name overrides it with their reason; it then shows as overridden, never passed. Never the agent's decision.`, '/sf-decide') : null;
-  const choices = [lead, ...[resolution, ...gapRoutes].filter((choice) => choice !== lead), ...(dispute ? [dispute] : []), ...(override ? [override] : []), ...(upstreamReturn ? [upstreamReturn] : []), recovery];
+  // A finding no rule names leads with the person's override when its gate offers one.
+  const unnamed = resolution.kind === 'author-correction' && resolution.detail.startsWith('No rule names this finding');
+  const lead = unnamed && override ? override : planFirst && gapRoutes[0]?.kind === 'author-correction' ? gapRoutes[0] : resolution;
+  const choices = [lead, ...[resolution, ...gapRoutes].filter((choice) => choice !== lead), ...(dispute ? [dispute] : []), ...(override && override !== lead ? [override] : []), ...(upstreamReturn ? [upstreamReturn] : []), recovery];
   if (!foreignApproved && isArtifactQualityFinding(finding)) choices.splice(1, 0, route('pilot-risk-review', 'phase-approval-authority',
     ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', phaseFindingCode(finding),
       '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
     'An authorized human may carry this exact document-quality shortfall through the selected transitions. It remains unmet, not passed; tests, trust and phase approval remain required.', '/sf-appeal'));
   // No finding may route only back to its own author [recoverable-findings M4]: when the author
   // cannot fix it because the check misreads correct work, someone else must be named.
-  if (!choices.some((choice) => choice.owner !== phase.id)) choices.push(route('maintainer-escalation', 'workflow-maintainer',
-    ['doctor', '--json'],
-    `If the author cannot fix this because the check misreads correct work, give the workflow maintainer the exact finding, its entry (${findingDocumentation(finding).command}) and this output; the check is then the defect. Nothing is waived and the work is preserved.`,
-    '/sf-doctor'));
+  // The one case that is truly someone else's: the check itself is wrong and its gate offers no override. Its entry is the
+  // exact text to send them, printed by SFlow, and the work is kept; nothing else waits on it [owner, 2026-11-28].
+  if (!choices.some((choice) => choice.owner !== phase.id)) choices.push(route('check-defect', 'sflow-maintainer',
+    findingDocumentation(finding).argv ?? ['explain', 'findings'],
+    'If your draft is right and this check still names it, the check is wrong: this prints the exact text to send SFlow\'s maintainer. Your work is kept.'));
   if (activeRepairPhase(workflow, phase)) choices.push(preserve);
   // A gap's return routes run once this step is submitted. They say so, and their admission says not yet.
   const admitted = choices.filter(choice => gapRoutes.includes(choice) || !routeRefusedForStory(workflow, choice, phase))

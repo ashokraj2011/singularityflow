@@ -85,7 +85,7 @@ What moved with the rule, each to the new contract: a retained review correction
 
 ## 5 Owner decisions
 
-D1–D8 stand, the author's own correction asks the person, version 1 of a document step stays off by default, and VS Code's `runSubagent` stays a qualified reviewer. New ones, each with the most conservative behaviour taken:
+D1–D8 stand, the author's own correction asks the person (reversed 2026-11-28: SFlow starts it, with an undo, at most 2 in a row), version 1 of a document step stays off by default, and VS Code's `runSubagent` stays a qualified reviewer. New ones, each with the most conservative behaviour taken:
 
 | # | Decision | What was done; recommendation |
 |---|---|---|

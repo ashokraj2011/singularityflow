@@ -187,6 +187,11 @@ export interface ApprovalHoldView { code: string; owner: string; who: string; su
  * The holds an approval would be refused for that someone other than the approver clears, from an
  * untrusted CLI result, bounded. The approver's own answers (`you-decide`) are the form's business.
  */
+/** A hold's own routes on its card, by place: its button names the place, and the host runs the command found here. */
+export function holdRoutes(approval: { approvalHolds?: ApprovalHoldView[] }): string[] {
+  return [...new Set((approval.approvalHolds ?? []).map((hold) => hold.action?.command).filter((command): command is string => Boolean(command)))];
+}
+
 export function approvalHolds(value: unknown): ApprovalHoldView[] {
   const check = value && typeof value === 'object' ? value as Record<string, unknown> : null;
   const text = (entry: unknown, limit = 400) => (typeof entry === 'string' && entry.trim() ? entry.slice(0, limit) : null);

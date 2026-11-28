@@ -551,8 +551,9 @@ export async function verifiedStoryTestRiskReviewCommits(root, config, workflow,
     try {
       const identity = governedCommitIdentity(root, commit);
       if (identity?.parents.length !== 1) continue;
-      const beforeBytes = exactFileAtObject(root, identity.parents[0], workflowPath, { maximumBytes: MAX_BYTES });
-      const afterBytes = exactFileAtObject(root, commit, workflowPath, { maximumBytes: MAX_BYTES });
+      // A long Story's state passes the record limit; read it as every commit classifier does (STORY_STATE_OBJECT_BYTES).
+      const beforeBytes = exactFileAtObject(root, identity.parents[0], workflowPath, { maximumBytes: 16 * 1024 * 1024 });
+      const afterBytes = exactFileAtObject(root, commit, workflowPath, { maximumBytes: 16 * 1024 * 1024 });
       if (!beforeBytes || !afterBytes) continue;
       const before = JSON.parse(beforeBytes.toString());
       const after = JSON.parse(afterBytes.toString());

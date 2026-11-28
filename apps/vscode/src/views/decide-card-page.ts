@@ -28,6 +28,89 @@ const DATE_SLOT = /<YYYY-MM-DD>/u;
 export const RUN_WORDS = 'Do this now runs this step for you with what you wrote here; Put it in a terminal types it in for you to run.';
 /** Beside a step that is only a preview (it shows a plan and changes nothing): it is typed into a terminal, never run as if done. */
 export const PREVIEW_WORDS = 'This shows what it would do first: Put it in a terminal types it in for you to run.';
+/**
+ * A row's preview the card shows before one Yes runs it [owner, 2026-11-28]: leaving changes out of a step
+ * (`recover W --phase P --json`), whose plan lists the files that go back and the plan it is confirmed by. Null for any other.
+ */
+export const setAsidePreviewArgv = (command: string): string[] | null => {
+  const match = /^singularity-flow recover ([A-Za-z0-9][A-Za-z0-9._-]*) --phase ([A-Za-z0-9][A-Za-z0-9._-]*) --json$/u.exec(String(command ?? '').trim());
+  return match ? ['recover', match[1]!, '--phase', match[2]!, '--json'] : null;
+};
+/** What a set-aside preview returned: the files and the plan its one Yes confirms, or null when it offers none. */
+export interface SetAsidePreview { kind?: 'set-aside'; option: string; item: string; workId: string; phase: string; planId: string; paths: string[] }
+export function setAsidePreviewOf(result: unknown, at: { option: string; item: string; workId: string; phase: string }): SetAsidePreview | null {
+  const seen = new Set<unknown>();
+  const find = (value: unknown, depth = 0): SetAsidePreview | null => {
+    if (!value || typeof value !== 'object' || seen.has(value) || depth > 6) return null;
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    const actions = Array.isArray(record.actions) ? record.actions as Array<Record<string, unknown>> : [];
+    const action = actions.find((entry) => entry?.id === 'set-aside-worktree');
+    const planId = typeof record.planId === 'string' && /^[A-Za-z0-9._:-]{8,160}$/u.test(record.planId) ? record.planId : null;
+    const paths = Array.isArray(action?.paths) ? (action!.paths as unknown[]).filter((entry): entry is string => typeof entry === 'string').slice(0, 200) : [];
+    if (action && planId && paths.length) return { ...at, planId, paths };
+    for (const child of Object.values(record)) { const found = find(child, depth + 1); if (found) return found; }
+    return null;
+  };
+  return find(result);
+}
+/** The one Yes that sets the previewed files aside, bound to the plan the preview showed. */
+export const setAsideArgv = (preview: SetAsidePreview) => ['recover', preview.workId, '--phase', preview.phase, '--set-aside', '--confirm', preview.planId];
+/** The preview on the card: the files that go back, that a private copy is kept first, and the one button that does it. */
+export function setAsidePreviewHtml(preview: SetAsidePreview | null): string {
+  if (!preview) return '';
+  return `<section class="dc-own dc-preview" aria-label="What setting aside does"><p><strong>These ${preview.paths.length === 1 ? 'file goes' : `${preview.paths.length} files go`} back to their committed bytes.</strong>
+    SFlow first keeps a private copy of every changed file and the Git index, so it can be undone; nothing else changes.</p>
+    <ul class="dc-ev-list">${preview.paths.map((file) => `<li>${escape(file)}</li>`).join('')}</ul>
+    <button type="button" data-preview-apply>Set ${preview.paths.length === 1 ? 'it' : 'them'} aside</button> <button type="button" class="secondary" data-preview-cancel>Not now</button></section>`;
+}
+/**
+ * The web address a Story's browser checks trust, named on its row [owner, 2026-11-28]: the Story its preview
+ * (`story target-origin W --url <AUTHORIZED-URL> --json`) is for, or null for any other command.
+ */
+export const targetOriginWork = (command: string): string | null =>
+  /^singularity-flow story target-origin ([A-Za-z0-9][A-Za-z0-9._-]*) --url <AUTHORIZED-URL> --json$/u.exec(String(command ?? '').trim())?.[1] ?? null;
+/** The preview with the address the person wrote: HTTPS, or HTTP on this machine, which the command checks again; else null. */
+export function targetOriginPreviewArgv(command: string, url: string | null | undefined): string[] | null {
+  const work = targetOriginWork(command);
+  const address = String(url ?? '').trim();
+  return work && /^https?:\/\/[^\s<>"'`]{1,2000}$/u.test(address) ? ['story', 'target-origin', work, '--url', address, '--json'] : null;
+}
+/** What the preview would pin, and the plan its one Yes confirms; `conflicts` when recorded evidence would break, so none is offered. */
+export interface TargetOriginPreview { kind: 'target-origin'; option: string; item: string; workId: string; origin: string; servers: string[]; steps: string[]; planSha256: string; conflicts: string[] }
+export function targetOriginPreviewOf(result: unknown, at: { option: string; item: string; workId: string }): TargetOriginPreview | null {
+  const seen = new Set<unknown>();
+  const strings = (value: unknown) => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string').slice(0, 50) : []);
+  const find = (value: unknown, depth = 0): TargetOriginPreview | null => {
+    if (!value || typeof value !== 'object' || seen.has(value) || depth > 6) return null;
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    if (typeof record.origin === 'string' && typeof record.planSha256 === 'string' && /^sha256:[a-f0-9]{64}$/u.test(record.planSha256) && record.workId === at.workId) {
+      return { kind: 'target-origin', ...at, origin: record.origin, servers: strings(record.servers), steps: strings(record.steps), planSha256: record.planSha256, conflicts: strings(record.evidenceConflicts) };
+    }
+    for (const child of Object.values(record)) { const found = find(child, depth + 1); if (found) return found; }
+    return null;
+  };
+  return find(result);
+}
+/** The one Yes that pins the previewed address, bound to the plan the preview showed, with the person's reason. */
+export const targetOriginArgv = (preview: TargetOriginPreview, reason: string) => ['story', 'target-origin', preview.workId, '--url', preview.origin, '--reason', reason, '--confirm', preview.planSha256];
+/** The preview on the card: the address, the checks that trust it, the reason it takes, and the one button that pins it. */
+export function targetOriginPreviewHtml(preview: TargetOriginPreview): string {
+  const steps = preview.steps.join(', ') || 'the browser checks';
+  if (preview.conflicts.length) {
+    return `<section class="dc-own dc-preview" aria-label="What pinning the address does"><p><strong>${escape(preview.origin)} cannot be pinned:</strong> evidence this Story recorded would stop counting.</p>
+    <ul class="dc-ev-list">${preview.conflicts.map((entry) => `<li>${escape(entry)}</li>`).join('')}</ul><button type="button" class="secondary" data-preview-cancel>Close</button></section>`;
+  }
+  return `<section class="dc-own dc-preview" aria-label="What pinning the address does"><p><strong>${escape(steps)} will check the app only at ${escape(preview.origin)}.</strong>
+    A check against any other address is refused, and a pinned address is never widened.</p>
+    <input data-preview-reason aria-label="Why this is the address to trust" placeholder="Why this is the address to trust" maxlength="2000">
+    <button type="button" data-preview-apply>Pin it</button> <button type="button" class="secondary" data-preview-cancel>Not now</button></section>`;
+}
+/** A preview on the card, whichever row asked for it. */
+export type RowPreview = SetAsidePreview | TargetOriginPreview;
+const previewHtml = (preview: RowPreview | null) => (!preview ? '' : preview.kind === 'target-origin' ? targetOriginPreviewHtml(preview) : setAsidePreviewHtml(preview));
+
 /** Whether the card runs a step on Do this now: a step that changes something, never a preview (`--json`, `--dry-run`). */
 export const runnableStep = (command: string) => !/\s--(?:json|dry-run)(?=\s|$)/u.test(String(command ?? ''));
 /**
@@ -85,7 +168,7 @@ export function ownStepArgv(command: string, given: { reason?: string | null; ex
   }
   if (quote) return { missing: 'value' };
   if (open) tokens.push({ text, raw, shell });
-  if (!tokens.length || !['singularity-flow', 'sflow'].includes(tokens[0].text)) return { missing: 'value' };
+  if (!tokens.length || !['singularity-flow', 'sflow'].includes(tokens[0]!.text)) return { missing: 'value' };
   const whole = new RegExp(`^(?:${REASON_SLOT.source})$`, 'u');
   const argv: string[] = [];
   for (const token of tokens.slice(1)) {
@@ -122,7 +205,7 @@ export const runMissingWords = (missing: 'reason' | 'expires' | 'value') => (mis
 /** The fields an own step's command needs, in its row: shown only where the command takes them. */
 const slotFields = (command: string, key: string, name: string) => {
   const slots = commandSlots(command);
-  return `${slots.reason ? `<input data-own-reason="${escape(key)}" aria-label="Your reason, for ${escape(name)}" placeholder="Your reason, typed into the command" maxlength="1000">` : ''}${slots.expires
+  return `${targetOriginWork(command) ? `<input type="url" data-own-url="${escape(key)}" aria-label="The web address, for ${escape(name)}" placeholder="https://… the address the app runs at" maxlength="2000">` : ''}${slots.reason ? `<input data-own-reason="${escape(key)}" aria-label="Your reason, for ${escape(name)}" placeholder="Your reason, typed into the command" maxlength="1000">` : ''}${slots.expires
     ? `<label class="dc-date">Until <input type="date" data-own-expires="${escape(key)}" aria-label="Until when, for ${escape(name)}"></label>` : ''}`;
 };
 const ownSteps = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
@@ -360,7 +443,7 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label.replace(/[.!?]+$/u, ''))}.</span> <span class="muted">${escape(runnableStep(option.action!.command!) ? RUN_WORDS : PREVIEW_WORDS)}</span>
       ${option.action?.file ? `<span class="muted">${escape(option.words ?? '')}</span><button type="button" data-draft="${escape(option.id)}">Open the draft</button>` : ''}
       <code>${escape(option.action!.command!)}</code>${slotFields(option.action!.command!, option.id, option.label)}
-      ${runnableStep(option.action!.command!) ? `<button type="button" data-run="${escape(option.id)}">Do this now</button>` : ''}
+      ${runnableStep(option.action!.command!) ? `<button type="button" data-run="${escape(option.id)}">Do this now</button>` : setAsidePreviewArgv(option.action!.command!) ? `<button type="button" data-preview="${escape(option.id)}">Show what it sets aside</button>` : targetOriginWork(option.action!.command!) ? `<button type="button" data-preview="${escape(option.id)}">See what it trusts</button>` : ''}
       <button type="button" class="secondary" data-terminal="${escape(option.id)}">Put it in a terminal</button>
       <button type="button" class="secondary" data-copy="${escape(option.id)}">Copy</button></div>`).join('');
   // A choice recorded here may also be made in the person's own terminal, with its exact command (SF Guard signs it there).
@@ -499,7 +582,7 @@ function approvalHtml(packet: DecisionPacket, { forApproval = false } = {}): str
 }
 
 export function decideHtml(packet: DecisionPacket, { error = null as string | null, notice = null as string | null, busy = false, draft = undefined as DecideDraft | undefined, route = null as string | null,
-  declined = null as string | null, forApproval = false } = {}): string {
+  declined = null as string | null, forApproval = false, preview = null as RowPreview | null } = {}): string {
   const opening = versionOpeningHtml(packet, { declined, busy });
   const open = decideRows(packet).filter((item) => !item.settled);
   // What nobody can answer yet is one line, never a row [owner, 2026-11-16].
@@ -515,6 +598,7 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
     ${error ? `<p class="dc-error" role="alert">${escape(error)}</p>` : ''}
     ${notice ? `<p class="dc-notice" role="status">${escape(notice)}</p>` : ''}
     ${route ? `<div class="dc-own"><code>${escape(route)}</code><button type="button" data-route>Put it in a terminal</button></div>` : ''}
+    ${previewHtml(preview)}
     ${opening}
     ${shared.length ? `<section class="dc-all"><label for="dc-all-choice">One answer for all that offer it</label>
       <select id="dc-all-choice"><option value="">Choose…</option>${shared.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.label)} (${entry.rows} rows)</option>`).join('')}</select>
@@ -699,6 +783,11 @@ document.addEventListener('click', (event) => {
   }
   const drafted = event.target.closest('[data-draft]');
   if (drafted) return vscode.postMessage({ type: 'decide.draft', item: drafted.closest('tr[data-item]').dataset.item, option: drafted.dataset.draft });
+  if (event.target.closest('[data-preview-apply]')) return vscode.postMessage({ type: 'decide.preview-apply', reason: document.querySelector('[data-preview-reason]')?.value ?? '' });
+  if (event.target.closest('[data-preview-cancel]')) return vscode.postMessage({ type: 'decide.preview-cancel' });
+  const previewed = event.target.closest('[data-preview]');
+  if (previewed) return vscode.postMessage({ type: 'decide.preview', item: previewed.closest('tr[data-item]').dataset.item, option: previewed.dataset.preview,
+    url: previewed.closest('tr[data-item]').querySelector('[data-own-url="' + previewed.dataset.preview + '"]')?.value ?? '' });
   const step = event.target.closest('[data-run],[data-terminal],[data-copy],[data-witness]');
   if (step) {
     const row = step.closest('tr[data-item]');

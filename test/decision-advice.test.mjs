@@ -101,6 +101,8 @@ test('every item kind the list builds has a recommendation or says what to weigh
     // Approved or rejected on the card, each a choice it records [owner, 2026-11-28].
     'forward-amendment': { details: { phase: 'specification' }, options: [choice('approve-amendment', 'Approve FAM-001', [{ kind: 'forward-amendment-decision', decision: 'approve' }]),
       choice('reject-amendment', 'Reject FAM-001', [{ kind: 'forward-amendment-decision', decision: 'reject' }])] },
+    'target-origin': { details: { steps: ['implementation'], servers: ['playwright'] }, options: [own('pin-target-origin', 'Name the address and see what it trusts', `singularity-flow story target-origin ${WORK} --url <AUTHORIZED-URL> --json`)] },
+    'visual-risk': { details: { comparison: 'visual-0123', profileId: 'mobile' }, options: [own('accept-visual-risk', 'Accept the difference until a date', `singularity-flow decision visual-risk ${WORK} --comparison visual-0123 --expires <YYYY-MM-DD> --reason <why>`)] },
     'witness-exception': { details: { phase: 'build' }, options: [choice('renew-exception', 'Renew it until a date', [{ kind: 'witness-exception-renewal', phase: 'build' }])] },
     revalidation: { details: { phase: 'release' }, options: [choice('still-holds', 'Release still holds', [{ kind: 'amendment-revalidation', phase: 'release', outcome: 'unchanged' }]),
       choice('return-step', 'Return the Story to Release', [{ kind: 'amendment-revalidation', phase: 'release', outcome: 'return' }])] },
@@ -214,9 +216,9 @@ test('the decisions list carries the advice on every item, the approval and the 
 test('only a binary item may be answered yes or no in chat, through the command bound to the person\'s typed answer', async (t) => {
   const packet = broadPacket();
   const yesNo = Object.fromEntries(packet.items.map((item) => [item.details?.responsibility ? 'applicability' : item.details?.scopeItem ? 'scope' : item.kind, item.chatYesNo]));
-  // A responsibility (one choice), an accept-or-reject departure and the next generation are yes or no; a scope
-  // statement (seven dispositions), a test risk (a date), a row choice and a person's own steps are not.
-  assert.deepEqual(yesNo, { 'test-run-risk': false, 'test-narrowing': false, 'node-pin': false, 'visual-profile': false, applicability: true, scope: false,
+  // A responsibility (one choice), an accept-or-reject departure, a narrowed run (its command named, owner 2026-11-28) and the
+  // next generation are yes or no; a scope statement (seven dispositions), a test risk (a date), a row choice and a person's own steps are not.
+  assert.deepEqual(yesNo, { 'test-run-risk': false, 'test-narrowing': true, 'node-pin': false, 'visual-profile': false, applicability: true, scope: false,
     'plan-accounting': true, departure: true, 'generation-rollover': true });
   const departure = packet.items.find((item) => item.kind === 'departure');
   assert.deepEqual([departure.yesNo.yes, departure.yesNo.no, departure.yesNo.route], ['accept', 'reject', `/sf-decide ${WORK}`]);
@@ -255,7 +257,7 @@ test('under SF Guard no row offers chat, and every host says it is recorded in t
   guarded.resolution.presence = { status: 'required', chainId: 'chain-1' };
   const packet = { ...broadPacket(guarded), packetSha256: `sha256:${'a'.repeat(64)}` };
   const chatRows = open.items.filter((item) => item.answer?.where === 'chat');
-  assert.deepEqual(chatRows.map((item) => item.kind).sort(), ['departure', 'owed-decision', 'owed-decision', 'plan-accounting'], 'an applicability, a scope statement, a departure, a plan row');
+  assert.deepEqual(chatRows.map((item) => item.kind).sort(), ['departure', 'owed-decision', 'owed-decision', 'plan-accounting', 'test-narrowing'], 'an applicability, a scope statement, a departure, a plan row, a narrowed run');
   const own = `SF Guard signs it, so it is recorded in your own terminal (singularity-flow decisions record ${WORK}), never in chat.`;
   for (const before of chatRows) {
     const item = packet.items.find((entry) => entry.id === before.id);

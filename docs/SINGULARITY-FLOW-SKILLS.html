@@ -3583,7 +3583,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~599 body tokens</span>
+          <span class="pill">~588 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-next</code></dd></div>
@@ -3613,11 +3613,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Resolve the Epic key from the argument or current branch.
-2. Run `singularity-flow epic next &lt;EPIC-KEY&gt; --for-agent --json`.
-3. Present the current phase, blockers, and next action in plain language.
-4. Include the exact `/sf-*` command the user can run next.
-5. Do not mutate state or substitute the work-item-only `/sf-next`.
+This is the one way on, `/sf-next`, under an older name: run `/sflow-next` once with the supplied Epic key (none: this branch&#39;s Epic); its result is this one&#39;s. It says where the Epic is, why it waits and the one thing to do; preserve its result unchanged and never run its steps twice.
 </code></pre>
       </div>
     </details>
@@ -3811,7 +3807,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~609 body tokens</span>
+          <span class="pill">~623 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-resume</code></dd></div>
@@ -3841,11 +3837,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Require the Epic key.
-2. Run `singularity-flow epic resume &lt;EPIC-KEY&gt; --fetch`.
-3. Show the selected governed agent, real Git identity, current phase, lead branch head, pending publication, and participating repository state.
-4. Stop only on a CLI refusal (it checks the checkout itself); never rewrite history.
-5. Run `/sf-epic-next &lt;EPIC-KEY&gt;` to show the next valid action.
+This is the one way on, `/sf-next`, under an older name: run `/sflow-next` once with the supplied Epic key; its result is this one&#39;s. It says where the Epic is, why it waits and the one thing to do; preserve its result unchanged and never run its steps twice. Before it, when this checkout does not hold that Epic yet, run `singularity-flow epic resume &lt;EPIC-KEY&gt; --fetch` once; it checks the checkout itself, and never rewrite history.
 </code></pre>
       </div>
     </details>
@@ -4104,7 +4096,7 @@ Say up front: Epic review checks and Epic completion currently need a GitHub rem
     <details>
       <summary>
         <span class="skill-number">053</span>
-        <span class="skill-title"><strong>sflow-epic-status</strong><span>Show Epic planning phase progress and read-only delivery aggregation across Jira Stories, repositories, branches, checks, conformance, duration, model, tokens, and cost.</span></span>
+        <span class="skill-title"><strong>sflow-epic-status</strong><span>Show where an Epic stands, why it waits and its one next action (the one way on, /sf-next).</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -4113,7 +4105,7 @@ Say up front: Epic review checks and Epic completion currently need a GitHub rem
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~676 body tokens</span>
+          <span class="pill">~586 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-status</code></dd></div>
@@ -4127,7 +4119,7 @@ Say up front: Epic review checks and Epic completion currently need a GitHub rem
         </div>
         <pre data-source="sflow-epic-status"><code>---
 name: sflow-epic-status
-description: Show Epic planning phase progress and read-only delivery aggregation across Jira Stories, repositories, branches, checks, conformance, duration, model, tokens, and cost.
+description: Show where an Epic stands, why it waits and its one next action (the one way on, /sf-next).
 disable-model-invocation: true
 agent: agent
 
@@ -4143,12 +4135,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Run `singularity-flow epic status [EPIC-KEY] --json`.
-2. Run `singularity-flow epic report [EPIC-KEY] --format json`.
-3. Show the four planning phases or selected full-delivery profile as an arrow flow.
-4. For every Story show plan ID, Jira key, repository, canonical/child branch, Jira observation, workflow percentage, submission, required checks, conformance, blockers, duration, model, tokens, and cost availability.
-5. Label Jira drift, stale sources/specifications, configured-local Git identity assurance, and self-approval honestly.
-6. End with `singularity-flow epic next [EPIC-KEY] --for-agent --json`. Do not mutate lifecycle state.
+This is the one way on, `/sf-next`, under an older name: run `/sflow-next` once with the supplied Epic key (none: this branch&#39;s Epic); its result is this one&#39;s. It says where the Epic is, why it waits and the one thing to do; preserve its result unchanged and never run its steps twice.
 </code></pre>
       </div>
     </details>
@@ -6361,7 +6348,7 @@ Never force-push, overwrite an unrelated branch, or describe a partial result as
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~611 body tokens</span>
+          <span class="pill">~590 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-next</code></dd></div>
@@ -6390,10 +6377,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Run `singularity-flow initiative next [INIT-ID] --for-agent --json`.
-2. Present each returned action in order with its exact command and reason.
-3. Call out missing output approvals, checklist evidence, stale contracts, incomplete blocking stories, and materialization work.
-4. Keep this operation read-only. Do not execute an action unless the contributor explicitly asks.
+This is the one way on, `/sf-next`, under an older name: run `/sflow-next` once with the supplied Initiative ID (none: this branch&#39;s); its result is this one&#39;s. It says where the Initiative is, why it waits and the one thing to do; preserve its result unchanged and never run its steps twice.
 </code></pre>
       </div>
     </details>
@@ -6531,7 +6515,7 @@ If `ask_user` is unavailable or disabled, change nothing here: give the contribu
     <details>
       <summary>
         <span class="skill-number">091</span>
-        <span class="skill-title"><strong>sflow-initiative-status</strong><span>Display initiative phase progress, evidence readiness, child-story milestones, and current gate state in GitHub Copilot.</span></span>
+        <span class="skill-title"><strong>sflow-initiative-status</strong><span>Show where an Initiative stands, why it waits and its one next action (the one way on, /sf-next).</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -6540,7 +6524,7 @@ If `ask_user` is unavailable or disabled, change nothing here: give the contribu
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~658 body tokens</span>
+          <span class="pill">~588 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-status</code></dd></div>
@@ -6554,7 +6538,7 @@ If `ask_user` is unavailable or disabled, change nothing here: give the contribu
         </div>
         <pre data-source="sflow-initiative-status"><code>---
 name: sflow-initiative-status
-description: Display initiative phase progress, evidence readiness, child-story milestones, and current gate state in GitHub Copilot.
+description: Show where an Initiative stands, why it waits and its one next action (the one way on, /sf-next).
 disable-model-invocation: true
 agent: agent
 argument-hint: &quot;[INIT-ID]&quot;
@@ -6569,12 +6553,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Run `singularity-flow initiative status [INIT-ID] --json`.
-2. Render the ordered phase flow using approved, active, awaiting-approval, stale, and not-started states.
-3. Run `singularity-flow initiative report [INIT-ID] --format json` and summarize blocking stories, stale contracts, evidence assurance, self-approvals, elapsed time, models, tokens, and cost availability.
-4. End with the first result from `singularity-flow initiative next [INIT-ID] --for-agent --json`.
-
-Keep this operation read-only and preserve the `configured-local` identity-assurance disclosure.
+This is the one way on, `/sf-next`, under an older name: run `/sflow-next` once with the supplied Initiative ID (none: this branch&#39;s); its result is this one&#39;s. It says where the Initiative is, why it waits and the one thing to do; preserve its result unchanged and never run its steps twice.
 </code></pre>
       </div>
     </details>
@@ -8094,7 +8073,7 @@ For Playwright, honor the repository or corporate `.npmrc`; do not override the 
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~1815 body tokens</span>
+          <span class="pill">~1849 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-next</code></dd></div>
@@ -8123,7 +8102,7 @@ First run `singularity-flow nextsteps --for-agent --json` once. It checks pause 
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** reuse this invocation&#39;s entry: require `ready`/`workId`, valid `phaseAgent` for active phases; cwd=`repositoryPath`, or as is from a non-Git (chat) folder: SFlow finds the bound checkout; never refuse or wrap for it. Use returned `workItemRoot`/artifact paths; never `$HOME`. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Say `wayOut.where` and `wayOut.why`, one line each, then do `wayOut.next` in this turn. `by: sflow`: run its `command` once, then read again. `by: agent`: step 5. `by: person`: an approval is asked here (`singularity-flow choices begin approve &lt;WORK-ID&gt; --fetch --for-agent --json --review-packet`, `act.ask` with ask_user, and only on the person&#39;s own Yes its `onYes`); in VS Code&#39;s own chat `#sflowDecide` with `workId` opens the approval page instead. A decision: the Decide card (`#sflowDecide`; Copilot CLI: `/decide`). Else say `wayOut.next.words`.
+1. Say `wayOut.where` and `wayOut.why`, one line each, then do `wayOut.next` in this turn. `by: sflow`: run its `command` once, then read again. `by: agent`: step 5. `by: person`: an approval is asked here (`singularity-flow choices begin approve &lt;WORK-ID&gt; --fetch --for-agent --json --review-packet`, `act.ask` with ask_user, and only on the person&#39;s own Yes its `onYes`); in VS Code&#39;s own chat `#sflowDecide` with `workId` opens the approval page instead. A decision: the Decide card (`#sflowDecide`; Copilot CLI: `/decide`). Else say `wayOut.next.words`. Given an Epic key or Initiative ID, the read is `singularity-flow nextsteps &lt;ID&gt; --for-agent --json`, and its `wayOut` is that Epic&#39;s.
 2. Use binding/phase/first `NOW`; refuse `ACTIVE_SUBJECT_MISMATCH`. No duplicate pause/session/status or inferred `--task`/Story. `preparation` delegates composition to the entry-capable author; never waive grounding or rebuild.
 3. Never run `singularity-flow next`. Load one returned SFlow skill route (any `/sf-*` or `/sflow-*` route), use its configured producer/channel, complete its preflight, execute at most its one authorized action (the current step&#39;s own work is one action: step 5), and stop. Never answer a human-decision route (`/sf-approve`, `/sf-confirm`, `/sf-decide`, `/sf-review-decide`, `/sf-reject`, any approval or decision) for the person: step 1 asks them; a route&#39;s arguments are never their answer.
 4. Sole no-skill exception: when snapshot `state=publication_pending` and its first `NOW` command equals `singularity-flow sync`, show it and explain it retries only the retained commit and saved pushes. Run `singularity-flow sync &lt;WORK-ID&gt;` once in the verified cwd (step 1); never follow `THEN`, invoke `/sf-nextsteps` or `/sf-next`, or retry.

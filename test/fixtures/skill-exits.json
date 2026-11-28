@@ -122,9 +122,6 @@
     "Only when `status` is `ready`, run `singularity-flow epic requirements publish`, summarize every output with verified preview/file links, and stop for human review of the complete bound documents outside chat.",
     "After explicit approval, hand off to `/sf-initiative-approve <EPIC-KEY> phase` for its receipt and self-approval flow."
   ],
-  "sflow-epic-resume": [
-    "Stop only on a CLI refusal (it checks the checkout itself);"
-  ],
   "sflow-epic-review-decision": [
     "Reviewer not authorized: show `approval.reviewerAuthority.reason` and stop for an authorized reviewer;"
   ],

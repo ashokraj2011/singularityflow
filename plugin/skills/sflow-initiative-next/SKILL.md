@@ -15,7 +15,4 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Run `singularity-flow initiative next [INIT-ID] --for-agent --json`.
-2. Present each returned action in order with its exact command and reason.
-3. Call out missing output approvals, checklist evidence, stale contracts, incomplete blocking stories, and materialization work.
-4. Keep this operation read-only. Do not execute an action unless the contributor explicitly asks.
+This is the one way on, `/sf-next`, under an older name: run `/sflow-next` once with the supplied Initiative ID (none: this branch's); its result is this one's. It says where the Initiative is, why it waits and the one thing to do; preserve its result unchanged and never run its steps twice.

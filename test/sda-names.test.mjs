@@ -109,7 +109,8 @@ export const SDA_NAMES = Object.freeze({
   'released-leases.jsonl': ['src/subject-lock.mjs'],
   LOCK_COMMAND_INVALID: ['src/commands/lock.mjs'],
   'sflow-lock-': ['src/commands/lock.mjs', 'src/help-pages.mjs', 'src/narration/migration-status.mjs'],
-  "'lock-release'": ['src/person-step-catalog.mjs'],
+  // And the list of where a person takes each own step, which names the same step [owner, 2026-11-28].
+  "'lock-release'": ['src/person-step-catalog.mjs', 'src/person-step-routes.mjs'],
   // M3 leftover: lease identity for shared and restored homes (the hardware digest file follows the machine ID file).
   // The Authority Store's lock owner (v3) records the same identity as every other owner record.
   // A cache lease owner (v3, sweep batch 4: A5) records the same identity, so it is judged the same way.

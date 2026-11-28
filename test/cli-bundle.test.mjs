@@ -135,8 +135,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // (person-step-catalog.mjs), the card's new rows and their Story in the route (model-free-commands.mjs, copilot-guidance.mjs) and
   // a confirmation asked as one Yes naming its code (agent-output.mjs) [owner, 2026-11-28]. 2,106,699 (+231, measured 2026-11-28 on
   // office-probes merged with main ea5f16c55): the probe command's classification, route, flag and narration entry
-  // (command-registry.mjs, command-skills.mjs, util.mjs, narration/migration-status.mjs); the office checks stay lazy.
-  assert.ok(presentationBytes <= 2_106_699,
+  // (command-registry.mjs, command-skills.mjs, util.mjs, narration/migration-status.mjs); the office checks stay lazy. 2,106,767
+  // (+68, measured 2026-11-28 on no-typing-3 merged with main e2d820022): the slice step's refusal names the Story's intake details
+  // where it is dropped or brought back (copilot-mutation-guard.mjs) [owner, 2026-11-28].
+  assert.ok(presentationBytes <= 2_106_767,
     `small output helpers must not shift policy loading into every agent response: ${presentationBytes} bytes`);
   for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs']) {
     assert.ok(!presentationClosure.some(item => item.file === name), `output must not statically reach ${name}`);

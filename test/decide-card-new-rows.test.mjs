@@ -61,15 +61,24 @@ test('leaving changes out shows what it sets aside first, then one Yes bound to 
   assert.equal(runnableStep(preview), false, 'a preview is never run as if it were the step');
   assert.deepEqual(setAsidePreviewArgv(preview), ['recover', W, '--phase', 'design', '--json']);
   assert.equal(setAsidePreviewArgv(`singularity-flow recover ${W} --json`), null);
-  const result = { resultType: 'command-result', data: { plan: { planId: 'rcp-0123456789abcdef', actions: [{ id: 'reconcile' },
-    { id: 'set-aside-worktree', paths: ['src/late.js', 'notes.md'] }] } } };
+  const plan = `sha256:${'e'.repeat(64)}`;
+  // The plan's own confirming command, as recovery writes it: this Story and step, bound to the plan shown.
+  const confirm = `singularity-flow recover ${W} --phase design --set-aside --confirm ${plan} --json`;
+  const result = { resultType: 'command-result', data: { plan: { planId: plan, actions: [{ id: 'reconcile' },
+    { id: 'set-aside-worktree', paths: ['src/late.js', 'notes.md'], command: confirm }] } } };
   const shown = setAsidePreviewOf(result, { option: 'set-aside', item: 'd1', workId: W, phase: 'design' });
-  assert.deepEqual(shown, { option: 'set-aside', item: 'd1', workId: W, phase: 'design', planId: 'rcp-0123456789abcdef', paths: ['src/late.js', 'notes.md'] });
-  assert.deepEqual(setAsideArgv(shown), ['recover', W, '--phase', 'design', '--set-aside', '--confirm', 'rcp-0123456789abcdef']);
+  const argv = ['recover', W, '--phase', 'design', '--set-aside', '--confirm', plan, '--json'];
+  assert.deepEqual(shown, { option: 'set-aside', item: 'd1', workId: W, phase: 'design', planId: plan, paths: ['src/late.js', 'notes.md'], argv });
+  assert.deepEqual(setAsideArgv(shown), argv);
+  // A command for another Story, or for another plan than the one shown, offers nothing to press.
+  for (const other of [confirm.replace(W, 'OTHER-1'), confirm.replace(plan, `sha256:${'f'.repeat(64)}`)]) {
+    assert.equal(setAsidePreviewOf({ data: { plan: { planId: plan, actions: [{ id: 'set-aside-worktree', paths: ['a.js'], command: other }] } } },
+      { option: 'set-aside', item: 'd1', workId: W, phase: 'design' }), null, other);
+  }
   const html = setAsidePreviewHtml(shown);
   assert.match(html, /These 2 files go back to their committed bytes\.<\/strong>\s*SFlow first keeps a private copy of every changed file and the Git index, so it can be undone; nothing else changes\./u);
   assert.match(html, /<li>src\/late\.js<\/li><li>notes\.md<\/li>[\s\S]*data-preview-apply>Set them aside<\/button>[\s\S]*data-preview-cancel>Not now/u);
-  assert.equal(setAsidePreviewOf({ data: { plan: { planId: 'rcp-0123456789abcdef', actions: [] } } }, { option: 'set-aside', item: 'd1', workId: W, phase: 'design' }), null,
+  assert.equal(setAsidePreviewOf({ data: { plan: { planId: plan, actions: [] } } }, { option: 'set-aside', item: 'd1', workId: W, phase: 'design' }), null,
     'nothing to set aside offers no button');
 });
 

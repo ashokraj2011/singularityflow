@@ -1278,11 +1278,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (model-free-commands.mjs +282), the records SF Guard signs on the card (person-step-catalog.mjs +75), one Yes for a soft
     // gate (sequence.mjs +80) and the forward amendment's card route (forward-amendments.mjs, upstream-routes.mjs +12 each)
     // [owner, 2026-11-28]. No new eager file.
-    // 9,992,099 (measured for submit.mjs, +2,749 over main's 9,989,350 on no-typing-2, 2026-11-28; start.mjs 9,988,420, approve.mjs
-    // 9,897,418): a copied value with a slip offers the same command with the exact value (text-lines.mjs +1,207), the steps a
+    // 9,992,102 (measured for submit.mjs, +2,752 over main's 9,989,350 on no-typing-2, 2026-11-28; start.mjs 9,988,420, approve.mjs
+    // 9,897,418): a copied value with a slip offers the same command with the exact value (text-lines.mjs +1,210), the steps a
     // /sf-decide turn takes on the person's bound Yes (person-step-catalog.mjs +894), and the card's rows and their Story in
     // the route (model-free-commands.mjs +487, copilot-guidance.mjs +161) [owner, 2026-11-28]. No new eager file.
-    assert.ok(closure.bytes <= 9_992_099, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_992_102, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

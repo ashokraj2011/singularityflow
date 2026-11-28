@@ -210,7 +210,7 @@ function yesNoCommand([command, sub, third, fourth], options, version = null) {
   // question that showed the date it lasts until (and the test command it covers), never another row's.
   if (command === 'upstream-issue' && sub === 'decide-amendment') {
     const records = { approve: 'yes', reject: 'no' }[options.decision];
-    return records ? { records, row: `amendment ${third}`, names: [third].filter(Boolean), ids: /\bfam \d{3,}\b/u, yes: ['approve', 'approve it'], no: ['reject', 'reject it'],
+    return records ? { records, row: `amendment ${third}`, names: [third].filter(Boolean), ids: /\bfam \d{3,}\b/u, yes: ['approve it', 'approve'], no: ['reject it', 'reject'],
       typed: { yes: /\bd\d{1,3}=approve-amendment\b/u, no: /\bd\d{1,3}=reject-amendment\b/u } } : null;
   }
   if (command === 'decision' && ['witness-exception', 'test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'visual-profile'].includes(sub) && options.revoke === undefined) {

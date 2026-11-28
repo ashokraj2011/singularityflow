@@ -33,11 +33,12 @@ export const PREVIEW_WORDS = 'This shows what it would do first: Put it in a ter
  * (`recover W --phase P --json`), whose plan lists the files that go back and the plan it is confirmed by. Null for any other.
  */
 export const setAsidePreviewArgv = (command: string): string[] | null => {
-  const match = /^singularity-flow recover ([A-Za-z0-9][A-Za-z0-9._-]*) --phase ([A-Za-z0-9][A-Za-z0-9._-]*) --json$/u.exec(String(command ?? '').trim());
-  return match ? ['recover', match[1]!, '--phase', match[2]!, '--json'] : null;
+  if (!/^singularity-flow recover [A-Za-z0-9][A-Za-z0-9._-]* --phase [A-Za-z0-9][A-Za-z0-9._-]* --json$/u.test(String(command ?? '').trim())) return null;
+  const planned = ownStepArgv(command, {});
+  return 'argv' in planned ? planned.argv : null;
 };
 /** What a set-aside preview returned: the files and the plan its one Yes confirms, or null when it offers none. */
-export interface SetAsidePreview { kind?: 'set-aside'; option: string; item: string; workId: string; phase: string; planId: string; paths: string[] }
+export interface SetAsidePreview { kind?: 'set-aside'; option: string; item: string; workId: string; phase: string; planId: string; paths: string[]; argv: string[] }
 export function setAsidePreviewOf(result: unknown, at: { option: string; item: string; workId: string; phase: string }): SetAsidePreview | null {
   const seen = new Set<unknown>();
   const find = (value: unknown, depth = 0): SetAsidePreview | null => {
@@ -48,14 +49,18 @@ export function setAsidePreviewOf(result: unknown, at: { option: string; item: s
     const action = actions.find((entry) => entry?.id === 'set-aside-worktree');
     const planId = typeof record.planId === 'string' && /^[A-Za-z0-9._:-]{8,160}$/u.test(record.planId) ? record.planId : null;
     const paths = Array.isArray(action?.paths) ? (action!.paths as unknown[]).filter((entry): entry is string => typeof entry === 'string').slice(0, 200) : [];
-    if (action && planId && paths.length) return { ...at, planId, paths };
+    // The plan's own confirming command, as recovery wrote it: this Story and step, set aside, bound to this plan.
+    const planned = typeof action?.command === 'string' ? ownStepArgv(action.command, {}) : null;
+    const argv = planned && 'argv' in planned ? planned.argv : null;
+    const bound = argv && argv[1] === at.workId && argv.includes('--set-aside') && argv[argv.indexOf('--confirm') + 1] === planId && argv[argv.indexOf('--phase') + 1] === at.phase;
+    if (action && planId && paths.length && bound) return { ...at, planId, paths, argv: argv! };
     for (const child of Object.values(record)) { const found = find(child, depth + 1); if (found) return found; }
     return null;
   };
   return find(result);
 }
 /** The one Yes that sets the previewed files aside, bound to the plan the preview showed. */
-export const setAsideArgv = (preview: SetAsidePreview) => ['recover', preview.workId, '--phase', preview.phase, '--set-aside', '--confirm', preview.planId];
+export const setAsideArgv = (preview: SetAsidePreview) => preview.argv;
 /** The preview on the card: the files that go back, that a private copy is kept first, and the one button that does it. */
 export function setAsidePreviewHtml(preview: SetAsidePreview | null): string {
   if (!preview) return '';

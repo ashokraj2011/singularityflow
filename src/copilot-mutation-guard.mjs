@@ -783,8 +783,9 @@ function codeYesCall(call, record) {
   const { positionals, options } = safe ? parseCli(safe.argv) : { positionals: [] };
   if (positionals[0] !== 'confirm') return null;
   const confirmed = confirmCodeArgv(positionals, options);
-  const mode = record.contract?.turnMode ?? mutationTurnMode(record.skill);
-  if (!confirmed || argvAllowed(confirmed, mode, record) || !codeYesAllowed(confirmed, mode, record)) return null;
+  // A turn whose mode is not recorded holds every code to the Yes: holding only tightens.
+  const mode = record.contract?.turnMode ?? null;
+  if (!confirmed || (mode && (argvAllowed(confirmed, mode, record) || !codeYesAllowed(confirmed, mode, record)))) return null;
   return normalizeConfirmCode(positionals[1]);
 }
 
@@ -941,7 +942,7 @@ export function argvAllowed(argv, mode, value) {
         && ['unchanged', 'return'].includes(options.outcome) && (typeof options.reason === 'string' || options.recommended === true)
       // A forward amendment's approval or rejection, on the person's own yes or no to the question naming it [owner, 2026-11-28].
       || positionals[1] === 'decide-amendment' && positionals.length === 3 && /^FAM-\d{3,}$/u.test(positionals[2] ?? '') && options.confirm === positionals[2]
-        && ['approve', 'reject'].includes(options.decision) && typeof options.reason === 'string')
+        && /^(?:approve|reject)$/u.test(String(options.decision ?? '')) && typeof options.reason === 'string')
     && options['work-id'] === value.contract.workId;
   // Overriding a check's blocking finding, on the person's own yes to its question and in their own words [owner, 2026-11-23].
   // A sign-off on SFlow's saved screenshot of a page it could not capture takes the person's yes and no reason [owner, 2026-11-28].

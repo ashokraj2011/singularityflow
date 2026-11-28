@@ -50,9 +50,10 @@ async function offerExactConfirmation(error, argv) {
   let yes = false;
   try { yes = /^(?:y|yes)$/iu.test((await io.question(`${error.message}\nRun it with the exact value? [y/N] `)).trim()); } finally { io.close(); }
   if (!yes) return false;
-  const { spawnSync } = await import('node:child_process');
-  const ran = spawnSync(process.execPath, [process.argv[1], ...retry], { stdio: 'inherit' });
-  process.exitCode = ran.status ?? 1;
+  // The same command again, in this process: the refusal changed nothing, and its own failure is reported as any other.
+  process.exitCode = undefined;
+  const { main } = await import('./cli-entry.mjs');
+  try { await main(retry); } catch (again) { await reportCliFailure(again, retry); }
   return true;
 }
 

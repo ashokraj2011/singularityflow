@@ -312,7 +312,7 @@ export function assertConfirmation(given, expected, { fail, code, message, label
     const retryArgv = withExactConfirmation(process.argv.slice(2), label, given, expected);
     fail(`${label} ${given.slice(0, 80)} is a copying slip of the current value; nothing changed. Use ${label} ${expected} exactly${retryArgv ? ': the same command with it is the next step' : ''}.`, mistyped,
       { ...details, confirmation: { ...confirmation, slip: true },
-        ...(retryArgv ? { retryArgv, nextAction: { command: `singularity-flow ${retryArgv.map(argvWord).join(' ')}`, label: `Run it with the exact ${label}: nothing else changes.` } } : {}) });
+        ...(retryArgv ? { retryArgv, nextAction: { command: ['singularity-flow', ...retryArgv.map(argvWord)].join(' '), label: `Run it with the exact ${label}: nothing else changes.` } } : {}) });
   }
   fail(`${message} The current value is ${expected}.`, code, { ...details, confirmation: { ...confirmation, slip: false } });
 }

@@ -287,22 +287,22 @@ export async function recordDepartureRequest(root, config, workflow, request, { 
 }
 
 /**
- * `departure record --kind path|supporting` for files whose place is clear: SFlow settles them instead of opening a
- * question, with the agent's reason as one more line of evidence [owner, 2026-11-19, C3]. Returns `{ departure, settled }`:
- * the departure recorded for the files left for a person (null when none is), and what was settled. Any other kind, or a
- * Story started before settling was pinned, records the departure as before.
+ * `departure record --kind path|supporting`: SFlow settles the files instead of opening a question, with the agent's reason
+ * as one more line of evidence: into the plan when their class places them [owner, 2026-11-19, C3], else taken up as changed
+ * outside the plan by Copilot, with that reason [WCB:REQ-010, REQ-012]. Returns `{ departure, settled }`: the departure
+ * recorded for the files left for a person (only one they already hold; null when none is), and what was settled. Any other
+ * kind records the departure as before.
  */
 export async function recordDepartureOrSettle(root, config, workflow, request, { actor, agent = null }) {
   const phase = workflow.phases?.[workflow.currentPhase];
-  const { outOfPlanSettling, settleOutOfPlan } = await import('./settle-before-publication.mjs');
-  if (!['path', 'supporting'].includes(request.kind) || !outOfPlanSettling(workflow) || !await openCodeGeneration(workflow, phase)) {
+  const { settleOutOfPlan } = await import('./settle-before-publication.mjs');
+  if (!['path', 'supporting'].includes(request.kind) || !await openCodeGeneration(workflow, phase)) {
     return { departure: await recordDepartureRequest(root, config, workflow, request, { actor, agent }), settled: [] };
   }
-  // Only a real change outside the plan is settled: a file that changed in this generation and no row names.
-  const { unreconciledCandidatePaths } = await import('./candidate-scope.mjs');
-  const outside = new Set(await unreconciledCandidatePaths(root, config, workflow, phase).catch(() => []));
+  // Only a real change outside the plan is settled: a file that changed in this generation, committed or not, and no row names.
+  const outside = new Set(await (await import('./code-outside-plan.mjs')).outsidePlanFiles(root, config, workflow, phase).catch(() => []));
   const files = [...new Set((request.paths ?? []).map((file) => posix(String(file).trim())))];
-  const { settled } = await settleOutOfPlan(root, config, workflow, phase, files.filter((file) => outside.has(file)), { actor, agent, reason: request.reason });
+  const { settled } = await settleOutOfPlan(root, config, workflow, phase, files.filter((file) => outside.has(file)), { actor, agent, reason: request.reason, takeUp: true, claimedBy: 'agent' });
   const done = new Set(settled.map((entry) => entry.effect?.path ?? entry.effect?.file));
   const left = files.filter((file) => !done.has(file));
   return { departure: left.length ? await recordDepartureRequest(root, config, workflow, { ...request, paths: left }, { actor, agent }) : null, settled };
@@ -317,9 +317,10 @@ export async function recordDepartureOrSettle(root, config, workflow, request, {
 export async function recordPathDepartures(root, config, workflow, phase, { actor, agent = null } = {}) {
   // A read-only agent records no departure: the step's own command refuses it for its role before any commit [OSA Stage 5b].
   if (readOnlyAgent(config, workflow, { agent }) || !await openCodeGeneration(workflow, phase)) return [];
-  const [{ unreconciledCandidatePaths }, { rejectedDeparturePaths }, { classifySupportingChange }, { loadActiveSpecRecords, mergePlannedClaimRecords }, { storyLocation }] = await Promise.all([
+  const [{ heldCandidatePaths }, { rejectedDeparturePaths }, { classifySupportingChange }, { loadActiveSpecRecords, mergePlannedClaimRecords }, { storyLocation }] = await Promise.all([
     import('./candidate-scope.mjs'), import('./departures.mjs'), import('./supporting-changes.mjs'), import('./specifications.mjs'), import('./story-paths.mjs')]);
-  const unresolved = await unreconciledCandidatePaths(root, config, workflow, phase);
+  // A file no plan row names is taken up at publication, never a departure: only one a person already holds is left [WCB:REQ-010].
+  const unresolved = await heldCandidatePaths(root, config, workflow, phase);
   if (!unresolved.length) return [];
   const rejected = rejectedDeparturePaths(workflow, phase.id);
   const context = await limitContext(root, config, workflow, phase);

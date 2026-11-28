@@ -18,7 +18,7 @@
 import { NODE_PIN_CLASS } from './node-pin-names.mjs';
 import { ISSUE_ONLY_OPTIONS, PERSON_STEPS } from './person-step-catalog.mjs';
 import { countedRecords, presenceRequires } from './presence/counted.mjs';
-import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
+import { MAX_PLAN_AMENDMENT_CHANGES, outsidePlanSettled, planAuthorities } from './plan-amendments.mjs';
 import { clausesTakingPaths, leftOutWords, ROW_FULFILLMENTS, rowChangeMissing, rowChangeWords, rowTakesPaths } from './plan-row-fit.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { personClass } from './person-change-class.mjs';
@@ -1799,7 +1799,20 @@ const SETTLED_SHOWN = 20;
 
 // How a group of settled files reads in one line [owner, 2026-11-19, C3].
 const SETTLED_GROUP_WORDS = Object.freeze({ 'test-support': ['test-support file', 'listed as supporting changes'], documentation: ['documentation file', 'listed as supporting changes'],
-  'repository-metadata': ['ignore file', 'listed as supporting changes'], row: ['file', 'added to the row of the file beside it'] });
+  'repository-metadata': ['ignore file', 'listed as supporting changes'], row: ['file', 'added to the row of the file beside it'],
+  'out-of-plan': ['file', 'changed outside the plan, taken up with the step'] });
+
+/**
+ * One file taken up because it changed outside the plan, as the code approval lists it [WCB:REQ-014]: who changed it, and
+ * for Copilot the reason it wrote in the step's document.
+ */
+export function outsidePlanWords(entry) {
+  // A supporting change (a scratch note, a test helper) is committed as one; Copilot owes no reason for it [owner, 2026-11-28].
+  if (entry.supporting) {
+    return entry.writer === 'copilot' ? `${entry.file}: by Copilot${entry.reason ? `: ${entry.reason}` : ''}, as a supporting change` : `${entry.file}: by you, as a supporting change`;
+  }
+  return entry.writer === 'copilot' ? `${entry.file}: by Copilot: ${entry.reason ?? 'no reason written'}` : `${entry.file}: by you`;
+}
 
 /**
  * What SFlow settled into the plan of `phaseId` and still stands, grouped by what it did, one line each: "12 test-support files
@@ -1843,18 +1856,28 @@ function settledItems(workflow, context) {
     const findings = history ? [] : startedFindings(context.facts?.reviewDisputes, entry);
     const disputes = findings.filter((finding) => !finding.disputed).slice(0, 5).map((finding) => disputeOption(workflow, context, context.facts.reviewDisputes, finding, `dispute-${finding.id}`));
     const disputed = findings.filter((finding) => finding.disputed).map((finding) => disputedFindingWords(finding.id, finding.disputed));
+    // A file the open code step took up that is still only in the checkout: kept out in one step, its take-up undone and the
+    // file set aside with a private copy [WCB:REQ-015, owner 2026-11-28]. The person's own terminal step, nothing to compose.
+    const keptFile = !history && context.facts?.keepOut?.[entry.effect?.file] === entry.id ? entry.effect.file : null;
+    const keepOut = keptFile ? personalStep({ id: 'keep-out', label: `Keep ${keptFile} out of this Story`,
+      command: `${undo} --keep-out ${keptFile}`,
+      words: `SFlow undoes taking ${keptFile} up and sets it aside: a private copy is kept, and your checkout goes back to its committed bytes.`,
+      does: `Leaves ${keptFile} out of ${stepName(workflow, entry.phase)}; nothing else changes.`,
+      decidedBy: anyone(`Whoever works on ${stepName(workflow, entry.phase)} takes this step.`) }) : null;
     return {
       kind: 'settled', settled: true, title: String(entry.answer).slice(0, 200), subject: entry.subject,
       answerWords: entry.answer, evidenceWords: evidence, evidence: (entry.evidence ?? []).map((fact) => `${fact.what} (${fact.where})`), by: entry.by, at: entry.at,
       why: [`${by.replace(/^./u, (first) => first.toUpperCase())} settled this from the evidence below; nobody was asked. ${history ? 'Its step has moved on, so there is nothing to undo here.' : 'Undo it only if it is wrong.'}`,
+        keptFile ? `If ${keptFile} is not part of this Story, keep it out: that undoes the take-up and sets the file aside with a private copy.` : '',
         findings.length ? 'Dispute a finding it was started for if the reviewer is wrong.' : ''].filter(Boolean).join(' '),
       // Undone on the Decide card or in the person's own terminal, never asked in chat: nothing waits on it [owner, 2026-11-20].
       options: history ? [] : [{ ...option(workflow, context, { id: 'undo', label: 'Undo: ask me instead', words: route.words,
-        effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo }, ...disputes],
+        effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo },
+        ...(keepOut ? [keepOut] : []), ...disputes],
       // What it changed, for its one line on every host (decision-plain.mjs) [owner, 2026-11-16].
       details: { settledId: entry.id, settledKind: entry.kind, ...(entry.phase ? { phase: entry.phase } : {}), evidence: entry.evidence, ...(entry.effect ? { effect: entry.effect } : {}),
         reraised: route, ...(disputed.length ? { disputed, allDisputed: findings.every((finding) => finding.disputed) } : {}), ...(history ? { history: true } : {}),
-        commands: history ? [] : [undo, ...disputes.map((entry) => entry.terminal)] }
+        commands: history ? [] : [undo, ...(keepOut ? [keepOut.action.command] : []), ...disputes.map((entry) => entry.terminal)] }
     };
   });
 }
@@ -1940,8 +1963,6 @@ function reviewFindingItems(workflow, context, facts) {
  * only leaving the change out.
  */
 function rolloverItem(workflow, context, entry) {
-  // A document step's application files; a change the person only asked for is the ordinary row.
-  if (entry.documents && entry.paths.length && entry.keepOut) return documentFilesItem(workflow, entry);
   const name = stepName(workflow, entry.phase);
   const shown = entry.paths.length ? `${listWords(entry.paths.slice(0, 5))}${entry.paths.length > 5 ? ` and ${entry.paths.length - 5} more` : ''}` : null;
   const asked = entry.requests.length ? `The person asked for a change after it was published: ${entry.requests.map((text) => `"${text}"`).join('; ')}.` : '';
@@ -1967,34 +1988,24 @@ function rolloverItem(workflow, context, entry) {
 }
 
 /**
- * A published document step's application files changed in this checkout (office, 2026-11-27): no version of a document
- * step holds them, so it is submitted only once they are set aside, which keeps a private copy. A change the person asked
- * for still starts the next version, for the documents. The row of a generation rollover, so every reader of that kind
- * shows it; its `documents` detail says which.
+ * Code committed on a Story with no code step at all [WCB:REQ-017]: nothing checks it against a clause and a test, and it
+ * would reach the pull request, so its submission waits until the commit is taken out. The row of a generation rollover,
+ * so every reader of that kind shows it; `committedCode` says which. One choice, the take-out, in the person's terminal.
  */
-function documentFilesItem(workflow, entry) {
-  const name = stepName(workflow, entry.phase);
-  const files = entry.paths;
+function uncheckedCodeItem(workflow, context, facts) {
+  const name = stepName(workflow, facts.phase);
+  const files = facts.committed.paths;
   const shown = `${listWords(files.slice(0, 5))}${files.length > 5 ? ` and ${files.length - 5} more` : ''}`;
-  const them = files.length === 1 ? 'it' : 'them';
-  const code = entry.codeStep ?? null;
-  const anyoneHere = anyone(`Whoever works on ${name} takes this step.`);
-  const options = [
-    ...(entry.requests.length && !entry.asked ? [personalStep({ id: 'start-next-generation', label: `Start version ${entry.next} of ${name} for the change`,
-      command: entry.command, words: `Your terminal previews version ${entry.next} and asks you to confirm it; version ${entry.generation} and its review stay as published.`,
-      does: `Opens version ${entry.next} of ${name} for the change you asked for; ${shown} still ${files.length === 1 ? 'needs' : 'need'} setting aside.`, decidedBy: anyoneHere })] : []),
-    personalStep({ id: 'set-aside', label: `Set ${shown} aside`, command: entry.keepOut,
-      words: `Recovery shows the set-aside; a private copy of every changed file is kept, and version ${entry.generation} of ${name} is submitted as it is.`,
-      does: `Sets ${shown} aside with a private copy; ${name} goes ahead without ${them}${code ? `, and ${stepName(workflow, code)} writes the code` : ''}.`, decidedBy: anyoneHere })
-  ];
-  const asked = entry.requests.length ? ` The person also asked for a change after it was published: ${entry.requests.map((text) => `"${text}"`).join('; ')}.` : '';
+  const options = [personalStep({ id: 'take-out', label: `Take the commit of ${shown} out`, command: facts.committed.takeOut,
+    words: 'Git adds a commit that takes it out; your history keeps the original, and a task with a code step can deliver it.',
+    does: `Takes ${shown} out of this Story's branch; ${name} is then submitted as it is.`,
+    decidedBy: anyone(`Whoever works on ${name} takes this step.`) })];
   return {
-    kind: 'generation-rollover', title: `Set ${shown} aside: ${name} writes documents only`,
-    why: [`${shown} changed after ${name} v${entry.generation} was published. ${name} writes documents only: set ${them} aside to submit it (a copy is kept).`,
-      code ? `${stepName(workflow, code)} writes the code.` : '', asked.trim()].filter(Boolean).join(' '),
+    kind: 'generation-rollover', title: `Take ${shown} out: no step of this Story checks code`,
+    why: `${shown} ${files.length === 1 ? 'was' : 'were'} committed on this Story, which has no code step: nothing checks ${files.length === 1 ? 'it' : 'them'} against a clause and a test.`,
     options,
-    details: { phase: entry.phase, generation: entry.generation, next: entry.next, paths: files, documents: true, requested: entry.requests.length > 0,
-      ...(entry.asked ? { asked: true } : {}), ...(entry.chatRoute ? { chatRoute: entry.chatRoute } : {}), commands: options.map((option) => option.action.command) }
+    details: { phase: facts.phase, paths: files, committedCode: true, commits: facts.committed.commits.map((entry) => entry.commit),
+      commands: options.map((option) => option.action.command) }
   };
 }
 
@@ -2017,7 +2028,17 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
   const overrides = countedRecords(workflow, workflow.findingOverrides).filter((entry) => entry.phase === phase.id
     && Number(entry.generation) === Number(phase.generation) && !entry.withdrawnAt)
     .map((entry) => `${entry.code}${entry.path ? ` on ${entry.path}` : ''} was overridden by ${entry.actor ?? 'a person'}: "${entry.reason}". Recorded as overridden, not passed.`);
-  const reviewed = [...ledger.map((group) => `Settled for you: ${group.words}.`), ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : []),
+  // Every file taken up because it changed outside the plan, one line each, with who changed it and why [WCB:REQ-014].
+  const outside = outsidePlanSettled(workflow, phase.id).map((entry) => ({ file: entry.file, by: entry.writer, reason: entry.reason,
+    ...(entry.kind ? { kind: entry.kind } : {}), ...(entry.supporting ? { supporting: entry.supporting } : {}), settled: entry.id, words: outsidePlanWords(entry) }));
+  // A Story with no code step: the code base files left in its checkout, which nothing delivers [WCB:REQ-017].
+  const leftOut = context.facts?.noCodeStep?.uncommitted ?? [];
+  const reviewed = [...(leftOut.length ? [`Not part of this task: ${listWords(leftOut.slice(0, 8))}${leftOut.length > 8 ? ` and ${leftOut.length - 8} more` : ''}, left in your checkout; nothing delivers ${leftOut.length === 1 ? 'it' : 'them'}.`] : []),
+    ...ledger.map((group) => `Settled for you: ${group.words}.`),
+    // Why they are shown and the way on, in one line before them: nothing stopped for them, and a return drops one [owner, 2026-11-28].
+    ...(outside.length ? [`No row of the approved plan names ${outside.length === 1 ? 'the file below' : `the ${outside.length} files below`}; SFlow committed ${outside.length === 1 ? 'it' : 'them'} with ${name} so nothing stopped. Approving keeps ${outside.length === 1 ? 'it' : 'them'}; to drop one, return ${name} on the approval page.`] : []),
+    ...outside.map((entry) => `Changed outside the plan: ${entry.words.replace(/[.\s]+$/u, '')}.`),
+    ...(raised.length ? [`Raised here against earlier steps: ${listWords(raised)}.`] : []),
     ...disputes.map((entry) => entry.words), ...overrides];
   return {
     kind: 'approval', title: `Approve ${name}`,
@@ -2028,6 +2049,8 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
     decidedBy: stepDecidedBy(workflow, context, approvers(workflow, phase.id), 'You read its documents and say Yes once.') }],
     details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length,
       ...(reviewed.length ? { ledger: { settled: ledger, issues: raised }, lines: reviewed } : {}),
+      ...(leftOut.length ? { notPartOfTask: leftOut } : {}),
+      ...(outside.length ? { outsidePlan: outside } : {}),
       ...(disputes.length ? { disputes } : {}),
       // The one approval screen opens its documents, and those of the steps SFlow approved since the last approval (approve twice).
       documents: [...new Set((phase.artifacts ?? []).map((artifact) => artifact?.path).filter((file) => typeof file === 'string' && file))],
@@ -2343,6 +2366,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     // Publication would refuse these before the step could ever await approval.
     ...(facts.excludedChanges ? planPathItems(workflow, context, facts.excludedChanges) : []),
     ...(facts.rollover ? [rolloverItem(workflow, context, facts.rollover)] : []),
+    ...(facts.noCodeStep?.committed ? [uncheckedCodeItem(workflow, context, facts.noCodeStep)] : []),
     ...(facts.departures?.entries ?? []).map((entry) => departureItem(workflow, context, entry, facts.departures)),
     ...(facts.askedFor?.entries ?? []).map((entry) => askedForItem(workflow, context, entry, facts.askedFor))
   ];

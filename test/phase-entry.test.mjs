@@ -750,7 +750,13 @@ test('a missing session only returns its verified attach route, never composes c
 
 test('manual worktree review prevents composition while preserving changes and exact actions', async t => {
   const item = await fixture(t);
+  // A code base file is the code step's to take up and never holds a document step [WCB:REQ-006]: it stays as it is.
   await writeFile(path.join(item.root, 'README.md'), '# Unrelated native work\n');
+  const free = completeAgentResult(item.invoke('phase', 'enter', '--compose', '--json').stdout);
+  assert.deepEqual(free.contextAdmission.blockers, [], JSON.stringify(free.contextAdmission));
+  const stray = 'team/stories/ENTRY-1/context/notes.json';
+  await mkdir(path.dirname(path.join(item.root, stray)), { recursive: true });
+  await writeFile(path.join(item.root, stray), '{"draft":"not from SFlow"}\n');
   const result = item.invoke('phase', 'enter', '--compose', '--json');
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const entry = completeAgentResult(result.stdout);
@@ -763,7 +769,7 @@ test('manual worktree review prevents composition while preserving changes and e
   assert.equal(entry.clarification.checkpoint.nextAction, null);
   assert.equal(entry.clarification.checkpoint.recordAction, null, 'a recording route cannot override failed admission');
   assert.deepEqual(entry.contextAdmission.blockers.map(item => item.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
-  assert.deepEqual(entry.contextAdmission.blockers[0].paths, ['README.md']);
+  assert.deepEqual(entry.contextAdmission.blockers[0].paths, [stray]);
   // The person's routes lead: what is held, then setting it aside; the read-only inspection follows.
   assert.equal(entry.next[0].id, 'working-tree');
   assert.equal(entry.next[1].id, 'set-aside-worktree');
@@ -999,6 +1005,7 @@ test('a person sets aside changes that hold a document step, keeping a recovery 
   const stray = 'team/stories/ENTRY-1/context/notes.json';
   await mkdir(path.dirname(path.join(item.root, stray)), { recursive: true });
   await writeFile(path.join(item.root, stray), '{"draft":"not from SFlow"}\n');
+  // A code base file stays where it is, out of the set-aside: the code step takes it up [WCB:REQ-006].
   await writeFile(path.join(item.root, 'README.md'), '# Edited by hand\n');
   const held = completeAgentResult(item.invoke('phase', 'enter', '--for-agent', '--json').stdout);
   assert.deepEqual(held.contextAdmission.blockers.map(entry => entry.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
@@ -1006,7 +1013,7 @@ test('a person sets aside changes that hold a document step, keeping a recovery 
   assert.ok(route, JSON.stringify(held.next.map(action => action.id)));
   assert.equal(held.next.findIndex(action => action.id === 'set-aside-worktree') < held.next.findIndex(action => action.id === 'inspect-continuation:qa-intake'), true,
     'the person\'s route leads the read-only inspection');
-  assert.deepEqual(new Set(route.paths), new Set([stray, 'README.md']));
+  assert.deepEqual(new Set(route.paths), new Set([stray]));
   assert.match((route.commandGuidance ?? route).command, /^singularity-flow recover ENTRY-1 --phase qa-intake --set-aside --confirm sha256:[0-9a-f]{64} --json$/);
   const stale = item.invoke('recover', 'ENTRY-1', '--set-aside', '--confirm', `sha256:${'0'.repeat(64)}`, '--json');
   assert.notEqual(stale.status, 0);
@@ -1015,12 +1022,10 @@ test('a person sets aside changes that hold a document step, keeping a recovery 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const setAside = JSON.parse(result.stdout).setAside;
   assert.deepEqual(setAside.removed, [stray]);
-  assert.deepEqual(setAside.restored, ['README.md']);
+  assert.deepEqual(setAside.restored ?? [], []);
   assert.match(setAside.checkpoint, /^PCP-[0-9a-f]{64}$/);
-  const checkout = spawnSync('git', ['cat-file', '--filters', 'HEAD:README.md'], { cwd: item.root, encoding: 'utf8' });
-  assert.equal(checkout.status, 0, checkout.stderr);
-  assert.equal(await readFile(path.join(item.root, 'README.md'), 'utf8'), checkout.stdout);
-  assert.equal(git(item.root, 'status', '--porcelain=v1', '--untracked-files=all'), '');
+  assert.equal(await readFile(path.join(item.root, 'README.md'), 'utf8'), '# Edited by hand\n');
+  assert.equal(git(item.root, 'status', '--porcelain=v1', '--untracked-files=all'), 'M README.md');
   const shown = completeAgentResult(item.invoke('appeal', 'checkpoint-show', setAside.checkpoint, '--work-id', 'ENTRY-1', '--phase', 'qa-intake', '--json').stdout);
   assert.ok(JSON.stringify(shown).includes(stray), 'the recovery copy keeps the set-aside file');
   const entry = completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
@@ -1034,13 +1039,15 @@ test('changes held while a step awaits approval can be set aside by the person',
   state.phases['qa-intake'].status = 'awaiting_approval';
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
   git(item.root, 'add', '-A'); git(item.root, 'commit', '-qm', 'fixture: submitted');
-  await writeFile(path.join(item.root, 'notes.txt'), 'scratch\n');
+  // A Story record nothing wrote; a code base file would stay where it is for the code step [WCB:REQ-006].
+  const stray = 'team/stories/ENTRY-1/context/notes.json';
+  await writeFile(path.join(item.root, stray), '{"scratch":true}\n');
   const plan = JSON.parse(item.invoke('recover', 'ENTRY-1', '--json').stdout);
   const route = plan.actions.find(action => action.id === 'set-aside-worktree');
-  assert.deepEqual(route?.paths, ['notes.txt'], JSON.stringify(plan.actions.map(action => action.id)));
+  assert.deepEqual(route?.paths, [stray], JSON.stringify(plan.actions.map(action => action.id)));
   const result = item.invoke(...(route.commandGuidance ?? route).command.split(' ').slice(1));
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.deepEqual(JSON.parse(result.stdout).setAside.removed, ['notes.txt']);
+  assert.deepEqual(JSON.parse(result.stdout).setAside.removed, [stray]);
   assert.equal(git(item.root, 'status', '--porcelain=v1', '--untracked-files=all'), '');
 });
 

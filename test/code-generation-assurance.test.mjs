@@ -1090,7 +1090,7 @@ test('all code tasks route to the canonical skill without hard-coded phase names
   }), '/sflow-converge');
 });
 
-test('generation begin is idempotent and refuses source mutated before its boundary', async () => {
+test('generation begin is idempotent and carries code changed before its boundary, never a person\'s question [WCB:REQ-009]', async () => {
   const root = await repository('begin');
   const baseline = git(root, ['rev-parse', 'HEAD']);
   const phase = {
@@ -1105,26 +1105,22 @@ test('generation begin is idempotent and refuses source mutated before its bound
   const first = await beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, { persist: false });
   const second = await beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, { persist: false });
   assert.equal(second.id, first.id);
+  assert.equal(first.baseline.mode, 'clean');
 
+  // Code written before the version began (while a document step was open) is carried, whatever `dirtyStart` says.
   await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = false;\n');
   const dirtyPhase = { id: 'implementation', generation: 0, generationPolicy: { task: 'code' }, sourceBoundary: 'unrestricted' };
+  const carried = await beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, dirtyPhase, { persist: false });
+  assert.equal(carried.baseline.mode, 'inherited');
+  assert.equal(carried.baseline.commit, baseline);
+  // An explicit adoption still binds the digest its person confirmed.
+  const confirming = { id: 'implementation', generation: 0, generationPolicy: { task: 'code' }, sourceBoundary: 'unrestricted' };
   await assert.rejects(
-    () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, dirtyPhase, { persist: false }),
-    (error) => {
-      assert.equal(error.code, 'GENERATION_DIRTY_START');
-      assert.match(error.message, /policy blocks adoption/);
-      assert.doesNotMatch(error.message, /--adopt-existing/);
-      assert.deepEqual(error.details.changedPaths, ['src/payment.js']);
-      assert.deepEqual(error.details.classification.preBoundaryPaths, ['src/payment.js']);
-      return true;
-    }
-  );
-  await assert.rejects(
-    () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, dirtyPhase, {
+    () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, confirming, {
       adoptExisting: true, confirm: 'sha256:incorrect', persist: false
     }),
     (error) => error.code === 'GENERATION_DIRTY_START'
-      && /policy blocks adoption/.test(error.message)
+      && /must equal the current application change-set digest/.test(error.message)
       && error.details.changeSetDigest.startsWith('sha256:')
   );
 });

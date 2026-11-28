@@ -74,7 +74,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // report reader or the departure model [SCS:REQ-010, REQ-013].
     // 474: automatic-approval-possible.mjs (2026-11-23), the one rule the evidence receipt and the approval chain share for
     // whether a step can be approved without a person; its own module so the session projection loads no approval rules.
-    assert.ok(closure.files.size <= 474, `${file} loads ${closure.files.size} local files (budget 474; retired graph 597)`);
+    // 475: workspace-local-paths.mjs (2026-11-27), the one rule every gate reads for the workspace's own files (editor
+    // settings, tool configuration, test-runner output) [WCB:REQ-002]; a leaf so the Copilot edit guard loads none of it.
+    assert.ok(closure.files.size <= 475, `${file} loads ${closure.files.size} local files (budget 475; retired graph 597)`);
     // Step intents' derivation loads only for a workflow.yml that opts in (config.mjs loadStepIntentSettings), never eagerly.
     for (const lazy of ['step-intent-settings.mjs', 'step-intents.mjs', 'workflow-step-settings.mjs']) {
       assert.equal(closure.files.has(path.join(sourceRoot, lazy)), false, `${file} eagerly loads ${lazy}`);
@@ -1199,11 +1201,37 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,961,312 (measured for start.mjs, +71 over 9,961,241, 2026-11-28 on sf-task-v12; approve.mjs 9,869,520): a refactor's
     // approval says why too, so choices.mjs loads task-shape.mjs for a refactor's Story as well (+71) [ITW REQ-113]. No new
     // eager file.
-    // 9,961,907 (measured for start.mjs, +595 over 9,961,312, 2026-11-28 on sf-task-start-form; submit.mjs 9,959,395 and
-    // approve.mjs 9,869,520 unchanged): a task from VS Code's Start Story whose source is a GitHub Issue or Jira issue hands
-    // start the issue `work` read and keeps SFlow's sizing words as the issue's notes (commands/start.mjs +595)
-    // [ITW REQ-115]. No new eager file.
-    assert.ok(closure.bytes <= 9_961_907, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,941,613 (measured for start.mjs, +3,566 over 9,938,047 on the merge of watch-code-base with main 29c9c43b9,
+    // 2026-11-27; submit.mjs 9,937,865; +3,630 over 9,937,894 at 96aa138eb before the merge): a document step never
+    // stops for the code base and the code step takes it up [WCB M1]: one workspace-local rule for every gate
+    // (workspace-local-paths.mjs, 1,001, its own leaf so the Copilot edit guard loads none of it), a document step's
+    // checkout hold leaves code base files in place (lifecycle-worktree.mjs +1,248), the code step's first
+    // interval reaches back to where code was last governed (work-intervals.mjs +410, the reading itself in
+    // code-outside-plan.mjs, loaded lazily), and a document step's submission and approval never answer for the code base,
+    // while a Story with no code step stops for committed code (state.mjs +1,641; candidate-scope.mjs +89;
+    // generation-boundary.mjs -823). One new eager file (workspace-local-paths.mjs).
+    // 9,945,286 (measured for start.mjs, +3,673 over 9,941,613, 2026-11-27 on watch-code-base; submit.mjs 9,941,538): a file
+    // no plan row names is taken up with its code step at publication, nobody asked [WCB M2]: the candidate takes it and
+    // reads only what a person holds (candidate-scope.mjs +1,577 heldCandidatePaths), the settled record of it
+    // (plan-amendments.mjs +878 outsidePlanSettled), spec coverage counts it claimed (specifications.mjs +311), a read
+    // before publication asks about none (delivery-evidence.mjs +232), the code step's protocol asks Copilot for its
+    // reason (phase-authoring-contract.mjs +480) and the template's previous hash (packaged-asset-history.mjs +195). Who
+    // changed each file and why is read in code-outside-plan.mjs, loaded lazily. No new eager file.
+    // 9,963,581 (measured for start.mjs, +7,239 over 9,956,342 on the merge of watch-code-base with main 0971ed184,
+    // 2026-11-28; submit.mjs 9,961,145): WCB M1 and M2 above on top of main's. No other new eager file.
+    // 9,967,840 (measured for start.mjs, +7,257 over 9,960,583 on the merge of watch-code-base with main 31f0c6c2a,
+    // 2026-11-28; submit.mjs 9,965,606): WCB M1 and M2 above on top of main's. No other new eager file.
+    // 9,968,300 (measured for start.mjs, +460 over 9,967,840, 2026-11-28 on watch-code-base; submit.mjs 9,966,066): a supporting
+    // change that says who made it is listed with the files outside the plan, a person's scratch note "by you" (plan-amendments.mjs
+    // outsidePlanSettled +460) [owner, 2026-11-28; WCB:REQ-014]. No new eager file.
+    // 9,969,029 (measured for start.mjs, +729 over 9,968,300 on the merge of sf-task-v12 with main db5bfb141, 2026-11-28;
+    // submit.mjs 9,967,112, approve.mjs 9,877,353): ITW v1.2's rises above (choices.mjs +711, command-registry.mjs +18) and
+    // WCB's together. No new eager file.
+    // 9,969,624 (measured for start.mjs, +595 over 9,969,029 on the merge of sf-task-start-form with main 0233340d8,
+    // 2026-11-28; submit.mjs 9,967,112 and approve.mjs 9,877,353 unchanged; +595 over 9,961,312 on sf-task-start-form before
+    // the merge): a task from VS Code's Start Story whose source is a GitHub Issue or Jira issue hands start the issue `work`
+    // read and keeps SFlow's sizing words as the issue's notes (commands/start.mjs +595) [ITW REQ-115]. No new eager file.
+    assert.ok(closure.bytes <= 9_969_624, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1447,7 +1475,8 @@ test('the common session projection does not import attach, state stores or publ
     assert.equal(current.files.has(path.join(sourceRoot, file)), false, `session current eagerly loads ${file}`);
   }
   // 221: confirm-code.mjs, which builds the short code a confirmation route carries [owner, 2026-11-12].
-  assert.ok(current.files.size <= 221, `session current reaches ${current.files.size} files; old session handler reached 429`);
+  // 222: workspace-local-paths.mjs, the workspace-local rule the candidate scope reads [WCB:REQ-002].
+  assert.ok(current.files.size <= 222, `session current reaches ${current.files.size} files; old session handler reached 429`);
   // 3,905,000: main cf33907d measures 3,898,542; plan corrections as the plan approver's own terminal step and an
   // upstream issue raised from /sf-decide add 1,906 for 3,900,448 (copilot-mutation-guard.mjs, command-skills.mjs).
   // 3,910,000: main 80f74694 measures 3,901,751; who decides for a step with no approval group (approval-fallback.mjs,
@@ -1914,7 +1943,21 @@ test('the common session projection does not import attach, state stores or publ
   // (command-registry.mjs) [ITW v1.2 REQ-103]. No new eager file.
   // 4,404,226 (+18 over 4,404,208, measured 2026-11-28 on the merge of sf-task-v12 with main 31f0c6c2a): `work shape` above
   // and main's rises together. No new eager file.
-  assert.ok(current.bytes <= 4_404_226, `session current loads ${current.bytes} source bytes`);
+  // 4,394,663 (+1,500 over 4,393,163, measured 2026-11-27 on the merge of watch-code-base with main 29c9c43b9): the
+  // workspace-local rule and the code step's reach-back baseline (workspace-local-paths.mjs, 1,001, work-intervals.mjs +410, candidate-scope.mjs +89) [WCB M1]. One
+  // new eager file (workspace-local-paths.mjs).
+  // 4,397,856 (+3,193, measured 2026-11-27 on watch-code-base): a file no plan row names is taken up at publication
+  // [WCB M2] (candidate-scope.mjs +1,577, plan-amendments.mjs +878, specifications.mjs +311, delivery-evidence.mjs +232,
+  // packaged-asset-history.mjs +195). No new eager file.
+  // 4,406,220 (+4,693 over 4,401,527, measured 2026-11-28 on the merge of watch-code-base with main 0971ed184): WCB M1 and
+  // M2 above on top of main's. No other new eager file.
+  // 4,408,901 (+4,693 over 4,404,208, measured 2026-11-28 on the merge of watch-code-base with main 31f0c6c2a): WCB M1 and
+  // M2 above on top of main's. No other new eager file.
+  // 4,409,361 (+460, measured 2026-11-28 on watch-code-base): a supporting change that says who made it is listed outside the
+  // plan (plan-amendments.mjs outsidePlanSettled) [owner, 2026-11-28; WCB:REQ-014]. No new eager file.
+  // 4,409,379 (+18 over 4,409,361, measured 2026-11-28 on the merge of sf-task-v12 with main db5bfb141): `work shape`
+  // above (command-registry.mjs) and WCB's rises together. No new eager file.
+  assert.ok(current.bytes <= 4_409_379, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

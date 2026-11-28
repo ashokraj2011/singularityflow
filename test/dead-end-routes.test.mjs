@@ -206,8 +206,10 @@ test('an untracked test runner output never holds a decision, and is never count
   await writeFile(path.join(root, 'reports/test-results/kept.json'), '{"changed":true}\n');
   const inspection = inspectLifecycleWorktree(root, { workItemRoot: 'singularity/work-items' }, { workItem: { id: 'DEAD-1' } });
   assert.deepEqual(inspection.disposableUntrackedPaths, ['apps/web/playwright-report/index.html', 'test-results/.last-run.json']);
-  assert.deepEqual(inspection.entries.map((entry) => entry.path.value).sort(), ['coverage/lcov.info', 'reports/test-results/kept.json', 'test-results-notes.md'],
-    'a coverage folder, a tracked report and a look-alike name stay for review');
+  // A test runner's output folder is never a step's concern, tracked or not [WCB:REQ-002]: unstaged, its report is left in place.
+  assert.deepEqual(inspection.entries.map((entry) => entry.path.value).sort(), ['coverage/lcov.info', 'test-results-notes.md'],
+    'a coverage folder and a look-alike name stay for review');
+  assert.deepEqual(inspection.leftInPlace, ['reports/test-results/kept.json']);
   // Publication and the coverage preview select changes the same way: never an untracked runner output.
   assert.equal(isApplicationChangeEntry({ newPath: 'test-results/.last-run.json', untracked: true }), false);
   assert.equal(isApplicationChangeEntry({ newPath: 'reports/test-results/kept.json', untracked: false }), true);

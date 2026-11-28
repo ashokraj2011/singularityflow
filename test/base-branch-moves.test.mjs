@@ -211,22 +211,22 @@ test('a pull request carrying a commit made after the Story closed is blocked wi
   assert.match(create.stdout + create.stderr, /cannot open a pull request yet/u);
 });
 
-test('code committed during an artifact-only step before any code step is taken out and brought back by the route named', slowLane({ timeout: 600_000 }), async (t) => {
+test('code committed during an artifact-only step before any code step is taken up by the code step, with no question [WCB:REQ-005, REQ-008]', slowLane({ timeout: 600_000 }), async (t) => {
   const W = 'BASE-4';
   const { root, write } = await classicStory(t, W, { approveIntake: false });
   await write('src/value.mjs', 'export const value = 2;\n');
   git(root, 'commit', '-q', '-am', 'an early code change');
-  const refused = flow(root, ['submit', 'intake', '--json'], { allowFailure: true });
-  assert.notEqual(refused.status, 0);
-  const error = JSON.parse(refused.stdout).error;
-  assert.equal(error.code, 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', refused.stdout);
-  assert.match(error.message, /No earlier code step owns them; implementation will deliver them/u);
-  const revert = error.message.match(/git revert --no-edit ([0-9a-f ]+?) now/u);
-  assert.ok(revert, error.message);
-  git(root, 'revert', '--no-edit', ...revert[1].trim().split(' '));
-  flow(root, ['submit', 'intake']);
-  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items', W, 'workflow.json'), 'utf8'));
-  assert.equal(workflow.phases.intake.status, 'awaiting_approval', 'the unchanged intake generation is submitted');
+  const submitted = flow(root, ['submit', 'intake', '--json'], { allowFailure: true });
+  assert.equal(submitted.status, 0, submitted.stdout);
+  const read = async () => JSON.parse(await readFile(path.join(root, 'singularity/work-items', W, 'workflow.json'), 'utf8'));
+  assert.equal((await read()).phases.intake.status, 'awaiting_approval', 'the unchanged intake generation is submitted');
+  flow(root, ['approve', 'intake', '--yes']);
+  // The code step's interval starts at the Story's base, so its first version carries the commit.
+  flow(root, ['prepare', 'implementation']);
+  const workflow = await read();
+  assert.equal(workflow.workIntervals.current.sourceBaseCommit, workflow.workItem.baseCommit);
+  const start = JSON.parse(await readFile(path.join(root, workflow.phases.implementation.generationIntent.path), 'utf8'));
+  assert.deepEqual([start.baseline.mode, start.inherited.paths], ['inherited', ['src/value.mjs']]);
 });
 
 test('approved code evidence stale only because main was merged in names the merge as the cause', slowLane({ timeout: 600_000 }), async (t) => {

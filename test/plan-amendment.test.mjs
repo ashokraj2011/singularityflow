@@ -95,7 +95,7 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
   return result;
 }
 
-test('unplanned code is refused before it is committed, accounted for by a plan amendment, and unrelated prose is kept out', async (t) => {
+test('unplanned code is taken up with no question, or put in the plan by a person\'s amendment; a scratch note is taken up as a supporting change [WCB:REQ-010]', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-plan-amendment-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
@@ -166,42 +166,26 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
     "import { value } from '../src/value.mjs';", `// @ac:${W}:AC-001`, "test('value', () => assert.equal(value, 2));", ''].join('\n'));
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
   await writeFile(codeArtifact, (await readFile(codeArtifact, 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module reads the approved value from a small helper.'));
-  // A scratch note is prose the plan does not name: left out and kept, never committed [E2G-027].
+  // A scratch note is prose the plan does not name.
   await write('NOTES.md', 'Remember to tell the team about the helper.\n');
-  // The helper is code no plan names: the tests run on the candidate without it [D9], so the value
-  // module cannot load. The note is left out of that run too, because a test may read any file, so
-  // the refusal names both, with the governed route to account for either.
-  // Nothing is committed and the helper stays in the worktree.
-  const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
-  assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /These changed files would be excluded from implementation/);
-  assert.match(refused.stdout + refused.stderr, /decision plan.*--add-location/);
-  assert.equal(await readFile(path.join(root, 'src/helper.mjs'), 'utf8'), 'export const approved = 2;\n', 'the helper stays in the worktree');
-  // The same refusal is a choice on the list, with no blank to fill in: each file, and the rows it may join.
+  // Neither is a question: publication takes up what no plan row names, nobody asked [WCB:REQ-010]. Before it, the Decide
+  // page asks about neither file.
   const open = JSON.parse(cli('decisions', W, '--json').stdout).data;
-  const excluded = open.items.filter((entry) => entry.kind === 'plan-accounting');
-  assert.deepEqual(excluded.map((entry) => entry.details.path), ['NOTES.md', 'src/helper.mjs']);
-  assert.match(excluded[0].why, new RegExp(`publishing this step would leave it out.*singularity-flow recover ${W} --phase implementation --json shows the private-copy route`));
-  assert.ok(excluded[1].options.some((option) => option.effects[0]?.change?.clauseId === `${W}:AC-001`));
-  assert.equal(excluded[1].holdsApproval, false, 'nothing awaits approval yet');
-  assert.equal(open.record.copilotCommand, `/sf-decide ${W}`);
-  assert.equal(JSON.parse(cli('decisions', W, '--no-card', '--json').stdout).data.record.copilotCommand, `/sf-decide ${W}`, 'a /sf-decide turn records these itself, card or not');
+  assert.deepEqual(open.items.filter((entry) => entry.kind === 'plan-accounting'), [], JSON.stringify(open.items.map((entry) => entry.kind)));
 
-  // The row's short clause ID is the one row it ends with, recorded in full (stage 7 run, 2026-11-15).
+  // A person may still put the helper in the plan themselves. The row's short clause ID is the one row it ends with,
+  // recorded in full (stage 7 run, 2026-11-15).
   cli('decision', 'plan', '--add-location', 'AC-001=src/helper.mjs', '--reason', 'The helper holds the approved value the module returns.');
   assert.deepEqual(JSON.parse(await readFile(path.join(root, 'singularity/work-items', W, 'workflow.json'), 'utf8')).planAmendments.at(-1).changes
     .map((change) => [change.clauseId, change.path]), [[`${W}:AC-001`, 'src/helper.mjs']]);
-  const noteRecovery = JSON.parse(cli('recover', W, '--json').stdout);
-  const preserveNote = noteRecovery.actions.find(action => action.id === 'set-aside-worktree');
-  assert.deepEqual(preserveNote.paths, ['NOTES.md']);
-  const noteCopy = JSON.parse(cli(...preserveNote.commandGuidance.argv).stdout);
-  const noteManifest = JSON.parse(cli('appeal', 'checkpoint-show', noteCopy.setAside.checkpoint, '--work-id', W, '--phase', 'implementation', '--json').stdout);
-  assert.ok(JSON.stringify(noteManifest).includes('NOTES.md'));
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
-  // The unrelated note is kept privately before publication, never silently left for approval.
+  // The note is published with the step, settled for the person as a supporting change, never asked.
+  assert.equal(run('git', ['ls-files', '--', 'NOTES.md'], root).stdout.trim(), 'NOTES.md', 'the note is taken up with the step');
+  const published = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  assert.ok((published.settledDecisions ?? []).some((entry) => entry.subject === 'file:NOTES.md' && !entry.undone), JSON.stringify(published.settledDecisions));
+  assert.deepEqual(published.departures ?? [], [], 'nothing waits for a person');
   cli('submit', 'implementation');
-  // Approval is a separate human boundary: perform it in a clean review clone, without stashing
-  // or claiming the author's unrelated scratch note.
+  // Approval is a separate human boundary: perform it in a clean review clone.
   const reviewRoot = `${root}-review`;
   t.after(() => rm(reviewRoot, { recursive: true, force: true }));
   run('git', ['clone', '--branch', W, remote, reviewRoot], root);
@@ -211,8 +195,6 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   const generation = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.implementation;
   const receipt = JSON.parse(await readFile(path.join(root, generation.deliveryEvidence.receiptPath), 'utf8'));
   assert.deepEqual(receipt.excludedChanges ?? [], []);
-  assert.equal(run('git', ['ls-files', '--', 'NOTES.md'], root).stdout.trim(), '', 'the note was never committed');
-  await assert.rejects(readFile(path.join(root, 'NOTES.md')), { code: 'ENOENT' });
   const workflowState = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflowState.phases.implementation.status, 'awaiting_approval');
   assert.deepEqual(workflowState.planAmendments.map((entry) => [entry.id, entry.changes]),

@@ -162,9 +162,35 @@ function ruleReasons(composition, intent) {
 const ownRefactor = (composition) => composition?.kind === 'refactor' && !composition.uses && !composition.local && !composition.agent;
 
 /**
+ * What a person decides at a step's approval and what their Yes does, keyed by the step's intent [ITW:REQ-113], so the
+ * generic per-intent advice every approval reads takes these lines over as they are; REFACTOR_ADVICE is a refactor's own
+ * plan and code. The requirement's size (small or big, and the choice between them) is the task's own: SIZE_YES.
+ */
+export const APPROVAL_ADVICE = Object.freeze({
+  intake: Object.freeze({ decides: 'You decide what gets built: the requirement says it, clause by clause, with how each is tested.' }),
+  plan: Object.freeze({ decides: 'You decide how the code will be written: the plan names the files and the tests for each clause.',
+    yes: 'Yes: the code is written to it.' }),
+  code: Object.freeze({ decides: 'You decide whether this code goes in: it changes the repository.',
+    yes: 'Yes: SFlow runs the tests itself and approves the tests step when they pass.' })
+});
+/** A refactor's plan and code, by step intent: behaviour kept, checked before any edit and after. */
+export const REFACTOR_ADVICE = Object.freeze({
+  plan: Object.freeze({ decides: 'You decide what must not change: the plan names the behaviour this refactor keeps and the checks that show it.',
+    yes: 'Yes: the code is changed to it, and SFlow checks that what passed on the base before any edit still passes.' }),
+  code: Object.freeze({ decides: 'You decide whether this refactor goes in: what passed on the base before any edit still passes on it, so its behaviour stays the same.',
+    yes: 'Yes: SFlow runs the tests again at the tests step and approves it when they pass.' })
+});
+/** What a sized task's requirement Yes does, by its size: the task's own lines, beside the requirement's advice. */
+const SIZE_YES = Object.freeze({
+  small: 'Yes: implement and test start. Make it a big change: a spec and a plan come first.',
+  big: 'Its size is big. Yes: the spec, then the plan for your approval.'
+});
+
+/**
  * Why a person is asked to approve a step of a task, and what each answer does, in one plain line [ITW:REQ-113; owner
- * 2026-11-28: every decision says plainly why the person makes it]: a sized task's steps and a refactor's. Null for a step
- * SFlow approves, and for a Story composed before v1.2 (it keeps its approval's own words).
+ * 2026-11-28: every decision says plainly why the person makes it]: the step's advice (APPROVAL_ADVICE), a requirement's
+ * size, what Not now leaves waiting, and the reasons of the team's rules that gave the step to the person. A sized task's
+ * steps and a refactor's; null for a step SFlow approves, and for a Story composed before v1.2 (it keeps its own words).
  */
 export function taskApprovalWhy(workflow, phase) {
   const composition = workflow?.resolution?.composition ?? null;
@@ -173,17 +199,10 @@ export function taskApprovalWhy(workflow, phase) {
   const waits = notNow(composition, step.intent);
   const ruled = ruleReasons(composition, step.intent);
   const too = ruled ? ` Also, ${ruled}.` : '';
-  if (ownRefactor(composition)) {
-    if (step.intent === 'plan') return `You decide what must not change: the plan names the behaviour this refactor keeps and the checks that show it. Yes: the code is changed to it, and SFlow checks that what passed on the base before any edit still passes. ${waits}${too}`;
-    if (step.intent === 'code') return `You decide whether this refactor goes in: what passed on the base before any edit still passes on it, so its behaviour stays the same. Yes: SFlow runs the tests again at the tests step and approves it when they pass. ${waits}${too}`;
-  } else if (step.intent === 'intake' && SIZED_KINDS.includes(composition.kind)) {
-    return isBigShape(composition) ? `You decide what gets built: the requirement says it, clause by clause, with how each is tested, and its size is big. Yes: the spec, then the plan for your approval. ${waits}${too}`
-      : `You decide what gets built: the requirement says it, clause by clause, with how each is tested. Yes: implement and test start. Make it a big change: a spec and a plan come first. ${waits}${too}`;
-  } else if (step.intent === 'plan') {
-    return `You decide how the code will be written: the plan names the files and the tests for each clause. Yes: the code is written to it. ${waits}${too}`;
-  } else if (step.intent === 'code') {
-    return `You decide whether this code goes in: it changes the repository. Yes: SFlow runs the tests itself and approves the tests step when they pass. ${waits}${too}`;
-  }
+  const advice = ownRefactor(composition) ? REFACTOR_ADVICE[step.intent] : step.intent === 'intake' && !SIZED_KINDS.includes(composition.kind) ? null
+    : APPROVAL_ADVICE[step.intent];
+  if (advice && step.intent !== 'intake') return `${advice.decides} ${advice.yes} ${waits}${too}`;
+  if (advice) return `${advice.decides} ${SIZE_YES[isBigShape(composition) ? 'big' : 'small']} ${waits}${too}`;
   return ruled ? `You approve the ${stepNoun(composition, step.intent)} because ${ruled}. Yes: the task goes on. ${waits}` : null;
 }
 

@@ -1417,8 +1417,8 @@ const KNOWN = Object.freeze({
   INPUT_RESTORE_COMMITTED_DRIFT: (argv, error) => upstreamInputSteps(argv, {
     ...error, details: { ...(error?.details ?? {}), restorable: false }
   }),
-  // Code changed before generation begin, which this Story's policy does not adopt. The policy's remedy
-  // (preserve, return to the baseline, begin, reapply) as commands.
+  // Code changed before generation begin is carried [WCB:REQ-009]; begin refuses only a protected or out-of-boundary path,
+  // or an explicit adoption whose digest moved. The remedy (preserve, return to the baseline, begin, reapply) as commands.
   GENERATION_DIRTY_START: (argv, error) => {
     const details = error?.details ?? {};
     const workId = safeWorkId(details.workId);

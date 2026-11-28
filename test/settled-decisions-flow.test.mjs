@@ -98,12 +98,20 @@ test('a covered file and a test command the repository declares are settled, eac
   assert.equal((await workflowOf(root)).phases.implement.storyTestCommands, undefined);
   assert.equal(sflowJson('decisions', 'QF-1').value.data.items.some((entry) => entry.kind === 'test-command'), true);
 
-  // The agent's prepublish settles the file a plan row covers, and records the other as a departure.
+  // The agent's prepublish settles the file a plan row covers; the other is taken up at publication, never asked
+  // [WCB:REQ-010], so it is a departure a person decides only once they undo that take-up.
   const prepublished = sflowJson('phase', 'prepublish', 'implement', '--for-agent');
   assert.ok(prepublished.value, prepublished.stderr);
   const [covered] = await settledOf(root, 'plan-accounting');
   assert.equal(covered.subject, 'file:src/value.d.ts');
   assert.deepEqual(covered.effect, { clauseId: 'QF-1:AC-001', path: 'src/value.d.ts' });
+  assert.equal(((await workflowOf(root)).departures ?? []).length, 0, 'prepublish records no departure');
+  const claimed = sflowJson('departure', 'record', '--kind', 'path', '--path', 'src/extra.mjs', '--reason', 'The value module needed a helper.');
+  assert.equal(claimed.status, 0, JSON.stringify(claimed.value).slice(0, 1500));
+  const takenUp = (await settledOf(root, 'plan-accounting')).filter((entry) => entry.effect?.class === 'out-of-plan' && entry.effect.file === 'src/extra.mjs').at(-1);
+  assert.ok(takenUp, 'src/extra.mjs is taken up');
+  sflow('decisions', 'undo', 'QF-1', '--settled', takenUp.id, '--reason', 'I decide this file myself.');
+  sflowJson('phase', 'prepublish', 'implement', '--for-agent');
   const departed = (await workflowOf(root)).departures ?? [];
   assert.deepEqual(departed.flatMap((entry) => entry.paths), ['src/extra.mjs']);
   const card = sflowJson('decisions', 'QF-1').value.data;
@@ -134,7 +142,7 @@ test('a covered file and a test command the repository declares are settled, eac
   assert.equal(sflowJson('decisions', 'undo', 'QF-1', '--settled', covered.id).status, 0);
   sflowJson('phase', 'prepublish', 'implement', '--for-agent');
   assert.deepEqual(((await workflowOf(root)).departures ?? []).flatMap((entry) => entry.paths).sort(), ['src/extra.mjs', 'src/value.d.ts']);
-  assert.equal((await settledOf(root, 'plan-accounting')).length, 1);
+  assert.equal((await settledOf(root, 'plan-accounting')).filter((entry) => entry.subject === 'file:src/value.d.ts').length, 1);
 
   // The author's own correction of its own published generation is proposed, never settled: the person is asked
   // "Start version 2 …?", and only their yes opens it (owner, 2026-11-17, superseding 2026-11-13) [D3, OSA:REQ-030].

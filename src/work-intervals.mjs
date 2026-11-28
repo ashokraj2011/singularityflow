@@ -217,7 +217,7 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
   phaseId = workflow.currentPhase,
   itemDirectory,
   itemRelative,
-  sourceBaseCommit = head(root),
+  sourceBaseCommit = null,
   baselineTag = null
 } = {}) {
   if (!phaseId) return null;
@@ -231,6 +231,10 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
   if (existing?.phaseId === phase.id && Number(existing.generation) === generation && existing.status === 'open') {
     return existing;
   }
+  // A code step's first interval starts where code was last governed when code was committed since (while a document step
+  // was open), so its change set holds that code [WCB:REQ-008]; else HEAD. A baseline given (readiness repair, a test-command
+  // amendment) is never moved.
+  sourceBaseCommit ??= await (await import('./code-outside-plan.mjs')).governedCodeBase(root, config, workflow, phase) ?? head(root);
 
   if (baselineTag !== null && !/^[a-z0-9][a-z0-9-]{0,95}$/u.test(baselineTag)) {
     throw new SingularityFlowError('Work-interval baseline tag must be a bounded portable identifier.');

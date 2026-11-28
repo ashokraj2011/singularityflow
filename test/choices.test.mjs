@@ -274,13 +274,16 @@ test('untracked runner reports do not block receipt preparation or approval and 
   const begun = JSON.parse(flow(root, ['choices', 'begin', 'approve', workId, '--fetch', '--json']).stdout);
   flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'intake', '--json']);
   await writeFile(reportFile, '{"passed":32}\n');
-  // An actual authoring edit still blocks the final receipt-backed action without consuming it.
+  // An actual authoring edit, staged so SFlow's commit could take it, still blocks the final receipt-backed action without
+  // consuming it; left unstaged it would stay for the code step [WCB:REQ-006].
   await writeFile(path.join(root, 'README.md'), '# Edited after review\n');
+  run('git', ['add', 'README.md'], root);
   const refused = flow(root, ['approve', 'intake', '--work-id', workId, '--selection-receipt', begun.token, '--json'], { allowFailure: true });
   assert.equal(refused.status, 1);
   assert.match(refused.stdout, /LIFECYCLE_WORKTREE_REVIEW_REQUIRED/u);
   assert.match(refused.stdout, /sf-recover/u);
   await writeFile(path.join(root, 'README.md'), run('git', ['show', 'HEAD:README.md'], root).stdout);
+  run('git', ['add', 'README.md'], root);
   const approved = flow(root, ['approve', 'intake', '--work-id', workId, '--fetch', '--selection-receipt', begun.token]);
   assert.equal(approved.status, 0);
   assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.intake.status, 'approved');
@@ -328,7 +331,7 @@ test('approval receipts reject changed generation, packet and artifacts, never H
     'a refusal does not consume an unrecorded decision');
 });
 
-test('approval cannot absorb application source committed after submission', async () => {
+test('a document step\'s approval leaves application source committed after submission to the code step ahead [WCB:REQ-006]', async () => {
   const root = await repository();
   const workId = 'CHOICE-APPROVE-SOURCE-DRIFT';
   const workflowFile = await submitIntakeForApproval(root, workId);
@@ -341,18 +344,15 @@ test('approval cannot absorb application source committed after submission', asy
     'choices', 'begin', 'approve', workId, '--fetch', '--json'
   ]).stdout);
   flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'intake', '--json']);
-  const refused = flow(root, [
+  const approved = flow(root, [
     'approve', 'intake', '--work-id', workId, '--fetch', '--selection-receipt', begun.token
   ], { allowFailure: true });
 
-  assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /application source or tests changed after generation 1 was submitted/i);
-  assert.match(refused.stderr, /Approval cannot absorb implementation created during review/i);
+  // The code is not this review's: the code step takes it up and lists it at its own approval, so nothing is absorbed.
+  assert.equal(approved.status, 0, approved.stdout + approved.stderr);
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
-  assert.equal(workflow.currentPhase, 'intake');
-  assert.equal(workflow.phases.intake.status, 'awaiting_approval');
-  assert.deepEqual(workflow.phases.intake.approvals, []);
-  assert.equal(JSON.parse(flow(root, ['choices', 'status', begun.token, '--json']).stdout).ready, true);
+  assert.equal(workflow.phases.intake.status, 'approved');
+  assert.notEqual(workflow.currentPhase, 'intake');
 });
 
 test('approval refuses an unrelated commit even when application bytes are unchanged', async () => {

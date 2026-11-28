@@ -14,8 +14,8 @@
   "count-without-name": 27,
   "draft-for-version": 6,
   "generic-route": 6194,
-  "jargon": 1347,
-  "length": 647
+  "jargon": 1343,
+  "length": 644
  },
  "unroutedCodes": [
   "ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE",
@@ -3396,12 +3396,9 @@
    "4f3841f01dd4": "jargon:generation length",
    "5fb0cdca79c8": "jargon:generation",
    "751a0531dcd2": "jargon:generation",
-   "984ce703117e": "jargon:generation length",
    "a948e0acae15": "jargon:generation",
    "add721c956bb": "jargon:generation",
    "af136234d9ba": "jargon:generation",
-   "b6da93dab991": "jargon:generation length",
-   "ba55e0a40fd6": "jargon:generation",
    "bd96d3a772d4": "jargon:durable jargon:generation",
    "c3ad37a76ba1": "jargon:durable jargon:generation",
    "d0f6322e3921": "jargon:generation",
@@ -4274,7 +4271,6 @@
    "e31136c6a71a": "jargon:retained",
    "e3f17e2698fb": "jargon:binding jargon:ledger",
    "e46621d03cdf": "jargon:generation",
-   "e4e925f9fb99": "jargon:generation length",
    "e4ec244f22ba": "jargon:packet",
    "e6d4e3309157": "jargon:retained",
    "e9b4be8a2f95": "jargon:retained",

@@ -1,6 +1,7 @@
 import { lstatSync } from 'node:fs';
 import path from 'node:path';
-import { applicationPathContext, isEditorConfigurationPath, isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationChangePath, isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
+import { isWorkspaceLocalPath } from './workspace-local-paths.mjs';
 import { worktreeStatusDetail } from './git.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -34,7 +35,7 @@ function abandonedStoryWrite(relative, config, workflow) {
   return relative.startsWith(itemRoot) && (ABANDONED_ATOMIC_WRITE.test(relative) || /^evidence\/visual-sign-offs\/[\w.-]+\.png$/u.test(relative.slice(itemRoot.length)));
 }
 
-export function inspectLifecycleWorktree(root, config = null, workflow = null, { held = null } = {}) {
+export function inspectLifecycleWorktree(root, config = null, workflow = null, { held = null, leaveCode = false } = {}) {
   const { entries } = worktreeStatusDetail(root);
   const ownership = applicationPathContext(config, workflow);
   const reports = entries.filter(entry => entry.type === 'untracked' && entry.path.kind === 'utf8'
@@ -43,15 +44,27 @@ export function inspectLifecycleWorktree(root, config = null, workflow = null, {
     && regularWorktreeFile(root, entry.path.value));
   // `held`: what is kept in place for a later code step (heldForLaterCode), not this decision's.
   const kept = (entry) => Boolean(held?.size) && [entry.path, entry.sourcePath].filter(Boolean).every(item => item.kind === 'utf8' && held.has(item.value));
-  // An editor's own settings, unstaged, are nobody's decision (office, 2026-11-27): no SFlow commit takes them. A staged one
-  // could be, so it is still held.
-  const editor = (entry) => ['untracked', 'ordinary'].includes(entry.type) && (entry.type === 'untracked' || entry.xy?.index === '.')
-    && entry.path.kind === 'utf8' && isEditorConfigurationPath(entry.path.value);
+  // Unstaged, a workspace-local file (an editor's settings, a local-only file, test output) is nobody's decision [WCB:REQ-002],
+  // and so is a document step's code base file, which the code step ahead takes up [WCB:REQ-006]: no SFlow commit takes
+  // either. A staged one could be, so it is still held.
+  const unstaged = (entry) => ['untracked', 'ordinary'].includes(entry.type) && (entry.type === 'untracked' || entry.xy?.index === '.')
+    && entry.path.kind === 'utf8';
+  const local = (entry) => !reports.includes(entry) && unstaged(entry) && isWorkspaceLocalPath(entry.path.value);
+  const code = (entry) => leaveCode && unstaged(entry) && !local(entry)
+    && isApplicationChangePath(entry.path.value, { ...ownership, untracked: entry.type === 'untracked' });
   return {
-    entries: entries.filter(entry => !reports.includes(entry) && !kept(entry) && !editor(entry)),
+    entries: entries.filter(entry => !reports.includes(entry) && !kept(entry) && !local(entry) && !code(entry)),
     disposableUntrackedPaths: reports.map(entry => entry.path.value).sort(),
-    ...(held?.size ? { heldPaths: entries.filter(kept).flatMap(entry => [entry.path, entry.sourcePath].filter(Boolean).map(item => item.value)).sort() } : {})
+    ...(held?.size ? { heldPaths: entries.filter(kept).flatMap(entry => [entry.path, entry.sourcePath].filter(Boolean).map(item => item.value)).sort() } : {}),
+    // What stays where it is, as nobody's decision here: recovery leaves it out of its review roster too.
+    ...(entries.some((entry) => local(entry) || code(entry)) ? { leftInPlace: entries.filter((entry) => local(entry) || code(entry)).map(entry => entry.path.value).sort() } : {})
   };
+}
+
+/** Whether the Story's current step writes documents only: its decisions leave code base files where they are [WCB:REQ-006]. */
+export function documentStepOpen(workflow) {
+  const current = workflow?.phases?.[workflow?.currentPhase];
+  return Boolean(current) && (current.writeScope ?? 'artifact-only') === 'artifact-only';
 }
 
 /**
@@ -91,7 +104,8 @@ export async function withChangesAfterPublication(error, root, config, workflow)
 
 export function assertLifecycleWorktreeClean(root, config = null, workflow = null, { workId = null, held = null } = {}) {
   assertNoHiddenWorktreeChanges(root, 'Lifecycle decision');
-  const inspection = inspectLifecycleWorktree(root, config, workflow, { held });
+  // A document step's decision never holds for code base files left in the checkout [WCB:REQ-006].
+  const inspection = inspectLifecycleWorktree(root, config, workflow, { held, leaveCode: documentStepOpen(workflow) });
   if (!inspection.entries.length) return inspection;
   const id = workflow?.workItem?.id ?? workId;
   const command = `singularity-flow recover${id ? ` ${id}` : ''} --json`;

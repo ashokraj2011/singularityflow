@@ -24,7 +24,7 @@ import { isTestAutomationPath } from './source-boundary.mjs';
 import { effectivePhasePublicationProducer, phasePublicationCommandForProducer } from './manual-authorship.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import { generationSkillForPhase, storyTestScope } from './code-delivery-policy.mjs';
-import { unreconciledCandidatePaths } from './candidate-scope.mjs';
+import { heldCandidatePaths } from './candidate-scope.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
@@ -148,9 +148,11 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
       && [entry.oldPath, entry.newPath].filter(Boolean).every(candidate =>
         !protectedPaths.has(candidate) && !outsideBoundaryPaths.has(candidate)))
       .map(entry => entry.newPath).sort();
-    const excludedChanges = await unreconciledCandidatePaths(root, config, workflow, phase);
-    // The closed generation's recorded code and nothing else: the step's own `phase begin` carries it [paid run, 2026-11-14].
-    const closedCarry = closed ? (await import('./amended-drafts.mjs')).carriesExactlyClosedCode(config, workflow, phase, changeSet) : null;
+    // Only what publication cannot take up itself is left out: a file no plan row names is the step's at publication [WCB:REQ-010].
+    const excludedChanges = await heldCandidatePaths(root, config, workflow, phase);
+    // The closed generation's code: the step's own `phase begin` carries it [paid run, 2026-11-14], and code changed since
+    // too, as code changed outside a version always is, unless a protected or out-of-boundary path refuses it [WCB:REQ-009].
+    const closedCarry = closed ? changeSet.entries.length > 0 && !protectedPaths.size && !outsideBoundaryPaths.size : null;
     return { status: 'verified', basis: consumed ? 'published-generation' : closed ? 'closed-generation' : 'open-generation', excludedChanges,
       ...(closed ? { closedCarry } : {}),
       phaseId: phase.id, generation: version.next(), baseCommit,
@@ -462,7 +464,8 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
       let deliveryEvidence = publishedCodeGeneration ? phase.deliveryEvidence : null;
       if (!publishedCodeGeneration) {
         try {
-          deliveryEvidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase, { requireReconciled: true });
+          // A read: publication takes up a file no plan row names itself, so only one a person holds is unresolved here [WCB:REQ-010].
+          deliveryEvidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase, { requireReconciled: 'held' });
         } catch (error) {
           deliveryErrors.push(error);
           // This candidate has passed the intent/scope checks. Incomplete coverage must not

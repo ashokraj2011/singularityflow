@@ -208,7 +208,8 @@ export function decisionItems(packet, workflow, { repository, at = null } = {}) 
   const phase = workflow.phases?.[workflow.currentPhase] ?? null;
   const since = phase?.submittedAt ?? phase?.startedAt ?? workflow.history?.at(-1)?.at ?? workflow.workItem?.createdAt ?? at;
   return [...(packet?.items ?? []), ...(packet?.offered ?? [])].filter(waitsHere).map((item) => {
-    const kind = item.kind === 'generation-rollover' ? 'next-version' : 'decision';
+    // A take-out of code committed on a Story with no code step is no next version [WCB:REQ-017].
+    const kind = item.kind === 'generation-rollover' && !item.details?.committedCode ? 'next-version' : 'decision';
     const choices = offeredChoices(item, workId).sort((left, right) => Number(Boolean(right.recommended)) - Number(Boolean(left.recommended)));
     const recommended = choices.find((choice) => choice.recommended) ?? null;
     return {

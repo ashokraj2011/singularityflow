@@ -1,8 +1,11 @@
 /**
- * CQF M2: departures in the code step [CQF:REQ-020 to REQ-029], through the real CLI.
+ * CQF M2: departures in the code step [CQF:REQ-020 to REQ-029], through the real CLI, as watch the code base changed them
+ * (docs/SPEC-WCB-WATCH-CODE-BASE-v1.md).
  *
- * The acceptance: a code step adds a file the plan does not name, publishes it with DEP-001, a person
- * accepts it in one table and the step approves, with no appeal, no decide turn and no terminal trip.
+ * A file the plan does not name is no departure since 2026-11-27: the step's publication takes it up, changed outside the
+ * plan by Copilot (with its reason) or by you, and its approval lists it; nobody is asked [WCB:REQ-010]. A person who wants
+ * to decide one undoes that while the step is open: the next check records the departure they decide, accepted in one
+ * table or rejected and restored, as before [WCB:REQ-015].
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -35,70 +38,52 @@ async function draft(t, { agentStep = false } = {}) {
 }
 
 const state = async (repo) => JSON.parse(await readFile(path.join(repo.root, 'singularity/work-items/QF-1/workflow.json'), 'utf8'));
+
+/**
+ * The agent's own record takes a file up with its reason; a person who wants to decide it undoes that while the step is
+ * open, and the agent's next check records the departure they decide [WCB:REQ-015].
+ */
+async function personDecides(repo, ...files) {
+  for (const file of files) {
+    const recorded = repo.sflowJson('departure', 'record', '--kind', 'path', '--path', file, '--reason', 'The change needed this page to show the approved value.');
+    assert.equal(recorded.status, 0, JSON.stringify(recorded.value));
+    const taken = (await state(repo)).settledDecisions.filter((entry) => entry.effect?.class === 'out-of-plan' && entry.effect.file === file).at(-1);
+    assert.ok(taken, `${file} is taken up`);
+    repo.sflow('decisions', 'undo', 'QF-1', '--settled', taken.id, '--reason', 'I decide this file myself.');
+  }
+  return repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent');
+}
 const sha = async (repo, file) => createHash('sha256').update(await readFile(path.join(repo.root, file))).digest('hex');
 
-test('a file the plan does not name is published with DEP-001, accepted in one table, and the step approves', async (t) => {
+test('a file the plan does not name is taken up with the step and listed at its approval; nothing waits [WCB:REQ-010]', async (t) => {
   const repo = await draft(t);
-  // A person's own check records nothing: the refusal it always gave stands.
-  const own = repo.sflowJson('phase', 'prepublish', 'implement');
-  assert.match(JSON.stringify(own.value.findings), /GENERATION_EXCLUDED_CHANGES_UNRESOLVED/u);
+  // Every check says what publication takes up, and records nothing.
+  for (const args of [[], ['--for-agent']]) {
+    const checked = repo.sflowJson('phase', 'prepublish', 'implement', ...args);
+    assert.ok(!JSON.stringify(checked.value.findings ?? []).includes('GENERATION_EXCLUDED_CHANGES_UNRESOLVED'), JSON.stringify(checked.value.findings));
+    assert.deepEqual(checked.value.outsidePlan.files.map((entry) => [entry.file, entry.writer]), [['index.html', 'person']]);
+    assert.equal(checked.value.departures, undefined);
+  }
   assert.equal((await state(repo)).departures, undefined);
-  // The agent's check, as /sf-code runs it, records the departure and keeps going.
-  const checked = repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent');
-  assert.equal(checked.status, 0, JSON.stringify(checked.value));
-  assert.ok(!JSON.stringify(checked.value).includes('GENERATION_EXCLUDED_CHANGES_UNRESOLVED'), JSON.stringify(checked.value.findings));
-  assert.deepEqual(checked.value.departures.recorded, ['DEP-001']);
-  assert.match(checked.value.departures.words, /DEP-001 waits for a person on the decisions table/u);
-  let recorded = await state(repo);
-  assert.equal(recorded.departures[0].kind, 'path');
-  assert.deepEqual(recorded.departures[0].paths, ['index.html']);
-  assert.equal(recorded.departures[0].recordedBy, 'sflow');
-  assert.equal(recorded.departures[0].author.producer, 'governed-agent');
-  assert.deepEqual(recorded.departures[0].findings, []);
-  // The one row this step delivers is the clause it serves, and the target is the approved plan.
-  assert.deepEqual(recorded.departures[0].clauses, ['QF-1:AC-001']);
-  assert.deepEqual([recorded.departures[0].target.phase, recorded.departures[0].target.generation], ['intake', 1]);
-  assert.match(recorded.departures[0].target.sha256, /^[a-f0-9]{64}$/u);
 
   const published = repo.sflowJson('phase', 'publish', 'implement', '--authored', 'deterministic', '--channel', 'kernel-generator');
   assert.equal(published.status, 0, JSON.stringify(published.value));
-  recorded = await state(repo);
-  assert.ok(recorded.phases.implement.deliveryEvidence.sourcePaths.includes('index.html'), 'the departure file is published with the step');
-  assert.equal((recorded.departures ?? []).length, 1, 'publish records nothing twice');
+  let recorded = await state(repo);
+  assert.ok(recorded.phases.implement.deliveryEvidence.sourcePaths.includes('index.html'), 'the file is published with the step');
+  assert.deepEqual(recorded.settledDecisions.filter((entry) => entry.effect?.class === 'out-of-plan').map((entry) => [entry.effect.file, entry.effect.writer]),
+    [['index.html', 'person']]);
+  assert.equal(recorded.departures, undefined);
   repo.sflow('submit', 'implement');
 
-  // The table: one row, accepted with the person's reason.
+  // The table has no question; the approval lists the file with who changed it, and nothing holds it.
   const list = repo.sflowJson('decisions', 'QF-1');
   assert.equal(list.status, 0, JSON.stringify(list.value));
   const packet = list.value.data ?? list.value;
-  const item = packet.items.find((entry) => entry.kind === 'departure');
-  assert.ok(item, JSON.stringify(packet.items.map((entry) => entry.kind)));
-  assert.equal(item.details.departure, 'DEP-001');
-  assert.equal(item.details.acceptAll, true);
-  assert.equal(item.holdsApproval, true);
-  assert.deepEqual(item.options.map((option) => option.id), ['accept', 'reject']);
+  assert.ok(!packet.items.some((entry) => ['departure', 'plan-accounting'].includes(entry.kind)), JSON.stringify(packet.items.map((entry) => entry.kind)));
   const approval = packet.items.find((entry) => entry.kind === 'approval');
-  assert.deepEqual(approval.details.heldBy, [item.id]);
-
-  const approve = () => repo.run(process.execPath, [cli, '--no-model', 'approve', 'implement', '--work-id', 'QF-1', '--yes', '--json']);
-  const refused = approve();
-  assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /DEPARTURES_UNDECIDED/u);
-
-  const reason = 'The entry page shows the approved value, so it ships with this code.';
-  const answers = path.join(repo.root, '..', 'answers.json');
-  await writeFile(answers, JSON.stringify({ choose: { [item.id]: 'accept' }, reason: { [item.id]: reason }, confirm: packet.packetSha256 }));
-  const decided = repo.sflowJson('decisions', 'record', 'QF-1', '--answers', answers);
-  assert.equal(decided.status, 0, JSON.stringify(decided.value));
-  recorded = await state(repo);
-  const amendment = recorded.planAmendments.at(-1);
-  assert.deepEqual(amendment.departures, ['DEP-001']);
-  assert.deepEqual(amendment.changes, [{ kind: 'add-location', clauseId: 'QF-1:AC-001', path: 'index.html' }]);
-  assert.equal(amendment.contentHashes['index.html'], await sha(repo, 'index.html'));
-  const shown = repo.sflowJson('departure', 'show', 'DEP-001');
-  assert.equal((shown.value.data ?? shown.value).departure.status, 'accepted');
-
-  const approved = approve();
+  assert.deepEqual(approval.details.outsidePlan.map((entry) => entry.words), ['index.html: by you']);
+  assert.deepEqual(approval.details.heldBy, []);
+  const approved = repo.run(process.execPath, [cli, '--no-model', 'approve', 'implement', '--work-id', 'QF-1', '--yes', '--json']);
   assert.equal(approved.status, 0, approved.stdout + approved.stderr);
   recorded = await state(repo);
   assert.equal(recorded.phases.implement.status, 'approved');
@@ -107,7 +92,7 @@ test('a file the plan does not name is published with DEP-001, accepted in one t
 
 test('a rejected departure is restored by the model in the same generation, and the next prepublish checks it is back', async (t) => {
   const repo = await draft(t);
-  assert.deepEqual(repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent').value.departures.recorded, ['DEP-001']);
+  assert.deepEqual((await personDecides(repo, 'index.html')).value.departures.recorded, ['DEP-001']);
   // A /sf-decide turn's command, the same write as the table's reject.
   repo.sflow('decision', 'departure', 'QF-1', '--departure', 'DEP-001', '--as', 'rejected', '--reason', 'The entry page is a separate change for later.');
   let recorded = await state(repo);
@@ -132,7 +117,7 @@ test('a rejected departure is restored by the model in the same generation, and 
 test('"Accept all" accepts every file departure with one reason as one plan amendment naming each', async (t) => {
   const repo = await draft(t);
   await writeFile(path.join(repo.root, 'about.html'), '<title>About the calendar</title>\n');
-  assert.deepEqual(repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent').value.departures.recorded, ['DEP-001', 'DEP-002']);
+  assert.deepEqual((await personDecides(repo, 'about.html', 'index.html')).value.departures.recorded, ['DEP-001', 'DEP-002']);
   const packet = repo.sflowJson('decisions', 'QF-1').value.data;
   const rows = packet.items.filter((entry) => entry.kind === 'departure');
   assert.deepEqual(rows.map((entry) => [entry.details.departure, entry.details.acceptAll]), [['DEP-001', true], ['DEP-002', true]]);
@@ -177,15 +162,15 @@ test('departure record keeps every hard limit: secrets, configuration, tests, un
   refusedWith(record('--kind', 'test', '--clause', 'QF-1:AC-001', '--row-op', 'add-test'), 'DEPARTURE_ROW_CHANGE_INCOMPLETE');
   refusedWith(record('--kind', 'plan-row', '--clause', 'QF-1:AC-001', '--row-op', 'replace-location', '--from', 'src/value.mjs'), 'DEPARTURE_ROW_CHANGE_INCOMPLETE');
   assert.equal((await state(repo)).departures, undefined, 'nothing incomplete is recorded');
-  // The model's own record, with the clause it serves.
+  // The model's own record of a file the plan does not name takes it up, as Copilot's, with the reason it gave [WCB:REQ-010].
   const recorded = record('--kind', 'path', '--path', 'index.html', '--clause', 'QF-1:AC-001');
   assert.equal(recorded.status, 0, recorded.stdout + recorded.stderr);
-  const departure = (await state(repo)).departures[0];
-  assert.equal(departure.recordedBy, 'agent');
-  assert.deepEqual(departure.baseHashes, { 'index.html': null });
-  assert.equal(departure.contentHashes['index.html'], await sha(repo, 'index.html'));
-  // Prepublish records nothing twice: the file already has its departure.
-  assert.deepEqual(repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent').value.departures.recorded, []);
+  const taken = (await state(repo)).settledDecisions.find((entry) => entry.effect?.class === 'out-of-plan');
+  assert.deepEqual([taken.effect.file, taken.effect.writer, taken.effect.basis, taken.effect.reason],
+    ['index.html', 'copilot', 'agent-said', 'The change needed this file to be edited.']);
+  assert.equal((await state(repo)).departures, undefined);
+  // Prepublish records nothing for it: it is the step's.
+  assert.equal(repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent').value.departures, undefined);
   repo.sflowJson('phase', 'publish', 'implement', '--authored', 'deterministic', '--channel', 'kernel-generator');
   refusedWith(record('--kind', 'path', '--path', 'index.html'), 'DEPARTURE_LIFECYCLE');
 });
@@ -193,7 +178,7 @@ test('departure record keeps every hard limit: secrets, configuration, tests, un
 test('a file edited after its departure was accepted reopens only that row, and accepting it again binds the new bytes', async (t) => {
   const repo = await draft(t);
   await writeFile(path.join(repo.root, 'about.html'), '<title>About the calendar</title>\n');
-  repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent');
+  await personDecides(repo, 'about.html', 'index.html');
   const accept = (id, reason) => repo.sflow('decision', 'departure', 'QF-1', '--departure', id, '--as', 'accepted', '--reason', reason);
   // Recorded in path order: about.html is DEP-001, index.html DEP-002.
   accept('DEP-001', 'The about page ships with the calendar it describes.');
@@ -230,23 +215,21 @@ test('appeal prepare records a departure for each change it names, and the appea
   assert.equal((await state(repo)).departures.length, 1);
 });
 
-test('the agent\'s publication records a left-out file itself when no prepublish ran first, and another producer\'s does not', async (t) => {
+test('every publication takes a left-out file up itself, whoever publishes, when no prepublish ran first [WCB:REQ-010]', async (t) => {
   const repo = await draft(t, { agentStep: true });
   const summary = path.join(repo.root, 'singularity/work-items/QF-1/artifacts/implement/implementation-summary.md');
   await writeFile(summary, `${await readFile(summary, 'utf8')}\n## What changed\n\nThe value module returns the approved value 2, and a new entry page shows it to every visitor.\n`);
-  // Any producer but the agent records nothing: what is left out stays its author's to account for.
+  // A person's own publication: the file is taken up with the step, by them, and nothing is refused.
   const own = repo.run(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement', '--authored', 'human', '--channel', 'manual-in-place', '--json']);
-  assert.notEqual(own.status, 0);
-  assert.match(own.stdout + own.stderr, /GENERATION_EXCLUDED_CHANGES_UNRESOLVED/u, (own.stdout + own.stderr).slice(-1500));
-  assert.equal((await state(repo)).departures, undefined, 'no departure is recorded for another producer');
-  const agent = repo.run(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement', '--authored', 'governed-agent', '--channel', 'copilot-host', '--json']);
-  assert.equal(agent.status, 0, agent.stdout + agent.stderr);
+  assert.equal(own.status, 0, (own.stdout + own.stderr).slice(-1500));
   const recorded = await state(repo);
-  assert.deepEqual(recorded.departures.map((entry) => [entry.id, entry.paths, entry.recordedBy]), [['DEP-001', ['index.html'], 'sflow']]);
+  assert.equal(recorded.departures, undefined, 'no departure');
+  assert.deepEqual(recorded.settledDecisions.filter((entry) => entry.effect?.class === 'out-of-plan').map((entry) => [entry.effect.file, entry.effect.writer]),
+    [['index.html', 'person']]);
   assert.ok(recorded.phases.implement.deliveryEvidence.sourcePaths.includes('index.html'));
 });
 
-test('a row that only checks tests is left out of accepting a file, said so, and a departure naming only such a row is refused with the commands that work', async (t) => {
+test('a file the agent records under a row that only checks tests is taken up with the step, and no row changes [WCB:REQ-010]', async (t) => {
   const repo = await repository(t, { implementCommands: false });
   const { root, sflow, must } = repo;
   const configPath = path.join(root, 'singularity/workflow.yml');
@@ -286,33 +269,16 @@ test('a row that only checks tests is left out of accepting a file, said so, and
   assert.equal(record('about.html', 'QF-1:AC-001', 'QF-1:AC-002').status, 0);
   assert.equal(record('index.html', 'QF-1:AC-002').status, 0);
 
-  // The table offers only what can be recorded: AC-001 alone for DEP-001, and Accept under AC-001 for DEP-002.
+  // Whatever rows the agent names, a file no plan row names is taken up with the step, as Copilot's with its reason, and no
+  // row of the plan changes: a test-only row is never asked to take it [WCB:REQ-010]. Accepting a departure under such a
+  // row is held by the departure model (cqf-m2-departure-model.test.mjs).
+  const recorded = await state(repo);
+  assert.equal(recorded.departures, undefined);
+  assert.equal(recorded.planAmendments, undefined);
+  assert.deepEqual(recorded.settledDecisions.filter((entry) => entry.effect?.class === 'out-of-plan').map((entry) => [entry.effect.file, entry.effect.writer]),
+    [['about.html', 'copilot'], ['index.html', 'copilot']]);
   const packet = repo.sflowJson('decisions', 'QF-1').value.data;
-  const [mixed, only] = packet.items.filter((entry) => entry.kind === 'departure');
-  assert.deepEqual(mixed.options.find((option) => option.id === 'accept').effects[0].changes, [{ kind: 'add-location', clauseId: 'QF-1:AC-001', path: 'about.html' }]);
-  assert.match(mixed.options.find((option) => option.id === 'accept').does, /AC-002 only checks tests, so this file is not added to it\./u);
-  assert.deepEqual(only.options.map((option) => option.id), ['accept-qf-1-ac-001', 'reject']);
-
-  // In the terminal, a departure naming only that row is refused with commands that run as they are.
-  const reason = 'The entry page shows the approved value with this code.';
-  const refused = repo.run(process.execPath, [cli, '--no-model', 'decision', 'departure', 'QF-1', '--departure', 'DEP-002', '--as', 'accepted', '--reason', reason]);
-  assert.notEqual(refused.status, 0);
-  const said = refused.stdout + refused.stderr;
-  assert.match(said, /DEP-002 cannot be accepted as recorded\. AC-002 only checks tests, so index\.html cannot be added to it\./u);
-  assert.ok(said.includes('singularity-flow decision departure QF-1 --fetch --departure DEP-002 --as accepted --clause QF-1:AC-001 --reason "<REASON>"'), said);
-  assert.ok(said.includes('singularity-flow decision departure QF-1 --fetch --departure DEP-002 --as rejected --reason "<REASON>"'), said);
-  assert.doesNotMatch(said, /<CLAUSE>/u);
-  assert.equal((await state(repo)).planAmendments, undefined, 'nothing recorded');
-
-  // Accepting the mixed one adds the file to AC-001 only, and says AC-002 was left out.
-  const accepted = repo.run(process.execPath, [cli, '--no-model', 'decision', 'departure', 'QF-1', '--departure', 'DEP-001', '--as', 'accepted', '--reason', 'The about page ships with the calendar it describes.']);
-  assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr);
-  assert.match(accepted.stdout, /AC-002 only checks tests, so about\.html was not added to it\./u);
-  assert.deepEqual((await state(repo)).planAmendments.at(-1).changes, [{ kind: 'add-location', clauseId: 'QF-1:AC-001', path: 'about.html' }]);
-  // The command the refusal gave works with the person's reason in it.
-  repo.sflow('decision', 'departure', 'QF-1', '--fetch', '--departure', 'DEP-002', '--as', 'accepted', '--clause', 'QF-1:AC-001', '--reason', reason);
-  assert.deepEqual((await state(repo)).planAmendments.at(-1).changes, [{ kind: 'add-location', clauseId: 'QF-1:AC-001', path: 'index.html' }]);
-  assert.deepEqual(repo.sflowJson('departure', 'list', '--open').value.data.departures, []);
+  assert.ok(!packet.items.some((entry) => entry.kind === 'departure'), JSON.stringify(packet.items.map((entry) => entry.kind)));
 });
 
 test('a plan row change is kept on the card or with the person\'s answer in chat, and its correction accepts the departure', async (t) => {

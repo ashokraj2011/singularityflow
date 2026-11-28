@@ -26,7 +26,7 @@ import { formatCommandRouteLines, modelFreeCommandForCommand, VSCODE_DECIDE_CARD
  * through `story intent-amendment`'s own functions with every check they make, each alone in its run and
  * said to come from the card when an answers file carries it [owner, 2026-11-13].
  *
- *   singularity-flow decisions undo [WORK-ID] --settled STL-001 [--reason TEXT] [--json]
+ *   singularity-flow decisions undo [WORK-ID] --settled STL-001 [--reason TEXT] [--keep-out FILE] [--json]
  *
  * What the agent or SFlow settled for the person is listed as "Settled for you" with its evidence; undoing one,
  * here or with the card's Undo, makes it a question for the person again on its own route [owner, 2026-11-13].
@@ -48,7 +48,7 @@ import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowErro
 const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card', 'probe', 'probe-wait']);
 // `--presence-card` and `--card-sha256`: SF Guard's card as the VS Code Decide card showed it (presence/card-channel.mjs).
 const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch', 'version-consent', 'just-a-question', 'expect', 'presence-card', 'card-sha256']);
-const UNDO_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'settled', 'reason', 'fetch']);
+const UNDO_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'settled', 'reason', 'fetch', 'keep-out']);
 const LEARN_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'all']);
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 
@@ -60,6 +60,7 @@ export const DECISIONS_USAGE = [
   '       singularity-flow decisions record [WORK-ID] --answers FILE',
   '       singularity-flow decisions record [WORK-ID]   (interactive terminal)',
   '       singularity-flow decisions undo [WORK-ID] --settled STL-ID [--reason TEXT]   (what was settled for you becomes your question again)',
+  '       singularity-flow decisions undo [WORK-ID] --settled STL-ID --keep-out FILE   (a file the open code step took up is kept out: undone, set aside with a private copy)',
   '       singularity-flow decisions learn [WORK-ID] [--all] [--json]   (read only: how often answers followed the recommendation)',
   'Lists what people must decide before the step can move, in plain words with choices, and records the',
   'choices with one confirmation. Each choice is checked against the deciding person\'s approval group and',
@@ -1205,12 +1206,24 @@ async function undo(root, options, workId) {
     import('../settled-decisions.mjs'), import('./kernel.mjs'), import('../session.mjs')]);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
+  // `--keep-out FILE`: the file this settlement took up, still only in the checkout, kept out of the Story in the same
+  // step: its take-up undone, then the file set aside with a private copy [WCB:REQ-015, owner 2026-11-28].
+  const keepOut = optionString(options, 'keep-out');
+  if (keepOut) {
+    const offered = await (await import('../code-outside-plan.mjs')).keepOutFiles(root, config, workflow);
+    if (offered.get(keepOut) !== id) {
+      refused(`${keepOut} is not a file ${id} took up that is still only in this checkout; \`singularity-flow decisions ${workflow.workItem.id}\` lists what can be kept out.`, 'DECISIONS_OPTIONS_INVALID');
+    }
+  }
   const result = await undoSettledDecision(root, config, workflow, id, { actor: actionActor(root), agent,
-    reason: optionString(options, 'reason') ?? null, channel: 'terminal' });
+    reason: optionString(options, 'reason') ?? (keepOut ? `Kept ${keepOut} out of this Story.` : null), channel: 'terminal' });
+  const setAside = keepOut ? await (await import('../recovery-set-aside.mjs')).setAsideFiles(root, config,
+    (await storyContext(root, workId ?? workflow.workItem.id, { record: true })).workflow, [keepOut]) : null;
   if (!optionBoolean(options, 'json')) {
     console.log(`Undid ${result.settled.id}: ${result.settled.answer}`);
-    console.log(result.reraised.words);
-    console.log(`Next: ${result.reraised.copilotCommand ?? result.reraised.command}`);
+    if (setAside) console.log(`Kept ${keepOut} out of this Story: set aside, with a private copy (${setAside.checkpoint}).`);
+    else console.log(result.reraised.words);
+    console.log(`Next: ${setAside ? `singularity-flow decisions ${workflow.workItem.id}` : result.reraised.copilotCommand ?? result.reraised.command}`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decisions.undo', classification: 'mutation' },
@@ -1219,7 +1232,8 @@ async function undo(root, options, workId) {
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     next: [action({ id: 'settled-undo.reraised', label: result.reraised.words, command: result.reraised.command,
       skill: result.reraised.copilotCommand?.split(' ')[0] ?? null, rank: 'NOW', kind: 'workflow' })],
-    data: { undo: result.undo, settled: result.settled, reraised: result.reraised, commit: result.publication?.sha ?? null, pushed: result.publication?.pushed ?? false }
+    data: { undo: result.undo, settled: result.settled, reraised: result.reraised, commit: result.publication?.sha ?? null, pushed: result.publication?.pushed ?? false,
+      ...(setAside ? { keptOut: setAside } : {}) }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 

@@ -18,7 +18,7 @@ import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { expectedPhaseEvidencePaths, expectedPreparationContextPaths, expectedStepOwnedPaths } from './recovery-preparation-context.mjs';
 import { setAsideWorktreeAction } from './recovery-set-aside.mjs';
-import { heldForLaterCode, inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
+import { documentStepOpen, heldForLaterCode, inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
 import { reviewedWorktreeCommitAction, submittedWorktreeCorrectionAction } from './recovery-worktree-commit.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 import { evidenceContractRecoveryActions } from './phase-evidence-amendment.mjs';
@@ -72,7 +72,9 @@ export async function workingTreeAction(root, config, workflow, phase, status, p
   // untracked result is disposable for routing: a tracked result (or any other dirty path) must
   // still be reviewed. This never removes the report or changes Git's index.
   const disposableUntrackedPaths = inspection.disposableUntrackedPaths;
-  const held = new Set(inspection.heldPaths ?? []);
+  // Held for a later code step, or left in place as nobody's decision here (a workspace-local file; a document step's code
+  // base file, the code step's to take up [WCB:REQ-006]).
+  const held = new Set([...(inspection.heldPaths ?? []), ...(inspection.leftInPlace ?? [])]);
   paths = paths.filter((candidate) => !held.has(candidate));
   const relevantPaths = paths.filter((candidate) => !disposableUntrackedPaths.includes(candidate));
   const itemRoot = repositoryRelativePath(
@@ -355,8 +357,10 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
   }
   const worktreeStatus = changes(root);
   // One raw-byte status inspection per plan; the apply-time stability guard always reads fresh.
-  // A later code step's code, kept in place for it (SPEC-CIC switch 2), is no change for an earlier document step to review.
-  const worktreeInspection = inspectLifecycleWorktree(root, config, workflow, { held: await heldForLaterCode(root, config, workflow) });
+  // A later code step's code, kept in place for it (SPEC-CIC switch 2), is no change for an earlier document step to review,
+  // nor is any code base file at a document step: the code step ahead takes it up [WCB:REQ-006].
+  const worktreeInspection = inspectLifecycleWorktree(root, config, workflow, { held: await heldForLaterCode(root, config, workflow),
+    leaveCode: documentStepOpen(workflow) });
   // Lagging index entries make the status unreadable as authored changes; classify it once they are refreshed.
   if (worktreeStatus.trim() && !staleIndex.length) {
     const worktreeAction = await workingTreeAction(root, config, workflow, phase ?? activePhase, worktreeStatus, phaseRecovery, worktreeInspection);

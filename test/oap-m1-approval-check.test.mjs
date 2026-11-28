@@ -159,11 +159,19 @@ test('a real Story: the preview lists every hold in gate order, and recording re
   assert.deepEqual({ ready: clean.ready, holds: clean.holds }, { ready: true, holds: [] });
   assert.equal(clean.statement, 'Approving planning would pass every check.');
 
-  // Application source committed during review: two holds, the source binding and the commit itself.
+  // Application source committed during review is the code step's to take up, never this review's: no hold [WCB:REQ-006].
   const root = git('rev-parse', '--show-toplevel');
   await writeFile(path.join(root, 'value.mjs'), 'export const value = 1;\n');
   git('add', 'value.mjs');
   git('commit', '-qm', 'Implement the value during the planning review');
+  const codeOnly = readiness().approvalCheck;
+  assert.deepEqual({ ready: codeOnly.ready, holds: codeOnly.holds }, { ready: true, holds: [] });
+  // A commit that is not code alone (it edits the Story's own records too) holds it: the commit itself.
+  const notes = `singularity/work-items/${WORK}/context/review-notes.json`;
+  await writeFile(path.join(root, 'value.mjs'), 'export const value = 2;\n');
+  await writeFile(path.join(root, notes), '{"notes":1}\n');
+  git('add', 'value.mjs', notes);
+  git('commit', '-qm', 'Change the value and keep review notes during the planning review');
   const heldReadiness = readiness(); const held = heldReadiness.approvalCheck;
   assert.equal(heldReadiness.classification, 'already-submitted');
   assert.equal(heldReadiness.reasonCode, 'APPROVAL_HOLDS_REQUIRED');
@@ -172,15 +180,14 @@ test('a real Story: the preview lists every hold in gate order, and recording re
   assert.equal(heldReadiness.command, heldReadiness.nextCommand);
   assert.equal(heldReadiness.nextSkill, '/sf-reject');
   assert.equal(held.ready, false);
-  assert.deepEqual(held.holds.map((hold) => [hold.code, hold.owner]),
-    [['STORY_REVIEW_SOURCE_CHANGED', 'author-repairs'], ['STORY_REVIEW_INTERVENING_COMMIT', 'author-repairs']]);
+  assert.deepEqual(held.holds.map((hold) => [hold.code, hold.owner]), [['STORY_REVIEW_INTERVENING_COMMIT', 'author-repairs']]);
   assert.ok(held.holds.every((hold) => hold.who && hold.summary));
   const shown = JSON.parse(cli('phase', 'show', 'planning', '--json').stdout).approvalCheck;
   assert.deepEqual(shown.holds.map((hold) => hold.code), held.holds.map((hold) => hold.code), 'phase show reads the same check');
   const refused = run(process.execPath, [CLI, '--no-model', 'approve', 'planning', '--work-id', WORK, '--yes', '--json'], { allowFailure: true });
   assert.notEqual(refused.status, 0);
   assert.equal(JSON.parse(refused.stdout).error.code, held.holds[0].code, 'the gate refuses with the preview\'s first hold');
-  assert.equal(git('rev-list', '--count', `${submitted}..HEAD`), '1', 'the preview and the refusal recorded nothing');
+  assert.equal(git('rev-list', '--count', `${submitted}..HEAD`), '2', 'the preview and the refusal recorded nothing');
 });
 
 /**
@@ -227,13 +234,14 @@ test('a rejection commit that also changes application source is no rejected ame
   git('commit', '-q', '--amend', '--no-edit');
   publish();
   const readiness = JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout);
-  assert.deepEqual(readiness.approvalCheck.holds.map((hold) => hold.code), ['STORY_REVIEW_SOURCE_CHANGED', 'STORY_REVIEW_INTERVENING_COMMIT']);
+  // The code it carries is the code step's to take up [WCB:REQ-006]; the commit is still no rejected amendment.
+  assert.deepEqual(readiness.approvalCheck.holds.map((hold) => hold.code), ['STORY_REVIEW_INTERVENING_COMMIT']);
   assert.equal(readiness.approvalCheck.notes, undefined, 'nothing is noted as a rejected amendment');
   assert.deepEqual(readiness.blockingCommits.commits.map((entry) => [entry.commit, entry.subject]),
     [[proposal, PROPOSE(WORK)], [head(), REJECT(WORK)]]);
   assert.match(readiness.blockingCommits.lines.join('\n'),
     /Decided after the submission: intent amendment AMD-001 \(rejected\)\. Only a rejected amendment whose proposal and rejection change nothing else may precede approval/u);
-  assert.equal(refused().code, 'STORY_REVIEW_SOURCE_CHANGED', 'the gate refuses with the preview\'s first hold');
+  assert.equal(refused().code, 'STORY_REVIEW_INTERVENING_COMMIT', 'the gate refuses with the preview\'s first hold');
 });
 
 test('a merge commit carrying the rejection is no rejected amendment', async (t) => {

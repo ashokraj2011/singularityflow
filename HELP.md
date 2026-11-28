@@ -3868,6 +3868,7 @@ singularity-flow findings plan [--feed security|tlm] [--all-repositories] [--jso
 singularity-flow findings start <GROUP-ID> [--work-id ID] [--from-branch BRANCH] [--fetch] [--isolated-worktree] [--json]
 singularity-flow findings report [--out FILE] [--feed security|tlm] [--all-repositories] [--json]
 singularity-flow prompts [--story ID] [--limit N] [--json]
+singularity-flow probe office [--out FILE] [--push] [--chat] [--intellij] [--jira KEY] [--json]
 singularity-flow local start <NAME> --intent <TEXT> --input <ABSOLUTE-PATH>... --classification public|internal|confidential|restricted [--allow-empty-output] [--json]
 singularity-flow local list [--json]
 singularity-flow local status --story <LOC-ID> [--json]

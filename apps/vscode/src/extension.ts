@@ -4535,6 +4535,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openDiagnostics', openDiagnostics));
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.doctor', openDiagnostics));
+  // The office checks (docs/OFFICE-CHECKS.md): the CLI's probe office in this folder, its questions as buttons.
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.runOfficeChecks', () => lazyPanels().runOfficeChecks({
+    location: surfaceLocation, environment: cliEnvironment, output,
+    folder: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir()
+  })));
 
   // One build on every product surface. Checked after the first paint, repaired from the build this
   // machine retains, and a reload offered once this window's own files have been replaced.

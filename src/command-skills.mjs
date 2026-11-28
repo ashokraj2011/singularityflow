@@ -58,6 +58,7 @@ const entries = {
   backup: ['sf-doctor'],
   guard: ['sf-guard'],
   findings: ['sf-findings'],
+  probe: ['sf-doctor'],
   prompts: ['sf-prompt-log'],
   'git-policy': ['sf-git-policy'],
   'factory-reset': ['sf-factory-reset'],

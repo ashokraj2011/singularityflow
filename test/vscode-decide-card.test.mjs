@@ -195,7 +195,7 @@ test('beside the departures the card shows coverage, each criterion\'s tests, th
   assert.equal(evidenceHtml(packet()), '', 'a list without evidence shows none');
 });
 
-test('a held package shows who may accept it and its own command, which stays in the person\'s terminal; anyone else is told who to share it with', () => {
+test('a held package shows who may accept it and its own command, which runs from the card on Do this now; anyone else is told who to share it with', () => {
   const mine = evidenceHtml(packet({ approvalEvidence: approvalEvidence() }));
   assert.match(mine, /minimist@1\.2\.5 GHSA-xvch-5gv4-984h \(critical, fixed in 1\.2\.8\)[\s\S]*The security reviewers accept it, or it is upgraded to 1\.2\.8 and submitted again\./u);
   assert.match(mine, /Do this now runs this step for you[\s\S]*<code>singularity-flow decision finding-risk PAY-1 --phase implementation --finding F-a4bd3792d14b22d0 [^<]*--reason &quot;&lt;why the step may keep it&gt;&quot; --expires &lt;YYYY-MM-DD&gt;<\/code>/u);
@@ -217,7 +217,9 @@ test('a held package shows who may accept it and its own command, which stays in
   const accepted = evidenceHtml(packet({ approvalEvidence: approvalEvidence({ accepted: { id: 'FRK-001', by: 'Pat Reviewer', until: '2026-12-01' } }) }));
   assert.match(accepted, /Accepted by Pat Reviewer until 2026-12-01 \(FRK-001\)\./u);
   // The page names the held package by its place; the extension reads its command from the list, only for one who may accept it.
-  assert.match(DECIDE_SCRIPT, /hold: held\.dataset\.holdTerminal \?\? held\.dataset\.holdCopy/u);
+  // The held package's place, whichever of its buttons was pressed: Do this now runs it from the list as read [owner, 2026-11-28].
+  assert.match(DECIDE_SCRIPT, /const index = held\.dataset\.holdRun \?\? held\.dataset\.holdTerminal \?\? held\.dataset\.holdCopy;/u);
+  assert.match(mine, /data-hold-run="0">Do this now<\/button>/u);
   assert.doesNotMatch(DECIDE_SCRIPT, /dataset\.command/u);
 });
 

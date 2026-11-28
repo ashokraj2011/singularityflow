@@ -100,8 +100,9 @@ test('every confirmation runs through /sf-confirm by its code, even one a skill 
   assert.equal(copilotCommandForCommand(`singularity-flow decision plan W --confirm ${digest} --json`), confirmRouteOf(`singularity-flow decision plan W --confirm ${digest}`));
   // A Work ID confirmation, a template still to fill, and shell operators keep the skill route.
   assert.equal(copilotCommandForCommand('singularity-flow cancel W --reason x --confirm W', '/sf-cancel'), '/sf-cancel');
+  // A forward amendment's decision is the Decide card's [owner, 2026-11-28]: /sf-decide opens it, never a route of its own.
+  assert.equal(copilotCommandForCommand(`singularity-flow upstream-issue decide-amendment U --decision <approve|reject> --confirm ${digest}`), '/sf-decide');
   // A person's own terminal step has no route at all: /sf-decide refused it and pointed back to itself.
-  assert.equal(copilotCommandForCommand(`singularity-flow upstream-issue decide-amendment U --decision <approve|reject> --confirm ${digest}`), null);
   assert.equal(copilotCommandForCommand(`singularity-flow story target-origin W --url https://staging.example.test --reason x --confirm ${digest}`), null);
   // A reviewed plan id is a digest too.
   assert.equal(copilotCommandForCommand('singularity-flow governance rebuild --confirm-plan grb-0123456789abcdef01234567'),

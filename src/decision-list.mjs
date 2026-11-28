@@ -2269,7 +2269,10 @@ export function optionOutcome(item, entry) {
   if (item.kind === 'routing-decision' || /^(?:choose|to)-/u.test(id) || id === 'route') return 'route';
   // Approving an intent amendment changes the approved clauses.
   if (item.kind === 'intent-amendment' && /^approve(?:-|$)/u.test(id)) return 'change-spec';
-  if (id === 'accept-risk' || id === 'accept-test-risk' || id.startsWith('accept-obligation-risk-')) return 'accept-risk';
+  // So does approving a forward amendment, and rejecting it keeps the document, as rejecting an intent amendment does.
+  if (item.kind === 'forward-amendment') return id === 'approve-amendment' ? 'change-spec' : 'dismiss';
+  // Renewing a lapsed witness exception keeps it standing until a date, as a dated risk does.
+  if (id === 'accept-risk' || id === 'accept-test-risk' || id === 'renew-exception' || id.startsWith('accept-obligation-risk-')) return 'accept-risk';
   if (['return', 'return-step', 'return-step-first', 'fix-code', 'rework'].includes(id) || (id === 'reject' && item.kind === 'departure')) return 'return';
   if (['update-spec', 'update-intent'].includes(id)) return 'change-spec';
   if (['does-not-apply', 'not-applicable', 'scope-informative', 'scope-excluded', 'other-disposition'].includes(id)) return 'not-applicable';

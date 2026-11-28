@@ -98,7 +98,10 @@ test('every item kind the list builds has a recommendation or says what to weigh
       options: [own('start-next-generation', 'Start generation 3', 'singularity-flow phase rollover implementation')] },
     'routing-decision': { details: { reason: 'ask' }, options: [choice('choose-a', 'Route A', [{ kind: 'routing', option: 'a' }]), choice('choose-b', 'Route B', [{ kind: 'routing', option: 'b' }])] },
     'intent-amendment': { details: { status: 'proposed' }, options: [choice('reject', 'Reject IAM-001', [{ kind: 'intent-amendment-decision', decision: 'reject' }]), choice('approve', 'Approve IAM-001', [{ kind: 'intent-amendment-decision', decision: 'approve' }])] },
-    'forward-amendment': { details: { phase: 'specification' }, options: [own('decide', 'Approve or reject it', 'singularity-flow upstream-issue decide-amendment FAM-001')] },
+    // Approved or rejected on the card, each a choice it records [owner, 2026-11-28].
+    'forward-amendment': { details: { phase: 'specification' }, options: [choice('approve-amendment', 'Approve FAM-001', [{ kind: 'forward-amendment-decision', decision: 'approve' }]),
+      choice('reject-amendment', 'Reject FAM-001', [{ kind: 'forward-amendment-decision', decision: 'reject' }])] },
+    'witness-exception': { details: { phase: 'build' }, options: [choice('renew-exception', 'Renew it until a date', [{ kind: 'witness-exception-renewal', phase: 'build' }])] },
     revalidation: { details: { phase: 'release' }, options: [choice('still-holds', 'Release still holds', [{ kind: 'amendment-revalidation', phase: 'release', outcome: 'unchanged' }]),
       choice('return-step', 'Return the Story to Release', [{ kind: 'amendment-revalidation', phase: 'release', outcome: 'return' }])] },
     appeal: { details: {}, options: [own('review', 'Review the appeal', 'singularity-flow appeal show APL-1')] },

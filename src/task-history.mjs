@@ -128,11 +128,14 @@ export async function taskHistory(root, { kind, said = '', touchedPaths = [], fo
   const similar = similarTasks(checkoutTaskStories(root, folders), { kind, said, files });
   const suggested = suggestion(similar, { said, files });
   let lessons = 0;
-  try {
-    const { readAllLessons, lessonsFor } = await import('./story-lessons.mjs');
-    const paths = [...new Set([...files, ...similar.flatMap((story) => story.files)])];
-    if (paths.length) lessons = lessonsFor((await readAllLessons(root, { base: false })).entries, { paths }).length;
-  } catch { lessons = 0; }
+  // Read only when there are files to read them for: the lesson store loads with the step commands' own code.
+  const paths = [...new Set([...files, ...similar.flatMap((story) => story.files)])];
+  if (paths.length) {
+    try {
+      const { readAllLessons, lessonsFor } = await import('./story-lessons.mjs');
+      lessons = lessonsFor((await readAllLessons(root, { base: false })).entries, { paths }).length;
+    } catch { lessons = 0; }
+  }
   return { suggestion: suggested, similar: similar.length, lessons,
     ...(lessons ? { lessonsLine: `${lessons} ${lessons === 1 ? 'lesson' : 'lessons'} from earlier Stories reach${lessons === 1 ? 'es' : ''} its steps.` } : {}) };
 }

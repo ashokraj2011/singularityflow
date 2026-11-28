@@ -51,9 +51,9 @@ const INTAKE_REFERENCE_PREFETCH_DEBOUNCE_MS = 600;
 const INTAKE_RECEIPT_MINIMUM_REMAINING_MS = 60_000;
 /** Discovery must finish or show Retry; it is not an unbounded Story-start transaction. */
 const INTAKE_CATALOG_TIMEOUT_MS = 30_000;
-/** A task's likely plan is read this long after the words stop changing, as the Work place reads it [ITW:REQ-114]. */
+/** A task's likely plan is read this long after the words stop changing, as the Work place reads it [ITW:REQ-115]. */
 const TASK_PLAN_QUIET_MS = 600;
-/** The person's last choice between a workflow and a task, kept for every Start Story [ITW:REQ-114]. */
+/** The person's last choice between a workflow and a task, kept for every Start Story [ITW:REQ-115]. */
 export const START_MODE_KEY = 'singularityFlow.intake.startMode';
 
 /** What was started, so the caller can take the reader straight to it. */
@@ -66,7 +66,7 @@ export interface Started {
   configuration?: { commit?: string } | null;
   /** The Story started, but this person was not added to its approval groups: why, and the retry. */
   enrollmentPending?: string;
-  /** A task: Copilot chat carries it on with /sf-task, as after its start in /sf-task [ITW:REQ-114]. */
+  /** A task: Copilot chat carries it on with /sf-task, as after its start in /sf-task [ITW:REQ-115]. */
   task?: boolean;
 }
 
@@ -398,7 +398,7 @@ export class IntakePanel {
       // Starting a Story is the common case, so the form opens on it unless the caller asked for
       // another shape.
       shape: this.defaults.shape ?? 'story',
-      // The person's last choice, unless this way in asked for one or names a workflow [ITW:REQ-114].
+      // The person's last choice, unless this way in asked for one or names a workflow [ITW:REQ-115].
       startMode: this.defaults.startMode ?? (this.defaults.workType || this.defaults.clone ? 'workflow'
         : preferences.get(START_MODE_KEY) === 'task' ? 'task' : 'workflow'),
       approvalAuthorityMissing: target.approvalAuthorityMissing === true,
@@ -639,7 +639,7 @@ export class IntakePanel {
   }
 
   /**
-   * A workflow, or a task whose steps SFlow picks [ITW:REQ-114]. The readiness check is asked again (a task's names no
+   * A workflow, or a task whose steps SFlow picks [ITW:REQ-115]. The readiness check is asked again (a task's names no
    * workflow) and the choice is kept for the next Start Story.
    */
   private chooseStartMode(mode: StartMode, { remember = true }: { remember?: boolean } = {}): void {
@@ -656,7 +656,7 @@ export class IntakePanel {
     this.scheduleTaskPlan(0);
   }
 
-  /** A task starts from the default branch unless the person chose another [ITW:REQ-114]. */
+  /** A task starts from the default branch unless the person chose another [ITW:REQ-115]. */
   private takeTaskBase(): boolean {
     const base = taskDefaultBase(this.form);
     if (!base) return false;
@@ -1117,7 +1117,7 @@ export class IntakePanel {
       this.scheduleTaskPlan(0);
       return this.scheduleIdentifierPreflight();
     },
-    // A workflow, or a task whose steps SFlow picks; a task's kind when its words do not say it [ITW:REQ-114].
+    // A workflow, or a task whose steps SFlow picks; a task's kind when its words do not say it [ITW:REQ-115].
     startMode: (message) => {
       const value = stringField(message, 'value');
       if (value === 'task' || value === 'workflow') this.chooseStartMode(value);
@@ -1686,7 +1686,7 @@ export class IntakePanel {
       const exactWorkType = catalogReturned
         ? storyWorkflowSelection(this.form.workType, exactBaseWorkflows)
         : this.form.workType;
-      // A task names no workflow: SFlow composes its steps as it starts, so no workflow is waited for [ITW:REQ-114].
+      // A task names no workflow: SFlow composes its steps as it starts, so no workflow is waited for [ITW:REQ-115].
       const task = taskMode(this.form);
       const warnings = (readiness?.warnings ?? [])
         .filter((entry) => !(task && entry.code === 'STORY_WORKFLOW_SELECTION_PENDING'))
@@ -1818,7 +1818,7 @@ export class IntakePanel {
       });
       return;
     }
-    // A task: `work --start` with the form's details, branch and documents; SFlow picks its steps [ITW:REQ-114].
+    // A task: `work --start` with the form's details, branch and documents; SFlow picks its steps [ITW:REQ-115].
     const task = taskMode(this.form);
     if (this.form.shape === 'story' && !task && testRecoveryNeedsTerminalReview(this.form)) {
       const terminal = createTerminalIn({

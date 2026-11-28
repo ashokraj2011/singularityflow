@@ -3998,7 +3998,7 @@ for (const deferredWorkspace of [false, true]) test(deferredWorkspace
   );
 });
 
-test('ITW REQ-114: Start Story starts a task with no workflow, and the window that opens its checkout carries it on in the chat', async (t) => {
+test('ITW REQ-115: Start Story starts a task with no workflow, and the window that opens its checkout carries it on in the chat', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-task-intake-'));
   t.after(() => removeFixture(base));

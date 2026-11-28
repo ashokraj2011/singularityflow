@@ -1196,11 +1196,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,959,395 unchanged): a sized task's approval says in one line why the person is asked and what each answer does, and a
     // small requirement offers its big change on the same screen (choices.mjs +405; task-shape.mjs still loaded only for such
     // a Story) [ITW REQ-113]. No new eager file.
-    // 9,961,836 (measured for start.mjs, +595 over 9,961,241, 2026-11-28 on sf-task-start-form; submit.mjs 9,959,395 and
-    // approve.mjs 9,869,449 unchanged): a task from VS Code's Start Story whose source is a GitHub Issue or Jira issue hands
+    // 9,961,312 (measured for start.mjs, +71 over 9,961,241, 2026-11-28 on sf-task-v12; approve.mjs 9,869,520): a refactor's
+    // approval says why too, so choices.mjs loads task-shape.mjs for a refactor's Story as well (+71) [ITW REQ-113]. No new
+    // eager file.
+    // 9,961,907 (measured for start.mjs, +595 over 9,961,312, 2026-11-28 on sf-task-start-form; submit.mjs 9,959,395 and
+    // approve.mjs 9,869,520 unchanged): a task from VS Code's Start Story whose source is a GitHub Issue or Jira issue hands
     // start the issue `work` read and keeps SFlow's sizing words as the issue's notes (commands/start.mjs +595)
-    // [ITW REQ-114]. No new eager file.
-    assert.ok(closure.bytes <= 9_961_836, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // [ITW REQ-115]. No new eager file.
+    assert.ok(closure.bytes <= 9_961_907, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

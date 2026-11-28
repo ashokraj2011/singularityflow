@@ -69,7 +69,7 @@ export function storyStartNoticeFor(value: unknown, repository: string, now = Da
 }
 
 /**
- * A task started from Start Story goes on in the chat of the window that opens its checkout [ITW:REQ-114]: one record,
+ * A task started from Start Story goes on in the chat of the window that opens its checkout [ITW:REQ-115]: one record,
  * left before the folder opens (which reloads the window), and sent once as /sf-task when that window shows the task.
  */
 export const STORY_START_TASK_TURN_KEY = 'singularityFlow.storyStartTaskTurn.v1';

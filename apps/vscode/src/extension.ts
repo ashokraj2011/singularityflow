@@ -6953,7 +6953,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * profile offers it here without the extension being changed.
    */
   const startWork = async (defaults: {
-    /** A workflow or a task, when the way in asked for one [ITW:REQ-114]; else the person's last choice. */
+    /** A workflow or a task, when the way in asked for one [ITW:REQ-115]; else the person's last choice. */
     startMode?: 'workflow' | 'task' | null;
     shape?: 'initiative' | 'epic' | 'story' | null;
     source?: 'jira' | 'github-issue' | 'manual' | null;
@@ -7090,7 +7090,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           try { await context.globalState.update(STORY_START_NOTICE_KEY, notice); }
           catch { /* The start result already printed it; a lost notice must not refuse the Story. */ }
         }
-        // A task goes on in the chat of the window that opens its checkout, as after its start in /sf-task [ITW:REQ-114].
+        // A task goes on in the chat of the window that opens its checkout, as after its start in /sf-task [ITW:REQ-115].
         const taskTurn = started.task ? storyStartTaskTurn(started.repositoryPath, started.id) : null;
         if (taskTurn) {
           try { await context.globalState.update(STORY_START_TASK_TURN_KEY, taskTurn); }
@@ -7107,7 +7107,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       await refreshAfterKnownMutation();
       if (started.task) {
-        // Its checkout is this window's: the task's turn goes on in the chat now [ITW:REQ-114].
+        // Its checkout is this window's: the task's turn goes on in the chat now [ITW:REQ-115].
         await sendTaskRoute(TASK_ROUTE);
         void showCompactInformationMessage(`Task ${started.id} started. Copilot chat carries it on.`);
         return;
@@ -8168,7 +8168,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   /**
-   * A task started from Start Story in this window's checkout goes on in its chat [ITW:REQ-114]: /sf-task, sent once,
+   * A task started from Start Story in this window's checkout goes on in its chat [ITW:REQ-115]: /sf-task, sent once,
    * when this window first shows that task. The window that started it left the record before it opened this folder.
    */
   const carryStartedTaskOn = (): void => {

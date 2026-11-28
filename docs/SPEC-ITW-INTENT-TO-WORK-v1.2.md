@@ -4,8 +4,8 @@
 
 **Status:** Built 2026-11-27 on branch sf-task-v12 (M1 to M5 built together, in src/task-shape.mjs, src/task-followups.mjs,
 src/task-history.mjs, with src/task-composition.mjs, src/task-amendment.mjs, src/task-change-contracts.mjs,
-src/task-agents.mjs, src/task-turn.mjs and `work`), walked by test/journey-tasks-shapes.test.mjs; M6 built 2026-11-28 (src/task-shape.mjs `taskApprovalWhy`, src/choices.mjs, src/agent-output.mjs); M7 (REQ-114, a task from
-VS Code's Start Story) built 2026-11-28 on branch sf-task-start-form, walked by test/journey-start-story-task.test.mjs. Builds on [ITW v1.1](SPEC-ITW-INTENT-TO-WORK-v1.1.md) and replaces its composition
+src/task-agents.mjs, src/task-turn.mjs and `work`), walked by test/journey-tasks-shapes.test.mjs; M6 built 2026-11-28 (src/task-shape.mjs `taskApprovalWhy`, src/choices.mjs, src/agent-output.mjs); M7 (REQ-114) decided, not built; M8 (REQ-115, a task from VS Code's
+Start Story) built 2026-11-28 on branch sf-task-start-form, walked by test/journey-start-story-task.test.mjs. Builds on [ITW v1.1](SPEC-ITW-INTENT-TO-WORK-v1.1.md) and replaces its composition
 (REQ-003, the default approvals of REQ-004 and REQ-005, and the offer of the team's own workflow in REQ-020). Everything
 else in v1.1 stays as it is: the front door, the Story, carrying the turn on, adding a step, skills, a marketplace agent
 as the plan, investigating, refactoring, documents and the last message.
@@ -224,15 +224,42 @@ screen:
 - the plan's approval: you decide how the code is written; Yes: the code is written to it;
 - the code's approval: you decide whether this code goes in; Yes: SFlow runs the tests itself and approves the tests
   step when they pass;
-- a step a team's rule gives a person says that rule's own `because`;
-- Not now, on each: it waits, and `/sf-task` brings it back;
+- a refactor's plan: you decide what must not change; Yes: the code is changed to it, and SFlow checks that what passed on
+  the base before any edit still passes; its code: you decide whether the refactor goes in, its behaviour the same, checked
+  before and after; Yes: SFlow runs the tests again at the tests step. A refactor keeps v1.1's steps, so every refactor
+  Story says these lines. A Story of another kind started under v1.1 (no `sizing`) keeps its approval's own words
+  ("Your Yes approves Plan version 1 as you reviewed it."), as §4 says;
+- a step a team's rule gives a person says the `because` of each rule that gave it that approval, and only those: two
+  rules on the same step are said on one line ("the team's rules ask: A; B"). The composition keeps them
+  (`approvalRules`: each `{ intent, rule, because }`, once per intent and rule, present only when a rule gives a person an
+  approval; a step a rule adds later adds its own), and the step's pinned reason is the same words. A Story recorded
+  before them names no rule it cannot tell gave the step ("the team's task rules give it to you");
+- Not now, on each, says what waits: "Not now: the plan waits; /sf-task brings it back." (the requirement, the spec, the
+  plan, the code, the tests, the review);
 - a done analysis asks "Start a story from one of these findings?" and says that each starts a new task carrying only that
   finding, and that No starts nothing and keeps the report;
 - the agent used before asks "Use it, or let SFlow decide?", its No said in those words (`noWords`).
 Steps SFlow approves itself (the hidden tests step, an analysis's report) ask nobody. The grown task asks no question: one
 line says why it grew. `SFLOW_HOOKS_OFF` says why and gives the complete fix (REQ-111).
 
-**ITW:REQ-114, Start a task from VS Code's Start Story.** Owner, 2026-11-28: "we may need to add start task option in the
+**ITW:REQ-114, making a big change small (owner, 2026-11-28: "Offer it"). Decided, not built.** A big change's requirement
+approval offers "Make it a small change" beside the Yes, as a small one offers "Make it a big change": a choice with its
+complete command (`singularity-flow work shape small --work-id <ID> --json`) and a why line ("Make it a small change: no
+spec or plan; implement and test come next, with any step a team's rule adds."). The command takes out the steps the big
+shape added (the change records with `shape: 'big'`), only while the requirement waits for its approval and none of those
+steps has started, keeps every step a team's rule gave the task, names the code step "Implement and test" again, and
+records the person's choice, so a version of the requirement submitted later is not made big again by its own facts. The
+requirement then asks its Yes again: the approval's receipt is bound to the Story as it was. A small change whose code
+turns out bigger still grows (REQ-106).
+Why not built yet: every task change so far only adds a step (v1.1 REQ-009, "a started task only gains steps"), and each
+is replayed on every later load through the Story's append-only snapshot chain (src/workflow-snapshot-task-changes.mjs,
+src/task-change-contracts.mjs, src/task-change-review.mjs). Taking steps out is a new kind of task change: its decision
+and summary records, the replay of a removal (the step's assets kept, its policy taken out), the review of its state
+change, and the invariants that steps and a person's approvals only grow, each with its exception named. A Story with
+such a change cannot be read by an SFlow that does not know it, so the record is version-sensitive (src/upgrade-contract.mjs).
+It is built as M7 with those suites run.
+
+**ITW:REQ-115, Start a task from VS Code's Start Story.** Owner, 2026-11-28: "we may need to add start task option in the
 vscode start story also ..it will just ask for story details ,documents,branch ..no workflow". Built 2026-11-28 on branch
 sf-task-start-form (apps/vscode/src/views/intake-form.ts, intake-panel.ts, extension.ts; `work --start` in
 src/commands/work.mjs).
@@ -314,9 +341,16 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
 - **B10:** A Story started before this version keeps its steps and its approval words.
 - **B11:** Each approval of a sized task carries `why` (the requirement's, the plan's, the code's, a rule's step's); a
   small requirement's approval offers "Make it a big change" with its complete command; a done analysis's `ask` says what
-  each answer does.
-- **B12:** Start Story in task mode starts a small change with the form's details, branch and document, no workflow
-  chosen; the window that opens its checkout sends /sf-task once; the walk ends with 3 person actions (REQ-114).
+  each answer does. A refactor's plan and code carry their own; Not now names what waits; a step two rules give a person
+  says both rules' reasons and no other rule's.
+- **B12:** A small change whose person answers "Make it a big change" at its requirement gains a spec and a plan; the
+  same requirement asks its Yes again ("… · Big change: spec, plan, code and tests next (you asked for it)?") in the same
+  turn, nothing typed; then the plan and the code; 5 person actions (the words, the choice, three Yeses).
+- **B13 (decided, not built):** A big change whose person answers "Make it a small change" at its requirement loses the
+  spec, design, plan and tests its shape added, keeps every step a team's rule gave it, and asks its Yes again
+  ("… · Small change: implement and test next (you asked for it)?").
+- **B14:** Start Story in task mode starts a small change with the form's details, branch and document, no workflow
+  chosen; the window that opens its checkout sends /sf-task once; the walk ends with 3 person actions (REQ-115).
 
 ## 7. Open questions for the owner, with the default built (7 and 8 decided 2026-11-28)
 
@@ -339,7 +373,7 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
 8. **One step for implement and test, with nothing after it.** Decided (owner, 2026-11-28: "Hidden step is fine"): the
    tests step stays SFlow's own (no person, no question), because the final evaluation reads each clause's test evidence
    from it. The evidence model is not changed.
-9. **Start a task from Start Story (REQ-114).** Defaults built: a task works in one repository (its sizing reads that one
+9. **Start a task from Start Story (REQ-115).** Defaults built: a task works in one repository (its sizing reads that one
    repository's files), so a workspace of several says so and offers the workflow; an agent or skill offer whose workflow
    needs its review first is not proposed for review from the form (the task starts with SFlow's steps, as the chat's Yes
    also does); the tracker choice stays inside "change work type or source".
@@ -354,4 +388,5 @@ version; a v1.1 Story that ran a `use` workflow keeps running it as it is.
 | M4 | The agent used for similar changes before, and the lessons (REQ-110) |
 | M5 | The turn without hooks; the skill text, help and topics (REQ-111) |
 | M6 | Every decision says why, with a way forward on the same screen (REQ-113, owner 2026-11-28) |
-| M7 | Start a task from VS Code's Start Story (REQ-114) |
+| M7 | Making a big change small at its requirement (REQ-114, owner 2026-11-28: "Offer it"); not built |
+| M8 | Start a task from VS Code's Start Story (REQ-115) |

@@ -291,6 +291,54 @@ export function ruleGroupApproves(definition, kind, touchedPaths = []) {
   return groupsAdded(definition, found, () => true).groupApproves ?? [];
 }
 
+/**
+ * The rules that give a person a step's approval on a task of `kind`, found as rulePersonApproves finds its steps: each
+ * `{ intent, rule, because }`, once per intent and rule, so a step's approval says the reason of every rule that gave it
+ * [ITW:REQ-113].
+ */
+export function ruleApprovalReasons(definition, kind, touchedPaths = []) {
+  const rules = taskRules(definition);
+  const applies = (rule) => rule.kinds.includes('all') || rule.kinds.includes(kind);
+  const touched = [...new Set(touchedPaths.map(String))];
+  const found = [];
+  const take = (rule, name) => { for (const intent of rule.personApproves) found.push({ intent, rule: name, because: rule.because }); };
+  rules.always.forEach((rule, index) => { if (applies(rule)) take(rule, rule.name ?? taskRuleName(rule, 'always', index)); });
+  rules.paths.forEach((rule, index) => {
+    if (applies(rule) && touched.some((file) => rule.paths.some((glob) => pathMatches(glob, file)))) take(rule, rule.name ?? taskRuleName(rule, 'paths', index));
+  });
+  return approvalRulesOf(found, () => true).approvalRules ?? [];
+}
+
+/** `approvalRules` for a composition: each rule that gives a person a step's approval, once per intent and rule [ITW:REQ-113]. */
+function approvalRulesOf(entries, has) {
+  const seen = new Set();
+  const approvalRules = [];
+  for (const entry of entries) {
+    const key = `${entry.intent}\u0000${entry.rule}`;
+    if (!has(entry.intent) || seen.has(key)) continue;
+    seen.add(key);
+    approvalRules.push(entry);
+  }
+  return approvalRules.length ? { approvalRules } : {};
+}
+
+/**
+ * The reasons of the rules that gave a person the approval of a step of `intent`, each once, in the order the rules apply
+ * [ITW:REQ-113]; null for a composition recorded before it kept them (`approvalRules`), whose readers keep their words.
+ */
+export function approvalReasons(composition, intent) {
+  if (!Array.isArray(composition?.approvalRules)) return null;
+  return [...new Set(composition.approvalRules.filter((entry) => entry?.intent === intent && typeof entry.because === 'string')
+    .map((entry) => entry.because.trim()).filter(Boolean))];
+}
+
+/** The `because` a composed step's person approval pins: its own rules' reasons, or, recorded before them, the first rule's. */
+function approvalBecause(composition, intent) {
+  const reasons = approvalReasons(composition, intent);
+  if (reasons?.length) return reasons.join(' ');
+  return (composition.rules.find((entry) => entry.because) ?? { because: 'The team\'s task rules give this step to a person.' }).because;
+}
+
 /** `groupApproves` for a composition: each group a rule adds, once per step intent the task has, with the group's label. */
 function groupsAdded(definition, entries, has) {
   const seen = new Set();
@@ -391,6 +439,7 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
   }
   const added = [];
   const personApproves = new Set();
+  const reasons = [];
   const groups = [];
   const applied = [];
   const apply = (rule, name) => {
@@ -403,7 +452,7 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
       if ((intent === 'plan' || intent === 'test' || intent === 'review') && !intents.includes('code')) continue;
       if (!intents.includes(intent)) { intents.push(intent); added.push({ intent, rule: name, because: rule.because }); }
     }
-    for (const intent of rule.personApproves) personApproves.add(intent);
+    for (const intent of rule.personApproves) { personApproves.add(intent); reasons.push({ intent, rule: name, because: rule.because }); }
     if (rule.by) for (const intent of rule.personApproves) groups.push({ intent, group: rule.by, rule: name, because: rule.because });
     applied.push({ rule: name, because: rule.because });
   };
@@ -434,6 +483,7 @@ export function composeTask(definition, { kind, touchedPaths = [], add = [], ski
   return {
     schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: taskWorkTypeId(kind), steps,
     added, personApproves: [...personApproves].filter((intent) => intents.includes(intent)).sort(), rules: applied,
+    ...approvalRulesOf(reasons, (intent) => intents.includes(intent)),
     ...groupsAdded(definition, groups, (intent) => intents.includes(intent)),
     ...(changes.length ? { changes } : {}),
     ...(touched.length ? { touchedPaths: touched } : {}),
@@ -535,6 +585,7 @@ function composeOnWorkflow(definition, rules, { kind, workflowId, touchedPaths =
   }
   const added = [];
   const personApproves = new Set();
+  const reasons = [];
   const groups = [];
   const applied = lead ? [lead] : [];
   const apply = (rule, name) => {
@@ -542,7 +593,7 @@ function composeOnWorkflow(definition, rules, { kind, workflowId, touchedPaths =
       if ((intent === 'plan' || intent === 'test' || intent === 'review') && !has('code')) continue;
       if (!has(intent)) { insert(intent); added.push({ intent, rule: name, because: rule.because }); }
     }
-    for (const intent of rule.personApproves) personApproves.add(intent);
+    for (const intent of rule.personApproves) { personApproves.add(intent); reasons.push({ intent, rule: name, because: rule.because }); }
     if (rule.by) for (const intent of rule.personApproves) groups.push({ intent, group: rule.by, rule: name, because: rule.because });
     applied.push({ rule: name, because: rule.because });
   };
@@ -555,6 +606,7 @@ function composeOnWorkflow(definition, rules, { kind, workflowId, touchedPaths =
   return {
     schemaVersion: TASK_COMPOSITION_VERSION, kind, workType: taskWorkTypeId(kind), steps,
     added, personApproves: [...personApproves].filter((intent) => has(intent)).sort(), rules: applied,
+    ...approvalRulesOf(reasons, has),
     ...groupsAdded(definition, groups, has),
     ...structuredClone(record),
     ...(changes.length ? { changes } : {}),
@@ -590,8 +642,7 @@ function agentWorkType(definition, composition) {
     }
     if (composition.personApproves.includes(step.intent)) {
       override.approval = { ...(override.approval ?? {}), automatic: 'off' };
-      const rule = composition.rules.find((entry) => entry.because) ?? { because: 'The team\'s task rules give this step to a person.' };
-      override.because = { ...(override.because ?? {}), 'approval.automatic': rule.because };
+      override.because = { ...(override.because ?? {}), 'approval.automatic': approvalBecause(composition, step.intent) };
     } else if ((composition.personKeeps ?? []).includes(step.id)) {
       override.approval = { ...(override.approval ?? {}), automatic: 'off' };
     }
@@ -625,8 +676,7 @@ export function composedWorkType(definition, composition) {
     if (Array.isArray(base.inputs) && index === 0) override.inputs = [];
     if (composition.personApproves.includes(step.intent)) {
       override.approval = { ...override.approval, automatic: 'off' };
-      const rule = composition.rules.find((entry) => entry.because) ?? { because: 'The team\'s task rules give this step to a person.' };
-      override.because = { ...(override.because ?? {}), 'approval.automatic': rule.because };
+      override.because = { ...(override.because ?? {}), 'approval.automatic': approvalBecause(composition, step.intent) };
     } else if ((composition.personKeeps ?? []).includes(step.id)) {
       // A step a person approved before the task gained a later step stays theirs, exactly as it was [ITW:REQ-009].
       override.approval = { ...override.approval, automatic: 'off' };

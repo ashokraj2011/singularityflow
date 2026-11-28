@@ -1,4 +1,4 @@
-// ITW REQ-114 (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md): `work --start` takes what VS Code's Start Story gives a task (its
+// ITW REQ-115 (docs/SPEC-ITW-INTENT-TO-WORK-v1.2.md): `work --start` takes what VS Code's Start Story gives a task (its
 // title and words, its Story branch, its bases, its documents with their names and where each is kept, its own checkout,
 // or a GitHub Issue as its source) and hands each to `start` as start's own option; the likely plan reads the same words.
 import assert from 'node:assert/strict';
@@ -24,7 +24,7 @@ const bothStorages = (configuration) => { configuration.documents = { ...(config
 /** The form once it read the likely plan: where documents may be kept is the task's policy. */
 const plannedForm = (overrides = {}) => ({ ...form(overrides), taskPlan: { key: '', text: null, why: null, kindNeeded: false, documentStorage: { allowed: ['git', 'local'], default: 'local' } } });
 
-test('ITW REQ-114: the likely plan reads Start Story\'s title and words, and says where a task\'s documents may be kept', async (t) => {
+test('ITW REQ-115: the likely plan reads Start Story\'s title and words, and says where a task\'s documents may be kept', async (t) => {
   const story = await journeyRepository(t, { configure: bothStorages });
   const likely = JSON.parse(story.cli(...taskPlanCommand(form())));
   assert.equal(likely.resultType, 'sflow-task-likely-plan');
@@ -42,7 +42,7 @@ test('ITW REQ-114: the likely plan reads Start Story\'s title and words, and say
   assert.equal(story.git('status', '--porcelain'), '', 'a likely plan writes nothing');
 });
 
-test('ITW REQ-114: work --start takes the form\'s branch, base and documents, and starts the task in a checkout of its own', async (t) => {
+test('ITW REQ-115: work --start takes the form\'s branch, base and documents, and starts the task in a checkout of its own', async (t) => {
   const story = await journeyRepository(t, { configure: bothStorages });
   const brief = path.join(story.base, 'value-brief.md');
   await writeFile(brief, '# Value brief\n\nCallers read the value module and want 2.\n');
@@ -79,7 +79,7 @@ test('ITW REQ-114: work --start takes the form\'s branch, base and documents, an
   assert.equal(second.id, 'TASK-8');
 });
 
-test('ITW REQ-114: a GitHub Issue is the task\'s source and its words; what SFlow asks of the requirement is in its notes', async (t) => {
+test('ITW REQ-115: a GitHub Issue is the task\'s source and its words; what SFlow asks of the requirement is in its notes', async (t) => {
   const story = await journeyRepository(t);
   // An issue's Story is found by its identity in the Story list, which its state branch holds.
   story.cli('ledger', 'init');

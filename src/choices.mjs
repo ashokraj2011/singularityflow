@@ -211,9 +211,10 @@ async function choiceSets(root, definition, action, workflow = null) {
     const phase = workflow.phases[context.phase];
     // One approval with a Yes (owner, 2026-11-19): the person answers this question after the documents; their Yes, bound
     // to this receipt and so to the version reviewed, is the confirmation. Nobody types the step's ID.
-    // A sized task's requirement says its shape: the Yes confirms it too [ITW:REQ-103]; each of its approvals says why the
-    // person is asked and what each answer does, and a small requirement offers its big change beside the Yes.
-    const shape = workflow.resolution?.composition?.sizing === 'requirement' ? await import('./task-shape.mjs') : null;
+    // A sized task's requirement says its shape: the Yes confirms it too [ITW:REQ-103]; each approval of a sized task or a
+    // refactor says why the person is asked and what each answer does, and a small requirement offers its big change.
+    const composed = workflow.resolution?.composition;
+    const shape = composed?.sizing === 'requirement' || composed?.kind === 'refactor' ? await import('./task-shape.mjs') : null;
     const question = shape?.taskApprovalQuestion(workflow, phase) || approvalQuestion(phase);
     const why = shape?.taskApprovalWhy(workflow, phase) ?? null;
     const alternatives = shape?.taskApprovalAlternatives(workflow, phase) ?? [];

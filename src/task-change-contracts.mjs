@@ -192,6 +192,11 @@ function assertCompositionScope(before, after, decision) {
   const addedApprovals = (after.personApproves ?? []).filter((intent) => !(before.personApproves ?? []).includes(intent));
   if (!(before.personApproves ?? []).every((intent) => (after.personApproves ?? []).includes(intent))) fail('A task change took an approval from a person.');
   if (addedApprovals.some((intent) => !adds || intent !== decision.step.intent)) fail('A task change gave a person the approval of a step it did not add.');
+  // The rules' reasons for those approvals only grow, each for the approval the change gave [ITW:REQ-113].
+  const [heldReasons, nextReasons] = [before.approvalRules ?? [], after.approvalRules ?? []];
+  if (!same(nextReasons.slice(0, heldReasons.length), heldReasons) || nextReasons.slice(heldReasons.length).some((entry) => !addedApprovals.includes(entry?.intent))) {
+    fail('A task change recorded a rule\'s reason for an approval it did not give.');
+  }
   // A step a person approved stays theirs when the new step would hand it to SFlow (personKeeps): it only grows, and only
   // with steps the task already had.
   // So does a step that wrote the requirement IDs before the new step took that role (clauseKeeps).
@@ -218,7 +223,7 @@ function assertCompositionScope(before, after, decision) {
   if (grown ? before.kind !== grown.from || after.kind !== grown.to : before.kind !== after.kind) fail('A task change changed the task\'s kind.');
   const rest = (value) => {
     const copy = structuredClone(value);
-    for (const key of ['kind', 'steps', 'changes', 'personApproves', 'personKeeps', 'clauseKeeps', 'added', 'rules', 'touchedPaths']) delete copy[key];
+    for (const key of ['kind', 'steps', 'changes', 'personApproves', 'approvalRules', 'personKeeps', 'clauseKeeps', 'added', 'rules', 'touchedPaths']) delete copy[key];
     return copy;
   };
   if (!same(rest(before), rest(after))) fail('A task change changed the task\'s kind or workflow.');

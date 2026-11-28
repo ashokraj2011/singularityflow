@@ -8,7 +8,7 @@ const STEPS = [
   { id: 'review', label: 'Review & start', regions: ['review', 'status', 'inFlight'] }
 ] as const;
 
-/** A task has no workflow and no checks to choose, so its steps are named for what it asks [ITW:REQ-114]. */
+/** A task has no workflow and no checks to choose, so its steps are named for what it asks [ITW:REQ-115]. */
 const TASK_LABELS: Record<string, string> = { workflow: 'Branch', inputs: 'Documents' };
 
 export function intakeWizardNavigation(enabled: boolean, task = false): string {

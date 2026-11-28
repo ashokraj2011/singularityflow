@@ -9,7 +9,7 @@
  * decision easy to find, not easy to make by accident.
  */
 import * as vscode from 'vscode';
-import { buildApprovals, type Approvals, type PendingApproval } from './approvals-model.ts';
+import { buildApprovals, holdRoutes, type Approvals, type PendingApproval } from './approvals-model.ts';
 import { approvalHoldsHtml, contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
@@ -89,7 +89,7 @@ function cardHtml(approval: PendingApproval, standing: StoryStanding | null = nu
     ${approval.reason ? `<p class="muted">${escape(approval.reason)}</p>` : ''}
     <div class="card-foot">
     ${approval.heldBy ? `<p class="muted">${escape(approval.heldBy.headline)}</p>` : ''}
-    ${!approval.heldBy && approval.approvalHolds?.length ? approvalHoldsHtml(approval.approvalHolds, { run: (command) => holdRoutes(approval).indexOf(command) })
+    ${!approval.heldBy && approval.approvalHolds?.length ? approvalHoldsHtml(approval.approvalHolds, { placeOf: (command) => holdRoutes(approval).indexOf(command) })
       .replaceAll('data-hold-run="', `data-hold-approval="${escape(approval.id)}" data-hold-run="`) : ''}
       ${approval.standing === 'yours'
     ? `${approval.heldBy || approval.decideNext ? `<button data-decide-list="${escape(approval.id)}">Decide what blocks this step</button>`
@@ -100,11 +100,6 @@ function cardHtml(approval: PendingApproval, standing: StoryStanding | null = nu
     ? `<button class="link" data-open="${escape(approval.id)}">Open artifact</button>` : ''}
     </div>
   </article>`;
-}
-
-/** A hold's own routes on its card, by place: its button names the place, and the host runs the command found here. */
-export function holdRoutes(approval: Pick<PendingApproval, 'approvalHolds'>): string[] {
-  return [...new Set((approval.approvalHolds ?? []).map((hold) => hold.action?.command).filter((command): command is string => Boolean(command)))];
 }
 
 function groupHtml(title: string, approvals: PendingApproval[], standing: StoryStanding | null = null, focused: string | null = null): string {

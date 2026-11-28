@@ -166,6 +166,19 @@ export function adviceOf(listed: unknown): ApprovalAdvice | null {
 /** A line of the advice after the button it starts with ("Yes: the code is written to it." → "the code is written to it."). */
 export const afterLabel = (line: string, label: string) => (line.startsWith(`${label}: `) ? line.slice(label.length + 2) : line);
 
+/** The engine's send-back route for this step (the decision list's approval item `details.sendBack`), or null. */
+export function sendBackOf(listed: unknown): string | null {
+  const items = (listed as { items?: Array<{ kind?: string; details?: { sendBack?: unknown } }> } | null)?.items;
+  const route = Array.isArray(items) ? items.find((item) => item?.kind === 'approval')?.details?.sendBack : null;
+  return typeof route === 'string' && /^singularity-flow reject \S+ /u.test(route) && route.includes('<reason>') ? route : null;
+}
+
+/** That route as argv, with the person's own reason where `<reason>` stands; null without a route or a reason. */
+export function sendBackArgv(route: string | null, reason: string): string[] | null {
+  const words = (route ?? '').replace(/^singularity-flow /u, '').split(' ').filter(Boolean);
+  return route && reason.trim() ? words.map((word) => (word === '<reason>' ? reason.trim() : word)) : null;
+}
+
 /** The page's lines: the step's own advice, else the table's generic lines for this step's name. */
 export function approvalAdvice(request: Pick<ApprovalReviewRequest, 'advice' | 'phaseLabel'>): ApprovalAdvice {
   return request.advice ?? stepAdvice('generic', { step: request.phaseLabel }) as ApprovalAdvice;
@@ -717,7 +730,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
     ${approvalChangeStoryHtml(request.changeStory)}${approvalFocusHtml(request.focus)}
     <div class="review-binding approval-binding">${binding}</div>
     ${approvalCoversHtml(request.covers)}${approvalDisputesHtml(request.disputes)}
-    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'], run: (command) => routes.indexOf(command) })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits), { run: (command) => routes.indexOf(command), stop: advice.stops.changed })}${carried}${tests}${tryIt}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
+    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'], placeOf: (command) => routes.indexOf(command) })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits), { placeOf: (command) => routes.indexOf(command), stop: advice.stops.changed })}${carried}${tests}${tryIt}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${decideHere}${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>${escape(approvalChoice(request))}?</h2>

@@ -36,7 +36,7 @@ import { automaticApprovalsBefore, coveredStep, finalScopeStep, isConformancePha
 import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnJoin, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { advisedItem, reopenWords } from './decision-advice.mjs';
-import { findingOverrideCommand, returnRoute, reviewDisputeCommand } from './action-command-map.mjs';
+import { findingOverrideCommand, returnRoute, reviewDisputeCommand, sendBackCommand } from './action-command-map.mjs';
 import { disputedFindingWords } from './review-dispute-words.mjs';
 import { behaviourCommands, testEditWords } from './refactor-behaviour.mjs';
 import { adviceForStep } from './step-advice.mjs';
@@ -2051,7 +2051,9 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
       command: `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, words: `You read its documents and say Yes to "Approve ${name} v${Number(phase.generation ?? 0)}?" once: on the approval page, with /sf-approve or in your own terminal.`,
       does: `${advice.yes}${minimum > 1 ? ` The Story moves on when ${minimum} approvals are recorded.` : ''}` }),
     decidedBy: stepDecidedBy(workflow, context, approvers(workflow, phase.id), 'You read its documents and say Yes once.') }],
+    // Send back, filled but for the person's reason: the approval page runs it with theirs [owner, 2026-11-28].
     details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length, advice,
+      sendBack: sendBackCommand(workId, phase.id),
       ...(reviewed.length ? { ledger: { settled: ledger, issues: raised }, lines: reviewed } : {}),
       ...(leftOut.length ? { notPartOfTask: leftOut } : {}),
       ...(outside.length ? { outsidePlan: outside } : {}),

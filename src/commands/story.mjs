@@ -23,6 +23,7 @@ import YAML from 'yaml';
 
 import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff, radiusSummary } from '../amendment.mjs';
 import { automaticApprovalOn, requireApprovalAuthority } from '../approval-authority.mjs';
+import { acknowledgementWhy, otherPeopleOnStory } from '../amendment-acknowledgement.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, reusableConvergenceRecord, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
@@ -2601,7 +2602,27 @@ export async function recordIntentAmendmentDecision(root, config, workflow, prop
     const rebound = await loadAcceptedStoryExecution(root, workflow.workItem.id);
     return activateWorkItemSession(root, rebound.config, rebound.workflow);
   });
-  return { transition, publication };
+  const acknowledgement = decision === 'approve' && transition?.reached && transition.applied && transition.proposal?.application?.acknowledgementRequired
+    ? await acknowledgeOwnApproval(root, workflow.workItem.id, proposalId, channel) : null;
+  return { transition, publication, ...(acknowledgement ? { acknowledgement } : {}) };
+}
+
+/**
+ * Acknowledging an amendment you approved yourself changes nothing (ask once, owner 2026-11-28): when nobody else works on
+ * the Story, SFlow records the approver's acknowledgement right after the approval, in its own commit as every
+ * acknowledgement is (approval-check.mjs reads it so), and says so in one line. When someone else does, theirs is kept,
+ * with one line on why they are asked. A failure leaves the approval as it is and the acknowledgement owed, as before.
+ */
+async function acknowledgeOwnApproval(root, workId, proposalId, channel) {
+  const reloaded = await loadAcceptedStoryExecution(root, workId);
+  const others = otherPeopleOnStory(reloaded.workflow, actionActor(root));
+  if (others) return { recorded: false, why: acknowledgementWhy(proposalId, others) };
+  try {
+    await acknowledgeApprovedIntentAmendment(root, reloaded.config, reloaded.workflow, proposalId, { channel });
+    return { recorded: true, line: `Approved and acknowledged by you: ${proposalId} is in force, and the steps it reopened can be submitted again.` };
+  } catch (error) {
+    return { recorded: false, why: `Your acknowledgement could not be recorded (${String(error?.message ?? error).slice(0, 200)}); acknowledge ${proposalId} next.` };
+  }
 }
 
 /**
@@ -2747,7 +2768,7 @@ export async function storyIntentAmendmentCommand(positionals, options) {
       // What the text below routes to, with every route: the card answers each, and acknowledges an applied one (paid run, 2026-11-14).
       const application = result.transition.reached && result.transition.applied ? result.transition.proposal.application : null;
       const card = safeCommandGuidance({ command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide' });
-      const next = !application ? [] : application.revalidate?.length ? [card]
+      const next = !application ? [] : application.revalidate?.length || result.acknowledgement?.recorded ? [card]
         : [card, safeCommandGuidance(`singularity-flow story intent-amendment acknowledge ${proposalId} --work-id ${workflow.workItem.id}`)];
       return console.log(JSON.stringify({ ...result, ...(next.length ? { next: next.filter(Boolean) } : {}) }, null, 2));
     }
@@ -2797,6 +2818,9 @@ export async function storyIntentAmendmentCommand(positionals, options) {
       printCommandRoutes(`singularity-flow decisions ${workflow.workItem.id}`, { label: 'Answer each step\'s row', skill: '/sf-decide' });
       return;
     }
+    // Nobody else works on the Story: SFlow acknowledged it for its approver (ask once, owner 2026-11-28).
+    if (result.acknowledgement?.recorded) return console.log(result.acknowledgement.line);
+    if (result.acknowledgement?.why) console.log(result.acknowledgement.why);
     // On the card (/sf-decide, VS Code Decide) or in the person's own terminal: the same acknowledgement (paid run, 2026-11-14).
     printCommandRoutes(
       `singularity-flow story intent-amendment acknowledge ${proposalId} --work-id ${workflow.workItem.id}`,

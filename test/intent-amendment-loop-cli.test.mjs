@@ -200,10 +200,12 @@ test(`${workType}: an amendment needs no convergence finding and authority decid
   const decision = JSON.parse(cli('story', 'intent-amendment', 'decide', 'AMD-001',
     '--decision', 'approve', '--confirm', 'AMD-001', '--json').stdout);
   assert.equal(decision.transition.applied, true);
-  // Its acknowledgement, on the card or in the person's own terminal: the same card on every surface.
+  // Nobody else works on this Story: the approver's own acknowledgement is recorded right after it, said in one line, and no
+  // separate step is offered (ask once, owner 2026-11-28).
+  assert.equal(decision.acknowledgement?.recorded, true, JSON.stringify(decision.acknowledgement ?? null));
+  assert.match(decision.acknowledgement.line, /^Approved and acknowledged by you: AMD-001 is in force/u);
   assert.deepEqual(decision.next.map((route) => [route.copilotCommand, route.command, route.modelFreeCommand]), [
-    [`/sf-decide ${WORK}`, `singularity-flow decisions ${WORK}`, CARD],
-    [`/sf-decide ${WORK}`, `singularity-flow story intent-amendment acknowledge AMD-001 --work-id ${WORK}`, CARD]]);
+    [`/sf-decide ${WORK}`, `singularity-flow decisions ${WORK}`, CARD]]);
   const amended = JSON.parse(await readFile(workflowPath, 'utf8'));
   assert.equal(amended.phases.specification.generation, 2);
   assert.equal(amended.currentPhase, sourcePhase);
@@ -235,7 +237,7 @@ test(`${workType}: an amendment needs no convergence finding and authority decid
     [2, [`${WORK}:AC-001`, `${WORK}:REQ-001`], []]);
   // The amended generation plans its clauses as a published one does, so the code step can start.
   if (workType !== 'spec-driven-standard') assert.equal(amended.phases.specification.claimMaps.planned.generation, 2);
-  cli('story', 'intent-amendment', 'acknowledge', 'AMD-001');
+  assert.equal(typeof summary.acknowledgedAt, 'string', 'acknowledged with the approval');
   assert.match(cli('prepare', sourcePhase).stdout, new RegExp(`${sourcePhase} is ready to author`));
   const matrix = cli('evidence', 'matrix').stdout;
   assert.match(matrix, /Scope revision: scope revision 2: 0 added, 2 revised, 0 removed; 0 row\(s\) stale, 2 unaffected/,

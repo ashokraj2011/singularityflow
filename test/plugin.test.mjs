@@ -702,7 +702,8 @@ test('convergence skill cannot replace deterministic kernel generation with agen
   assert.match(content, /For adjudication, show each item[^.]*ask the person one `ask_user` question per item[^.]*never preselect one/i);
   assert.match(content, /For rework, intent amendment, or inspection, relay the action and stop for the human decision/i);
   assert.match(content, /using the exact returned publication command/i);
-  assert.match(content, /Stop immediately after publication; never advance, submit, approve/i);
+  // A kernel-built publication goes on to its submission when SFlow's note says so (owner, 2026-11-28).
+  assert.match(content, /After publication never advance, submit or approve yourself; when SFlow's note says this turn goes on, do what it says/i);
   assert.doesNotMatch(content, /you may author with the resolved convergence agent/i);
 });
 

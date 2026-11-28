@@ -520,7 +520,10 @@ export async function followRoutes(story, { start, agent = {}, person = null, de
     // Any other Story's turn carried on into the next step's own work: that work is this same turn's, nothing typed; its
     // work command's steps run in it (the hook bound the turn to the new step).
     else if (carried && carried.task === false && taken.next?.copilot && !taken.next.inTurn && guard.skill) {
-      taken.next = { ...taken.next, inTurn: false, within: guard.skill, carried: true, source: `${taken.next.source ?? 'route'} (carried on)` };
+      // SFlow's note says how: `phase enter --compose`, the work command's own entry (task-turn.mjs carryOnWords), whatever
+      // route the result named (/sf-next as the way on, or the step's work command).
+      const work = /^\/sf(?:low)?-next(?:\s|$)/u.test(taken.next.copilot) ? [...entries.values()].find((known) => known.oneWorkCommand)?.skill ?? null : null;
+      taken.next = { ...taken.next, ...(work ? { copilot: work } : {}), inTurn: false, within: guard.skill, carried: true, source: `${taken.next.source ?? 'route'} (carried on)` };
     }
     if (task?.stepWork && !isPersonRoute({ ...taken.next, inTurn: false }) && !/^singularity-flow work\b/u.test(taken.next.shell ?? '') && current()) {
       const work = [...entries.values()].find((known) => known.oneWorkCommand && known.entry === task.stepWork)?.skill ?? null;

@@ -419,7 +419,8 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /For rework, intent amendment, or inspection, relay the action and stop for the human decision/i,
       /If and only if it returns deterministic convergence publication as the first `NOW` action/i,
       /using the exact returned publication command/i,
-      /Stop immediately after publication; never advance, submit, approve/i
+      // Its submission goes on in this turn only when SFlow's note says so (owner, 2026-11-28: a ready step submits itself).
+      /After publication never advance, submit or approve yourself; when SFlow's note says this turn goes on, do what it says/i
     ]
   },
   'sflow-next': {

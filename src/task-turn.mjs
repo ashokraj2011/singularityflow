@@ -83,6 +83,9 @@ const CARRY = Object.freeze({
   start: ({ positionals, options }) => positionals[0] === 'work' && !['add', 'skip', 'shape', 'status', 'handoff'].includes(positionals[1]) && options.start === true,
   approval: ({ positionals }) => positionals[0] === 'approve',
   submission: ({ positionals, options }) => positionals[0] === 'submit' || (positionals[0] === 'status' && options['submit-if-ready'] === true)
+    || (positionals[0] === 'story' && positionals[1] === 'advance' && options.submit === true),
+  publication: ({ positionals, options }) => positionals[0] === 'phase' && (positionals[1] === 'publish'
+    || (positionals[1] === 'prepublish' && options['publish-if-ready'] === true))
 });
 
 /**
@@ -131,7 +134,10 @@ export async function taskTurnContinuation(payload, { turn, ran, resolveRoot = d
   const workId = value.contract?.workId ?? null;
   if (!reason || (reason !== 'start' && !workId) || (reason === 'approval' && value.contract.turnMode !== 'approval-only')) return null;
   const ours = (options) => reason === 'start' || options['work-id'] === undefined || options['work-id'] === workId;
-  if (!(ran.commands ?? []).some((command) => CARRY[reason](command) && ours(command.options))) return null;
+  const made = (kind) => (ran.commands ?? []).some((command) => CARRY[kind](command) && ours(command.options));
+  // A step SFlow builds itself, just published by this step's work, goes on to its submission (below).
+  const published = reason === 'submission' && !made('submission') && made('publication');
+  if (!published && !made(reason)) return null;
   // The checkout this turn is bound to, and none other (a start in an isolated worktree, or a Story another folder holds).
   const bound = value.contract?.repositoryRoot ?? value.repositoryRoot ?? null;
   const root = await resolveRoot(payload).catch(() => null);
@@ -142,6 +148,15 @@ export async function taskTurnContinuation(payload, { turn, ran, resolveRoot = d
   if ((reason === 'start' && !isTaskStory(workflow)) || workflow?.status !== 'in_progress' || (reason !== 'start' && workflow.workItem?.id !== workId)) return null;
   const step = reason === 'start' ? null : workflow.phases?.[value.originPhase ?? value.contract.phaseId];
   if (reason === 'start' && !since(workflow.workItem?.createdAt, turn)) return null;
+  if (published) {
+    // Its publication is the kernel's own (deterministic), recorded in this turn, and its next action is its submission,
+    // nothing a person answers: the turn goes on into that submission as /sf-submit's (a ready step submits itself).
+    const built = step?.status === 'in_progress' && workflow.currentPhase === step.id && (step.authorship ?? [])
+      .some((entry) => entry?.generation === step.generation && entry.producer === 'deterministic' && since(entry.publishedAt, turn));
+    const { workflowGuide } = await import('./guide.mjs');
+    const first = (workflowGuide(workflow).nextActions ?? []).find((action) => action && !action.optional);
+    return built && NAME(first?.skill) === 'submit' ? { skill: 'sf-submit', workId, reason: 'publication', task: isTaskStory(workflow) } : null;
+  }
   // A submission waits for a person's approval of that step, or SFlow approved the step itself (owner, 2026-11-26).
   const waiting = reason === 'submission' && step?.status === 'awaiting_approval' && workflow.currentPhase === step.id && since(step.submittedAt, turn);
   const completed = reason === 'submission' && step?.status === 'approved' && AUTOMATIC.has(step.approvalDisposition) && workflow.currentPhase !== step.id
@@ -179,13 +194,16 @@ export function carryOnWords(next) {
       completion: `SFlow: SFlow approved the step, and this /sf-task turn goes on with ${workId}'s next action now, under the turn rules below: do /sf-task's step 1 again in this turn.`,
       grown: `SFlow: the task grew, its code went back to the plan SFlow added, and this /sf-task turn goes on with ${workId}'s next action now, under the turn rules below: do /sf-task's step 1 again in this turn.`,
       returned: `SFlow: the tests failed, SFlow started the code step's next version to fix them, and this /sf-task turn goes on with ${workId}'s next action now, under the turn rules below: do /sf-task's step 1 again in this turn.`,
+      publication: `SFlow: SFlow built and published the step, and this /sf-task turn goes on with ${workId}'s submission now, under the turn rules below: do /sf-task's step 1 again in this turn.`,
       approval: `SFlow: the approval is recorded, and this /sf-task turn goes on with ${workId}'s next action now, under the turn rules below: do /sf-task's step 1 again in this turn.` }[reason] ?? null;
   }
   const what = { submission: 'the step is submitted and waits for the person\'s approval', completion: 'SFlow approved the step',
     approval: 'the approval is recorded', grown: 'the code went back to the plan SFlow added',
-    returned: 'the tests failed and SFlow started the code step\'s next version to fix them' }[reason] ?? null;
+    returned: 'the tests failed and SFlow started the code step\'s next version to fix them',
+    publication: 'SFlow built and published the step, and its submission is next' }[reason] ?? null;
   if (!what) return null;
-  return `SFlow: ${what}, and this turn goes on with ${workId} now, under the turn rules below: ${skill === 'sf-approve' ? approvalWords(workId) : STEP_WORK_WORDS}`;
+  return `SFlow: ${what}, and this turn goes on with ${workId} now, under the turn rules below: ${skill === 'sf-approve' ? approvalWords(workId)
+    : reason === 'publication' ? `run \`singularity-flow status ${workId} --submission-readiness --submit-if-ready --for-agent --json\` and follow its act to the submission in this turn.` : STEP_WORK_WORDS}`;
 }
 
 /** The next step's own work, as /sf-next does it. */

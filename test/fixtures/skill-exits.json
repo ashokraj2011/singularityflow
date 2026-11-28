@@ -73,7 +73,6 @@
     "Do not stop after merely displaying the route;",
     "For rework, intent amendment, or inspection, relay the action and stop for the human decision.",
     "absent: relay `commands.next`, stop.",
-    "Stop immediately after publication;",
     "Report the handoff from `publishIfReady.review.handoff`.",
     "absent: relay `commands.next`, stop.",
     "open blockers stop advancement."

@@ -64,7 +64,8 @@ export function upstreamChangeRoutes(workflow, producerId, { currentPhaseId = wo
   } else if (returnable && active && current.status === 'in_progress') {
     notes.push(`Once ${current.id} is submitted, an authorized approver can return it to ${producerId} with: singularity-flow reject ${current.id} --to ${producerId}.`);
   } else if (earlier && !allowed.includes(producerId)) {
-    notes.push(`${current.id} may not return work to ${producerId}; its allowed return targets are ${allowed.join(', ') || 'none'}. A workflow maintainer decides how ${producerId} is corrected.`);
+    // Never "a workflow maintainer decides": the issue raised below goes to the producer's own approvers [owner, 2026-11-28].
+    notes.push(`${current.id} may not return work to ${producerId} (it returns to ${allowed.join(', ') || 'itself only'}), so raise the problem for ${producerId}'s approvers: they decide a correction, a return, an accepted risk or a dismissal.`);
   }
   if (scopeStepOf(workflow)?.id === producerId && intentAmendmentProposable(workflow, current.id)) {
     // The draft, for this Story, at its usual place: it gives the whole command that proposes it [audit 2026-11-19, entry 20].

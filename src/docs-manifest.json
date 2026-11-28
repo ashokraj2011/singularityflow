@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "c8167c24591b04985fe72adcd061f05b68f528c3",
+  "sourceCommit": "1d2f4aaf248814c8706fc6b04a1f2d5d5b237e91",
   "topicCount": 96,
-  "contentSha256": "48adeec868881ce8e4fde7d5cc313e6eee376ba82ec9153987cc34444c9f9194",
+  "contentSha256": "114d7807c535e8fbb96883aac153bead6672414345612bf822c99158b45f0290",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -736,8 +736,8 @@
     {
       "id": "workflow-decisions",
       "title": "Decisions, branches and loops in Story workflows",
-      "version": 21,
-      "sha256": "5ad459cfe32433d58273cc086a3d633d66a3272035bbcc7a5bd333cff78056b8",
+      "version": 22,
+      "sha256": "4e5cc273bdedf6d1875a2d9d9bafeb3f5a46adf1ef9303134f974a6b2858ceea",
       "routingSha256": "07bf0e965ef3a5d13d8a1ca2a5f090175c96f7ed9af50c614743485c8a65aa9b",
       "file": "workflow-decisions.md"
     },

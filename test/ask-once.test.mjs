@@ -188,3 +188,20 @@ test('what the person already answered reaches the reader, and SFlow\'s own requ
   assert.match(checkpoint.instruction, /Each question says in one line what the evidence leaves open and what each answer changes\./u);
   assert.doesNotMatch(clarificationCheckpoint({ mode: 'when-needed' }, { recordState: 'missing', errors: [] }).instruction, /clarification\.answered/u);
 });
+
+test('Copilot\'s correction of its own work, started by SFlow, says what it found and goes straight to the fix (owner, 2026-11-28)', () => {
+  assert.deepEqual([...SETTLED_OPENINGS['own-correction']], ['own-correction']);
+  assert.equal(settledOpening({ kind: 'own-correction', settlement: {} }, { reason: 'own-correction' }), true);
+  const line = 'Copilot found "The summary says 3, which contradicts the plan." in its own work; version 2 of Implement fixes it.';
+  const act = agentAct({ resultType: 'sflow-generation-rollover', kind: 'own-correction', mutates: true, line, phase: 'implement',
+    nextAction: { command: 'singularity-flow prepare implement', copilotCommand: '/sf-code implement' },
+    next: { command: 'singularity-flow phase enter implement --work-id ASK-1 --compose --for-agent --json', copilotCommand: '/sf-code implement' } });
+  assert.equal(act.show, line);
+  assert.equal(act.ask, undefined);
+  assert.match(act.said, /fix what was found in this same turn; ask the person nothing about it/u);
+  assert.match(act.do?.shell ?? '', /^singularity-flow phase enter implement /u);
+  // When it is the person's question, the why is its hold.
+  const { why } = versionQuestionWhy({ reason: 'own-correction', version: 4, step: 'Implement', from: { published: 3 } },
+    { because: 'Copilot has corrected its own work on Implement 2 times in a row, so the next correction is yours to start.' });
+  assert.match(why, /2 times in a row/u);
+});

@@ -59,7 +59,7 @@ test('which Story a session opens is settled from its checkout\'s branch, listed
   assert.equal(sflowJson('decisions', 'undo', 'QF-1', '--settled', entry.id).value.error.code, 'SETTLED_DECISION_UNDONE');
 });
 
-test('a covered file and a test command the repository declares are settled, each undo asks again, and the author\'s own correction is asked', slowLane({ timeout: 900_000 }), async (t) => {
+test('a covered file and a test command the repository declares are settled, each undo asks again, and the author\'s own correction starts on its own', slowLane({ timeout: 900_000 }), async (t) => {
   const repo = await repository(t, { implementCommands: false });
   const { root, sflow, sflowJson } = repo;
   // A code step its agent authors, as /sf-code does, with a person's approval (scs-m4-asked-for.test.mjs).
@@ -144,26 +144,39 @@ test('a covered file and a test command the repository declares are settled, eac
   assert.deepEqual(((await workflowOf(root)).departures ?? []).flatMap((entry) => entry.paths).sort(), ['src/extra.mjs', 'src/value.d.ts']);
   assert.equal((await settledOf(root, 'plan-accounting')).filter((entry) => entry.subject === 'file:src/value.d.ts').length, 1);
 
-  // The author's own correction of its own published generation is proposed, never settled: the person is asked
-  // "Start version 2 …?", and only their yes opens it (owner, 2026-11-17, superseding 2026-11-13) [D3, OSA:REQ-030].
+  // Copilot's correction of its own published version, before anyone reviewed it: SFlow starts version 2 itself, settled
+  // with an undo, and says what was found (owner, 2026-11-28, reversing 2026-11-17's "asked like every successor").
   const summary = path.join(root, 'singularity/work-items/QF-1/artifacts/implement/implementation-summary.md');
   await writeFile(summary, `${await readFile(summary, 'utf8')}\n## What changed\n\nThe value module returns the approved value 2.\n`);
   const published = sflowJson('phase', 'publish', 'implement', '--authored', 'governed-agent', '--channel', 'copilot-host');
   assert.equal(published.status, 0, JSON.stringify(published.value).slice(0, 2000));
   const words = 'Its summary says value 3, which contradicts the recorded plan of value 2.';
-  const proposed = sflowJson('phase', 'rollover', 'implement', '--correction', words);
-  assert.equal(proposed.status, 0, JSON.stringify(proposed.value));
-  assert.deepEqual([proposed.value.kind, proposed.value.fromGeneration, proposed.value.toGeneration, proposed.value.mutates], ['own-correction', 1, 2, false]);
-  assert.match(proposed.value.question, /^Start version 2 of /u);
-  assert.match(proposed.value.command, /phase rollover implement --correction .* --confirm sha256:/u);
-  assert.deepEqual(await settledOf(root, 'own-correction'), [], 'nothing is settled for the person');
-  assert.equal((await workflowOf(root)).phases.implement.generationIntent.status, 'consumed', 'nothing opens before the yes');
-  // The person's yes in their own terminal (the confirmation run outside any Copilot turn) opens it, with their receipt.
-  const opened = sflowJson(...proposed.value.argv);
-  assert.equal(opened.status, 0, JSON.stringify(opened.value).slice(0, 2000));
+  const started = sflowJson('phase', 'rollover', 'implement', '--correction', words);
+  assert.equal(started.status, 0, JSON.stringify(started.value).slice(0, 2000));
+  assert.deepEqual([started.value.kind, started.value.fromGeneration, started.value.toGeneration, started.value.mutates], ['own-correction', 1, 2, true]);
+  assert.match(started.value.line, /^Copilot found "Its summary says value 3, which contradicts the recorded plan of value 2\." in its own work; version 2 of .+ fixes it\.$/u);
+  assert.match(started.value.next?.command ?? '', /^singularity-flow phase enter implement --work-id QF-1 --compose --for-agent --json$/u);
   const after = await workflowOf(root);
   assert.equal(after.phases.implement.generationIntent.status, 'open');
   assert.equal(after.phases.implement.versionOpening.reason, 'own-correction');
-  assert.ok(after.phases.implement.versionOpening.consent?.receiptId, 'the opening carries the person\'s consent receipt');
-  assert.deepEqual(await settledOf(root, 'own-correction'), []);
+  assert.equal(after.phases.implement.versionOpening.consent?.surface, 'settled', 'no question: settled, with an undo');
+  assert.equal((await settledOf(root, 'own-correction')).length, 1);
+  // Two more corrections of its own work: the second in a row starts on its own too, the third is the person's question,
+  // saying why. Person actions for three corrections: 1 (main asked each: 3).
+  const asked = [];
+  for (const [version, found] of [[2, 'Its summary names the wrong module, which contradicts the plan row.'], [3, 'Its summary still says three, which contradicts the plan of value 2.']]) {
+    // The fix itself: the code the version delivers, with its clause comment, and its summary.
+    await writeFile(path.join(root, 'src/value.mjs'), `// @clause:QF-1:AC-001 the exported value is the approved 2 (version ${version})\nexport const value = 2;\n`);
+    sflow('prepare', 'implement');
+    await writeFile(summary, `${await readFile(summary, 'utf8')}\nVersion ${version} corrects it.\n`);
+    const again = sflowJson('phase', 'publish', 'implement', '--authored', 'governed-agent', '--channel', 'copilot-host');
+    assert.equal(again.status, 0, JSON.stringify(again.value).slice(0, 2000));
+    const result = sflowJson('phase', 'rollover', 'implement', '--correction', found);
+    assert.equal(result.status, 0, JSON.stringify(result.value).slice(0, 2000));
+    if (result.value.mutates === false) asked.push(result.value);
+  }
+  assert.equal(asked.length, 1, 'only the third correction in a row is asked');
+  assert.match(asked[0].question, /^Start version 4 of /u);
+  assert.equal(asked[0].why, 'Copilot has corrected its own work on Implement 2 times in a row, so the next correction is yours to start.');
+  assert.equal((await settledOf(root, 'own-correction')).length, 2);
 });

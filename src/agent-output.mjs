@@ -816,9 +816,10 @@ export function agentAct(result) {
   }
   // The next version for a review's findings, started by SFlow, said in one line with its undo (owner, 2026-11-19).
   // A version started on the person's send-back: its line names the answer used, so they see why nothing is asked.
-  if (result.resultType === 'sflow-generation-rollover' && result.kind === 'sent-back' && result.mutates === true && result.line) {
-    return withRoute({ state: 'next', do: null, show: result.line, read: ['settled', 'preserved', 'answerUsed'],
-      said: oneLine(`${result.line} Say act.show as it is, in one line, then refresh the entry once and write the version for their reason in this same turn; ask the person nothing about it.`) }, result.next ?? result.nextAction);
+  // Copilot's correction of its own work, started by SFlow with an undo (owner, 2026-11-28): the same, for what it found.
+  if (result.resultType === 'sflow-generation-rollover' && ['sent-back', 'own-correction'].includes(result.kind) && result.mutates === true && result.line) {
+    return withRoute({ state: 'next', do: null, show: result.line, read: ['settled', 'preserved', result.kind === 'sent-back' ? 'answerUsed' : 'correction'],
+      said: oneLine(`${result.line} Say act.show as it is, in one line, then refresh the entry once and ${result.kind === 'sent-back' ? 'write the version for their reason' : 'fix what was found'} in this same turn; ask the person nothing about it.`) }, result.next ?? result.nextAction);
   }
   if (result.resultType === 'sflow-generation-rollover' && result.kind === 'review-corrections' && result.mutates === true && result.line) {
     return withRoute({ state: 'next', do: null, show: result.line, read: ['settled', 'preserved', 'requestedChange'],

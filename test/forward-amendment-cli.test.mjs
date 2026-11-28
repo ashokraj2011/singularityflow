@@ -165,3 +165,31 @@ test('a later step that no longer holds under the amendment is returned to, and 
   const again = attempt('upstream-issue', 'revalidate', 'design', '--amendment', 'FAM-001', '--outcome', 'unchanged', '--reason', 'Trying to revalidate a reset step.');
   assert.match(again.stdout + again.stderr, /no revalidation owed/u);
 });
+
+test('the Decide card approves a forward amendment as one choice of two, recorded by its own function; nothing waits on a terminal', slowLane(), async (t) => {
+  const { root, cli, state, artifact } = await documentStory(t);
+  const intake = artifact('intake');
+  await writeFile(intake, `${(await readFile(intake, 'utf8')).trimEnd()}\n\nCallers keep their copy for at most one hour.\n`);
+  cli('upstream-issue', 'propose-amendment', '--phase', 'intake', '--reason', 'The intake never bounded how long callers keep their copy of the value.');
+  // The list the card reads: approving and rejecting are two choices it records, never one command with a pipe in it.
+  const list = JSON.parse(cli('decisions', W, '--json').stdout);
+  const packet = list.resultType === 'sflow-decisions' ? list : list.data;
+  const item = packet.items.find((entry) => entry.kind === 'forward-amendment');
+  assert.ok(item, JSON.stringify(packet.items.map((entry) => entry.kind)));
+  assert.deepEqual(item.options.map((entry) => [entry.id, entry.effects.map((effect) => effect.kind)]).sort(),
+    [['approve-amendment', ['forward-amendment-decision']], ['reject-amendment', ['forward-amendment-decision']]]);
+  assert.equal(JSON.stringify(item).includes('approve|reject'), false, 'no route a shell cannot run');
+  assert.match(item.why, /^FAM-001 proposes a corrected intake; intake's approvers have not decided it\. You decide what gets built/u, 'why, from the step\'s advice');
+  assert.equal(item.decidedBy.allowed, true);
+  // Recorded as the card records it: the answers file bound to the list's digest.
+  const answers = path.join(root, '..', `${path.basename(root)}-answers.json`);
+  t.after(() => rm(answers, { force: true }));
+  await writeFile(answers, JSON.stringify({ choose: { [item.id]: 'approve-amendment' }, reason: { [item.id]: 'One hour matches the platform cache policy.' },
+    expires: {}, cause: {}, confirm: packet.packetSha256 }));
+  const recorded = run(process.execPath, [CLI, '--no-model', 'decisions', 'record', W, '--answers', answers, '--json'], root, { allowFailure: true });
+  assert.equal(recorded.status, 0, recorded.stdout + recorded.stderr);
+  const after = await state();
+  assert.equal(after.phases.intake.generation, 2, 'the corrected intake is its next version');
+  assert.deepEqual((after.forwardAmendmentDecisions ?? []).map((entry) => [entry.amendment, entry.decision]), [['FAM-001', 'approved']]);
+  assert.match(await readFile(intake, 'utf8'), /at most one hour/u);
+});

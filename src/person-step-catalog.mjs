@@ -249,7 +249,7 @@ export const PERSON_STEPS = Object.freeze([
   // A visual step approver's accepted risk on one failed comparison, which nothing else clears [PHR:REQ-006].
   { id: 'visual-risk', guard: 'own:visual-risk', review: { kind: 'visual-risk', entry: safe({ visualRiskDecisions: 'visual_risk_accepted' }) },
     family: { list: 'visualRiskDecisions', action: 'decision.visual-risk', label: 'Visual risk', isPerson: always } },
-  { id: 'witness-exception', guard: 'own:witness-exception-renewal', review: { kind: 'witness-exception', entry: safe({ witnessExceptionRenewals: 'witness_exception_renewed' }) },
+  { id: 'witness-exception', guard: 'own:witness-exception-renewal', effect: 'witness-exception-renewal', review: { kind: 'witness-exception', entry: safe({ witnessExceptionRenewals: 'witness_exception_renewed' }) },
     family: { list: 'witnessExceptionRenewals', action: 'decision.witness-exception', label: 'Witness exception renewal', isPerson: always } },
   { id: 'scope', guard: 'decision:story-decision', effect: 'scope-disposition', review: { kind: 'scope', entry: safe({ scopeDispositions: 'scope_decided' }) },
     family: { list: 'scopeDispositions', action: 'decision.scope', label: 'Scope disposition', isPerson: always } },
@@ -260,7 +260,7 @@ export const PERSON_STEPS = Object.freeze([
   { id: 'upstream-issue', guard: 'turn:upstream-issue-decision', effect: ['upstream-issue', 'upstream-issue-decision'], inApproval: true,
     review: { kind: 'upstream-issue', entry: safe({ upstreamIssues: 'upstream_issue_raised', upstreamIssueDecisions: 'upstream_issue_decided' }) },
     family: { list: 'upstreamIssueDecisions', action: 'decision.upstream-issue', label: 'Upstream issue decision', isPerson: always } },
-  { id: 'forward-amendment', guard: 'own:upstream-amendment-decision',
+  { id: 'forward-amendment', guard: 'own:upstream-amendment-decision', effect: 'forward-amendment-decision',
     family: { list: 'forwardAmendmentDecisions', action: 'decision.forward-amendment', label: 'Forward amendment decision', isPerson: always } },
   { id: 'plan-amendment', guard: 'decision:story-decision', effect: ['plan-amendment', 'node-pin'], review: { kind: 'plan', entry: safe({ planAmendments: 'plan_amended' }) },
     family: { list: 'planAmendments', action: 'decision.plan', label: 'Plan amendment', isPerson: always } },

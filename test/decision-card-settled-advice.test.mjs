@@ -42,7 +42,7 @@ test('a card holding only what was settled still records its Undo on every host,
   assert.deepEqual([packet.items.length, packet.settled.length, packet.settled[0].id], [0, 1, 'd1']);
   // VS Code: its Undo alone enables the review, under "Settled for you", with no empty table above it.
   const html = decideHtml(packet);
-  assert.match(html, /<button type="button" data-review>Review and record<\/button>/u);
+  assert.match(html, /<button type="button" data-review>Record what I chose<\/button>/u);
   assert.equal(count(html, '<table>'), 1);
   // Copilot CLI: nothing waits, so the first form keeps everything first, then the undo, never "Decide each one" [owner, 2026-11-20].
   const { form } = firstForm(packet);

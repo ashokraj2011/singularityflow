@@ -370,7 +370,8 @@ async function pendingStateFacts(root, config, workflow, phase, { approvalCheck,
     forwardAmendments = [
       ...pendingForwardAmendments(workflow).map((proposal) => ({ code: 'FORWARD_AMENDMENT_PENDING', amendment: proposal.id, phase: proposal.phase,
         message: `${proposal.id} proposes a corrected ${proposal.phase}; ${proposal.phase}'s approvers have not decided it.`,
-        command: `singularity-flow upstream-issue decide-amendment ${proposal.id} --work-id ${workId} --decision approve|reject --reason "<why>" --confirm ${proposal.id}` })),
+        // Approved or rejected on the Decide card, two choices of its own (decision-list.mjs forwardAmendmentItem).
+        command: `singularity-flow decisions ${workId}` })),
       ...await Promise.all(pendingAmendmentRevalidations(workflow).map(async (entry) => ({ code: 'AMENDMENT_REVALIDATION_REQUIRED', amendment: entry.amendment, phase: entry.phase,
         producer: entry.producer, message: `${entry.phase} read ${entry.producer} before ${entry.amendment} amended it; ${entry.phase}'s approvers have not revalidated it.`,
         command: revalidateCommand(workId, entry),

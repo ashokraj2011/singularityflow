@@ -1250,7 +1250,10 @@ const OWN_STEP_DENIALS = Object.freeze({
   'adjudication-table': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this asks a person at their own terminal to answer the whole table, and no turn answers it. Call sflowAdjudicate or sflow_adjudicate with the Story ID where it is available; otherwise show the user this command to run themselves, and stop',
   'apm-install': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: installing or updating agent packages changes which agents run in this repository; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'apm-organisation': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing agents, or changing the organisation\'s marketplace or policy, changes what other teams run; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
-  'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step is decided by that step\'s approvers in their own terminal, not by this turn. Show the user the command and stop; do not retry it',
+  // On the Decide card since 2026-11-28 [owner]: each is a row there, and /sf-decide opens it; a turn never records it.
+  'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step is decided by that step\'s approvers, not by this turn: /sf-decide opens the Decide card, where approving and rejecting it are each one choice; their own terminal takes the same command. Tell them it waits there and keep working; do not retry it',
+  'witness-exception-renewal': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: renewing a witness exception whose date passed is the word of a person who approves the step that accepted it, not this turn\'s: /sf-decide opens the Decide card, whose row renews it with their date and reason; their own terminal takes the same command. Tell them it waits there and keep working; do not retry it',
+  'test-run-risk': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting a test run\'s or a finding\'s risk is the word of a person who approves the step, not this turn\'s: /sf-decide opens the Decide card, which records it or runs it from its row; their own terminal takes the same command. Tell them it waits there and keep working; do not retry it',
   'spec-library-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: taking or turning down Copilot\'s proposals, deciding, deferring or reopening a specification gap, settling its checklist, publishing a revision to the shared library and discarding a draft are the person\'s own steps; no agent takes them. Show the user the command and stop; do not retry it',
   'spec-slice-change': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: dropping a clause of a Story\'s specification slice changes what the Story was asked to deliver; that is the person\'s own step. Show the user the command and stop; do not retry it',
   'spec-split-publication': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing a split divides a specification revision among child specifications and Story slices for everyone who takes them; that is the person\'s own step (proposing one with --propose may run here). Show the user the command and stop; do not retry it',
@@ -1578,7 +1581,10 @@ function personStepRefusal({ id, argv, owners }, turn = null) {
   const witness = id === 'witness' ? witnessPageRoute(argv) : null;
   // An intent amendment's decision or acknowledgement: the decisions card [owner, 2026-11-13].
   // A dispute of a reviewer's finding too: on the card, or a /sf-decide turn's bound yes [owner, 2026-11-20].
-  const card = id.startsWith('intent-amendment-') || id === 'review-dispute' ? decisionsCardRoute(argv)
+  // And a forward amendment's decision, a lapsed witness exception's renewal and a test run's or a finding's risk, rows the card
+  // records or runs [owner, 2026-11-28].
+  const card = id.startsWith('intent-amendment-') || ['review-dispute', 'upstream-amendment-decision'].includes(id) ? decisionsCardRoute(argv)
+    : ['witness-exception-renewal', 'test-run-risk'].includes(id) ? decisionsCardRoute(argv, workIdOfArgv(argv))
     : id === 'settled-undo' ? decisionsCardRoute(argv, parseCli(argv).positionals[2] ?? null) : null;
   const routes = witness ? [witness] : card ? [card] : guidance ? [{ ...guidance, ...(decision || owners?.length ? {} : { skill: null, copilotCommand: null }) }] : [];
   // An undo or an acknowledgement a /sf-decide turn takes on the person's yes keeps its own words elsewhere [owner, 2026-11-19].

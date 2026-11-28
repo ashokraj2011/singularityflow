@@ -550,13 +550,12 @@ function stubVscode() {
       const html = panel.webview.html;
       registered.reviewConfirmations.push({ title: panel.title, html });
       if (registered.reviewConfirmationManual) return;
-      if (/data-typed="true"/.test(html)) {
-        const typed = registered.answers.length ? registered.answers.shift() : registered.typed;
-        if (typed == null || typed === '') return void panel.post({ type: 'confirmation.cancel' });
-        // A value the host refuses leaves the page open. The person then closes it, so a near miss
-        // ends the decision rather than leaving the command pending, which would cancel the file.
-        return void panel.post({ type: 'confirmation.accept', confirmation: String(typed) })
-          .then(() => panel.visible && panel.post({ type: 'confirmation.cancel' }));
+      // A page bound to a value has one button, which sends back the value it was opened with [owner, 2026-11-28]: the
+      // person's answer (the value they mean) presses it; no answer, or one meaning another value, is a Cancel.
+      if (/data-bound="true"/.test(html)) {
+        const meant = registered.answers.length ? registered.answers.shift() : registered.typed;
+        const expected = (html.match(/data-expected="([^"]*)"/)?.[1] ?? '').replaceAll('&quot;', '"').replaceAll('&#39;', "'").replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+        return void panel.post(meant != null && String(meant) === expected ? { type: 'confirmation.accept', confirmation: expected } : { type: 'confirmation.cancel' });
       }
       // An acknowledgement is accepted only by the answer naming its button, as clicking it would.
       const label = html.match(/<div class="confirmation-actions"><button type="submit"[^>]*>([^<]*)<\/button>/)?.[1];
@@ -3264,10 +3263,10 @@ test('a generated Epic artifact opens from the journey, the Lifecycle tree and A
   assert.deepEqual(missing(), []);
 });
 
-test('approving from the editor still demands the exact confirmation a terminal would', async (t) => {
+test('approving from the editor still binds the exact confirmation a terminal would, as one button', async (t) => {
   if (!requireBundle(t)) return;
   // The whole point of the B5 escapes was that a GUI *can* answer these prompts, not that it may
-  // skip them. If this ever passes without a human typing the string, the guard is gone.
+  // skip them: the person's one press sends the exact value the page was opened with, and nothing else counts.
   const { registered } = await activated();
   const node = {
     kind: 'artifact',
@@ -3281,10 +3280,10 @@ test('approving from the editor still demands the exact confirmation a terminal 
   registered.reviewConfirmationManual = true;
   const approving = registered.commands.get('singularityFlow.approve')(node);
   const review = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation') ?? null);
-  assert.match(review.webview.html, /Type this exact value: <code>discover-define:business-case<\/code>/,
-    'the confirmation was asked for, naming the exact value');
-  assert.doesNotMatch(review.webview.html, /<input[^>]*data-confirmation[^>]*\svalue=/,
-    'the box starts empty; the expected value is shown, never prefilled');
+  // One Yes bound to the exact value: the page's button carries it, nothing is typed [owner, 2026-11-28].
+  assert.match(review.webview.html, /data-expected="discover-define:business-case"\s+data-bound="true"/,
+    'the confirmation is bound to the exact value the page was opened with');
+  assert.doesNotMatch(review.webview.html, /<input|Type this exact value/, 'nothing to type');
 
   // Anything but the exact string leaves the decision open: a near miss, an empty box, or a bare
   // acknowledgement sent straight to the host, whatever the page's own button allowed.
@@ -3494,10 +3493,10 @@ for (const approvalSurface of ['native', 'chat']) test(`${approvalSurface} start
   }
 });
 
-test('a self-approval is refused by the engine and re-asked as an explicit acknowledgement', async (t) => {
+test('a self-approval is said on the one confirmation page, and declining that page approves nothing', async (t) => {
   if (!requireBundle(t)) return;
-  // The engine refuses rather than silently recording a non-independent approval. The editor must
-  // surface that refusal as a decision, not paper over it by always passing the flag.
+  // The engine refuses rather than silently recording a non-independent approval. The editor says so on the page the person
+  // confirms, once, never on a second page after it [owner, 2026-11-28]; their Yes there is the acknowledgement.
   const { root, registered } = await activated();
 
   // Generate and publish so there is something real to approve.
@@ -3522,12 +3521,12 @@ test('a self-approval is refused by the engine and re-asked as an explicit ackno
       expected: 'discover-define:business-case', summary: 'Approve Business case'
     }
   };
-  registered.typed = 'discover-define:business-case';
-  registered.selfApprovalAnswer = undefined; // the person declined the modal
+  registered.typed = undefined; // the person declined the one page
 
   await registered.commands.get('singularityFlow.approve')(node);
-  assert.ok(registered.reviewConfirmations.some(({ html }) => /not independent review/.test(html)),
-    'the self-approval was surfaced as an explicit acknowledgement');
+  assert.ok(registered.reviewConfirmations.some(({ html }) => /recorded as your own approval, not an independent review/.test(html)),
+    'the self-approval was said on the page the person confirms');
+  assert.equal(registered.reviewConfirmations.length, 1, 'one page, never a second one for the acknowledgement');
   assert.deepEqual(registered.errors, [], 'declining is a decision, not a failure');
 
   // Nothing was approved.
@@ -11853,7 +11852,7 @@ test('the Decisions page lists each item, previews the choices, confirms them an
   assert.equal(confirmation.title, `Record 1 decision for ${DECIDE_W}`);
   assert.ok(confirmation.webview.html.includes(`Records: accept it as a risk until ${DECIDE_RISK_UNTIL} (decision on UPI-002).`));
   assert.ok(confirmation.webview.html.includes(`--confirm ${DECIDE_DIGEST}`), 'the exact digest command is on the page');
-  assert.match(confirmation.webview.html, /<input type="checkbox" data-acknowledged>/, 'an acknowledgement; the digest is never typed');
+  assert.doesNotMatch(confirmation.webview.html, /<input|data-acknowledged/, 'one button; nothing to tick, and the digest is never typed');
   assert.deepEqual((await cli.log()).at(-1).argv, ['decisions', DECIDE_W, '--choose', 'd1=accept-risk', '--expires', `d1=${DECIDE_RISK_UNTIL}`, '--json'],
     'the preview carries the changed date and leaves the unchanged default reason out');
   await confirmation.post({ type: 'confirmation.accept', acknowledged: true });

@@ -305,9 +305,9 @@ function differenceSettlement(workflow, gap, named, owner) {
     if (decision?.decision === 'approved') return done({ owner: state.issue.phase, issue: proposal.id, outcome: 'amended' });
     if (!decision) {
       return Object.freeze({ ...gap, owner: state.issue.phase, status: 'amending', issue: proposal.id, outcome: null, expiresAt: null,
-        choices: Object.freeze([gapChoice('decide-amendment', state.issue.phase, ['upstream-issue', 'decide-amendment', proposal.id, '--work-id', workId,
-          '--decision', 'approve|reject', '--reason', '<why>', '--confirm', proposal.id], '/sf-decide',
-        `${proposal.id}: ${state.issue.phase}'s approvers decide the document updated to match the code.`)]) });
+        // Approved or rejected on the Decide card, each a choice of its own; once one route with `approve|reject` in it.
+        choices: Object.freeze([gapChoice('decide-amendment', state.issue.phase, ['decisions', workId], '/sf-decide',
+        `${proposal.id}: ${state.issue.phase}'s approvers approve or reject the document updated to match the code on the Decide card.`)]) });
     }
   }
   if (gap.verdict === 'unplanned') {

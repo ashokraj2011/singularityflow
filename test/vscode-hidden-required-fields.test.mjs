@@ -112,11 +112,7 @@ async function localResetPages() {
   return [{ name: 'a forget-only preview', html: page('Local Data & Reset', localResetBody(plan, null), '', 'guard', SCRIPT) }];
 }
 
-async function reviewConfirmationPages() {
-  const { reviewConfirmationBody, REVIEW_CONFIRMATION_SCRIPT, REVIEW_CONFIRMATION_STYLE } = await view('review-confirmation-page.ts');
-  const request = { title: 'Review upgrade', summary: 'One exact reviewed change', detail: 'Preserve application code and Story history.', confirmLabel: 'Apply reviewed upgrade', expected: 'upgrade-1' };
-  return [{ name: 'a typed confirmation', html: page(request.title, `<style nonce="guard">${REVIEW_CONFIRMATION_STYLE}</style>${reviewConfirmationBody(request)}`, '', 'guard', REVIEW_CONFIRMATION_SCRIPT) }];
-}
+// The review confirmation page has no field since 2026-11-28 (one button bound to its value), so it is not drawn here.
 
 async function visualAssurancePages() {
   const [{ visualAssuranceHtml, VISUAL_ASSURANCE_SCRIPT }, { buildVisualAssuranceView }] = await Promise.all([view('visual-assurance-page.ts'), view('visual-assurance-model.ts')]);
@@ -261,7 +257,6 @@ const PAGES = {
   'views/goals.ts': goalsPages,
   'views/journal.ts': journalPages,
   'views/local-reset.ts': localResetPages,
-  'views/review-confirmation-page.ts': reviewConfirmationPages,
   'views/spec-studio-page.ts': specStudioPages,
   'views/visual-assurance-page.ts': visualAssurancePages
 };

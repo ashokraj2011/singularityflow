@@ -140,8 +140,11 @@ test('the list holds every pending kind in one order, and the approval last, nam
   const summary = pendingSummary(packet);
   assert.equal(summary.open, packet.open);
   assert.deepEqual(summary.items.map((item) => item.id), packet.items.map((item) => item.id));
-  // Beyond a route and an intent amendment, nothing on the new kinds is recordable from the list: each is the person's own step with its command.
-  assert.ok(packet.items.filter((item) => !['conformance-gap', 'upstream-issue', 'test-run-risk', 'visual-profile', 'test-command', 'routing-decision', 'intent-amendment'].includes(item.kind))
+  // Beyond a route and an intent or forward amendment, nothing on the new kinds is recordable from the list: each is the person's own step
+  // with its command. A forward amendment is approved or rejected on the card, each a choice it records [owner, 2026-11-28].
+  assert.deepEqual(byKind('forward-amendment').map((item) => item.options.map((option) => [option.id, option.recordable !== false, option.effects.map((effect) => effect.kind)])),
+    [[['approve-amendment', true, ['forward-amendment-decision']], ['reject-amendment', true, ['forward-amendment-decision']]]]);
+  assert.ok(packet.items.filter((item) => !['conformance-gap', 'upstream-issue', 'test-run-risk', 'visual-profile', 'test-command', 'routing-decision', 'intent-amendment', 'forward-amendment'].includes(item.kind))
     .every((item) => item.options.every((option) => option.recordable === false && option.action?.command)));
   // An intent amendment is decided and acknowledged on the decisions card, each choice with its exact terminal command beside it [owner, 2026-11-13].
   assert.deepEqual(byKind('intent-amendment').map((item) => item.options.map((option) => [option.id, option.recordable !== false, Boolean(option.terminal)])),

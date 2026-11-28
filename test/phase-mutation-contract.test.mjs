@@ -3432,7 +3432,8 @@ test('a "still holds" yes or no runs in /sf-decide only with what the person typ
     assert.equal((await run(yes, command)).permissionDecision, 'deny', command);
   }
   const amendment = await run(yes, 'singularity-flow upstream-issue decide-amendment FAM-001 --work-id PMC-1 --decision approve --reason "It does not rely on the changed wording." --confirm FAM-001');
-  assert.match(amendment.permissionDecisionReason, /an amendment of an earlier step is decided by that step's approvers in their own terminal, not by this turn/u);
+  // Its approvers decide it on the Decide card, which records approving or rejecting it as one choice each [owner, 2026-11-28].
+  assert.match(amendment.permissionDecisionReason, /an amendment of an earlier step is decided by that step's approvers, not by this turn: \/sf-decide opens the Decide card/u);
   // Outside /sf-decide it stays a person's decision, routed to /sf-decide.
   const authoring = await f.enter('/sf-phase', 'still-holds-authoring');
   await personSaid(authoring, 'Yes', 'It does not rely on the changed wording.');

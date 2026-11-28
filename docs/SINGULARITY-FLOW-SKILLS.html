@@ -1720,7 +1720,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~1203 body tokens</span>
+          <span class="pill">~1207 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-auto</code></dd></div>
@@ -1757,7 +1757,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 5. Preview `singularity-flow auto repair &lt;FLIGHT-ID&gt; --refusal &lt;REFUSAL-ID&gt; --json`; show scope, evidence, budget and eligibility. Confirm only on the person&#39;s explicit yes. Machine-actionable policy permits one repair for an unchanged Candidate with failed deterministic verification; otherwise stop, and halt after a second failure; then offer step 3&#39;s `needs-you` read or step 8&#39;s `takeover` for manual repair.
 6. Show Human Request options. Respond with `singularity-flow auto respond &lt;FLIGHT-ID&gt; --request &lt;REQUEST-ID&gt; --choice &lt;ID&gt; --confirm &lt;REQUEST-SHA256&gt; --json`; use allowed `--answer` or credential `--broker-reference`. Never collect credentials. A response does not approve, waive, or resume.
 7. Preview `singularity-flow auto switch-unit &lt;FLIGHT-ID&gt; --execution-unit &lt;ID&gt; --reason &quot;&lt;TEXT&gt;&quot; --json`; apply only its exact-hash command. It links a new attempt, not a new Task Contract.
-8. After showing the checkpoint, control with `singularity-flow auto pause|takeover|stop &lt;FLIGHT-ID&gt; --confirm &lt;HASH&gt; --json`; resume uses `singularity-flow auto resume &lt;FLIGHT-ID&gt; --confirm &lt;HASH&gt; --json` and open requests block it. Discard requires the user to type the exact flight ID as confirmation; `halt` aliases stop.
+8. After showing the checkpoint, control with `singularity-flow auto pause|takeover|stop &lt;FLIGHT-ID&gt; --confirm &lt;HASH&gt; --json`; resume uses `singularity-flow auto resume &lt;FLIGHT-ID&gt; --confirm &lt;HASH&gt; --json` and open requests block it. Discard only on their Yes to one question naming the flight and that its work is lost; `halt` aliases stop.
 9. Reports show contracts, events, Candidate, lineage, and quality. Only `singularity-flow auto compare` reports reviewed Impact comparison. Never invoke `singularity-flow auto flight-step` directly, infer tokens/hashes, expose prompts, rank people, waive authority, expand scope, merge, or deploy. Report failures, Git outcome, checkpoint, and one exact next command.
 </code></pre>
       </div>
@@ -6288,7 +6288,7 @@ Never infer higher assurance from a URL or file. Every registration is an append
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~796 body tokens</span>
+          <span class="pill">~821 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-materialize</code></dd></div>
@@ -6321,8 +6321,8 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 1. Require the exact initiative ID from the invocation or ask the contributor for it. Never infer or autocomplete it.
 2. Run `singularity-flow initiative materialize --initiative &lt;INIT-ID&gt; --dry-run --json`; continue only when its review `phaseStatus` is `approved`, otherwise relay it and stop.
 3. Show every Epic, story, repository, branch, blocking flag, dependency, contract and Jira operation (`singularity-flow initiative breakdown --initiative &lt;INIT-ID&gt; --json` with `--probe` adds reachability).
-4. Ask the contributor to type the exact initiative ID as mutation confirmation. Never infer, autocomplete, or submit it on their behalf.
-5. Only after that exact confirmation, run `singularity-flow initiative materialize --initiative &lt;INIT-ID&gt; --confirm &lt;INIT-ID&gt; --json`. A persistent terminal is not required; never supply or infer the confirmation before the contributor provides it.
+4. Ask once with your question tool (ask_user; in VS Code, vscode_askQuestions): &quot;Create everything shown above for &lt;INIT-ID&gt;?&quot; (Create it; Not now), saying it writes the branches and Jira items listed. Nothing is typed; never answer it for them.
+5. Only after their Create it, run `singularity-flow initiative materialize --initiative &lt;INIT-ID&gt; --confirm &lt;INIT-ID&gt; --json`. A persistent terminal is not required; never supply or infer the confirmation before the contributor provides it.
 6. Report each repository/branch receipt, Jira receipt when enabled, partial failure, retry status, commit, and push.
 
 Never force-push, overwrite an unrelated branch, or describe a partial result as complete.
@@ -8528,7 +8528,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1194 body tokens</span>
+          <span class="pill">~1242 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-pr</code></dd></div>
@@ -8559,7 +8559,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 
 1. Inspect Story status, finalization, remote branch, and pending publication before any PR operation.
 2. Use `singularity-flow pr describe &lt;WORK-ID&gt; --format markdown` for deterministic local text.
-3. Before a network write, show the exact head, base, title, body, and existing-PR state. Require the person to type the Work ID in chat as confirmation, then run `singularity-flow pr &lt;WORK-ID&gt; --create --yes` (without `--yes` it waits on a terminal prompt) or `singularity-flow pr describe &lt;WORK-ID&gt; --write --yes` as selected. Both need the GitHub CLI (`gh`): without it, or on another Git host, give `singularity-flow pr describe &lt;WORK-ID&gt; --clipboard` with the head and base so the person opens the pull request manually.
+3. Before a network write, show the exact head, base, title, body, and existing-PR state. Then ask once with your question tool (ask_user; in VS Code, vscode_askQuestions): &quot;Open a pull request from &lt;head&gt; into &lt;base&gt;, titled &quot;&lt;title&gt;&quot;?&quot; (Open it; Not now), saying it publishes the Story&#39;s change for review; nothing is typed. Only after their Open it, run `singularity-flow pr &lt;WORK-ID&gt; --create --yes` (without `--yes` it waits on a terminal prompt) or `singularity-flow pr describe &lt;WORK-ID&gt; --write --yes` as selected. Both need the GitHub CLI (`gh`): without it, or on another Git host, give `singularity-flow pr describe &lt;WORK-ID&gt; --clipboard` with the head and base so the person opens the pull request manually.
 4. Report the PR URL. Never merge, force-push, or change the selected base branch. Use `/sf-stack` for Epic dependency order.
 </code></pre>
       </div>
@@ -10473,7 +10473,7 @@ At the authoring boundary, load the step&#39;s work command it returns (`/sf-cod
           <span class="pill">guided</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1457 body tokens</span>
+          <span class="pill">~1459 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-run-app</code></dd></div>
@@ -10508,7 +10508,7 @@ The capability&#39;s `application.start` entries say how to start it, as typed r
 3. To start: run `singularity-flow app start &lt;ID&gt; [--environment &lt;ENV&gt;]` with your terminal tool&#39;s background (async) mode so it keeps running, then run `singularity-flow app status --json` until that entry is `ready` or reports its failure, within its `ready.timeoutMs`. Report the URL. To debug, add `--debug` when the entry has a `debug` block without a `refusal`. Report `Debugger listening at 127.0.0.1:&lt;port&gt;` and the attach target: the editor&#39;s attach configuration for that runtime, or the pid for dotnet. A `debug.refusal` names what the person installs; show it.
 4. To check: `singularity-flow app status --json`. To stop: `singularity-flow app stop &lt;ID&gt;`; it stops only what `singularity-flow app start` recorded. `APP_PORT_IN_USE` names the port&#39;s holder: an SFlow run (any checkout) ends by its `details.nextAction` once the person confirms; another process only the person ends, one they named, in their own terminal (`details.holder.personStop`: `kill &lt;pid&gt;`, on Windows `taskkill /PID &lt;pid&gt;`). Never kill a process yourself.
 5. Report the entry, environment, URL and state, and the next action (run the tests with `/sf-test`, or stop it).
-6. To suggest entries: run `singularity-flow app suggest --json`, preserving any explicit capability selection. Show each suggestion&#39;s source file, `start.argv`, per-environment `arguments`, `debug` and `environmentNames` (secrets are names only), and its `notes`. Ask with `ask_user` which to keep and their ids. Write `applicationDraft` to the exact issued `draft.applicationFile` with a file-edit tool, keeping existing entries and `tests` exactly, removing only unselected suggestions. Run `singularity-flow app config preview --application-file &lt;draft.applicationFile&gt; --json`; fix located draft errors until `valid`. Summarize the launch commands, working directories, dependency checks and environment names; never paste the whole draft. After the person confirms, default to `singularity-flow app config save-local --application-file &lt;draft.applicationFile&gt; --json` (add the same explicit `--capability` when used): it saves launch settings for this checkout, changes no shared configuration and cannot change tests. An explicit request to share uses `singularity-flow capability edit &lt;CAPABILITY&gt; --lead &lt;URL&gt; --application-file &lt;draft.applicationFile&gt; --mode set --json` (local map: `singularity-flow capability set &lt;CAPABILITY&gt; --application-file &lt;draft.applicationFile&gt; --json`); use the verified lead and reviewed proposal. Offer Start after setup; saving alone starts nothing. Missing environment values remain the person&#39;s binding action; never read or write secrets.
+6. To suggest entries: run `singularity-flow app suggest --json`, preserving any explicit capability selection. Ask once with `ask_user`: &quot;Start the app with `&lt;start.argv&gt;`?&quot; (Start it; Keep it, start later; Not now), or with several, which one to start, each by its `start.argv` and source file; say it is kept for this checkout only (secrets are names only). That answer is the whole yes: never ask again to keep, save or start it. Write `applicationDraft` with only the chosen suggestions to the exact issued `draft.applicationFile` with a file-edit tool, keeping existing entries and `tests` exactly. Run `singularity-flow app config preview --application-file &lt;draft.applicationFile&gt; --json`; fix located draft errors until `valid`; never paste the whole draft. Then `singularity-flow app config save-local --application-file &lt;draft.applicationFile&gt; --json` (add the same explicit `--capability` when used): it saves launch settings for this checkout, changes no shared configuration and cannot change tests. Then start it (step 3) in this turn, unless they chose to start it later. An explicit request to share uses `singularity-flow capability edit &lt;CAPABILITY&gt; --lead &lt;URL&gt; --application-file &lt;draft.applicationFile&gt; --mode set --json` (local map: `singularity-flow capability set &lt;CAPABILITY&gt; --application-file &lt;draft.applicationFile&gt; --json`); use the verified lead and reviewed proposal. Missing environment values remain the person&#39;s binding action; never read or write secrets.
 </code></pre>
       </div>
     </details>

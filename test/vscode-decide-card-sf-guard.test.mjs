@@ -109,13 +109,15 @@ function client(guardCard) {
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-async function decide(cli) {
+async function decide(cli, { page = true } = {}) {
   panels.length = 0;
   const result = reviewDecisions(cli, { workId: W }, async () => undefined, { askedInChat: true });
   await settle();
   const card = panels.find((panel) => panel.viewType === 'singularityFlow.decide');
   assert.ok(card, 'the card opened');
   card.post({ type: 'decide.review', rows: [{ item: 'd1', option: 'approve', reason: REASON, title: 'Approve AMD-001' }] });
+  // Where SF Guard does not sign, the press records: no page after it [owner, 2026-11-28].
+  if (!page) return { result, card, confirmation: null };
   // The answers file is written and the card read first: real file I/O, so wait on the page, not a number of ticks.
   for (const started = Date.now(); Date.now() - started < 5_000 && !panels.some((panel) => panel.viewType === 'singularityFlow.reviewConfirmation');) {
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -146,21 +148,18 @@ test('on a Story SF Guard requires, the confirmation is its card for these answe
   assert.deepEqual(cli.answers[0].confirm, LIST);
 });
 
-test('an engine with no card keeps today\'s confirmation and record; a Story without SF Guard shows the offer line, never forced', async () => {
+test('an engine with no card records on the one press; a Story without SF Guard says the offer line with the result, never forced', async () => {
   const older = client(Object.assign(new Error('Unknown guard action \'card\'.'), { name: 'CliError' }));
-  const first = await decide(older);
-  assert.equal(first.confirmation.title, `Record 1 decision on ${W}`);
-  assert.match(first.confirmation.webview.html, />Record these decisions</u);
-  first.confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  const first = await decide(older, { page: false });
   await first.result;
+  assert.equal(panels.some((panel) => panel.viewType === 'singularityFlow.reviewConfirmation'), false, 'no second page');
   assert.equal(older.runs.find((argv) => argv.includes('record')).includes('--presence-card'), false);
 
   const offer = 'SF Guard is off here, so this is recorded without your Touch ID. To turn it on for this repository, run in your own terminal: singularity-flow guard setup';
   const off = client({ schemaVersion: 1, resultType: 'sflow-guard', action: 'card', kind: 'decisions', workId: W, required: false, signs: false, state: 'off', offer });
-  const second = await decide(off);
-  assert.match(second.confirmation.webview.html, /SF Guard is off here, so this is recorded without your Touch ID/u);
-  second.confirmation.post({ type: 'confirmation.accept', acknowledged: true });
-  await second.result;
+  const second = await decide(off, { page: false });
+  const answer = await second.result;
+  assert.match(answer.message, /SF Guard is off here, so this is recorded without your Touch ID/u, 'said once, with the result');
   assert.equal(off.runs.find((argv) => argv.includes('record')).includes('--presence-card'), false);
 });
 

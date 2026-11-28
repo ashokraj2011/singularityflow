@@ -1273,10 +1273,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // reads the answer and keeps the question for its refusal (external-command-policy.mjs +767, state.mjs +674; the record
     // loads lazily, test-model-use.mjs) and `tests model-use` (command-registry.mjs +13) [owner, 2026-11-28: "ask once,
     // remember"]. No new eager file.
-    // 9,988,957 (measured for submit.mjs, +68 over 9,988,889, 2026-11-28 on carry-on-2 merged with main 133ab54dc): every
+    // 9,989,350 (measured for submit.mjs, +461 over 9,988,889 on no-typing merged with main f30b2ffa1, 2026-11-28; start.mjs
+    // 9,986,878, approve.mjs 9,895,876): the Decide card's routes for a forward amendment, a lapsed exception and a finding's risk
+    // (model-free-commands.mjs +282), the records SF Guard signs on the card (person-step-catalog.mjs +75), one Yes for a soft
+    // gate (sequence.mjs +80) and the forward amendment's card route (forward-amendments.mjs, upstream-routes.mjs +12 each)
+    // [owner, 2026-11-28]. No new eager file.
+    // 9,989,418 (measured for submit.mjs, +68 over 9,989,350, 2026-11-28 on carry-on-2 merged with main 9dfff1954): every
     // turn no note carries on ends with /sf-next, and a host with no hook types it between steps (model-free-commands.mjs,
     // its one-line note). No new eager file.
-    assert.ok(closure.bytes <= 9_988_957, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_989_418, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -2030,9 +2035,11 @@ test('the common session projection does not import attach, state stores or publ
   // sides' rises above together. No new eager file.
   // 4,418,244 (+780 over main's 4,417,464, measured 2026-11-28 on never-stuck-3 merged with main 48554e767): a test command's AI-model use asked once and
   // remembered (external-command-policy.mjs +767, command-registry.mjs +13) [owner, 2026-11-28]. No new eager file.
-  // 4,418,312 (+68 over 4,418,244, measured 2026-11-28 on carry-on-2 merged with main 133ab54dc): the presentation
+  // 4,418,601 (+357 over 4,418,244, measured 2026-11-28 on no-typing merged with main f30b2ffa1): the Decide card's routes for the
+  // steps moved to it (model-free-commands.mjs +282) and the records SF Guard signs there (person-step-catalog.mjs +75). No new eager file.
+  // 4,418,669 (+68 over 4,418,601, measured 2026-11-28 on carry-on-2 merged with main 9dfff1954): the presentation
   // contract's line for a host with no hook (model-free-commands.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_418_312, `session current loads ${current.bytes} source bytes`);
+  assert.ok(current.bytes <= 4_418_669, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

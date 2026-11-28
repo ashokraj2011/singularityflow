@@ -781,10 +781,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /**
    * Confirm a gateway plan in trusted native UI and carry it out with a receipt. `[INT:CON-039]` `[INT:CON-111]`
    *
-   * The preview shown is the exact one the plan hash covers. A host-confirm plan takes one modal
-   * choice; an exact-confirm plan also asks the person to type the subject it names, so the
-   * confirmation is of that record and not of a button. The receipt goes from `confirmPlan` straight
-   * into `run` and is never shown, logged, stored, or put in a chat message.
+   * The preview shown is the exact one the plan hash covers. Every plan takes one modal choice; an exact-confirm
+   * plan's button names the record it confirms, so the Yes is of that record, with nothing typed [owner, 2026-11-28].
+   * The receipt goes from `confirmPlan` straight into `run` and is never shown, logged, stored, or put in a chat message.
    */
   async function confirmPlanOutOfBand(route: GatewayRepositoryContext, review: {
     planId: string; planHash: string; confirmation: string; effects: Readonly<Record<string, boolean>>;
@@ -796,17 +795,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const subject = String(preview.subject?.id ?? preview.workspace?.id ?? preview.watchId ?? '');
     // The kernel's text, as the MCP client shows it: what will change first, long fields cut alone. The
     // shared presenter keeps the modal small and opens the whole text on request before consent.
+    const yes = review.confirmation === 'exact-confirm' && subject ? `Confirm ${subject}` : 'Confirm';
     const choice = await showCompactWarningMessage(
-      review.confirmationText.title, { modal: true, detail: review.confirmationText.detail }, 'Confirm'
+      review.confirmationText.title, { modal: true, detail: review.confirmationText.detail }, yes
     );
-    if (choice !== 'Confirm') { onDeclined?.(); return null; }
-    if (review.confirmation === 'exact-confirm') {
-      const typed = await vscode.window.showInputBox({
-        title: 'Exact confirmation', prompt: `Type ${subject} to confirm exactly this record`, ignoreFocusOut: true,
-        validateInput: (value) => (value === subject ? null : `Type ${subject} exactly`)
-      });
-      if (typed !== subject) { onDeclined?.(); return null; }
-    }
+    if (choice !== yes) { onDeclined?.(); return null; }
     try {
       const receipt = kernel.confirmPlan({ planId: review.planId, planHash: review.planHash, reviewDigest: review.review?.digest ?? null });
       return await kernel.run({ planId: review.planId }, { confirmationReceiptId: receipt.receiptId, confirmationValue: receipt.value });
@@ -2080,13 +2073,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         if (accepted !== 'Keep local changes') return;
       }
-      const confirmation = await vscode.window.showInputBox({
-        title: `Use ${path.basename(cloneDirectory)} as workspace ${id.trim()}`,
-        prompt: `${preservation}\nType ${id.trim()} to create only the workspace shell.`,
-        placeHolder: id.trim(), ignoreFocusOut: true,
-        validateInput: (value) => value === id.trim() ? null : `Type exactly ${id.trim()}.`
-      });
-      if (confirmation !== id.trim()) return;
+      // One Yes that names the workspace it creates; nothing is typed [owner, 2026-11-28].
+      const create = `Create workspace ${id.trim()}`;
+      const chosen = await showCompactWarningMessage(`Use ${path.basename(cloneDirectory)} as workspace ${id.trim()}?`,
+        { modal: true, detail: `${preservation}\n\n${create} creates only the workspace shell; Cancel changes nothing.` }, create);
+      if (chosen !== create) return;
+      const confirmation = id.trim();
       const result = await client.run<any>([
         ...baseArgs, ...(dirtyHash ? ['--confirm-dirty', dirtyHash] : []),
         '--confirm', confirmation, '--json'
@@ -2540,14 +2532,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           null
         );
       }
-      const confirmation = await vscode.window.showInputBox({
-        title: `Resume ${selected.label}`,
-        prompt: `Type ${expected} to recheck remote access and materialize only the reviewed workspace plan.`,
-        placeHolder: expected,
-        ignoreFocusOut: true,
-        validateInput: (value) => value === expected ? null : `Type exactly ${expected}.`
-      });
-      if (confirmation !== expected) return;
+      // One Yes for the setup the person picked; its confirmation is the preserved plan's own [owner, 2026-11-28].
+      const resume = 'Resume setup';
+      const chosen = await showCompactInformationMessage(`Resume ${selected.label}?`,
+        { modal: true, detail: `${resume} rechecks remote access, then builds only the reviewed workspace plan. Cancel changes nothing.` }, resume);
+      if (chosen !== resume) return;
+      const confirmation = expected;
       const result = await client.run<any>([
         'workspace', 'bootstrap', 'resume', selected.entry.bootstrapId,
         '--confirm', confirmation, '--json'
@@ -4748,18 +4738,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
         return;
       }
-      const approved = await showCompactInformationMessage(
-        `Return to ${plan.workId}?`, { modal: true, detail }, 'Continue to confirmation'
-      );
-      if (approved !== 'Continue to confirmation') return;
-      const confirmation = await vscode.window.showInputBox({
-        title: `Confirm Return to ${plan.workId}`,
-        prompt: `Type exactly: ${plan.confirmation}`,
-        placeHolder: plan.confirmation,
-        ignoreFocusOut: true,
-        validateInput: (value) => value === plan.confirmation ? null : 'The confirmation must match the Work ID exactly.'
-      });
-      if (confirmation !== plan.confirmation) return;
+      // One Yes that names the Story; the plan's own confirmation goes with it, never typed [owner, 2026-11-28].
+      const back = `Return to ${plan.workId}`;
+      const approved = await showCompactInformationMessage(`${back}?`, { modal: true, detail }, back);
+      if (approved !== back) return;
+      const confirmation = plan.confirmation;
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Returning to ${plan.workId}…` },
         () => returnClient.run(['return', plan.workId, '--apply', '--confirm', confirmation, '--json'])
@@ -5002,15 +4985,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         action
       );
+      // The modal's one button names what happens and the list above it shows what goes: that is the Yes, never a typed
+      // value after it [owner, 2026-11-28]. The plan's own confirmation goes with it, and the preview is read again below.
       if (review !== action) return;
-      const confirmation = await vscode.window.showInputBox({
-        title: 'Confirm destructive factory reset',
-        prompt: `Type exactly: ${plan.confirmation}`,
-        placeHolder: plan.confirmation,
-        ignoreFocusOut: true,
-        validateInput: (value) => value === plan.confirmation ? null : 'The confirmation does not match the reset preview.'
-      });
-      if (confirmation !== plan.confirmation) return;
+      const confirmation = plan.confirmation;
 
       // Re-read the preview after the person confirms. A branch switch or newly changed SFlow path
       // invalidates the reviewed operation; the command stops and makes the person inspect again.

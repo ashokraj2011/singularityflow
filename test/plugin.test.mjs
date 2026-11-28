@@ -1541,7 +1541,9 @@ test('auto skill keeps planning storyless and requires exact human ratification'
   assert.match(content, /--confirm <PACKET-SHA256>/);
   assert.match(content, /After showing the checkpoint, control with/);
   assert.doesNotMatch(content, /SHA-256|types the full|user-typed/, 'a person never reads or types a digest');
-  assert.match(content, /type the exact flight ID as confirmation/);
+  // Discarding is one Yes that names the flight and says its work is lost; nothing is typed [owner, 2026-11-28].
+  assert.match(content, /Discard only on their Yes to one question naming the flight and that its work is lost;/);
+  assert.doesNotMatch(content, /type the exact flight ID/);
   assert.match(content, /Never invoke `singularity-flow auto flight-step` directly/);
 });
 

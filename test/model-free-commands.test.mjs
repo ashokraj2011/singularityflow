@@ -82,22 +82,23 @@ test('every decision the Decide card records has the card as its routes, never "
   assert.deepEqual(routes(witness), ['/sf-decide PAY-1', witness, VSCODE_WITNESS_REVIEW]);
   // A plan row correction is kept on the card too [owner, 2026-11-19]: the card is its VS Code route.
   assert.equal(routes('singularity-flow decision plan PAY-1 --add-row PAY-1:AC-003 --reason "A new clause needs its row."')[2], VSCODE_DECIDE_CARD);
-  // What the card does not record keeps its routes: raising an issue, revoking a test command, a finding's risk and an
-  // appeal's decision.
+  // What the card does not record keeps its routes: raising an issue, revoking a test command and an appeal's decision.
   for (const command of ['singularity-flow upstream-issue raise --phase fix-design --about AC-001 --problem "The design names the wrong cause."',
     'singularity-flow decision test-command PAY-1 --revoke TCD-001 --reason "The repository configures this runner now."',
-    'singularity-flow decision finding-risk PAY-1 --phase build --finding F-0123456789abcdef --expires 2099-01-01 --reason "The nested branches mirror the table."',
     'singularity-flow story adjudicate --answers /tmp/answers.json'
   ]) assert.equal(routes(command)[2], null, command);
-  // What the card only types into the person's terminal keeps no Copilot route: revocations, a finding's risk, a forward
-  // amendment, a visual risk, a witness deferral or exception, an appeal's decision.
+  // What the card has no row for keeps no Copilot route: revocations, a visual risk, a witness deferral.
   for (const command of ['singularity-flow decision test-command PAY-1 --revoke TCD-001 --reason "The repository configures this runner now."',
     'singularity-flow decision risk PAY-1 --revoke RSK-001 --reason "The lab is back."',
-    'singularity-flow decision finding-risk PAY-1 --phase build --finding F-0123456789abcdef --expires 2099-01-01 --reason "The nested branches mirror the table."',
-    'singularity-flow upstream-issue decide-amendment FAM-001 --work-id PAY-1 --decision approve --reason "Agreed."',
     'singularity-flow decision visual-risk PAY-1 --comparison visual-0123456789abcdef01234567 --expires 2099-01-01 --reason "One pixel row differs."',
     'singularity-flow decision witness-defer PAY-1 --criterion PAY-1:AC-001 --slot screen --to build --reason "The later step changes it."'
   ]) assert.deepEqual(routes(command).filter((_, at) => at !== 1), [null, null], command);
+  // Moved to the card [owner, 2026-11-28]: a forward amendment's two choices and a lapsed exception's renewal are rows it records,
+  // and a finding's accepted risk runs from its row on "Do this now"; /sf-decide opens it.
+  for (const command of ['singularity-flow upstream-issue decide-amendment FAM-001 --work-id PAY-1 --decision approve --reason "Agreed with the corrected plan." --confirm FAM-001',
+    `singularity-flow decision witness-exception PAY-1 --phase build --mapping sha256:${'a'.repeat(64)} --expires 2099-01-01 --reason "The device lab is still down."`,
+    'singularity-flow decision finding-risk PAY-1 --phase build --finding F-0123456789abcdef --expires 2099-01-01 --reason "The nested branches mirror the table."'
+  ]) assert.deepEqual(routes(command).filter((_, at) => at !== 1), ['/sf-decide PAY-1', VSCODE_DECIDE_CARD], command);
 });
 
 test('every person\'s own step the Decide card records has the card as its Copilot route, and stays the person\'s [owner, 2026-11-15]', async () => {
@@ -112,7 +113,9 @@ test('every person\'s own step the Decide card records has the card as its Copil
     'test-run-risk': 'singularity-flow decision test-risk PAY-1 --phase build --cause "No browser here." --expires 2099-01-01 --reason "Decided by the approver."',
     'evidence-reuse': 'singularity-flow decision evidence-reuse PAY-1 --phase build --from-attempt TA-001 --reason "Decided by the approver."',
     'visual-profile': 'singularity-flow decision visual-profile PAY-1 --phase build --profile tablet --not-applicable --reason "Decided by the approver."',
-    'refactor-behaviour': 'singularity-flow work behaviour keep --work-id PAY-1'
+    'refactor-behaviour': 'singularity-flow work behaviour keep --work-id PAY-1',
+    'witness-exception': `singularity-flow decision witness-exception PAY-1 --phase build --mapping sha256:${'a'.repeat(64)} --expires 2099-01-01 --reason "The device lab is still down."`,
+    'forward-amendment': 'singularity-flow upstream-issue decide-amendment FAM-001 --work-id PAY-1 --decision approve --reason "Agreed with the corrected plan." --confirm FAM-001'
   };
   const recorded = PERSON_STEPS.filter((row) => String(row.guard).startsWith('own:') && [row.effect ?? []].flat().some((effect) => EFFECT_ORDER.includes(effect)));
   assert.deepEqual(recorded.map((row) => row.id).sort(), Object.keys(FORMS).sort(), 'a card-recorded own step needs its form here');

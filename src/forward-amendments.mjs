@@ -93,7 +93,8 @@ export function forwardAmendmentTerminalBlockers(workflow) {
     ...pendingForwardAmendments(workflow).map((proposal) => ({
       code: 'FORWARD_AMENDMENT_PENDING',
       message: `${proposal.id} proposes a corrected ${proposal.phase}; ${proposal.phase}'s approvers have not decided it.`,
-      command: `singularity-flow upstream-issue decide-amendment ${proposal.id} --work-id ${workId} --decision approve|reject --reason "<why>" --confirm ${proposal.id}`
+      // Its approvers approve or reject it on the Decide card, each a choice of its own; never one command with a pipe in it.
+      command: `singularity-flow decisions ${workId}`
     })),
     ...pendingAmendmentRevalidations(workflow).map((entry) => ({
       code: 'AMENDMENT_REVALIDATION_REQUIRED',

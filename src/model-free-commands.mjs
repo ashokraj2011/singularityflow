@@ -31,11 +31,15 @@ const decideCard = (t) => t[0] === 'decisions' && /^(?: --work-id)? [A-Za-z0-9][
 /**
  * A person's own step the Decide card records or opens [owner, 2026-11-13 and 2026-11-15]: an amendment's decision or
  * acknowledgement, a settled one's undo, an accepted risk, test-run risk or test command, a sign-off and its screenshot (2026-11-18),
- * keeping or accepting what a refactor changed [ITW:REQ-015]. Its Copilot route is the card, which /sf-decide opens; no turn runs the command, which stays the person's.
+ * keeping or accepting what a refactor changed [ITW:REQ-015], a forward amendment's approval or rejection, a lapsed witness
+ * exception's renewal and a finding's accepted risk, which the card runs on "Do this now" [owner, 2026-11-28]. Its Copilot route is
+ * the card, which /sf-decide opens; no turn runs the command, which stays the person's.
  */
 export const decideCardStep = ([top, sub, verb, ...rest] = []) => (top === 'story' && sub === 'intent-amendment' && ['decide', 'acknowledge'].includes(verb))
-  || (top === 'decisions' && sub === 'undo') || (top === 'work' && sub === 'behaviour' && ['keep', 'accept'].includes(verb)) || (top === 'decision' && ![verb, ...rest].includes('--revoke')
-    && (['risk', 'test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile', 'witness', 'screenshot'].includes(sub) || (sub === 'test-command' && [verb, ...rest].includes('--accept'))));
+  || (top === 'decisions' && sub === 'undo') || (top === 'work' && sub === 'behaviour' && ['keep', 'accept'].includes(verb))
+  || (top === 'upstream-issue' && sub === 'decide-amendment') || (top === 'decision' && ![verb, ...rest].includes('--revoke')
+    && (['risk', 'test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile', 'witness', 'screenshot', 'witness-exception', 'finding-risk'].includes(sub)
+      || (sub === 'test-command' && [verb, ...rest].includes('--accept'))));
 /** Its Copilot route: /sf-decide with the Story it names. */
 export function decideCardCopilotCommand(argv) {
   const named = argv.includes('--work-id') ? argv[argv.indexOf('--work-id') + 1] : ['decision', 'decisions'].includes(argv[0]) ? argv[2] : null;

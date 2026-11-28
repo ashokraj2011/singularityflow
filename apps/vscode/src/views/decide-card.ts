@@ -3,9 +3,13 @@
  * answers on this page, and the extension records through the CLI outside the chat's shell, so no
  * answer, reason or selection ever comes from the model. A list that changed while open records nothing.
  *
- * On a Story SF Guard requires, the confirmation is SF Guard's card as the engine renders it for these
- * answers (`guard card decisions`), and the record carries its digest, so the CLI signs with Touch ID from
- * here once the card matches; nothing is signed without the person's click and touch [owner, 2026-11-19].
+ * One press records [owner, 2026-11-28: no second confirmations]: "Record what I chose" records what the rows show, with no
+ * page after it. Only on a Story SF Guard requires is there one more page, SF Guard's card as the engine renders it for these
+ * answers (`guard card decisions`): it is what Touch ID signs, and the record carries its digest, so the CLI signs with Touch ID
+ * from here once the card matches; nothing is signed without the person's click and touch [owner, 2026-11-19].
+ *
+ * A row's own step (a return, a draft to propose, a held package) runs from here on "Do this now", from the list as read and
+ * with the person's reason and date as values of their own; only a step that must ask in their own terminal goes there, typed in.
  */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -26,6 +30,7 @@ import { guardCardDecisionsArgv, guardCardFrom, guardCardText, presenceCardArgs,
 import { approvalElsewhereWords, approvalFocus, approvalPageWords, approvalRows, chatNext, shareText, checkNames, checkOf, DECIDE_SCRIPT, filledCommand, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows,
   decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS, guardRoute, joinedWords, openRows, othersApproval, othersApprovalWords, approveInChat, approversNext, readyApproval,
   selectStoryNext, type DecideDraft } from './decide-card-page.ts';
+import { OWN_TERMINAL_REFUSALS, ownStepArgv, ownTerminalWords, runMissingWords, runnableStep } from './decide-card-page.ts';
 
 // How long the page's first read checks before it asks, and how long "Check first" waits (src/decision-probes.mjs).
 const CHECK_SECONDS = 60;
@@ -284,6 +289,51 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         terminal.show(false);
         terminal.sendText(command, false);
       },
+      // "Do this now": the row's own step, run here for the person from the list as read, with their reason and date as values of
+      // their own [owner, 2026-11-28]. It runs only while the row still offers that exact step; a step that must ask in their own
+      // terminal opens there typed in, with the one line why.
+      'decide.run': async (message) => {
+        if (busy) return;
+        draft = decideDraftFrom(message);
+        const shown = commandOf(message);
+        // A preview is typed into a terminal, never run here as if it were the step.
+        if (!shown || !runnableStep(shown)) return;
+        const given = { reason: stringField(message, 'reason'), expires: stringField(message, 'expires') };
+        const planned = ownStepArgv(shown, given);
+        if ('missing' in planned) return render(runMissingWords(planned.missing));
+        busy = true; render(null, 'Doing it now…');
+        await reread();
+        if (commandOf(message) !== shown) { busy = false; panel.reveal(); return render('This step changed since the page showed it, so nothing ran. It is shown again below.'); }
+        try {
+          await client.runText(planned.argv);
+          recorded = [...recorded, `${stringField(message, 'option') ?? 'step'} done`];
+          await Promise.resolve(refresh?.()).catch(() => undefined);
+          await reread();
+          busy = false;
+          if (!openRows(packet).length) {
+            const page = settled ? null : await approvalPage();
+            return finish({ ...(page ? approvalAnswer(page) : { status: 'recorded', next: nextFor(packet.storyNext ?? packet.next) }), recorded, remaining: [],
+              message: ['Done. All decided.', page?.words ?? nextWords(nextFor(packet.storyNext))].filter(Boolean).join(' ') });
+          }
+          panel.reveal();
+          render(null, 'Done. What is left is below.');
+        } catch (error) {
+          busy = false;
+          const code = cliRefusalCode(error);
+          await reread();
+          panel.reveal();
+          if (code && OWN_TERMINAL_REFUSALS[code]) {
+            const filled = filledCommand(shown, given, process.platform === 'win32');
+            if ('command' in filled) {
+              const terminal = createTerminalIn({ name: `Singularity Flow · ${workId}` }, packet.repositoryPath ?? client.repository);
+              terminal.show(false);
+              terminal.sendText(filled.command, false);
+            }
+            return render(null, ownTerminalWords(code));
+          }
+          render((error as Error).message);
+        }
+      },
       // The approval starts from this card: its row opens the approval page with the documents [owner, 2026-11-13].
       // Opened from the approval page, it closes and that page opens again (actions.ts). Otherwise the approval page itself,
       // for this step: never the Approvals list first, whose Approve opened this page again [owner, 2026-11-28].
@@ -394,6 +444,8 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         busy = true; render();
         try {
           const writesOnly = draftsOnly(packet, choices);
+          // What SF Guard says of a record it does not sign here (off, an exception, no key): said once with the result.
+          let guardNote: string | null = null;
           const ran = await withAnswers(packet, answers, async (file) => {
             // A draft writes no record; a decision on a Story SF Guard requires shows the card Touch ID signs.
             const guard = writesOnly ? null : await readGuardCard(client, workId, file);
@@ -401,16 +453,13 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
             // Where SF Guard does not sign here (an exception, no key, Windows or Linux), it says why; where it is off, it offers itself.
             const noted = guard?.bypass ? ` SF Guard: ${guard.reason}.` : guard?.required && guard.reason ? ` SF Guard cannot sign this here: ${guard.reason}.`
               : guard?.offer ? ` ${guard.offer}` : '';
-            const confirmed = await collectReviewConfirmation(writesOnly
-              ? { title: `Draft the amendment on ${workId}`, summary: 'A draft is written beside the checkout\'s Git data, with your reason in its slot; nothing is recorded or decided.',
-                detail: decideSummary(shown(), choices), confirmLabel: 'Write the draft' }
-              : signing.length && guard
-                ? { title: `Record and sign your decisions on ${workId}`,
-                  summary: 'SF Guard signs this with your Touch ID. Read its card: Touch ID asks right after you click, and nothing is recorded if you cancel it there.',
-                  detail: guardCardText(guard), confirmLabel: 'Record and sign with Touch ID' }
-                : { title: `Record ${choices.length} decision${choices.length === 1 ? '' : 's'} on ${workId}`,
-                  summary: `Each one is recorded with its own reason, under your name.${noted}`, detail: decideSummary(shown(), choices), confirmLabel: 'Record these decisions' });
+            // One press records what the rows show: no second page [owner, 2026-11-28]. Only what SF Guard signs is shown once
+            // more, as its card, because that is what Touch ID signs; a draft decides nothing and a plain record is the press.
+            const confirmed = writesOnly || !(signing.length && guard) ? true : await collectReviewConfirmation({ title: `Record and sign your decisions on ${workId}`,
+              summary: 'SF Guard signs this with your Touch ID. Read its card: Touch ID asks right after you click, and nothing is recorded if you cancel it there.',
+              detail: guardCardText(guard), confirmLabel: 'Record and sign with Touch ID' });
             if (!confirmed) return null;
+            if (!signing.length) guardNote = noted.trim() || null;
             if (signing.length) { panel.reveal(); render(null, 'Touch ID is asking now: touch the sensor to sign, or cancel it there and nothing is recorded.'); }
             const asking = signing.length ? vscode.window.setStatusBarMessage('$(lock) SF Guard: Touch ID is asking now.') : null;
             try { return await client.run([...decisionRecordArgv(packet.workId, file), ...signing], undefined, { priority: 'interactive' }); }
@@ -445,7 +494,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
             ? outcome.remaining.filter((entry) => !approvalLeft.includes(entry)) : outcome.remaining;
           finish({ ...(page ? approvalAnswer(page) : { status: 'recorded', ...(next ? { next } : {}) }), recorded: all, decided, remaining,
             message: [`${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : all.length ? `${all.length} recorded.` : outcome.message}${remaining.length ? ` Still open: ${remaining.join('; ')}.` : ' All decided.'}`,
-              page?.words ?? nextWords(next)].filter(Boolean).join(' ') });
+              guardNote, page?.words ?? nextWords(next)].filter(Boolean).join(' ') });
         } catch (error) {
           const failure = error as Error & { result?: unknown };
           const { outcome, packet: fresh } = decisionRecordOutcome(null, { message: failure.message, result: failure.result });

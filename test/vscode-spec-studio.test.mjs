@@ -342,7 +342,7 @@ test('Cancel and Back on every stage write nothing; publishing and discarding as
   studio.post({ type: 'spec.discard' });
   await settled(client, studio);
   const discard = panels.find((panel) => panel.viewType === 'singularityFlow.reviewConfirmation' && panel.visible);
-  assert.match(discard.webview.html, /Type this exact value: <code>SPEC-CHK-004<\/code>/u, 'discarding asks for the specification ID');
+  assert.match(discard.webview.html, /data-expected="SPEC-CHK-004"\s+data-bound="true"[\s\S]*>Discard the draft<\/button>/u, 'one Yes bound to the specification it discards');
   discard.post({ type: 'confirmation.accept', confirmation: 'SPEC-CHK-00' });
   discard.post({ type: 'confirmation.cancel' });
   await settled(client, studio);

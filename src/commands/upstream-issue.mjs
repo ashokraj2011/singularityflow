@@ -366,10 +366,11 @@ async function proposeAmendment(root, config, workflow, options) {
       file: optionString(options, 'file') ?? null, actor, agent, upstreamIssue: issue });
   }, { exactWorkItemPaths: [expected.proposedPath, storyLocation(null, [config, workflow], workflow.workItem.id).checkoutPath(`${target.requiredArtifact.path}`)],
     eventFromResult: (result) => ({ payload: { decision: 'forward-amendment', stage: 'proposed', amendment: result.id, reviewPacketSha256: null } }) });
-  const decide = `singularity-flow upstream-issue decide-amendment ${proposal.id} --work-id ${workflow.workItem.id} --decision approve|reject --reason "<why>" --confirm ${proposal.id}`;
+  // Its approvers approve or reject it on the Decide card, two choices of its own [owner, 2026-11-28].
+  const decide = `singularity-flow decisions ${workflow.workItem.id}`;
   if (!optionBoolean(options, 'json')) {
     // No number: approval publishes the step's next one, which may be past a withdrawn version's [OSA §4.3].
-    console.log(`Proposed ${proposal.id}: a new version of ${phaseId} from ${proposal.proposedPath}. ${phaseId}'s approvers decide it:`);
+    console.log(`Proposed ${proposal.id}: a new version of ${phaseId} from ${proposal.proposedPath}. ${phaseId}'s approvers approve or reject it on the Decide card:`);
     console.log(`  ${decide}`);
   }
   emit(options, workflow, 'propose-amendment', { slots: { amendment: proposal.id, phase: phaseId }, body: { proposal, decide }, changed: true });

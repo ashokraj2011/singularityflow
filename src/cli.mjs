@@ -2346,7 +2346,7 @@ async function documentsCommand(positionals, options) {
       console.log('Dry run: no state changed.');
       return;
     }
-    if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this evidence detachment.', documentId))) {
+    if (!optionBoolean(options, 'yes') && !(await confirmYesNo(`Detach ${documentId} as shown above?`))) {
       console.log('No state changed.');
       return;
     }
@@ -2553,7 +2553,7 @@ async function documentsScopeCommand(root, positionals, options) {
   }
   if (!json) printPlan();
   const confirmation = plan.documents[0].id;
-  if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this change to which phases use the document.', confirmation))) {
+  if (!optionBoolean(options, 'yes') && !(await confirmYesNo(`Change which steps use ${confirmation} as shown above?`))) {
     console.log('No state changed.');
     return;
   }
@@ -3585,7 +3585,8 @@ async function pullRequestCommand(positionals, options) {
     };
     if (optionBoolean(options, 'clipboard')) result.clipboard = copyToClipboard(result.body);
     if (optionBoolean(options, 'write')) {
-      if (!optionBoolean(options, 'yes') && !(await confirmExact(`Type ${plan.workId} to update the existing pull request description: `, plan.workId))) {
+      // One Yes over the text just shown, never a typed Work ID [owner, 2026-11-28].
+      if (!optionBoolean(options, 'yes') && !(await confirmYesNo(`Update the description of ${plan.workId}'s pull request to the text above?`))) {
         throw new SingularityFlowError('Pull request update cancelled.');
       }
       result.write = updateStoryPullRequest(root, { ...plan, body: result.body });
@@ -3614,13 +3615,17 @@ async function pullRequestCommand(positionals, options) {
     console.log(`\n--- title ---\n${plan.title}\n\n--- body ---\n${plan.body}\n`);
   }
 
-  // Opening a pull request is an outward action, so preview is the default: it requires an
-  // explicit --create plus a typed confirmation of the exact work ID.
-  if (!create) {
-    console.log('Preview only. Re-run with --create to open this pull request.');
+  // Opening a pull request is an outward action, so nothing opens without the person's one Yes to the preview just shown,
+  // which names the branches [owner, 2026-11-28]: in their own terminal the preview asks it; elsewhere --create carries the
+  // Yes its caller asked (/sf-pr asks it in chat, and runs it with --yes). Never a typed Work ID, never a second command.
+  const question = `Open this pull request from ${plan.head} into ${plan.base}?`;
+  const interactive = Boolean(input.isTTY && output.isTTY) && !json;
+  if (!create && !interactive) {
+    console.log(`Preview only: nothing was opened. It opens on one Yes: singularity-flow pr ${plan.workId} --create`);
     return;
   }
-  if (!optionBoolean(options, 'yes') && !(await confirmExact(`Type ${plan.workId} to open the pull request into ${plan.base}: `, plan.workId))) {
+  if (!optionBoolean(options, 'yes') && !(await confirmYesNo(question))) {
+    if (!create) { console.log('Not opened; nothing changed.'); return; }
     throw new SingularityFlowError('Pull request cancelled.');
   }
   const result = createStoryPullRequest(root, plan, { remote: config.git?.remote ?? 'origin' });
@@ -6687,9 +6692,9 @@ async function confirmInitiativeExact(prompt, expected, options = null) {
   if (!input.isTTY || !output.isTTY) {
     throw new SingularityFlowError(`This initiative action requires exact confirmation '${expected}'. Run it in a terminal, or pass --confirm ${expected}.`);
   }
-  const io = readline.createInterface({ input, output });
-  try { return (await io.question(`${prompt}\nType ${expected} to continue: `)).trim() === expected; }
-  finally { io.close(); }
+  // In the person's own terminal the question names the exact Initiative and what happens: their Yes is the confirmation,
+  // never a typed ID [owner, 2026-11-28]. A route's --confirm stays exact above.
+  return confirmYesNo(prompt);
 }
 
 /**
@@ -6711,8 +6716,8 @@ async function reviewedJiraPlan(root, initiativeId, supplied, prompt, options) {
   console.log(`The reviewed Jira write plan for ${initiativeId}: ${plan.operations.length} operation(s).`);
   console.log(table(plan.operations.map((operation) => ({ action: operation.action, target: operation.subject?.jiraKey ?? operation.subject?.id ?? '' })),
     [{ key: 'action', label: 'ACTION' }, { key: 'target', label: 'TARGET' }]));
-  // The plan this process just showed is the one bound, so the person's typed Epic ID is the confirmation; --confirm never stands in for it.
-  if (!(await confirmExact(prompt(null), initiativeId))) throw new SingularityFlowError('Jira apply cancelled. Nothing was applied.');
+  // The plan this process just showed is the one bound, so the person's Yes to it is the confirmation; --confirm never stands in for it.
+  if (!(await confirmYesNo(prompt(null)))) throw new SingularityFlowError('Jira apply cancelled. Nothing was applied.');
   return plan.sha256;
 }
 
@@ -8029,7 +8034,7 @@ async function initiativeCommand(positionals, options) {
   }
   if (subcommand === 'restart') {
     const confirmed = await confirmInitiativeExact(
-      `Restarting ${initiativeId} returns it to its first phase and discards this attempt's artifacts. The branch, Epic identity, and pinned sources are kept; Story branches are not changed.`,
+      `Restart ${initiativeId}? It returns to its first phase and discards this attempt's artifacts; the branch, Epic identity, pinned sources and Story branches are kept.`,
       initiativeId,
       options
     );
@@ -10669,12 +10674,14 @@ async function epicCommand(positionals, options) {
       if (plan.blockedBy.length) console.log(`  Blocked by: ${plan.blockedBy.join(', ')}`);
       console.log(`\n--- title ---\n${plan.title}\n\n--- body ---\n${plan.body}\n`);
     }
-    if (!optionBoolean(options, 'create')) {
-      console.log('Preview only. Re-run with --create to open this pull request.');
+    // One Yes to the preview just shown, as a Story's pull request takes [owner, 2026-11-28].
+    const epicInteractive = Boolean(input.isTTY && output.isTTY) && !json;
+    if (!optionBoolean(options, 'create') && !epicInteractive) {
+      console.log(`Preview only: nothing was opened. It opens on one Yes: singularity-flow epic pr --epic ${plan.subjectId} --create`);
       return;
     }
-    if (!optionBoolean(options, 'yes')
-      && !(await confirmExact(`Type ${plan.subjectId} to open the Epic pull request into ${plan.base}: `, plan.subjectId))) {
+    if (!optionBoolean(options, 'yes') && !(await confirmYesNo(`Open this Epic pull request from ${plan.head} into ${plan.base}?`))) {
+      if (!optionBoolean(options, 'create')) { console.log('Not opened; nothing changed.'); return; }
       throw new SingularityFlowError('Epic pull request cancelled.');
     }
     const result = createPullRequest(root, plan, { remote: config.git?.remote ?? 'origin' });
@@ -10701,7 +10708,7 @@ async function epicCommand(positionals, options) {
         console.log(`Detach ${sourceId} — ${selected.name}.`);
         console.log('Committed bytes and audit history will be preserved. Future phase prompts will omit this source; dependent generated work and approvals may be invalidated.');
       }
-      if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this Epic source detachment.', sourceId))) {
+      if (!optionBoolean(options, 'yes') && !(await confirmYesNo(`Detach ${sourceId} from the Epic as shown above?`))) {
         console.log('No state changed.');
         return;
       }

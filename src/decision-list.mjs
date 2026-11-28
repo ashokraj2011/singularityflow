@@ -50,7 +50,7 @@ const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
 // A draft writes no record, so it goes first: a later record that fails leaves only a file a person may delete.
-export const EFFECT_ORDER = Object.freeze(['settled-undo', 'intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'asked-for-note', 'review-dispute', 'finding-override', 'refactor-behaviour', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
+export const EFFECT_ORDER = Object.freeze(['settled-undo', 'intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'asked-for-note', 'review-dispute', 'finding-override', 'refactor-behaviour', 'witness-exception-renewal', 'forward-amendment-decision', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
 const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure', 'intent-amendment-decision', 'intent-amendment-refresh']);
 /**
@@ -115,6 +115,8 @@ function effectGroups(workflow, effect) {
   if (effect.kind === 'finding-override') return issueGroups(workflow, effect.phase);
   // Keeping or accepting a refactor's behaviour is its code step's approvers' word, as a return of it would be.
   if (effect.kind === 'refactor-behaviour') return issueGroups(workflow, effect.phase);
+  // A forward amendment is decided by the amended step's own approvers (`upstream-issue decide-amendment`).
+  if (effect.kind === 'forward-amendment-decision') return issueGroups(workflow, effect.phase);
   // Drafting an amendment decides nothing, and its own command checks no group; the scope approvers decide the amendment.
   // Anyone working on the Story acknowledges an approved one [owner, 2026-11-13, D2].
   // So does undoing what was settled for a person: it only hands the question back [owner, 2026-11-13].
@@ -999,15 +1001,63 @@ function intentAmendmentItem(workflow, context, amendment) {
   };
 }
 
-/** A forward amendment or a revalidation it asked for, as the Story's ending reads them. */
+/**
+ * A forward amendment or a revalidation it asked for, as the Story's ending reads them. A forward amendment's approvers approve or
+ * reject it here, each a choice this list records [owner, 2026-11-28]: once one route for both, `--decision approve|reject`, which
+ * no shell could run and only the person's own terminal took.
+ */
 function forwardAmendmentItem(workflow, context, blocker) {
   if (blocker.code === 'AMENDMENT_REVALIDATION_REQUIRED') return revalidationItem(workflow, context, blocker);
-  return stepItem(workflow, context, {
+  const name = stepName(workflow, blocker.phase);
+  const decide = (decision, label, words) => option(workflow, context, { id: `${decision}-amendment`, label, words,
+    effects: [{ kind: 'forward-amendment-decision', amendment: blocker.amendment, phase: blocker.phase, decision }],
+    needs: { reason: textNeed('', REASON) } });
+  const command = (decision) => `singularity-flow upstream-issue decide-amendment ${blocker.amendment} --work-id ${workflow.workItem.id} --decision ${decision} --reason "<why>" --confirm ${blocker.amendment}`;
+  return {
     kind: 'forward-amendment', title: `Decide forward amendment ${blocker.amendment}`,
-    why: blocker.message, groups: approvers(workflow, blocker.phase),
-    options: [{ id: 'decide', label: 'Approve or reject it', command: blocker.command, words: 'Decided in your own terminal by an approver of that step.' }],
-    details: { code: blocker.code, amendment: blocker.amendment, phase: blocker.phase }
-  });
+    // Why the person is asked is the amended step's own line in the advice table (step-advice.mjs), by what that step is for.
+    why: `${blocker.message} ${adviceForStep(workflow, blocker.phase).decides}`,
+    options: [decide('approve', `Approve ${blocker.amendment}: the corrected document becomes ${name}'s next version`,
+      `${name} gets its next version from the corrected document; each later step that read it is listed to be checked again.`),
+    decide('reject', `Reject ${blocker.amendment}: ${name} keeps its approved document`, `Nothing changes in ${name}; the problem it answered stays open.`)],
+    details: { blocker: blocker.code, amendment: blocker.amendment, phase: blocker.phase, commands: [command('approve'), command('reject')] }
+  };
+}
+
+/**
+ * Each witness exception a step's approval recorded whose date has passed: the Story cannot end on it (the final check), and
+ * a person who approves that step renews it here with a new date and their reason [owner, 2026-11-28], as `decision
+ * witness-exception` does in a terminal. Once that refusal said "renews it on the Decide card" and the card had no row for it.
+ */
+function witnessExceptionItems(workflow, context) {
+  const at = Date.parse(context.at);
+  const renewed = (phaseId, generation, mapping) => [...countedRecords(workflow, workflow?.witnessExceptionRenewals)].reverse()
+    .find((entry) => entry?.phase === phaseId && Number(entry.generation) === Number(generation) && entry.mappingSha256 === mapping)?.expiresAt ?? null;
+  const items = [];
+  for (const phaseId of workflow?.phaseOrder ?? []) {
+    const phase = workflow.phases?.[phaseId];
+    for (const approval of (phase?.approvals ?? []).filter((entry) => !entry?.invalidatedAt && entry?.decision === 'approved' && Number(entry.generation) === Number(phase.generation))) {
+      for (const mapping of approval.witnessMappings ?? []) {
+        if (mapping?.decision !== 'exception' || !/^sha256:[a-f0-9]{64}$/u.test(String(mapping.mappingSha256 ?? ''))) continue;
+        const expiresAt = renewed(phaseId, approval.generation, mapping.mappingSha256) ?? mapping.expiresAt ?? null;
+        if (!(Date.parse(expiresAt ?? '') <= at)) continue;
+        const name = stepName(workflow, phaseId);
+        const clause = mapping.clauseId ? clauseName(workflow, mapping.clauseId) : 'its criterion';
+        const until = String(expiresAt).slice(0, 10);
+        items.push({
+          kind: 'witness-exception', title: `Renew ${name}'s witness exception for ${clause}`, subject: `witness-exception:${mapping.mappingSha256}`,
+          why: `${name}'s approval accepted a test for ${clause} until ${until}, which has passed, so the Story cannot end on it. Only ${name}'s approvers can renew it.`,
+          options: [option(workflow, context, { id: 'renew-exception', label: `Renew it until a date`,
+            words: `The same test keeps standing in for ${clause}'s evidence until then; nothing runs again and no step goes back.`,
+            effects: [{ kind: 'witness-exception-renewal', phase: phaseId, generation: Number(phase.generation), mappingSha256: mapping.mappingSha256, clauseId: mapping.clauseId ?? null }],
+            needs: { expires: expiryNeed(context.at, { endOfDay: true }), reason: textNeed('', { minimum: 10, maximum: 1000 }) } })],
+          details: { phase: phaseId, clause: mapping.clauseId ?? null, expiresAt, mappingSha256: mapping.mappingSha256,
+            commands: [`singularity-flow decision witness-exception ${workflow.workItem.id} --phase ${phaseId} --mapping ${mapping.mappingSha256} --expires <YYYY-MM-DD> --reason "<why the exception still stands>"`] }
+        });
+      }
+    }
+  }
+  return items;
 }
 
 /**
@@ -2132,7 +2182,8 @@ export const PENDING_CONCEPTS = Object.freeze({
   // And a refactor's behaviour change while its code is written [ITW:REQ-015].
   'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover', 'refactor-behaviour'] }),
   'routing-decision': Object.freeze({ kinds: ['routing-decision'] }),
-  'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation'] }),
+  // And a witness exception whose date passed, renewed here by its step's approvers [owner, 2026-11-28].
+  'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation', 'witness-exception'] }),
   'intent-amendments': Object.freeze({ kinds: ['intent-amendment'] }),
   'forward-amendments': Object.freeze({ kinds: ['forward-amendment', 'revalidation'] }),
   appeals: Object.freeze({ kinds: ['appeal'] }),
@@ -2162,7 +2213,8 @@ export function holdItemKind(hold) {
 }
 
 // The kinds whose items are decided on this list itself; the digest binds their words and options.
-const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item', 'refactor-behaviour']);
+const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item', 'refactor-behaviour',
+  'witness-exception', 'forward-amendment']);
 
 /** Kinds that wait for the step's approval, never for its submission. */
 export const LATER_KINDS = Object.freeze(['owed-decision', 'departure', 'asked-for']);
@@ -2170,7 +2222,7 @@ export const LATER_KINDS = Object.freeze(['owed-decision', 'departure', 'asked-f
 /** Every item kind this list builds. */
 export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'revalidation', 'appeal',
   'conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'owed-decision',
-  'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover', 'refactor-behaviour', 'approval-hold', 'transport-intent', 'approval']);
+  'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover', 'refactor-behaviour', 'approval-hold', 'transport-intent', 'approval', 'witness-exception']);
 
 /**
  * The command that records choices. Only choices a /sf-decide turn records after the person's yes carry
@@ -2252,7 +2304,10 @@ export function optionOutcome(item, entry) {
   if (item.kind === 'routing-decision' || /^(?:choose|to)-/u.test(id) || id === 'route') return 'route';
   // Approving an intent amendment changes the approved clauses.
   if (item.kind === 'intent-amendment' && /^approve(?:-|$)/u.test(id)) return 'change-spec';
-  if (id === 'accept-risk' || id === 'accept-test-risk' || id.startsWith('accept-obligation-risk-')) return 'accept-risk';
+  // So does approving a forward amendment, and rejecting it keeps the document, as rejecting an intent amendment does.
+  if (item.kind === 'forward-amendment') return id === 'approve-amendment' ? 'change-spec' : 'dismiss';
+  // Renewing a lapsed witness exception keeps it standing until a date, as a dated risk does.
+  if (id === 'accept-risk' || id === 'accept-test-risk' || id === 'renew-exception' || id.startsWith('accept-obligation-risk-')) return 'accept-risk';
   if (['return', 'return-step', 'return-step-first', 'fix-code', 'rework'].includes(id) || (id === 'reject' && item.kind === 'departure')) return 'return';
   if (['update-spec', 'update-intent'].includes(id)) return 'change-spec';
   if (['does-not-apply', 'not-applicable', 'scope-informative', 'scope-excluded', 'other-disposition'].includes(id)) return 'not-applicable';
@@ -2298,7 +2353,7 @@ function itemHolds(workflow, facts, awaiting) {
       if (item.kind === 'revalidation' && item.details?.reason === 'prompt-held' && (item.details.consumers ?? []).includes(phaseId)) {
         return workflow.phases?.[phaseId]?.approvalPolicy?.mode === 'none' ? 'this-step' : 'approval-later';
       }
-      if (['forward-amendment', 'revalidation', 'upstream-issue', 'evidence-obligation'].includes(item.kind)) return 'story-end';
+      if (['forward-amendment', 'revalidation', 'upstream-issue', 'evidence-obligation', 'witness-exception'].includes(item.kind)) return 'story-end';
       if (awaiting) return item.kind === 'owed-decision' ? 'story-end' : 'nothing';
       // A pending intent amendment pauses the step it was proposed in until a scope approver decides it [owner, 2026-11-13, D3].
       if (item.kind === 'intent-amendment' && item.details?.status === 'proposed' && item.details.sourcePhase === phaseId) return 'this-step';
@@ -2400,6 +2455,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...(facts.testCommands ?? []).map((request) => testCommandItem(workflow, context, request)),
     ...(facts.behaviourChange?.undecided?.length ? [behaviourItem(workflow, context, facts.behaviourChange)] : []),
     ...(facts.evidence ?? []).map((entry) => evidenceItem(workflow, context, entry)),
+    ...witnessExceptionItems(workflow, context),
     ...(pending.owed ?? []).filter(entry => entry.kind !== 'witness' || !(facts.evidence ?? []).some(row =>
       row.criterion === entry.clauseId && row.witnesses.some(witness => witness.slot === entry.slot)))
       .map((entry) => owedItem(workflow, context, entry)),
@@ -2783,6 +2839,10 @@ export function effectWords(workflow, effect, values = {}) {
   if (effect.kind === 'settled-undo') return `undo ${effect.settled}, so it is a question for a person again (undo of a settled decision)`;
   if (effect.kind === 'review-dispute') return `dispute the reviewer's finding ${effect.finding} on ${stepName(workflow, effect.phase)} version ${effect.generation} with your reason; it no longer blocks the step (review dispute)`;
   if (effect.kind === 'finding-override') return `override the check's finding ${effect.finding} on ${stepName(workflow, effect.phase)} version ${effect.generation} with your reason (finding override)`;
+  if (effect.kind === 'forward-amendment-decision') return effect.decision === 'approve'
+    ? `approve ${effect.amendment}: the corrected document becomes ${stepName(workflow, effect.phase)}'s next version (forward amendment decision)`
+    : `reject ${effect.amendment}: ${stepName(workflow, effect.phase)} keeps its approved document (forward amendment decision)`;
+  if (effect.kind === 'witness-exception-renewal') return `renew ${stepName(workflow, effect.phase)}'s witness exception${effect.clauseId ? ` for ${clauseName(workflow, effect.clauseId)}` : ''} until ${values.expires} (witness exception renewal)`;
   if (effect.kind === 'refactor-behaviour') return effect.choice === 'keep'
     ? `keep the old behaviour: ${stepName(workflow, effect.phase)} version ${effect.generation} restores it (refactor behaviour)`
     : `accept the new behaviour: ${stepName(workflow, effect.phase)} goes back to the plan and the task becomes a change (refactor behaviour)`;

@@ -2,7 +2,7 @@
 
 **Specification ID:** `FPL-v1`
 
-**Status:** M1 and M2 built (2026-11-26), M3 built (2026-11-27); M4 to M6 not built. This is the build specification for
+**Status:** M1 and M2 built (2026-11-26), M3 built (2026-11-27), M5 built (2026-11-28, pulled ahead of M4); M4 and M6 not built. This is the build specification for
 roadmap Bet 2. It is measured on `main@5ac41f37e`.
 - **M1** (`main@cbeb9978d`): `needs-you`, `needs-you show`, `/sf-inbox` on them, card approvals, and the Needs-you tab.
 - **M2** (branch `fpl-m2`, from `main@2809f6edc`): `work "<words>" --plan-only`, `work list [--offline]`, the task page's
@@ -20,7 +20,17 @@ roadmap Bet 2. It is measured on `main@5ac41f37e`.
   which must also approve the steps in the rule's `personApproves`: the composed step gets it as a required group, with
   one more approver than it had, and keeps its own approvers (`withRuleApprovalGroups`, src/approval-authority.mjs). A
   team workflow offered as the plan must already require that group on those steps.
-- The places stay behind `singularityFlow.navigation.layout` (default `classic`) until M5.
+- **M5** (branch `fpl-m5`, from `main@9dfff1954`, built 2026-11-28; the owner pulled it ahead of M4 because people never saw
+  Needs you): the four places are the default (`singularityFlow.navigation.layout` `places`); `classic` keeps today's
+  Navigator first with "The four places: Work, Needs you, Rules and Library" as its first row. Advanced is the last row under
+  every place and a title action, never a tab: today's `sidebarBody`, unchanged, under "← The four places". The header names
+  the workspace and its repository count and opens the workspace switcher; the view is titled by the place shown. Until M4
+  the Library tab opens today's Marketplace page, All skills and Add your own agent folder…. A person who never set the
+  layout sees one line once, "SFlow now shows four places; everything else is under Advanced.", with Switch back, which
+  sets `classic`. The five `singularityFlow.places.*` commands, the title actions (Refresh, Ask SFlow, Advanced, with
+  today's explainers in the title's "…" menu), `places-map.ts` and its test, the walkthrough's step and the
+  `copilot-and-surfaces` topic. Studio's views other than Workflows are three clicks from Advanced (Configuration, Workflow
+  Studio, the view), since today's Navigator has no Workflow Studio row and A21 keeps it byte for byte.
 
 **Owner, 2026-11-26:**
 - The four places become SFlow's default sidebar in VS Code:
@@ -721,7 +731,7 @@ repository's VS Code checks are.
 | M2 | Work: the box with its likely plan (`--plan-only`), `work list`, In progress, the task page, done this week, `/sf-task` with no words listing tasks in flight (REQ-004 to 007, the Work part of 038, A8 to A10). Built 2026-11-26 on `fpl-m2` | about 1 week |
 | M3 | Rules: `rules`, `rules preview`, the `tasks.*` Studio operations, `taskRules` in check, save and approval, rule IDs, the Rules tab and page, the topic's corrected example (REQ-019 to 026, A11 to A15). Built 2026-11-27 on `fpl-m3` | about 1 week |
 | M4 | Library: the Marketplace page as the Library, used-by counts, waiting for review, daily updates, the feedback column, the Library tab (REQ-027 to 031, A16 to A18) | 3 to 4 days |
-| M5 | Advanced and the switch: the four places as the default, Advanced as today's Navigator, the layout setting, title actions, `places-map.ts` and its test, walkthrough and help topics (REQ-001 to 003, 032 to 035, A19 to A21) | about 3 days |
+| M5 | Advanced and the switch: the four places as the default, Advanced as today's Navigator, the layout setting, title actions, `places-map.ts` and its test, walkthrough and help topics (REQ-001 to 003, 032 to 035, A19 to A21). Built 2026-11-28 on `fpl-m5`, ahead of M4 | about 3 days |
 | M6 | Polish and journeys: the plain-words and accessibility pass, journeys with action counts, the real VS Code check, bundle budgets (REQ-036, 037, A22, A23, A25, A26) | about 4 days |
 
 About 5½ to 6 weeks.

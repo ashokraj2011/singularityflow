@@ -18,7 +18,7 @@ import {
 } from './safe-command-guidance.mjs';
 import { projectGateRefusal } from './evidence/gate-refusal.mjs';
 import { nearestNames, parseArgs } from './util.mjs';
-import { actionCommandLine, authorCommand, returnRoute, sendBackCommand, showCommand, storyNextCommand, versionQuestionRoute } from './action-command-map.mjs';
+import { actionCommandLine, authorCommand, returnRoute, sendBackCommand, setAsideCommand, showCommand, storyNextCommand, versionQuestionRoute } from './action-command-map.mjs';
 import { stepIntentOf, stopAdvice } from './step-advice.mjs';
 import { WORK_COMMANDS } from './command-skills.mjs';
 import { modelFreeCommandForArgv, vscodeDecideCardChat } from './model-free-commands.mjs';
@@ -313,9 +313,10 @@ function phaseContainmentSteps(context) {
     step('diagnose-recovery-prerequisite',
       'Recovery inspection could not complete. Inspect the reported repository or configuration prerequisite before retrying recovery.',
       'singularity-flow doctor --json', 'diagnostic'),
-    step('repair-recovery-prerequisite',
-      'Keep authored work and retained evidence. Have the responsible repository or configuration owner repair the reported prerequisite; do not repeat an unchanged recovery command or discard work.',
-      null, 'remediation')
+    // Doctor names each problem with its own fix; recovery runs again once it is fixed, never "have the owner repair it" [owner, 2026-11-28].
+    afterChange(step('recover-after-prerequisite',
+      'Do what doctor names for the problem it found (each one comes with its own fix), then inspect recovery again. Your work and saved evidence stay as they are.',
+      setAsideCommand(context.workId, context.phaseId), 'remediation'), 'the problem doctor named is fixed')
   ];
   // The step's own next action, read from its decision as the Story stands now: it names recovery only for a step the
   // kernel finds damaged, so a healthy refusal never detours through recovery or a document view [D4, OSA:REQ-003,
@@ -705,8 +706,8 @@ const UPGRADE_KNOWN = Object.freeze({
     const plan = /^grb-[0-9a-f]{24}$/u.test(String(error?.details?.plan ?? '')) ? error.details.plan : null;
     return [
       // A new Story's ID and title are the person's own words; its base, when not given, is offered as whole commands.
-      step('start-new-story', 'This Story was explicitly retired and stays read-only. Start a new Story with a new ID under the current Flow Policy.',
-        'singularity-flow start <NEW-WORK-ID> --title "<TITLE>"', 'remediation'),
+      afterChange(step('start-new-story', 'This Story was explicitly retired and stays read-only. Start a new Story with a new ID under the current Flow Policy.',
+        'singularity-flow start <NEW-WORK-ID> --title "<TITLE>"', 'remediation'), 'a new Story with its own ID'),
       ...(plan ? [step('preview-governance-restore',
         'Only if the rebuild itself was a mistake: preview restoring the Flow Policy it replaced, a reviewed change for the whole repository.',
         'singularity-flow governance restore --dry-run')] : [])
@@ -1078,7 +1079,7 @@ function autoPlanAgainSteps(argv, why, workId = null) {
 function localSyncSteps(argv, error) {
   const retry = safeCommandGuidance({ argv });
   return [step('preserve-local-story-work', error?.message ?? 'Preserve the local work yourself; nothing was changed.', null, 'remediation'),
-    retry && step('retry-after-preserving', 'Then open the Story again.', retry.command, 'diagnostic')];
+    retry && afterChange(step('retry-after-preserving', 'Then open the Story again.', retry.command, 'diagnostic'), 'the local work is preserved')];
 }
 
 /**
@@ -1192,9 +1193,9 @@ const KNOWN = Object.freeze({
       ? details.about : optionValueRaw(argv, 'about');
     const command = details.nextAction?.command ?? `singularity-flow upstream-issue raise${workId ? ` --work-id ${workId}` : ''} --phase ${instead} `
       + `--about ${about && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,120}$/u.test(about) ? about : '<ID|SECTION>'} --problem <TEXT>`;
-    return [step(details.issue ? 'supersede-upstream-issue' : 'raise-at-decidable-step',
+    return [afterChange(step(details.issue ? 'supersede-upstream-issue' : 'raise-at-decidable-step',
       `${details.issue ? `Raise the same problem against ${instead}, superseding ${details.issue}` : `Raise it against ${instead}`}: its approvers can decide it.`,
-      command, 'remediation', null)].filter(Boolean);
+      command, 'remediation', null), `raised against ${instead}, whose approvers can decide it`)].filter(Boolean);
   },
   // A rewritten Story history is put back by the person, with plain Git: never recover (which never
   // checks history) and never a resubmit on the rewritten commits. Its steps were label-only and the
@@ -1275,13 +1276,13 @@ const KNOWN = Object.freeze({
   // A lapsed witness exception: the final check lists the step and the exact exception.
   WITNESS_EXCEPTION_RENEWAL_INVALID: (argv) => {
     const workId = witnessExceptionWorkId(argv);
-    return [step('list-final-check', 'The final check names each lapsed exception with its step and mapping digest.',
-      `singularity-flow decisions${workId ? ` ${workId}` : ' <WORK-ID>'}`, 'diagnostic', '/sf-decide')];
+    return [afterChange(step('list-final-check', 'The final check names each lapsed exception with its step and mapping digest.',
+      `singularity-flow decisions${workId ? ` ${workId}` : ' <WORK-ID>'}`, 'diagnostic', '/sf-decide'), 'the list names the exception to renew')];
   },
   WITNESS_EXCEPTION_UNKNOWN: (argv) => {
     const workId = witnessExceptionWorkId(argv);
-    return [step('list-final-check', 'Renew only an exception the step\'s current approval recorded; the final check lists them.',
-      `singularity-flow decisions${workId ? ` ${workId}` : ' <WORK-ID>'}`, 'diagnostic', '/sf-decide')];
+    return [afterChange(step('list-final-check', 'Renew only an exception the step\'s current approval recorded; the final check lists them.',
+      `singularity-flow decisions${workId ? ` ${workId}` : ' <WORK-ID>'}`, 'diagnostic', '/sf-decide'), 'the list names the exception to renew')];
   },
   WITNESS_EXCEPTION_STORY_CLOSED: (argv, error) => {
     const workId = safeWorkId(error?.details?.workId) ?? witnessExceptionWorkId(argv);
@@ -1292,8 +1293,8 @@ const KNOWN = Object.freeze({
   // A draft citing a constitution article the Story's pin lacks: the author corrects the citation.
   CONSTITUTION_CITATION_INVALID: (argv, error) => {
     const phase = typeof error?.details?.phase === 'string' ? error.details.phase : null;
-    return [phase ? step('correct-citation', `Correct or remove each citation the Story's pinned constitution does not contain (${(error.details.errors ?? []).length || 'see the refusal'}), then recheck. An article added since the Story started is not in its pin.`,
-      `singularity-flow phase prepublish ${phase} --for-agent --json`, 'remediation', '/sf-phase') : null].filter(Boolean);
+    return [phase ? afterChange(step('correct-citation', `Correct or remove each citation the Story's pinned constitution does not contain (${(error.details.errors ?? []).length || 'see the refusal'}), then recheck. An article added since the Story started is not in its pin.`,
+      `singularity-flow phase prepublish ${phase} --for-agent --json`, 'remediation', '/sf-phase'), 'each citation is corrected') : null].filter(Boolean);
   },
   // A draft table or section refused at publish: the same correction prepublish names, as one step.
   // These had only the generic recover/doctor plan (2026-10-29).
@@ -1302,8 +1303,8 @@ const KNOWN = Object.freeze({
     'SPEC_PLANNED_EVIDENCE_TYPE_INVALID', 'SPEC_PLANNED_ALLOCATION_INVALID', 'SPEC_VERIFICATION_CONTRACT_INVALID',
     'SPEC_VERIFICATION_INTENT_INVALID', 'SPEC_SUPPORTING_FILE_INVALID', 'SPEC_PUBLICATION_GATE_REFUSED'].map((code) => [code, (argv, error) => {
     const phase = artifactAuthoringPhase(argv, error);
-    return [phase ? step('correct-draft', 'Correct what the refusal names in the step\'s draft (it quotes the cell or line and says what belongs there), then recheck; prepublish lists every remaining finding at once.',
-      `singularity-flow phase prepublish ${phase} --for-agent --json`, 'remediation', '/sf-phase') : null].filter(Boolean);
+    return [phase ? afterChange(step('correct-draft', 'Correct what the refusal names in the step\'s draft (it quotes the cell or line and says what belongs there), then recheck; prepublish lists every remaining finding at once.',
+      `singularity-flow phase prepublish ${phase} --for-agent --json`, 'remediation', '/sf-phase'), 'the draft is corrected') : null].filter(Boolean);
   }])),
   // Refused at Story start: a step nobody could approve. Its fix is in the approved configuration.
   APPROVAL_POLICY_UNATTAINABLE: (argv, error) => {
@@ -1335,8 +1336,8 @@ const KNOWN = Object.freeze({
     // nextAction, which leads the plan as the step's writing route; the published version is never prepublished again.
     const nextVersion = phase && / phase rollover /u.test(details.nextAction?.command ?? details.nextAction ?? '');
     const author = phase && !decision?.complete && !nextVersion
-      ? step('deliver-missing-clauses', `Deliver the clauses this refusal lists (source, tests and their tags) in ${phase}'s open generation, then recheck.${decision ? ` Leave ${decision.issues.flatMap((entry) => entry.clauses).join(', ')} to the open upstream issue's decision.` : ''}`,
-        `singularity-flow phase prepublish ${phase} --for-agent --json`, 'remediation', '/sf-code')
+      ? afterChange(step('deliver-missing-clauses', `Deliver the clauses this refusal lists (source, tests and their tags) in ${phase}'s open generation, then recheck.${decision ? ` Leave ${decision.issues.flatMap((entry) => entry.clauses).join(', ')} to the open upstream issue's decision.` : ''}`,
+        `singularity-flow phase prepublish ${phase} --for-agent --json`, 'remediation', '/sf-code'), 'the listed clauses are delivered')
       : null;
     const risk = phase && (details.qualityRisk?.eligible === true || details.riskEligible === true)
       ? step('accept-quality-risk', `An approver of ${phase} may accept the remaining coverage gap for this pilot step, with an expiry; tests, review and integrity stay enforced.`,
@@ -1365,7 +1366,7 @@ const KNOWN = Object.freeze({
     const retry = argv.length ? safeCommandGuidance({ argv }) : null;
     return [step('edit-main-agent-file', `${error?.message ?? 'The main agent file cannot be read.'} Edit that file: SFlow uses its name, `
       + 'its description and the instructions after its front matter. Or name another file of the folder with --main.', null, 'remediation'),
-    retry && step('preview-again', 'Then preview adding the folder again.', retry.command, 'diagnostic')].filter(Boolean);
+    retry && afterChange(step('preview-again', 'Then preview adding the folder again.', retry.command, 'diagnostic'), 'the main agent file is edited')].filter(Boolean);
   },
   // Commits after a submission: an undecided intent amendment among them is decided first.
   // Real changes after the review (SFlow's own records never count): an undecided amendment first, else Send back, so the
@@ -1403,7 +1404,7 @@ const KNOWN = Object.freeze({
     const use = duplicate ? safeCommandGuidance({ argv: relocation.useArgv }) : null;
     return [step('download-repository-files', error?.message
       ?? 'Download the repository folder and keep it downloaded, or move the workspace out of the synced folder.', null, 'remediation'),
-    retry && step('retry-after-download', 'Once the folder is downloaded, run the same command again.', retry.command, 'diagnostic'),
+    retry && afterChange(step('retry-after-download', 'Once the folder is downloaded, run the same command again.', retry.command, 'diagnostic'), 'the folder is downloaded'),
     // Never run unasked: a second copy of the workspace, cloned fresh outside the synced folder.
     duplicate && step('clone-workspace-outside-synced-folder', `Only if the person confirms: clone the workspace again at ${relocation.path}; the offloaded copy is left as it is.`, duplicate.command, 'remediation'),
     use && step('use-cloned-workspace', 'Then switch to that copy and run /sf-session again.', use.command, 'remediation')];
@@ -1565,8 +1566,9 @@ const KNOWN = Object.freeze({
   LEDGER_CHAIN_INVALID: () => [
     step('verify-ledger', 'Read every damaged or missing ledger entry and what it breaks; nothing changes.',
       'singularity-flow ledger verify', 'diagnostic'),
-    step('restore-ledger-entry', 'With the repository owner, restore the damaged entry from a clone, or the remote state branch history, '
-      + 'that still holds it intact. SFlow never rewrites the append-only ledger, and an entry is never edited by hand.', null, 'remediation')
+    // SFlow restores an entry from the remote that still holds it, on the person's confirmation of its plan [owner, 2026-11-28].
+    step('preview-ledger-repair', 'Preview restoring each damaged entry from the remote that still holds it: nothing changes until you confirm. No entry is edited by hand.',
+      'singularity-flow ledger repair --dry-run --json', 'remediation')
   ],
   // A saved push record that fails its own checks had no route and no discard (sweep B4).
   TRANSPORT_INTENT_INTEGRITY_INVALID: (argv, error) => {
@@ -1944,7 +1946,7 @@ const KNOWN = Object.freeze({
     const own = argv.length ? step('run-in-own-terminal',
       'This command shows its exact review in a terminal and waits for the person to type the confirmation there. The person runs this same command in their own terminal; an agent never answers it.',
       safeCommandGuidance({ argv: [...argv] })?.command ?? null, 'remediation') : null;
-    return own?.command ? [Object.freeze({ ...own, skill: null, copilotCommand: null })] : [];
+    return own?.command ? [Object.freeze({ ...own, skill: null, copilotCommand: null, changes: 'it runs in the person\'s own terminal' })] : [];
   },
   APPROVAL_CONFIRMATION_REQUIRED: (argv) => {
     // Without a terminal the person approving adds --yes after reading the review above; the
@@ -2039,8 +2041,8 @@ const KNOWN = Object.freeze({
     // The refusal names the step's own drafting skill; the generic one for `prepare` is the fallback.
     const skill = /^\/sf-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.remediation?.skill ?? '')
       ? error.details.remediation.skill : null;
-    return [(skill && step('continue-phase-without-clarification', label, command, 'remediation', skill))
-      ?? step('continue-phase-without-clarification', label, command, 'remediation')];
+    return [afterChange((skill && step('continue-phase-without-clarification', label, command, 'remediation', skill))
+      ?? step('continue-phase-without-clarification', label, command, 'remediation'), 'no clarification is recorded')];
   }
 });
 /** Every refusal code with its own recovery steps: a test builds each one's plan [no dead-ends]. */
@@ -2642,6 +2644,9 @@ function remediationPlanFor(error, argv = []) {
     : inStepFirst
       ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
       : [...nonDuplicateExplicit, ...known, ...genericSteps(argv)];
+  // Someone else's call (write access): the exact words to send them, a step every surface shows with Copy [owner, 2026-11-28].
+  const share = typeof error?.details?.share?.text === 'string' ? redactDiagnosticText(error.details.share.text).slice(0, 600) : null;
+  if (share) ordered.splice(Math.min(1, ordered.length), 0, Object.freeze({ ...step('send-request', `${error.details.share.label ?? 'Send them'}: "${share}"`, null, 'remediation'), copy: share }));
   const steps = deduplicate(ordered);
   const retryLabel = storyNext
     ? `Nothing was changed. Take the ${epic ? 'Epic' : 'Story'}'s next step first; this command is refused the same way until the ${epic ? 'Epic' : 'Story'} reaches it.`
@@ -2695,7 +2700,10 @@ function remediationPlanFor(error, argv = []) {
       ? 'Nothing was changed. Follow the step above when you are ready.'
     : authoringIncomplete
       ? 'Retry the original command only after the author has corrected every finding and the same read-only prepublish check reports ready.'
-      : 'Retry the original command only after the blocking condition is resolved.';
+      // Never "the original command" with nothing named: the step above is the way on [owner, 2026-11-28, dead end 23].
+      : steps.some((entry) => entry.command && !GENERIC_STEP_IDS.has(entry.id))
+        ? 'Nothing was changed. Do the first step above; the same command unchanged is refused the same way.'
+        : 'Nothing was changed. The refusal above says what it needs; once that is done, run the same command again.';
   // A finding the catalog documents names its entry: what it means, its causes and who can act.
   const documentation = specificFindingDocumentation(code);
   return Object.freeze({

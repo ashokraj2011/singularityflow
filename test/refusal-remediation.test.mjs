@@ -187,9 +187,11 @@ test('failure inside recovery diagnoses its prerequisite instead of recommending
     code: 'FUTURE_INSPECTION_FAILED', details: { workId: 'WORK-1', phase: 'custom-build' }
   }), ['recover', 'WORK-1', '--phase', 'custom-build', '--json']);
   assert.equal(plan.steps[0].command, 'singularity-flow doctor --json');
-  assert.equal(plan.steps[1].command, null);
-  assert.match(plan.steps[1].label, /responsible repository or configuration owner/);
-  assert.ok(!plan.steps.some(entry => entry.command?.startsWith('singularity-flow recover')));
+  // Recovery again only once what doctor named is fixed, never "have the owner repair it" [owner, 2026-11-28].
+  assert.deepEqual([plan.steps[1].command, plan.steps[1].changes], ['singularity-flow recover WORK-1 --phase custom-build --json', 'the problem doctor named is fixed']);
+  assert.match(plan.steps[1].label, /^Do what doctor names for the problem it found/u);
+  assert.doesNotMatch(JSON.stringify(plan.steps), /owner repair/u);
+  assert.ok(!plan.steps.some(entry => entry.command?.startsWith('singularity-flow recover') && !entry.changes), 'never the identical recovery unchanged');
   const unknown = refusalRemediationPlan(Object.assign(new Error('No phase'), {
     code: 'RECOVERY_PHASE_UNKNOWN', details: { phaseId: 'no-such-phase' }
   }), ['recover', '--phase', 'no-such-phase']);

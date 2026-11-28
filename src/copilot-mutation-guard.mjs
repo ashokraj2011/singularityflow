@@ -75,6 +75,9 @@ function turnExpiredDenial(record, { renewalTried = false } = {}) {
     `PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last ${MAX_AGE / 60000} minutes from ${from} and have ended; nothing was written. `
     + (spent ? `Invoke ${skill} again to continue: the new turn enters again and keeps everything already written. ${Number.isFinite(record?.unchangedAt)
       ? 'It was renewed once already with nothing changed, so its entry read renews it no more. ' : 'This call did not renew it, and no further read will. '}`
+      // The person's own answer restarts the window inside this same turn, so nobody types the skill again [owner, 2026-11-28, dead end 11].
+      + `In this same chat you may instead ask the person one question first, "Carry on with ${skill}? Its ${MAX_AGE / 60000} minutes ran out.", with the one choice Carry on: `
+      + 'their answer starts this turn\'s window again here, with everything already written; then retry the call, and they type nothing. '
       // A read by name: the skill's own first command composes its context (`phase enter --compose`), which an expired turn
       // refuses, so "run it once more" was refused the same way [limit audit, item 3].
       : `Invoke ${skill} again to continue only if this read does not: first run ${RENEWING_READ} once in this same chat; when nothing changed since, that read continues this turn here, once, with everything already written, and you go on without asking the person. `)
@@ -914,9 +917,11 @@ export function argvAllowed(argv, mode, value) {
         && ['unchanged', 'return'].includes(options.outcome) && (typeof options.reason === 'string' || options.recommended === true))
     && options['work-id'] === value.contract.workId;
   // Overriding a check's blocking finding, on the person's own yes to its question and in their own words [owner, 2026-11-23].
+  // A sign-off on SFlow's saved screenshot of a page it could not capture takes the person's yes and no reason [owner, 2026-11-28].
   if (mode === 'decision-only' && positionals[0] === 'decision' && positionals[1] === 'override-finding') return !value.decisionEnded
-    && positionals.length === 3 && positionals[2] === value.contract.workId && typeof options.finding === 'string' && typeof options.reason === 'string'
-    && Object.keys(options).every((key) => ['phase', 'finding', 'reason', 'json'].includes(key));
+    && positionals.length === 3 && positionals[2] === value.contract.workId && typeof options.finding === 'string'
+    && (typeof options.reason === 'string' || (options['sign-off'] === true && options.reason === undefined))
+    && Object.keys(options).every((key) => ['phase', 'finding', 'reason', 'sign-off', 'json'].includes(key));
   if (mode === 'decision-only') return !value.decisionEnded && positionals[0] === 'decision'
     && DECIDE_SKILL_MUTATIONS.includes(positionals[1]) && positionals.length <= 3
     // A plan row correction too, held to the person's own answer to the question that showed its rows [owner, 2026-11-19].

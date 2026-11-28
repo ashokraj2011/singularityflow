@@ -37,7 +37,7 @@ import { automaticApprovalsBefore, coveredStep, finalScopeStep, isConformancePha
 import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnJoin, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { advisedItem, reopenWords } from './decision-advice.mjs';
-import { findingOverrideCommand, returnRoute, reviewDisputeCommand, sendBackCommand } from './action-command-map.mjs';
+import { browserSignOffCommand, findingOverrideCommand, returnRoute, reviewDisputeCommand, sendBackCommand } from './action-command-map.mjs';
 import { disputedFindingWords } from './review-dispute-words.mjs';
 import { behaviourCommands, testEditWords } from './refactor-behaviour.mjs';
 import { adviceForStep } from './step-advice.mjs';
@@ -1950,6 +1950,13 @@ function disputeOption(workflow, context, facts, finding, id = 'dispute') {
     needs: { reason: textNeed('', REASON) } }), oneByOne: true, terminal: command, ...(presenceRequires(workflow) ? {} : { chat: { command } }) };
 }
 
+/** One override in force at the approval, by kind (finding-overrides.mjs overriddenWords says the same). */
+const overrideLine = (entry) => (entry.kind === 'browser-sign-off'
+  ? `The ${entry.value ?? 'browser'} page was signed off by ${entry.actor ?? 'a person'} on SFlow's saved screenshot${entry.screenshot?.path ? ` ${entry.screenshot.path}` : ''}, not captured by SFlow.`
+  : entry.kind === 'check-wrong'
+    ? `${entry.actor ?? 'A person'} said SFlow's check ${entry.code}${entry.path ? ` on ${entry.path}` : ''} is wrong here: "${entry.reason}". Recorded as overridden, not passed.`
+    : `${entry.code}${entry.path ? ` on ${entry.path}` : ''} was overridden by ${entry.actor ?? 'a person'}: "${entry.reason}". Recorded as overridden, not passed.`);
+
 /**
  * Each blocking finding the step's own check raises now that a person may override, while its author writes the version
  * (finding-overrides.mjs) [owner, 2026-11-23]. Offered, never asked: by default the author fixes it. One already overridden
@@ -1958,19 +1965,41 @@ function disputeOption(workflow, context, facts, finding, id = 'dispute') {
 function checkFindingItems(workflow, context, facts) {
   if (!facts) return [];
   const name = stepName(workflow, facts.phase);
+  // Why the person is asked, from the step's advice by what it is for (step-advice.mjs), never written here.
+  const { stops } = adviceForStep(workflow, facts.phase, context.facts?.stepIntent ?? null);
   return facts.findings.map((finding) => {
-    const command = findingOverrideCommand(workflow.workItem.id, facts.phase, finding.key);
     const where = finding.path ? ` (${finding.path}${finding.line ? `:${finding.line}` : ''})` : '';
-    const override = { ...option(workflow, context, { id: 'override', label: 'Override: the check is wrong',
-      words: `Say why the check is wrong, in your own words. It then no longer blocks version ${facts.generation} of ${name}; it is recorded as overridden, never as passed, and ${name}'s approvers see your reason and may still return the step.`,
-      effects: [{ kind: 'finding-override', phase: facts.phase, finding: finding.key, generation: facts.generation }],
-      needs: { reason: textNeed('', REASON) } }), oneByOne: true, terminal: command, ...(presenceRequires(workflow) ? {} : { chat: { command } }) };
+    const effects = [{ kind: 'finding-override', phase: facts.phase, finding: finding.key, generation: facts.generation }];
+    // A page SFlow could not capture: the person's own look at its saved screenshot, with no reason [owner, 2026-11-28].
+    if (finding.kind === 'browser-sign-off') {
+      const command = browserSignOffCommand(workflow.workItem.id, facts.phase, finding.key);
+      const signOff = { ...option(workflow, context, { id: 'sign-off', label: 'Sign off SFlow\'s screenshot',
+        words: `${stops.signOff} Look at the screenshot first; the pull request shows your sign-off.`,
+        effects }), oneByOne: true, terminal: command, ...(presenceRequires(workflow) ? {} : { chat: { command } }) };
+      return {
+        kind: 'browser-sign-off', title: `Sign off the ${finding.value} page for ${name} version ${facts.generation}`,
+        why: `SFlow could not capture the ${finding.value} page itself for this version. ${stops.browser}`,
+        options: [signOff],
+        details: { phase: facts.phase, generation: facts.generation, finding: finding.key, code: finding.code, server: finding.value,
+          ...(finding.screenshot?.file ? { path: finding.screenshot.file, screenshot: finding.screenshot.file } : {}), commands: [command] }
+      };
+    }
+    const command = findingOverrideCommand(workflow.workItem.id, facts.phase, finding.key);
+    // An SFlow check nothing else gets past: "this check is wrong here", the report for SFlow's maintainer beside it [owner, 2026-11-28].
+    const wrong = finding.kind === 'check-wrong';
+    const override = { ...option(workflow, context, { id: 'override', label: wrong ? 'This check is wrong here' : 'Override: the check is wrong',
+      words: wrong
+        ? `Say why the check is wrong here, in your own words: it stops blocking version ${facts.generation} of ${name} and shows as overridden in the pull request.`
+        : `Say why the check is wrong, in your own words. It then no longer blocks version ${facts.generation} of ${name}; it is recorded as overridden, never as passed, and ${name}'s approvers see your reason and may still return the step.`,
+      effects, needs: { reason: textNeed('', REASON) } }), oneByOne: true, terminal: command, ...(presenceRequires(workflow) ? {} : { chat: { command } }) };
     return {
       kind: 'check-finding', title: `The check's finding ${finding.code} on ${name} version ${facts.generation}`,
-      why: `The check found: ${finding.message}${where}. Its author fixes it by default. Override it only if the check is wrong.`,
+      why: wrong
+        ? `The check found: ${finding.message}${where}. ${stops.wrongCheck}`
+        : `The check found: ${finding.message}${where}. Its author fixes it by default. Override it only if the check is wrong.`,
       options: [override],
       details: { phase: facts.phase, generation: facts.generation, finding: finding.key, code: finding.code, message: finding.message,
-        ...(finding.path ? { path: finding.path } : {}), ...(finding.value ? { clauseId: finding.value } : {}), commands: [command] }
+        ...(finding.path ? { path: finding.path } : {}), ...(finding.value ? { clauseId: finding.value } : {}), ...(finding.report ? { report: finding.report } : {}), commands: [command] }
     };
   });
 }
@@ -2081,7 +2110,7 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
   // Each check finding a person overrode for this version, with their reason [owner, 2026-11-23]: overridden, never passed.
   const overrides = countedRecords(workflow, workflow.findingOverrides).filter((entry) => entry.phase === phase.id
     && Number(entry.generation) === Number(phase.generation) && !entry.withdrawnAt)
-    .map((entry) => `${entry.code}${entry.path ? ` on ${entry.path}` : ''} was overridden by ${entry.actor ?? 'a person'}: "${entry.reason}". Recorded as overridden, not passed.`);
+    .map(overrideLine);
   // Every file taken up because it changed outside the plan, one line each, with who changed it and why [WCB:REQ-014].
   const outside = outsidePlanSettled(workflow, phase.id).map((entry) => ({ file: entry.file, by: entry.writer, reason: entry.reason,
     ...(entry.kind ? { kind: entry.kind } : {}), ...(entry.supporting ? { supporting: entry.supporting } : {}), settled: entry.id, words: outsidePlanWords(entry) }));
@@ -2260,7 +2289,8 @@ const HOLDS_WORDS = Object.freeze({
 export const DECISION_OUTCOMES = Object.freeze({
   accept: 'Accept', 'accept-risk': 'Accept as a risk until a date', return: 'Return to a step', 'change-spec': 'Change the spec',
   'not-applicable': 'Not applicable', defer: 'Decide later', dismiss: 'Dismiss: not real', route: 'Choose the route', 'own-step': 'Your own step',
-  undo: 'Undo: ask me instead', dispute: 'Dispute: the reviewer is wrong', override: 'Override: the check is wrong'
+  undo: 'Undo: ask me instead', dispute: 'Dispute: the reviewer is wrong', override: 'Override: the check is wrong',
+  'sign-off': 'Sign off: I looked at it'
 });
 
 /** The outcome an option is, from its kind and ID; anything not named below accepts what the item asks about. */
@@ -2268,6 +2298,7 @@ export function optionOutcome(item, entry) {
   const id = String(entry.id ?? '');
   if (id === 'dispute' || id.startsWith('dispute-')) return 'dispute';
   if (id === 'override') return 'override';
+  if (id === 'sign-off') return 'sign-off';
   if (item.kind === 'settled') return 'undo';
   if (item.kind === 'routing-decision' || /^(?:choose|to)-/u.test(id) || id === 'route') return 'route';
   // Approving an intent amendment changes the approved clauses.

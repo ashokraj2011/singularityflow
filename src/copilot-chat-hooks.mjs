@@ -26,6 +26,7 @@ import { copilotHome } from './copilot-home.mjs';
 import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
 import { hookSessionSeen, latestHookAt } from './copilot-hook-sessions.mjs';
 import { linkedFolderNotice, shellPath } from './linked-folder-notice.mjs';
+import { GENERIC_INTENT, stopAdvice } from './step-advice.mjs';
 
 export { HOOK_SESSIONS_DIRECTORY, hookSessionsDirectory, noteHookSession } from './copilot-hook-sessions.mjs';
 export { linkedFolderNotice, shellPath };
@@ -151,8 +152,9 @@ export function copilotChatHookGap({ env = process.env, cwd = process.cwd(), roo
       const notice = linkedFolderNotice(linked, platform);
       return { code: 'SFLOW_HOOKS_OFF', sessionId, client, ...notice, message: `${headline} ${notice.because}` };
     }
+    // The way on is the step advice's hooks line (step-advice.mjs), so every surface that shows this stop says the same.
     const fix = vscode
-      ? 'Reload VS Code (Developer: Reload Window) and start a new chat; if it happens again, run singularity-flow doctor in VS Code\'s terminal.'
+      ? `${stopAdvice(GENERIC_INTENT, 'hooks')} If it happens again, run singularity-flow doctor in VS Code's terminal.`
       : 'Start a new chat; if it happens again, run singularity-flow doctor.';
     return { code: 'SFLOW_HOOKS_OFF', sessionId, client, cause: 'hooks-not-run', command: 'singularity-flow doctor',
       because: `${client ? `This Copilot host (${client})` : 'This Copilot host'} did not run them.`, fix,

@@ -35,11 +35,14 @@ export const runnableStep = (command: string) => !/\s--(?:json|dry-run)(?=\s|$)/
  * shown with nothing to press [owner, 2026-11-28]. The host copies the text it holds for that row (shareText).
  */
 export const shareButton = (row: string) => ` <button type="button" class="dc-link" data-share="${escape(row)}">Copy what to send them</button>`;
+/** An SFlow check the person says is wrong here: the report for SFlow's maintainer, to copy as it is [owner, 2026-11-28]. */
+export const reportButton = (row: string) => ` <button type="button" class="dc-link" data-share="${escape(row)}">Copy the report for SFlow's maintainer</button>`;
 /** The words to send the person who decides a row, from the list as read: what it is, who decides, and their route. */
 export function shareText(packet: DecisionPacket, row: string): string | null {
-  const item = packet.items.find((entry) => entry.id === row);
+  const item = [...packet.items, ...(packet.offered ?? [])].find((entry) => entry.id === row);
+  const report = typeof item?.details?.report === 'string' ? item.details.report : null;
   const share = item?.decidedBy?.share ?? (/^hold-\d{1,2}$/u.test(row) ? `/sf-decide ${packet.workId}` : null);
-  if (!share) return null;
+  if (!share) return report;
   return `Please decide this on Story ${packet.workId}${item ? `: ${item.title}` : ''}. ${item?.decidedBy?.words ?? ''} In Copilot: ${share} (or Decide in VS Code).`.replace(/\s+/gu, ' ').trim();
 }
 
@@ -334,7 +337,8 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
     ${plain.why ? `<div class="muted dc-why">${escape(plain.why)}</div>` : ''}${diff ? `<details class="dc-diff"><summary>The change</summary><pre>${escape(diff)}</pre></details>` : ''}${lines.length
       ? `<ul class="dc-ev-list">${lines.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}${text('proposedBy')}${text('reach')}${adviceHtml(item)}${
       // Where else its decider may answer it: yes or no in chat, or their own terminal when SF Guard signs it [owner, 2026-11-14].
-      item.decidedBy?.allowed && item.answer?.also ? `<p class="muted">${escape(item.answer.also)}</p>` : ''}`;
+      item.decidedBy?.allowed && item.answer?.also ? `<p class="muted">${escape(item.answer.also)}</p>` : ''}${
+      typeof item.details?.report === 'string' ? `<div class="dc-own">${reportButton(item.id)}</div>` : ''}`;
   if (!item.decidedBy?.allowed) {
     return `<tr data-other="${escape(item.id)}"><td>${what}</td><td colspan="2"><span class="muted">${escape(item.decidedBy?.words ?? '')}</span>${item.decidedBy?.share ? shareButton(item.id) : ''}</td></tr>`;
   }

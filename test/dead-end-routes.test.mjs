@@ -411,7 +411,10 @@ test('no refusal plan\'s first command step, nor its retry, is the refused comma
   const words = (command) => { const list = String(command ?? '').trim().split(/\s+/u); const end = list.findIndex((word) => word.startsWith('-')); return (end < 0 ? list : list.slice(0, end)).join(' '); };
   const skillOf = (value) => (value ? `/${String(value).replace(/^\//u, '').split(/\s+/u)[0].replace(/^sflow-/u, 'sf-')}` : null);
   const loops = [];
-  for (const code of KNOWN_REFUSAL_CODES) {
+  // Once with the catch-all recovery command and once without it: the recovery a plan keeps hid same-command first steps
+  // (SPEC_PLANNED_*, CONSTITUTION_CITATION_INVALID, SPEC_COVERAGE_INCOMPLETE) [stuck points report, dead end 24].
+  const { recoveryCommand: _recovery, ...bare } = details;
+  for (const [fixture, given] of [['with recovery', details], ['without recovery', bare]]) for (const code of KNOWN_REFUSAL_CODES) {
     for (const argv of [['phase', 'prepublish', 'build', '--work-id', 'W-1'], ['approve', 'build', '--work-id', 'W-1'], ['start', 'W-1'],
       ['submit', 'build', '--work-id', 'W-1'], ['phase', 'publish', 'build', '--work-id', 'W-1'], ['decision', 'show', 'W-1'],
       ['decision', 'choose', 'W-1', '--choice', 'O1', '--reason', 'Simpler.'], ['decision', 'witness', 'W-1', '--criterion', 'W-1:AC-001', '--slot', 'screen'],
@@ -419,10 +422,10 @@ test('no refusal plan\'s first command step, nor its retry, is the refused comma
       const refused = `singularity-flow ${argv.join(' ')}`;
       const skill = skillOf(skillForCommandLine(refused));
       const same = (command, routeSkill) => words(command) === words(refused) || (skill && skillOf(routeSkill) === skill);
-      const plan = refusalRemediationPlan(Object.assign(new Error('refused'), { code, details }), argv);
+      const plan = refusalRemediationPlan(Object.assign(new Error('refused'), { code, details: given }), argv);
       const first = plan.steps.find((entry) => entry.command);
-      if (first && !first.changes && same(first.command, first.skill ?? first.copilotCommand)) loops.push(`${code} (${argv.slice(0, 2).join(' ')}): step ${first.id} ${first.command}`);
-      if (plan.retry?.command && !plan.retry.changes && same(plan.retry.command, plan.retry.skill)) loops.push(`${code} (${argv.slice(0, 2).join(' ')}): retry ${plan.retry.command}`);
+      if (first && !first.changes && same(first.command, first.skill ?? first.copilotCommand)) loops.push(`${code} (${argv.slice(0, 2).join(' ')}, ${fixture}): step ${first.id} ${first.command}`);
+      if (plan.retry?.command && !plan.retry.changes && same(plan.retry.command, plan.retry.skill)) loops.push(`${code} (${argv.slice(0, 2).join(' ')}, ${fixture}): retry ${plan.retry.command}`);
     }
   }
   assert.deepEqual(loops, []);

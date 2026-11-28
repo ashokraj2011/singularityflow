@@ -2,7 +2,10 @@
  * `decision override-finding`: a person overrides a blocking finding the check got wrong (owner, 2026-11-23). See
  * src/finding-overrides.mjs for the rules and src/finding-override-commit.mjs for the record every surface writes.
  *
- *   singularity-flow decision override-finding [WORK-ID] [--phase STEP] --finding CHK-… --reason TEXT [--json]
+ *   singularity-flow decision override-finding [WORK-ID] [--phase STEP] --finding CHK-… (--reason TEXT | --sign-off) [--json]
+ *
+ * `--sign-off` signs off a page SFlow could not capture on SFlow's saved screenshot (the finding's kind says which it is);
+ * it takes no reason. "This check is wrong here" is an override of kind check-wrong, with the person's reason.
  *
  * The finding is one the step's own check raises now, named by the key its routes and the decision list give. The person
  * is someone the step's approval rules name, never the agent: a bound Yes in /sf-decide, or their own terminal.

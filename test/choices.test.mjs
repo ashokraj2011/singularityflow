@@ -370,7 +370,8 @@ test('approval refuses an unrelated commit even when application bytes are uncha
   ], { allowFailure: true });
 
   assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /repository history changed after its immutable review evidence/i);
+  // A commit that is not SFlow's own record still counts as a change after review, said plainly [never-stuck-approval, owner 2026-11-28].
+  assert.match(refused.stderr, /Intake changed after it was reviewed\. SFlow's own records never count; these commits are other changes, so this is not what was reviewed\./u);
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'intake');
   assert.equal(workflow.phases.intake.status, 'awaiting_approval');

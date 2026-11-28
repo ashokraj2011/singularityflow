@@ -149,7 +149,7 @@ function fromRefusalPlan(result: any, displayMessage: string,
     // The runner already redacts and bounds this text. Do not re-read the raw JSON message here.
     why: gate.length ? gate : [{ label: displayMessage.split('\nNext:')[0]?.trim() || 'The command did not complete.' }],
     warnings: planned.slice(0, 20).filter((entry: any) => !entry?.command && typeof entry?.label === 'string' && entry.label.trim())
-      .map((entry: any) => ({ label: entry.label.slice(0, 2000) })),
+      .map((entry: any) => ({ label: entry.label.slice(0, 2000), ...(typeof entry.copy === 'string' && entry.copy.trim() ? { copy: entry.copy.slice(0, 2000) } : {}) })),
     checklist: [],
     gates: null,
     preserved: [],

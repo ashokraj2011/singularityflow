@@ -43,3 +43,20 @@ export async function clarifiedDecisionValues(root, config, workflow, phase, dec
     details: { workId, phase: phase.id, decision: decision.id, inputs: decision.inputs, question: question.question, choices,
       recoveryCommands: choices.map((entry) => ({ command: entry.command, label: `If the person chooses ${entry.label}` })) } });
 }
+
+/**
+ * One filled submission per value of the first value a decision after `phase` still needs, the values already given kept
+ * [owner, 2026-11-28, dead end 15]: the Decide card holds no decision inputs, so it was no way on. A number has no list to
+ * fill, so none is offered for one (the person types it). Returns `{ recoveryCommands, nextAction }`, both empty when none.
+ */
+export function decisionInputChoiceRoutes(actionCommandLine, workflow, phase, decision, given = {}) {
+  const open = (decision?.inputs ?? []).find((input) => !Object.hasOwn(given, input.name));
+  const submit = actionCommandLine('submit-version', 'exact', { step: phase.id, workId: workflow.workItem.id });
+  if (!open || !submit || !Array.isArray(open.values) || !open.values.length) return { recoveryCommands: [], nextAction: null };
+  const value = (name, chosen) => { const word = `${name}=${chosen}`; return /^[A-Za-z0-9_./:=@%+,-]+$/u.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`; };
+  const others = Object.entries(given).map(([name, chosen]) => ` --decision ${value(name, chosen)}`).join('');
+  const recoveryCommands = open.values.slice(0, 8).map((chosen) => ({ command: `${submit}${others} --decision ${value(open.name, chosen)}`,
+    label: `Submit ${phase.label ?? phase.id} with ${open.name} ${chosen}${decision.label ? ` (it decides ${decision.label})` : ''}` }));
+  return { recoveryCommands, nextAction: null };
+}
+

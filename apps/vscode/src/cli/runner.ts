@@ -113,7 +113,9 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'reconcile',
   // phase rollover --review-findings (ceremony cut 10) and a recommended answer with no reason, --recommended (C10),
   // held to the engine's list (owner, 2026-11-19).
-  'review-findings', 'recommended'
+  'review-findings', 'recommended',
+  // phase rollover --sent-back (ask once, 2026-11-28).
+  'sent-back'
 ]);
 
 const DISPLAY_SECRET_KEY = /(token|secret|password|passwd|credential|authorization|cookie|api[-_]?key|access[-_]?key|private[-_]?key|signature|(?:^|[_.-])pat(?:$|[_.-])|[a-z]pat(?![a-z]))/i;

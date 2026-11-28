@@ -553,11 +553,14 @@ test('rejected code successors submit fresh evidence, including old-writer histo
       const inspection = await inspectPhaseQualityGate(f.root, definition, corrupt, corrupt.phases.implementation);
       assert.equal(inspection.risks, null); assert.equal(inspection.findings[0].code, 'SPECIFICATION_CLAIM_MAP_BINDING_STALE');
       const resolution = phaseResolutionChoices(corrupt, corrupt.phases.implementation, inspection.findings[0]);
-      assert.equal(resolution.choices[0].owner, 'workflow-maintainer');
-      assert.equal(resolution.choices[0].skill, '/sf-doctor');
+      // Waiting for approval: Send back, so its author writes a new version from what is saved; never "give it to the
+      // maintainer" with only doctor [owner, 2026-11-28].
+      assert.equal(resolution.choices[0].owner, 'phase-approval-authority');
+      assert.ok(['send-back', 'current-phase-correction'].includes(resolution.choices[0].kind), resolution.choices[0].kind);
+      assert.match(resolution.choices[0].command, /^singularity-flow reject implementation --work-id \S+ (?:--fetch )?--to implementation --reason <reason>$/u);
       const recovery = await inspectPhaseRecovery(f.root, definition, corrupt, corrupt.phases.implementation);
       assert.ok(recovery.blockers.some(finding => finding.code === 'SPECIFICATION_CLAIM_MAP_BINDING_STALE'));
-      assert.ok(recovery.actions.some(action => action.id.includes('submission-evidence') && action.skill === '/sf-doctor'));
+      assert.ok(!recovery.actions.some(action => action.id.includes('submission-evidence') && action.skill === '/sf-doctor'), JSON.stringify(recovery.actions.map((action) => [action.id, action.skill])));
       f.cli('approve', 'implementation', '--yes');
       assert.equal((await f.load()).workflow.phases.implementation.status, 'approved');
     });
